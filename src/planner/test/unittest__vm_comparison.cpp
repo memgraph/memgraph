@@ -401,6 +401,83 @@ TEST_F(MatcherCorrectnessTest, SelfReferentialWithRewritePattern) {
   verify_both(pattern, /*expected=*/1);
 }
 
+TEST_F(MatcherCorrectnessTest, ParentChainSiblingVerification_FuzzerCrashE6dbe1d) {
+  // Reproduction from fuzzer: crash-e6dbe1def61b072fe7794aa1369cd831a1840c0f
+  //
+  // Tests that the VM correctly verifies sibling children during parent chain
+  // traversal. The bug was in emit_joined_with_parent_chain() where sibling
+  // children were loaded but never verified against the pattern structure.
+  //
+  // Patterns:
+  //   Pattern 0: (F ?v0)
+  //   Pattern 1: (Plus (F ?v0) (H ?v0))
+  //
+  // E-graph setup (from fuzzer):
+  //   - Multiple F nodes with various children
+  //   - Plus nodes that are all Plus(x, x) form (same child on both sides)
+  //   - NO H nodes exist in the graph
+  //
+  // Expected: 0 matches
+  //   Since there are no H nodes, pattern 1 cannot match.
+  //   The bug caused VM to find 7 false matches by not verifying the
+  //   second child of Plus was actually (H ?v0).
+
+  // Create leaf nodes
+  auto b0 = leaf(Op::B, 0);
+  auto a0 = leaf(Op::A, 0);
+  auto a1 = leaf(Op::A, 1);
+  auto a2 = leaf(Op::A, 2);
+
+  // Create F nodes
+  auto f_b0 = node(Op::F, b0);
+
+  // Apply F(F(x))=x rewrites to create self-referential structures
+  auto ff_b0 = node(Op::F, f_b0);
+  merge(ff_b0, b0);
+
+  auto f_a0 = node(Op::F, a0);
+  auto ff_a0 = node(Op::F, f_a0);
+  merge(ff_a0, a0);
+
+  auto f_a1 = node(Op::F, a1);
+  auto ff_a1 = node(Op::F, f_a1);
+  merge(ff_a1, a1);
+
+  auto f_a2 = node(Op::F, a2);
+  auto ff_a2 = node(Op::F, f_a2);
+  merge(ff_a2, a2);
+
+  rebuild_egraph();
+
+  // Apply more F(F(x))=x rewrites
+  for (auto ec : {b0, a0, a1, a2}) {
+    auto canonical = egraph.find(ec);
+    auto f_ec = node(Op::F, canonical);
+    auto ff_ec = node(Op::F, f_ec);
+    merge(ff_ec, canonical);
+  }
+  rebuild_egraph();
+
+  // Apply Plus(x,x)=x rewrites (creates Plus nodes but no H nodes)
+  for (auto ec : {b0, a0, a1, a2}) {
+    auto canonical = egraph.find(ec);
+    auto plus_xx = node(Op::Plus, canonical, canonical);
+    merge(plus_xx, canonical);
+  }
+  rebuild_egraph();
+
+  // Multi-pattern: (F ?v0) and (Plus (F ?v0) (H ?v0))
+  // Note: NO H nodes have been created, so pattern 1 should never match
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt),
+      TestPattern::build(Op::Plus, {Sym(Op::F, Var{kVarX}), Sym(Op::H, Var{kVarX})}, std::nullopt),
+  };
+
+  // Ground truth: 0 matches (no H nodes exist)
+  // Before fix: VM incorrectly found 7 matches by not verifying H structure
+  verify_both(patterns, /*expected=*/0);
+}
+
 TEST_F(MatcherCorrectnessTest, SelfReferentialMultiPattern_FuzzerCrash076d8fd2) {
   // Full reproduction from fuzzer: crash-076d8fd27213c19330394bd68d4192059e83c745
   //
@@ -470,9 +547,19 @@ TEST_F(MatcherCorrectnessTest, SelfReferentialMultiPattern_FuzzerCrash076d8fd2) 
       TestPattern::build(Op::Mul, {Sym(Op::H, Var{kVarX}), Sym(Op::F, Var{kVarX})}, std::nullopt),
   };
 
-  // Ground truth: VM=1 match (verified by fuzzer)
-  // EMatcher has known limitation - finds 0 matches (XFAIL)
-  verify_both(patterns, /*expected=*/1, {.ematcher = Expect::XFail, .vm = Expect::Pass});
+  // Ground truth: 0 matches
+  //
+  // Analysis: For pattern (Mul (H ?v0) (F ?v0)) with ?v0=ec0:
+  // - Mul(ec0, ec0) exists with both children being ec0
+  // - Child 0 (ec0) contains H(ec0) ✓
+  // - Child 1 (ec0) contains F(ec1), NOT F(ec0) ✗
+  //
+  // The F(F(ec0))=ec0 rewrite adds F(ec1) to ec0, not F(ec0).
+  // For F(?v0) to match with ?v0=ec0, we need F(ec0), but ec0 contains F(ec1).
+  //
+  // Previous VM incorrectly found 1 match due to not verifying sibling structure
+  // in emit_joined_with_parent_chain. This was fixed in the sibling verification fix.
+  verify_both(patterns, /*expected=*/0);
 }
 
 }  // namespace memgraph::planner::core

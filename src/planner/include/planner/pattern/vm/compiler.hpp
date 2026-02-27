@@ -573,16 +573,16 @@ class PatternCompiler {
       code_.push_back(Instruction::check_eclass_eq(verify_child_reg, current_eclass_reg, loop_pos));
 
       // Process non-shared children (bind new variables, verify structure)
+      // sym.children contains the PatternNodeIds for each child position
       for (std::size_t i = 0; i < sym.children.size(); ++i) {
         if (i == child_idx) continue;  // Skip the child we're traversing through
 
-        // Find the child node in the pattern
-        // We need to find the actual PatternNodeId for this child
         auto child_reg = alloc_eclass_reg();
         code_.push_back(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
 
-        // For now, just verify any existing bindings; don't emit new nested structure
-        // (The existing emit_joined_with_parent_traversal handles single-depth siblings)
+        // Verify the sibling child's structure using emit_joined_child
+        // This handles variables (checking slot bindings), symbols (verifying structure), etc.
+        innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
       }
 
       // Move up: get the e-class of this parent for next iteration
