@@ -5990,13 +5990,31 @@ auto TransactionStatusToString(TransactionStatus status) -> char const * {
   return "unknown";
 }
 
+// Glue: maps the runtime TransactionStatus to the grammar-level filter enum.
+// States that have no user-visible filter keyword (IDLE, VERIFYING, TERMINATED)
+// return nullopt — they are not selectable via SHOW … TRANSACTIONS.
+auto ToStatusFilter(TransactionStatus status) -> std::optional<TransactionQueueQuery::StatusFilter> {
+  using SF = TransactionQueueQuery::StatusFilter;
+  switch (status) {
+    case TransactionStatus::ACTIVE:
+      return SF::RUNNING;
+    case TransactionStatus::STARTED_COMMITTING:
+      return SF::COMMITTING;
+    case TransactionStatus::STARTED_ROLLBACK:
+      return SF::ABORTING;
+    default:
+      return std::nullopt;
+  }
+}
+
 template <typename Func>
 auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
-                      Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
+                      Func &&privilege_checker, const std::vector<TransactionQueueQuery::StatusFilter> &status_filter)
+    -> std::vector<std::vector<TypedValue>> {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    const auto verifier = interpreter->PauseTransactionToVerify();
+    const auto verifier = interpreter->TryAcquireForVerification();
     if (!verifier) {
       continue;
     }
@@ -6011,6 +6029,11 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
     };
     if (transaction_id.has_value() && (same_user(interpreter->user_or_role_, user_or_role) ||
                                        privilege_checker(user_or_role, get_interpreter_db_name()))) {
+      auto const runtime_status = verifier->status();
+      if (!status_filter.empty()) {
+        auto const sf = ToStatusFilter(runtime_status);
+        if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
+      }
       const auto &typed_queries = interpreter->GetQueries();
       results.push_back(
           {TypedValue(interpreter->user_or_role_
@@ -6018,7 +6041,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
                           : ""),
            TypedValue(std::to_string(transaction_id.value())),
            TypedValue(typed_queries),
-           TypedValue(TransactionStatusToString(verifier->status()))});
+           TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
       // metadata_ is safe to read — we hold CAS protection (status is VERIFYING,
       // cleanup paths spin-wait before modifying fields)
       std::map<std::string, TypedValue> metadata_tv;
@@ -6046,17 +6069,20 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
       auto show_transactions = [user_or_role = std::move(user_or_role),
-                                privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
-        return ShowTransactions(interpreters, user_or_role.get(), privilege_checker);
+                                privilege_checker = std::move(privilege_checker),
+                                status_filter = transaction_query->status_filter_](const auto &interpreters) {
+        return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
       };
       callback.header = {"username", "transaction_id", "query", "status", "metadata"};
-      auto status_filter = transaction_query->status_filter_;
-      callback.fn = [interpreter_context,
-                     show_transactions = std::move(show_transactions),
-                     status_filter = std::move(status_filter)] {
+      // Snapshot rows always have status "running"; skip them entirely if the filter
+      // is active and RUNNING is not among the requested statuses.
+      const bool include_snapshots =
+          transaction_query->status_filter_.empty() ||
+          std::ranges::contains(transaction_query->status_filter_, TransactionQueueQuery::StatusFilter::RUNNING);
+      callback.fn = [interpreter_context, show_transactions = std::move(show_transactions), include_snapshots] {
         auto results = interpreter_context->interpreters.WithLock(show_transactions);
         // Append synthetic rows for running snapshots (background/periodic/exit)
-        if (interpreter_context->dbms_handler) {
+        if (include_snapshots && interpreter_context->dbms_handler) {
           interpreter_context->dbms_handler->ForEach([&results](auto db_acc) {
             auto *storage = db_acc->storage();
             if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
@@ -6080,15 +6106,6 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                TypedValue(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")}),
                                TypedValue("running"),
                                TypedValue(metadata)});
-          });
-        }
-        // Apply status filter if specified (e.g. SHOW RUNNING, COMMITTING TRANSACTIONS)
-        if (!status_filter.empty()) {
-          std::erase_if(results, [&status_filter](const auto &row) {
-            auto const &status = row[3].ValueString();
-            return std::none_of(status_filter.begin(), status_filter.end(), [&status](const auto &f) {
-              return f == std::string_view{status};
-            });
           });
         }
         return results;
@@ -8918,16 +8935,17 @@ void Interpreter::Abort() {
   frame_change_collector_.reset();
 }
 
-std::optional<Interpreter::TxVerifier> Interpreter::PauseTransactionToVerify() {
+std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() {
   constexpr std::array valid_statuses = {
       TransactionStatus::ACTIVE, TransactionStatus::STARTED_COMMITTING, TransactionStatus::STARTED_ROLLBACK};
   TransactionStatus status = transaction_status_.load(std::memory_order_acquire);
   if (std::ranges::find(valid_statuses, status) == valid_statuses.end()) {
-    // Transaction is not in a state we can pause and verify
+    // Transaction is not in a state we can verify
     return std::nullopt;
   }
   // CAS to VERIFYING to own the transaction
-  if (transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
+  if (transaction_status_.compare_exchange_strong(
+          status, TransactionStatus::VERIFYING, std::memory_order_acq_rel, std::memory_order_acquire)) {
     return TxVerifier{status, transaction_status_};
   }
   // CAS failed, return to avoid busy loops

@@ -745,7 +745,7 @@ class InMemoryStorage final : public Storage {
 
   bool IsSnapshotRunning() const { return snapshot_running_.load(std::memory_order_acquire); }
 
-  SnapshotProgressSnapshot GetSnapshotProgress() const {
+  SnapshotProgressView GetSnapshotProgress() const {
     return {.phase = snapshot_progress_.phase.load(std::memory_order_acquire),
             .items_done = snapshot_progress_.items_done.load(std::memory_order_acquire),
             .items_total = snapshot_progress_.items_total.load(std::memory_order_acquire),

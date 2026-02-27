@@ -36,7 +36,7 @@ struct SnapshotProgress {
     phase.store(p, std::memory_order_release);
   }
 
-  void IncrementDone(uint64_t n = 1) { items_done.fetch_add(n, std::memory_order_relaxed); }
+  void AddItemsDone(uint64_t n = 1) { items_done.fetch_add(n, std::memory_order_relaxed); }
 
   void Reset() {
     phase.store(Phase::IDLE, std::memory_order_release);
@@ -45,27 +45,10 @@ struct SnapshotProgress {
     start_time_us.store(0, std::memory_order_release);
   }
 
-  static const char *PhaseToString(Phase phase) {
-    switch (phase) {
-      using enum Phase;
-      case IDLE:
-        return "idle";
-      case EDGES:
-        return "edges";
-      case VERTICES:
-        return "vertices";
-      case INDICES:
-        return "indices";
-      case CONSTRAINTS:
-        return "constraints";
-      case FINALIZING:
-        return "finalizing";
-    }
-    return "unknown";
-  }
+  static const char *PhaseToString(Phase phase);
 };
 
-struct SnapshotProgressSnapshot {
+struct SnapshotProgressView {
   SnapshotProgress::Phase phase;
   uint64_t items_done;
   uint64_t items_total;
@@ -97,7 +80,7 @@ class BatchedProgressCounter {
 
   void Flush() {
     if (progress_ && local_count_ > 0) {
-      progress_->IncrementDone(local_count_);
+      progress_->AddItemsDone(local_count_);
       local_count_ = 0;
     }
   }

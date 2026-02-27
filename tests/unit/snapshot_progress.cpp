@@ -18,22 +18,22 @@
 
 using memgraph::storage::BatchedProgressCounter;
 using memgraph::storage::SnapshotProgress;
-using memgraph::storage::SnapshotProgressSnapshot;
+using memgraph::storage::SnapshotProgressView;
 
 // --- SnapshotProgress tests ---
 
 TEST(SnapshotProgressTest, InitialStateIsIdle) {
   SnapshotProgress progress;
-  EXPECT_EQ(progress.phase.load(), SnapshotProgress::Phase::IDLE);
-  EXPECT_EQ(progress.items_done.load(), 0);
-  EXPECT_EQ(progress.items_total.load(), 0);
-  EXPECT_EQ(progress.start_time_us.load(), 0);
+  EXPECT_EQ(progress.phase.load(std::memory_order_acquire), SnapshotProgress::Phase::IDLE);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 0);
+  EXPECT_EQ(progress.items_total.load(std::memory_order_acquire), 0);
+  EXPECT_EQ(progress.start_time_us.load(std::memory_order_acquire), 0);
 }
 
 TEST(SnapshotProgressTest, StartSetsTimestamp) {
   SnapshotProgress progress;
   progress.Start();
-  EXPECT_GT(progress.start_time_us.load(), 0);
+  EXPECT_GT(progress.start_time_us.load(std::memory_order_acquire), 0);
 }
 
 TEST(SnapshotProgressTest, SetPhaseUpdatesAllFields) {
@@ -41,38 +41,38 @@ TEST(SnapshotProgressTest, SetPhaseUpdatesAllFields) {
   progress.items_done.store(42);
 
   progress.SetPhase(SnapshotProgress::Phase::EDGES, 1000);
-  EXPECT_EQ(progress.phase.load(), SnapshotProgress::Phase::EDGES);
-  EXPECT_EQ(progress.items_done.load(), 0);
-  EXPECT_EQ(progress.items_total.load(), 1000);
+  EXPECT_EQ(progress.phase.load(std::memory_order_acquire), SnapshotProgress::Phase::EDGES);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 0);
+  EXPECT_EQ(progress.items_total.load(std::memory_order_acquire), 1000);
 }
 
-TEST(SnapshotProgressTest, IncrementDoneDefaultIncrement) {
+TEST(SnapshotProgressTest, AddItemsDoneDefaultIncrement) {
   SnapshotProgress progress;
-  progress.IncrementDone();
-  EXPECT_EQ(progress.items_done.load(), 1);
-  progress.IncrementDone();
-  EXPECT_EQ(progress.items_done.load(), 2);
+  progress.AddItemsDone();
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 1);
+  progress.AddItemsDone();
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 2);
 }
 
-TEST(SnapshotProgressTest, IncrementDoneByN) {
+TEST(SnapshotProgressTest, AddItemsDoneByN) {
   SnapshotProgress progress;
-  progress.IncrementDone(10);
-  EXPECT_EQ(progress.items_done.load(), 10);
-  progress.IncrementDone(5);
-  EXPECT_EQ(progress.items_done.load(), 15);
+  progress.AddItemsDone(10);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 10);
+  progress.AddItemsDone(5);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 15);
 }
 
 TEST(SnapshotProgressTest, ResetClearsAllFields) {
   SnapshotProgress progress;
   progress.Start();
   progress.SetPhase(SnapshotProgress::Phase::VERTICES, 500);
-  progress.IncrementDone(100);
+  progress.AddItemsDone(100);
 
   progress.Reset();
-  EXPECT_EQ(progress.phase.load(), SnapshotProgress::Phase::IDLE);
-  EXPECT_EQ(progress.items_done.load(), 0);
-  EXPECT_EQ(progress.items_total.load(), 0);
-  EXPECT_EQ(progress.start_time_us.load(), 0);
+  EXPECT_EQ(progress.phase.load(std::memory_order_acquire), SnapshotProgress::Phase::IDLE);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 0);
+  EXPECT_EQ(progress.items_total.load(std::memory_order_acquire), 0);
+  EXPECT_EQ(progress.start_time_us.load(std::memory_order_acquire), 0);
 }
 
 TEST(SnapshotProgressTest, PhaseToStringAllValues) {
@@ -89,24 +89,24 @@ TEST(SnapshotProgressTest, PhaseTransitionsFullLifecycle) {
   progress.Start();
 
   progress.SetPhase(SnapshotProgress::Phase::EDGES, 100);
-  EXPECT_EQ(progress.phase.load(), SnapshotProgress::Phase::EDGES);
+  EXPECT_EQ(progress.phase.load(std::memory_order_acquire), SnapshotProgress::Phase::EDGES);
 
   progress.SetPhase(SnapshotProgress::Phase::VERTICES, 200);
-  EXPECT_EQ(progress.phase.load(), SnapshotProgress::Phase::VERTICES);
-  EXPECT_EQ(progress.items_done.load(), 0);
-  EXPECT_EQ(progress.items_total.load(), 200);
+  EXPECT_EQ(progress.phase.load(std::memory_order_acquire), SnapshotProgress::Phase::VERTICES);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 0);
+  EXPECT_EQ(progress.items_total.load(std::memory_order_acquire), 200);
 
   progress.SetPhase(SnapshotProgress::Phase::INDICES, 0);
-  EXPECT_EQ(progress.phase.load(), SnapshotProgress::Phase::INDICES);
+  EXPECT_EQ(progress.phase.load(std::memory_order_acquire), SnapshotProgress::Phase::INDICES);
 
   progress.SetPhase(SnapshotProgress::Phase::CONSTRAINTS, 0);
-  EXPECT_EQ(progress.phase.load(), SnapshotProgress::Phase::CONSTRAINTS);
+  EXPECT_EQ(progress.phase.load(std::memory_order_acquire), SnapshotProgress::Phase::CONSTRAINTS);
 
   progress.SetPhase(SnapshotProgress::Phase::FINALIZING, 0);
-  EXPECT_EQ(progress.phase.load(), SnapshotProgress::Phase::FINALIZING);
+  EXPECT_EQ(progress.phase.load(std::memory_order_acquire), SnapshotProgress::Phase::FINALIZING);
 
   progress.Reset();
-  EXPECT_EQ(progress.phase.load(), SnapshotProgress::Phase::IDLE);
+  EXPECT_EQ(progress.phase.load(std::memory_order_acquire), SnapshotProgress::Phase::IDLE);
 }
 
 // --- BatchedProgressCounter tests ---
@@ -131,7 +131,7 @@ TEST(BatchedProgressCounterTest, FlushOnDestruction) {
     // No explicit flush — destructor should handle it
   }
 
-  EXPECT_EQ(progress.items_done.load(), 10);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 10);
 }
 
 TEST(BatchedProgressCounterTest, FlushAtBatchSize) {
@@ -146,7 +146,7 @@ TEST(BatchedProgressCounterTest, FlushAtBatchSize) {
   }
 
   // Should have flushed at the batch boundary
-  EXPECT_EQ(progress.items_done.load(), BatchedProgressCounter::kBatchSize);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), BatchedProgressCounter::kBatchSize);
 
   // Increment a few more
   for (int i = 0; i < 5; ++i) {
@@ -154,11 +154,11 @@ TEST(BatchedProgressCounterTest, FlushAtBatchSize) {
   }
 
   // Not yet flushed (only 5 items, below batch size)
-  EXPECT_EQ(progress.items_done.load(), BatchedProgressCounter::kBatchSize);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), BatchedProgressCounter::kBatchSize);
 
   // Explicit flush
   counter.Flush();
-  EXPECT_EQ(progress.items_done.load(), BatchedProgressCounter::kBatchSize + 5);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), BatchedProgressCounter::kBatchSize + 5);
 }
 
 TEST(BatchedProgressCounterTest, MultipleBatches) {
@@ -173,7 +173,7 @@ TEST(BatchedProgressCounterTest, MultipleBatches) {
     }
   }
 
-  EXPECT_EQ(progress.items_done.load(), total_items);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), total_items);
 }
 
 TEST(BatchedProgressCounterTest, DoubleFlushIsSafe) {
@@ -186,11 +186,11 @@ TEST(BatchedProgressCounterTest, DoubleFlushIsSafe) {
   }
 
   counter.Flush();
-  EXPECT_EQ(progress.items_done.load(), 10);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 10);
 
   // Second flush should be a no-op (local_count is 0)
   counter.Flush();
-  EXPECT_EQ(progress.items_done.load(), 10);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 10);
 }
 
 TEST(BatchedProgressCounterTest, ZeroIncrements) {
@@ -202,7 +202,7 @@ TEST(BatchedProgressCounterTest, ZeroIncrements) {
     // No increments
   }
 
-  EXPECT_EQ(progress.items_done.load(), 0);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), 0);
 }
 
 TEST(BatchedProgressCounterTest, ConcurrentBatchedCounters) {
@@ -224,5 +224,5 @@ TEST(BatchedProgressCounterTest, ConcurrentBatchedCounters) {
   }
   for (auto &t : threads) t.join();
 
-  EXPECT_EQ(progress.items_done.load(), items_per_thread * n_threads);
+  EXPECT_EQ(progress.items_done.load(std::memory_order_acquire), items_per_thread * n_threads);
 }

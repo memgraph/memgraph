@@ -445,9 +445,9 @@ class Interpreter final {
         : original_status_(original_status), transaction_status_(transaction_status) {}
 
     ~TxVerifier() {
-      if (transaction_status_.load() == TransactionStatus::VERIFYING) {
-        transaction_status_.store(original_status_);
-      }
+      TransactionStatus expected = TransactionStatus::VERIFYING;
+      transaction_status_.compare_exchange_strong(
+          expected, original_status_, std::memory_order_release, std::memory_order_relaxed);
     }
 
     TransactionStatus status() const { return original_status_; }
@@ -458,9 +458,11 @@ class Interpreter final {
   };
 
   /**
-   * Pause the current multicommand transaction to verify it.
+   * Attempt to CAS the transaction status to VERIFYING so its state can be
+   * safely read by another thread. Returns a TxVerifier RAII guard that
+   * restores the original status on destruction, or nullopt if the CAS failed.
    */
-  std::optional<TxVerifier> PauseTransactionToVerify();
+  std::optional<TxVerifier> TryAcquireForVerification();
 
   std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
   // current_transaction_ is protected by the transaction_status_ atomic.

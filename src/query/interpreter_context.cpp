@@ -121,7 +121,7 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
   std::vector<uint64_t> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    const auto verifier = interpreter->PauseTransactionToVerify();
+    const auto verifier = interpreter->TryAcquireForVerification();
     if (!verifier) {
       continue;
     }
