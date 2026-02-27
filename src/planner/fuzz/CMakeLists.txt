@@ -19,11 +19,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     # Optional: Create a corpus directory for the fuzzer
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fuzz_corpus)
 
-    # Benchmark tool for EMatcher vs VM performance (uses fuzz corpus)
-    add_executable(bench_ematch_corpus bench_ematch.cpp)
-    target_link_libraries(bench_ematch_corpus PRIVATE mg::planner fmt::fmt)
+    # Corpus analysis: benchmark EMatcher vs VM on corpus files
+    add_executable(corpus_benchmark corpus_benchmark.cpp)
+    target_link_libraries(corpus_benchmark PRIVATE mg::planner fmt::fmt)
 
-    # Profiling tool for perf analysis
-    add_executable(profile_ematch profile_ematch.cpp)
-    target_link_libraries(profile_ematch PRIVATE mg::planner fmt::fmt)
+    # Corpus profiling: run single corpus file for perf analysis
+    add_executable(corpus_profile corpus_profile.cpp)
+    target_link_libraries(corpus_profile PRIVATE mg::planner fmt::fmt)
 endif()
