@@ -14,7 +14,7 @@
 #include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
-#include "storage/v2/indices/tracked_mmap_allocator.hpp"
+#include "storage/v2/indices/tracked_vector_allocator.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
@@ -27,8 +27,8 @@ namespace rv = r::views;
 
 namespace memgraph::storage {
 
-using mg_vector_index_t =
-    unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t, TrackedMmapAllocator<64>, TrackedMmapAllocator<8>>;
+using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t, TrackedVectorAllocator<64>,
+                                                        TrackedVectorAllocator<8>>;
 using synchronized_mg_vector_index_t = utils::Synchronized<mg_vector_index_t, std::shared_mutex>;
 
 // NOLINTNEXTLINE(bugprone-exception-escape)

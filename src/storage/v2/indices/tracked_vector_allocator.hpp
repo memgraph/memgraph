@@ -32,19 +32,19 @@ namespace memgraph::storage {
 /// Drop-in replacement for memory_mapping_allocator_gt as a tape_allocator
 /// or vectors_tape_allocator template parameter of index_dense_gt.
 template <std::size_t alignment_ak = 1>
-class TrackedMmapAllocator {
+class TrackedVectorAllocator {
  public:
   using value_type = unum::usearch::byte_t;
   using size_type = std::size_t;
   using pointer = unum::usearch::byte_t *;
   using const_pointer = unum::usearch::byte_t const *;
 
-  TrackedMmapAllocator() = default;
+  TrackedVectorAllocator() = default;
 
-  TrackedMmapAllocator(TrackedMmapAllocator &&other) noexcept
+  TrackedVectorAllocator(TrackedVectorAllocator &&other) noexcept
       : inner_(std::move(other.inner_)), tracked_bytes_(other.tracked_bytes_.exchange(0, std::memory_order_relaxed)) {}
 
-  TrackedMmapAllocator &operator=(TrackedMmapAllocator &&other) noexcept {
+  TrackedVectorAllocator &operator=(TrackedVectorAllocator &&other) noexcept {
     if (this != &other) {
       reset();
       inner_ = std::move(other.inner_);
@@ -53,19 +53,17 @@ class TrackedMmapAllocator {
     return *this;
   }
 
-  // No-op copy (matches memory_mapping_allocator_gt behavior)
-  TrackedMmapAllocator(TrackedMmapAllocator const &) noexcept {}
+  TrackedVectorAllocator(TrackedVectorAllocator const &) noexcept {}
 
-  TrackedMmapAllocator &operator=(TrackedMmapAllocator const &) noexcept {
+  TrackedVectorAllocator &operator=(TrackedVectorAllocator const &) noexcept {
     reset();
     return *this;
   }
 
-  ~TrackedMmapAllocator() noexcept { reset(); }
+  ~TrackedVectorAllocator() noexcept { reset(); }
 
   pointer allocate(size_type count_bytes) noexcept {
-    const size_t extended = ((count_bytes + alignment_ak - 1) / alignment_ak) * alignment_ak;
-
+    const auto extended = unum::usearch::divide_round_up<alignment_ak>(count_bytes) * alignment_ak;
     try {
       if (!utils::mmap_memory_tracker.Alloc(static_cast<int64_t>(extended))) {
         return nullptr;

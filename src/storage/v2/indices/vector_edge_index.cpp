@@ -15,7 +15,7 @@
 #include "query/exceptions.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/tracked_mmap_allocator.hpp"
+#include "storage/v2/indices/tracked_vector_allocator.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "usearch/index_dense.hpp"
 #include "utils/synchronized.hpp"
@@ -28,7 +28,7 @@ namespace memgraph::storage {
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
 // operations.
 using mg_vector_edge_index_t = unum::usearch::index_dense_gt<VectorEdgeIndex::EdgeIndexEntry, unum::usearch::uint40_t,
-                                                             TrackedMmapAllocator<64>, TrackedMmapAllocator<8>>;
+                                                             TrackedVectorAllocator<64>, TrackedVectorAllocator<8>>;
 
 using SyncVectorEdgeIndex = utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>;
 
