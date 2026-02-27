@@ -281,15 +281,13 @@ TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesConcurrentAddRaceTest) {
   this->CreateEdgeIndex(2, kCapacity);
   auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
 
-  std::atomic<bool> stop{false};
-
-  std::thread gc_thread([&]() {
-    while (!stop.load(std::memory_order_relaxed)) {
+  std::jthread gc_thread([&](std::stop_token stoken) {
+    while (!stoken.stop_requested()) {
       mem_storage->indices_.vector_edge_index_.RemoveObsoleteEntries(std::stop_token());
     }
   });
 
-  std::vector<std::thread> writer_threads;
+  std::vector<std::jthread> writer_threads;
   writer_threads.reserve(kNumWriterThreads);
   for (int t = 0; t < kNumWriterThreads; t++) {
     writer_threads.emplace_back([this, t]() {
@@ -303,13 +301,6 @@ TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesConcurrentAddRaceTest) {
       }
     });
   }
-
-  for (auto &thread : writer_threads) {
-    thread.join();
-  }
-
-  stop.store(true, std::memory_order_relaxed);
-  gc_thread.join();
 }
 
 TEST_F(VectorEdgeIndexTest, IndexResizeTest) {
