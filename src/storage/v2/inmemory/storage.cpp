@@ -3314,7 +3314,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
           if constexpr (TrackProcessedTails) {
             processed_subchain_heads.insert(head);
           }
-          auto current = head;
+          auto const *current = head;
           while (true) {
             auto *older = current->next.load(std::memory_order_acquire);
             if (older == nullptr) break;
