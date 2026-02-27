@@ -14,6 +14,8 @@
 #include <ctime>
 
 #include "croncpp.h"
+
+#include "flags/run_time_configurable.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
@@ -92,7 +94,7 @@ void Scheduler::SetInterval_(std::string_view cron_expr) {
     tm_now.tm_zone = nullptr;
     const auto tm_next = cron::cron_next(cron, tm_now);
     // LocalDateTime reads only the date and time values, ignoring the system tz
-    return LocalDateTime{tm_next}.us_since_epoch_;
+    return LocalDateTime{tm_next, flags::run_time::GetTimezone()}.us_since_epoch_;
   };
 }
 
