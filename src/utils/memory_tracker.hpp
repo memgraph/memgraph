@@ -55,14 +55,16 @@ class MemoryTracker final {
  public:
   void LogPeakMemoryUsage() const;
 
-  MemoryTracker() = default;
+  constexpr explicit MemoryTracker(MemoryTracker *parent = nullptr) : parent_(parent) {}
+
   ~MemoryTracker() = default;
 
   MemoryTracker(MemoryTracker &&other) noexcept
       : amount_(other.amount_.exchange(0, std::memory_order_acq_rel)),
         peak_(other.peak_.exchange(0, std::memory_order_acq_rel)),
         hard_limit_(other.hard_limit_.exchange(0, std::memory_order_acq_rel)),
-        maximum_hard_limit_(std::exchange(other.maximum_hard_limit_, 0)) {}
+        maximum_hard_limit_(std::exchange(other.maximum_hard_limit_, 0)),
+        parent_(std::exchange(other.parent_, nullptr)) {}
 
   MemoryTracker(const MemoryTracker &) = delete;
   MemoryTracker &operator=(const MemoryTracker &) = delete;
@@ -139,6 +141,7 @@ class MemoryTracker final {
   std::atomic<int64_t> hard_limit_{0};
   // Maximum possible value of a hard limit. If it's set to 0, no upper bound on the hard limit is set.
   int64_t maximum_hard_limit_{0};
+  MemoryTracker *parent_{nullptr};
 
   void UpdatePeak(int64_t will_be);
 
@@ -147,6 +150,8 @@ class MemoryTracker final {
 
 // Global memory tracker which tracks every allocation in the application.
 extern constinit MemoryTracker total_memory_tracker;
+extern constinit MemoryTracker malloc_memory_tracker;
+extern constinit MemoryTracker mmap_memory_tracker;
 
 // Prevent memory tracker for throwing during the stack unwinding
 inline bool MemoryTrackerCanThrow() {

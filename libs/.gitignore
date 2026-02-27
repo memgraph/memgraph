@@ -7,3 +7,4 @@
 !pulsar.patch
 !rocksdb8.1.1.patch
 !nuraft.patch
+!usearch.patch

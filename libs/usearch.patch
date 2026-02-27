@@ -1,0 +1,42 @@
+diff --git a/include/usearch/index_dense.hpp b/include/usearch/index_dense.hpp
+index 3094494..4e7f743 100644
+--- a/include/usearch/index_dense.hpp
++++ b/include/usearch/index_dense.hpp
+@@ -18,7 +18,7 @@
+ namespace unum {
+ namespace usearch {
+
+-template <typename, typename> class index_dense_gt;
++template <typename, typename, typename, typename> class index_dense_gt;
+
+ /**
+  *  @brief  The "magic" sequence helps infer the type of the file.
+@@ -384,7 +384,10 @@ inline index_dense_metadata_result_t index_dense_metadata_from_buffer(memory_map
+  *  The second (2.) starts with @b "usearch"-magic-string, used to infer the file type on open.
+  *  The third (3.) is implemented by the underlying `index_gt` class.
+  */
+-template <typename key_at = default_key_t, typename compressed_slot_at = default_slot_t> //
++template <typename key_at = default_key_t,          //
++          typename compressed_slot_at = default_slot_t, //
++          typename tape_allocator_at = memory_mapping_allocator_gt<64>,
++          typename vectors_tape_allocator_at = memory_mapping_allocator_gt<8>> //
+ class index_dense_gt {
+   public:
+     using vector_key_t = key_at;
+@@ -403,7 +406,7 @@ class index_dense_gt {
+     using serialization_config_t = index_dense_serialization_config_t;
+
+     using dynamic_allocator_t = aligned_allocator_gt<byte_t, 64>;
+-    using tape_allocator_t = memory_mapping_allocator_gt<64>;
++    using tape_allocator_t = tape_allocator_at;
+
+   private:
+     /// @brief Punned index.
+@@ -449,7 +452,7 @@ class index_dense_gt {
+     /// @brief An instance of a potentially stateful `metric_t` used to initialize copies and forks.
+     metric_t metric_;
+
+-    using vectors_tape_allocator_t = memory_mapping_allocator_gt<8>;
++    using vectors_tape_allocator_t = vectors_tape_allocator_at;
+     /// @brief Allocator for the copied vectors, aligned to widest double-precision scalars.
+     vectors_tape_allocator_t vectors_tape_allocator_;
