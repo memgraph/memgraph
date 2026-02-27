@@ -5977,43 +5977,79 @@ PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_expl
 }
 }  // namespace
 
+// NOTE: Strings must match the ones in grammar
+auto TransactionStatusToString(TransactionStatus status) -> char const * {
+  switch (status) {
+    case TransactionStatus::IDLE:
+      return "idle";
+    case TransactionStatus::ACTIVE:
+      return "running";
+    case TransactionStatus::VERIFYING:
+      return "verifying";
+    case TransactionStatus::TERMINATED:
+      return "terminating";
+    case TransactionStatus::STARTED_COMMITTING:
+      return "committing";
+    case TransactionStatus::STARTED_ROLLBACK:
+      return "aborting";
+  }
+  return "unknown";
+}
+
+// Glue: maps the runtime TransactionStatus to the grammar-level filter enum.
+// States that have no user-visible filter keyword (IDLE, VERIFYING, TERMINATED)
+// return nullopt — they are not selectable via SHOW … TRANSACTIONS.
+auto ToStatusFilter(TransactionStatus status) -> std::optional<TransactionQueueQuery::StatusFilter> {
+  using SF = TransactionQueueQuery::StatusFilter;
+  switch (status) {
+    case TransactionStatus::ACTIVE:
+      return SF::RUNNING;
+    case TransactionStatus::STARTED_COMMITTING:
+      return SF::COMMITTING;
+    case TransactionStatus::STARTED_ROLLBACK:
+      return SF::ABORTING;
+    default:
+      return std::nullopt;
+  }
+}
+
 template <typename Func>
 auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
-                      Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
+                      Func &&privilege_checker, const std::vector<TransactionQueueQuery::StatusFilter> &status_filter)
+    -> std::vector<std::vector<TypedValue>> {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    TransactionStatus alive_status = TransactionStatus::ACTIVE;
-    // if it is just checking status, commit and abort should wait for the end of the check
-    // ignore interpreters that already started committing or rollback
-    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+    const auto verifier = interpreter->TryAcquireForVerification();
+    if (!verifier) {
       continue;
     }
-    utils::OnScopeExit clean_status([interpreter]() {
-      interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-    });
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
-
     auto get_interpreter_db_name = [&]() -> std::string {
       return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
     };
-
     auto same_user = [](const auto &lv, const auto &rv) {
       if (lv.get() == rv) return true;
       if (lv && rv) return *lv == *rv;
       return false;
     };
-
     if (transaction_id.has_value() && (same_user(interpreter->user_or_role_, user_or_role) ||
                                        privilege_checker(user_or_role, get_interpreter_db_name()))) {
+      auto const runtime_status = verifier->status();
+      if (!status_filter.empty()) {
+        auto const sf = ToStatusFilter(runtime_status);
+        if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
+      }
       const auto &typed_queries = interpreter->GetQueries();
       results.push_back(
           {TypedValue(interpreter->user_or_role_
                           ? (interpreter->user_or_role_->username() ? *interpreter->user_or_role_->username() : "")
                           : ""),
            TypedValue(std::to_string(transaction_id.value())),
-           TypedValue(typed_queries)});
-      // Handle user-defined metadata
+           TypedValue(typed_queries),
+           TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
+      // metadata_ is safe to read — we hold CAS protection (status is VERIFYING,
+      // cleanup paths spin-wait before modifying fields)
       std::map<std::string, TypedValue> metadata_tv;
       if (interpreter->metadata_) {
         for (const auto &md : *(interpreter->metadata_)) {
@@ -6039,13 +6075,46 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
       auto show_transactions = [user_or_role = std::move(user_or_role),
-                                privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
-        return ShowTransactions(interpreters, user_or_role.get(), privilege_checker);
+                                privilege_checker = std::move(privilege_checker),
+                                status_filter = transaction_query->status_filter_](const auto &interpreters) {
+        return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
       };
-      callback.header = {"username", "transaction_id", "query", "metadata"};
-      callback.fn = [interpreter_context, show_transactions = std::move(show_transactions)] {
-        // Multiple simultaneous SHOW TRANSACTIONS aren't allowed
-        return interpreter_context->interpreters.WithLock(show_transactions);
+      callback.header = {"username", "transaction_id", "query", "status", "metadata"};
+      // Snapshot rows always have status "running"; skip them entirely if the filter
+      // is active and RUNNING is not among the requested statuses.
+      const bool include_snapshots =
+          transaction_query->status_filter_.empty() ||
+          std::ranges::contains(transaction_query->status_filter_, TransactionQueueQuery::StatusFilter::RUNNING);
+      callback.fn = [interpreter_context, show_transactions = std::move(show_transactions), include_snapshots] {
+        auto results = interpreter_context->interpreters.WithLock(show_transactions);
+        // Append synthetic rows for running snapshots (background/periodic/exit)
+        if (include_snapshots && interpreter_context->dbms_handler) {
+          interpreter_context->dbms_handler->ForEach([&results](auto db_acc) {
+            auto *storage = db_acc->storage();
+            if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
+            auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
+            if (!mem_storage->IsSnapshotRunning()) return;
+            auto progress = mem_storage->GetSnapshotProgress();
+            // Build progress metadata
+            std::map<std::string, TypedValue> metadata;
+            metadata["phase"] = TypedValue(storage::SnapshotProgress::PhaseToString(progress.phase));
+            metadata["items_done"] = TypedValue(static_cast<int64_t>(progress.items_done));
+            metadata["items_total"] = TypedValue(static_cast<int64_t>(progress.items_total));
+            if (progress.start_time_us > 0) {
+              auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+              metadata["elapsed_ms"] = TypedValue(static_cast<int64_t>((now_us - progress.start_time_us) / 1000));
+            }
+            metadata["db_name"] = TypedValue(db_acc->name());
+            results.push_back({TypedValue(""),
+                               TypedValue("snapshot"),
+                               TypedValue(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")}),
+                               TypedValue("running"),
+                               TypedValue(metadata)});
+          });
+        }
+        return results;
       };
       break;
     }
@@ -8332,8 +8401,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 
     SetupInterpreterTransaction(extras);
-    LogQueryMessage(
-        fmt::format("Query [{}] associated with transaction [{}]", parsed_query.query_string, *current_transaction_));
+    LogQueryMessage(fmt::format(
+        "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0)));
   }
 
   auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -8783,10 +8852,11 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAcc
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
+  auto tx_id = interpreter_context_->id_handler.next();
+  current_transaction_ = tx_id;
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-  current_transaction_ = interpreter_context_->id_handler.next();
   if (query_logger_) {
-    query_logger_->SetTransactionId(std::to_string(*current_transaction_));
+    query_logger_->SetTransactionId(std::to_string(tx_id));
   }
   metadata_ = GenOptional(extras.metadata_pv);
 }
@@ -8824,25 +8894,44 @@ void Interpreter::Abort() {
   system_transaction_.reset();
 
   // Data tx
+  // CAS ACTIVE → STARTED_ROLLBACK. Also accept TERMINATED and IDLE (already dead/cleaned up).
+  // Use CAS (not unconditional store) for TERMINATED/IDLE to avoid racing with ShowTransactions
+  // which may have CAS'd the status to VERIFYING.
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
     if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
-      transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
       decrement = false;
-      break;
+      // Retry CAS from the current expected value (compare_exchange_weak already updated expected)
+      continue;
     }
+    // VERIFYING or other transient states — wait for ShowTransactions/TerminateTransactions to restore
     expected = TransactionStatus::ACTIVE;
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  // Cleanup: transition to IDLE, then clear fields.
+  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_ROLLBACK
+  // when done reading, allowing us to proceed.
+  const utils::OnScopeExit clean_status([this]() {
+    auto expected = TransactionStatus::STARTED_ROLLBACK;
+    while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+      if (expected == TransactionStatus::VERIFYING) {
+        expected = TransactionStatus::STARTED_ROLLBACK;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
+      // Unexpected state — force IDLE to avoid deadlock
+      transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+      break;
+    }
+    // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
+    current_transaction_.reset();
+    metadata_ = std::nullopt;
+  });
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
-  metadata_ = std::nullopt;
   current_timeout_timer_.reset();
-  current_transaction_.reset();
 
   if (decrement) {
     // Decrement only if the transaction was active when we started to Abort
@@ -8855,6 +8944,23 @@ void Interpreter::Abort() {
     if (qe) qe->CleanRuntimeData();
   }
   frame_change_collector_.reset();
+}
+
+std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() {
+  constexpr std::array valid_statuses = {
+      TransactionStatus::ACTIVE, TransactionStatus::STARTED_COMMITTING, TransactionStatus::STARTED_ROLLBACK};
+  TransactionStatus status = transaction_status_.load(std::memory_order_acquire);
+  if (std::ranges::find(valid_statuses, status) == valid_statuses.end()) {
+    // Transaction is not in a state we can verify
+    return std::nullopt;
+  }
+  // CAS to VERIFYING to own the transaction
+  if (transaction_status_.compare_exchange_strong(
+          status, TransactionStatus::VERIFYING, std::memory_order_acq_rel, std::memory_order_acquire)) {
+    return TxVerifier{status, transaction_status_};
+  }
+  // CAS failed, return to avoid busy loops
+  return std::nullopt;
 }
 
 namespace {
@@ -9003,10 +9109,12 @@ void Interpreter::Commit() {
   // For now, we will not check if there are some unfinished queries.
   // We should document clearly that all results should be pulled to complete
   // a query.
-  current_transaction_.reset();
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
-    if (!system_transaction_) return;
+    if (!system_transaction_) {
+      current_transaction_.reset();
+      return;
+    }
 
     // TODO Distinguish between data and system transaction state
     // Think about updating the status to a struct with bitfield
@@ -9020,6 +9128,7 @@ void Interpreter::Commit() {
       // What we are trying to do is set the transaction back to IDLE
       // We cannot simply put it to IDLE, since the status is used as a synchronization method and we have to follow
       // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
+      // ShowTransactions may also CAS us to VERIFYING — the CAS loop naturally spin-waits on that.
       auto expected = TransactionStatus::ACTIVE;
       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
         if (expected == TransactionStatus::TERMINATED) {
@@ -9028,6 +9137,8 @@ void Interpreter::Commit() {
         expected = TransactionStatus::ACTIVE;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
+      // Status is now IDLE — safe to clear fields
+      current_transaction_.reset();
     });
 
     auto const main_commit = [&](replication::RoleMainData &mainData) {
@@ -9068,9 +9179,24 @@ void Interpreter::Commit() {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
-  // Clean transaction status if something went wrong
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  // Clean transaction status on exit.
+  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_COMMITTING
+  // when done reading, allowing us to proceed.
+  const utils::OnScopeExit clean_status([this]() {
+    auto expected = TransactionStatus::STARTED_COMMITTING;
+    while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+      if (expected == TransactionStatus::VERIFYING) {
+        expected = TransactionStatus::STARTED_COMMITTING;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
+      // Unexpected state — force IDLE to avoid deadlock
+      transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+      break;
+    }
+    // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
+    current_transaction_.reset();
+  });
 
   auto current_storage_mode = db->GetStorageMode();
   auto creation_mode = current_db_.db_transactional_accessor_->GetCreationStorageMode();

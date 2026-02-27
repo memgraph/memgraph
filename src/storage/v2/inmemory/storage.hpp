@@ -25,6 +25,7 @@
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/snapshot_progress.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
@@ -742,6 +743,15 @@ class InMemoryStorage final : public Storage {
 
   std::optional<SnapshotFileInfo> ShowNextSnapshot();
 
+  bool IsSnapshotRunning() const { return snapshot_running_.load(std::memory_order_acquire); }
+
+  SnapshotProgressView GetSnapshotProgress() const {
+    return {.phase = snapshot_progress_.phase.load(std::memory_order_acquire),
+            .items_done = snapshot_progress_.items_done.load(std::memory_order_acquire),
+            .items_total = snapshot_progress_.items_total.load(std::memory_order_acquire),
+            .start_time_us = snapshot_progress_.start_time_us.load(std::memory_order_acquire)};
+  }
+
   void CreateSnapshotHandler(std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
@@ -805,6 +815,7 @@ class InMemoryStorage final : public Storage {
   utils::ResourceLock snapshot_lock_;
   std::atomic_bool snapshot_running_{false};
   std::atomic_bool abort_snapshot_{false};
+  SnapshotProgress snapshot_progress_;
 
   std::shared_ptr<utils::Observer<utils::SchedulerInterval>> snapshot_periodic_observer_;
 

@@ -20,7 +20,7 @@ import neo4j
 def check_md(tx_md):
     n = 0
     for record in tx_md:
-        md = record[3]
+        md = record[4]
         if md["ver"] == "session" and md["str"] == "aha" and md["num"] == 123:
             n = n + 1
         elif md["ver"] == "transaction" and md["str"] == "oho" and md["num"] == 456:

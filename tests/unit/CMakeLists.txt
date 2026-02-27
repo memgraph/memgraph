@@ -191,6 +191,11 @@ add_unit_test(transaction_queue_multiple
     LINK_TARGETS mg-communication mg-query mg-glue
 )
 
+add_unit_test(transaction_queue_stress
+    SOURCES transaction_queue_stress.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue
+)
+
 
 # Test query functions
 add_unit_test(query_function_mgp_module
@@ -832,6 +837,11 @@ add_unit_test(replication_rpc_progress
 add_unit_test(snapshot_rpc_progress
     SOURCES snapshot_rpc_progress.cpp
     LINK_TARGETS mg-rpc rpc_messages
+)
+
+add_unit_test(snapshot_progress
+    SOURCES snapshot_progress.cpp
+    LINK_TARGETS mg::storage
 )
 
 add_unit_test(rpc_versioning

@@ -23,6 +23,7 @@ lexer grammar MemgraphCypherLexer ;
 
 import CypherLexer ;
 
+ABORTING                : A B O R T I N G ;
 ACTIVE                  : A C T I V E ;
 ADD                     : A D D ;
 AFTER                   : A F T E R ;
@@ -46,6 +47,7 @@ CLEAR                   : C L E A R ;
 CLUSTER                 : C L U S T E R;
 COMMIT                  : C O M M I T ;
 COMMITTED               : C O M M I T T E D ;
+COMMITTING              : C O M M I T T I N G ;
 CONFIG                  : C O N F I G ;
 CONFIGS                 : C O N F I G S;
 CONSTRAINTS             : C O N S T R A I N T S ;
@@ -165,6 +167,7 @@ REVOKE                  : R E V O K E ;
 ROLE                    : R O L E ;
 ROLES                   : R O L E S ;
 ROWS                    : R O W S ;
+RUNNING                 : R U N N I N G ;
 SCHEMA                  : S C H E M A ;
 SECURITY                : S E C U R I T Y ;
 SERVER_SIDE_PARAMETERS  : S E R V E R UNDERSCORE S I D E UNDERSCORE P A R A M E T E R S ;

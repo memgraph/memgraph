@@ -121,15 +121,10 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
   std::vector<uint64_t> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    TransactionStatus alive_status = TransactionStatus::ACTIVE;
-    // if it is just checking status, commit and abort should wait for the end of the check
-    // ignore interpreters that already started committing or rollback
-    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+    const auto verifier = interpreter->TryAcquireForVerification();
+    if (!verifier) {
       continue;
     }
-    const utils::OnScopeExit clean_status([interpreter]() {
-      interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-    });
     // Transaction is running, so cannot change the underlying db
     if (interpreter->current_db_.db_acc_ && interpreter->current_db_.db_acc_->get()->name() != db_name) {
       continue;
