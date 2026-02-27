@@ -312,12 +312,14 @@ jobs:
 
   SetupDailyBuildImageOutputs:
     name: Setup Daily Build Image Outputs
-    needs: [CurrentDateJob, DailyDockerArtifact]
+    needs: [CurrentDateJob, DailyDockerArtifact, BuildAndTestMAGE]
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests || !inputs.skip_stress_tests) }}
     runs-on: ubuntu-24.04
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
       arm_image_url: ${{ steps.set_image_urls.outputs.arm_image_url }}
+      amd_mage_image_url: ${{ steps.set_image_urls.outputs.amd_mage_image_url }}
+      arm_mage_image_url: ${{ steps.set_image_urls.outputs.arm_mage_image_url }}
       last_image_version: ${{ steps.set_last_image_version.outputs.last_image_version }}
     steps:
       - name: Checkout code
@@ -344,6 +346,11 @@ jobs:
           echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
           echo "AMD Image URL: $amd_image_url"
           echo "ARM Image URL: $arm_image_url"
+          read amd_mage_image_url arm_mage_image_url < <(python3 tools/ci/get_daily_build_images.py --type=mage)
+          echo "amd_mage_image_url=$amd_mage_image_url" >> $GITHUB_OUTPUT
+          echo "arm_mage_image_url=$arm_mage_image_url" >> $GITHUB_OUTPUT
+          echo "AMD MAGE Image URL: $amd_mage_image_url"
+          echo "ARM MAGE Image URL: $arm_mage_image_url"
 
       - name: Set last image version
         id: set_last_image_version
@@ -386,7 +393,7 @@ jobs:
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
-      deployment: native_standalone
+      deployment: standalone/native
     secrets: inherit
 
   StressTestsNativeHA:
@@ -395,7 +402,7 @@ jobs:
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
-      deployment: native_ha
+      deployment: ha/native
     secrets: inherit
 
   StressTestsDockerHA:
@@ -404,6 +411,16 @@ jobs:
     if: ${{ ((github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
-      deployment: docker_ha
-      memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_image_url }}
+      deployment: ha/docker
+      memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_mage_image_url }}
+    secrets: inherit
+
+  StressTestsEKSHA:
+    name: "Stress Tests EKS HA"
+    needs: [SetupDailyBuildImageOutputs]
+    if: ${{ ((github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/eks
+      memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_mage_image_url }}
     secrets: inherit

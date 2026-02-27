@@ -4,11 +4,11 @@ on:
   workflow_call:
     inputs:
       deployment:
-        description: 'Deployment type: native_standalone/native_ha/docker_ha'
+        description: 'Deployment type: standalone/native / ha/native / ha/docker / ha/eks'
         required: true
         type: string
       memgraph_image:
-        description: 'Memgraph Docker image (repo:tag or URL to .tar.gz) - required for docker_ha'
+        description: 'Memgraph Docker image (repo:tag or URL to .tar.gz) - required for ha/docker and ha/eks'
         required: false
         type: string
         default: ''
@@ -24,10 +24,10 @@ env:
   INPUT_IMAGE: ${{ inputs.memgraph_image }}
 
 jobs:
-  stress_test_native_standalone:
-    name: "Stress Tests Native Standalone"
-    if: ${{ inputs.deployment == 'native_standalone' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
+  stress_test_standalone:
+    name: "Stress Tests Standalone"
+    if: ${{ inputs.deployment == 'standalone/native' }}
+    runs-on: [self-hosted, X64, Memory256G]
     timeout-minutes: 180
     env:
       OS: ubuntu-24.04
@@ -37,7 +37,7 @@ jobs:
       BUILD_TYPE: Release
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -116,8 +116,8 @@ jobs:
 
   stress_test_native_ha:
     name: "Stress Tests Native HA"
-    if: ${{ inputs.deployment == 'native_ha' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
+    if: ${{ inputs.deployment == 'ha/native' }}
+    runs-on: [self-hosted, X64, Memory256G]
     timeout-minutes: 180
     env:
       OS: ubuntu-24.04
@@ -127,7 +127,7 @@ jobs:
       BUILD_TYPE: Release
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -197,12 +197,12 @@ jobs:
 
   stress_test_docker_ha:
     name: "Stress Tests Docker HA"
-    if: ${{ inputs.deployment == 'docker_ha' }}
-    runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "ARM64"]') || fromJSON('["self-hosted", "X64"]') }}
+    if: ${{ inputs.deployment == 'ha/docker' }}
+    runs-on: [self-hosted, X64, Memory256G]
     timeout-minutes: 180
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -213,8 +213,17 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Determine Input Type
+        if: ${{ inputs.memgraph_image != '' }}
         run: |
           read image_type image_value < <(python3 tools/ci/issu_image_type.py "$INPUT_IMAGE")
+          if [[ -z "$image_type" || -z "$image_value" ]]; then
+            echo "::error::Failed to determine image type from input: $INPUT_IMAGE"
+            exit 1
+          fi
+          if [[ "$image_type" != "docker" && "$image_type" != "url" ]]; then
+            echo "::error::Unknown image type '$image_type' for input: $INPUT_IMAGE (expected 'docker' or 'url')"
+            exit 1
+          fi
           echo "IMAGE_TYPE=${image_type}" >> $GITHUB_ENV
           echo "IMAGE_VALUE=${image_value}" >> $GITHUB_ENV
 
@@ -239,7 +248,7 @@ jobs:
           echo "MEMGRAPH_IMAGE=${repo_tag}" >> $GITHUB_ENV
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -251,6 +260,117 @@ jobs:
           test-memgraph stress-docker-ha
         env:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+
+      - name: Clean up Docker
+        if: always()
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
+  stress_test_eks_ha:
+    name: "Stress Tests EKS HA"
+    if: ${{ inputs.deployment == 'ha/eks' }}
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
+    timeout-minutes: 180
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Determine Input Type
+        if: ${{ inputs.memgraph_image != '' }}
+        run: |
+          read image_type image_value < <(python3 tools/ci/issu_image_type.py "$INPUT_IMAGE")
+          if [[ -z "$image_type" || -z "$image_value" ]]; then
+            echo "::error::Failed to determine image type from input: $INPUT_IMAGE"
+            exit 1
+          fi
+          if [[ "$image_type" != "docker" && "$image_type" != "url" ]]; then
+            echo "::error::Unknown image type '$image_type' for input: $INPUT_IMAGE (expected 'docker' or 'url')"
+            exit 1
+          fi
+          echo "IMAGE_TYPE=${image_type}" >> $GITHUB_ENV
+          echo "IMAGE_VALUE=${image_value}" >> $GITHUB_ENV
+
+      - name: Load Image (Docker)
+        if: ${{ env.IMAGE_TYPE == 'docker' }}
+        run: |
+          echo "MEMGRAPH_IMAGE=${{ env.IMAGE_VALUE }}" >> $GITHUB_ENV
+
+      - name: Load Image (URL) and push to ECR
+        if: ${{ env.IMAGE_TYPE == 'url' }}
+        run: |
+          curl -L "${{ env.IMAGE_VALUE }}" > memgraph.tar.gz
+          load_output=$(docker load -i memgraph.tar.gz)
+
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          if [[ -z "$repo_tag" ]]; then
+            repo_tag=$(echo "$load_output" | awk -F': ' '/Loaded image:/ {print $2}' | head -n1)
+          fi
+
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          AWS_REGION="${{ secrets.EKS_AWS_REGION || 'eu-west-1' }}"
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          ECR_REPO="memgraph/stress-test"
+          ECR_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:stress-$(date +%s)"
+
+          aws ecr describe-repositories --repository-names "$ECR_REPO" --region "$AWS_REGION" 2>/dev/null \
+            || aws ecr create-repository --repository-name "$ECR_REPO" --region "$AWS_REGION"
+
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+          docker tag "$repo_tag" "$ECR_IMAGE"
+          docker push "$ECR_IMAGE"
+
+          echo "MEMGRAPH_IMAGE=${ECR_IMAGE}" >> $GITHUB_ENV
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install K8s tools
+        run: |
+          EKS_TOOLS="${{ runner.temp }}/eks-tools"
+          mkdir -p "$EKS_TOOLS"
+
+          K8S_ARCH="${{ inputs.arch == 'arm' && 'arm64' || 'amd64' }}"
+          EKSCTL_ARCH="${{ inputs.arch == 'arm' && 'arm64' || 'amd64' }}"
+
+          curl -Lo "$EKS_TOOLS/kubectl" "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/${K8S_ARCH}/kubectl"
+          chmod +x "$EKS_TOOLS/kubectl"
+
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | HELM_INSTALL_DIR="$EKS_TOOLS" USE_SUDO=false bash
+
+          curl -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_${EKSCTL_ARCH}.tar.gz" | tar -xz -C "$EKS_TOOLS"
+
+          echo "$EKS_TOOLS" >> $GITHUB_PATH
+
+      - name: Run stress tests (EKS HA)
+        run: |
+          ./release/package/mgbuild.sh \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph stress-eks-ha
+        env:
+          MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
 
       - name: Clean up Docker
         if: always()

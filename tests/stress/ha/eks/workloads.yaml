@@ -1,0 +1,21 @@
+# EKS HA Workload Registry
+# 'defaults' provides the deployment config merged into each workload YAML.
+# Set enabled: false to skip a workload.
+
+defaults:
+  memgraph:
+    deployment:
+      externally_managed: false
+
+workloads:
+  - config: ../workloads/publications/workload.yaml
+    enabled: true
+
+  - config: ../workloads/concurrent_edge_creation_on_supernode/workload.yaml
+    enabled: true
+
+  - config: ../workloads/concurrent_edge_write/workload.yaml
+    enabled: true
+
+  - config: ../workloads/restarting_instances/workload.yaml
+    enabled: true

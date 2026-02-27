@@ -1,0 +1,39 @@
+# Parallel Execution Stress Test Configuration
+#
+# This workload tests the USING PARALLEL EXECUTION feature under stress:
+# - Multiple concurrent clients running parallel queries
+# - Correctness verification (parallel vs serial results)
+# - Mixed read/write workloads
+# - Various query patterns (scans, aggregations, filters, expansions)
+
+memgraph:
+  deployment:
+    externally_managed: false
+  args:
+    - "--memory-limit=4096"
+    - "--query-execution-timeout-sec=300"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: parallel-execution-stress
+      memgraph_args: []
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries:
+          # Create a graph with 100k nodes and relationships for stress testing
+          - "UNWIND range(1, 100000) AS i CREATE (:Node {id: i, value: i % 100, category: i % 10, data: toString(i)})"
+          - "CREATE INDEX ON :Node(id)"
+          - "CREATE INDEX ON :Node(category)"
+          - "MATCH (a:Node), (b:Node) WHERE a.id < 1000 AND b.id = a.id + 1 CREATE (a)-[:NEXT {weight: rand()}]->(b)"
+          - "MATCH (a:Node), (b:Node) WHERE a.category = b.category AND a.id < b.id AND rand() < 0.001 CREATE (a)-[:SIMILAR]->(b)"
+      script: standalone/native/workloads/parallel_execution/workload.py
+      timeout_min: 30

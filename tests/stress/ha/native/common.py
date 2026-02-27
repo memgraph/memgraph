@@ -1,0 +1,56 @@
+"""
+Common utilities for Native HA stress tests.
+
+Thin wrapper around ha_common — provides deployment-specific instance resolution
+and registers it via ha_common.configure().
+"""
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+import ha_common
+
+_COMMON_DIR = os.path.dirname(os.path.abspath(__file__))
+DEPLOYMENT_SCRIPT = os.path.join(_COMMON_DIR, "deployment", "deployment.sh")
+
+INSTANCE_PORTS = {
+    "data_1": 7687,
+    "data_2": 7688,
+    "data_3": 7689,
+    "coord_1": 7691,
+    "coord_2": 7692,
+    "coord_3": 7693,
+}
+
+
+def _resolve_instance(instance_name: str) -> tuple[str, int]:
+    if instance_name not in INSTANCE_PORTS:
+        raise ValueError(f"Unknown instance: {instance_name}. Valid: {list(INSTANCE_PORTS.keys())}")
+    return ("127.0.0.1", INSTANCE_PORTS[instance_name])
+
+
+ha_common.configure(_resolve_instance, instance_names=list(INSTANCE_PORTS.keys()))
+
+
+def restart_container(instance_name: str) -> None:
+    """Restart a specific instance using the deployment script."""
+    print(f"Restarting instance: {instance_name}")
+    result = subprocess.run(
+        [DEPLOYMENT_SCRIPT, "restart", instance_name],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise Exception(f"Failed to restart {instance_name}: {result.stderr}")
+    print(f"Instance {instance_name} restart triggered")
+
+
+def restart_all() -> None:
+    """Restart all native Memgraph HA instances (preserves data)."""
+    print("Restarting all Memgraph HA instances...")
+    result = subprocess.run([DEPLOYMENT_SCRIPT, "restart"], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"Failed to restart instances: {result.stderr}")
+    print("All instances restarted")
