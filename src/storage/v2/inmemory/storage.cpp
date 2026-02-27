@@ -3330,8 +3330,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
             processed_subchain_tails.insert(current);
           }
           while (true) {
-            auto ts = current->commit_info->timestamp.load(std::memory_order_acquire);
-            if (ts == current_commit_timestamp && filter(current->action)) {
+            if (current->commit_info == current_commit_info && filter(current->action)) {
               callback(*current, parent, durability_commit_timestamp);
             }
             if (current == head) break;
