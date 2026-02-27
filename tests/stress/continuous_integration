@@ -73,11 +73,14 @@ def get_workloads_registry(deployment: str) -> Optional[str]:
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    """Deep merge override into base. Override values take precedence."""
+    """Deep merge override into base. Override values take precedence.
+    Lists are concatenated (base + override) rather than replaced."""
     result = dict(base)
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = _deep_merge(result[key], value)
+        elif key in result and isinstance(result[key], list) and isinstance(value, list):
+            result[key] = result[key] + value
         else:
             result[key] = value
     return result
