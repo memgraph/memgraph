@@ -144,16 +144,6 @@ struct VMState {
     }
   }
 
- private:
-  /// Clear seen sets for all slots bound AFTER the given slot in binding order
-  void clear_dependent_seen_sets(std::size_t slot) {
-    auto const order = slot_to_order_[slot];
-    for (std::size_t j = order + 1; j < binding_order_.size(); ++j) {
-      seen_per_slot[binding_order_[j]].clear();
-    }
-  }
-
- public:
   /// Start an e-node iteration on a register (uses span)
   void start_enode_iter(uint8_t reg, std::span<ENodeId const> nodes) { enodes_iters[reg] = ENodesIter{nodes}; }
 
@@ -189,21 +179,18 @@ struct VMState {
   /// The seen set tracks values that have been marked as exhausted (via mark_seen).
   /// A value is exhausted when we've finished exploring all paths with that binding
   /// (either yielded or exhausted all downstream iterations).
-  ///
-  /// When iterating e-nodes within the same e-class, the binding may be the same.
-  /// We still check seen (to catch duplicate candidates), but don't clear later
-  /// slots or re-bind if the value hasn't changed.
   [[nodiscard]] auto try_bind_dedup(std::size_t slot, EClassId eclass) -> bool {
-    // Always check if we've already exhausted this value
+    // Check if we've already exhausted this value at this slot
     if (seen_per_slot[slot].contains(eclass)) {
       return false;  // Already exhausted - backtrack
     }
 
-    // Only clear later slots and update if value is actually changing
-    if (slots[slot] != eclass) {
-      clear_dependent_seen_sets(slot);
-      slots[slot] = eclass;
+    // Clear seen sets for all slots bound after this one in binding order.
+    // This resets deduplication context for downstream slots.
+    for (std::size_t j = slot_to_order_[slot] + 1; j < binding_order_.size(); ++j) {
+      seen_per_slot[binding_order_[j]].clear();
     }
+    slots[slot] = eclass;
 
     return true;
   }
