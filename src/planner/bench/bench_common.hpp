@@ -16,6 +16,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "planner/pattern/vm/compiler.hpp"
+#include "planner/pattern/vm/executor.hpp"
 #include "planner/rewrite/rewriter.hpp"
 
 namespace memgraph::planner::bench {
@@ -24,7 +26,7 @@ namespace memgraph::planner::bench {
 // Common Types
 // ============================================================================
 
-enum class Op : uint8_t { Add, Mul, Neg, Var, Const, F, Bind, Ident };
+enum class Op : uint8_t { Add, Mul, Neg, Var, Const, F, F2, F3, Bind, Ident, Test };
 
 struct NoAnalysis {};
 
@@ -51,6 +53,12 @@ constexpr PatternVar kRootDoubleNeg{10};
 constexpr PatternVar kRootAdd{11};
 constexpr PatternVar kRootMul{12};
 constexpr PatternVar kRootNeg{13};
+
+// Variables for Bind/Ident join tests
+constexpr PatternVar kVarSym{20};
+constexpr PatternVar kVarExpr{21};
+constexpr PatternVar kBindRoot{22};
+constexpr PatternVar kIdentRoot{23};
 
 // ============================================================================
 // Benchmark Ranges
@@ -282,6 +290,66 @@ inline void BuildParentDiversity(TestEGraph &g, int64_t num_leaves, int64_t pare
   }
 }
 
+// ComplexGraph: Realistic e-graph structure matching egglog benchmark
+// Creates: 180 Const leaves, 60 Var leaves, 320 layers of Add/Neg/Mul/F/F2 nodes
+// with periodic unions to create non-trivial e-classes.
+inline void BuildComplexGraph(TestEGraph &g) {
+  ProcessingContext<Op> pctx;
+  constexpr std::size_t kNumConsts = 180;
+  constexpr std::size_t kNumVars = 60;
+  constexpr std::size_t kNumLayers = 320;
+
+  std::vector<EClassId> consts;
+  std::vector<EClassId> vars;
+  consts.reserve(kNumConsts);
+  vars.reserve(kNumVars);
+
+  for (std::size_t i = 0; i < kNumConsts; ++i) {
+    consts.push_back(g.emplace(Op::Const, static_cast<uint64_t>(i)).eclass_id);
+  }
+  for (std::size_t i = 0; i < kNumVars; ++i) {
+    vars.push_back(g.emplace(Op::Var, static_cast<uint64_t>(i)).eclass_id);
+  }
+
+  for (std::size_t i = 0; i < kNumLayers; ++i) {
+    auto const c1 = consts[i % consts.size()];
+    auto const c2 = consts[(i * 7 + 11) % consts.size()];
+    auto const v1 = vars[(i * 13 + 3) % vars.size()];
+
+    auto const add = g.emplace(Op::Add, {c1, c2}).eclass_id;
+    auto const neg = g.emplace(Op::Neg, {c2}).eclass_id;
+    auto const mul = g.emplace(Op::Mul, {add, neg}).eclass_id;
+    auto const f = g.emplace(Op::F, {mul, v1}).eclass_id;
+    g.emplace(Op::F2, {f});
+
+    // Periodic unions to create non-trivial e-classes
+    if ((i % 5) == 0) {
+      auto const add_swapped = g.emplace(Op::Add, {c2, c1}).eclass_id;
+      g.merge(add, add_swapped);
+    }
+    if ((i % 9) == 0) {
+      auto const neg2 = g.emplace(Op::Neg, {c2}).eclass_id;
+      g.merge(neg, neg2);
+    }
+  }
+  g.rebuild(pctx);
+}
+
+// BindIdentGraph: N Bind nodes, each with M Ident nodes referencing same symbol.
+// Creates N * M join matches for multi-pattern join benchmarks.
+inline void BuildBindIdentGraph(TestEGraph &g, int64_t num_binds, int64_t idents_per_sym) {
+  for (int64_t i = 0; i < num_binds; ++i) {
+    auto placeholder = g.emplace(Op::Const, static_cast<uint64_t>(i * 1000)).eclass_id;
+    auto sym_val = g.emplace(Op::Const, static_cast<uint64_t>(i)).eclass_id;
+    auto expr_val = g.emplace(Op::Const, static_cast<uint64_t>(i + 10000)).eclass_id;
+    g.emplace(Op::Bind, {placeholder, sym_val, expr_val});
+
+    for (int64_t j = 0; j < idents_per_sym; ++j) {
+      g.emplace(Op::Ident, {sym_val});
+    }
+  }
+}
+
 // ============================================================================
 // Pattern Builders
 // ============================================================================
@@ -310,6 +378,27 @@ inline auto PatternShallowF() { return TestPattern::build(Op::F, {Var{kX}}); }
 
 // Pattern for deep nested F: F(F(F(F(?x)))) - 4 levels deep
 inline auto PatternDeepNestedF() { return TestPattern::build(Op::F, {Sym(Op::F, Sym(Op::F, Sym(Op::F, Var{kX})))}); }
+
+// Egglog benchmark patterns (from benchmark__egglog.cpp)
+// These patterns are used to compare against egglog reference implementation.
+inline auto PatternEgglogNeg() { return TestPattern::build(Op::Neg, {Var{kX}}); }
+
+inline auto PatternEgglogAddSame() { return TestPattern::build(Op::Add, {Var{kX}, Var{kX}}); }
+
+inline auto PatternEgglogFAddNeg() {
+  return TestPattern::build(Op::F, {Sym(Op::Add, Var{kX}, Var{kY}), Sym(Op::Neg, Var{kZ})});
+}
+
+inline auto PatternEgglogF2FMul() {
+  return TestPattern::build(Op::F2, {Sym(Op::F, Sym(Op::Mul, Var{kX}, Var{kY}), Var{kZ})});
+}
+
+inline auto PatternEgglogTest() { return TestPattern::build(Op::Test, {Var{kX}}); }
+
+// Bind/Ident patterns for multi-pattern join benchmarks
+inline auto PatternBind() { return TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kBindRoot); }
+
+inline auto PatternIdent() { return TestPattern::build(Op::Ident, {Var{kVarSym}}, kIdentRoot); }
 
 // ============================================================================
 // Rule Builders
@@ -411,6 +500,29 @@ class MatcherFixtureBase : public benchmark::Fixture {
     ResetEGraph();
     build_fn(egraph_);
     CreateMatcher();
+  }
+};
+
+// Base fixture for VM benchmarks.
+class VMFixtureBase : public benchmark::Fixture {
+ protected:
+  TestEGraph egraph_;
+  std::unique_ptr<TestEMatcher> matcher_;
+  EMatchContext match_context_;
+  TestMatches matches_;
+  vm::PatternCompiler<Op> compiler_;
+
+  void ResetEGraph() {
+    egraph_ = TestEGraph{};
+    matcher_.reset();
+  }
+
+  template <typename BuilderFn>
+  void SetupGraph(BuilderFn &&build_fn) {
+    ResetEGraph();
+    build_fn(egraph_);
+    matcher_ = std::make_unique<TestEMatcher>(egraph_);
+    matcher_->rebuild_index();
   }
 };
 

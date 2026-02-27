@@ -14,38 +14,9 @@
 #include <array>
 #include <optional>
 
-#include "planner/pattern/vm/compiler.hpp"
-#include "planner/pattern/vm/executor.hpp"
-
 using namespace memgraph::planner::bench;
 using namespace memgraph::planner::bench::ranges;
 using namespace memgraph::planner::core::vm;
-
-// ============================================================================
-// VM Executor Fixture Base
-// ============================================================================
-
-class VMFixtureBase : public benchmark::Fixture {
- protected:
-  TestEGraph egraph_;
-  std::unique_ptr<TestEMatcher> matcher_;
-  EMatchContext match_context_;
-  std::vector<PatternMatch> matches_;
-  PatternCompiler<Op> compiler_;
-
-  void ResetEGraph() {
-    egraph_ = TestEGraph{};
-    matcher_.reset();
-  }
-
-  template <typename BuilderFn>
-  void SetupGraph(BuilderFn &&build_fn) {
-    ResetEGraph();
-    build_fn(egraph_);
-    matcher_ = std::make_unique<TestEMatcher>(egraph_);
-    matcher_->rebuild_index();
-  }
-};
 
 // ============================================================================
 // Simple Pattern: Add(?x, ?y) - VM Version
@@ -268,29 +239,6 @@ BENCHMARK_REGISTER_F(VMSelectivePatternFixture, Match)
 // Compares EMatcher hash-join vs VM fused parent traversal
 // ============================================================================
 
-constexpr PatternVar kVarSym{1};
-constexpr PatternVar kVarExpr{2};
-constexpr PatternVar kVarId{3};
-constexpr PatternVar kBindRoot{10};
-constexpr PatternVar kIdentRoot{11};
-
-// Build e-graph with N Bind nodes, each referencing a unique symbol.
-// For each symbol, create M Ident nodes referencing it.
-// This creates N * M join matches.
-inline void BuildBindIdentGraph(TestEGraph &g, int64_t num_binds, int64_t idents_per_sym) {
-  for (int64_t i = 0; i < num_binds; ++i) {
-    auto placeholder = g.emplace(Op::Const, static_cast<uint64_t>(i * 1000)).eclass_id;
-    auto sym_val = g.emplace(Op::Const, static_cast<uint64_t>(i)).eclass_id;
-    auto expr_val = g.emplace(Op::Const, static_cast<uint64_t>(i + 10000)).eclass_id;
-    g.emplace(Op::Bind, {placeholder, sym_val, expr_val});
-
-    // Create multiple Ident nodes for this symbol
-    for (int64_t j = 0; j < idents_per_sym; ++j) {
-      g.emplace(Op::Ident, {sym_val});
-    }
-  }
-}
-
 // EMatcher approach: Use hash-join via RewriteRule
 class BindIdentEMatcherFixture : public RewriterFixtureBase {
  protected:
@@ -306,11 +254,10 @@ class BindIdentEMatcherFixture : public RewriterFixtureBase {
     CreateMatcher();
 
     // Create rule: Bind(_, ?sym, ?expr) joined with Ident(?sym)
-    rule_ = std::make_unique<TestRewriteRule>(
-        TestRewriteRule::Builder{"bind_ident"}
-            .pattern(TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kBindRoot), "bind")
-            .pattern(TestPattern::build(Op::Ident, {Var{kVarSym}}, kIdentRoot), "ident")
-            .apply([](TestRuleContext &, Match const &) {}));
+    rule_ = std::make_unique<TestRewriteRule>(TestRewriteRule::Builder{"bind_ident"}
+                                                  .pattern(PatternBind(), "bind")
+                                                  .pattern(PatternIdent(), "ident")
+                                                  .apply([](TestRuleContext &, Match const &) {}));
   }
 };
 
@@ -345,13 +292,8 @@ class BindIdentVMFusedFixture : public VMFixtureBase {
     SetupGraph([this](TestEGraph &g) { BuildBindIdentGraph(g, num_binds_, idents_per_sym_); });
 
     // Create patterns - compiler will figure out anchor and join order
-    auto bind_pattern = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kBindRoot);
-    auto ident_pattern = TestPattern::build(Op::Ident, {Var{kVarSym}}, kIdentRoot);
-
-    // Compile with pattern compiler
-    PatternCompiler<Op> fused_compiler;
-    std::array patterns = {bind_pattern, ident_pattern};
-    compiled_ = fused_compiler.compile(patterns);
+    std::array patterns = {PatternBind(), PatternIdent()};
+    compiled_ = compiler_.compile(patterns);
   }
 };
 

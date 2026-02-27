@@ -11,6 +11,7 @@ target_sources(memgraph__benchmark__new_planner
     bench_vm.cpp
     bench_join.cpp
     bench_rewrite.cpp
+    bench_egglog.cpp
 )
 
 target_link_libraries(memgraph__benchmark__new_planner PRIVATE mg::planner benchmark::benchmark)

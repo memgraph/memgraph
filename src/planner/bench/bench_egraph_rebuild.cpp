@@ -8,25 +8,18 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#include <benchmark/benchmark.h>
+
+#include "bench_common.hpp"
+
 #include <random>
 #include <vector>
 
 #include "range/v3/all.hpp"
 
-#include "planner/egraph/egraph.hpp"
-#include "planner/egraph/processing_context.hpp"
+using namespace memgraph::planner::bench;
+using TestContext = memgraph::planner::core::ProcessingContext<Op>;
 
-using namespace memgraph::planner::core;
-
-enum class TestSymbol : uint8_t { A, F };
-
-struct NoAnalysis {};
-
-using TestEGraph = EGraph<TestSymbol, NoAnalysis>;
-using TestContext = ProcessingContext<TestSymbol>;
-
-// Benchmark leaf node creation (expected to be cheap)
+// Benchmark e-graph rebuild with congruence closure on merged chains.
 static void BM_EGraph_CongruenceChain(benchmark::State &state) {
   TestEGraph egraph;
   TestContext ctx;
@@ -38,12 +31,12 @@ static void BM_EGraph_CongruenceChain(benchmark::State &state) {
     egraph.clear();
     // build the chains
 
-    std::vector<EClassId> chain_head;
+    std::vector<memgraph::planner::core::EClassId> chain_head;
     for (auto chain_num = 0; chain_num != 5; ++chain_num) {
-      auto previous = egraph.emplace(TestSymbol::A, static_cast<uint64_t>(chain_num));
+      auto previous = egraph.emplace(Op::Const, static_cast<uint64_t>(chain_num));
       chain_head.emplace_back(previous.eclass_id);
       for (auto i = 0; i != chain_length; ++i) {
-        previous = egraph.emplace(TestSymbol::F, {previous.eclass_id});
+        previous = egraph.emplace(Op::F, {previous.eclass_id});
       }
     }
     // merge the chains

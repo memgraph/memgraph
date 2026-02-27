@@ -55,4 +55,5 @@ target_link_libraries(mg-planner PUBLIC absl::flat_hash_map mg-utils range-v3::r
 if(MG_ENABLE_TESTING)
   add_subdirectory(test)
   add_subdirectory(bench)
+  add_subdirectory(fuzz)
 endif()
