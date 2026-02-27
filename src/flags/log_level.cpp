@@ -15,6 +15,7 @@
 #include "utils/logging.hpp"
 
 #include "gflags/gflags.h"
+#include "spdlog/async.h"
 #include "spdlog/common.h"
 #include "spdlog/sinks/daily_file_sink.h"
 #include "spdlog/sinks/dist_sink.h"
@@ -102,7 +103,11 @@ void memgraph::flags::InitializeLogger() {
 
   auto dist_sink = std::make_shared<spdlog::sinks::dist_sink_mt>(std::move(sub_sinks));
 
-  auto logger = std::make_shared<spdlog::logger>("memgraph_log", std::move(dist_sink));
+  // 8k size of the buffer
+  spdlog::init_thread_pool(8192, 1);
+
+  auto logger = std::make_shared<spdlog::async_logger>(
+      "memgraph_log", std::move(dist_sink), spdlog::thread_pool(), spdlog::async_overflow_policy::overrun_oldest);
   logger->set_level(ParseLogLevel());
   logger->flush_on(spdlog::level::trace);
   spdlog::set_default_logger(std::move(logger));
