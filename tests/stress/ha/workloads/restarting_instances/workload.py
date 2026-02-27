@@ -213,6 +213,38 @@ CREATE (a)-[:STRESS_EDGE]->(b)"""
     return {"worker_id": worker_id, "elapsed": elapsed}
 
 
+PYTHON_QUERIES = [
+    """CREATE (n:StressNode {{iteration: {iteration}}})
+WITH n
+CALL nxalg.ancestors(n)
+YIELD ancestors
+RETURN ancestors;""",
+    """CREATE (n:StressNode {{iteration: {iteration}}})
+WITH n
+CALL date.format(74976, "h", "%Y/%m/%d %H:%M:%S %Z", "Mexico/BajaNorte")
+YIELD formatted
+RETURN formatted;""",
+]
+
+
+def run_python_functions(worker_id: int, calls_per_worker: int, iteration: int) -> dict:
+    """Each worker creates a node then calls a random Python (MAGE) procedure."""
+    t0 = time.time()
+    for i in range(calls_per_worker):
+        template = random.choice(PYTHON_QUERIES)
+        query = template.format(iteration=iteration)
+        execute_query(
+            COORDINATOR,
+            query,
+            protocol=Protocol.BOLT_ROUTING,
+            query_type=QueryType.WRITE,
+            apply_retry_mechanism=True,
+        )
+    elapsed = time.time() - t0
+    print(f"  [Worker {worker_id}] Created {calls_per_worker} nodes + Python calls in {elapsed:.1f}s")
+    return {"worker_id": worker_id, "elapsed": elapsed}
+
+
 def wait_for_healthy_cluster(monitor: ClusterMonitor) -> None:
     """Poll until all instances are up and replicas are ready."""
     for attempt in range(1, HEALTH_CHECK_RETRIES + 1):
@@ -240,8 +272,8 @@ def main():
     print("Restarting Instances Workload")
     print("=" * 60)
     print(f"Phase 1: Import publications dataset from S3")
-    print(f"Phase 2: {NUM_ITERATIONS} iterations of edge creation + restart")
-    print(f"  Edges per iteration: {EDGES_PER_ITERATION}")
+    print(f"Phase 2: {NUM_ITERATIONS} iterations of (edges OR python functions) + restart")
+    print(f"  Operations per iteration: {EDGES_PER_ITERATION}")
     print(f"  Workers: {NUM_WORKERS}")
     print("-" * 60)
 
@@ -269,9 +301,9 @@ def main():
 
     print("\nPhase 1 complete.")
 
-    # Phase 2: Edge creation + restart loop
+    # Phase 2: Workload + restart loop
     print("\n" + "=" * 60)
-    print("PHASE 2: Edge Creation + Restart Loop")
+    print("PHASE 2: Workload + Restart Loop")
     print("=" * 60)
 
     node_count = get_node_count()
@@ -281,17 +313,27 @@ def main():
     max_node_id = node_count - 1
     print(f"Node count: {node_count:,} (max internal ID ≈ {max_node_id})")
 
-    edges_per_worker = EDGES_PER_ITERATION // NUM_WORKERS
+    ops_per_worker = EDGES_PER_ITERATION // NUM_WORKERS
+    edge_iterations = 0
+    python_iterations = 0
 
     for iteration in range(NUM_ITERATIONS):
         print(f"\n--- Iteration {iteration + 1}/{NUM_ITERATIONS} ---")
 
-        # Create 1000 random edges with 4 workers
-        print(f"Creating {EDGES_PER_ITERATION} random edges...")
-        tasks = [(worker_id, edges_per_worker, max_node_id) for worker_id in range(NUM_WORKERS)]
-        t0 = time.time()
-        run_parallel(create_random_edges, tasks, num_workers=NUM_WORKERS)
-        print(f"  Edge creation complete in {time.time() - t0:.1f}s")
+        if random.choice(["edges", "python"]) == "edges":
+            edge_iterations += 1
+            print(f"[MODE: edges] Creating {EDGES_PER_ITERATION} random edges...")
+            tasks = [(worker_id, ops_per_worker, max_node_id) for worker_id in range(NUM_WORKERS)]
+            t0 = time.time()
+            run_parallel(create_random_edges, tasks, num_workers=NUM_WORKERS)
+            print(f"  Edge creation complete in {time.time() - t0:.1f}s")
+        else:
+            python_iterations += 1
+            print(f"[MODE: python] Creating {EDGES_PER_ITERATION} nodes + Python function calls...")
+            tasks = [(worker_id, ops_per_worker, iteration) for worker_id in range(NUM_WORKERS)]
+            t0 = time.time()
+            run_parallel(run_python_functions, tasks, num_workers=NUM_WORKERS)
+            print(f"  Python functions complete in {time.time() - t0:.1f}s")
 
         # Restart all instances
         print("Restarting all instances...")
@@ -308,6 +350,7 @@ def main():
 
     print("\n" + "=" * 60)
     print(f"Total time: {total_elapsed:.1f}s ({total_elapsed / 60:.1f} minutes)")
+    print(f"Iterations: {edge_iterations} edge, {python_iterations} python")
 
     result = execute_and_fetch(
         COORDINATOR,
@@ -315,7 +358,7 @@ def main():
         protocol=Protocol.BOLT_ROUTING,
     )
     edge_count = result[0]["cnt"] if result else 0
-    print(f"STRESS_EDGE edges created: {edge_count:,} (expected: {EDGES_PER_ITERATION * NUM_ITERATIONS:,})")
+    print(f"STRESS_EDGE edges created: {edge_count:,} (expected ≈ {EDGES_PER_ITERATION * edge_iterations:,})")
 
     print("\nFinal verification:")
     monitor.show_replicas()
