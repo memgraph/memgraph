@@ -186,11 +186,8 @@ class EMatcher {
    * @param candidates Output vector to append candidate e-class IDs to (cleared first)
    */
   void all_candidates(std::vector<EClassId> &candidates) const {
-    candidates.clear();
-    candidates.reserve(egraph_->num_classes());
-    for (auto const &[eclass_id, _] : egraph_->canonical_classes()) {
-      candidates.push_back(eclass_id);
-    }
+    auto ids = egraph_->canonical_eclass_ids();
+    candidates.assign(ids.begin(), ids.end());
   }
 
  private:
@@ -295,12 +292,12 @@ void EMatcher<Symbol, Analysis>::match_into(Pattern<Symbol> const &pattern, EMat
   // Iterate root candidates directly from source - no intermediate copy
   auto const &root_pnode = pattern[pattern.root()];
   std::visit(Overload{[&](Wildcard) {
-                        for (auto const &[eclass_id, _] : egraph_->canonical_classes()) {
+                        for (auto eclass_id : egraph_->canonical_eclass_ids()) {
                           process_candidate(eclass_id);
                         }
                       },
                       [&](PatternVar) {
-                        for (auto const &[eclass_id, _] : egraph_->canonical_classes()) {
+                        for (auto eclass_id : egraph_->canonical_eclass_ids()) {
                           process_candidate(eclass_id);
                         }
                       },

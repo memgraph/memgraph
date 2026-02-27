@@ -292,12 +292,8 @@ class VMExecutor {
     code_ = pattern.code();
     symbols_ = pattern.symbols();
 
-    // Pre-cache all e-classes for IterAllEClasses instruction.
-    // Future optimization: only do this if pattern contains IterAllEClasses.
-    all_eclasses_buffer_.clear();
-    for (auto const &[id, _] : egraph_->canonical_classes()) {
-      all_eclasses_buffer_.push_back(id);
-    }
+    // E-graph maintains canonical e-class list directly - used by IterAllEClasses
+    all_eclasses_ = egraph_->canonical_eclass_ids();
 
     for (auto candidate : candidates) {
       DMG_ASSERT(egraph_->find(candidate) == candidate, "candidates must be canonical");
@@ -467,13 +463,13 @@ class VMExecutor {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction instr) -> bool {
-    // Buffer is pre-cached in execute() - no need to rebuild here
-    if (all_eclasses_buffer_.empty()) [[unlikely]] {
+    // E-graph maintains canonical e-class list - set in execute_impl()
+    if (all_eclasses_.empty()) [[unlikely]] {
       return false;
     }
 
-    state_.start_all_eclasses_iter(instr.dst, all_eclasses_buffer_);
-    state_.eclass_regs[instr.dst] = all_eclasses_buffer_[0];
+    state_.start_all_eclasses_iter(instr.dst, all_eclasses_);
+    state_.eclass_regs[instr.dst] = all_eclasses_[0];
     return true;
   }
 
@@ -592,8 +588,8 @@ class VMExecutor {
   std::span<Instruction const> code_;
   std::span<Symbol const> symbols_;
   VMState state_;
-  std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses (pre-cached in execute())
-  std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
+  std::span<EClassId const> all_eclasses_;   // Span into e-graph's canonical e-class list (for IterAllEClasses)
+  std::vector<EClassId> candidates_buffer_;  // Buffer for automatic candidate lookup
 
   // Dev mode only: combined stats and tracing (zero overhead when DevMode=false)
   struct NoDevState {};
