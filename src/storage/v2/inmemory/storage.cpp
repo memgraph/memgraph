@@ -3291,61 +3291,59 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   DeltaVertexCache vertex_cache(current_commit_timestamp);
 
   auto append_deltas = [&](auto callback) {
-    // Helper lambda that traverses the delta chain on order to find the first
-    // delta that should be processed and then appends all discovered deltas.
-    auto find_and_apply_deltas = [&](const auto *delta, auto *parent, auto filter) {
-      auto const *const current_commit_info = delta->commit_info;
-      while (true) {
-        auto *older = delta->next.load(std::memory_order_acquire);
-        if (older == nullptr || older->commit_info != current_commit_info) break;
-        delta = older;
-      }
-      while (true) {
-        auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
-        // Only encode if this delta belongs to our transaction and matches filter
-        if (ts == current_commit_timestamp && filter(delta->action)) {
-          callback(*delta, parent, durability_commit_timestamp);
-        }
-        auto prev = delta->prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
-        if (prev.type != PreviousPtr::Type::DELTA) break;
-        if (prev.delta->commit_info != current_commit_info) break;
-        delta = prev.delta;
-      }
-    };
-
-    // Variant for pass 2 (edge creation) which must handle non-sequential
-    // deltas which be concurrently modified by aborting transactions.
+    // Helper lambda that traverses the delta chain to find the first delta
+    // that should be processed and then applies the callback to all matching deltas.
+    //
+    // Template parameter TrackProcessedTails:
+    //   - false: Simple traversal, no tracking (used for most passes)
+    //   - true:  Track processed subchain tails to handle concurrent abort
+    //            rewiring during pass 2 (edge creation)
+    //
+    // When TrackProcessedTails is true, concurrent aborts can rewire chains
+    // while we traverse. If we hit a previously processed tail marker, it means
+    // two subchains have merged because aborted deltas were snipped out.
+    std::unordered_set<Delta const *> processed_subchain_heads;
     std::unordered_set<Delta const *> processed_subchain_tails;
     bool const should_track_nonseq_subchains{transaction_.has_non_sequential_deltas};
-    auto find_and_apply_concurrent_edge_create_deltas = [&](Delta const *delta, Vertex *parent, auto filter) {
-      auto const *const current_commit_info = delta->commit_info;
-      while (true) {
-        auto *older = delta->next.load(std::memory_order_acquire);
-        if (older == nullptr || older->commit_info != current_commit_info) break;
-        delta = older;
-      }
-      auto const *subchain_tail = delta;
-      while (true) {
-        // Concurrent aborts can rewire chains while we traverse. If we hit a
-        // previously processed tail marker from this pass, it means that two
-        // subchains have become one because the deltas in the middle have
-        // been aborted and snipped out.
-        if (processed_subchain_tails.contains(delta)) {
-          break;
-        }
-        auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
-        if (ts == current_commit_timestamp && filter(delta->action)) {
-          callback(*delta, parent, durability_commit_timestamp);
-        }
-        auto prev = delta->prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
-        if (prev.type != PreviousPtr::Type::DELTA) break;
-        if (prev.delta->commit_info != current_commit_info) break;
-        delta = prev.delta;
-      }
-      processed_subchain_tails.insert(subchain_tail);
-    };
+    constexpr auto kNoTracking = std::bool_constant<false>{};
+    constexpr auto kTrackTails = std::bool_constant<true>{};
+    auto find_and_apply_deltas =
+        [&]<bool TrackProcessedTails>(
+            std::bool_constant<TrackProcessedTails>, Delta const *head, auto *parent, auto filter) {
+          CommitInfo const *const current_commit_info = head->commit_info;
+          if constexpr (TrackProcessedTails) {
+            processed_subchain_heads.insert(head);
+          }
+          auto current = head;
+          while (true) {
+            auto *older = current->next.load(std::memory_order_acquire);
+            if (older == nullptr) break;
+            if (older->commit_info != current_commit_info) break;
+            if constexpr (TrackProcessedTails) {
+              if (processed_subchain_heads.contains(older)) break;
+            }
+            current = older;
+          }
+          if constexpr (TrackProcessedTails) {
+            // We are processing this chain, starting at the tail `delta`
+            // Track so we can avoid reprocessing deltas in this chain
+            processed_subchain_tails.insert(current);
+          }
+          while (true) {
+            auto ts = current->commit_info->timestamp.load(std::memory_order_acquire);
+            if (ts == current_commit_timestamp && filter(current->action)) {
+              callback(*current, parent, durability_commit_timestamp);
+            }
+            if (current == head) break;
+
+            auto prev = current->prev.Get();
+            MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
+            if (prev.type != PreviousPtr::Type::DELTA) break;
+            if (prev.delta->commit_info != current_commit_info) break;
+
+            current = prev.delta;
+          }
+        };
 
     // The deltas are ordered correctly in the `transaction.deltas` buffer, but we
     // don't traverse them in that order. That is because for each delta we need
@@ -3372,7 +3370,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
+      find_and_apply_deltas(kNoTracking, &delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT:
@@ -3445,9 +3443,9 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         }
       };
       if (should_track_nonseq_subchains) {
-        find_and_apply_concurrent_edge_create_deltas(&delta, vertex, edge_create_filter);
+        find_and_apply_deltas(kTrackTails, &delta, vertex, edge_create_filter);
       } else {
-        find_and_apply_deltas(&delta, vertex, edge_create_filter);
+        find_and_apply_deltas(kNoTracking, &delta, vertex, edge_create_filter);
       }
     }
     // 3. Process all Edge deltas and store all operations that modify edge data.
@@ -3455,7 +3453,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::EDGE) continue;
-      find_and_apply_deltas(&delta, prev.edge, [](auto action) {
+      find_and_apply_deltas(kNoTracking, &delta, prev.edge, [](auto action) {
         switch (action) {
           case Delta::Action::SET_PROPERTY:
             return true;
@@ -3480,7 +3478,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
+      find_and_apply_deltas(kNoTracking, &delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::ADD_OUT_EDGE:
             return true;
@@ -3505,7 +3503,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
+      find_and_apply_deltas(kNoTracking, &delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::RECREATE_OBJECT:
             return true;
