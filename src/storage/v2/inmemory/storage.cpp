@@ -3302,6 +3302,16 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // When TrackProcessedTails is true, concurrent aborts can rewire chains
     // while we traverse. If we hit a previously processed tail marker, it means
     // two subchains have merged because aborted deltas were snipped out.
+    // Because aborting changes both `next` and `prev` pointers on the ends of
+    // the two subchains, and this (as a compound operation) is *not* atomic, we
+    // can possibly see additional deltas when following `prev` that are not
+    // visible in the `next` pass. For example:
+    // (vertex)->[A:Tx1]->B[:Tx1]-[C:Tx2]->[D:Tx1]->[E:Tx1]
+    // If Tx2 aborts and sets B.next to D, there is a small window where:
+    // B.next = D
+    // D.prev = C
+    // In this cases, following the `next` pointers would read A, B, D, E, and
+    // the `prev` pointers would read `E`, D`, `C`, `B`, `A`.
     std::unordered_set<Delta const *> processed_subchain_heads;
     std::unordered_set<Delta const *> processed_subchain_tails;
     bool const should_track_nonseq_subchains{transaction_.has_non_sequential_deltas};
@@ -3325,10 +3335,14 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
             current = older;
           }
           if constexpr (TrackProcessedTails) {
-            // We are processing this chain, starting at the tail `delta`
-            // Track so we can avoid reprocessing deltas in this chain
-            processed_subchain_tails.insert(current);
+            // Concurrent aborts set `next` before `prev`. A delta may appear
+            // as an entry point (its `prev` points to an aborted delta) even
+            // though we already processed it via a rewired `next` path. If
+            // this tail was already recorded, skip to avoid reprocessing.
+            auto const [_, inserted] = processed_subchain_tails.insert(current);
+            if (!inserted) return;
           }
+
           while (true) {
             if (current->commit_info == current_commit_info && filter(current->action)) {
               callback(*current, parent, durability_commit_timestamp);
@@ -3338,7 +3352,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
             auto prev = current->prev.Get();
             MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
             if (prev.type != PreviousPtr::Type::DELTA) break;
-            if (prev.delta->commit_info != current_commit_info) break;
 
             current = prev.delta;
           }
