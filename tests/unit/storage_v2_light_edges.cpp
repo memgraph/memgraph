@@ -1034,7 +1034,7 @@ TEST_F(LightEdgesSnapshotTest, SnapshotRoundTripMultipleEdges) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  // Recover
+  // Recover and verify count + per-edge property values
   {
     Config config{
         .durability = {.storage_directory = storage_directory_, .recover_on_startup = true},
@@ -1044,14 +1044,29 @@ TEST_F(LightEdgesSnapshotTest, SnapshotRoundTripMultipleEdges) {
     auto *store = db.storage();
 
     auto acc = store->Access(WRITE);
-    // Find any vertex
-    uint64_t total_out = 0;
+    auto prop = acc->NameToProperty("idx");
+
+    // Collect all recovered edges from the source vertex (the one with out-edges)
+    std::map<Gid, int64_t> recovered;  // edge GID -> idx value
     auto vertices = acc->Vertices(View::OLD);
     for (auto v : vertices) {
       auto out = v.OutEdges(View::OLD);
-      if (out.has_value()) total_out += out->edges.size();
+      if (!out.has_value()) continue;
+      for (auto &e : out->edges) {
+        auto val = e.GetProperty(prop, View::OLD);
+        ASSERT_TRUE(val.has_value()) << "Edge " << e.Gid().AsUint() << " missing 'idx' property after snapshot";
+        ASSERT_TRUE(val->IsInt()) << "Edge " << e.Gid().AsUint() << " 'idx' property is not an int";
+        recovered.emplace(e.Gid(), val->ValueInt());
+      }
     }
-    ASSERT_EQ(total_out, kEdges);
+    ASSERT_EQ(static_cast<int>(recovered.size()), kEdges);
+
+    // Verify each expected GID is present with the correct value
+    for (int i = 0; i < kEdges; ++i) {
+      auto it = recovered.find(edge_gids[i]);
+      ASSERT_NE(it, recovered.end()) << "Edge " << edge_gids[i].AsUint() << " not found after snapshot recovery";
+      EXPECT_EQ(it->second, i) << "Edge " << edge_gids[i].AsUint() << " has wrong idx value";
+    }
   }
 }
 
@@ -1172,6 +1187,80 @@ TEST_F(LightEdgesSnapshotTest, SnapshotNormalToLight) {
     auto in = vt->InEdges(View::OLD);
     ASSERT_TRUE(in.has_value());
     ASSERT_EQ(in->edges.size(), 1);
+  }
+}
+
+TEST_F(LightEdgesSnapshotTest, SnapshotExcludesUncommittedEdge) {
+  // Verifies that write_light_edges_section uses View::OLD so that an edge
+  // created-but-not-committed in a concurrent transaction is NOT captured in
+  // the snapshot.
+  //
+  // Approach: create a snapshot with snapshot_on_exit=true. While the DB is
+  // still alive, open a write transaction that creates a new edge but do NOT
+  // commit it. Then destroy the DB (triggers snapshot). Recover and verify
+  // the uncommitted edge is absent.
+  Gid gid_from, gid_to, committed_edge_gid;
+
+  // Phase 1: create committed baseline data + snapshot
+  {
+    Config config{
+        .durability = {.storage_directory = storage_directory_, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = true, .storage_light_edge = true}},
+    };
+    memgraph::dbms::Database db{config};
+    auto *store = db.storage();
+
+    // Commit one edge first
+    {
+      auto acc = store->Access(WRITE);
+      auto v1 = acc->CreateVertex();
+      auto v2 = acc->CreateVertex();
+      gid_from = v1.Gid();
+      gid_to = v2.Gid();
+      auto et = acc->NameToEdgeType("COMMITTED");
+      auto res = acc->CreateEdge(&v1, &v2, et);
+      ASSERT_TRUE(res.has_value());
+      committed_edge_gid = res->Gid();
+      ASSERT_TRUE(res->SetProperty(acc->NameToProperty("marker"), PropertyValue(1)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Start an uncommitted transaction that creates a second edge — do NOT commit
+    auto dirty_acc = store->Access(WRITE);
+    auto vf = dirty_acc->FindVertex(gid_from, View::NEW);
+    auto vt = dirty_acc->FindVertex(gid_to, View::NEW);
+    ASSERT_TRUE(vf && vt);
+    auto et2 = dirty_acc->NameToEdgeType("UNCOMMITTED");
+    auto res2 = dirty_acc->CreateEdge(&*vf, &*vt, et2);
+    ASSERT_TRUE(res2.has_value());
+    ASSERT_TRUE(res2->SetProperty(dirty_acc->NameToProperty("marker"), PropertyValue(2)).has_value());
+    // dirty_acc is NOT committed — DB destructor triggers snapshot while this txn is open.
+    // The snapshot must exclude the uncommitted edge.
+  }
+
+  // Phase 2: recover and verify only the committed edge exists
+  {
+    Config config{
+        .durability = {.storage_directory = storage_directory_, .recover_on_startup = true},
+        .salient = {.items = {.properties_on_edges = true, .storage_light_edge = true}},
+    };
+    memgraph::dbms::Database db{config};
+    auto *store = db.storage();
+
+    auto acc = store->Access(WRITE);
+    auto vf = acc->FindVertex(gid_from, View::OLD);
+    ASSERT_TRUE(vf);
+
+    auto out = vf->OutEdges(View::OLD);
+    ASSERT_TRUE(out.has_value());
+    // Only the committed edge should be present
+    ASSERT_EQ(out->edges.size(), 1);
+    EXPECT_EQ(out->edges[0].Gid(), committed_edge_gid);
+
+    auto marker_prop = acc->NameToProperty("marker");
+    auto val = out->edges[0].GetProperty(marker_prop, View::OLD);
+    ASSERT_TRUE(val.has_value());
+    EXPECT_EQ(val->ValueInt(), 1);
   }
 }
 
@@ -1417,6 +1506,99 @@ TEST_F(LightEdgesWalTest, WalNormalToLight) {
     auto val = out->edges[0].GetProperty(prop, View::OLD);
     ASSERT_TRUE(val.has_value());
     ASSERT_EQ(val->ValueString(), "normal_wal");
+  }
+}
+
+TEST_F(LightEdgesWalTest, WalSetPropertyInSeparateTxn) {
+  // Verifies that a SET_PROPERTY recorded in a WAL transaction *separate* from
+  // edge creation is correctly replayed for light edges.
+  Gid gid_from, gid_to, edge_gid;
+
+  // Phase 1: create edge + write WAL
+  {
+    Config config{
+        .durability = {.storage_directory = storage_directory_,
+                       .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(1)},
+                       .wal_file_flush_every_n_tx = 1},
+        .salient = {.items = {.properties_on_edges = true, .storage_light_edge = true}},
+    };
+    memgraph::dbms::Database db{config};
+    auto *store = db.storage();
+
+    // Txn 1: create vertices
+    {
+      auto acc = store->Access(WRITE);
+      auto v1 = acc->CreateVertex();
+      auto v2 = acc->CreateVertex();
+      gid_from = v1.Gid();
+      gid_to = v2.Gid();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Txn 2: create edge (no properties yet)
+    {
+      auto acc = store->Access(WRITE);
+      auto vf = acc->FindVertex(gid_from, View::NEW);
+      auto vt = acc->FindVertex(gid_to, View::NEW);
+      ASSERT_TRUE(vf && vt);
+      auto et = acc->NameToEdgeType("WAL_PROP");
+      auto res = acc->CreateEdge(&*vf, &*vt, et);
+      ASSERT_TRUE(res.has_value());
+      edge_gid = res->Gid();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Txn 3: set property on the edge in a *separate* transaction
+    {
+      auto acc = store->Access(WRITE);
+      auto vf = acc->FindVertex(gid_from, View::NEW);
+      ASSERT_TRUE(vf);
+      auto out = vf->OutEdges(View::NEW);
+      ASSERT_TRUE(out.has_value());
+      ASSERT_EQ(out->edges.size(), 1);
+      auto prop = acc->NameToProperty("score");
+      ASSERT_TRUE(out->edges[0].SetProperty(prop, PropertyValue(777)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Txn 4: update the same property (overwrite)
+    {
+      auto acc = store->Access(WRITE);
+      auto vf = acc->FindVertex(gid_from, View::NEW);
+      ASSERT_TRUE(vf);
+      auto out = vf->OutEdges(View::NEW);
+      ASSERT_TRUE(out.has_value());
+      ASSERT_EQ(out->edges.size(), 1);
+      auto prop = acc->NameToProperty("score");
+      ASSERT_TRUE(out->edges[0].SetProperty(prop, PropertyValue(888)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    // DB destructor flushes WAL
+  }
+
+  // Phase 2: recover from WAL only (no snapshot), verify properties
+  {
+    Config config{
+        .durability = {.storage_directory = storage_directory_, .recover_on_startup = true},
+        .salient = {.items = {.properties_on_edges = true, .storage_light_edge = true}},
+    };
+    memgraph::dbms::Database db{config};
+    auto *store = db.storage();
+
+    auto acc = store->Access(WRITE);
+    auto vf = acc->FindVertex(gid_from, View::OLD);
+    ASSERT_TRUE(vf);
+    auto out = vf->OutEdges(View::OLD);
+    ASSERT_TRUE(out.has_value());
+    ASSERT_EQ(out->edges.size(), 1);
+    ASSERT_EQ(out->edges[0].Gid(), edge_gid);
+
+    auto prop = acc->NameToProperty("score");
+    auto val = out->edges[0].GetProperty(prop, View::OLD);
+    ASSERT_TRUE(val.has_value());
+    // Should have the final value (888, from txn 4)
+    ASSERT_EQ(val->ValueInt(), 888);
   }
 }
 
