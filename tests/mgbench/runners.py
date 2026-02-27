@@ -583,6 +583,11 @@ class BaseRunner(ABC):
     def clean_db(self):
         pass
 
+    def free_memory(self):
+        """Execute FREE MEMORY on the running database to release jemalloc-held pages.
+        Override for vendor-specific implementation."""
+        pass
+
     def get_database_port(self):
         return self._bolt_port
 
@@ -611,6 +616,7 @@ class Memgraph(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
         super().__init__(benchmark_context=benchmark_context)
         self._memgraph_binary = benchmark_context.vendor_binary
+        self._client_binary = benchmark_context.client_binary
         # Use database_workers instead of num_workers_for_benchmark to allow separation
         self._bolt_num_workers = benchmark_context.database_workers
         self._performance_tracking = benchmark_context.performance_tracking
@@ -692,6 +698,35 @@ class Memgraph(BaseRunner):
             self.dump_rss(workload)
         ret, usage = self._cleanup()
         return usage
+
+    def free_memory(self):
+        if self._proc_mg is None:
+            return
+        query_file = os.path.join(self._directory.name, "free_memory_query.json")
+        with open(query_file, "w") as f:
+            json.dump(["FREE MEMORY", {}], f)
+            f.write("\n")
+        args = _convert_args_to_flags(
+            self._client_binary,
+            input=query_file,
+            num_workers=1,
+            queries_json=True,
+            port=self._bolt_port,
+        )
+        ret = subprocess.run(args, capture_output=True)
+        if ret.returncode != 0:
+            raise Exception(
+                f"FREE MEMORY query failed (exit code {ret.returncode}):\n"
+                f"stdout: {ret.stdout.decode('utf-8', errors='replace')}\n"
+                f"stderr: {ret.stderr.decode('utf-8', errors='replace')}"
+            )
+        # Reset VmHWM (peak RSS) to current VmRSS so that _get_usage() captures
+        # steady-state memory instead of the transient snapshot-loading peak.
+        try:
+            with open(f"/proc/{self._proc_mg.pid}/clear_refs", "w") as f:
+                f.write("5")
+        except (PermissionError, OSError):
+            pass
 
     def clean_db(self):
         if self._proc_mg is not None:

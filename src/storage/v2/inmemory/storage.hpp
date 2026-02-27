@@ -35,6 +35,7 @@
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/memory.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -709,7 +710,8 @@ class InMemoryStorage final : public Storage {
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
     void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges, std::list<Gid> &current_deleted_vertices,
-                             IndexPerformanceTracker &impact_tracker);
+                             IndexPerformanceTracker &impact_tracker,
+                             std::vector<Edge *> *current_deleted_light_edges = nullptr);
     SalientConfig::Items config_;
 
     uint64_t commit_flag_wal_position_{0};
@@ -788,12 +790,19 @@ class InMemoryStorage final : public Storage {
 
   EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
+  void DeleteLightEdge(Edge *p);
+
   void Clear();
 
   // Main object storage
   utils::SkipList<Vertex> vertices_;
   utils::SkipList<Edge> edges_;
   utils::SkipList<EdgeMetadata> edges_metadata_;
+
+  // Pool allocator for light-edge Edge objects (block_size = sizeof(Edge), 256 KiB chunks).
+  // Chunks are large enough for jemalloc to give them dedicated pages, preventing
+  // slab-level interleaving with unrelated allocations of the same size class.
+  std::unique_ptr<utils::SingleSizeThreadSafePoolResource> light_edge_pool_;
 
   // Durability
   durability::Recovery recovery_;
@@ -862,6 +871,16 @@ class InMemoryStorage final : public Storage {
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
+
+  // Graveyard for light edges: deleted Edge* kept alive until GC determines
+  // no active transaction can see them. Timestamp-based: freed when
+  // mark_timestamp < oldest_active_start_timestamp.
+  struct LightEdgeGraveyardEntry {
+    uint64_t mark_timestamp;
+    std::vector<Edge *> edges;
+  };
+
+  utils::Synchronized<std::list<LightEdgeGraveyardEntry>, utils::SpinLock> light_edge_graveyard_;
 
   std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
   std::atomic<bool> gc_index_cleanup_edge_performance_ = false;

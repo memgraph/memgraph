@@ -963,7 +963,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl) {
+    memgraph::storage::ttl::TTL *ttl, std::pmr::memory_resource *light_edge_pool) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -1078,6 +1078,11 @@ std::optional<RecoveryInfo> LoadWal(
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
+            if (light_edge_pool) {
+              void *mem = light_edge_pool->allocate(sizeof(Edge), alignof(Edge));
+              auto *edge_ptr = new (mem) Edge(data.gid, nullptr);
+              return EdgeRef{edge_ptr};
+            }
             auto [edge, inserted] = edge_acc.insert(Edge{(data.gid), nullptr});
             if (!inserted)
               throw RecoveryFailure("The edge must be inserted here! Current ldt is: {}", ret->last_durable_timestamp);
@@ -1120,6 +1125,15 @@ std::optional<RecoveryInfo> LoadWal(
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
+            if (light_edge_pool) {
+              // Find edge in from_vertex's out_edges by gid
+              auto it = r::find_if(from_vertex->out_edges,
+                                   [&data](const auto &e) { return std::get<2>(e).ptr->gid == data.gid; });
+              if (it == from_vertex->out_edges.end())
+                throw RecoveryFailure("The edge doesn't exist in out_edges! Current ldt is: {}",
+                                      ret->last_durable_timestamp);
+              return std::get<2>(*it);
+            }
             auto edge = edge_acc.find(data.gid);
             if (edge == edge_acc.end())
               throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
@@ -1147,8 +1161,14 @@ std::optional<RecoveryInfo> LoadWal(
           to_vertex->in_edges.pop_back();
         }
         if (items.properties_on_edges) {
-          if (!edge_acc.remove(data.gid))
-            throw RecoveryFailure("The edge must be removed here! Current ldt is: {}", ret->last_durable_timestamp);
+          if (light_edge_pool) {
+            // Pool-deallocate the light edge
+            edge_ref.ptr->~Edge();
+            light_edge_pool->deallocate(edge_ref.ptr, sizeof(Edge), alignof(Edge));
+          } else {
+            if (!edge_acc.remove(data.gid))
+              throw RecoveryFailure("The edge must be removed here! Current ldt is: {}", ret->last_durable_timestamp);
+          }
         }
 
         // Decrement edge count.
@@ -1166,9 +1186,41 @@ std::optional<RecoveryInfo> LoadWal(
               "configured without properties on edges! Current ldt is: {}",
               ret->last_durable_timestamp);
 
-        auto edge = edge_acc.find(data.gid);
-        if (edge == edge_acc.end())
-          throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+        // Find edge_raw and, for light edges, capture the full edge info in one pass.
+        // This avoids redundant vertex lookups and out_edges scans in the schema_info slow path.
+        Edge *edge_raw = nullptr;
+        // Populated for light edges during the initial lookup; reused by the schema_info slow path.
+        std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> cached_edge_full_info;
+
+        if (light_edge_pool) {
+          if (data.from_gid.has_value()) {
+            const auto from_vertex = vertex_acc.find(*data.from_gid);
+            if (from_vertex == vertex_acc.end())
+              throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+            auto found = r::find_if(from_vertex->out_edges, [&data](const auto &edge_info) {
+              return std::get<2>(edge_info).ptr->gid == data.gid;
+            });
+            if (found == from_vertex->out_edges.end())
+              throw RecoveryFailure("Edge not found in out_edges! Current ldt is: {}", ret->last_durable_timestamp);
+            edge_raw = std::get<2>(*found).ptr;
+            // Capture full info: edge_type and to_vertex are already in the iterator.
+            // This eliminates the second vertex_acc.find + r::find_if in the schema_info slow path.
+            cached_edge_full_info.emplace(std::get<2>(*found), std::get<0>(*found), &*from_vertex, std::get<1>(*found));
+          } else {
+            // from_gid not available: fall back to full scan as last resort.
+            auto maybe = find_edge(data.gid);
+            if (!maybe)
+              throw RecoveryFailure("Edge not found via find_edge! Current ldt is: {}", ret->last_durable_timestamp);
+            edge_raw = std::get<0>(*maybe).ptr;
+            cached_edge_full_info = maybe;  // cache to avoid a second find_edge in the schema_info slow path
+          }
+        } else {
+          auto edge_it = edge_acc.find(data.gid);
+          if (edge_it == edge_acc.end())
+            throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+          edge_raw = &*edge_it;
+        }
+
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto property_value = ToPropertyValue(data.value, name_id_mapper);
 
@@ -1177,7 +1229,7 @@ std::optional<RecoveryInfo> LoadWal(
           auto cache_it = edge_recovery_cache.find(data.gid);
           if (cache_it != edge_recovery_cache.end()) {
             const auto &entry = cache_it->second;
-            const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
+            const auto old_type = edge_raw->properties.GetExtendedPropertyType(property_id);
             schema_info->SetProperty(entry.edge_type,
                                      entry.from_vertex,
                                      entry.to_vertex,
@@ -1186,8 +1238,12 @@ std::optional<RecoveryInfo> LoadWal(
                                      old_type,
                                      items.properties_on_edges);
           } else {
-            // Slow path: resolve edge via vertex_acc / FindEdge.
+            // Slow path: resolve edge topology for schema tracking.
             const auto &[edge_ref, edge_type, from_vertex, to_vertex] = std::invoke([&] {
+              // Light edges: reuse info captured during the initial edge_raw lookup (no extra scans).
+              if (cached_edge_full_info.has_value()) {
+                return *cached_edge_full_info;
+              }
               if (data.from_gid.has_value()) {
                 // Faster path: use to vertex and edge type from WAL delta.
                 // NOTE: WAL edge deltas mix vertex and edge deltas. For efficiency, we don't record the to gid and
@@ -1205,16 +1261,16 @@ std::optional<RecoveryInfo> LoadWal(
                     throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}",
                                           ret->last_durable_timestamp);
                   const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(*data.edge_type));
-                  return std::tuple{EdgeRef{&*edge}, edge_type_id, &*from_vertex, &*to_vertex};
+                  return std::tuple{EdgeRef{edge_raw}, edge_type_id, &*from_vertex, &*to_vertex};
                 }
-                // Slow path: resolve edge via vertex_acc / FindEdge.
+                // Legacy path: resolve edge via vertex_acc scan.
                 const auto from_vertex = vertex_acc.find(data.from_gid);
                 if (from_vertex == vertex_acc.end())
                   throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}",
                                         ret->last_durable_timestamp);
-                const auto found_edge = r::find_if(from_vertex->out_edges, [&edge](const auto &edge_info) {
+                const auto found_edge = r::find_if(from_vertex->out_edges, [edge_raw](const auto &edge_info) {
                   const auto &[edge_type, to_vertex, edge_ref] = edge_info;
-                  return edge_ref.ptr == &*edge;
+                  return edge_ref.ptr == edge_raw;
                 });
                 if (found_edge == from_vertex->out_edges.end())
                   throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}",
@@ -1222,7 +1278,7 @@ std::optional<RecoveryInfo> LoadWal(
                 const auto &[edge_type, to_vertex, edge_ref] = *found_edge;
                 return std::tuple{edge_ref, edge_type, &*from_vertex, to_vertex};
               }
-              const auto maybe_edge = find_edge(edge->gid);
+              const auto maybe_edge = find_edge(edge_raw->gid);
               if (!maybe_edge)
                 throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}",
                                       ret->last_durable_timestamp);
@@ -1233,7 +1289,7 @@ std::optional<RecoveryInfo> LoadWal(
                 data.gid,
                 EdgeRecoveryCacheEntry{
                     .edge_ref = edge_ref, .edge_type = edge_type, .from_vertex = from_vertex, .to_vertex = to_vertex});
-            const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
+            const auto old_type = edge_raw->properties.GetExtendedPropertyType(property_id);
             schema_info->SetProperty(edge_type,
                                      from_vertex,
                                      to_vertex,
@@ -1244,7 +1300,7 @@ std::optional<RecoveryInfo> LoadWal(
           }
         }
 
-        edge->properties.SetProperty(property_id, property_value);
+        edge_raw->properties.SetProperty(property_id, property_value);
       },
       [&](WalTransactionStart const &data) {
         should_commit = data.commit.value_or(true);

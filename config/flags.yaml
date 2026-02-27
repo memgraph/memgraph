@@ -123,6 +123,10 @@ modifications:
     value: "false"
     override: true
 
+  - name: "storage_light_edge"
+    value: "false"
+    override: true
+
   - name: "query_callable_mappings_path"
     value: "/etc/memgraph/apoc_compatibility_mappings.json"
     override: true

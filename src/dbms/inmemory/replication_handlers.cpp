@@ -667,7 +667,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           &storage->enum_store_,
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
           &storage->ttl_,
-          snapshot_observer_info);
+          snapshot_observer_info,
+          storage->light_edge_pool_.get());
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
       storage->uuid().set(snapshot_info.uuid);
@@ -1339,18 +1340,56 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                                    memgraph::storage::Vertex *>>
               edge_info;
 
-          // Slow path: resolve edge via edge_acc / FindEdge (WAL or legacy replication).
-          auto edge = edge_acc.find(data.gid);
-          if (edge == edge_acc.end()) {
-            throw utils::BasicException("Failed to find edge {} when setting property.", edge_gid);
+          // Resolve edge_raw.
+          // For light edges: prefer a direct from_vertex->out_edges scan (O(log V + out_degree))
+          // over storage->FindEdge (which may be O(V * out_degree) without edges_metadata).
+          // The full edge info (edge_type, from_vertex, to_vertex) captured here is reused in
+          // the edge_info resolution block below to avoid any redundant second lookup.
+          storage::Edge *edge_raw = nullptr;
+          // Populated for light edges to short-circuit the resolution block.
+          std::optional<std::tuple<EdgeRef,
+                                   memgraph::storage::EdgeTypeId,
+                                   memgraph::storage::Vertex *,
+                                   memgraph::storage::Vertex *>>
+              light_edge_info;
+
+          if (storage->config_.salient.items.storage_light_edge) {
+            if (data.from_gid.has_value()) {
+              // Direct scan: O(log V + deg), always at least as fast as storage->FindEdge.
+              auto vertex_acc = storage->vertices_.access();
+              auto from_vertex_it = vertex_acc.find(*data.from_gid);
+              if (from_vertex_it == vertex_acc.end())
+                throw utils::BasicException(
+                    "Failed to find from vertex {} for light edge {} property.", data.from_gid->AsUint(), edge_gid);
+              auto found = r::find_if(from_vertex_it->out_edges,
+                                      [&data](const auto &e) { return std::get<2>(e).ptr->gid == data.gid; });
+              if (found == from_vertex_it->out_edges.end())
+                throw utils::BasicException("Failed to find light edge {} in from_vertex out_edges.", edge_gid);
+              edge_raw = std::get<2>(*found).ptr;
+              // Capture full info now; visibility was already confirmed by ApplyDeltasForRead below.
+              light_edge_info.emplace(std::get<2>(*found), std::get<0>(*found), &*from_vertex_it, std::get<1>(*found));
+            } else {
+              // from_gid not in WAL delta (legacy format): fall back to storage scan as last resort.
+              auto found_edge = storage->FindEdge(data.gid);
+              if (!found_edge)
+                throw utils::BasicException("Failed to find light edge {} when setting property.", edge_gid);
+              edge_raw = std::get<0>(*found_edge).ptr;
+              light_edge_info = found_edge;  // cache to avoid a second FindEdge in the resolution block
+            }
+          } else {
+            auto edge_it = edge_acc.find(data.gid);
+            if (edge_it == edge_acc.end()) {
+              throw utils::BasicException("Failed to find edge {} when setting property.", edge_gid);
+            }
+            edge_raw = &*edge_it;
           }
           {
             bool is_visible = true;
             Delta *local_delta = nullptr;
             {
-              auto guard = std::shared_lock{edge->lock};
-              is_visible = !edge->deleted();
-              local_delta = edge->delta();
+              auto guard = std::shared_lock{edge_raw->lock};
+              is_visible = !edge_raw->deleted();
+              local_delta = edge_raw->delta();
             }
             ApplyDeltasForRead(
                 &transaction->GetTransaction(), local_delta, View::NEW, [&is_visible](const Delta &delta) {
@@ -1380,6 +1419,12 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
 
           auto [edge_ref, edge_type, from_vertex, vertex_to] = std::invoke([&] {
+            // Light edges: reuse info captured during the initial edge_raw lookup (avoids any
+            // redundant FindEdge / out_edges scan).
+            if (light_edge_info.has_value()) {
+              return *light_edge_info;
+            }
+
             if (data.from_gid.has_value()) {
               // Faster path: use to vertex and edge type from WAL delta.
               // Newer versions store to_gid and edge_type when needed, so we can use the faster path via FindEdge.
@@ -1417,9 +1462,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                 throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
                                             data.from_gid->AsUint());
 
-              auto found_edge = r::find_if(from_vertex->out_edges, [raw_edge_ref = EdgeRef(&*edge)](auto &in) {
-                return std::get<2>(in) == raw_edge_ref;
-              });
+              auto found_edge =
+                  r::find_if(from_vertex->out_edges, [edge_raw](auto &in) { return std::get<2>(in).ptr == edge_raw; });
               if (found_edge == from_vertex->out_edges.end()) {
                 throw utils::BasicException(
                     "Couldn't find edge {} in vertex {}'s out edge collection.", edge_gid, from_vertex->gid.AsUint());
@@ -1427,7 +1471,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               const auto &[edge_type, vertex_to, edge_ref] = *found_edge;
               return std::tuple{edge_ref, edge_type, &*from_vertex, vertex_to};
             }
-            auto found_edge = storage->FindEdge(edge->gid);
+            auto found_edge = storage->FindEdge(edge_raw->gid);
             if (!found_edge) {
               constexpr auto src_loc{std::source_location()};
               throw utils::BasicException(

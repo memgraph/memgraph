@@ -743,6 +743,9 @@ def run_isolated_workload_without_authorization(
         start_time = time.time()
         rss_db = workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
         vendor_runner.start_db(rss_db)
+        # Purge jemalloc and reset VmHWM so peak memory reflects only
+        # the benchmark workload, not transient snapshot loading structures.
+        vendor_runner.free_memory()
         warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count, benchmark_context))
         log.init("Executing benchmark queries...")
         ret = client.execute(
@@ -816,6 +819,10 @@ def save_memory_usage_of_empty_db(vendor_runner, workload, results):
 def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_usage_of_empty_db):
     rss_db = workload.NAME + workload.get_variant() + "_" + IMPORTED_DATA
     vendor_runner.start_db(rss_db)
+    # After snapshot loading, light edges use additional temporary structures that
+    # jemalloc doesn't return to the OS right away. FREE MEMORY forces a purge so
+    # the memory measurement reflects actual steady-state usage.
+    vendor_runner.free_memory()
     usage = vendor_runner.stop_db(rss_db)
     if usage is None:
         usage = {"memory": 0, "cpu": 0}
