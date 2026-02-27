@@ -25,9 +25,6 @@
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
-using CardParam = CostEstimator<memgraph::query::DbAccessor>::CardParam;
-using CostParam = CostEstimator<memgraph::query::DbAccessor>::CostParam;
-using MiscParam = CostEstimator<memgraph::query::DbAccessor>::MiscParam;
 namespace ms = memgraph::storage;
 
 /** A fixture for cost estimation. Sets up the database

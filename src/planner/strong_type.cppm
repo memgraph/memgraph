@@ -17,11 +17,12 @@ export module rollbear.strong_type;
 
 // Re-export the strong namespace members that are currently used across the planner module
 export namespace strong {
-using strong::formattable;  // NOLINT (misc-unused-using-decls)
-using strong::hashable;     // NOLINT (misc-unused-using-decls)
-using strong::ordered;      // NOLINT (misc-unused-using-decls)
-using strong::ostreamable;  // NOLINT (misc-unused-using-decls)
-using strong::regular;      // NOLINT (misc-unused-using-decls)
-using strong::type;         // NOLINT (misc-unused-using-decls)
-using strong::type_is;      // NOLINT (misc-unused-using-decls)
+using strong::formattable;        // NOLINT (misc-unused-using-decls)
+using strong::hashable;           // NOLINT (misc-unused-using-decls)
+using strong::ordered;            // NOLINT (misc-unused-using-decls)
+using strong::ostreamable;        // NOLINT (misc-unused-using-decls)
+using strong::regular;            // NOLINT (misc-unused-using-decls)
+using strong::type;               // NOLINT (misc-unused-using-decls)
+using strong::type_is;            // NOLINT (misc-unused-using-decls)
+using strong::underlying_type_t;  // NOLINT (misc-unused-using-decls)
 }  // namespace strong

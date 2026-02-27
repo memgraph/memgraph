@@ -18,8 +18,8 @@
 #include <utility>
 #include <vector>
 
-#include "planner/core/egraph.hpp"
-#include "planner/core/enode.hpp"
+#include "planner/egraph/egraph.hpp"
+#include "planner/egraph/enode.hpp"
 
 #include "utils/tag.hpp"
 
@@ -137,7 +137,7 @@ auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
 
     auto const &enode = egraph.get_enode(enode_it->second.enode_id);
     for (auto child : enode.children()) {
-      // Count the in-degree, used for Kahn’s topological sorting
+      // Count the in-degree, used for Kahn's topological sorting
       ++in_degree[child];
       // Only add to BFS if not already added
       if (!visited.contains(child)) {
@@ -180,11 +180,24 @@ auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
   return result;
 }
 
+/**
+ * @brief Extracts the lowest-cost expression tree from an e-graph
+ *
+ * The extraction result contains ENodeIds that are valid only as long as no
+ * rebuild() is performed on the e-graph. Use get_enode() to access e-node
+ * data immediately after extraction.
+ */
 template <typename Symbol, typename Analysis, typename CostModel>
 struct Extractor {
   Extractor(EGraph<Symbol, Analysis> const &egraph, CostModel &&cost_model)
       : egraph_(egraph), cost_model_(std::move(cost_model)) {}
 
+  /**
+   * @brief Extract lowest-cost tree rooted at the given e-class
+   *
+   * @return Topologically sorted (EClassId, ENodeId) pairs. The ENodeIds are
+   *         valid for use with egraph.get_enode() until the next rebuild().
+   */
   auto Extract(EClassId const root_id) -> std::vector<std::pair<EClassId, ENodeId>> {
     auto enode_selection = std::unordered_map<EClassId, Selection<typename CostModel::CostResult>>{};
     ProcessCosts(egraph_, cost_model_, root_id, enode_selection);

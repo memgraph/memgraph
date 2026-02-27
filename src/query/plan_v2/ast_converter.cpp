@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,8 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
   using HierarchicalTreeVisitor::ReturnType;
   using HierarchicalTreeVisitor::Visit;
 
+  explicit AstConverterVisitor(SymbolTable const &symbol_table) : symbol_table_(symbol_table) {}
+
   ReturnType Visit(ParameterLookup &expr) override {
     // NOTE: with the stripper it mans that literals are also parameters
     //       hence we can't distinguish between literals vs parameters
@@ -40,8 +42,9 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
   }
 
   ReturnType Visit(Identifier &expr) override {
-    auto sym = egraph_.MakeSymbol(expr.symbol_pos_);
-    builder_stack_.emplace_back(egraph_.MakeIdentifier(sym));
+    auto const &sym = symbol_table_.at(expr);
+    auto sym_eclass = egraph_.MakeSymbol(expr.symbol_pos_, sym.name());
+    builder_stack_.emplace_back(egraph_.MakeIdentifier(sym_eclass));
     return true;
   }
 
@@ -80,8 +83,9 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
     auto expr = PopStack();
     auto input = PopStack();
     DMG_ASSERT(op.symbol_pos_ != -1, "AST symbol should have already been mapped into the frame");
-    auto sym = egraph_.MakeSymbol(op.symbol_pos_);
-    auto bind = egraph_.MakeBind(input, sym, expr);
+    auto const &sym = symbol_table_.at(op);
+    auto sym_eclass = egraph_.MakeSymbol(op.symbol_pos_, sym.name());
+    auto bind = egraph_.MakeBind(input, sym_eclass, expr);
     builder_stack_.emplace_back(bind);
 
     // Any analysis to add to the bind EClass?
@@ -101,8 +105,9 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
       }
 
       auto expr = PopStack();
-      auto sym = egraph_.MakeSymbol(named_expr->symbol_pos_);
-      auto named_output = egraph_.MakeNamedOutput(named_expr->name_, sym, expr);
+      auto const &sym = symbol_table_.at(*named_expr);
+      auto sym_eclass = egraph_.MakeSymbol(named_expr->symbol_pos_, sym.name());
+      auto named_output = egraph_.MakeNamedOutput(named_expr->name_, sym_eclass, expr);
       named_outputs.emplace_back(named_output);
     }
 
@@ -580,6 +585,7 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
     }
   }
 
+  SymbolTable const &symbol_table_;
   egraph egraph_;
   std::vector<plan::v2::eclass> builder_stack_;
 };
@@ -588,8 +594,8 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
 
 namespace memgraph::query::plan::v2 {
 
-auto ConvertToEgraph(CypherQuery const &query, SymbolTable const & /*symbol_table*/) -> std::tuple<egraph, eclass> {
-  auto visitor = AstConverterVisitor{};
+auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table) -> std::tuple<egraph, eclass> {
+  auto visitor = AstConverterVisitor{symbol_table};
   // TODO: fix HierarchicalTreeVisitor to allow const
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   const_cast<CypherQuery &>(query).Accept(visitor);

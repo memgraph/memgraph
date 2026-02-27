@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,7 @@
 
 #include <boost/smart_ptr/shared_ptr.hpp>
 
-#include "planner/core/extractor.hpp"
+#include "planner/extract/extractor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan_v2/egraph_internal.hpp"
 
@@ -110,10 +110,13 @@ struct Builder {
     return std::make_shared<Produce>(input, std::vector{named_expression});
   }
 
-  auto Build(utils::tag_value<symbol::Symbol> /*tag*/, enode_ref /*node*/, children_ref /*children*/) -> BuildResult {
+  auto Build(utils::tag_value<symbol::Symbol> /*tag*/, enode_ref node, children_ref /*children*/) -> BuildResult {
     auto const frame_position = next_frame_position_++;
+    auto const sym_pos = static_cast<int32_t>(node.disambiguator());
+    auto const it = reverse_symbol_name_store_.find(sym_pos);
+    std::string name = (it != reverse_symbol_name_store_.end()) ? it->second : "unknown";
     // TODO/NOTE: lost user_declared_, type_, and token_position_
-    return Symbol{"TODO", frame_position, false /*TODO*/};
+    return Symbol{std::move(name), frame_position, false /*TODO*/};
   }
 
   auto Build(utils::tag_value<symbol::Literal> /*tag*/, enode_ref node, children_ref /*children*/) -> BuildResult {
@@ -159,8 +162,8 @@ struct Builder {
   }
 
   Builder(std::map<storage::ExternalPropertyValue, uint64_t> const &literal_store,
-          std::map<std::string, uint64_t> const &name_store)
-      : literal_store_(literal_store), name_store_(name_store) {
+          std::map<std::string, uint64_t> const &name_store, std::map<int32_t, std::string> const &symbol_name_store)
+      : literal_store_(literal_store), name_store_(name_store), symbol_name_store_(symbol_name_store) {
     for (auto const &[val, id] : literal_store_.get()) {
       reverse_literal_store_[id] = val;
     }
@@ -168,12 +171,18 @@ struct Builder {
     for (auto const &[val, id] : name_store_.get()) {
       reverse_name_store_[id] = val;
     }
+
+    for (auto const &[pos, name] : symbol_name_store_.get()) {
+      reverse_symbol_name_store_[pos] = name;
+    }
   }
 
   std::reference_wrapper<std::map<storage::ExternalPropertyValue, uint64_t> const> literal_store_;
   std::map<uint64_t, storage::ExternalPropertyValue> reverse_literal_store_;
   std::reference_wrapper<std::map<std::string, uint64_t> const> name_store_;
   std::map<uint64_t, std::string> reverse_name_store_;
+  std::reference_wrapper<std::map<int32_t, std::string> const> symbol_name_store_;
+  std::map<int32_t, std::string> reverse_symbol_name_store_;
 
   AstStorage ast_storage_;
   int next_frame_position_ = 0;
@@ -188,7 +197,9 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   auto const selection = planner::core::Extractor{impl.egraph_, CostModel{}}.Extract(true_root);
 
   /// STAGE: Build selected (LogicalOperator, Expression *, Symbol, NamedExpression *, etc)
-  auto builder = Builder{(impl.literal_store_), (impl.name_store_)};
+  auto builder = Builder{impl.storage<symbol::Literal>().store,
+                         impl.storage<symbol::NamedOutput>().store,
+                         impl.storage<symbol::Symbol>().store};
   auto build_cache = std::map<planner::core::EClassId, BuildResult>{};
   auto const cache_lookup = [&](const planner::core::EClassId id) {
     auto const it = build_cache.find(id);
