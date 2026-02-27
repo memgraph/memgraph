@@ -354,6 +354,16 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/mgcxx ${CMAKE_BINARY_DIR}/mgcxx EXCLUDE_FRO
 target_link_libraries(mgcxx_text_search ${CMAKE_DL_LIBS})
 add_library(tantivy_text_search ALIAS mgcxx_text_search)
 
+execute_process(
+  COMMAND patch -p1 --forward -i "${CMAKE_CURRENT_SOURCE_DIR}/usearch.patch"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/usearch"
+  RESULT_VARIABLE usearch_patch_result
+)
+if(usearch_patch_result AND NOT usearch_patch_result EQUAL 0)
+  # patch --forward returns 1 if already applied; only warn, don't fail
+  message(STATUS "usearch patch already applied or skipped (exit code: ${usearch_patch_result})")
+endif()
+
 import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)
 set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include

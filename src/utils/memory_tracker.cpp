@@ -26,6 +26,8 @@ constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::coun
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 constinit MemoryTracker total_memory_tracker{};
+constinit MemoryTracker malloc_memory_tracker{&total_memory_tracker};
+constinit MemoryTracker mmap_memory_tracker{&total_memory_tracker};
 
 // TODO (antonio2368): Define how should the peak memory be logged.
 // Logging every time the peak changes is too much so some kind of distribution
@@ -107,6 +109,12 @@ bool MemoryTracker::Alloc(int64_t const size) {
 
     return false;
   }
+
+  if (parent_ && !parent_->Alloc(size)) [[unlikely]] {
+    amount_.fetch_sub(size, std::memory_order_relaxed);
+    return false;
+  }
+
   UpdatePeak(will_be);
   return true;
 }
@@ -122,9 +130,18 @@ void MemoryTracker::DoCheck() {
                     GetReadableSize(static_cast<double>(current_amount)),
                     GetReadableSize(static_cast<double>(current_hard_limit))));
   }
+
+  if (parent_) {
+    parent_->DoCheck();
+  }
 }
 
-void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
+void MemoryTracker::Free(const int64_t size) {
+  amount_.fetch_sub(size, std::memory_order_relaxed);
+  if (parent_) {
+    parent_->Free(size);
+  }
+}
 
 // DEVNOTE: important that this is allocated at thread construction time
 //          otherwise subtle bug where jemalloc will try to lock an non-recursive mutex

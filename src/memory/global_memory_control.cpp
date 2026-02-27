@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -61,14 +61,14 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
     // This needs to be here so it doesn't get incremented in case the first TrackAlloc throws an exception
-    const bool ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
+    const bool ok = memgraph::utils::malloc_memory_tracker.Alloc(static_cast<int64_t>(size));
     if (!ok) return nullptr;
   }
 
   auto *ptr = old_hooks->alloc(extent_hooks, new_addr, size, alignment, zero, commit, arena_ind);
   if (ptr == nullptr) [[unlikely]] {
     if (*commit) {
-      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+      memgraph::utils::malloc_memory_tracker.Free(static_cast<int64_t>(size));
     }
     return ptr;
   }
@@ -84,7 +84,7 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
   }
 
   if (committed) [[likely]] {
-    memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+    memgraph::utils::malloc_memory_tracker.Free(static_cast<int64_t>(size));
   }
 
   return false;
@@ -92,7 +92,7 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 
 static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   if (committed) [[likely]] {
-    memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+    memgraph::utils::malloc_memory_tracker.Free(static_cast<int64_t>(size));
   }
 
   old_hooks->destroy(extent_hooks, addr, size, committed, arena_ind);
@@ -107,7 +107,7 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
   }
 
   [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
-  [[maybe_unused]] const auto ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
+  [[maybe_unused]] const auto ok = memgraph::utils::malloc_memory_tracker.Alloc(static_cast<int64_t>(length));
   DMG_ASSERT(ok);
   return false;
 }
@@ -121,7 +121,7 @@ static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, s
     return err;
   }
 
-  memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
+  memgraph::utils::malloc_memory_tracker.Free(static_cast<int64_t>(length));
   return false;
 }
 
@@ -133,7 +133,7 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
   if (err) [[unlikely]] {
     return err;
   }
-  memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
+  memgraph::utils::malloc_memory_tracker.Free(static_cast<int64_t>(length));
   return false;
 }
 
