@@ -56,12 +56,17 @@ class ClusterMonitor:
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
 
-    def _query(self, query: str, query_type: QueryType = QueryType.READ) -> tuple[str, list[dict[str, Any]]]:
+    def _query(
+        self,
+        query: str,
+        query_type: QueryType = QueryType.READ,
+        protocol: Protocol = Protocol.BOLT_ROUTING,
+    ) -> tuple[str, list[dict[str, Any]]]:
         """Try each coordinator in order; return (coordinator_name, results) from the first that responds."""
         last_err = None
         for coord in self._coordinators:
             try:
-                return coord, execute_and_fetch(coord, query, protocol=Protocol.BOLT_ROUTING, query_type=query_type)
+                return coord, execute_and_fetch(coord, query, protocol=protocol, query_type=query_type)
             except Exception as e:
                 last_err = e
         raise last_err  # type: ignore[misc]
@@ -128,7 +133,7 @@ class ClusterMonitor:
     def _instances_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                coord, rows = self._query("SHOW INSTANCES;")
+                coord, rows = self._query("SHOW INSTANCES;", protocol=Protocol.BOLT)
                 if rows:
                     headers = list(rows[0].keys())
                     print(f"\n[SHOW INSTANCES @ {time.strftime('%H:%M:%S')} via {coord}]")
@@ -142,7 +147,7 @@ class ClusterMonitor:
     def _verify_up_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                coord, rows = self._query("SHOW INSTANCES;")
+                coord, rows = self._query("SHOW INSTANCES;", protocol=Protocol.BOLT)
                 for row in rows:
                     name = row.get("name", "unknown")
                     alive = row.get("alive", row.get("is_alive", None))
@@ -195,7 +200,7 @@ class ClusterMonitor:
 
     def verify_instances_up(self) -> bool:
         """Check that all instances are alive. Returns True if all up."""
-        coord, rows = self._query("SHOW INSTANCES;")
+        coord, rows = self._query("SHOW INSTANCES;", protocol=Protocol.BOLT)
         print(f"[verify_instances_up via {coord}]")
         all_up = True
         for row in rows:
