@@ -32,6 +32,11 @@
 #define Py_Is(x, y) ((x) == (y))
 #endif
 
+// Python 3.13 compatibility macros
+#if PY_VERSION_HEX < 0x030d0000 && !defined(Py_IsFinalizing)
+#define Py_IsFinalizing() _Py_IsFinalizing()
+#endif
+
 #include "utils/logging.hpp"
 
 namespace memgraph::py {
@@ -39,7 +44,7 @@ namespace memgraph::py {
 /// Ensure the current thread is ready to call Python C API.
 ///
 /// You must *not* try to ensure the GIL when the runtime is finalizing, as
-/// that will terminate the thread. You may use `_Py_IsFinalizing` or
+/// that will terminate the thread. You may use `Py_IsFinalizing` or
 /// `sys.is_finalizing()` to check for such a case.
 class EnsureGIL final {
   PyGILState_STATE gil_state_;
@@ -69,7 +74,7 @@ class [[nodiscard]] Object final {
 
   /// Construct from a borrowed `PyObject *`, i.e. non-owned pointer.
   static Object FromBorrow(PyObject *ptr) noexcept {
-    if (ptr && !_Py_IsFinalizing()) {
+    if (ptr && !Py_IsFinalizing()) {
       EnsureGIL gil;
       Py_INCREF(ptr);
     }
@@ -77,14 +82,14 @@ class [[nodiscard]] Object final {
   }
 
   ~Object() noexcept {
-    if (ptr_ && !_Py_IsFinalizing()) {
+    if (ptr_ && !Py_IsFinalizing()) {
       EnsureGIL gil;
       Py_XDECREF(ptr_);
     }
   }
 
   Object(const Object &other) noexcept : ptr_(other.ptr_) {
-    if (ptr_ && !_Py_IsFinalizing()) {
+    if (ptr_ && !Py_IsFinalizing()) {
       EnsureGIL gil;
       Py_INCREF(ptr_);
     }
@@ -94,7 +99,7 @@ class [[nodiscard]] Object final {
 
   Object &operator=(const Object &other) noexcept {
     if (this == &other) return *this;
-    if (!_Py_IsFinalizing()) {
+    if (!Py_IsFinalizing()) {
       EnsureGIL gil;
       Py_XDECREF(ptr_);
       ptr_ = other.ptr_;
@@ -107,7 +112,7 @@ class [[nodiscard]] Object final {
 
   Object &operator=(Object &&other) noexcept {
     if (this == &other) return *this;
-    if (ptr_ && !_Py_IsFinalizing()) {
+    if (ptr_ && !Py_IsFinalizing()) {
       EnsureGIL gil;
       Py_XDECREF(ptr_);
     }
