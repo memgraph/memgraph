@@ -562,4 +562,80 @@ TEST_F(MatcherCorrectnessTest, SelfReferentialMultiPattern_FuzzerCrash076d8fd2) 
   verify_both(patterns, /*expected=*/0);
 }
 
+TEST_F(MatcherCorrectnessTest, IdenticalMultiPattern_FuzzerCrashE082976a) {
+  // Reproduction from fuzzer: crash-e082976a0f1cc28547105c4c30e79e96d4c43986
+  //
+  // Tests matching two IDENTICAL patterns joined together.
+  // The VM finds 1 match when egglog/EMatcher find 2.
+  //
+  // Patterns:
+  //   Pattern 0: (Mul (G ?v0) (G ?v0))
+  //   Pattern 1: (Mul (G ?v0) (G ?v0))  <- identical!
+  //
+  // With G(x)=x rewrites creating self-referential e-classes, there should be
+  // 2 valid ?v0 bindings (two different e-classes containing G nodes that are
+  // children of Mul nodes).
+
+  // Create initial leaves
+  auto a0 = leaf(Op::A, 0);
+  auto b0 = leaf(Op::B, 0);
+
+  // Create Mul(B, B)
+  auto mul_bb = node(Op::Mul, b0, b0);
+
+  // Apply H(x)=x rewrites
+  for (auto ec : {a0, mul_bb, b0}) {
+    auto h_ec = node(Op::H, ec);
+    merge(h_ec, ec);
+  }
+  rebuild_egraph();
+
+  // Apply F(F(x))=x rewrites
+  for (auto ec : {a0, mul_bb, b0}) {
+    auto f_ec = node(Op::F, ec);
+    auto ff_ec = node(Op::F, f_ec);
+    merge(ff_ec, ec);
+  }
+  rebuild_egraph();
+
+  // Apply G(x)=x rewrites - this creates self-referential G nodes
+  for (auto ec : {a0, mul_bb, b0}) {
+    auto canonical = egraph.find(ec);
+    auto g_ec = node(Op::G, canonical);
+    merge(g_ec, canonical);
+  }
+  rebuild_egraph();
+
+  // Apply Plus(x,x)=x rewrites
+  for (auto ec : {a0, b0}) {
+    auto canonical = egraph.find(ec);
+    auto plus_xx = node(Op::Plus, canonical, canonical);
+    merge(plus_xx, canonical);
+  }
+  rebuild_egraph();
+
+  // Create another Mul using the merged E class
+  auto canonical_a = egraph.find(a0);
+  auto mul_aa = node(Op::Mul, canonical_a, canonical_a);
+  rebuild_egraph();
+
+  // Apply more G(x)=x rewrites
+  for (auto ec : {a0, mul_aa, b0}) {
+    auto canonical = egraph.find(ec);
+    auto g_ec = node(Op::G, canonical);
+    merge(g_ec, canonical);
+  }
+  rebuild_egraph();
+
+  // Two identical patterns: (Mul (G ?v0) (G ?v0))
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::Mul, {Sym(Op::G, Var{kVarX}), Sym(Op::G, Var{kVarX})}, std::nullopt),
+      TestPattern::build(Op::Mul, {Sym(Op::G, Var{kVarX}), Sym(Op::G, Var{kVarX})}, std::nullopt),
+  };
+
+  // Ground truth: 2 matches (?v0 = B's e-class and ?v0 = A's e-class)
+  // Fixed: VM now correctly handles identical multi-patterns with self-referential G nodes
+  verify_both(patterns, /*expected=*/2);
+}
+
 }  // namespace memgraph::planner::core
