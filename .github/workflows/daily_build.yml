@@ -414,3 +414,13 @@ jobs:
       deployment: ha/docker
       memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_mage_image_url }}
     secrets: inherit
+
+  StressTestsEKSHA:
+    name: "Stress Tests EKS HA"
+    needs: [SetupDailyBuildImageOutputs]
+    if: ${{ ((github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/eks
+      memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_mage_image_url }}
+    secrets: inherit

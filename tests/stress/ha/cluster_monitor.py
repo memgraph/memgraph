@@ -188,9 +188,9 @@ class ClusterMonitor:
         all_ready = True
         for row in rows:
             name = row.get("name", "unknown")
-            data_info = row.get("data_info", {})
+            data_info = row.get("data_info") or {}
             for db_name, db_status in data_info.items():
-                status = db_status.get("status", "unknown")
+                status = db_status.get("status", "unknown") if isinstance(db_status, dict) else "unknown"
                 if status != "ready":
                     print(f"WARN: Replica {name}, database {db_name} status is '{status}', expected 'ready'")
                     all_ready = False
