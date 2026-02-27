@@ -602,6 +602,12 @@ stop_memgraph() {
 destroy_cluster() {
     log_info "Destroying EKS cluster: $CLUSTER_NAME..."
 
+    # Clean up LoadBalancer services first so eksctl doesn't fail trying to
+    # delete AWS load balancers for services that no longer exist.
+    log_info "Cleaning up remaining Kubernetes LoadBalancer services..."
+    kubectl delete svc -l "app.kubernetes.io/name=memgraph" --ignore-not-found 2>/dev/null || true
+    kubectl get svc --no-headers -o name 2>/dev/null | grep "memgraph-" | xargs -r kubectl delete --ignore-not-found 2>/dev/null || true
+
     log_info "Deleting EKS cluster (this may take 10-15 minutes)..."
     eksctl delete cluster --name "$CLUSTER_NAME" --region "$CLUSTER_REGION"
 
