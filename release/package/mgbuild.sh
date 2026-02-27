@@ -1141,7 +1141,7 @@ test_memgraph() {
         echo "Destroying EKS cluster..."
         "$EKS_DEPLOYMENT_SCRIPT" destroy || true
       }
-      trap cleanup_eks EXIT
+      trap cleanup_eks EXIT INT TERM
 
       "$EKS_DEPLOYMENT_SCRIPT" start-cluster
 
