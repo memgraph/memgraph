@@ -75,6 +75,12 @@ namespace memgraph::planner::core {
 
 static bool g_verbose = false;
 static bool g_skip_egglog = false;
+static bool g_skip_ematcher = false;  // Skip EMatcher, test VM against egglog only
+
+// Maximum number of variables in a pattern before skipping.
+// Patterns with too many unique variables can cause exponential match counts.
+// 81 variables in a 4-level Ternary pattern creates ~billions of matches.
+static constexpr std::size_t kMaxPatternVariables = 20;
 
 #define VERBOSE_OUT \
   if (g_verbose) std::cerr
@@ -185,6 +191,30 @@ inline auto symbol_name(FuzzSymbol sym) -> std::string_view {
 }
 
 inline auto is_leaf_symbol(FuzzSymbol sym) -> bool { return static_cast<uint32_t>(sym) < 10; }
+
+/// Dump e-graph structure showing e-nodes per e-class
+template <typename Analysis>
+void dump_egraph(EGraph<FuzzSymbol, Analysis> const &egraph, std::ostream &out) {
+  out << "E-graph dump (" << egraph.num_classes() << " classes, " << egraph.num_nodes() << " nodes):\n";
+  for (auto const &[eclass_id, eclass] : egraph.canonical_classes()) {
+    out << "  E-class " << eclass_id << " (" << eclass.size() << " nodes):\n";
+    for (auto enode_id : eclass.nodes()) {
+      auto const &enode = egraph.get_enode(enode_id);
+      out << "    " << enode_id << ": " << symbol_name(enode.symbol());
+      if (enode.arity() > 0) {
+        out << "(";
+        for (std::size_t i = 0; i < enode.arity(); ++i) {
+          if (i > 0) out << ", ";
+          out << enode.children()[i];
+        }
+        out << ")";
+      } else if (enode.disambiguator() != 0) {
+        out << "[D" << enode.disambiguator() << "]";
+      }
+      out << "\n";
+    }
+  }
+}
 
 // ============================================================================
 // Egglog Program Generator
@@ -627,18 +657,17 @@ class FuzzerState {
 
     // Dispatch table: compound nodes get 3 slots vs 1 for leaf so the fuzzer
     // builds deeper, more pattern-matchable graphs more often.
-    static constexpr std::array<uint8_t, 11> kDispatch = {
-        0,  // CREATE_LEAF        (1/11)
+    // MATCH_AND_VERIFY is not dispatched randomly - it runs once at the end in finalize().
+    static constexpr std::array<uint8_t, 9> kDispatch = {
+        0,  // CREATE_LEAF        (1/9)
         1,
         1,
-        1,  // CREATE_COMPOUND    (3/11)
-        2,  // MERGE              (1/11)
-        3,  // REBUILD            (1/11)
-        4,  // SET_PATTERN        (1/11)
-        5,
-        5,  // MATCH_AND_VERIFY   (2/11)
-        6,  // VERIFY_ABSENT      (1/11)
-        7,  // APPLY_REWRITE      (1/11)
+        1,  // CREATE_COMPOUND    (3/9)
+        2,  // MERGE              (1/9)
+        3,  // REBUILD            (1/9)
+        4,  // SET_PATTERN        (1/9)
+        6,  // VERIFY_ABSENT      (1/9)
+        7,  // APPLY_REWRITE      (1/9)
     };
     int operation_type = kDispatch[op % kDispatch.size()];
     static constexpr std::array<char const *, 8> op_names = {"CREATE_LEAF",
@@ -844,17 +873,16 @@ class FuzzerState {
       patterns.push_back(pattern_to_memgraph(ast));
     }
 
-    // Check if any pattern has 0 variables
-    bool has_zero_vars = false;
+    // Check pattern complexity
     for (auto const &p : patterns) {
       if (p.num_vars() == 0) {
-        has_zero_vars = true;
-        break;
+        VERBOSE_OUT << "Skipping pattern with 0 variables\n";
+        return true;
       }
-    }
-    if (has_zero_vars) {
-      VERBOSE_OUT << "Skipping pattern with 0 variables\n";
-      return true;
+      if (p.num_vars() > kMaxPatternVariables) {
+        VERBOSE_OUT << "Skipping pattern with " << p.num_vars() << " variables (max " << kMaxPatternVariables << ")\n";
+        return true;
+      }
     }
 
     // Collect binding tuples instead of just counting.
@@ -883,8 +911,8 @@ class FuzzerState {
     std::size_t ematcher_raw = 0;
     std::size_t vm_raw = 0;
 
-    // Run EMatcher-based matching via RewriteRule::apply
-    {
+    // Run EMatcher-based matching via RewriteRule::apply (unless skipped)
+    if (!g_skip_ematcher) {
       EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
       RewriteContext rewrite_ctx;
 
@@ -906,9 +934,10 @@ class FuzzerState {
                                });
 
       counting_rule.apply(egraph_, matcher, rewrite_ctx);
+      VERBOSE_OUT << "EMatcher found " << ematcher_raw << " raw matches, " << ematcher_unique.size() << " unique\n";
+    } else {
+      VERBOSE_OUT << "EMatcher skipped (FUZZ_SKIP_EMATCHER=1)\n";
     }
-
-    VERBOSE_OUT << "EMatcher found " << ematcher_raw << " raw matches, " << ematcher_unique.size() << " unique\n";
 
     // Run VM-based matching via RewriteRule::apply_vm
     // Store compiled pattern for diagnostics
@@ -1061,8 +1090,8 @@ class FuzzerState {
     // directly compare binding tuples.  A bug that produces the correct *number*
     // of matches but with different tuples (e.g., swapped bindings) would not be
     // caught here.  Tuple-level bugs between EMatcher and VM are still detected
-    // by the EMatcher-vs-VM set comparison above.
-    bool ematcher_ok = (ematcher_count == egglog_count);
+    // by the EMatcher-vs-VM set comparison above (when EMatcher is not skipped).
+    bool ematcher_ok = g_skip_ematcher || (ematcher_count == egglog_count);
     bool vm_ok = (vm_count == egglog_count);
 
     // EMatcher has known limitations with self-referential e-classes.
@@ -1075,18 +1104,26 @@ class FuzzerState {
     if (!vm_ok) {
       std::cerr << "\n!!! VM MISMATCH (egglog is ground truth) !!!\n";
       std::cerr << "Egglog:      " << egglog_count << " unique matches (oracle)\n";
-      std::cerr << "EMatcher:    " << ematcher_count << " unique (" << ematcher_raw << " raw)"
-                << (ematcher_ok ? " OK" : " (known limitation)") << "\n";
+      if (!g_skip_ematcher) {
+        std::cerr << "EMatcher:    " << ematcher_count << " unique (" << ematcher_raw << " raw)"
+                  << (ematcher_ok ? " OK" : " (known limitation)") << "\n";
+      } else {
+        std::cerr << "EMatcher:    skipped (FUZZ_SKIP_EMATCHER=1)\n";
+      }
       std::cerr << "VM executor: " << vm_count << " unique (" << vm_raw << " raw) WRONG\n";
       std::cerr << "\nPatterns:\n";
       for (size_t i = 0; i < current_patterns_egglog_.size(); ++i) {
         std::cerr << "  " << i << ": " << current_patterns_egglog_[i] << "\n";
       }
-      std::cerr << "\nE-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
 
-      // Print binding tuple differences
-      std::cerr << "\nVM vs EMatcher binding tuple difference:";
-      print_tuple_diff(vm_unique, ematcher_unique, "VM", "EMatcher");
+      std::cerr << "\n";
+      dump_egraph(egraph_, std::cerr);
+
+      // Print binding tuple differences (only if EMatcher was run)
+      if (!g_skip_ematcher) {
+        std::cerr << "\nVM vs EMatcher binding tuple difference:";
+        print_tuple_diff(vm_unique, ematcher_unique, "VM", "EMatcher");
+      }
 
       // Print VM bytecode for debugging
       if (vm_compilation_succeeded && compiled_pattern_copy) {
@@ -1117,6 +1154,12 @@ class FuzzerState {
   bool apply_rewrite_cycle(uint8_t const *data, size_t &pos, size_t size) {
     if (current_patterns_ast_.empty() || created_ids_.empty()) {
       VERBOSE_OUT << "APPLY_REWRITE: no pattern set, skipping\n";
+      return true;
+    }
+
+    // Skip rewrite cycle when EMatcher is skipped (rewrite uses EMatcher to find targets)
+    if (g_skip_ematcher) {
+      VERBOSE_OUT << "APPLY_REWRITE: skipped (FUZZ_SKIP_EMATCHER=1)\n";
       return true;
     }
 
@@ -1242,6 +1285,12 @@ class FuzzerState {
   bool verify_absent() {
     if (created_ids_.empty()) return true;
 
+    // Skip when EMatcher is skipped
+    if (g_skip_ematcher) {
+      VERBOSE_OUT << "VERIFY_ABSENT: skipped (FUZZ_SKIP_EMATCHER=1)\n";
+      return true;
+    }
+
     // Collect compound symbols NOT yet inserted into this e-graph
     static constexpr std::array<FuzzSymbol, 6> kCompoundSymbols = {
         FuzzSymbol::F,
@@ -1309,7 +1358,7 @@ class FuzzerState {
     // 1. Structural invariant: a bare variable pattern should match once per
     //    canonical e-class.  This catches basic EMatcher/union-find corruption
     //    that a structured-pattern match might miss.
-    {
+    if (!g_skip_ematcher) {
       auto builder = Pattern<FuzzSymbol>::Builder{};
       builder.var(PatternVar{0});
       auto var_pattern = std::move(builder).build();
@@ -1328,13 +1377,15 @@ class FuzzerState {
       VERBOSE_OUT << "Final variable-pattern check passed: " << matches.size() << " matches\n";
     }
 
-    // 2. If a pattern was set during this fuzz run, run one final match+verify
-    //    against the egglog oracle.  This catches state-corruption bugs that
-    //    only manifest after all merge/rebuild operations have settled.
-    if (!current_patterns_ast_.empty()) {
-      VERBOSE_OUT << "Running final match_and_verify...\n";
-      match_and_verify();
+    // 2. Run final match+verify against the egglog oracle.
+    //    This catches state-corruption bugs that only manifest after all
+    //    merge/rebuild operations have settled.
+    if (current_patterns_ast_.empty()) {
+      VERBOSE_OUT << "No pattern set, skipping match_and_verify\n";
+      return;
     }
+    VERBOSE_OUT << "Running final match_and_verify...\n";
+    match_and_verify();
   }
 
  private:
@@ -1390,6 +1441,7 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) {
     };
     g_verbose = env_flag("FUZZ_VERBOSE");
     g_skip_egglog = env_flag("FUZZ_SKIP_EGGLOG");
+    g_skip_ematcher = env_flag("FUZZ_SKIP_EMATCHER");
 
     initialized = true;
   }
