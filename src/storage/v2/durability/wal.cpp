@@ -1186,8 +1186,12 @@ std::optional<RecoveryInfo> LoadWal(
               "configured without properties on edges! Current ldt is: {}",
               ret->last_durable_timestamp);
 
-        // Find the Edge* - either from skip list or vertex out_edges for light edges
+        // Find edge_raw and, for light edges, capture the full edge info in one pass.
+        // This avoids redundant vertex lookups and out_edges scans in the schema_info slow path.
         Edge *edge_raw = nullptr;
+        // Populated for light edges during the initial lookup; reused by the schema_info slow path.
+        std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> cached_edge_full_info;
+
         if (light_edge_pool) {
           if (data.from_gid.has_value()) {
             const auto from_vertex = vertex_acc.find(*data.from_gid);
@@ -1199,11 +1203,16 @@ std::optional<RecoveryInfo> LoadWal(
             if (found == from_vertex->out_edges.end())
               throw RecoveryFailure("Edge not found in out_edges! Current ldt is: {}", ret->last_durable_timestamp);
             edge_raw = std::get<2>(*found).ptr;
+            // Capture full info: edge_type and to_vertex are already in the iterator.
+            // This eliminates the second vertex_acc.find + r::find_if in the schema_info slow path.
+            cached_edge_full_info.emplace(std::get<2>(*found), std::get<0>(*found), &*from_vertex, std::get<1>(*found));
           } else {
+            // from_gid not available: fall back to full scan as last resort.
             auto maybe = find_edge(data.gid);
             if (!maybe)
               throw RecoveryFailure("Edge not found via find_edge! Current ldt is: {}", ret->last_durable_timestamp);
             edge_raw = std::get<0>(*maybe).ptr;
+            cached_edge_full_info = maybe;  // cache to avoid a second find_edge in the schema_info slow path
           }
         } else {
           auto edge_it = edge_acc.find(data.gid);
@@ -1229,8 +1238,12 @@ std::optional<RecoveryInfo> LoadWal(
                                      old_type,
                                      items.properties_on_edges);
           } else {
-            // Slow path: resolve edge via vertex_acc / FindEdge.
+            // Slow path: resolve edge topology for schema tracking.
             const auto &[edge_ref, edge_type, from_vertex, to_vertex] = std::invoke([&] {
+              // Light edges: reuse info captured during the initial edge_raw lookup (no extra scans).
+              if (cached_edge_full_info.has_value()) {
+                return *cached_edge_full_info;
+              }
               if (data.from_gid.has_value()) {
                 // Faster path: use to vertex and edge type from WAL delta.
                 // NOTE: WAL edge deltas mix vertex and edge deltas. For efficiency, we don't record the to gid and
@@ -1250,7 +1263,7 @@ std::optional<RecoveryInfo> LoadWal(
                   const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(*data.edge_type));
                   return std::tuple{EdgeRef{edge_raw}, edge_type_id, &*from_vertex, &*to_vertex};
                 }
-                // Slow path: resolve edge via vertex_acc / FindEdge.
+                // Legacy path: resolve edge via vertex_acc scan.
                 const auto from_vertex = vertex_acc.find(data.from_gid);
                 if (from_vertex == vertex_acc.end())
                   throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}",
