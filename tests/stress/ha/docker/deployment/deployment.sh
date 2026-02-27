@@ -477,9 +477,9 @@ wait_for_server() {
     fi
 
     local container="${CONTAINER_PREFIX}_${instance_name}"
-    echo "Verifying $instance_name via docker exec mgconsole ($query)..."
+    echo "Verifying $instance_name via run_query ($query)..."
     for ((i=1; i<=max_retries; i++)); do
-        if echo "$query" | docker exec -i "$container" mgconsole --host 127.0.0.1 --port "$port" --use-ssl=false 2>/dev/null; then
+        if run_query "$container" "$port" "$query" 2>/dev/null; then
             echo "$instance_name (port $port) is running and responding."
             return 0
         fi
