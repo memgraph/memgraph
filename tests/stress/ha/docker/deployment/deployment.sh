@@ -291,6 +291,21 @@ start_memgraph() {
     wait_for_server coord_2
     wait_for_server coord_3
 
+    echo ""
+    echo "Running Memgraph containers:"
+    docker ps --filter "name=${CONTAINER_PREFIX}" --format "table {{.Names}}\t{{.Status}}"
+    echo ""
+    echo "Data node ports (host network):"
+    for node in "${DATA_NODES[@]}"; do
+        read -r name bolt_port management_port monitoring_port metrics_port <<< "$node"
+        echo "  ${CONTAINER_PREFIX}_${name}: bolt=$bolt_port management=$management_port monitoring=$monitoring_port metrics=$metrics_port"
+    done
+    echo "Coordinator ports (host network):"
+    for node in "${COORD_NODES[@]}"; do
+        read -r name coord_id bolt_port management_port coordinator_port monitoring_port metrics_port <<< "$node"
+        echo "  ${CONTAINER_PREFIX}_${name}: bolt=$bolt_port management=$management_port coordinator=$coordinator_port monitoring=$monitoring_port metrics=$metrics_port"
+    done
+
     setup_ha
 }
 
