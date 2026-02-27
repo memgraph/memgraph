@@ -159,7 +159,11 @@ def evaluate(
         if metric_name == Metrics.ACCURACY:
             result[Metrics.ACCURACY] = operator(result[Metrics.ACCURACY], accuracy_score(labels, classes))
         elif metric_name == Metrics.AUC_SCORE:
-            result[Metrics.AUC_SCORE] = operator(result[Metrics.AUC_SCORE], roc_auc_score(labels, probs.detach()))
+            if labels.max() == labels.min():
+                auc = 0.5
+            else:
+                auc = roc_auc_score(labels, probs.detach())
+            result[Metrics.AUC_SCORE] = operator(result[Metrics.AUC_SCORE], auc)
         elif metric_name == Metrics.F1:
             result[Metrics.F1] = operator(result[Metrics.F1], f1_score(labels, classes))
         elif metric_name == Metrics.PRECISION:
