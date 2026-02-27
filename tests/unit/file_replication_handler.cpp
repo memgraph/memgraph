@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -72,9 +72,11 @@ TEST_F(FileReplicationHandlerTest, WritingToClosedFile) {
 TEST_F(FileReplicationHandlerTest, OpenEmptyFileName) {
   FileReplicationHandler file_replication_handler;
   std::vector<uint8_t> buffer;
-  Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+        return {};
+      });
 
   Encoder encoder{&builder};
 
@@ -87,7 +89,7 @@ TEST_F(FileReplicationHandlerTest, OpenEmptyFileName) {
   constexpr auto data_size = 18;  // 2*1B for markers + 8B string size + 8B uint
   constexpr auto total_size = data_size + sizeof(SegmentSize);
 
-  builder.FlushInternal(total_size, false);
+  ASSERT_TRUE(builder.FlushInternal(total_size, false).has_value());
 
   // We don't send first 4B because they are reserved for size which we don't test here§
   ASSERT_FALSE(
@@ -98,9 +100,11 @@ TEST_F(FileReplicationHandlerTest, OpenEmptyFileName) {
 TEST_F(FileReplicationHandlerTest, OpenFileWithParentPath) {
   FileReplicationHandler file_replication_handler;
   std::vector<uint8_t> buffer;
-  Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+        return {};
+      });
 
   Encoder encoder{&builder};
 
@@ -113,7 +117,7 @@ TEST_F(FileReplicationHandlerTest, OpenFileWithParentPath) {
   constexpr auto data_size = 45;  // 2*1B for markers + 8B string size + 8B uint + 27B
   constexpr auto total_size = data_size + sizeof(SegmentSize);
 
-  builder.FlushInternal(total_size, false);
+  ASSERT_TRUE(builder.FlushInternal(total_size, false).has_value());
 
   // We don't send first 4B because they are reserved for size which we don't test here§
   ASSERT_TRUE(
@@ -124,9 +128,11 @@ TEST_F(FileReplicationHandlerTest, OpenFileWithParentPath) {
 TEST_F(FileReplicationHandlerTest, OpenFileNoData) {
   FileReplicationHandler file_replication_handler;
   std::vector<uint8_t> buffer;
-  Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+        return {};
+      });
 
   Encoder encoder{&builder};
 
@@ -139,7 +145,7 @@ TEST_F(FileReplicationHandlerTest, OpenFileNoData) {
   constexpr auto data_size = 33;  // 2*1B for markers + 8B string size + 8B uint + 15B for string
   constexpr auto total_size = data_size + sizeof(SegmentSize);
 
-  builder.FlushInternal(total_size, false);
+  ASSERT_TRUE(builder.FlushInternal(total_size, false).has_value());
 
   // We don't send first 4B because they are reserved for size which we don't test here§
   ASSERT_EQ(file_replication_handler.OpenFile(buffer.data() + sizeof(SegmentSize), buffer.size() - sizeof(SegmentSize)),
@@ -155,9 +161,11 @@ TEST_F(FileReplicationHandlerTest, OpenFileNoData) {
 TEST_F(FileReplicationHandlerTest, FileWithData) {
   FileReplicationHandler file_replication_handler;
   std::vector<uint8_t> buffer;
-  Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+        return {};
+      });
 
   Encoder encoder{&builder};
 
@@ -173,7 +181,7 @@ TEST_F(FileReplicationHandlerTest, FileWithData) {
   constexpr auto data_size = 57;  // 2*1B for markers + 8B string size + 8B uint + 15B for string + 24B of file data
   constexpr auto total_size = data_size + sizeof(SegmentSize);
 
-  builder.FlushInternal(total_size, false);
+  ASSERT_TRUE(builder.FlushInternal(total_size, false).has_value());
 
   // We don't send first 4B because they are reserved for size which we don't test here§
   ASSERT_EQ(file_replication_handler.OpenFile(buffer.data() + sizeof(SegmentSize), buffer.size() - sizeof(SegmentSize)),

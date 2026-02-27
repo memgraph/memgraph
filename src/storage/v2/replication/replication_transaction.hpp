@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,7 +68,8 @@ class TransactionReplication {
   }
 
   // RPC stream won't be destroyed at the end of this function
-  auto ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool;
+  auto ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args)
+      -> std::expected<void, ReplicationError>;
 
   auto FinalizeTransaction(bool const decision, utils::UUID const &storage_uuid, DatabaseProtector const &protector,
                            uint64_t const durability_commit_timestamp) -> bool;

@@ -18,6 +18,7 @@
 #include "utils/function_traits.hpp"
 
 #include "spdlog/spdlog.h"
+#include "utils/logging.hpp"
 
 namespace memgraph::rpc {
 
@@ -49,20 +50,29 @@ void SendFinalResponse(TResponse const &res, uint64_t const response_version, sl
                                              .message_version = response_version};
   SaveMessageHeader(message_header, builder);
   SaveWithDowngrade(res, response_version, builder);
-  builder->Finalize();
-  spdlog::trace("[RpcServer] sent {}, version {}. {}", TResponse::kType.name, response_version, description);
+  if (auto const res = builder->Finalize(); !res.has_value()) {
+    spdlog::error("[RpcServer] failed to send {}, version {}. {}",
+                  TResponse::kType.name,
+                  response_version,
+                  utils::GetRpcErrorMsg(res.error()));
+  } else {
+    spdlog::trace("[RpcServer] sent {}, version {}. {}", TResponse::kType.name, response_version, description);
+  }
 }
 
 inline void SendInProgressMsg(slk::Builder *builder) {
-  if (!builder->IsEmpty()) {
-    throw slk::SlkBuilderException("InProgress RPC message can only be sent when the builder's buffer is empty.");
-  }
+  // Fatal failure, error in the algorithm
+  MG_ASSERT(builder->IsEmpty(), "InProgress RPC message can only be sent when the builder's buffer is empty.");
+
   constexpr ProtocolMessageHeader message_header{.protocol_version = current_protocol_version,
-                                                 .message_id = storage::replication::InProgressRes::kType.id,
-                                                 .message_version = storage::replication::InProgressRes::kVersion};
+                                                 .message_id = InProgressRes::kType.id,
+                                                 .message_version = InProgressRes::kVersion};
   SaveMessageHeader(message_header, builder);
-  builder->Finalize();
-  spdlog::trace("[RpcServer] sent {}", storage::replication::InProgressRes::kType.name);
+  if (auto const res = builder->Finalize(); !res.has_value()) {
+    spdlog::error("[RpcServer] failed to send {}. {}", InProgressRes::kType.name, utils::GetRpcErrorMsg(res.error()));
+  } else {
+    spdlog::trace("[RpcServer] sent {}", InProgressRes::kType.name);
+  }
 }
 
 // T must be the newest type in the sequence of requests

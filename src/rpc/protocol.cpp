@@ -133,21 +133,16 @@ void RpcMessageDeliverer::Execute() {
   }
 
   slk::Reader req_reader = GetReqReader();
-  slk::Builder res_builder([&](const uint8_t *data, size_t const size, bool const have_more) {
-    output_stream_->Write(data, size, have_more);
-  });
+  slk::Builder res_builder(
+      [&](const uint8_t *data, size_t const size, bool const have_more) -> slk::BuilderWriteFunction::result_type {
+        if (output_stream_->Write(data, size, have_more)) {
+          return {};
+        }
+        return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
+      });
 
-  auto const maybe_message_header = std::invoke([&req_reader]() -> std::optional<ProtocolMessageHeader> {
-    try {
-      // Propagate UnsupportedRpcVersion Exception
-      return LoadMessageHeader(&req_reader);
-    } catch (const std::exception &e) {
-      spdlog::error("Error occurred while loading message header: {}", e.what());
-      return std::nullopt;
-    }
-  });
-
-  if (!maybe_message_header) {
+  auto const maybe_message_header = LoadMessageHeader(&req_reader);
+  if (!maybe_message_header.has_value()) {
     throw SlkRpcFailedException();
   }
 
@@ -173,12 +168,13 @@ void RpcMessageDeliverer::Execute() {
     it->second.callback(file_replication_handler_, maybe_message_header->message_version, &req_reader, &res_builder);
     // Finalize the SLK stream.
     req_reader.Finalize();
-  }
-  // NOLINTNEXTLINE
-  catch (const slk::SlkReaderLeftoverDataException &) {
-    // Skip, it may fail because not all data has been read, that's fine.
   } catch (const std::exception &e) {
     spdlog::error("Error occurred in the callback: {}", e.what());
+    throw SlkRpcFailedException();
+  }
+
+  if (req_reader.GetError()) {
+    spdlog::error("Error occurred while reading the RPC request stream");
     throw SlkRpcFailedException();
   }
 }

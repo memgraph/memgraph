@@ -8921,6 +8921,10 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                   "be "
                   "aborted. ",
                   trigger.Name());
+            } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
+              spdlog::warn(
+                  "At least one replica reached an RPC timeout. Please set a smaller parameter value for "
+                  "'deltas_batch_progress_size' using 'SET COORDINATOR SETTING' query on the coordinator.");
             } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
               const auto &constraint_violation = arg;
               switch (constraint_violation.type) {
@@ -9130,6 +9134,7 @@ void Interpreter::Commit() {
 
   bool commit_confirmed_by_all_sync_replicas{true};
   bool commit_confirmed_by_all_strict_sync_replicas{true};
+  bool rpc_timeout{false};
 
   auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
   bool const is_main = (*locked_repl_state)->IsMain();
@@ -9149,12 +9154,15 @@ void Interpreter::Commit() {
     std::visit(
         [&execution_db_accessor = current_db_.execution_db_accessor_,
          &commit_confirmed_by_all_sync_replicas,
-         &commit_confirmed_by_all_strict_sync_replicas]<typename T>(const T &arg) {
+         &commit_confirmed_by_all_strict_sync_replicas,
+         &rpc_timeout]<typename T>(const T &arg) {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::SyncReplicationError>) {
             commit_confirmed_by_all_sync_replicas = false;
           } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
             commit_confirmed_by_all_strict_sync_replicas = false;
+          } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
+            rpc_timeout = true;
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
             const auto &constraint_violation = arg;
             auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
@@ -9225,6 +9233,12 @@ void Interpreter::Commit() {
     throw ReplicationException(
         "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted "
         "on all instances.");
+  }
+
+  if (rpc_timeout) {
+    throw ReplicationException(
+        "At least one replica reached an RPC timeout. Please set a smaller parameter value for "
+        "'deltas_batch_progress_size' using 'SET COORDINATOR SETTING' query on the coordinator.");
   }
 
   if (IsQueryLoggingActive()) {

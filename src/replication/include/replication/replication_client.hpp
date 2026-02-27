@@ -51,30 +51,32 @@ struct ReplicationClient {
     // Help the user to get the most accurate replica state possible.
     if (replica_check_frequency_ > std::chrono::seconds(0)) {
       replica_checker_.SetInterval(replica_check_frequency_);
-      replica_checker_.Run("Replica Checker",
-                           [this,
-                            succ_cb = std::forward<FS>(success_callback),
-                            fail_cb = std::forward<FF>(fail_callback),
-                            failed_attempts = 0UL]() mutable {
-                             // Measure callbacks also to see how long it takes between scheduled runs
-                             utils::MetricsTimer const timer{metrics::FrequentHeartbeatRpc_us};
-                             try {
-                               {
-                                 auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
-                                 stream.SendAndWait();
-                               }
-                               succ_cb(*this);
-                               failed_attempts = 0U;
-                             } catch (const rpc::RpcFailedException &) {
-                               // Nothing to do...wait for a reconnect
-                               // NOTE: Here we are communicating with the instance connection.
-                               //       We don't have access to the underlying client; so the only thing we can do it
-                               //       tell the callback that this is a reconnection and to check the state
-                               if (constexpr auto kFailureAfterN = 3UL; ++failed_attempts == kFailureAfterN) {
-                                 fail_cb(*this);
-                               }
-                             }
-                           });
+      replica_checker_.Run(
+          "Replica Checker",
+          [this,
+           succ_cb = std::forward<FS>(success_callback),
+           fail_cb = std::forward<FF>(fail_callback),
+           failed_attempts = 0UL]() mutable {
+            // Measure callbacks also to see how long it takes between scheduled runs
+            utils::MetricsTimer const timer{metrics::FrequentHeartbeatRpc_us};
+            auto const res = std::invoke(
+                [this]() -> std::expected<replication_coordination_glue::FrequentHeartbeatRes, utils::RpcError> {
+                  auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
+                  if (!stream.has_value()) return std::unexpected{stream.error()};
+                  return stream.value().SendAndWait();
+                });
+
+            if (res.has_value()) {
+              succ_cb(*this);
+              failed_attempts = 0U;
+            } else if (constexpr auto kFailureAfterN = 3UL; ++failed_attempts == kFailureAfterN) {
+              // Nothing to do...wait for a reconnect
+              // NOTE: Here we are communicating with the instance connection.
+              //       We don't have access to the underlying client; so the only thing we can do it
+              //       tell the callback that this is a reconnection and to check the state
+              fail_cb(*this);
+            }
+          });
     }
   }
 
@@ -85,38 +87,34 @@ struct ReplicationClient {
   //! \return If replica stream is completed or enqueued
   template <typename RPC, typename... Args>
   bool StreamAndFinalizeDelta(auto &&check, Args &&...args) {
-    try {
-      auto stream = rpc_client_.Stream<RPC>(std::forward<Args>(args)...);
-      // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
-      auto task = [this, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
-        if (stream.IsDefunct()) {
-          state_.WithLock([](auto &state) { state = State::BEHIND; });
-          return false;
-        }
-        try {
-          if (check(stream.SendAndWait())) {
-            return true;
-          }
-        } catch (rpc::GenericRpcFailedException const &) {
-          // swallow error, fallthrough to error handling
-        }
-        // This replica needs SYSTEM recovery
-        state_.WithLock([](auto &state) { state = State::BEHIND; });
-        return false;
-      };
-
-      if (mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-        thread_pool_.AddTask(std::move(task));
-        return true;
-      }
-
-      return task();
-    } catch (rpc::GenericRpcFailedException const &) {
-      // This replica needs SYSTEM recovery
+    auto stream = rpc_client_.Stream<RPC>(std::forward<Args>(args)...);
+    if (!stream.has_value()) {
       state_.WithLock([](auto &state) { state = State::BEHIND; });
       return false;
     }
-  };
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+    auto task = [this, check = std::forward<decltype(check)>(check), stream = std::move(stream.value())]() mutable {
+      if (stream.IsDefunct()) {
+        state_.WithLock([](auto &state) { state = State::BEHIND; });
+        return false;
+      }
+
+      if (auto const res = stream.SendAndWait(); res.has_value() && check(res.value())) {
+        return true;
+      }
+      // else: swallow error, fallthrough to error handling
+      // This replica needs SYSTEM recovery
+      state_.WithLock([](auto &state) { state = State::BEHIND; });
+      return false;
+    };
+
+    if (mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+      thread_pool_.AddTask(std::move(task));
+      return true;
+    }
+
+    return task();
+  }
 
   void Shutdown();
 
@@ -128,7 +126,7 @@ struct ReplicationClient {
   // and we want to set replica to listen to main
   bool try_set_uuid{false};
 
-  enum class State {
+  enum class State : uint8_t {
     BEHIND,
     READY,
     RECOVERY,

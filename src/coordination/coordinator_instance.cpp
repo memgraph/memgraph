@@ -1402,7 +1402,8 @@ auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::s
     return RoutingTable{};
   }
 
-  auto res = leader->SendRpc<GetRoutingTableRpc>(std::string{db_name});
+  auto str_db_name = std::string{db_name};
+  auto res = leader->SendRpc<GetRoutingTableRpc>(str_db_name);
   if (res.empty()) {
     spdlog::trace("Couldn't get routing table from leader {}. Returning empty routing table.", leader_id);
   }

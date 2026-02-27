@@ -83,25 +83,25 @@ class ReplicationInstanceClient {
     return first.instance_name_ == second.instance_name_;
   }
 
-  template <rpc::IsRpc T, typename... Args>
+  template <rpc::IsRpc Rpc, typename... Args>
   auto SendRpc(Args &&...args) const -> bool {
-    utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
-    try {
-      auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...);
-
-      if (!stream.SendAndWait().arg_) {
-        spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
-        metrics::IncrementCounter(RpcInfo<T>::failCounter);
-        return false;
-      }
-
-      metrics::IncrementCounter(RpcInfo<T>::succCounter);
-      return true;
-    } catch (rpc::RpcFailedException const &e) {
-      spdlog::error("Failed to receive response to {}. Error occurred: {}", T::Request::kType.name, e.what());
-      metrics::IncrementCounter(RpcInfo<T>::failCounter);
+    utils::MetricsTimer const timer{RpcInfo<Rpc>::timerLabel};
+    auto stream{rpc_client_.Stream<Rpc>(std::forward<Args>(args)...)};
+    if (!stream.has_value()) {
+      spdlog::error("Received unsuccessful response to {}.", Rpc::Request::kType.name);
+      metrics::IncrementCounter(RpcInfo<Rpc>::failCounter);
       return false;
     }
+
+    auto const res = stream.value().SendAndWait();
+    if (res.has_value() && res.value().arg_) {
+      metrics::IncrementCounter(RpcInfo<Rpc>::succCounter);
+      return true;
+    }
+
+    spdlog::error("Received unsuccessful response to {}.", Rpc::Request::kType.name);
+    metrics::IncrementCounter(RpcInfo<Rpc>::failCounter);
+    return false;
   }
 
  private:

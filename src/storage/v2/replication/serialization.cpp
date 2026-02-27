@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,21 +55,24 @@ void Encoder::WriteExternalPropertyValue(const ExternalPropertyValue &value) {
   slk::Save(value, builder_);
 }
 
-void Encoder::WriteFileBuffer(const uint8_t *buffer, const size_t buffer_size) {
-  builder_->SaveFileBuffer(buffer, buffer_size);
+auto Encoder::WriteFileBuffer(const uint8_t *buffer, const size_t buffer_size)
+    -> slk::BuilderWriteFunction::result_type {
+  return builder_->SaveFileBuffer(buffer, buffer_size);
 }
 
-void Encoder::WriteFileData(utils::InputFile *file) {
+auto Encoder::WriteFileData(utils::InputFile *file) -> slk::BuilderWriteFunction::result_type {
   auto file_size = file->GetSize();
   uint8_t buffer[utils::kFileBufferSize];
   while (file_size > 0) {
     const auto chunk_size = std::min(file_size, utils::kFileBufferSize);
     file->Read(buffer, chunk_size);
-    WriteFileBuffer(buffer, chunk_size);
+    if (auto const res = WriteFileBuffer(buffer, chunk_size); !res.has_value()) return res;
     file_size -= chunk_size;
   }
+  return {};
 }
 
+// TODO: (andi) Should we close here the file
 bool Encoder::WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write) {
   builder_->PrepareForFileSending();
   utils::InputFile file;
@@ -84,8 +87,7 @@ bool Encoder::WriteFile(const std::filesystem::path &path, std::filesystem::path
   WriteString(path_to_write.string());
   auto const file_size = file.GetSize();
   WriteUint(file_size);
-  WriteFileData(&file);
-  return true;
+  return WriteFileData(&file).has_value();
 }
 
 ////// Decoder //////

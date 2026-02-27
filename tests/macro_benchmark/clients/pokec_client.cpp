@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,7 @@
 #include <nlohmann/json.hpp>
 
 #include "communication/bolt/v1/value.hpp"
+#include "communication/init.hpp"
 #include "io/network/utils.hpp"
 #include "long_running_common.hpp"
 #include "utils/algorithm.hpp"
@@ -124,11 +125,12 @@ class PokecClient : public TestClient {
     }
     os << "(m) ";
     os << "RETURN n.id";
-    auto ret = Execute(os.str(), {},
+    auto ret = Execute(os.str(),
+                       {},
                        "MATCH (n :label {id: ...}) MATCH (m :label {id: ...}) "
                        "CREATE (n)-[:type ...]-(m)");
-    MG_ASSERT(ret->records.size() == 1U, "from_id: {} to_id: {} ret.records.size(): {}", from_id, to_id,
-              ret->records.size());
+    MG_ASSERT(
+        ret->records.size() == 1U, "from_id: {} to_id: {} ret.records.size(): {}", from_id, to_id, ret->records.size());
     return ret;
   }
 
@@ -160,10 +162,13 @@ class PokecClient : public TestClient {
     CreateVertex(vertex_and_edges.vertex);
 
     for (int i = 0; i < static_cast<int>(vertex_and_edges.vertices.size()); ++i) {
-      auto records =
-          CreateEdge(vertex_and_edges.vertex, label, vertex_and_edges.vertex.properties.at("id").ValueInt(), label,
-                     vertex_and_edges.vertices[i].properties.at("id").ValueInt(), vertex_and_edges.edges[i])
-              ->records;
+      auto records = CreateEdge(vertex_and_edges.vertex,
+                                label,
+                                vertex_and_edges.vertex.properties.at("id").ValueInt(),
+                                label,
+                                vertex_and_edges.vertices[i].properties.at("id").ValueInt(),
+                                vertex_and_edges.edges[i])
+                         ->records;
       MG_ASSERT(records.size() == 1U, "Graph in invalid state {}", vertex_and_edges.vertex.properties.at("id"));
     }
   }

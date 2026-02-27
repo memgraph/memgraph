@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,18 +26,19 @@ extern const Event SwapMainUUIDRpcFail;
 namespace memgraph::replication_coordination_glue {
 
 inline bool SendSwapMainUUIDRpc(rpc::Client &rpc_client_, const utils::UUID &uuid) {
-  try {
-    if (auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)}; !stream.SendAndWait().success) {
-      spdlog::error("Received unsuccessful response to SwapMainUUIDReq");
-      metrics::IncrementCounter(metrics::SwapMainUUIDRpcFail);
-      return false;
-    }
+  auto const res = std::invoke([&rpc_client_, &uuid]() -> std::expected<SwapMainUUIDRes, utils::RpcError> {
+    auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)};
+    if (!stream.has_value()) return std::unexpected{stream.error()};
+    return stream.value().SendAndWait();
+  });
+
+  if (res.has_value() && res.value().success) {
     metrics::IncrementCounter(metrics::SwapMainUUIDRpcSuccess);
     return true;
-  } catch (const rpc::RpcFailedException &e) {
-    spdlog::error("Failed to receive response to SwapMainUUIDReq. Error occurred: {}", e.what());
-    metrics::IncrementCounter(metrics::SwapMainUUIDRpcFail);
   }
+
+  metrics::IncrementCounter(metrics::SwapMainUUIDRpcFail);
+  spdlog::error("Received unsuccessful response to SwapMainUUIDReq");
   return false;
 }
 

@@ -11,10 +11,11 @@
 
 #pragma once
 
-#include "io/network/endpoint.hpp"
 #include "utils/exceptions.hpp"
 
 namespace memgraph::rpc {
+
+// TODO: (andi) Rename exceptions.hpp to errors
 
 /// Exception that is thrown whenever a RPC call fails.
 /// This exception inherits `std::exception` directly because
@@ -28,26 +29,6 @@ class RpcFailedException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
 };
 
-class UnsupportedRpcVersionException final : public RpcFailedException {
- public:
-  UnsupportedRpcVersionException()
-      : RpcFailedException(
-            "Couldn't communicate with the cluster! RPC protocol version not supported. "
-            "Please contact your database administrator.") {}
-
-  SPECIALIZE_GET_EXCEPTION_NAME(UnsupportedRpcVersionException);
-};
-
-class GenericRpcFailedException final : public RpcFailedException {
- public:
-  GenericRpcFailedException()
-      : RpcFailedException(
-            "Couldn't communicate with the cluster! Please contact your "
-            "database administrator.") {}
-
-  SPECIALIZE_GET_EXCEPTION_NAME(GenericRpcFailedException);
-};
-
 class SlkRpcFailedException final : public RpcFailedException {
  public:
   SlkRpcFailedException()
@@ -55,13 +36,6 @@ class SlkRpcFailedException final : public RpcFailedException {
             "Received malformed message from cluster. Please raise an issue on Memgraph GitHub issues.") {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(SlkRpcFailedException);
-};
-
-class FailedToGetRpcStreamException final : public RpcFailedException {
- public:
-  FailedToGetRpcStreamException() : RpcFailedException("Failed to get RPC stream by try-locking.") {}
-
-  SPECIALIZE_GET_EXCEPTION_NAME(FailedToGetRpcStreamException);
 };
 
 }  // namespace memgraph::rpc

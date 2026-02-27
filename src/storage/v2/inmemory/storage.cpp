@@ -1034,7 +1034,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   // If main executes this: Block until we receive votes from all replicas.
   // If replica executes this:,
-  bool const repl_prepare_phase_status =
+  auto const repl_prepare_phase_status =
       HandleDurabilityAndReplicate(durability_commit_timestamp, replicating_txn, commit_args);
 
   // If replica executes this
@@ -1060,7 +1060,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           // WAL file is already finalized
           FinalizeCommitPhase(durability_commit_timestamp);
           // Throw exception if we couldn't commit on one of SYNC replica
-          if (!repl_prepare_phase_status) {
+          if (!repl_prepare_phase_status.has_value()) {
+            if (repl_prepare_phase_status.error() == ReplicationError::TIMEOUT_ERROR) {
+              return std::unexpected{TimeoutReplicationError{}};
+            }
             return std::unexpected{SyncReplicationError{}};
           }
           return {};
@@ -1068,7 +1071,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
         // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
         // cluster.
-        if (repl_prepare_phase_status) {
+        if (repl_prepare_phase_status.has_value()) {
           // All replicas voted yes, hence they want to commit the current transaction
           FinalizeCommitPhase(durability_commit_timestamp);
         }
@@ -1079,12 +1082,16 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         }
         // Send to all replicas they can finalize a transaction
         replicating_txn.FinalizeTransaction(
-            repl_prepare_phase_status, mem_storage->uuid(), protector, durability_commit_timestamp);
+            repl_prepare_phase_status.has_value(), mem_storage->uuid(), protector, durability_commit_timestamp);
 
         if (!repl_prepare_phase_status) {
           // Release engine lock because we don't have to hold it anymore for abort
           engine_guard.unlock();
           AbortAndResetCommitTs();
+
+          if (repl_prepare_phase_status.error() == ReplicationError::TIMEOUT_ERROR) {
+            return std::unexpected{TimeoutReplicationError{}};
+          }
 
           return std::unexpected{StrictSyncReplicationError{}};
         }
@@ -1205,8 +1212,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
       !result && std::visit(
                      [](const auto &e) {
                        // All errors are handled at a higher level.
-                       // Replication errros are not fatal and should procede with finialize transaction
-                       return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
+                       // Replication and timeout errros are not fatal and should procede with finialize transaction
+                       return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError> &&
+                              !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::TimeoutReplicationError>;
                      },
                      result.error());
   if (fatal_error) {  // TODO: this is suspicious, why return like this
@@ -3072,9 +3080,10 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
-bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
+auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                                      TransactionReplication &replicating_txn,
-                                                                     CommitArgs const &commit_args) {
+                                                                     CommitArgs const &commit_args)
+    -> std::expected<void, ReplicationError> {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // If replica executes this:

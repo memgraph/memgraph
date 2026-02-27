@@ -75,47 +75,51 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
                                                    utils::UUID const main_uuid)
     : client_{client}, main_uuid_(main_uuid) {}
 
-void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseProtector const &protector) {
+auto ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseProtector const &protector)
+    -> std::expected<void, utils::RpcError> {
   auto &main_repl_state = main_storage->repl_storage_state_;
   auto const &main_db_name = main_storage->name();
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
-  std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
-      std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
-        utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
+  auto const maybe_heartbeat_res = std::invoke([&]() -> std::expected<replication::HeartbeatRes, utils::RpcError> {
+    utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
 
-        // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
-        // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
-        // from happening when there are old tasks in the queue which need to UpdateReplicaState and the newer commit
-        // task. The deadlock would've occurred because in the commit we hold RPC lock all the time but the task cannot
-        // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
-        if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-          auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
-              std::optional{kHeartbeatRpcTimeout},
-              main_uuid_,
-              main_storage->uuid(),
-              main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-              std::string{main_repl_state.epoch_.id()});
+    // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
+    // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
+    // from happening when there are old tasks in the queue which need to UpdateReplicaState and the newer commit
+    // task. The deadlock would've occurred because in the commit we hold RPC lock all the time but the task cannot
+    // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
+    if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+      auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
+          std::optional{kHeartbeatRpcTimeout},
+          main_uuid_,
+          main_storage->uuid(),
+          main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+          std::string{main_repl_state.epoch_.id()});
 
-          std::optional<replication::HeartbeatRes> res;
-          if (hb_stream) {
-            res.emplace(hb_stream->SendAndWait());
-          }
-          return res;
-        }
+      if (!hb_stream.has_value()) {
+        return std::unexpected{hb_stream.error()};
+      }
+      return hb_stream->SendAndWait();
+    }
 
-        // If SYNC or STRICT_SYNC replica, block while waiting for RPC lock
-        auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-            main_uuid_,
-            main_storage->uuid(),
-            main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-            std::string{main_repl_state.epoch_.id()});
-        return hb_stream.SendAndWait();
-      });
+    // If SYNC or STRICT_SYNC replica, block while waiting for RPC lock
+    auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
+        main_uuid_,
+        main_storage->uuid(),
+        main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+        std::string{main_repl_state.epoch_.id()});
 
-  if (!maybe_heartbeat_res) {
+    if (!hb_stream.has_value()) {
+      return std::unexpected{hb_stream.error()};
+    }
+
+    return hb_stream->SendAndWait();
+  });
+
+  if (!maybe_heartbeat_res.has_value()) {
     spdlog::trace("Couldn't get RPC lock while trying to UpdateReplicaState");
-    return;
+    return std::unexpected{maybe_heartbeat_res.error()};
   }
 
   auto const &heartbeat_res = *maybe_heartbeat_res;
@@ -136,7 +140,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                     std::string{main_storage->uuid()});
       state = memgraph::replication::ReplicationClient::State::BEHIND;
     });
-    return;
+    return {};
 #endif
   }
 
@@ -209,7 +213,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
           state = ReplicaState::DIVERGED_FROM_MAIN;
         }
       });
-      return;
+      return {};
     }
     // When using HA, set the state to recovery and recover replica
     spdlog::debug("Found branching point on replica {} for db {}. Recovery will be executed with force reset option.",
@@ -233,7 +237,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       }
     });
 #endif
-    return;
+    return {};
   }
 
   // No branching point
@@ -263,6 +267,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                                     this] { this->RecoverReplica(current_commit_timestamp, main_storage); });
     }
   });
+
+  return {};
 }
 
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) const {
@@ -298,18 +304,18 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, DatabaseProtector const &protector) {
-  try {
-    UpdateReplicaState(main_storage, protector);
-  } catch (const rpc::UnsupportedRpcVersionException &) {
-    replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+  auto const res = UpdateReplicaState(main_storage, protector);
+  if (res.has_value()) return;
+
+  replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+  if (res.error() == utils::RpcError::UNSUPPORTED_RPC_VERSION_ERROR) {
     spdlog::error(
         utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}. Because the replica "
                                "deployed is not a compatible version.",
                                client_.name_,
                                client_.rpc_client_.Endpoint().SocketAddress(),
                                "https://memgr.ph/replication"));
-  } catch (const rpc::RpcFailedException &) {
-    replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+  } else {
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.",
                                          client_.name_,
                                          client_.rpc_client_.Endpoint().SocketAddress(),
@@ -358,13 +364,11 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
       return std::nullopt;
     }
     case READY: {
-      try {
-        utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
-        std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
+      utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
 
-        // Try to obtain RPC stream for ASYNC replica. It is OK to fail.
+      auto maybe_stream_handler = std::invoke([&]() {
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-          maybe_stream_handler = client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
+          return client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
               std::optional{kCommitRpcTimeout},
               main_uuid_,
               storage->uuid(),
@@ -372,27 +376,27 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
               TwoPhaseCommit(),
               durability_commit_timestamp);
         } else {  // Block for SYNC and STRICT_SYNC replica until we obtain the RPC lock
-          maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
+          return client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
               main_uuid_,
               storage->uuid(),
               storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
               TwoPhaseCommit(),
-              durability_commit_timestamp));
+              durability_commit_timestamp);
         }
+      });
 
-        if (!maybe_stream_handler) {
+      if (!maybe_stream_handler.has_value()) {
+        if (maybe_stream_handler.error() == utils::RpcError::FAILED_TO_GET_RPC_STREAM) {
           spdlog::trace("Couldn't obtain RPC lock for committing to ASYNC replica.");
-          *locked_state = MAYBE_BEHIND;
-          return std::nullopt;
+        } else {
+          LogRpcFailure();
         }
-
-        *locked_state = REPLICATING;
-        return ReplicaStream(storage, std::move(*maybe_stream_handler));
-      } catch (const rpc::RpcFailedException &) {
         *locked_state = MAYBE_BEHIND;
-        LogRpcFailure();
         return std::nullopt;
       }
+
+      *locked_state = REPLICATING;
+      return ReplicaStream(storage, std::move(maybe_stream_handler.value()));
     }
     default:
       LOG_FATAL("Unknown replica state when starting transaction replication.");
@@ -410,30 +414,33 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     return true;
   }
 
-  try {
+  auto const res = std::invoke([&]() -> std::expected<replication::FinalizeCommitRes, utils::RpcError> {
     auto stream{
         client_.rpc_client_.UpgradeStream<replication::FinalizeCommitRpc>(std::move(replica_stream->GetStreamHandler()),
                                                                           decision,
                                                                           main_uuid_,
                                                                           storage_uuid,
                                                                           durability_commit_timestamp)};
-    auto const res = stream.SendAndWait().success;
-    if (res) {
-      auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-        return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
-      };
-      atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+    if (!stream.has_value()) {
+      return std::unexpected{stream.error()};
     }
-    return res;
-  } catch (const rpc::RpcFailedException &) {
-    // Frequent heartbeat should trigger the recovery. Until then, commits on MAIN won't be allowed
-    return false;
+    return stream.value().SendAndWait();
+  });
+  if (res.has_value() && res->success) {
+    auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+      return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
+    };
+    atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+    return res->success;
   }
+  spdlog::error("FinalizeCommitRpc failed");
+  return false;
 }
 
 // Only STRICT_SYNC replicas can call this function
-bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
-                                                          uint64_t durability_commit_timestamp) const {
+auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
+                                                          uint64_t durability_commit_timestamp) const
+    -> std::expected<void, ReplicationError> {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -455,7 +462,7 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   });
 
   if (!continue_finalize) {
-    return false;
+    return std::unexpected{ReplicationError::GENERIC_ERROR};
   }
 
   if (!replica_stream || replica_stream->IsDefunct()) {
@@ -464,47 +471,53 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
       state = ReplicaState::MAYBE_BEHIND;
     });
     LogRpcFailure();
-    return false;
+    return std::unexpected{ReplicationError::GENERIC_ERROR};
   }
 
   MG_ASSERT(replica_stream, "Missing stream for transaction deltas for replica {}", client_.name_);
-  try {
-    auto response = replica_stream->Finalize();
-    // NOLINTNEXTLINE
-    return replica_state_.WithLock([this, response, durability_commit_timestamp](auto &state) mutable {
-      // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
-      // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
-      // MAYBE_BEHIND state if we missed next txn.
-      if (state != ReplicaState::REPLICATING) {
-        return false;
-      }
 
-      if (!response.success) {
-        state = ReplicaState::MAYBE_BEHIND;
-        return false;
-      }
-
-      auto update_func = [&durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-        return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
-      };
-      atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-
-      state = ReplicaState::READY;
-      return true;
-    });
-  } catch (const rpc::RpcFailedException &) {
+  auto const maybe_response = replica_stream->Finalize();
+  if (!maybe_response.has_value()) {
     replica_state_.WithLock([&replica_stream](auto &state) {
       replica_stream.reset();
       state = ReplicaState::MAYBE_BEHIND;
     });
     LogRpcFailure();
-    return false;
+    if (maybe_response.error() == utils::RpcError::TIMEOUT_ERROR) {
+      return std::unexpected{ReplicationError::TIMEOUT_ERROR};
+    }
+    return std::unexpected{ReplicationError::GENERIC_ERROR};
   }
+
+  // NOLINTNEXTLINE
+  return replica_state_.WithLock([this, response = *maybe_response, durability_commit_timestamp](
+                                     auto &state) mutable -> std::expected<void, ReplicationError> {
+    // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
+    // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+    // MAYBE_BEHIND state if we missed next txn.
+    if (state != ReplicaState::REPLICATING) {
+      return std::unexpected{ReplicationError::GENERIC_ERROR};
+    }
+
+    if (!response.success) {
+      state = ReplicaState::MAYBE_BEHIND;
+      return std::unexpected{ReplicationError::GENERIC_ERROR};
+    }
+
+    auto update_func = [&durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+      return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
+    };
+    atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+
+    state = ReplicaState::READY;
+    return {};
+  });
 }
 
-bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
+auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
                                                               std::optional<ReplicaStream> &&replica_stream,
-                                                              uint64_t durability_commit_timestamp) const {
+                                                              uint64_t durability_commit_timestamp) const
+    -> std::expected<void, ReplicationError> {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -526,7 +539,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   });
 
   if (!continue_finalize) {
-    return false;
+    return std::unexpected{ReplicationError::GENERIC_ERROR};
   }
 
   if (!replica_stream || replica_stream->IsDefunct()) {
@@ -535,64 +548,67 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       state = ReplicaState::MAYBE_BEHIND;
     });
     LogRpcFailure();
-    return false;
+    return std::unexpected{ReplicationError::GENERIC_ERROR};
   }
 
   auto task = [this,
                protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
-               durability_commit_timestamp]() mutable -> bool {
+               durability_commit_timestamp]() mutable -> std::expected<void, ReplicationError> {
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
-    try {
-      auto response = replica_stream_obj->Finalize();
-      // NOLINTNEXTLINE
-      return replica_state_.WithLock(
-          [this, response, &replica_stream_obj, durability_commit_timestamp](auto &state) mutable {
-            replica_stream_obj.reset();
 
-            // It doesn't matter whether we started a new txn or not, we can increment here the number of known
-            // committed txns for replica
-            if (response.success) {
-              auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-                return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
-              };
-              atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-            }
-
-            // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
-            // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
-            // MAYBE_BEHIND state if we missed next txn.
-            if (state != ReplicaState::REPLICATING) {
-              return false;
-            }
-
-            if (!response.success) {
-              state = ReplicaState::MAYBE_BEHIND;
-              return false;
-            }
-
-            auto update_func = [durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-              return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
-            };
-            atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-
-            state = ReplicaState::READY;
-            return true;
-          });
-    } catch (const rpc::RpcFailedException &) {
+    auto const maybe_response = replica_stream_obj->Finalize();
+    if (!maybe_response.has_value()) {
       replica_state_.WithLock([&replica_stream_obj](auto &state) {
         replica_stream_obj.reset();
         state = ReplicaState::MAYBE_BEHIND;
       });
       LogRpcFailure();
-      return false;
+      if (maybe_response.error() == utils::RpcError::TIMEOUT_ERROR) {
+        return std::unexpected{ReplicationError::TIMEOUT_ERROR};
+      }
+      return std::unexpected{ReplicationError::GENERIC_ERROR};
     }
+    // NOLINTNEXTLINE
+    return replica_state_.WithLock([this, response = *maybe_response, &replica_stream_obj, durability_commit_timestamp](
+                                       auto &state) mutable -> std::expected<void, ReplicationError> {
+      replica_stream_obj.reset();
+
+      // It doesn't matter whether we started a new txn or not, we can increment here the number of known
+      // committed txns for replica
+      if (response.success) {
+        auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+          return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
+        };
+        atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+      }
+
+      // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
+      // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+      // MAYBE_BEHIND state if we missed next txn.
+      if (state != ReplicaState::REPLICATING) {
+        return std::unexpected{ReplicationError::GENERIC_ERROR};
+      }
+
+      if (!response.success) {
+        state = ReplicaState::MAYBE_BEHIND;
+        return std::unexpected{ReplicationError::GENERIC_ERROR};
+      }
+
+      auto update_func = [durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+        return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
+      };
+      atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+
+      state = ReplicaState::READY;
+      return {};
+    });
   };
 
   if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
     // When in ASYNC mode, we ignore the return value from task() and always return true
     client_.thread_pool_.AddTask(std::move(task));
-    return true;
+    return {};
   }
 
   // If we are in SYNC mode, we return the result of task().
@@ -640,100 +656,169 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
         client_.name_,
         main_db_name);
     replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+    metrics::IncrementCounter(metrics::ReplicaRecoveryFail);
     return;
   }
   auto const &steps = *maybe_steps;
 
   for (auto const &[step_index, recovery_step] : ranges::views::enumerate(steps)) {
-    try {
-      spdlog::trace("Replica: {}, db: {}. Recovering in step: {}. Current local replica commit: {}.",
+    spdlog::trace("Replica: {}, db: {}. Recovering in step: {}. Current local replica commit: {}.",
+                  client_.name_,
+                  main_db_name,
+                  step_index,
+                  replica_last_commit_ts);
+    std::visit(
+        utils::Overloaded{
+            [this,
+             &replica_last_commit_ts,
+             main_mem_storage,
+             &rpcClient,
+             &recovery_failed,
+             main_uuid = main_uuid_,
+             &main_db_name,
+             repl_mode = client_.mode_](RecoverySnapshot const &snapshot) {
+              spdlog::debug(
+                  "Sending the latest snapshot file {} to {} for db {}", snapshot, client_.name_, main_db_name);
+              // Loading snapshot on the replica side either passes cleanly or it doesn't pass at all. If it doesn't
+              // pass, we won't update commit timestamp. Heartbeat should trigger recovering replica again.
+              auto const maybe_response = TransferDurabilityFiles<replication::SnapshotRpc>(
+                  snapshot,
+                  rpcClient,
+                  main_mem_storage->config_.durability.root_data_directory,
+                  repl_mode,
+                  main_uuid,
+                  main_mem_storage->uuid());
+
+              if (!maybe_response.has_value()) {
+                recovery_failed = true;
+                spdlog::error("Failed to transfer durability files to {} for db {}: {}",
+                              client_.name_,
+                              main_db_name,
+                              TransferDurabilityFilesErrorMsg(maybe_response.error()));
+                return;
+              }
+
+              if (auto const &response = *maybe_response; response.current_commit_timestamp_.has_value()) {
+                replica_last_commit_ts = *(response.current_commit_timestamp_);
+                auto update_func = [new_num_txns_committed = response.num_txns_committed_](
+                                       CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+                  return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = new_num_txns_committed};
+                };
+                atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+                spdlog::debug(
+                    "Successful reply to the snapshot file {} received from {} for db {}. Current replica commit is "
+                    "{}. Number of committed txns set to {}.",
+                    snapshot,
                     client_.name_,
                     main_db_name,
-                    step_index,
-                    replica_last_commit_ts);
-      std::visit(
-          utils::Overloaded{
-              [this,
-               &replica_last_commit_ts,
-               main_mem_storage,
-               &rpcClient,
-               &recovery_failed,
-               main_uuid = main_uuid_,
-               &main_db_name,
-               repl_mode = client_.mode_](RecoverySnapshot const &snapshot) {
+                    replica_last_commit_ts,
+                    response.num_txns_committed_);
+              } else {
                 spdlog::debug(
-                    "Sending the latest snapshot file {} to {} for db {}", snapshot, client_.name_, main_db_name);
-                // Loading snapshot on the replica side either passes cleanly or it doesn't pass at all. If it doesn't
-                // pass, we won't update commit timestamp. Heartbeat should trigger recovering replica again.
-                auto const maybe_response = TransferDurabilityFiles<replication::SnapshotRpc>(
+                    "Unsuccessful reply to the snapshot file {} received from {} for db {}. Current replica commit "
+                    "is {}",
                     snapshot,
+                    client_.name_,
+                    main_db_name,
+                    replica_last_commit_ts);
+                recovery_failed = true;
+              }
+            },
+            [this,
+             &replica_last_commit_ts,
+             main_mem_storage,
+             &rpcClient,
+             &recovery_failed,
+             do_reset = reset_needed && step_index == 0,
+             main_uuid = main_uuid_,
+             &main_db_name,
+             repl_mode = client_.mode_](RecoveryWals const &wals) {
+              spdlog::debug("Sending the latest wal files to {} for db {}.", client_.name_, main_db_name);
+
+              if (wals.empty()) {
+                spdlog::trace("Wal files list is empty, nothing to send.");
+                return;
+              }
+              spdlog::debug("Sending WAL files to {} for db {}.", client_.name_, main_db_name);
+              // We don't care about partial progress when loading WAL files. We are only interested if everything
+              // passed so that possibly next step of recovering current wal can be executed
+
+              auto const maybe_response = TransferDurabilityFiles<replication::WalFilesRpc>(
+                  wals,
+                  rpcClient,
+                  main_mem_storage->config_.durability.root_data_directory,
+                  repl_mode,
+                  wals.size(),
+                  main_uuid,
+                  main_mem_storage->uuid(),
+                  do_reset);
+
+              if (!maybe_response.has_value()) {
+                recovery_failed = true;
+                spdlog::error("Failed to transfer durability files to {} for db {}: {}",
+                              client_.name_,
+                              main_db_name,
+                              TransferDurabilityFilesErrorMsg(maybe_response.error()));
+                return;
+              }
+
+              if (auto const &response = *maybe_response; response.current_commit_timestamp_.has_value()) {
+                replica_last_commit_ts = *(response.current_commit_timestamp_);
+                auto update_func =
+                    [operand = response.num_txns_committed_](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+                  return {.ldt_ = commit_ts_info.ldt_,
+                          .num_committed_txns_ = commit_ts_info.num_committed_txns_ + operand};
+                };
+                atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+                spdlog::debug(
+                    "Successful reply to WAL files received from {} for db {}. Updating replica commit to {}. Number "
+                    "of committed txns increased by {}",
+                    client_.name_,
+                    main_db_name,
+                    replica_last_commit_ts,
+                    response.num_txns_committed_);
+              } else {
+                spdlog::debug(
+                    "Unsuccessful reply to WAL files received from {} for db {}. Current replica commit is {}.",
+                    client_.name_,
+                    main_db_name,
+                    replica_last_commit_ts);
+                recovery_failed = true;
+              }
+            },
+            [this,
+             &replica_last_commit_ts,
+             main_mem_storage,
+             &rpcClient,
+             &recovery_failed,
+             do_reset = reset_needed && step_index == 0,
+             main_uuid = main_uuid_,
+             &main_db_name,
+             repl_mode = client_.mode_](RecoveryCurrentWal const &current_wal) {
+              std::unique_lock transaction_guard(main_mem_storage->engine_lock_);
+              if (main_mem_storage->wal_file_ &&
+                  main_mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
+                utils::OnScopeExit const on_exit(
+                    [main_mem_storage]() { main_mem_storage->wal_file_->EnableFlushing(); });
+                main_mem_storage->wal_file_->DisableFlushing();
+                transaction_guard.unlock();
+                spdlog::debug("Sending current wal file to {} for db {}.", client_.name_, main_db_name);
+
+                auto const maybe_response = TransferDurabilityFiles<replication::CurrentWalRpc>(
+                    main_mem_storage->wal_file_->Path(),
                     rpcClient,
                     main_mem_storage->config_.durability.root_data_directory,
                     repl_mode,
-                    main_uuid,
-                    main_mem_storage->uuid());
-                // Error happened on our side when trying to load snapshot file
-                if (!maybe_response) {
-                  recovery_failed = true;
-                  return;
-                }
-
-                if (auto const &response = *maybe_response; response.current_commit_timestamp_.has_value()) {
-                  replica_last_commit_ts = *(response.current_commit_timestamp_);
-                  auto update_func = [new_num_txns_committed = response.num_txns_committed_](
-                                         CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-                    return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = new_num_txns_committed};
-                  };
-                  atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-                  spdlog::debug(
-                      "Successful reply to the snapshot file {} received from {} for db {}. Current replica commit is "
-                      "{}. Number of committed txns set to {}.",
-                      snapshot,
-                      client_.name_,
-                      main_db_name,
-                      replica_last_commit_ts,
-                      response.num_txns_committed_);
-                } else {
-                  spdlog::debug(
-                      "Unsuccessful reply to the snapshot file {} received from {} for db {}. Current replica commit "
-                      "is {}",
-                      snapshot,
-                      client_.name_,
-                      main_db_name,
-                      replica_last_commit_ts);
-                  recovery_failed = true;
-                }
-              },
-              [this,
-               &replica_last_commit_ts,
-               main_mem_storage,
-               &rpcClient,
-               &recovery_failed,
-               do_reset = reset_needed && step_index == 0,
-               main_uuid = main_uuid_,
-               &main_db_name,
-               repl_mode = client_.mode_](RecoveryWals const &wals) {
-                spdlog::debug("Sending the latest wal files to {} for db {}.", client_.name_, main_db_name);
-
-                if (wals.empty()) {
-                  spdlog::trace("Wal files list is empty, nothing to send.");
-                  return;
-                }
-                spdlog::debug("Sending WAL files to {} for db {}.", client_.name_, main_db_name);
-                // We don't care about partial progress when loading WAL files. We are only interested if everything
-                // passed so that possibly next step of recovering current wal can be executed
-
-                auto const maybe_response = TransferDurabilityFiles<replication::WalFilesRpc>(
-                    wals,
-                    rpcClient,
-                    main_mem_storage->config_.durability.root_data_directory,
-                    repl_mode,
-                    wals.size(),
                     main_uuid,
                     main_mem_storage->uuid(),
                     do_reset);
-                if (!maybe_response) {
+
+                if (!maybe_response.has_value()) {
                   recovery_failed = true;
+                  spdlog::error("Failed to transfer durability files to {} for db {}: {}",
+                                client_.name_,
+                                main_db_name,
+                                TransferDurabilityFilesErrorMsg(maybe_response.error()));
                   return;
                 }
 
@@ -746,93 +831,28 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   };
                   atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
                   spdlog::debug(
-                      "Successful reply to WAL files received from {} for db {}. Updating replica commit to {}. Number "
-                      "of committed txns increased by {}",
+                      "Successful reply to the current WAL received from {} for db {}. Current replica commit is {}. "
+                      "Number of committed txns increased by {}",
                       client_.name_,
                       main_db_name,
                       replica_last_commit_ts,
                       response.num_txns_committed_);
                 } else {
                   spdlog::debug(
-                      "Unsuccessful reply to WAL files received from {} for db {}. Current replica commit is {}.",
+                      "Unsuccessful reply to WAL files received from {} for db {}. Current replica commit is {}",
                       client_.name_,
                       main_db_name,
                       replica_last_commit_ts);
                   recovery_failed = true;
                 }
-              },
-              [this,
-               &replica_last_commit_ts,
-               main_mem_storage,
-               &rpcClient,
-               &recovery_failed,
-               do_reset = reset_needed && step_index == 0,
-               main_uuid = main_uuid_,
-               &main_db_name,
-               repl_mode = client_.mode_](RecoveryCurrentWal const &current_wal) {
-                std::unique_lock transaction_guard(main_mem_storage->engine_lock_);
-                if (main_mem_storage->wal_file_ &&
-                    main_mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
-                  utils::OnScopeExit const on_exit(
-                      [main_mem_storage]() { main_mem_storage->wal_file_->EnableFlushing(); });
-                  main_mem_storage->wal_file_->DisableFlushing();
-                  transaction_guard.unlock();
-                  spdlog::debug("Sending current wal file to {} for db {}.", client_.name_, main_db_name);
+              } else {
+                spdlog::debug("Cannot recover using current wal file {} for db {}.", client_.name_, main_db_name);
+              }
+            },
+            []<typename T>(T const &) { static_assert(utils::always_false<T>, "Missing type from variant visitor"); },
+        },
+        recovery_step);
 
-                  auto const maybe_response = TransferDurabilityFiles<replication::CurrentWalRpc>(
-                      main_mem_storage->wal_file_->Path(),
-                      rpcClient,
-                      main_mem_storage->config_.durability.root_data_directory,
-                      repl_mode,
-                      main_uuid,
-                      main_mem_storage->uuid(),
-                      do_reset);
-                  // Error happened on our side when trying to load current WAL file
-                  if (!maybe_response) {
-                    recovery_failed = true;
-                    return;
-                  }
-
-                  if (auto const &response = *maybe_response; response.current_commit_timestamp_.has_value()) {
-                    replica_last_commit_ts = *(response.current_commit_timestamp_);
-                    auto update_func =
-                        [operand = response.num_txns_committed_](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-                      return {.ldt_ = commit_ts_info.ldt_,
-                              .num_committed_txns_ = commit_ts_info.num_committed_txns_ + operand};
-                    };
-                    atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-                    spdlog::debug(
-                        "Successful reply to the current WAL received from {} for db {}. Current replica commit is {}. "
-                        "Number of committed txns increased by {}",
-                        client_.name_,
-                        main_db_name,
-                        replica_last_commit_ts,
-                        response.num_txns_committed_);
-                  } else {
-                    spdlog::debug(
-                        "Unsuccessful reply to WAL files received from {} for db {}. Current replica commit is {}",
-                        client_.name_,
-                        main_db_name,
-                        replica_last_commit_ts);
-                    recovery_failed = true;
-                  }
-                } else {
-                  spdlog::debug("Cannot recover using current wal file {} for db {}.", client_.name_, main_db_name);
-                }
-              },
-              []<typename T>(T const &) { static_assert(utils::always_false<T>, "Missing type from variant visitor"); },
-          },
-          recovery_step);
-    } catch (const rpc::RpcFailedException &) {
-      auto update_func = [replica_last_commit_ts](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-        return {.ldt_ = replica_last_commit_ts, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
-      };
-      atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-      replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
-      LogRpcFailure();
-      metrics::IncrementCounter(metrics::ReplicaRecoveryFail);
-      return;
-    }
     // If recovery failed, set the state to MAYBE_BEHIND because replica for sure didn't recover completely
     if (recovery_failed) {
       spdlog::debug("One of recovery steps failed, setting replica state to MAYBE_BEHIND");
@@ -916,7 +936,7 @@ void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) 
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-replication::PrepareCommitRes ReplicaStream::Finalize() {
+auto ReplicaStream::Finalize() -> std::expected<replication::PrepareCommitRes, utils::RpcError> {
   utils::MetricsTimer const timer{metrics::PrepareCommitRpc_us};
   return stream_.SendAndWaitProgress();
 }

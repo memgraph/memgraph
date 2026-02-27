@@ -24,13 +24,19 @@ class CoordinatorInstanceConnector {
   template <rpc::IsRpc Rpc, typename... Args>
   auto SendRpc(Args &&...args) {
     using ReturnType = decltype(std::declval<typename Rpc::Response>().arg_);
-    try {
-      auto stream{client_.RpcClient().Stream<Rpc>(std::forward<Args>(args)...)};
-      return stream.SendAndWait().arg_;
-    } catch (std::exception const &e) {
-      spdlog::error("Failed to receive response to {}: {}", Rpc::Request::kType.name, e.what());
+    auto stream{client_.RpcClient().Stream<Rpc>(std::forward<Args>(args)...)};
+    if (!stream.has_value()) {
+      spdlog::error(
+          "Failed to receive response to {}: {}", Rpc::Request::kType.name, utils::GetRpcErrorMsg(stream.error()));
       return ReturnType{};
     }
+    auto res = stream.value().SendAndWait();
+
+    if (res.has_value()) {
+      return res.value().arg_;
+    }
+    spdlog::error("Failed to receive response to {}: {}", Rpc::Request::kType.name, utils::GetRpcErrorMsg(res.error()));
+    return ReturnType{};
   }
 
  private:
