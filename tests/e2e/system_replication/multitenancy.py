@@ -19,7 +19,7 @@ from typing import Any, Dict
 import interactive_mg_runner
 import mgclient
 import pytest
-from common import execute_and_fetch_all, get_data_path, get_logs_path
+from common import drop_database_with_retry, execute_and_fetch_all, get_data_path, get_logs_path
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -1153,8 +1153,8 @@ def test_automatic_databases_drop_multitenancy_replication(connection, test_name
 
     # 4/
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
-    execute_and_fetch_all(main_cursor, "DROP DATABASE A;")
-    execute_and_fetch_all(main_cursor, "DROP DATABASE B;")
+    execute_and_fetch_all(main_cursor, "DROP DATABASE A FORCE;")
+    drop_database_with_retry(main_cursor, "B")
 
     # 5/
     databases_on_main = show_databases_func(main_cursor)()
@@ -1193,7 +1193,7 @@ def test_drop_multitenancy_replication_restart_replica(connection, replica_name,
     # 3/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
-    execute_and_fetch_all(main_cursor, "DROP DATABASE B;")
+    drop_database_with_retry(main_cursor, "B")
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
 
     # 4/
@@ -1259,7 +1259,7 @@ def test_multitenancy_drop_while_replica_using(connection, test_name):
     execute_and_fetch_all(replica2_cursor, "USE DATABASE A;")
 
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
-    execute_and_fetch_all(main_cursor, "DROP DATABASE A;")
+    drop_database_with_retry(main_cursor, "A")
 
     # 5/
     # TODO Remove this once there is a replica state for the system
@@ -1472,7 +1472,7 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection, test_nam
     execute_and_fetch_all(replica2_cursor, "USE DATABASE A;")
 
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
-    execute_and_fetch_all(main_cursor, "DROP DATABASE A;")
+    drop_database_with_retry(main_cursor, "A")
 
     # 5/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
