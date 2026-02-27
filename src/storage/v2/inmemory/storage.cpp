@@ -507,16 +507,13 @@ InMemoryStorage::~InMemoryStorage() {
 
   // Free all light edges: live edges in vertex adjacency lists + graveyard
   if (config_.salient.items.storage_light_edge) {
-    // Collect unique Edge* from out_edges only (same edge appears in both in_edges and out_edges)
-    std::unordered_set<Edge *> live_edges;
+    // Iterate out_edges only: each edge appears exactly once across all vertices
+    // (a self-loop has one entry in the source vertex's out_edges), so no deduplication needed.
     auto vertex_acc = vertices_.access();
     for (auto &vertex : vertex_acc) {
       for (auto const &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
-        live_edges.insert(edge_ref.ptr);
+        DeleteLightEdge(edge_ref.ptr);
       }
-    }
-    for (auto *edge : live_edges) {
-      DeleteLightEdge(edge);
     }
 
     // Drain graveyard
@@ -4243,17 +4240,14 @@ void InMemoryStorage::Clear() {
   auto gc_lock = std::unique_lock{gc_lock_};
   auto engine_lock = std::unique_lock{engine_lock_};
 
-  // Free light edges before clearing vertices (need vertex adjacency lists to find them)
+  // Free light edges before clearing vertices (need vertex adjacency lists to find them).
+  // Iterate out_edges only: each edge appears exactly once across all vertices.
   if (config_.salient.items.storage_light_edge) {
-    std::unordered_set<Edge *> live_edges;
     auto vertex_acc = vertices_.access();
     for (auto &vertex : vertex_acc) {
       for (auto const &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
-        live_edges.insert(edge_ref.ptr);
+        DeleteLightEdge(edge_ref.ptr);
       }
-    }
-    for (auto *edge : live_edges) {
-      DeleteLightEdge(edge);
     }
     // Drain graveyard
     light_edge_graveyard_.WithLock([&](auto &graveyard) {

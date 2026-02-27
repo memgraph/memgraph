@@ -1340,14 +1340,42 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                                    memgraph::storage::Vertex *>>
               edge_info;
 
-          // Slow path: resolve edge pointer.
+          // Resolve edge_raw.
+          // For light edges: prefer a direct from_vertex->out_edges scan (O(log V + out_degree))
+          // over storage->FindEdge (which may be O(V * out_degree) without edges_metadata).
+          // The full edge info (edge_type, from_vertex, to_vertex) captured here is reused in
+          // the edge_info resolution block below to avoid any redundant second lookup.
           storage::Edge *edge_raw = nullptr;
+          // Populated for light edges to short-circuit the resolution block.
+          std::optional<std::tuple<EdgeRef,
+                                   memgraph::storage::EdgeTypeId,
+                                   memgraph::storage::Vertex *,
+                                   memgraph::storage::Vertex *>>
+              light_edge_info;
+
           if (storage->config_.salient.items.storage_light_edge) {
-            auto found_edge = storage->FindEdge(data.gid);
-            if (!found_edge) {
-              throw utils::BasicException("Failed to find light edge {} when setting property.", edge_gid);
+            if (data.from_gid.has_value()) {
+              // Direct scan: O(log V + deg), always at least as fast as storage->FindEdge.
+              auto vertex_acc = storage->vertices_.access();
+              auto from_vertex_it = vertex_acc.find(*data.from_gid);
+              if (from_vertex_it == vertex_acc.end())
+                throw utils::BasicException(
+                    "Failed to find from vertex {} for light edge {} property.", data.from_gid->AsUint(), edge_gid);
+              auto found = r::find_if(from_vertex_it->out_edges,
+                                      [&data](const auto &e) { return std::get<2>(e).ptr->gid == data.gid; });
+              if (found == from_vertex_it->out_edges.end())
+                throw utils::BasicException("Failed to find light edge {} in from_vertex out_edges.", edge_gid);
+              edge_raw = std::get<2>(*found).ptr;
+              // Capture full info now; visibility was already confirmed by ApplyDeltasForRead below.
+              light_edge_info.emplace(std::get<2>(*found), std::get<0>(*found), &*from_vertex_it, std::get<1>(*found));
+            } else {
+              // from_gid not in WAL delta (legacy format): fall back to storage scan as last resort.
+              auto found_edge = storage->FindEdge(data.gid);
+              if (!found_edge)
+                throw utils::BasicException("Failed to find light edge {} when setting property.", edge_gid);
+              edge_raw = std::get<0>(*found_edge).ptr;
+              light_edge_info = found_edge;  // cache to avoid a second FindEdge in the resolution block
             }
-            edge_raw = std::get<0>(*found_edge).ptr;
           } else {
             auto edge_it = edge_acc.find(data.gid);
             if (edge_it == edge_acc.end()) {
@@ -1391,6 +1419,12 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
 
           auto [edge_ref, edge_type, from_vertex, vertex_to] = std::invoke([&] {
+            // Light edges: reuse info captured during the initial edge_raw lookup (avoids any
+            // redundant FindEdge / out_edges scan).
+            if (light_edge_info.has_value()) {
+              return *light_edge_info;
+            }
+
             if (data.from_gid.has_value()) {
               // Faster path: use to vertex and edge type from WAL delta.
               // Newer versions store to_gid and edge_type when needed, so we can use the faster path via FindEdge.

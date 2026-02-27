@@ -9297,20 +9297,18 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
             },
             edge_batches);
         // Merge per-batch vectors (already in GID order since batches are non-overlapping GID ranges).
-        // Reserve upfront so emplace_back below cannot throw, making the loop exception-safe.
-        // Each source pointer is nullified immediately after transfer so that the cleanup lambda
-        // cannot double-free if an exception occurs mid-merge (e.g., in reserve itself).
+        // Reserve upfront so insert cannot reallocate, making it non-throwing.
+        // pairs of (uint64_t, Edge*) are trivially copyable so insert itself cannot throw.
+        // Clear each source batch immediately after inserting to prevent double-free in the
+        // cleanup lambda if reserve throws (cleanup skips cleared/empty batches).
         {
           size_t total = 0;
           for (auto const &batch_vec : per_batch_light_edges) total += batch_vec.size();
           all_light_edges.reserve(all_light_edges.size() + total);
         }
         for (auto &batch_vec : per_batch_light_edges) {
-          for (auto &[gid, ptr] : batch_vec) {
-            all_light_edges.emplace_back(gid, ptr);
-            ptr = nullptr;  // nullify immediately; cleanup lambda skips null entries
-          }
-          batch_vec.clear();
+          all_light_edges.insert(all_light_edges.end(), batch_vec.begin(), batch_vec.end());
+          batch_vec.clear();  // safe: insert is non-throwing after reserve; clear() never throws
         }
         per_batch_light_edges.clear();
       } else {
