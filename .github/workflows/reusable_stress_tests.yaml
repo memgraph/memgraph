@@ -37,7 +37,7 @@ jobs:
       BUILD_TYPE: Release
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -127,7 +127,7 @@ jobs:
       BUILD_TYPE: Release
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -202,7 +202,7 @@ jobs:
     timeout-minutes: 180
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -216,6 +216,14 @@ jobs:
         if: ${{ inputs.memgraph_image != '' }}
         run: |
           read image_type image_value < <(python3 tools/ci/issu_image_type.py "$INPUT_IMAGE")
+          if [[ -z "$image_type" || -z "$image_value" ]]; then
+            echo "::error::Failed to determine image type from input: $INPUT_IMAGE"
+            exit 1
+          fi
+          if [[ "$image_type" != "docker" && "$image_type" != "url" ]]; then
+            echo "::error::Unknown image type '$image_type' for input: $INPUT_IMAGE (expected 'docker' or 'url')"
+            exit 1
+          fi
           echo "IMAGE_TYPE=${image_type}" >> $GITHUB_ENV
           echo "IMAGE_VALUE=${image_value}" >> $GITHUB_ENV
 
@@ -240,7 +248,7 @@ jobs:
           echo "MEMGRAPH_IMAGE=${repo_tag}" >> $GITHUB_ENV
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -267,7 +275,7 @@ jobs:
     timeout-minutes: 180
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -281,6 +289,14 @@ jobs:
         if: ${{ inputs.memgraph_image != '' }}
         run: |
           read image_type image_value < <(python3 tools/ci/issu_image_type.py "$INPUT_IMAGE")
+          if [[ -z "$image_type" || -z "$image_value" ]]; then
+            echo "::error::Failed to determine image type from input: $INPUT_IMAGE"
+            exit 1
+          fi
+          if [[ "$image_type" != "docker" && "$image_type" != "url" ]]; then
+            echo "::error::Unknown image type '$image_type' for input: $INPUT_IMAGE (expected 'docker' or 'url')"
+            exit 1
+          fi
           echo "IMAGE_TYPE=${image_type}" >> $GITHUB_ENV
           echo "IMAGE_VALUE=${image_value}" >> $GITHUB_ENV
 
@@ -324,7 +340,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 

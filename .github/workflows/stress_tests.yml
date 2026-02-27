@@ -38,6 +38,8 @@ jobs:
       arch: ${{ inputs.arch }}
       build_type: RelWithDebInfo
       push_to_s3: true
+      # NOTE: S3 bucket should have a lifecycle rule on prefix "stress-test/mage/"
+      # to expire objects after 3 days to avoid buildup.
       s3_dest_dir: "stress-test/mage/${{ github.run_id }}"
       print_output_url: true
       run_tests: false
@@ -64,7 +66,7 @@ jobs:
 
   stress_test_docker_ha:
     name: "Stress Tests Docker HA"
-    if: ${{ always() && inputs.deployment == 'ha/docker' && (inputs.memgraph_image != '' || needs.BuildMageImage.result == 'success') }}
+    if: ${{ !cancelled() && inputs.deployment == 'ha/docker' && (inputs.memgraph_image != '' || needs.BuildMageImage.result == 'success') }}
     needs: [BuildMageImage]
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
@@ -75,7 +77,7 @@ jobs:
 
   stress_test_eks_ha:
     name: "Stress Tests EKS HA"
-    if: ${{ always() && inputs.deployment == 'ha/eks' && (inputs.memgraph_image != '' || needs.BuildMageImage.result == 'success') }}
+    if: ${{ !cancelled() && inputs.deployment == 'ha/eks' && (inputs.memgraph_image != '' || needs.BuildMageImage.result == 'success') }}
     needs: [BuildMageImage]
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
