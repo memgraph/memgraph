@@ -154,12 +154,23 @@ def evaluate(
     classes = classify(probs, threshold)
     result[Metrics.EPOCH] = epoch
     result[Metrics.LOSS] = operator(result[Metrics.LOSS], loss)
-    tn, fp, fn, tp = confusion_matrix(labels, classes).ravel()
+    tn, fp, fn, tp = None, None, None, None
     for metric_name in metrics:
+        if (
+            metric_name
+            in (Metrics.TRUE_POSITIVES, Metrics.FALSE_POSITIVES, Metrics.TRUE_NEGATIVES, Metrics.FALSE_NEGATIVES)
+            and tn is None
+        ):
+            tn, fp, fn, tp = confusion_matrix(labels, classes, labels=[0, 1]).ravel()
+
         if metric_name == Metrics.ACCURACY:
             result[Metrics.ACCURACY] = operator(result[Metrics.ACCURACY], accuracy_score(labels, classes))
         elif metric_name == Metrics.AUC_SCORE:
-            result[Metrics.AUC_SCORE] = operator(result[Metrics.AUC_SCORE], roc_auc_score(labels, probs.detach()))
+            if labels.max() == labels.min():
+                auc = 0.5
+            else:
+                auc = roc_auc_score(labels, probs.detach())
+            result[Metrics.AUC_SCORE] = operator(result[Metrics.AUC_SCORE], auc)
         elif metric_name == Metrics.F1:
             result[Metrics.F1] = operator(result[Metrics.F1], f1_score(labels, classes))
         elif metric_name == Metrics.PRECISION:
