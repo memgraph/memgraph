@@ -300,7 +300,10 @@ void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<EdgeIndexEntry> edges_to_remove(index_size);
     locked_index->export_keys(edges_to_remove.data(), 0, index_size);
 
+    // size() and export_keys() are not atomic — a concurrent add/remove can cause
+    // size() > slot_lookup_.size(), leaving trailing value-initialized entries in the buffer.
     auto deleted = edges_to_remove | rv::filter([](const EdgeIndexEntry &entry) {
+                     if (entry.edge == nullptr) return false;
                      auto guard = std::shared_lock{entry.edge->lock};
                      return entry.edge->deleted();
                    });

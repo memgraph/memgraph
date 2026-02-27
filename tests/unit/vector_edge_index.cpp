@@ -268,6 +268,41 @@ TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesTest) {
   }
 }
 
+TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesConcurrentAddRaceTest) {
+  // Regression: RemoveObsoleteEntries calls size() then export_keys() without
+  // holding the same internal lock. A concurrent add() increments
+  // nodes_count_ (used by size()) before inserting into slot_lookup_
+  // (iterated by export_keys()). This leaves value-initialized entries in the
+  // exported buffer; without a null guard the filter dereferences nullptr.
+  static constexpr int kEdgesPerThread = 100;
+  static constexpr int kNumWriterThreads = 4;
+  static constexpr int kCapacity = kEdgesPerThread * kNumWriterThreads * 2;
+
+  this->CreateEdgeIndex(2, kCapacity);
+  auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
+
+  std::jthread gc_thread([&](std::stop_token stoken) {
+    while (!stoken.stop_requested()) {
+      mem_storage->indices_.vector_edge_index_.RemoveObsoleteEntries(std::stop_token());
+    }
+  });
+
+  std::vector<std::jthread> writer_threads;
+  writer_threads.reserve(kNumWriterThreads);
+  for (int t = 0; t < kNumWriterThreads; t++) {
+    writer_threads.emplace_back([this, t]() {
+      for (int i = 0; i < kEdgesPerThread; i++) {
+        auto acc = this->storage->Access(memgraph::storage::WRITE);
+        auto val = static_cast<double>((t * kEdgesPerThread) + i);
+        PropertyValue properties(std::vector<PropertyValue>{PropertyValue(val), PropertyValue(val + 1.0)});
+        [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
+            this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
+        ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+      }
+    });
+  }
+}
+
 TEST_F(VectorEdgeIndexTest, IndexResizeTest) {
   this->CreateEdgeIndex(2, 1);
   auto size = 0;
