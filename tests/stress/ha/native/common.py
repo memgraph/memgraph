@@ -45,3 +45,12 @@ def restart_container(instance_name: str) -> None:
     if result.returncode != 0:
         raise Exception(f"Failed to restart {instance_name}: {result.stderr}")
     print(f"Instance {instance_name} restart triggered")
+
+
+def restart_all() -> None:
+    """Restart all native Memgraph HA instances (preserves data)."""
+    print("Restarting all Memgraph HA instances...")
+    result = subprocess.run([DEPLOYMENT_SCRIPT, "restart"], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"Failed to restart instances: {result.stderr}")
+    print("All instances restarted")

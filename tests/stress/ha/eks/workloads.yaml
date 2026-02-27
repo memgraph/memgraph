@@ -13,3 +13,6 @@ workloads:
 
   - config: ../workloads/concurrent_edge_write/workload.yaml
     enabled: true
+
+  - config: ../workloads/restarting_instances/workload.yaml
+    enabled: true

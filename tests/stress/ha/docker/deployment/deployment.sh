@@ -558,9 +558,18 @@ restart_container() {
 
 restart_all() {
     echo "Restarting all Memgraph HA containers..."
-    stop_memgraph
-    sleep 2
-    start_memgraph
+
+    for node in "${DATA_NODES[@]}"; do
+        read -r name _ <<< "$node"
+        restart_container "$name"
+    done
+
+    for node in "${COORD_NODES[@]}"; do
+        read -r name _ <<< "$node"
+        restart_container "$name"
+    done
+
+    echo "All Memgraph HA containers restarted"
 }
 
 case "$1" in

@@ -892,6 +892,39 @@ restart_instance() {
     log_info "Pod $pod_name deleted (will be recreated by StatefulSet)"
 }
 
+restart_all() {
+    log_info "Restarting all Memgraph HA pods..."
+
+    local statefulsets=(
+        "memgraph-coordinator-1"
+        "memgraph-coordinator-2"
+        "memgraph-coordinator-3"
+        "memgraph-data-0"
+        "memgraph-data-1"
+    )
+
+    log_info "Scaling down all statefulsets to 0..."
+    for sts in "${statefulsets[@]}"; do
+        kubectl scale statefulset "$sts" --replicas=0
+        log_info "  $sts scaled to 0"
+    done
+
+    log_info "Waiting for all Memgraph pods to terminate..."
+    kubectl wait --for=delete pod -l "app.kubernetes.io/name=memgraph" --timeout=120s 2>/dev/null || true
+    sleep 5
+
+    log_info "Scaling up all statefulsets to 1..."
+    for sts in "${statefulsets[@]}"; do
+        kubectl scale statefulset "$sts" --replicas=1
+        log_info "  $sts scaled to 1"
+    done
+
+    log_info "Waiting for all pods to be ready..."
+    kubectl wait --for=condition=ready pod -l "app.kubernetes.io/name=memgraph" --timeout=180s
+
+    log_info "All Memgraph HA pods restarted"
+}
+
 export_metrics() {
     # Export all Memgraph metrics from Prometheus to a JSON file
     local output_file=${1:-"metrics_$(date +%Y%m%d_%H%M%S).json"}
@@ -1010,7 +1043,8 @@ print_usage() {
     echo "Management commands:"
     echo "  status              - Check deployment status"
     echo "  upgrade [flags]     - Upgrade Helm release with optional flags"
-    echo "  restart <instance>  - Restart an instance (delete pod)"
+    echo "  restart             - Restart all Memgraph pods (scale down/up)"
+    echo "  restart <instance>  - Restart a single instance (delete pod)"
     echo "  export-metrics [f]  - Export Prometheus metrics to JSON file"
     echo "  get-ip <service>    - Get external IP for a LoadBalancer service"
     echo "  wait-ip <service>   - Wait for external IP and return it"
@@ -1077,7 +1111,11 @@ case "$1" in
         upgrade_memgraph "$@"
         ;;
     restart)
-        restart_instance "$2"
+        if [[ -n "$2" ]]; then
+            restart_instance "$2"
+        else
+            restart_all
+        fi
         ;;
     export-metrics)
         export_metrics "$2"

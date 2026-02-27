@@ -79,3 +79,33 @@ def _resolve_instance(instance_name: str) -> tuple[str, int]:
 
 
 ha_common.configure(_resolve_instance, instance_names=list(_INSTANCE_TO_SERVICE.keys()))
+
+_COMMON_DIR = os.path.dirname(os.path.abspath(__file__))
+DEPLOYMENT_SCRIPT = os.path.join(_COMMON_DIR, "deployment", "deployment.sh")
+
+
+def restart_instance(instance_name: str) -> None:
+    """Restart a specific instance by calling the deployment script."""
+    print(f"Restarting instance: {instance_name}")
+    result = subprocess.run(
+        [DEPLOYMENT_SCRIPT, "restart", instance_name],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise Exception(f"Failed to restart {instance_name}: {result.stderr}")
+    print(f"Instance {instance_name} restart triggered")
+
+
+def restart_all() -> None:
+    """Restart all Memgraph pods via the deployment script (scale down/up)."""
+    print("Restarting all Memgraph HA pods...")
+    result = subprocess.run(
+        [DEPLOYMENT_SCRIPT, "restart"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise Exception(f"Failed to restart all pods: {result.stderr}")
+    _resolve_instance.cache_clear()
+    print("All Memgraph instances restarted")

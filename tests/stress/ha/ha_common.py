@@ -94,6 +94,13 @@ def get_restart_fn() -> Callable[[str], None] | None:
     return None
 
 
+def get_restart_all_fn() -> Callable[[], None] | None:
+    """Return the deployment's restart_all function, or None."""
+    if _deployment_common and hasattr(_deployment_common, "restart_all"):
+        return _deployment_common.restart_all
+    return None
+
+
 def _resolve(instance_name: str) -> tuple[str, int]:
     if _instance_resolver is None:
         raise RuntimeError(

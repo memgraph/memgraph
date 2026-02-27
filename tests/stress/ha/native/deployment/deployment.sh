@@ -107,19 +107,12 @@ merge_flags() {
     echo "${final_flags[@]}"
 }
 
-start_memgraph() {
-    echo "Starting Memgraph HA Deployment..."
-
-    # Ensure enterprise license env vars are exported for child processes (required for HA)
+_start_processes() {
+    # Launches all data and coordinator processes, waits for ports.
     export MEMGRAPH_ENTERPRISE_LICENSE
     export MEMGRAPH_ORGANIZATION_NAME
+    rm -f memgraph_ha.pid
 
-    # Ensure clean data directories before startup
-    clean_data_directories
-
-    rm -f memgraph_ha.pid  # Ensure no old PID file exists
-
-    # Start data nodes
     for node in "${DATA_NODES[@]}"; do
         FINAL_FLAGS=$(merge_flags ${#DEFAULT_DATA_FLAGS[@]} "${DEFAULT_DATA_FLAGS[@]}" "$@")
         CMD="$MEMGRAPH_BINARY $node $FINAL_FLAGS"
@@ -128,7 +121,6 @@ start_memgraph() {
         echo $! >> memgraph_ha.pid
     done
 
-    # Start coordinator nodes
     for node in "${COORD_NODES[@]}"; do
         FINAL_FLAGS=$(merge_flags ${#DEFAULT_COORD_FLAGS[@]} "${DEFAULT_COORD_FLAGS[@]}" "$@")
         CMD="$MEMGRAPH_BINARY $node $FINAL_FLAGS"
@@ -143,7 +135,12 @@ start_memgraph() {
     wait_for_server 7691
     wait_for_server 7692
     wait_for_server 7693
+}
 
+start_memgraph() {
+    echo "Starting Memgraph HA Deployment..."
+    clean_data_directories
+    _start_processes "$@"
     setup_ha
 }
 
@@ -212,42 +209,54 @@ wait_for_healthy_cluster() {
     return 1
 }
 
-stop_memgraph() {
-    if [[ -f "memgraph_ha.pid" ]]; then
-        echo "Stopping Memgraph HA Deployment..."
+_stop_processes() {
+    # Stops all Memgraph processes without cleaning data directories.
+    if [[ ! -f "memgraph_ha.pid" ]]; then
+        echo "No running Memgraph processes found."
+        return 1
+    fi
 
+    echo "Stopping Memgraph HA processes..."
+
+    while read -r pid; do
+        echo "Stopping Memgraph process (PID: $pid)..."
+        kill $pid
+    done < memgraph_ha.pid
+
+    for i in {1..10}; do
+        all_stopped=true
         while read -r pid; do
-            echo "Stopping Memgraph process (PID: $pid)..."
-            kill $pid
+            if kill -0 $pid 2>/dev/null; then
+                all_stopped=false
+                break
+            fi
         done < memgraph_ha.pid
 
-        # Loop to check if all processes have fully stopped
-        for i in {1..10}; do  # Check for up to 10 seconds
-            all_stopped=true
-            while read -r pid; do
-                if kill -0 $pid 2>/dev/null; then
-                    all_stopped=false
-                    break
-                fi
-            done < memgraph_ha.pid
+        if $all_stopped; then
+            echo "All Memgraph processes have stopped."
+            rm -f memgraph_ha.pid
+            return 0
+        fi
 
-            if $all_stopped; then
-                echo "All Memgraph processes have stopped."
-                rm -f memgraph_ha.pid
+        echo "Waiting for all Memgraph processes to stop..."
+        sleep 1
+    done
 
-                # Cleanup data directories after Memgraph stops
-                clean_data_directories
-                return
-            fi
+    echo "Warning: Some Memgraph processes are still running after 10 seconds."
+    return 1
+}
 
-            echo "Waiting for all Memgraph processes to stop..."
-            sleep 1
-        done
+stop_memgraph() {
+    _stop_processes
+    clean_data_directories
+}
 
-        echo "Warning: Some Memgraph processes are still running after 10 seconds."
-    else
-        echo "No running Memgraph processes found."
-    fi
+restart_all() {
+    echo "Restarting all Memgraph HA instances (preserving data)..."
+    _stop_processes
+    sleep 2
+    _start_processes
+    echo "All Memgraph HA instances restarted (data preserved)"
 }
 
 wait_for_server() {
@@ -267,6 +276,9 @@ case "$1" in
     stop)
         stop_memgraph
         ;;
+    restart)
+        restart_all
+        ;;
     status)
         if nc -z 127.0.0.1 7687; then
             echo "Memgraph is running."
@@ -275,6 +287,6 @@ case "$1" in
         fi
         ;;
     *)
-        echo "Usage: $0 {start|stop|status} [memgraph flags...]"
+        echo "Usage: $0 {start|stop|restart|status} [memgraph flags...]"
         exit 1
 esac

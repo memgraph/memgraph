@@ -26,3 +26,6 @@ workloads:
 
   - config: ../workloads/publications/workload.yaml
     enabled: true
+
+  - config: ../workloads/restarting_instances/workload.yaml
+    enabled: true
