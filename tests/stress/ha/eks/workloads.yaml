@@ -11,6 +11,9 @@ workloads:
   - config: ../workloads/publications/workload.yaml
     enabled: true
 
+  - config: ../workloads/concurrent_edge_creation_on_supernode/workload.yaml
+    enabled: true
+
   - config: ../workloads/concurrent_edge_write/workload.yaml
     enabled: true
 

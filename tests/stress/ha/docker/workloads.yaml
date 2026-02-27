@@ -18,7 +18,10 @@ defaults:
       - {name: data-2, host: "127.0.0.1", bolt_port: 7688}
 
 workloads:
-  - config: ../workloads/concurrent_write/workload.yaml
+  - config: ../workloads/concurrent_edge_creation_on_supernode/workload.yaml
+    enabled: true
+
+  - config: ../workloads/concurrent_edge_write/workload.yaml
     enabled: true
 
   - config: ../workloads/rag/workload.yaml

@@ -1,0 +1,5 @@
+customWorkloads:
+  tests:
+    - name: concurrent-edge-creation-on-supernode
+      script: "ha/workloads/concurrent_edge_creation_on_supernode/workload.py"
+      timeout_min: 10
