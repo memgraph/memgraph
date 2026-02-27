@@ -16,8 +16,9 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_link_options(fuzz_ematch PRIVATE -fsanitize=fuzzer,address)
     target_compile_definitions(fuzz_ematch PUBLIC ASSERT_FUZZ)
 
-    # Optional: Create a corpus directory for the fuzzer
-    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fuzz_corpus)
+    # Create corpus directories for each fuzzer
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_egraph)
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_ematch)
 
     # Corpus analysis: benchmark EMatcher vs VM on corpus files
     add_executable(corpus_benchmark corpus_benchmark.cpp)
