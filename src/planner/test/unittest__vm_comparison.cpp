@@ -22,11 +22,12 @@
 
 #include <gtest/gtest.h>
 
-#include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
 #include "planner/rewrite/rule.hpp"
 #include "test_egraph_fixture.hpp"
 #include "test_patterns.hpp"
+
+import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core {
 

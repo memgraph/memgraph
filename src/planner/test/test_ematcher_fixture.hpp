@@ -14,6 +14,8 @@
 #include "test_egraph_fixture.hpp"
 #include "test_patterns.hpp"
 
+import memgraph.planner.core.eids;
+
 namespace memgraph::planner::core::test {
 
 // ============================================================================

@@ -13,6 +13,16 @@
 #include <algorithm>
 #include <cassert>
 
+// NOTE: These imports are intentionally kept here as a clangd modules workaround.
+// clangd may infer header compile flags from this TU; if the inferred modmap
+// misses planner core modules, egraph headers can report false "module not found"
+// diagnostics even though CMake/Ninja builds correctly.
+// TODO: remove in future versions of clangd
+import memgraph.planner.core.concepts;
+import memgraph.planner.core.eids;
+import memgraph.planner.core.constants;
+import memgraph.planner.core.union_find;
+
 memgraph::planner::core::detail::EClassBase::EClassBase(ENodeId initial_enode_id) {
   parents_.reserve(16);
   nodes_.push_back(initial_enode_id);

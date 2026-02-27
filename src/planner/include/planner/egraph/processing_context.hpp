@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,18 +11,13 @@
 
 #pragma once
 
-#include <strong_type/strong_type.hpp>
-
-import memgraph.planner.core.constants;
 import memgraph.planner.core.eids;
+import memgraph.planner.core.constants;
 import memgraph.planner.core.union_find;
 
 #include "planner/egraph/enode.hpp"
 
 #include <boost/container/flat_set.hpp>
-#include <unordered_map>
-#include <vector>
-#include "utils/small_vector.hpp"
 
 namespace memgraph::planner::core {
 

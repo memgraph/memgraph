@@ -9,38 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
+// NOTE: These imports are intentionally kept here as a clangd modules workaround.
+// clangd may infer header compile flags from this TU; if the inferred modmap
+// misses planner core modules, egraph headers can report false "module not found"
+// diagnostics even though CMake/Ninja builds correctly.
+// TODO: remove in future versions of clangd
 import memgraph.planner.core.concepts;
 import memgraph.planner.core.eids;
+import memgraph.planner.core.constants;
+import memgraph.planner.core.union_find;
 
-namespace memgraph::planner::core {
-
-template <typename Symbol>
-  requires ENodeSymbol<Symbol>
-struct ENode;
-
-template <typename Analysis>
-struct EClass;
-
-template <typename Symbol, typename Analysis>
-struct EGraph;
-
-template <typename Symbol>
-struct ProcessingContext;
-
-// Pattern matching types
-struct PatternVar;
-
-template <typename Symbol>
-  requires ENodeSymbol<Symbol>
-struct PatternNode;
-
-template <typename Symbol>
-  requires ENodeSymbol<Symbol>
-class Pattern;
-
-template <typename Symbol, typename Analysis>
-class EMatcher;
-
-}  // namespace memgraph::planner::core
+#include "planner/pattern/vm/executor.hpp"
+#include "planner/pattern/vm/state.hpp"

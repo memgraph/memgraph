@@ -14,8 +14,6 @@
 import memgraph.planner.core.eids;
 
 #include <cstdint>
-#include <span>
-#include <vector>
 
 #include <boost/container/small_vector.hpp>
 

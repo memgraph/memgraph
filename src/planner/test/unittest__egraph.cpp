@@ -15,6 +15,8 @@
 #include "planner/egraph/processing_context.hpp"
 #include "test_symbols.hpp"
 
+import memgraph.planner.core.eids;
+
 namespace memgraph::planner::core {
 
 using namespace test;

@@ -43,6 +43,7 @@ target_sources(mg-planner
     # pattern/
     src/pattern/matcher.cpp
     src/pattern/pattern.cpp
+    src/pattern/vm/vm_clangd.cpp
     # rewrite/
     src/rewrite/rewriter.cpp
     # extract/

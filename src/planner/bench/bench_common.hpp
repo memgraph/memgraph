@@ -18,6 +18,8 @@
 
 #include "planner/rewrite/rewriter.hpp"
 
+import memgraph.planner.core.eids;
+
 namespace memgraph::planner::bench {
 
 // ============================================================================

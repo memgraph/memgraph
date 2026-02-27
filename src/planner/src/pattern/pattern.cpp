@@ -12,4 +12,9 @@
 // This file exists to provide clangd with correct module dependencies for pattern.hpp.
 // The header is template-only, so this compilation unit is intentionally minimal.
 
+import memgraph.planner.core.concepts;
+import memgraph.planner.core.eids;
+import memgraph.planner.core.constants;
+import memgraph.planner.core.union_find;
+
 #include "planner/pattern/pattern.hpp"

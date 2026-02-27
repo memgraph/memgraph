@@ -14,6 +14,8 @@
 
 #include <vector>
 
+import memgraph.planner.core.eids;
+
 using namespace memgraph::planner::bench;
 using namespace memgraph::planner::bench::ranges;
 

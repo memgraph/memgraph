@@ -40,7 +40,6 @@
 #include "planner/pattern/match.hpp"
 #include "planner/pattern/matcher.hpp"
 #include "planner/pattern/pattern.hpp"
-#include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
 #include "planner/rewrite/rule.hpp"
 

@@ -15,6 +15,8 @@
 
 #include "planner/pattern/vm/state.hpp"
 
+import memgraph.planner.core.eids;
+
 namespace memgraph::planner::core {
 
 using namespace vm;

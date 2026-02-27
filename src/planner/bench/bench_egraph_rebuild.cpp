@@ -9,13 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 #include <benchmark/benchmark.h>
-#include <random>
 #include <vector>
-
-#include "range/v3/all.hpp"
 
 #include "planner/egraph/egraph.hpp"
 #include "planner/egraph/processing_context.hpp"
+
+import memgraph.planner.core.eids;
 
 using namespace memgraph::planner::core;
 
