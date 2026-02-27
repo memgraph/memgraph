@@ -9089,18 +9089,24 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       edges_metadata->clear();
       epoch_history->clear();
       enum_store->clear();
-      // Free light edge allocations on failure
+      // Free light edge allocations on failure.
+      // Null-check guards against double-free when partial merge has nullified source pointers.
       if (light_edge_pool) {
         for (auto &[gid, edge_ptr] : all_light_edges) {
-          edge_ptr->~Edge();
-          light_edge_pool->deallocate(edge_ptr, sizeof(Edge), alignof(Edge));
-        }
-        all_light_edges.clear();
-        // Also free edges from per-batch vectors not yet merged into all_light_edges
-        for (auto &batch_vec : per_batch_light_edges) {
-          for (auto &[gid, edge_ptr] : batch_vec) {
+          if (edge_ptr) {
             edge_ptr->~Edge();
             light_edge_pool->deallocate(edge_ptr, sizeof(Edge), alignof(Edge));
+          }
+        }
+        all_light_edges.clear();
+        // Also free edges from per-batch vectors not yet merged into all_light_edges.
+        // Elements that were already transferred have their pointer nullified.
+        for (auto &batch_vec : per_batch_light_edges) {
+          for (auto &[gid, edge_ptr] : batch_vec) {
+            if (edge_ptr) {
+              edge_ptr->~Edge();
+              light_edge_pool->deallocate(edge_ptr, sizeof(Edge), alignof(Edge));
+            }
           }
         }
         per_batch_light_edges.clear();
@@ -9291,12 +9297,22 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
             },
             edge_batches);
         // Merge per-batch vectors (already in GID order since batches are non-overlapping GID ranges).
-        for (auto &batch_vec : per_batch_light_edges) {
-          all_light_edges.insert(all_light_edges.end(),
-                                 std::make_move_iterator(batch_vec.begin()),
-                                 std::make_move_iterator(batch_vec.end()));
+        // Reserve upfront so emplace_back below cannot throw, making the loop exception-safe.
+        // Each source pointer is nullified immediately after transfer so that the cleanup lambda
+        // cannot double-free if an exception occurs mid-merge (e.g., in reserve itself).
+        {
+          size_t total = 0;
+          for (auto const &batch_vec : per_batch_light_edges) total += batch_vec.size();
+          all_light_edges.reserve(all_light_edges.size() + total);
         }
-        per_batch_light_edges.clear();  // entries moved; clear to avoid double-free in cleanup
+        for (auto &batch_vec : per_batch_light_edges) {
+          for (auto &[gid, ptr] : batch_vec) {
+            all_light_edges.emplace_back(gid, ptr);
+            ptr = nullptr;  // nullify immediately; cleanup lambda skips null entries
+          }
+          batch_vec.clear();
+        }
+        per_batch_light_edges.clear();
       } else {
         RecoverOnMultipleThreads(
             config.durability.recovery_thread_count,
