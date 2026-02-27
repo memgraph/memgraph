@@ -6,6 +6,7 @@ diagnostic output. Aborts the process (os._exit) on fatal conditions
 (instance down).
 """
 import os
+import random
 import threading
 import time
 from typing import Any
@@ -62,9 +63,10 @@ class ClusterMonitor:
         query_type: QueryType = QueryType.READ,
         protocol: Protocol = Protocol.BOLT_ROUTING,
     ) -> tuple[str, list[dict[str, Any]]]:
-        """Try each coordinator in order; return (coordinator_name, results) from the first that responds."""
+        """Try coordinators in shuffled order; return (coordinator_name, results) from the first that responds."""
+        candidates = random.sample(self._coordinators, len(self._coordinators))
         last_err = None
-        for coord in self._coordinators:
+        for coord in candidates:
             try:
                 return coord, execute_and_fetch(coord, query, protocol=protocol, query_type=query_type)
             except Exception as e:
