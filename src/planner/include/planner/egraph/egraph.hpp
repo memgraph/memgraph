@@ -36,6 +36,7 @@ import memgraph.planner.core.eids;
 #include "planner/egraph/processing_context.hpp"
 import memgraph.planner.core.union_find;
 
+#include <limits>
 #include <optional>
 
 #include <boost/unordered/unordered_flat_map.hpp>
@@ -46,6 +47,62 @@ namespace memgraph::planner::core {
 inline auto canonical_eclass(UnionFind &uf, EClassId id) -> EClassId { return EClassId{uf.Find(id.value_of())}; }
 
 inline auto canonical_eclass(UnionFind &uf, ENodeId id) -> EClassId { return EClassId{uf.Find(id.value_of())}; }
+
+/// Set of e-class IDs with O(1) add, remove, and contains operations.
+/// Uses swap-with-last removal and dense index tracking.
+class EClassSet {
+ public:
+  static constexpr std::size_t kNotPresent = std::numeric_limits<std::size_t>::max();
+
+  void clear() {
+    buffer_.clear();
+    id_to_index_.clear();
+  }
+
+  void add(EClassId id) {
+    auto idx = static_cast<std::size_t>(id.value_of());
+    if (idx >= id_to_index_.size()) {
+      id_to_index_.resize(idx + 1, kNotPresent);
+    }
+    if (id_to_index_[idx] != kNotPresent) {
+      return;  // Already present
+    }
+    id_to_index_[idx] = buffer_.size();
+    buffer_.push_back(id);
+  }
+
+  void remove(EClassId id) {
+    auto idx = static_cast<std::size_t>(id.value_of());
+    if (idx >= id_to_index_.size()) return;
+
+    std::size_t buf_idx = id_to_index_[idx];
+    if (buf_idx == kNotPresent) return;
+
+    if (buf_idx != buffer_.size() - 1) {
+      EClassId moved = buffer_.back();
+      buffer_[buf_idx] = moved;
+      id_to_index_[static_cast<std::size_t>(moved.value_of())] = buf_idx;
+    }
+
+    buffer_.pop_back();
+    id_to_index_[idx] = kNotPresent;
+  }
+
+  [[nodiscard]] auto contains(EClassId id) const -> bool {
+    auto idx = static_cast<std::size_t>(id.value_of());
+    return idx < id_to_index_.size() && id_to_index_[idx] != kNotPresent;
+  }
+
+  [[nodiscard]] auto data() const -> std::span<EClassId const> { return buffer_; }
+
+  [[nodiscard]] auto size() const -> std::size_t { return buffer_.size(); }
+
+  [[nodiscard]] auto empty() const -> bool { return buffer_.empty(); }
+
+ private:
+  std::vector<EClassId> buffer_;
+  std::vector<std::size_t> id_to_index_;  // indexed by EClassId value, kNotPresent = not in buffer
+};
 
 namespace detail {
 struct EGraphBase {
@@ -207,6 +264,15 @@ struct EGraph : private detail::EGraphBase {
   auto canonical_class_ids() const { return classes_ | ranges::views::keys; }
 
   /**
+   * @brief Get span of all canonical e-class IDs (O(1) access)
+   *
+   * Unlike canonical_class_ids() which returns a lazy range over a hash map,
+   * this returns a contiguous span suitable for efficient iteration.
+   * Maintained incrementally during emplace() and merge operations.
+   */
+  auto canonical_eclass_ids() const -> std::span<EClassId const> { return canonical_eclasses_.data(); }
+
+  /**
    * @brief Get range of all canonical e-classes
    */
   auto canonical_classes() const {
@@ -289,6 +355,7 @@ struct EGraph : private detail::EGraphBase {
   boost::unordered_flat_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
   boost::unordered_flat_map<ENodeRef<Symbol>, ENodeInfo> hashcons_;
   std::deque<ENode<Symbol>> enode_storage_;
+  EClassSet canonical_eclasses_;  // O(1) add/remove tracking of canonical e-class IDs
 };
 
 // ========================================================================
@@ -313,6 +380,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) ->
   auto enode_ref = intern_enode(std::move(canonical_node));
   hashcons_[enode_ref] = ENodeInfo{new_eclass_id, new_enode_id};
   classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id));
+  canonical_eclasses_.add(new_eclass_id);
 
   return {new_eclass_id, new_enode_id, true};
 }
@@ -361,6 +429,8 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
     std::cerr << "[emplace]   Class " << child_id << " now has " << child_it->second->parents().size() << " parents\n";
 #endif
   }
+
+  canonical_eclasses_.add(new_eclass_id);
 
   return {new_eclass_id, new_enode_id, true};
 }
@@ -433,6 +503,7 @@ void EGraph<Symbol, Analysis>::clear() {
   classes_.clear();
   hashcons_.clear();
   enode_storage_.clear();
+  canonical_eclasses_.clear();
   num_dead_nodes_ = 0;
 }
 
@@ -652,6 +723,7 @@ void EGraph<Symbol, Analysis>::merge_eclasses(EClass<Analysis> &destination, ECl
   assert(it != classes_.end());
   destination.merge_with(std::move(*it->second));
   classes_.erase(it);
+  canonical_eclasses_.remove(other_id);
 }
 
 template <typename Symbol, typename Analysis>
