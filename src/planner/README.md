@@ -1,6 +1,8 @@
 # Planner Module
 
-New query planner based on equality saturation. Under development.
+Core e-graph infrastructure for the V2 query planner based on equality saturation.
+
+> **Status:** Core infrastructure complete. See `src/query/plan_v2/README.md` for integration status.
 
 ## Directory Structure
 
@@ -8,12 +10,12 @@ New query planner based on equality saturation. Under development.
 src/planner/
 ├── include/planner/
 │   ├── egraph/       # E-graph data structure
-│   ├── pattern/      # Pattern matching
+│   ├── pattern/      # Pattern matching (including VM executor)
 │   ├── rewrite/      # Rewrite rules and saturation
 │   └── extract/      # Cost-based extraction
 ├── src/              # Implementation files
-├── test/             # Unit tests
-└── bench/            # Benchmarks
+├── test/             # Unit tests and fuzzers
+└── bench/            # Performance benchmarks
 ```
 
 ## Components
@@ -27,6 +29,7 @@ src/planner/
 ### Pattern Matching (`pattern/`)
 - `pattern.hpp` - Pattern DSL for e-matching
   - `PatternVar` - Pattern variables (?x, ?y)
+  - `Var`, `Wildcard` - Pattern elements
   - `Pattern::build()` - Fluent pattern construction
 - `matcher.hpp` - E-matching engine
   - `EMatcher` - Finds all pattern matches in an e-graph
@@ -34,6 +37,14 @@ src/planner/
 - `match.hpp` - Match results
   - `Match` - Variable bindings from successful matches
   - `MatchArena` - Pool for match storage
+
+#### VM Executor (`pattern/vm/`)
+Bytecode-based pattern matching for performance:
+- `compiler.hpp` - Compiles patterns to bytecode
+- `executor.hpp` - Executes bytecode against e-graph
+- `instruction.hpp` - VM instruction set
+- `state.hpp` - VM execution state with deduplication
+- `parent_index.hpp` - Parent chain traversal optimization
 
 ### Rewrite System (`rewrite/`)
 - `rule.hpp` - Rewrite rules
@@ -55,12 +66,20 @@ src/planner/
 ## Testing
 
 ```bash
-# Build and run unit tests
+# Build planner library and tests
 cmake --build build --preset conan-relwithdebinfo --target planner -j 15
+
+# Run all unit tests
 ./build/src/planner/test/planner
 
-# Run e-graph fuzzer
-./build/src/planner/test/fuzz_egraph
+# Run specific test suites
+./build/src/planner/test/planner --gtest_filter="EGraph*"
+./build/src/planner/test/planner --gtest_filter="EMatcher*"
+./build/src/planner/test/planner --gtest_filter="Rewrite*"
+
+# Run fuzzers
+./build/src/planner/test/fuzz_egraph      # E-graph correctness
+./build/src/planner/test/fuzz_ematch      # Pattern matching correctness
 ```
 
 ## Benchmarking
@@ -72,9 +91,11 @@ cmake --build build --preset conan-relwithdebinfo --target memgraph__benchmark__
 # Run all benchmarks
 ./build/src/planner/bench/memgraph__benchmark__new_planner
 
-# Run specific benchmark
-./build/src/planner/bench/memgraph__benchmark__new_planner --benchmark_filter="BM_EMatch"
-./build/src/planner/bench/memgraph__benchmark__new_planner --benchmark_filter="BM_Rewrite"
+# Run specific benchmarks
+./build/src/planner/bench/memgraph__benchmark__new_planner --benchmark_filter="SimplePattern"
+./build/src/planner/bench/memgraph__benchmark__new_planner --benchmark_filter="VMSimplePattern"
+./build/src/planner/bench/memgraph__benchmark__new_planner --benchmark_filter="Rewrite"
+./build/src/planner/bench/memgraph__benchmark__new_planner --benchmark_filter="Join"
 ```
 
 ## Usage Example
@@ -110,7 +131,13 @@ auto rule = RewriteRule<Op, NoAnalysis>::Builder{"double_negation"}
 
 // Run equality saturation
 auto rules = RuleSet<Op, NoAnalysis>::Build(std::move(rule));
-Rewriter<Op, NoAnalysis> rewriter(egraph, std::move(rules));
+Rewriter<Op, NoAnalysis> rewriter(egraph, rules);
 auto result = rewriter.saturate(RewriteConfig::Default());
 // result.saturated() == true when fixed point reached
 ```
+
+## Related Documentation
+
+- `TODO.txt` - Task tracking and known issues
+- `src/query/plan_v2/README.md` - Query integration status
+- `IMPLEMENTATION_PLAN.md` (repo root) - Overall implementation plan
