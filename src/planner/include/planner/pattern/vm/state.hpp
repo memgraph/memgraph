@@ -19,6 +19,7 @@ import memgraph.planner.core.eids;
 
 #include <boost/container/small_vector.hpp>
 
+#include <absl/container/flat_hash_set.h>
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 #include "utils/logging.hpp"
@@ -70,7 +71,8 @@ struct ParentsIter {
 };
 
 /// Open-addressing hash set for deduplication (much better cache locality than std::unordered_set)
-using FastEClassSet = boost::unordered_flat_set<EClassId>;
+// using FastEClassSet = boost::unordered_flat_set<EClassId>;
+using FastEClassSet = absl::flat_hash_set<EClassId>;
 
 /// Configuration for VMState reset
 struct VMStateConfig {
