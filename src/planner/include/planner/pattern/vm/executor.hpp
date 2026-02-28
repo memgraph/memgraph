@@ -259,9 +259,7 @@ class VMExecutor {
       cand = egraph_->find(cand);
     }
     // Remove duplicates (stale entries that now point to the same canonical e-class)
-    std::sort(candidates_buffer_.begin(), candidates_buffer_.end());
-    candidates_buffer_.erase(std::unique(candidates_buffer_.begin(), candidates_buffer_.end()),
-                             candidates_buffer_.end());
+    deduplicate_inplace(candidates_buffer_);
 
     execute_impl(pattern, candidates_buffer_, ctx, results);
   }

@@ -252,12 +252,11 @@ class Rewriter {
 
     // Incremental matcher rebuild for new e-classes only
     if (!ctx_.new_eclasses.empty()) {
-      // Canonicalize, sort, and deduplicate e-class IDs
+      // Canonicalize and deduplicate e-class IDs
       for (auto &id : ctx_.new_eclasses) {
         id = egraph_->find(id);
       }
-      std::ranges::sort(ctx_.new_eclasses);
-      ctx_.new_eclasses.erase(std::ranges::unique(ctx_.new_eclasses).begin(), ctx_.new_eclasses.end());
+      deduplicate_inplace(ctx_.new_eclasses);
       matcher_.rebuild_index(std::span<EClassId const>{ctx_.new_eclasses});
     }
 
