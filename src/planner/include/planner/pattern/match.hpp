@@ -16,8 +16,6 @@
 #include <span>
 #include <vector>
 
-#include <boost/container/small_vector.hpp>
-#include <boost/dynamic_bitset.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
@@ -27,66 +25,6 @@
 import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core {
-
-/// Partial match state during recursive pattern matching.
-/// Slots are filled as variables bind; on complete match, committed to MatchArena.
-/// Includes integrated undo log for O(1) checkpoint/rewind during backtracking.
-class PartialMatch {
- public:
-  PartialMatch() = default;
-
-  explicit PartialMatch(std::size_t num_slots) : slots_(num_slots, EClassId{0}), bound_(num_slots) {}
-
-  /// Bind a slot to an e-class and record in undo log
-  void bind(std::size_t slot, EClassId eclass) {
-    slots_[slot] = eclass;
-    bound_.set(slot);
-    bind_order_.push_back(slot);
-  }
-
-  [[nodiscard]] auto is_bound(std::size_t slot) const -> bool {
-    DMG_ASSERT(slot < bound_.size(), "requested slot need to be in bounds");
-    return bound_.test(slot);
-  }
-
-  [[nodiscard]] auto get(std::size_t slot) const -> EClassId {
-    DMG_ASSERT(is_bound(slot), "requested slot need to be set already");
-    return slots_[slot];
-  }
-
-  [[nodiscard]] auto size() const -> std::size_t { return slots_.size(); }
-
-  /// Get current position in undo log (for later rewind)
-  [[nodiscard]] auto checkpoint() const -> std::size_t { return bind_order_.size(); }
-
-  /// Rewind to a previous checkpoint, unbinding all slots bound since then
-  void rewind_to(std::size_t target) {
-    for (auto slot : std::span{bind_order_}.subspan(target)) {
-      bound_.reset(slot);
-    }
-    bind_order_.resize(target);
-  }
-
-  /// Reset for reuse with a new pattern (potentially different number of slots)
-  void reset(std::size_t num_slots) {
-    slots_.resize(num_slots);
-    bound_.resize(num_slots);
-    bound_.reset();
-    bind_order_.clear();
-  }
-
-  /// Clear all bindings but keep slot capacity
-  void clear() {
-    bound_.reset();
-    bind_order_.clear();
-  }
-
- private:
-  friend struct EMatchContext;
-  boost::container::small_vector<EClassId, 8> slots_;
-  boost::dynamic_bitset<> bound_;
-  boost::container::small_vector<std::size_t, 32> bind_order_;  ///< Undo log for backtracking
-};
 
 /// A complete match of a single pattern - offset into MatchArena where bindings are stored.
 class PatternMatch {

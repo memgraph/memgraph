@@ -638,4 +638,206 @@ TEST_F(MatcherCorrectnessTest, IdenticalMultiPattern_FuzzerCrashE082976a) {
   verify_both(patterns, /*expected=*/2);
 }
 
+// ============================================================================
+// VM Operation Coverage Tests
+// ============================================================================
+// These tests exercise specific VM operations that weren't covered by other tests:
+//   - IterAllEClasses/NextEClass: for pure variable patterns and Cartesian products
+//   - MarkSeen/Yield: for deduplication of repeated bindings
+
+TEST_F(MatcherCorrectnessTest, PureVariablePattern_IterAllEClasses) {
+  // Test: Pure variable pattern ?x matches all e-classes exactly once.
+  //
+  // This exercises IterAllEClasses/NextEClass VM operations which iterate
+  // over all canonical e-classes in the e-graph.
+  //
+  // Ground truth: N e-classes -> N matches
+  constexpr std::size_t kNumLeaves = 10;
+
+  for (std::size_t i = 0; i < kNumLeaves; ++i) {
+    leaf(Op::Const, i);
+  }
+  rebuild_egraph();
+
+  // Pure variable pattern: just ?x
+  auto pattern = make_var_pattern(kVarX);
+
+  // Each e-class should be matched exactly once
+  verify_both(pattern, kNumLeaves);
+}
+
+TEST_F(MatcherCorrectnessTest, PureVariablePattern_WithMerges) {
+  // Test: Pure variable pattern after merges reduces match count.
+  //
+  // When e-classes are merged, the number of canonical e-classes decreases.
+  // IterAllEClasses should only iterate canonical classes.
+  constexpr std::size_t kNumLeaves = 10;
+  constexpr std::size_t kNumMerges = 4;  // Will reduce to 6 classes
+
+  std::vector<EClassId> leaves;
+  for (std::size_t i = 0; i < kNumLeaves; ++i) {
+    leaves.push_back(leaf(Op::Const, i));
+  }
+
+  // Merge pairs: (0,1), (2,3), (4,5), (6,7) -> 6 canonical classes remain
+  for (std::size_t i = 0; i < kNumMerges; ++i) {
+    merge(leaves[i * 2], leaves[i * 2 + 1]);
+  }
+  rebuild_egraph();
+
+  auto pattern = make_var_pattern(kVarX);
+  verify_both(pattern, kNumLeaves - kNumMerges);
+}
+
+TEST_F(MatcherCorrectnessTest, MultiPattern_VariableRootJoin) {
+  // Test: Multi-pattern where second pattern is pure variable.
+  //
+  // Patterns:
+  //   Pattern 0: (Neg ?x)     - anchor pattern, matches Neg nodes
+  //   Pattern 1: ?x           - pure variable, joins on ?x from pattern 0
+  //
+  // The second pattern uses IterAllEClasses when compiled but should be
+  // constrained by the join on ?x. Each Neg(?x) match fixes ?x, so pattern 1
+  // just verifies ?x exists (always true) - resulting in one match per Neg node.
+  constexpr std::size_t kNumNegs = 5;
+
+  for (std::size_t i = 0; i < kNumNegs; ++i) {
+    auto x = leaf(Op::Const, i);
+    node(Op::Neg, x);
+  }
+  rebuild_egraph();
+
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::Neg, {Var{kVarX}}, std::nullopt),
+      make_var_pattern(kVarX),
+  };
+
+  // Each Neg node provides one binding for ?x
+  verify_both(patterns, kNumNegs);
+}
+
+TEST_F(MatcherCorrectnessTest, MultiPattern_CartesianProduct) {
+  // Test: Multi-pattern with NO shared variables -> Cartesian product.
+  //
+  // Patterns:
+  //   Pattern 0: (Neg ?x)     - matches Neg nodes, binds ?x
+  //   Pattern 1: (Add ?y ?z)  - matches Add nodes, binds ?y and ?z (disjoint!)
+  //
+  // Since ?x is not used in pattern 1, this is a Cartesian product:
+  // every Neg match pairs with every Add match.
+  //
+  // This exercises IterAllEClasses in emit_joined_cartesian().
+  constexpr std::size_t kNumNegs = 3;
+  constexpr std::size_t kNumAdds = 4;
+
+  // Create Neg nodes
+  for (std::size_t i = 0; i < kNumNegs; ++i) {
+    auto x = leaf(Op::Const, i);
+    node(Op::Neg, x);
+  }
+
+  // Create Add nodes (using different leaves to avoid accidental overlaps)
+  for (std::size_t i = 0; i < kNumAdds; ++i) {
+    auto y = leaf(Op::A, i);
+    auto z = leaf(Op::B, i);
+    node(Op::Add, y, z);
+  }
+  rebuild_egraph();
+
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::Neg, {Var{kVarX}}, std::nullopt),
+      TestPattern::build(Op::Add, {Var{kVarY}, Var{kVarZ}}, std::nullopt),
+  };
+
+  // Cartesian product: kNumNegs * kNumAdds matches
+  verify_both(patterns, kNumNegs * kNumAdds);
+}
+
+TEST_F(MatcherCorrectnessTest, MarkSeen_DeduplicatesSameBinding) {
+  // Test: MarkSeen deduplication prevents reporting same binding twice.
+  //
+  // Setup: Create an e-class with multiple e-nodes that would match the pattern.
+  // When an e-class contains multiple equivalent e-nodes (e.g., after merges),
+  // the same variable binding should not be reported multiple times.
+  //
+  // E-graph:
+  //   - A(0), A(1), A(2) all merged into one e-class
+  //   - Neg(merged_class) exists
+  //
+  // Pattern: (Neg ?x)
+  //
+  // Without deduplication: Could report the same ?x binding 3 times (once per A e-node)
+  // With deduplication: Reports ?x binding exactly once
+
+  auto a0 = leaf(Op::A, 0);
+  auto a1 = leaf(Op::A, 1);
+  auto a2 = leaf(Op::A, 2);
+
+  // Merge all A nodes into one e-class
+  merge(a0, a1);
+  merge(a0, a2);
+  rebuild_egraph();
+
+  // Create Neg of the merged e-class
+  node(Op::Neg, a0);
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, std::nullopt);
+
+  // Should match exactly once (the merged e-class), not 3 times
+  verify_both(pattern, 1);
+}
+
+TEST_F(MatcherCorrectnessTest, MarkSeen_MultipleNegNodes) {
+  // Test: Multiple Neg e-nodes in same e-class, each with different child.
+  //
+  // Setup:
+  //   - Neg(A), Neg(B), Neg(C) all merged into one e-class
+  //   - Pattern (Neg ?x) should find 3 distinct ?x bindings (A, B, C)
+  //
+  // This tests that MarkSeen correctly deduplicates by the bound variable's
+  // e-class, not by the matched e-node.
+
+  auto a = leaf(Op::A, 0);
+  auto b = leaf(Op::B, 0);
+  auto c = leaf(Op::C, 0);
+
+  auto neg_a = node(Op::Neg, a);
+  auto neg_b = node(Op::Neg, b);
+  auto neg_c = node(Op::Neg, c);
+
+  // Merge all Neg nodes into one e-class
+  merge(neg_a, neg_b);
+  merge(neg_a, neg_c);
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, std::nullopt);
+
+  // Should match 3 times: ?x=A, ?x=B, ?x=C (each is a distinct e-class)
+  verify_both(pattern, 3);
+}
+
+TEST_F(MatcherCorrectnessTest, MarkSeen_SelfReferentialDedup) {
+  // Test: Deduplication with self-referential e-classes.
+  //
+  // Setup: F(x)=x rewrite creates self-referential e-class containing both
+  // the original node and F(self). Pattern (F ?x) should match once per
+  // unique ?x binding.
+  //
+  // E-graph after F(x)=x:
+  //   e-class 0: A(0), F(e0)  <- self-referential
+  //
+  // Pattern: (F ?x) should bind ?x=e0 exactly once
+
+  auto a = leaf(Op::A, 0);
+  auto f_a = node(Op::F, a);
+  merge(f_a, a);  // Creates self-referential: e-class contains A(0) and F(self)
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt);
+
+  // Should match exactly once (?x = the self-referential e-class)
+  verify_both(pattern, 1);
+}
+
 }  // namespace memgraph::planner::core

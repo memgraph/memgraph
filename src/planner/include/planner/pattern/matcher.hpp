@@ -36,7 +36,7 @@ struct Overload : Ts... {
 };
 
 /// Bindings collected during recursive matching.
-/// Simpler than PartialMatch - no undo log, just slot values.
+/// Simple slot-based storage without undo log.
 class CollectedBindings {
  public:
   explicit CollectedBindings(std::size_t num_slots) : slots_(num_slots), bound_(num_slots) {}
