@@ -115,6 +115,10 @@ struct VMState {
   std::span<uint8_t const> binding_order_;
   std::span<uint8_t const> slot_to_order_;
 
+  // High watermark: highest position in binding_order that has seen data.
+  // -1 means no slots have been marked seen. Used to avoid clearing empty sets.
+  int seen_watermark_{-1};
+
   /// Initialize state for execution
   void reset(VMStateConfig const &cfg) {
     DMG_ASSERT(cfg.binding_order.size() == cfg.slot_to_order.size());
@@ -137,11 +141,12 @@ struct VMState {
       parents_iters.resize(cfg.num_enode_regs);
     }
 
-    // Reset per-slot seen maps for deduplication
-    seen_per_slot.resize(num_slots);
-    for (auto &seen_map : seen_per_slot) {
-      seen_map.clear();
+    // Reset per-slot seen maps for deduplication.
+    for (auto &seen_set : seen_per_slot) {
+      seen_set.clear();
     }
+    seen_watermark_ = -1;
+    seen_per_slot.resize(num_slots);
   }
 
   /// Start an e-node iteration on a register (uses span)
@@ -185,19 +190,27 @@ struct VMState {
       return false;  // Already exhausted - backtrack
     }
 
-    // Clear seen sets for all slots bound after this one in binding order.
-    // This resets deduplication context for downstream slots.
-    for (std::size_t j = slot_to_order_[slot] + 1; j < binding_order_.size(); ++j) {
-      seen_per_slot[binding_order_[j]].clear();
+    // Clear seen sets for slots bound after this one, up to the watermark.
+    // Uses watermark to avoid clearing already-empty sets.
+    auto my_order = static_cast<int>(slot_to_order_[slot]);
+    while (seen_watermark_ > my_order) {
+      seen_per_slot[binding_order_[seen_watermark_]].clear();
+      --seen_watermark_;
     }
     slots[slot] = eclass;
-
     return true;
   }
 
   /// Mark a slot's current value as seen (exhausted) for deduplication.
   /// Called when an iteration exhausts (for earlier slots) or at yield time (for last slot).
-  void mark_seen(std::size_t slot) { seen_per_slot[slot].insert(slots[slot]); }
+  void mark_seen(std::size_t slot) {
+    seen_per_slot[slot].insert(slots[slot]);
+    // Update watermark if this slot is later in binding order
+    auto order_pos = static_cast<int>(slot_to_order_[slot]);
+    if (order_pos > seen_watermark_) {
+      seen_watermark_ = order_pos;
+    }
+  }
 
   /// Get bound value
   [[nodiscard]] auto get(std::size_t slot) const -> EClassId { return slots[slot]; }
