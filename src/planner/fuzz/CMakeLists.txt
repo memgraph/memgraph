@@ -27,4 +27,48 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     # Corpus profiling: run single corpus file for perf analysis
     add_executable(corpus_profile corpus_profile.cpp)
     target_link_libraries(corpus_profile PRIVATE mg::planner fmt::fmt)
+
+    # =========================================================================
+    # Custom targets for common workflows
+    # =========================================================================
+
+    # Run fuzzers (use: cmake --build build --target run_fuzz_egraph)
+    add_custom_target(run_fuzz_egraph
+        COMMAND $<TARGET_FILE:fuzz_egraph> ${CMAKE_CURRENT_BINARY_DIR}/corpus_egraph
+        DEPENDS fuzz_egraph
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Running e-graph fuzzer..."
+    )
+
+    add_custom_target(run_fuzz_ematch
+        COMMAND $<TARGET_FILE:fuzz_ematch> ${CMAKE_CURRENT_BINARY_DIR}/corpus_ematch
+        DEPENDS fuzz_ematch
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Running e-match fuzzer..."
+    )
+
+    # Clear corpus directories
+    add_custom_target(clear_corpus_egraph
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/corpus_egraph/*
+        COMMENT "Clearing e-graph corpus..."
+    )
+
+    add_custom_target(clear_corpus_ematch
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/corpus_ematch/*
+        COMMENT "Clearing e-match corpus..."
+    )
+
+    add_custom_target(clear_corpus_all
+        DEPENDS clear_corpus_egraph clear_corpus_ematch
+        COMMENT "Clearing all corpus directories..."
+    )
+
+    # Run corpus benchmark on ematch corpus (EMatcher vs VM comparison)
+    # Note: Only ematch corpus has pattern data; egraph corpus tests e-graph operations only
+    add_custom_target(run_corpus_benchmark
+        COMMAND $<TARGET_FILE:corpus_benchmark> ${CMAKE_CURRENT_BINARY_DIR}/corpus_ematch
+        DEPENDS corpus_benchmark
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Benchmarking e-match corpus (EMatcher vs VM)..."
+    )
 endif()

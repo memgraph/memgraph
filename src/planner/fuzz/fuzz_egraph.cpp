@@ -35,7 +35,9 @@ static bool g_verbose = false;
 #define VERBOSE_OUT \
   if (g_verbose) std::cerr
 
-// Simple test symbols for fuzzing
+// Simple test symbols for fuzzing (uses uint32_t for this fuzzer)
+// Note: This is separate from fuzz_common.hpp's FuzzSymbol because this fuzzer
+// doesn't need pattern matching and uses different symbol values.
 enum class FuzzSymbol : uint32_t {
   A = 0,
   B = 1,
@@ -49,6 +51,7 @@ enum class FuzzSymbol : uint32_t {
   Mul = 14,
 };
 
+/// Empty analysis for fuzz testing (no analysis data needed)
 struct FuzzAnalysis {};
 
 // ============================================================================

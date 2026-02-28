@@ -12,277 +12,41 @@
 // Profiling tool for EMatcher vs VM pattern matching.
 //
 // Usage:
-//   ./profile_ematch <corpus_file> [--iterations N] [--mode ematcher|vm|both]
+//   ./corpus_profile <corpus_file> [--iterations N] [--mode ematcher|vm|both]
 //
 // Run with perf:
-//   perf record -g ./profile_ematch <corpus_file> --iterations 100000 --mode vm
+//   perf record -g ./corpus_profile <corpus_file> --iterations 100000 --mode vm
 //   perf report
 
-#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
-#include <functional>
 #include <iostream>
 #include <memory>
-#include <set>
 #include <string>
-#include <variant>
 #include <vector>
 
 #include <fmt/format.h>
 
-#include "planner/egraph/egraph.hpp"
+#include "fuzz_common.hpp"
 #include "planner/egraph/processing_context.hpp"
 #include "planner/pattern/match.hpp"
 #include "planner/pattern/matcher.hpp"
-#include "planner/pattern/pattern.hpp"
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
 #include "planner/rewrite/rule.hpp"
 
-import memgraph.planner.core.eids;
-
 namespace memgraph::planner::core {
 
-// Fuzz symbols (same as fuzz_ematch.cpp)
-enum class FuzzSymbol : uint8_t {
-  A = 0,
-  B = 1,
-  C = 2,
-  D = 3,
-  E = 4,
-  F = 10,
-  G = 11,
-  H = 12,
-  Plus = 13,
-  Mul = 14,
-  Ternary = 15,
-};
-
-struct FuzzAnalysis {};
-
-inline auto symbol_name(FuzzSymbol sym) -> std::string {
-  switch (sym) {
-    case FuzzSymbol::A:
-      return "A";
-    case FuzzSymbol::B:
-      return "B";
-    case FuzzSymbol::C:
-      return "C";
-    case FuzzSymbol::D:
-      return "D";
-    case FuzzSymbol::E:
-      return "E";
-    case FuzzSymbol::F:
-      return "F";
-    case FuzzSymbol::G:
-      return "G";
-    case FuzzSymbol::H:
-      return "H";
-    case FuzzSymbol::Plus:
-      return "Plus";
-    case FuzzSymbol::Mul:
-      return "Mul";
-    case FuzzSymbol::Ternary:
-      return "Ternary";
-    default:
-      return "Unknown";
-  }
-}
-
-inline auto is_leaf_symbol(FuzzSymbol sym) -> bool { return static_cast<uint32_t>(sym) < 10; }
-
-// Pattern AST
-struct PatternAST;
-using PatternASTPtr = std::shared_ptr<PatternAST>;
-
-struct PatternAST {
-  struct Variable {
-    int id;
-  };
-
-  struct SymbolNode {
-    FuzzSymbol sym;
-    std::vector<PatternASTPtr> children;
-  };
-
-  std::variant<Variable, SymbolNode> node;
-
-  static auto make_var(int id) -> PatternASTPtr {
-    auto p = std::make_shared<PatternAST>();
-    p->node = Variable{id};
-    return p;
-  }
-
-  static auto make_sym(FuzzSymbol sym, std::vector<PatternASTPtr> children = {}) -> PatternASTPtr {
-    auto p = std::make_shared<PatternAST>();
-    p->node = SymbolNode{sym, std::move(children)};
-    return p;
-  }
-};
-
-auto pattern_to_memgraph(PatternASTPtr const &ast) -> Pattern<FuzzSymbol> {
-  auto builder = Pattern<FuzzSymbol>::Builder{};
-
-  std::function<PatternNodeId(PatternASTPtr const &)> build = [&](PatternASTPtr const &p) -> PatternNodeId {
-    return std::visit(
-        [&](auto const &n) -> PatternNodeId {
-          using T = std::decay_t<decltype(n)>;
-          if constexpr (std::is_same_v<T, PatternAST::Variable>) {
-            return builder.var(PatternVar{static_cast<uint32_t>(n.id)});
-          } else {
-            auto const &sym_node = n;
-            if (sym_node.children.empty()) {
-              return builder.sym(sym_node.sym);
-            } else {
-              utils::small_vector<PatternNodeId> child_ids;
-              for (auto const &child : sym_node.children) {
-                child_ids.push_back(build(child));
-              }
-              return builder.sym(sym_node.sym, std::move(child_ids));
-            }
-          }
-        },
-        p->node);
-  };
-
-  build(ast);
-  return std::move(builder).build();
-}
-
-auto pattern_to_string(PatternASTPtr const &ast) -> std::string {
-  return std::visit(
-      [&](auto const &n) -> std::string {
-        using T = std::decay_t<decltype(n)>;
-        if constexpr (std::is_same_v<T, PatternAST::Variable>) {
-          return fmt::format("?v{}", n.id);
-        } else {
-          auto const &sym_node = n;
-          std::string result = fmt::format("({}", symbol_name(sym_node.sym));
-          for (auto const &child : sym_node.children) {
-            result += " " + pattern_to_string(child);
-          }
-          result += ")";
-          return result;
-        }
-      },
-      ast->node);
-}
-
-// Pattern generators
-class PatternGenerator {
- public:
-  auto generate(uint8_t const *data, size_t &pos, size_t size, int depth = 0) -> PatternASTPtr {
-    if (pos >= size || depth > 3) {
-      return PatternAST::make_var(next_var_id_++);
-    }
-
-    uint8_t type = data[pos++] % 7;
-
-    switch (type) {
-      case 0:
-      case 1: {
-        int var_id;
-        if (pos < size && !used_vars_.empty() && (data[pos] % 3) == 0) {
-          var_id = used_vars_[data[pos++] % used_vars_.size()];
-        } else {
-          var_id = next_var_id_++;
-          used_vars_.push_back(var_id);
-        }
-        return PatternAST::make_var(var_id);
-      }
-      case 2: {
-        if (pos >= size) return PatternAST::make_var(next_var_id_++);
-        auto sym = static_cast<FuzzSymbol>(data[pos++] % 5);
-        return PatternAST::make_sym(sym);
-      }
-      case 3: {
-        if (pos >= size) return PatternAST::make_var(next_var_id_++);
-        auto sym = static_cast<FuzzSymbol>(10 + (data[pos++] % 3));
-        auto child = generate(data, pos, size, depth + 1);
-        return PatternAST::make_sym(sym, {child});
-      }
-      case 4: {
-        if (pos >= size) return PatternAST::make_var(next_var_id_++);
-        auto sym = static_cast<FuzzSymbol>(13 + (data[pos++] % 2));
-        auto left = generate(data, pos, size, depth + 1);
-        auto right = generate(data, pos, size, depth + 1);
-        return PatternAST::make_sym(sym, {left, right});
-      }
-      case 5: {
-        if (used_vars_.empty()) used_vars_.push_back(next_var_id_++);
-        auto var_id = used_vars_[0];
-        if (pos >= size) return PatternAST::make_var(var_id);
-        auto sym = static_cast<FuzzSymbol>(10 + (data[pos++] % 3));
-        return PatternAST::make_sym(sym, {PatternAST::make_var(var_id)});
-      }
-      case 6: {
-        auto c0 = generate(data, pos, size, depth + 1);
-        auto c1 = generate(data, pos, size, depth + 1);
-        auto c2 = generate(data, pos, size, depth + 1);
-        return PatternAST::make_sym(FuzzSymbol::Ternary, {c0, c1, c2});
-      }
-      default:
-        return PatternAST::make_var(next_var_id_++);
-    }
-  }
-
-  void reset() {
-    next_var_id_ = 0;
-    used_vars_.clear();
-  }
-
-  [[nodiscard]] auto get_used_vars() const -> std::vector<int> const & { return used_vars_; }
-
-  void set_used_vars(std::vector<int> vars) { used_vars_ = std::move(vars); }
-
- private:
-  int next_var_id_ = 0;
-  std::vector<int> used_vars_;
-};
-
-class MultiPatternGenerator {
- public:
-  struct MultiPatternResult {
-    std::vector<PatternASTPtr> patterns;
-    std::set<int> shared_vars;
-  };
-
-  auto generate(uint8_t const *data, size_t &pos, size_t size) -> MultiPatternResult {
-    MultiPatternResult result;
-    if (pos >= size) return result;
-
-    uint8_t num_patterns = 1 + (data[pos++] % 3);
-    pattern_gen_.reset();
-    result.patterns.push_back(pattern_gen_.generate(data, pos, size));
-    auto shared_vars = pattern_gen_.get_used_vars();
-
-    for (uint8_t i = 1; i < num_patterns && pos < size; ++i) {
-      pattern_gen_.reset();
-      if (!shared_vars.empty()) {
-        uint8_t num_shared = 1 + (pos < size ? data[pos++] % 2 : 0);
-        std::vector<int> to_share;
-        for (uint8_t j = 0; j < num_shared && j < shared_vars.size(); ++j) {
-          to_share.push_back(shared_vars[j % shared_vars.size()]);
-        }
-        pattern_gen_.set_used_vars(to_share);
-        for (auto v : to_share) result.shared_vars.insert(v);
-      }
-      result.patterns.push_back(pattern_gen_.generate(data, pos, size));
-      for (auto v : pattern_gen_.get_used_vars()) {
-        if (std::find(shared_vars.begin(), shared_vars.end(), v) == shared_vars.end()) {
-          shared_vars.push_back(v);
-        }
-      }
-    }
-    return result;
-  }
-
- private:
-  PatternGenerator pattern_gen_;
-};
+// Import fuzz types into this namespace
+using fuzz::FuzzAnalysis;
+using fuzz::FuzzSymbol;
+using fuzz::MultiPatternGenerator;
+using fuzz::pattern_to_memgraph;
+using fuzz::pattern_to_string;
+using fuzz::PatternAST;
+using fuzz::PatternASTPtr;
 
 // Profile runner
 class ProfileRunner {
