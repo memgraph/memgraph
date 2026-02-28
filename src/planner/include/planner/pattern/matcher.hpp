@@ -132,6 +132,7 @@ class EMatcher {
    *
    * More efficient than full rebuild during saturation loops.
    * Only updates index entries for the specified new e-classes.
+   * Handles canonicalization and duplicates internally.
    *
    * @note Index Staleness: This method adds new index entries but does not
    * remove stale entries pointing to e-classes that were merged away. This is
@@ -140,7 +141,7 @@ class EMatcher {
    * index may accumulate dead entries. Call rebuild_index() (no args) periodically
    * to compact the index if memory usage becomes a concern.
    *
-   * @param new_eclasses E-class IDs that were added since last rebuild
+   * @param new_eclasses E-class IDs that were added since last rebuild (may be non-canonical)
    */
   void rebuild_index(std::span<EClassId const> new_eclasses);
 
@@ -231,18 +232,14 @@ void EMatcher<Symbol, Analysis>::rebuild_index() {
 
 template <typename Symbol, typename Analysis>
 void EMatcher<Symbol, Analysis>::rebuild_index(std::span<EClassId const> new_eclasses) {
-#ifndef NDEBUG
-  // Debug-only: verify new_eclasses are already canonical
   for (auto eclass_id : new_eclasses) {
-    DMG_ASSERT(egraph_->find(eclass_id) == eclass_id, "new_eclasses must be canonical (call find() before passing)");
-  }
-#endif
-  for (auto eclass_id : new_eclasses) {
-    // eclass_id is guaranteed canonical by precondition (asserted above in debug builds)
-    auto const &eclass = egraph_->eclass(eclass_id);
+    // Canonicalize - input may contain stale IDs from before rebuild
+    auto canonical_id = egraph_->find(eclass_id);
+    auto const &eclass = egraph_->eclass(canonical_id);
     for (auto const &enode_id : eclass.nodes()) {
       auto const &enode = egraph_->get_enode(enode_id);
-      index_[enode.symbol()].insert(eclass_id);
+      // Set insert handles duplicates naturally
+      index_[enode.symbol()].insert(canonical_id);
     }
   }
 }

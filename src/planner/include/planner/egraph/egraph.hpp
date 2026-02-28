@@ -48,30 +48,20 @@ inline auto canonical_eclass(UnionFind &uf, EClassId id) -> EClassId { return EC
 
 inline auto canonical_eclass(UnionFind &uf, ENodeId id) -> EClassId { return EClassId{uf.Find(id.value_of())}; }
 
-/// In-place deduplication optimized for small arrays.
-/// For N <= threshold: O(N²) linear scan with swap-to-back removal (cache-friendly, no sorting overhead)
-/// For N > threshold: O(N log N) sort + unique
-/// Does NOT preserve order.
-template <typename T>
-inline void deduplicate_inplace(std::vector<T> &vec, std::size_t threshold = 16) {
-  if (vec.size() <= 1) return;
-
-  if (vec.size() <= threshold) {
-    // Linear scan dedup - swap duplicates to back and pop
-    for (std::size_t i = 0; i < vec.size(); ++i) {
-      for (std::size_t j = i + 1; j < vec.size();) {
-        if (vec[j] == vec[i]) {
-          vec[j] = vec.back();
-          vec.pop_back();
-        } else {
-          ++j;
-        }
-      }
+/// Canonicalize e-class IDs in-place, dedup only if any changed.
+inline void canonical_dedup_inplace(std::vector<EClassId> &vec, UnionFind &uf) {
+  bool any_changed = false;
+  for (auto &id : vec) {
+    auto canonical = canonical_eclass(uf, id);
+    if (canonical != id) {
+      id = canonical;
+      any_changed = true;
     }
-  } else {
+  }
+  if (any_changed) {
     std::ranges::sort(vec);
-    auto [ret, last] = std::ranges::unique(vec);
-    vec.erase(ret, last);
+    auto [first, last] = std::ranges::unique(vec);
+    vec.erase(first, last);
   }
 }
 
@@ -139,6 +129,11 @@ struct EGraphBase {
   auto find(EClassId id) const -> EClassId { return canonical_eclass(union_find_, id); }
 
   auto find(ENodeId id) const -> EClassId { return canonical_eclass(union_find_, id); }
+
+  /**
+   * @brief Canonicalize e-class IDs in-place, dedup only if any changed
+   */
+  void canonical_dedup_inplace(std::vector<EClassId> &vec) const { core::canonical_dedup_inplace(vec, union_find_); }
 
   /**
    * @brief Get the total number of e-nodes ever created
@@ -212,6 +207,7 @@ struct EGraph : private detail::EGraphBase {
   EGraph(EGraph &&) noexcept = default;
   auto operator=(EGraph &&) -> EGraph & = default;
 
+  using EGraphBase::canonical_dedup_inplace;
   using EGraphBase::find;
   using EGraphBase::needs_rebuild;
   using EGraphBase::num_dead_nodes;
@@ -627,7 +623,9 @@ auto EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &ec
 
   // Add eclass_id, deduplicate, and merge
   canonical_ids.push_back(eclass_id.value_of());
-  deduplicate_inplace(canonical_ids);
+  std::ranges::sort(canonical_ids);
+  auto [first, last] = std::ranges::unique(canonical_ids);
+  canonical_ids.erase(first, last);
 
   return merge_all(canonical_ids, ctx.union_find_context);
 }
@@ -712,7 +710,9 @@ void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, P
     std::cerr << "]\n";
 #endif
     // deduplicate
-    deduplicate_inplace(canonical_eclass_ids);
+    std::ranges::sort(canonical_eclass_ids);
+    auto [first, last] = std::ranges::unique(canonical_eclass_ids);
+    canonical_eclass_ids.erase(first, last);
     if (canonical_eclass_ids.size() > 1) {
 #ifdef EGRAPH_DEBUG_REBUILD
       std::cerr << "[process_parents]   MERGING classes: [";

@@ -247,19 +247,12 @@ class VMExecutor {
     candidates_buffer_.clear();
     if (auto entry_sym = pattern.entry_symbol()) {
       matcher.candidates_for_symbol(*entry_sym, candidates_buffer_);
+      // Index can have stale entries - canonicalize and dedup if needed
+      egraph_->canonical_dedup_inplace(candidates_buffer_);
     } else {
-      // Root is variable/wildcard - get all e-classes
+      // Root is variable/wildcard - get all canonical e-classes (already unique)
       matcher.all_candidates(candidates_buffer_);
     }
-
-    // Canonicalize and deduplicate candidates.
-    // The matcher index may have stale entries pointing to merged-away e-classes.
-    // We must canonicalize before passing to the VM, which assumes canonical IDs.
-    for (auto &cand : candidates_buffer_) {
-      cand = egraph_->find(cand);
-    }
-    // Remove duplicates (stale entries that now point to the same canonical e-class)
-    deduplicate_inplace(candidates_buffer_);
 
     execute_impl(pattern, candidates_buffer_, ctx, results);
   }
