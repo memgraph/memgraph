@@ -61,10 +61,10 @@ constexpr PatternVar kBindRoot{22};
 constexpr PatternVar kIdentRoot{23};
 
 // ============================================================================
-// Benchmark Ranges
+// Benchmark Size Constants
 // ============================================================================
 
-namespace ranges {
+namespace sizes {
 constexpr int64_t kSmall = 10;
 constexpr int64_t kMedium = 100;
 constexpr int64_t kLarge = 1000;
@@ -74,7 +74,10 @@ constexpr int64_t kMassive = 50000;
 
 constexpr int64_t kFreshCtx = 0;
 constexpr int64_t kReusedCtx = 1;
-}  // namespace ranges
+}  // namespace sizes
+
+// Make size constants available without prefix in bench namespace
+using namespace sizes;
 
 // ============================================================================
 // E-Graph Builders
@@ -452,7 +455,7 @@ inline auto RuleWideJoin() {
 template <typename ApplyFn>
 void BenchmarkWithMatchContext(benchmark::State &state, int64_t context_mode, EMatchContext &reusable_context,
                                ApplyFn &&apply_fn) {
-  if (context_mode == ranges::kReusedCtx) {
+  if (context_mode == sizes::kReusedCtx) {
     for (auto _ : state) {
       reusable_context.clear();
       apply_fn(reusable_context);
@@ -470,7 +473,7 @@ void BenchmarkWithMatchContext(benchmark::State &state, int64_t context_mode, EM
 template <typename ApplyFn>
 void BenchmarkWithRewriteContext(benchmark::State &state, int64_t context_mode, TestRewriteContext &reusable_context,
                                  ApplyFn &&apply_fn) {
-  if (context_mode == ranges::kReusedCtx) {
+  if (context_mode == sizes::kReusedCtx) {
     for (auto _ : state) {
       reusable_context.clear_new_eclasses();
       apply_fn(reusable_context);

@@ -12,7 +12,7 @@
 #include "bench_common.hpp"
 
 using namespace memgraph::planner::bench;
-using namespace memgraph::planner::bench::ranges;
+using namespace memgraph::planner::bench::sizes;
 
 // ============================================================================
 // Join Strategies

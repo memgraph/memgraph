@@ -15,7 +15,7 @@
 #include <vector>
 
 using namespace memgraph::planner::bench;
-using namespace memgraph::planner::bench::ranges;
+using namespace memgraph::planner::bench::sizes;
 
 // ============================================================================
 // Saturation (double-neg chains)
