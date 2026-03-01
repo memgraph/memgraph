@@ -291,3 +291,69 @@ Feature: OrderByAcceptance
       LIMIT -1
       """
     Then a SyntaxError should be raised at compile time: NegativeIntegerArgument
+
+  Scenario: UNWIND list ordering
+    Given an empty graph
+    When executing query:
+      """
+      UNWIND [[1],[2]] AS l
+      RETURN l
+      ORDER BY l;
+      """
+    Then the result should be:
+      | l   |
+      | [1] |
+      | [2] |
+
+  Scenario: ORDER BY with collected value
+    Given an empty graph
+    When executing query:
+      """
+      WITH collect(1) AS a1
+      UNWIND [1,2] AS x
+      RETURN a1, x
+      ORDER BY a1 DESC;
+      """
+    Then the result should be:
+      | a1  | x |
+      | [1] | 1 |
+      | [1] | 2 |
+
+  Scenario: ORDER BY list of strings
+    Given an empty graph
+    When executing query:
+      """
+      WITH [["ccc"],["aaa"],["ddd"],["bbb"]] AS l
+      UNWIND l AS x
+      WITH x ORDER BY x
+      RETURN collect(x);
+      """
+    Then the result should be:
+      | collect(x)                        |
+      | [['aaa'],['bbb'],['ccc'],['ddd']] |
+
+  Scenario: ORDER BY DESC list of strings
+    Given an empty graph
+    When executing query:
+      """
+      WITH [["ccc"],["aaa"],["ddd"],["bbb"]] AS l
+      UNWIND l AS x
+      WITH x ORDER BY x DESC
+      RETURN collect(x);
+      """
+    Then the result should be:
+      | collect(x)                        |
+      | [['ddd'],['ccc'],['bbb'],['aaa']] |
+
+  Scenario: ORDER BY list values
+    Given an empty graph
+    When executing query:
+      """
+      UNWIND [[1, 2, 4],[1, 2, 6]] AS l
+      RETURN l
+      ORDER BY l;
+      """
+    Then the result should be:
+      | l        |
+      | [1,2,4]  |
+      | [1,2,6]  |
