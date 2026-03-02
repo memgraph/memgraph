@@ -22,10 +22,11 @@
 
 #include <mutex>
 
-namespace memgraph::audit {
+namespace {
+using memgraph::communication::bolt::Value;
 
 // Helper function that converts a `communication::bolt::Value` to `nlohmann::json`.
-inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
+inline nlohmann::json BoltValueToJson(const memgraph::communication::bolt::Value &value) {
   nlohmann::json ret;
   switch (value.type()) {
     using enum memgraph::communication::bolt::Value::Type;
@@ -55,7 +56,7 @@ inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
       auto const info = memgraph::communication::bolt::BoltMapToMgTypeInfo(bolt_value_map);
       if (info) {
         switch (info->type) {
-          case communication::bolt::MgType::Enum: {
+          case memgraph::communication::bolt::MgType::Enum: {
             ret = info->value_str;
             break;
           }
@@ -70,19 +71,19 @@ inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
     }
     case Date: {
       std::stringstream ss;
-      ss << utils::Date(std::chrono::microseconds{value.ValueDate().MicrosecondsSinceEpoch()});
+      ss << memgraph::utils::Date(std::chrono::microseconds{value.ValueDate().MicrosecondsSinceEpoch()});
       ret = ss.str();
       break;
     }
     case Duration: {
       std::stringstream ss;
-      ss << utils::Duration(value.ValueDuration().microseconds);
+      ss << memgraph::utils::Duration(value.ValueDuration().microseconds);
       ret = ss.str();
       break;
     }
     case LocalTime: {
       std::stringstream ss;
-      ss << utils::LocalTime(value.ValueLocalTime().MicrosecondsSinceEpoch());
+      ss << memgraph::utils::LocalTime(value.ValueLocalTime().MicrosecondsSinceEpoch());
       ret = ss.str();
       break;
     }
@@ -95,19 +96,19 @@ inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
     case ZonedDateTime: {
       const auto &temp_value = value.ValueZonedDateTime();
       std::stringstream ss;
-      ss << utils::ZonedDateTime(temp_value.SysTimeSinceEpoch(), temp_value.GetTimezone());
+      ss << memgraph::utils::ZonedDateTime(temp_value.SysTimeSinceEpoch(), temp_value.GetTimezone());
       ret = ss.str();
       break;
     }
     case Point2d: {
       std::stringstream ss;
-      ss << query::CypherConstructionFor(value.ValuePoint2d());
+      ss << memgraph::query::CypherConstructionFor(value.ValuePoint2d());
       ret = ss.str();
       break;
     }
     case Point3d: {
       std::stringstream ss;
-      ss << query::CypherConstructionFor(value.ValuePoint3d());
+      ss << memgraph::query::CypherConstructionFor(value.ValuePoint3d());
       ret = ss.str();
       break;
     }
@@ -121,6 +122,9 @@ inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
   }
   return ret;
 }
+}  // namespace
+
+namespace memgraph::audit {
 
 Log::Log(std::filesystem::path storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis)
     : storage_directory_(std::move(storage_directory)),
@@ -157,7 +161,8 @@ void Log::Record(const std::string &address, const std::string &username, const 
   auto timestamp =
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
-  buffer_->emplace(Item{timestamp, address, username, query, params, db});
+  buffer_->emplace(Item{
+      .timestamp = timestamp, .address = address, .username = username, .query = query, .params = params, .db = db});
 }
 
 void Log::ReopenLog() {
@@ -169,7 +174,7 @@ void Log::ReopenLog() {
 
 void Log::Flush() {
   auto guard = std::lock_guard{lock_};
-  for (uint64_t i = 0; i < buffer_size_; ++i) {
+  for (auto i = 0; i < buffer_size_; ++i) {
     auto item = buffer_->pop();
     if (!item) break;
 
