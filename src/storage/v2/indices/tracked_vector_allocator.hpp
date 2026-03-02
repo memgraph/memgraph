@@ -69,7 +69,10 @@ class TrackedVectorAllocator {
   pointer allocate(size_type count_bytes) {
     const auto extended = unum::usearch::divide_round_up<alignment_ak>(count_bytes) * alignment_ak;
     if (!utils::mmap_memory_tracker.Alloc(static_cast<int64_t>(extended))) {
-      throw utils::OutOfMemoryException(*utils::MemoryErrorStatus().msg());
+      if (auto maybe_msg = utils::MemoryErrorStatus().msg(); maybe_msg) {
+        throw utils::OutOfMemoryException(std::move(*maybe_msg));
+      }
+      throw utils::OutOfMemoryException("Failed to allocate memory for vector index.");
     }
 
     auto *result = inner_.allocate(count_bytes);
