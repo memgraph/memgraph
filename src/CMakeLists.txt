@@ -56,6 +56,7 @@ target_link_libraries(memgraph "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>" Threads
         mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-utils mg-license mg-settings mg-parameters mg-glue mg-flags mg::system mg::replication_handler
         libstdc++_custom)
 target_link_options(memgraph PRIVATE -nostdlib++)
+target_link_options(memgraph PRIVATE $<$<CONFIG:RelWithDebInfo>:-rdynamic>)
 
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link the

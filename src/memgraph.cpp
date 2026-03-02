@@ -59,6 +59,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/crash_handler.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -236,6 +237,7 @@ int main(int argc, char **argv) {
   memgraph::flags::InitializeLogger();
 
   // Unhandled exception handler init.
+  memgraph::utils::InstallCrashHandler();
   std::set_terminate(&memgraph::utils::TerminateHandler);
 
   // Initialize Python

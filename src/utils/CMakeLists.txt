@@ -10,6 +10,7 @@ target_sources(mg-utils
     PRIVATE
     async_timer.cpp
     base64.cpp
+    crash_handler.cpp
     file.cpp
     file_locker.cpp
     memory.cpp
