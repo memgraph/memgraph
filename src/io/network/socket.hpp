@@ -209,7 +209,8 @@ class Socket {
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyWrite(std::optional<int> timeout_ms = std::nullopt) const;
+  auto WaitForReadyWrite(std::optional<int> timeout_ms = std::nullopt) const
+      -> std::expected<void, ClientCommunicationError>;
 
  private:
   Socket(int fd, Endpoint endpoint) : socket_(fd), endpoint_(std::move(endpoint)) {}

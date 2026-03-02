@@ -366,8 +366,8 @@ auto Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optiona
       // Non-fatal error, retry after the socket is ready. This is here to
       // implement a non-busy wait. If we just continue with the loop we have a
       // busy wait.
-      if (!WaitForReadyWrite(timeout_ms)) {
-        return std::unexpected{ClientCommunicationError::TIMEOUT_ERROR};
+      if (auto const res = WaitForReadyWrite(timeout_ms); !res.has_value()) {
+        return res;
       }
     } else if (written == 0) {
       // The client closed the connection.
@@ -415,7 +415,7 @@ bool Socket::WaitForReadyRead(std::optional<int> timeout_ms) const {
   return static_cast<unsigned>(p.revents) & pollin;
 }
 
-bool Socket::WaitForReadyWrite(std::optional<int> timeout_ms) const {
+auto Socket::WaitForReadyWrite(std::optional<int> timeout_ms) const -> std::expected<void, ClientCommunicationError> {
   struct pollfd p;
   p.fd = socket_;
   p.events = POLLOUT;
@@ -428,14 +428,17 @@ bool Socket::WaitForReadyWrite(std::optional<int> timeout_ms) const {
   int const ret = poll(&p, 1, timeout);
   if (ret == -1) {
     spdlog::error("Error occurred while polling for file descriptors.");
-    return false;
+    return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
   }
   if (ret == 0) {
     spdlog::error("Waiting too long to get in ready state for writing. Timeout occurred.");
-    return false;
+    return std::unexpected{ClientCommunicationError::TIMEOUT_ERROR};
   }
   constexpr unsigned pollout = POLLOUT;
-  return static_cast<unsigned>(p.revents) & pollout;
+  if (static_cast<unsigned>(p.revents) & pollout) {
+    return {};
+  }
+  return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
 }
 
 }  // namespace memgraph::io::network

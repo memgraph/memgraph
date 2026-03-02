@@ -62,7 +62,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
     });
 
     // Last error wins approach
-    if (!finalized.has_value()) {
+    if (!finalized.has_value() && (status.has_value() || status.error() != ReplicationError::TIMEOUT_ERROR)) {
       status.swap(finalized);
     }
   }
