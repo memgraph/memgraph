@@ -93,10 +93,8 @@ def test_graph_and_embeddings_tracked_sum_to_total():
     interactive_mg_runner.start_all(INSTANCE_200MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
 
-    # Baseline gap before any vector work
     baseline = get_storage_info(cursor)
     baseline_gap = parse_mib(baseline["memory_res"]) - parse_mib(baseline["memory_tracked"])
-
     execute_and_fetch_all(
         cursor,
         f"CREATE VECTOR INDEX emb_idx ON :Embedding(vec) "
@@ -129,10 +127,7 @@ def test_graph_and_embeddings_tracked_sum_to_total():
 def test_vector_insert_oom_throws_exception_not_segfault():
     """
     When the global memory limit is exceeded during vector insertion, Memgraph
-    must raise an OutOfMemoryException to the client — not crash (segfault).
-
-    usearch's add() passes the allocate() result directly to memcpy with no
-    nullptr check, so returning nullptr would segfault. Throwing is correct.
+    must raise an OutOfMemoryException to the client.
     """
     interactive_mg_runner.start_all(INSTANCE_200MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
@@ -150,7 +145,7 @@ def test_vector_insert_oom_throws_exception_not_segfault():
         assert "Memory limit exceeded" in str(e), f"Expected 'Memory limit exceeded' but got: {e}"
         oom_raised = True
 
-    info = get_storage_info(connect(host="localhost", port=BOLT_PORT).cursor())
+    info = get_storage_info(cursor)
     assert oom_raised, (
         "Expected an OutOfMemoryException to be raised during vector insertion, but it was not. Tracked memory info: "
         + str(info)
