@@ -126,8 +126,8 @@ def main():
         run_workload(monitor, restart_fn=restart_fn)
 
     print("-" * 60)
-    print("Waiting 30 seconds before final verification...")
-    time.sleep(30)
+    print("Waiting 120 seconds before final verification...")
+    time.sleep(120)
 
     print("\nFinal replica status:")
     monitor.show_replicas()
