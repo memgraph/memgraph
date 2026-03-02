@@ -21,8 +21,6 @@
 #include <nlohmann/json.hpp>
 #include <range/v3/view.hpp>
 
-#include <mutex>
-
 namespace memgraph::coordination {
 using nuraft::cluster_config;
 using nuraft::srv_config;
@@ -126,7 +124,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
 // only after the gap is small enough so it could happen that for the short time window
 // the config doesn't contain this coordinator. This should be temporary and the log which
 // contains the current coordinator should be after shortly accepted.
-// Caller is responsible for obtainig the lock for updating cluster_config_
+// Caller is responsible for obtaining the lock for updating cluster_config_
 void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
   auto const maybe_cluster_config = durability_.Get(kClusterConfigKey);
   if (!maybe_cluster_config) {
@@ -145,7 +143,7 @@ void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
 
 // Called when application is starting up
 auto CoordinatorStateManager::load_config() -> std::shared_ptr<cluster_config> {
-  auto lock = std::shared_lock{config_mutex_};
+  auto lock = std::lock_guard{config_mutex_};
   TryUpdateClusterConfigFromDisk();
   return cluster_config_;
 }
