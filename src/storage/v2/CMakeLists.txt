@@ -66,6 +66,7 @@ target_sources(mg-storage-v2
         replication/serialization.cpp
         replication/slk.cpp
         schema_info.cpp
+        snapshot_progress.cpp
         storage.cpp
         storage_mode.cpp
         temporal.cpp
