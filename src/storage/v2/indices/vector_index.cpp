@@ -449,7 +449,10 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<Vertex *> vertices_to_remove(index_size);
     locked_index->export_keys(vertices_to_remove.data(), 0, index_size);
 
-    auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex->deleted(); });
+    // size() and export_keys() are not atomic — a concurrent add/remove can cause
+    // size() > slot_lookup_.size(), leaving trailing nullptr entries in the buffer.
+    auto deleted =
+        vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex != nullptr && vertex->deleted(); });
     for (const auto &vertex : deleted) {
       locked_index->remove(vertex);
     }

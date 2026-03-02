@@ -32,7 +32,7 @@ elif [[ ! -f "$SOURCE_DIR/build/generators/sbom/memgraph-sbom.cdx.json" && -n "$
   cd $SOURCE_DIR
   python3 -m venv env
   source env/bin/activate
-  pip install conan
+  pip install "conan>=2.26.0"
 
   if [[ ! -f "$HOME/.conan2/profiles/default" ]]; then
     conan profile detect
