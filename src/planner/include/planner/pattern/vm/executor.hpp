@@ -247,8 +247,12 @@ class VMExecutor {
     candidates_buffer_.clear();
     if (auto entry_sym = pattern.entry_symbol()) {
       matcher.candidates_for_symbol(*entry_sym, candidates_buffer_);
-      // Index can have stale entries - canonicalize and dedup if needed
-      egraph_->canonical_dedup_inplace(candidates_buffer_);
+      // Canonicalize stale index entries. No need for dedup, execute_impl's
+      // seen_per_slot mechanism prevents duplicate match tuples even with
+      // duplicate candidates.
+      for (auto &cand : candidates_buffer_) {
+        cand = egraph_->find(cand);
+      }
     } else {
       // Root is variable/wildcard - get all canonical e-classes (already unique)
       matcher.all_candidates(candidates_buffer_);

@@ -48,23 +48,6 @@ inline auto canonical_eclass(UnionFind &uf, EClassId id) -> EClassId { return EC
 
 inline auto canonical_eclass(UnionFind &uf, ENodeId id) -> EClassId { return EClassId{uf.Find(id.value_of())}; }
 
-/// Canonicalize e-class IDs in-place, dedup only if any changed.
-inline void canonical_dedup_inplace(std::vector<EClassId> &vec, UnionFind &uf) {
-  bool any_changed = false;
-  for (auto &id : vec) {
-    auto canonical = canonical_eclass(uf, id);
-    if (canonical != id) {
-      id = canonical;
-      any_changed = true;
-    }
-  }
-  if (any_changed) {
-    std::ranges::sort(vec);
-    auto [first, last] = std::ranges::unique(vec);
-    vec.erase(first, last);
-  }
-}
-
 /// Set of e-class IDs with O(1) add, remove, and contains operations.
 /// Uses swap-with-last removal and dense index tracking.
 class EClassSet {
@@ -129,11 +112,6 @@ struct EGraphBase {
   auto find(EClassId id) const -> EClassId { return canonical_eclass(union_find_, id); }
 
   auto find(ENodeId id) const -> EClassId { return canonical_eclass(union_find_, id); }
-
-  /**
-   * @brief Canonicalize e-class IDs in-place, dedup only if any changed
-   */
-  void canonical_dedup_inplace(std::vector<EClassId> &vec) const { core::canonical_dedup_inplace(vec, union_find_); }
 
   /**
    * @brief Get the total number of e-nodes ever created
@@ -207,7 +185,6 @@ struct EGraph : private detail::EGraphBase {
   EGraph(EGraph &&) noexcept = default;
   auto operator=(EGraph &&) -> EGraph & = default;
 
-  using EGraphBase::canonical_dedup_inplace;
   using EGraphBase::find;
   using EGraphBase::needs_rebuild;
   using EGraphBase::num_dead_nodes;
