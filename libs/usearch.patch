@@ -32,7 +32,7 @@ index 3094494..4e7f743 100644
 
    private:
      /// @brief Punned index.
-@@ -449,7 +452,7 @@ class index_dense_gt {
+@@ -449,6 +452,6 @@ class index_dense_gt {
      /// @brief An instance of a potentially stateful `metric_t` used to initialize copies and forks.
      metric_t metric_;
 
