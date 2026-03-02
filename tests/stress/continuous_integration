@@ -279,16 +279,18 @@ Examples:
   # Run all enabled workloads for a deployment
   ./continuous_integration --deployment ha/docker
 
-  # Run a specific workload
+  # Run a specific workload (path relative to stress dir or absolute)
   ./continuous_integration --workload standalone/native/workloads/config_small.yaml
+
+  # Run a specific workload within a deployment (path relative to deployment dir)
+  ./continuous_integration --deployment standalone/native --workload workloads/config_small.yaml
         """,
     )
 
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument(
+    parser.add_argument(
         "--deployment", choices=DeploymentType.values(), help="Run all enabled workloads for a deployment type"
     )
-    group.add_argument("--workload", help="Path to a specific workload YAML file")
+    parser.add_argument("--workload", help="Path to a specific workload YAML file")
 
     parser.add_argument(
         "--python",
@@ -537,10 +539,16 @@ def write_stats(runtimes: Dict[str, float]) -> None:
 if __name__ == "__main__":
     args = parse_arguments()
 
-    # Handle --deployment
-    if args.deployment:
+    # Run a specific workload within a deployment
+    if args.deployment and args.workload:
+        workload_file = args.workload
+        if not os.path.isabs(workload_file):
+            workload_file = os.path.join(get_deployment_path(args.deployment), workload_file)
+        result = run_config_file(args, workload_file, deployment=args.deployment)
+    # Run all tests for a specific deployment
+    elif args.deployment:
         result = run_deployment(args, args.deployment)
-    # Handle --workload
+    # Run a specific workload
     elif args.workload:
         workload_file = args.workload
         if not os.path.isabs(workload_file):
@@ -548,7 +556,7 @@ if __name__ == "__main__":
         result = run_config_file(args, workload_file)
     else:
         print("Error: No deployment or workload specified.")
-        print("Usage: ./continuous_integration --deployment <type> OR --workload <path>")
+        print("Usage: ./continuous_integration --deployment <type> [--workload <path>] OR --workload <path>")
         sys.exit(1)
 
     if "error" in result:

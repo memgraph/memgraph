@@ -17,11 +17,17 @@ on:
         required: false
         type: string
         default: 'amd'
+      workload:
+        description: 'Specific workload to run (path relative to deployment dir, e.g. ha/workloads/config_ssl.yaml). Runs all workloads if omitted.'
+        required: false
+        type: string
+        default: ''
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   INPUT_IMAGE: ${{ inputs.memgraph_image }}
+  WORKLOAD_PATH: ${{ inputs.workload }}
 
 jobs:
   stress_test_standalone:

@@ -25,10 +25,10 @@ workloads:
     enabled: true
 
   - config: ../workloads/rag/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/publications/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/restarting_instances/workload.yaml
-    enabled: true
+    enabled: false

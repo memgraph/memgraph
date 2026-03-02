@@ -1111,10 +1111,10 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --workload=standalone/native/workloads/config_large.yaml"
     ;;
     stress-native-standalone)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=standalone/native"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=standalone/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
     ;;
     stress-native-ha)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=ha/native"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=ha/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
     ;;
     stress-docker-ha)
       export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license
@@ -1127,7 +1127,7 @@ test_memgraph() {
       else
         source $PROJECT_ROOT/tests/ve3/bin/activate
       fi
-      cd $PROJECT_ROOT/tests/stress && ./continuous_integration --deployment=ha/docker
+      cd $PROJECT_ROOT/tests/stress && ./continuous_integration --deployment=ha/docker ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}
     ;;
     stress-eks-ha)
       export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license
@@ -1152,7 +1152,7 @@ test_memgraph() {
         source "$PROJECT_ROOT/tests/ve3/bin/activate"
       fi
 
-      cd "$PROJECT_ROOT/tests/stress" && ./continuous_integration --deployment=ha/eks
+      cd "$PROJECT_ROOT/tests/stress" && ./continuous_integration --deployment=ha/eks ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}
     ;;
     durability)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test.log --verbose"
