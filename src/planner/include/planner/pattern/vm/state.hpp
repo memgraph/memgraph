@@ -71,7 +71,6 @@ struct ParentsIter {
 };
 
 /// Open-addressing hash set for deduplication (much better cache locality than std::unordered_set)
-// using FastEClassSet = boost::unordered_flat_set<EClassId>;
 using FastEClassSet = absl::flat_hash_set<EClassId>;
 
 /// Configuration for VMState reset
