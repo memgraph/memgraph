@@ -1,6 +1,10 @@
 name: "Reusable package mage and upload"
 on:
   workflow_call:
+    outputs:
+      s3_package_url:
+        description: "The URL of the MAGE package in S3"
+        value: ${{ jobs.BuildAndPush.outputs.s3_package_url }}
     inputs:
       arch:
         type: string
