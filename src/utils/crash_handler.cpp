@@ -12,11 +12,13 @@
 #include "utils/crash_handler.hpp"
 
 #include <execinfo.h>
-#include <signal.h>
 #include <unistd.h>
+#include <csignal>
 
 #include <array>
 #include <cstddef>
+#include <string_view>
+#include <utility>
 
 namespace memgraph::utils {
 namespace {
@@ -24,26 +26,24 @@ namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 volatile sig_atomic_t handling_crash = 0;
 
-constexpr std::size_t kAlternateSignalStackSize = 64 * 1024;
+constexpr std::size_t kAlternateSignalStackSize = 64ULL * 1024ULL;
 alignas(std::max_align_t) thread_local std::array<std::byte, kAlternateSignalStackSize> alternate_stack_storage{};
 
-template <std::size_t N>
-void WriteRawLiteral(const char (&message)[N]) {
-  static_assert(N > 0);
-  (void)!write(STDERR_FILENO, message, N - 1);
-}
+void WriteRaw(std::string_view message) { (void)!write(STDERR_FILENO, message.data(), message.size()); }
 
 void WriteSignalNumber(int signal) {
-  char number_buffer[16]{};
-  int pos = 0;
-  unsigned int value = static_cast<unsigned int>(signal);
+  std::array<char, 16> number_buffer{};
+  std::size_t pos = 0;
+  auto value = static_cast<unsigned int>(signal);
   do {
-    number_buffer[pos++] = static_cast<char>('0' + (value % 10U));
+    number_buffer[pos] = static_cast<char>('0' + (value % 10U));
+    ++pos;
     value /= 10U;
-  } while (value != 0 && pos < static_cast<int>(sizeof(number_buffer)));
+  } while (value != 0 && std::cmp_less(pos, number_buffer.size()));
 
-  for (int i = pos - 1; i >= 0; --i) {
-    (void)!write(STDERR_FILENO, &number_buffer[i], 1);
+  while (pos > 0) {
+    --pos;
+    (void)!write(STDERR_FILENO, &number_buffer[pos], 1);
   }
 }
 
@@ -51,15 +51,15 @@ void WriteSignalNumber(int signal) {
   if (handling_crash) _exit(128 + signal);
   handling_crash = 1;
 
-  WriteRawLiteral("\nMemgraph fatal signal ");
+  WriteRaw("\nMemgraph fatal signal ");
   WriteSignalNumber(signal);
-  WriteRawLiteral(" received. Stack trace:\n");
+  WriteRaw(" received. Stack trace:\n");
 
-  void *frames[128];
-  const int frame_count = backtrace(frames, static_cast<int>(std::size(frames)));
-  backtrace_symbols_fd(frames, frame_count, STDERR_FILENO);
+  std::array<void *, 128> frames{};
+  const int frame_count = backtrace(frames.data(), static_cast<int>(frames.size()));
+  backtrace_symbols_fd(frames.data(), frame_count, STDERR_FILENO);
 
-  WriteRawLiteral("End of stack trace.\n");
+  WriteRaw("End of stack trace.\n");
 
   struct sigaction default_action{};
   default_action.sa_handler = SIG_DFL;
