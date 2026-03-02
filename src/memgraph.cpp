@@ -160,7 +160,7 @@ void WaitForShutdownSignal(const std::function<void()> &shutdown_fun) {
 
   int sig = 0;
   // sigwait blocks until one of the masked signals is pending.
-  int rc = sigwait(&mask, &sig);
+  int const rc = sigwait(&mask, &sig);
   MG_ASSERT(rc == 0, "sigwait failed!");
 
   spdlog::info("Received signal {}, shutting down...", sig);
@@ -231,6 +231,11 @@ int main(int argc, char **argv) {
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
   // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
+
+  // Block SIGTERM/SIGINT as early as possible so that every thread we spawn
+  // inherits the blocked mask.  The main thread will consume them
+  // synchronously via sigwait() later.
+  BlockShutdownSignals();
 
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
@@ -885,11 +890,6 @@ int main(int argc, char **argv) {
     }
 #endif
   };
-
-  // Block SIGTERM/SIGINT before starting servers so all threads inherit the
-  // mask. The main thread will consume them synchronously via sigwait().
-  BlockShutdownSignals();
-  spdlog::trace("Shutdown signals blocked.");
 
   // Release the temporary database access
   db_acc.reset();
