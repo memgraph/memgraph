@@ -20,10 +20,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_egraph)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_ematch)
 
-    # Corpus analysis: benchmark EMatcher vs VM on corpus files
-    add_executable(corpus_benchmark corpus_benchmark.cpp)
-    target_link_libraries(corpus_benchmark PRIVATE mg::planner fmt::fmt)
-
     # Corpus profiling: run single corpus file for perf analysis
     add_executable(corpus_profile corpus_profile.cpp)
     target_link_libraries(corpus_profile PRIVATE mg::planner fmt::fmt)
@@ -63,12 +59,4 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         COMMENT "Clearing all corpus directories..."
     )
 
-    # Run corpus benchmark on ematch corpus (EMatcher vs VM comparison)
-    # Note: Only ematch corpus has pattern data; egraph corpus tests e-graph operations only
-    add_custom_target(run_corpus_benchmark
-        COMMAND $<TARGET_FILE:corpus_benchmark> ${CMAKE_CURRENT_BINARY_DIR}/corpus_ematch
-        DEPENDS corpus_benchmark
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-        COMMENT "Benchmarking e-match corpus (EMatcher vs VM)..."
-    )
 endif()

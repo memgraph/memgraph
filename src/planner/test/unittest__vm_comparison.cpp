@@ -11,8 +11,8 @@
 
 // Ground-truth based correctness tests for pattern matchers.
 //
-// Both EMatcher (recursive) and VM executor (bytecode) are tested against
-// known expected results. XFAIL markers document known implementation bugs.
+// The VM executor (bytecode) is tested against known expected results.
+// XFAIL markers document known implementation bugs.
 //
 // When a known bug is fixed, the XFAIL will start passing - update the test!
 
@@ -44,18 +44,6 @@ struct MatcherResult {
   std::string error;
 };
 
-/// Expected behavior for an implementation
-enum class Expect {
-  Pass,  // Implementation should produce correct result
-  XFail  // Implementation has a known bug (expected to fail)
-};
-
-/// Configuration for verify_both()
-struct VerifyConfig {
-  Expect ematcher = Expect::Pass;
-  Expect vm = Expect::Pass;
-};
-
 // ============================================================================
 // Ground Truth Comparison Fixture
 // ============================================================================
@@ -76,15 +64,6 @@ class MatcherCorrectnessTest : public EGraphTestBase {
     return std::move(builder).apply([&count](RuleContext<Op, NoAnalysis> &, Match const &) { ++count; });
   }
 
-  /// Run EMatcher and return result
-  auto run_ematcher(std::span<TestPattern const> patterns) -> MatcherResult {
-    std::size_t count = 0;
-    auto rule = build_rule("test_ematcher", patterns, count);
-    RewriteContext rewrite_ctx;
-    rule.apply(egraph, matcher, rewrite_ctx);
-    return {.count = count, .succeeded = true};
-  }
-
   /// Run VM executor and return result
   auto run_vm(std::span<TestPattern const> patterns) -> MatcherResult {
     std::size_t count = 0;
@@ -100,43 +79,27 @@ class MatcherCorrectnessTest : public EGraphTestBase {
     return {.count = count, .succeeded = true};
   }
 
-  /// Verify implementation result against expected count
-  void verify_impl(std::string_view name, MatcherResult const &result, std::size_t expected, Expect expectation) {
+  /// Verify VM result against expected count
+  void verify_impl(std::string_view name, MatcherResult const &result, std::size_t expected) {
     ASSERT_TRUE(result.succeeded) << name << " failed: " << result.error;
-
-    if (expectation == Expect::XFail) {
-      // Known bug: we expect the implementation to produce wrong results
-      if (result.count == expected) {
-        // Bug appears to be fixed! Update the test.
-        ADD_FAILURE() << name << " XFAIL now passes! Expected " << expected << ", got " << result.count
-                      << ". Update test to Expect::Pass.";
-      } else {
-        // Document the known discrepancy
-        GTEST_LOG_(INFO) << name << " XFAIL: expected " << expected << ", got " << result.count << " (known bug)";
-      }
-    } else {
-      EXPECT_EQ(result.count, expected) << name << " mismatch";
-    }
+    EXPECT_EQ(result.count, expected) << name << " mismatch";
   }
 
-  /// Test both implementations against ground truth (multi-pattern)
-  void verify_both(std::span<TestPattern const> patterns, std::size_t expected, VerifyConfig config = {}) {
-    auto ematcher_result = run_ematcher(patterns);
+  /// Test VM executor against ground truth (multi-pattern)
+  void verify_vm(std::span<TestPattern const> patterns, std::size_t expected) {
     auto vm_result = run_vm(patterns);
-
-    verify_impl("EMatcher", ematcher_result, expected, config.ematcher);
-    verify_impl("VM", vm_result, expected, config.vm);
+    verify_impl("VM", vm_result, expected);
   }
 
-  /// Test both implementations against ground truth (single pattern convenience)
-  void verify_both(TestPattern const &pattern, std::size_t expected, VerifyConfig config = {}) {
+  /// Test VM executor against ground truth (single pattern convenience)
+  void verify_vm(TestPattern const &pattern, std::size_t expected) {
     std::array<TestPattern, 1> patterns{pattern};
-    verify_both(std::span{patterns}, expected, config);
+    verify_vm(std::span{patterns}, expected);
   }
 };
 
 // ============================================================================
-// Basic Pattern Tests (Both implementations should pass)
+// Basic Pattern Tests
 // ============================================================================
 
 TEST_F(MatcherCorrectnessTest, SimplePattern_Neg) {
@@ -150,7 +113,7 @@ TEST_F(MatcherCorrectnessTest, SimplePattern_Neg) {
   rebuild_egraph();
 
   auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
-  verify_both(pattern, kNumNodes);
+  verify_vm(pattern, kNumNodes);
 }
 
 TEST_F(MatcherCorrectnessTest, NestedPattern_NegNeg) {
@@ -165,7 +128,7 @@ TEST_F(MatcherCorrectnessTest, NestedPattern_NegNeg) {
   rebuild_egraph();
 
   auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Var{kVarX})}, kTestRoot);
-  verify_both(pattern, kNumChains);
+  verify_vm(pattern, kNumChains);
 }
 
 TEST_F(MatcherCorrectnessTest, DeepPattern_Chain4) {
@@ -182,7 +145,7 @@ TEST_F(MatcherCorrectnessTest, DeepPattern_Chain4) {
   rebuild_egraph();
 
   auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Sym(Op::Neg, Var{kVarX})))}, kTestRoot);
-  verify_both(pattern, kNumChains);
+  verify_vm(pattern, kNumChains);
 }
 
 TEST_F(MatcherCorrectnessTest, SameVariablePattern_AddXX) {
@@ -211,7 +174,7 @@ TEST_F(MatcherCorrectnessTest, SameVariablePattern_AddXX) {
   rebuild_egraph();
 
   auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarX}}, kTestRoot);
-  verify_both(pattern, kNumLeaves);
+  verify_vm(pattern, kNumLeaves);
 }
 
 TEST_F(MatcherCorrectnessTest, WideEClass_ManyENodes) {
@@ -232,7 +195,7 @@ TEST_F(MatcherCorrectnessTest, WideEClass_ManyENodes) {
   rebuild_egraph();
 
   auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
-  verify_both(pattern, kNumMerges);
+  verify_vm(pattern, kNumMerges);
 }
 
 // ============================================================================
@@ -269,7 +232,7 @@ TEST_F(MatcherCorrectnessTest, SelfReferentialEClass_DeepPattern) {
   auto pattern = TestPattern::build(Op::F, {Sym(Op::F, Sym(Op::F, Var{kVarX}))}, kTestRoot);
 
   // EMatcher bug was fixed - both implementations now correct
-  verify_both(pattern, /*expected=*/2);
+  verify_vm(pattern, /*expected=*/2);
 }
 
 // ============================================================================
@@ -304,7 +267,7 @@ TEST_F(MatcherCorrectnessTest, TernaryPatternWithLeafSymbol) {
   auto pattern = TestPattern::build(Op::F, {Var{kVarX}, Sym(Op::A), Var{kVarY}}, kTestRoot);
 
   // EMatcher bug was fixed - both implementations now correct
-  verify_both(pattern, /*expected=*/1);
+  verify_vm(pattern, /*expected=*/1);
 }
 
 // ============================================================================
@@ -335,12 +298,11 @@ TEST_F(MatcherCorrectnessTest, MixedPattern_Complex) {
   auto pattern = TestPattern::build(Op::F, {Sym(Op::Add, Var{kVarX}, Var{kVarY}), Sym(Op::Neg, Var{kVarZ})}, kTestRoot);
 
   // Note: Due to hash-consing, duplicate structures are merged, so actual
-  // count may be less than kNumNodes. We verify both matchers agree.
-  auto ematcher_result = run_ematcher(std::array{pattern});
+  // count may be less than kNumNodes. We verify the VM finds at least one match.
   auto vm_result = run_vm(std::array{pattern});
 
-  EXPECT_EQ(ematcher_result.count, vm_result.count) << "EMatcher and VM should agree";
-  EXPECT_GT(ematcher_result.count, 0u) << "Should find at least one match";
+  ASSERT_TRUE(vm_result.succeeded) << "VM failed: " << vm_result.error;
+  EXPECT_GT(vm_result.count, 0u) << "Should find at least one match";
 }
 
 TEST_F(MatcherCorrectnessTest, BinaryPattern_RandomStructure) {
@@ -360,10 +322,10 @@ TEST_F(MatcherCorrectnessTest, BinaryPattern_RandomStructure) {
 
   auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}, kTestRoot);
 
-  auto ematcher_result = run_ematcher(std::array{pattern});
   auto vm_result = run_vm(std::array{pattern});
 
-  EXPECT_EQ(ematcher_result.count, vm_result.count) << "EMatcher and VM should agree";
+  ASSERT_TRUE(vm_result.succeeded) << "VM failed: " << vm_result.error;
+  EXPECT_GT(vm_result.count, 0u) << "Should find at least one match";
 }
 
 // ============================================================================
@@ -398,7 +360,7 @@ TEST_F(MatcherCorrectnessTest, SelfReferentialWithRewritePattern) {
   auto pattern = TestPattern::build(Op::Mul, {Sym(Op::Neg, Var{kVarX}), Sym(Op::F, Var{kVarX})}, kTestRoot);
 
   // Single-pattern matching works correctly for self-referential e-classes
-  verify_both(pattern, /*expected=*/1);
+  verify_vm(pattern, /*expected=*/1);
 }
 
 TEST_F(MatcherCorrectnessTest, ParentChainSiblingVerification_FuzzerCrashE6dbe1d) {
@@ -475,7 +437,7 @@ TEST_F(MatcherCorrectnessTest, ParentChainSiblingVerification_FuzzerCrashE6dbe1d
 
   // Ground truth: 0 matches (no H nodes exist)
   // Before fix: VM incorrectly found 7 matches by not verifying H structure
-  verify_both(patterns, /*expected=*/0);
+  verify_vm(patterns, /*expected=*/0);
 }
 
 TEST_F(MatcherCorrectnessTest, SelfReferentialMultiPattern_FuzzerCrash076d8fd2) {
@@ -559,7 +521,7 @@ TEST_F(MatcherCorrectnessTest, SelfReferentialMultiPattern_FuzzerCrash076d8fd2) 
   //
   // Previous VM incorrectly found 1 match due to not verifying sibling structure
   // in emit_joined_with_parent_chain. This was fixed in the sibling verification fix.
-  verify_both(patterns, /*expected=*/0);
+  verify_vm(patterns, /*expected=*/0);
 }
 
 TEST_F(MatcherCorrectnessTest, IdenticalMultiPattern_FuzzerCrashE082976a) {
@@ -635,7 +597,7 @@ TEST_F(MatcherCorrectnessTest, IdenticalMultiPattern_FuzzerCrashE082976a) {
 
   // Ground truth: 2 matches (?v0 = B's e-class and ?v0 = A's e-class)
   // Fixed: VM now correctly handles identical multi-patterns with self-referential G nodes
-  verify_both(patterns, /*expected=*/2);
+  verify_vm(patterns, /*expected=*/2);
 }
 
 // ============================================================================
@@ -663,7 +625,7 @@ TEST_F(MatcherCorrectnessTest, PureVariablePattern_IterAllEClasses) {
   auto pattern = make_var_pattern(kVarX);
 
   // Each e-class should be matched exactly once
-  verify_both(pattern, kNumLeaves);
+  verify_vm(pattern, kNumLeaves);
 }
 
 TEST_F(MatcherCorrectnessTest, PureVariablePattern_WithMerges) {
@@ -686,7 +648,7 @@ TEST_F(MatcherCorrectnessTest, PureVariablePattern_WithMerges) {
   rebuild_egraph();
 
   auto pattern = make_var_pattern(kVarX);
-  verify_both(pattern, kNumLeaves - kNumMerges);
+  verify_vm(pattern, kNumLeaves - kNumMerges);
 }
 
 TEST_F(MatcherCorrectnessTest, MultiPattern_VariableRootJoin) {
@@ -713,7 +675,7 @@ TEST_F(MatcherCorrectnessTest, MultiPattern_VariableRootJoin) {
   };
 
   // Each Neg node provides one binding for ?x
-  verify_both(patterns, kNumNegs);
+  verify_vm(patterns, kNumNegs);
 }
 
 TEST_F(MatcherCorrectnessTest, MultiPattern_CartesianProduct) {
@@ -750,7 +712,7 @@ TEST_F(MatcherCorrectnessTest, MultiPattern_CartesianProduct) {
   };
 
   // Cartesian product: kNumNegs * kNumAdds matches
-  verify_both(patterns, kNumNegs * kNumAdds);
+  verify_vm(patterns, kNumNegs * kNumAdds);
 }
 
 TEST_F(MatcherCorrectnessTest, MarkSeen_DeduplicatesSameBinding) {
@@ -785,7 +747,7 @@ TEST_F(MatcherCorrectnessTest, MarkSeen_DeduplicatesSameBinding) {
   auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, std::nullopt);
 
   // Should match exactly once (the merged e-class), not 3 times
-  verify_both(pattern, 1);
+  verify_vm(pattern, 1);
 }
 
 TEST_F(MatcherCorrectnessTest, MarkSeen_MultipleNegNodes) {
@@ -814,7 +776,7 @@ TEST_F(MatcherCorrectnessTest, MarkSeen_MultipleNegNodes) {
   auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, std::nullopt);
 
   // Should match 3 times: ?x=A, ?x=B, ?x=C (each is a distinct e-class)
-  verify_both(pattern, 3);
+  verify_vm(pattern, 3);
 }
 
 TEST_F(MatcherCorrectnessTest, MarkSeen_SelfReferentialDedup) {
@@ -837,7 +799,7 @@ TEST_F(MatcherCorrectnessTest, MarkSeen_SelfReferentialDedup) {
   auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt);
 
   // Should match exactly once (?x = the self-referential e-class)
-  verify_both(pattern, 1);
+  verify_vm(pattern, 1);
 }
 
 }  // namespace memgraph::planner::core

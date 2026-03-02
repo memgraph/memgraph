@@ -20,13 +20,12 @@
 #include <vector>
 
 #include <boost/unordered/unordered_flat_map.hpp>
-#include <boost/unordered/unordered_flat_set.hpp>
 
 #include "planner/egraph/egraph.hpp"
+#include "planner/pattern/match.hpp"
 #include "planner/pattern/matcher.hpp"
 #include "planner/pattern/pattern.hpp"
 #include "planner/pattern/vm/compiler.hpp"
-#include "planner/rewrite/join.hpp"
 #include "utils/small_vector.hpp"
 
 import memgraph.planner.core.concepts;
@@ -34,15 +33,18 @@ import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core {
 
+/// Reusable buffer for VM pattern matching results
+using MatchBuffer = std::vector<PatternMatch>;
+
 /// All reusable buffers for the rewrite process
 struct RewriteContext {
   EMatchContext match_ctx;
-  JoinContext join_ctx;
+  MatchBuffer match_buffer;
   std::vector<EClassId> new_eclasses;
 
   void clear() {
     match_ctx.clear();
-    join_ctx.clear();
+    match_buffer.clear();
     new_eclasses.clear();
   }
 
@@ -132,122 +134,13 @@ class RewriteRule {
                                                  std::size_t result_stride,
                                                  VarLocMap const &var_locations,
                                                  MatchArena const &arena) mutable {
-        // Iterate flat storage: each joined match is result_stride contiguous PatternMatches
         for (std::size_t i = 0; i < result_flat.size(); i += result_stride) {
           JoinMatchView view(result_flat.subspan(i, result_stride));
           Match match(view, var_locations, arena);
           fn(ctx, match);
         }
       };
-      auto plan = compute_join_plan(patterns_);
-      return RewriteRule{std::move(patterns_),
-                         std::move(pattern_names_),
-                         std::move(plan.steps),
-                         std::move(plan.var_locations),
-                         std::move(apply_fn),
-                         std::move(name_)};
-    }
-
-   private:
-    struct JoinPlan {
-      std::vector<JoinStep> steps;
-      boost::unordered_flat_map<PatternVar, VarLocation> var_locations;
-    };
-
-    /// Graph-based join ordering to minimize intermediate result sizes.
-    /// Models patterns as nodes with edges weighted by shared variable count.
-    /// Starts with highest-degree pattern (most connections), then greedily picks
-    /// patterns sharing most variables with seen set, tie-breaking by remaining degree.
-    /// Example: X(?a),Y(?b),A(?a,?b),B(?b,?c),Z(?c),C(?c,?a) -> A,B,C,X,Y,Z
-    /// (processes hub patterns A,B,C first to maximize early filtering)
-    static auto compute_join_plan(std::vector<Pattern<Symbol>> const &patterns) -> JoinPlan {
-      if (patterns.empty()) return {};
-      auto const n = patterns.size();
-      JoinPlan plan;
-      plan.steps.reserve(n);
-
-      // Collect variables per pattern
-      std::vector<boost::unordered_flat_set<PatternVar>> pattern_vars(n);
-      for (std::size_t i = 0; i < n; ++i) {
-        for (auto const &[var, _] : patterns[i].var_slots()) {
-          pattern_vars[i].insert(var);
-        }
-      }
-
-      // Compute pairwise shared variable counts (edge weights)
-      // shared_counts[i][j] = number of variables shared between pattern i and j
-      std::vector<std::vector<std::size_t>> shared_counts(n, std::vector<std::size_t>(n, 0));
-      for (std::size_t i = 0; i < n; ++i) {
-        for (std::size_t j = i + 1; j < n; ++j) {
-          std::size_t count = 0;
-          for (auto const &var : pattern_vars[i]) {
-            if (pattern_vars[j].contains(var)) ++count;
-          }
-          shared_counts[i][j] = shared_counts[j][i] = count;
-        }
-      }
-
-      // Compute weighted degree for each pattern (sum of edge weights)
-      std::vector<std::size_t> degree(n, 0);
-      for (std::size_t i = 0; i < n; ++i) {
-        for (std::size_t j = 0; j < n; ++j) {
-          degree[i] += shared_counts[i][j];
-        }
-      }
-
-      boost::unordered_flat_set<PatternVar> seen_vars;
-      auto remaining = std::views::iota(0uz, n) | std::ranges::to<boost::unordered_flat_set<std::size_t>>();
-
-      // Count variables shared with seen_vars
-      auto count_shared_with_seen = [&](std::size_t idx) {
-        std::size_t count = 0;
-        for (auto const &var : pattern_vars[idx]) {
-          if (seen_vars.contains(var)) ++count;
-        }
-        return count;
-      };
-
-      // Compute remaining degree (sum of edge weights to unprocessed patterns)
-      auto remaining_degree = [&](std::size_t idx) {
-        std::size_t deg = 0;
-        for (auto other : remaining) {
-          if (other != idx) deg += shared_counts[idx][other];
-        }
-        return deg;
-      };
-
-      // Build JoinStep for pattern at given position
-      auto make_step = [&](std::size_t idx, std::size_t join_pos) {
-        auto const &p = patterns[idx];
-        JoinStep step{.pattern_index = idx};
-
-        for (auto const &[var, slot] : p.var_slots()) {
-          if (auto it = plan.var_locations.find(var); it != plan.var_locations.end()) {
-            step.shared_vars.push_back(var);
-            step.left_locs.push_back(it->second);
-            step.right_locs.push_back(VarLocation{0, static_cast<uint8_t>(slot)});
-          } else {
-            plan.var_locations[var] = VarLocation{static_cast<uint8_t>(join_pos), static_cast<uint8_t>(slot)};
-          }
-          seen_vars.insert(var);
-        }
-        return step;
-      };
-
-      // Start with highest-degree pattern (most connections in variable-sharing graph)
-      auto start = std::ranges::max_element(remaining, {}, [&](std::size_t i) { return degree[i]; });
-      plan.steps.push_back(make_step(*start, 0));
-      remaining.erase(start);
-
-      // Greedily pick patterns: most shared vars with seen, tie-break by remaining degree
-      while (!remaining.empty()) {
-        auto best = std::ranges::max_element(
-            remaining, {}, [&](std::size_t i) { return std::pair{count_shared_with_seen(i), remaining_degree(i)}; });
-        plan.steps.push_back(make_step(*best, plan.steps.size()));
-        remaining.erase(best);
-      }
-
-      return plan;
+      return RewriteRule{std::move(patterns_), std::move(pattern_names_), std::move(apply_fn), std::move(name_)};
     }
 
    private:
@@ -259,9 +152,6 @@ class RewriteRule {
   [[nodiscard]] auto name() const -> std::string_view { return name_; }
 
   [[nodiscard]] auto patterns() const -> std::span<Pattern<Symbol> const> { return patterns_; }
-
-  /// Test accessor: returns the computed join steps for verifying join ordering.
-  [[nodiscard]] auto join_steps() const -> std::span<JoinStep const> { return join_steps_; }
 
   /// Access the compiled pattern for VM execution
   [[nodiscard]] auto compiled_pattern() const -> std::optional<vm::CompiledPattern<Symbol>> const & {
@@ -278,42 +168,6 @@ class RewriteRule {
     return std::nullopt;
   }
 
-  /// Match patterns and invoke apply function. Returns number of rewrites.
-  auto apply(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, RewriteContext &ctx) const
-      -> std::size_t {
-    if (patterns_.empty() || !apply_fn_) [[unlikely]] {
-      return 0;
-    }
-
-    ctx.match_ctx.clear();
-    auto &join_ctx = ctx.join_ctx;
-    auto &arena = ctx.match_ctx.arena();
-
-    // Match first pattern
-    matcher.match_into(patterns_[join_steps_[0].pattern_index], ctx.match_ctx, join_ctx.right);
-    if (join_ctx.right.empty()) return 0;
-
-    join_ctx.left_flat.assign(join_ctx.right.begin(), join_ctx.right.end());
-    join_ctx.left_stride = 1;
-
-    // Join with remaining patterns
-    for (std::size_t i = 1; i < join_steps_.size(); ++i) {
-      auto const &step = join_steps_[i];
-      matcher.match_into(patterns_[step.pattern_index], ctx.match_ctx, join_ctx.right);
-      if (join_ctx.right.empty()) return 0;
-
-      step.join(join_ctx, arena, egraph);
-      if (join_ctx.result_flat.empty()) return 0;
-
-      std::swap(join_ctx.left_flat, join_ctx.result_flat);
-      join_ctx.left_stride = join_ctx.result_stride;
-    }
-
-    RuleContext rule_ctx(egraph, ctx.new_eclasses);
-    apply_fn_(rule_ctx, join_ctx.left_flat, join_ctx.left_stride, var_locations_, arena);
-    return rule_ctx.rewrites();
-  }
-
   /// Match patterns using VM executor. Uses unified fused pattern for all rules.
   template <typename VMExecutor>
   auto apply_vm(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, VMExecutor &vm_executor,
@@ -323,34 +177,31 @@ class RewriteRule {
     }
 
     ctx.match_ctx.clear();
-    auto &join_ctx = ctx.join_ctx;
+    auto &match_buffer = ctx.match_buffer;
     auto &arena = ctx.match_ctx.arena();
 
     // Execute VM - candidate lookup is handled internally by the executor
-    join_ctx.right.clear();
-    vm_executor.execute(*compiled_pattern_, matcher, ctx.match_ctx, join_ctx.right);
+    match_buffer.clear();
+    vm_executor.execute(*compiled_pattern_, matcher, ctx.match_ctx, match_buffer);
 
-    if (join_ctx.right.empty()) return 0;
+    if (match_buffer.empty()) return 0;
 
     // All patterns (single or multi) produce single-stride matches via unified fused compilation
     // TODO: we want RuleContext to also handle any updates we will need in the VMExecutor
     //      for example: all_eclasses_buffer_ we shouldn't need to do a fresh rebuild every execute, it should be
     //      maintained via incremental updates
     RuleContext rule_ctx(egraph, ctx.new_eclasses);
-    apply_fn_(rule_ctx, join_ctx.right, 1, compiled_var_locations_, arena);
+    apply_fn_(rule_ctx, match_buffer, 1, compiled_var_locations_, arena);
     return rule_ctx.rewrites();
   }
 
  private:
-  RewriteRule(std::vector<Pattern<Symbol>> patterns, std::vector<std::string> pattern_names,
-              std::vector<JoinStep> join_steps, VarLocMap var_locations, ApplyFn apply_fn, std::string name)
+  RewriteRule(std::vector<Pattern<Symbol>> patterns, std::vector<std::string> pattern_names, ApplyFn apply_fn,
+              std::string name)
       : patterns_(std::move(patterns)),
         pattern_names_(std::move(pattern_names)),
-        join_steps_(std::move(join_steps)),
-        var_locations_(std::move(var_locations)),
         apply_fn_(std::move(apply_fn)),
         name_(std::move(name)) {
-    // Pre-compile patterns for VM execution
     compile_patterns();
   }
 
@@ -378,8 +229,6 @@ class RewriteRule {
 
   std::vector<Pattern<Symbol>> patterns_;
   std::vector<std::string> pattern_names_;
-  std::vector<JoinStep> join_steps_;
-  VarLocMap var_locations_;
   ApplyFn apply_fn_;
   std::string name_;
   std::optional<vm::CompiledPattern<Symbol>> compiled_pattern_;  // Unified VM pattern (single or multi-pattern)

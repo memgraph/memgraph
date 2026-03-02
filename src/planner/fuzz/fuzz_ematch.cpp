@@ -83,7 +83,6 @@ using fuzz::symbol_name;
 
 static bool g_verbose = false;
 static bool g_skip_egglog = false;
-static bool g_skip_ematcher = false;  // Skip EMatcher, test VM against egglog only
 
 // Maximum number of variables in a pattern before skipping.
 // Patterns with too many unique variables can cause exponential match counts.
@@ -92,56 +91,6 @@ static constexpr std::size_t kMaxPatternVariables = 20;
 
 #define VERBOSE_OUT \
   if (g_verbose) std::cerr
-
-// ============================================================================
-// Diagnostic Helpers
-// ============================================================================
-
-using BindingTuple = std::vector<EClassId>;
-
-/// Format a binding tuple as a string for diagnostics
-inline auto format_tuple(BindingTuple const &tuple) -> std::string {
-  std::ostringstream ss;
-  ss << "(";
-  for (std::size_t i = 0; i < tuple.size(); ++i) {
-    if (i > 0) ss << ", ";
-    ss << tuple[i];
-  }
-  ss << ")";
-  return ss.str();
-}
-
-/// Print the difference between two sets of binding tuples
-inline void print_tuple_diff(std::set<BindingTuple> const &set_a, std::set<BindingTuple> const &set_b,
-                             std::string_view name_a, std::string_view name_b) {
-  // Find tuples in A but not in B
-  std::set<BindingTuple> only_in_a;
-  std::ranges::set_difference(set_a, set_b, std::inserter(only_in_a, only_in_a.begin()));
-
-  // Find tuples in B but not in A
-  std::set<BindingTuple> only_in_b;
-  std::ranges::set_difference(set_b, set_a, std::inserter(only_in_b, only_in_b.begin()));
-
-  if (!only_in_a.empty()) {
-    std::cerr << "\n  In " << name_a << " but NOT in " << name_b << " (" << only_in_a.size() << " tuples):\n";
-    for (auto const &t : only_in_a | std::views::take(10)) {
-      std::cerr << "    " << format_tuple(t) << "\n";
-    }
-    if (only_in_a.size() > 10) {
-      std::cerr << "    ... and " << (only_in_a.size() - 10) << " more\n";
-    }
-  }
-
-  if (!only_in_b.empty()) {
-    std::cerr << "\n  In " << name_b << " but NOT in " << name_a << " (" << only_in_b.size() << " tuples):\n";
-    for (auto const &t : only_in_b | std::views::take(10)) {
-      std::cerr << "    " << format_tuple(t) << "\n";
-    }
-    if (only_in_b.size() > 10) {
-      std::cerr << "    ... and " << (only_in_b.size() - 10) << " more\n";
-    }
-  }
-}
 
 // ============================================================================
 // Egglog Program Generator
@@ -519,39 +468,9 @@ class FuzzerState {
 
     // Use set of canonicalized binding tuples for deduplication
     using BindingTuple = std::vector<EClassId>;
-    std::set<BindingTuple> ematcher_unique;
     std::set<BindingTuple> vm_unique;
 
-    std::size_t ematcher_raw = 0;
     std::size_t vm_raw = 0;
-
-    // Run EMatcher-based matching via RewriteRule::apply (unless skipped)
-    if (!g_skip_ematcher) {
-      EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
-      RewriteContext rewrite_ctx;
-
-      auto counting_rule_builder = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_count");
-      for (auto &p : patterns) {
-        counting_rule_builder = std::move(counting_rule_builder).pattern(std::move(p));
-      }
-      auto counting_rule = std::move(counting_rule_builder)
-                               .apply([this, &ematcher_raw, &ematcher_unique, &var_ids](
-                                          RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &m) {
-                                 ++ematcher_raw;
-                                 BindingTuple tuple;
-                                 tuple.reserve(var_ids.size());
-                                 for (auto id : var_ids) {
-                                   auto eclass_id = m[PatternVar{id}];
-                                   tuple.push_back(egraph_.find(eclass_id));
-                                 }
-                                 ematcher_unique.insert(std::move(tuple));
-                               });
-
-      counting_rule.apply(egraph_, matcher, rewrite_ctx);
-      VERBOSE_OUT << "EMatcher found " << ematcher_raw << " raw matches, " << ematcher_unique.size() << " unique\n";
-    } else {
-      VERBOSE_OUT << "EMatcher skipped (FUZZ_SKIP_EMATCHER=1)\n";
-    }
 
     // Run VM-based matching via RewriteRule::apply_vm
     // Store compiled pattern for diagnostics
@@ -587,20 +506,16 @@ class FuzzerState {
       // Check if VM compilation succeeded
       if (!vm_rule.compiled_pattern()) {
         VERBOSE_OUT << "VM compilation failed, skipping VM verification\n";
-        // Fall back to EMatcher-only verification
-        vm_raw = ematcher_raw;
-        vm_unique = ematcher_unique;
-      } else {
-        vm_compilation_succeeded = true;
-        compiled_pattern_copy = *vm_rule.compiled_pattern();  // Copy for diagnostics
-        vm_rule.apply_vm(egraph_, matcher, vm_executor, rewrite_ctx);
+        return true;
       }
+      vm_compilation_succeeded = true;
+      compiled_pattern_copy = *vm_rule.compiled_pattern();  // Copy for diagnostics
+      vm_rule.apply_vm(egraph_, matcher, vm_executor, rewrite_ctx);
     }
 
     VERBOSE_OUT << "VM found " << vm_raw << " raw matches, " << vm_unique.size() << " unique\n";
 
-    // Use unique counts for comparison with egglog
-    std::size_t ematcher_count = ematcher_unique.size();
+    // Use unique count for comparison with egglog
     std::size_t vm_count = vm_unique.size();
 
     // Without egglog as oracle, skip verification
@@ -621,15 +536,7 @@ class FuzzerState {
 
     if (has_pure_variable_pattern) {
       // For pure variable patterns, we skip egglog verification.
-      // EMatcher may have known limitations with self-referential e-classes,
-      // so we only log mismatches rather than aborting.
-      VERBOSE_OUT << "Pattern contains pure variable - skipping egglog (EMatcher=" << ematcher_count
-                  << ", VM=" << vm_count << ")\n";
-      if (ematcher_count != vm_count) {
-        // Log the mismatch but don't abort - EMatcher has known limitations
-        VERBOSE_OUT << "Note: EMatcher/VM mismatch for variable pattern (EMatcher=" << ematcher_count
-                    << ", VM=" << vm_count << ") - this is a known EMatcher limitation\n";
-      }
+      VERBOSE_OUT << "Pattern contains pure variable - skipping egglog (VM=" << vm_count << ")\n";
       return true;
     }
 
@@ -703,27 +610,12 @@ class FuzzerState {
     // Egglog and memgraph use independent e-class ID spaces, so we cannot
     // directly compare binding tuples.  A bug that produces the correct *number*
     // of matches but with different tuples (e.g., swapped bindings) would not be
-    // caught here.  Tuple-level bugs between EMatcher and VM are still detected
-    // by the EMatcher-vs-VM set comparison above (when EMatcher is not skipped).
-    bool ematcher_ok = g_skip_ematcher || (ematcher_count == egglog_count);
+    // caught here.
     bool vm_ok = (vm_count == egglog_count);
-
-    // EMatcher has known limitations with self-referential e-classes.
-    // Log EMatcher mismatches but only abort if VM differs from egglog.
-    if (!ematcher_ok) {
-      VERBOSE_OUT << "Note: EMatcher mismatch (EMatcher=" << ematcher_count << ", egglog=" << egglog_count
-                  << ") - this is a known EMatcher limitation\n";
-    }
 
     if (!vm_ok) {
       std::cerr << "\n!!! VM MISMATCH (egglog is ground truth) !!!\n";
       std::cerr << "Egglog:      " << egglog_count << " unique matches (oracle)\n";
-      if (!g_skip_ematcher) {
-        std::cerr << "EMatcher:    " << ematcher_count << " unique (" << ematcher_raw << " raw)"
-                  << (ematcher_ok ? " OK" : " (known limitation)") << "\n";
-      } else {
-        std::cerr << "EMatcher:    skipped (FUZZ_SKIP_EMATCHER=1)\n";
-      }
       std::cerr << "VM executor: " << vm_count << " unique (" << vm_raw << " raw) WRONG\n";
       std::cerr << "\nPatterns:\n";
       for (size_t i = 0; i < current_patterns_egglog_.size(); ++i) {
@@ -732,12 +624,6 @@ class FuzzerState {
 
       std::cerr << "\n";
       dump_egraph(egraph_, std::cerr);
-
-      // Print binding tuple differences (only if EMatcher was run)
-      if (!g_skip_ematcher) {
-        std::cerr << "\nVM vs EMatcher binding tuple difference:";
-        print_tuple_diff(vm_unique, ematcher_unique, "VM", "EMatcher");
-      }
 
       // Print VM bytecode for debugging
       if (vm_compilation_succeeded && compiled_pattern_copy) {
@@ -771,12 +657,6 @@ class FuzzerState {
       return true;
     }
 
-    // Skip rewrite cycle when EMatcher is skipped (rewrite uses EMatcher to find targets)
-    if (g_skip_ematcher) {
-      VERBOSE_OUT << "APPLY_REWRITE: skipped (FUZZ_SKIP_EMATCHER=1)\n";
-      return true;
-    }
-
     // Determine rewrite shape from fuzz data
     uint8_t shape = (pos < size) ? data[pos++] % 6 : 0;
 
@@ -799,6 +679,7 @@ class FuzzerState {
     std::vector<EClassId> match_roots;
     {
       EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
+      vm::VMExecutorVerify<FuzzSymbol, FuzzAnalysis> vm_executor(egraph_);
       RewriteContext rewrite_ctx;
 
       auto rule_builder = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_rewrite");
@@ -812,7 +693,7 @@ class FuzzerState {
               match_roots.push_back(m[PatternVar{0}]);
             }
           });
-      rule.apply(egraph_, matcher, rewrite_ctx);
+      rule.apply_vm(egraph_, matcher, vm_executor, rewrite_ctx);
     }
 
     if (match_roots.empty()) {
@@ -899,12 +780,6 @@ class FuzzerState {
   bool verify_absent() {
     if (created_ids_.empty()) return true;
 
-    // Skip when EMatcher is skipped
-    if (g_skip_ematcher) {
-      VERBOSE_OUT << "VERIFY_ABSENT: skipped (FUZZ_SKIP_EMATCHER=1)\n";
-      return true;
-    }
-
     // Collect compound symbols NOT yet inserted into this e-graph
     static constexpr std::array<FuzzSymbol, 6> kCompoundSymbols = {
         FuzzSymbol::F,
@@ -947,14 +822,21 @@ class FuzzerState {
     builder.sym(absent_sym, std::move(children));
     auto pattern = std::move(builder).build();
 
-    EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
-    EMatchContext match_ctx;
-    std::vector<PatternMatch> matches;
-    matcher.match_into(pattern, match_ctx, matches);
+    std::size_t match_count = 0;
+    {
+      EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
+      vm::VMExecutorVerify<FuzzSymbol, FuzzAnalysis> vm_executor(egraph_);
+      RewriteContext rewrite_ctx;
 
-    if (!matches.empty()) {
+      auto rule = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_absent")
+                      .pattern(std::move(pattern))
+                      .apply([&match_count](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) { ++match_count; });
+      rule.apply_vm(egraph_, matcher, vm_executor, rewrite_ctx);
+    }
+
+    if (match_count > 0) {
       std::cerr << "\n!!! VERIFY_ABSENT FAILURE !!!\n";
-      std::cerr << "Symbol " << symbol_name(absent_sym) << " was never created but EMatcher found " << matches.size()
+      std::cerr << "Symbol " << symbol_name(absent_sym) << " was never created but VM found " << match_count
                 << " match(es)\n";
       std::cerr << "E-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
       abort();
@@ -969,31 +851,9 @@ class FuzzerState {
 
     egraph_.rebuild(ctx_);
 
-    // 1. Structural invariant: a bare variable pattern should match once per
-    //    canonical e-class.  This catches basic EMatcher/union-find corruption
-    //    that a structured-pattern match might miss.
-    if (!g_skip_ematcher) {
-      auto builder = Pattern<FuzzSymbol>::Builder{};
-      builder.var(PatternVar{0});
-      auto var_pattern = std::move(builder).build();
-
-      EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
-      EMatchContext match_ctx;
-      std::vector<PatternMatch> matches;
-      matcher.match_into(var_pattern, match_ctx, matches);
-
-      if (matches.size() != egraph_.num_classes()) {
-        std::cerr << "\n!!! VARIABLE PATTERN MISMATCH !!!\n";
-        std::cerr << "Expected " << egraph_.num_classes() << " matches (one per e-class)\n";
-        std::cerr << "Got " << matches.size() << " matches\n";
-        abort();
-      }
-      VERBOSE_OUT << "Final variable-pattern check passed: " << matches.size() << " matches\n";
-    }
-
-    // 2. Run final match+verify against the egglog oracle.
-    //    This catches state-corruption bugs that only manifest after all
-    //    merge/rebuild operations have settled.
+    // Run final match+verify against the egglog oracle.
+    // This catches state-corruption bugs that only manifest after all
+    // merge/rebuild operations have settled.
     if (current_patterns_ast_.empty()) {
       VERBOSE_OUT << "No pattern set, skipping match_and_verify\n";
       return;
@@ -1055,7 +915,6 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) {
     };
     g_verbose = env_flag("FUZZ_VERBOSE");
     g_skip_egglog = env_flag("FUZZ_SKIP_EGGLOG");
-    g_skip_ematcher = env_flag("FUZZ_SKIP_EMATCHER");
 
     initialized = true;
   }

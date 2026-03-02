@@ -52,9 +52,6 @@ Bytecode-based pattern matching for performance:
   - `RuleSet` - Immutable collection of rules
   - `RuleContext` - Safe e-graph modifications in apply functions
   - `RewriteContext` - Combined reusable buffers
-- `join.hpp` - Multi-pattern join operations
-  - `JoinStep` - Hash join with greedy ordering
-  - `JoinContext` - Reusable join buffers
 - `rewriter.hpp` - Equality saturation engine
   - `Rewriter` - Orchestrates rule application until saturation
   - `RewriteConfig` - Limits (iterations, e-nodes, timeout)

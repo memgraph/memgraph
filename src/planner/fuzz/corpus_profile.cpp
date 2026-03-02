@@ -9,13 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Profiling tool for EMatcher vs VM pattern matching.
+// Profiling tool for VM pattern matching.
 //
 // Usage:
-//   ./corpus_profile <corpus_file> [--iterations N] [--mode ematcher|vm|both]
+//   ./corpus_profile <corpus_file> [--iterations N]
 //
 // Run with perf:
-//   perf record -g ./corpus_profile <corpus_file> --iterations 100000 --mode vm
+//   perf record -g ./corpus_profile <corpus_file> --iterations 100000
 //   perf report
 
 #include <chrono>
@@ -101,28 +101,6 @@ class ProfileRunner {
     }
 
     return true;
-  }
-
-  void run_ematcher(int iterations) {
-    for (int i = 0; i < iterations; ++i) {
-      EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
-      RewriteContext rewrite_ctx;
-
-      std::vector<Pattern<FuzzSymbol>> patterns_copy;
-      for (auto const &ast : current_patterns_ast_) {
-        patterns_copy.push_back(pattern_to_memgraph(ast));
-      }
-
-      auto rule_builder = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("profile");
-      for (auto &p : patterns_copy) {
-        rule_builder = std::move(rule_builder).pattern(std::move(p));
-      }
-      match_count_ = 0;
-      auto rule = std::move(rule_builder).apply([this](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) {
-        ++match_count_;
-      });
-      rule.apply(egraph_, matcher, rewrite_ctx);
-    }
   }
 
   void run_vm(int iterations) {
@@ -217,19 +195,16 @@ int main(int argc, char *argv[]) {
   using namespace memgraph::planner::core;
 
   if (argc < 2) {
-    std::cerr << "Usage: " << argv[0] << " <corpus_file> [--iterations N] [--mode ematcher|vm|both]\n";
+    std::cerr << "Usage: " << argv[0] << " <corpus_file> [--iterations N]\n";
     return 1;
   }
 
   std::string filename = argv[1];
   int iterations = 10000;
-  std::string mode = "both";
 
   for (int i = 2; i < argc; ++i) {
     if (std::strcmp(argv[i], "--iterations") == 0 && i + 1 < argc) {
       iterations = std::stoi(argv[++i]);
-    } else if (std::strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
-      mode = argv[++i];
     }
   }
 
@@ -247,19 +222,12 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  std::cerr << "Running " << iterations << " iterations, mode: " << mode << "\n";
+  std::cerr << "Running " << iterations << " iterations\n";
 
   auto start = std::chrono::high_resolution_clock::now();
 
-  if (mode == "ematcher" || mode == "both") {
-    std::cerr << "Running EMatcher...\n";
-    runner.run_ematcher(iterations);
-  }
-
-  if (mode == "vm" || mode == "both") {
-    std::cerr << "Running VM...\n";
-    runner.run_vm(iterations);
-  }
+  std::cerr << "Running VM...\n";
+  runner.run_vm(iterations);
 
   auto end = std::chrono::high_resolution_clock::now();
   auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "bench_common.hpp"
+#include "planner/pattern/vm/executor.hpp"
 
 using namespace memgraph::planner::bench;
 using namespace memgraph::planner::bench::sizes;
@@ -30,19 +31,21 @@ class HashJoinSharedFixture : public RewriterFixtureBase {
  protected:
   int64_t num_nodes_ = 0;
   TestRewriteRule rule_ = RuleMergeAddMul();
+  memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
 
   void SetUp(const benchmark::State &state) override {
     num_nodes_ = state.range(0);
     ResetEGraph();
     BuildAddMulPairs(egraph_, num_nodes_);
     CreateMatcher();
+    vm_executor_ = memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis>(egraph_);
   }
 };
 
 BENCHMARK_DEFINE_F(HashJoinSharedFixture, Match)(benchmark::State &state) {
   for (auto _ : state) {
     rewrite_context_.clear_new_eclasses();
-    auto rewrites = rule_.apply(egraph_, *matcher_, rewrite_context_);
+    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, rewrite_context_);
     benchmark::DoNotOptimize(rewrites);
   }
   state.SetItemsProcessed(state.iterations() * num_nodes_);
@@ -64,6 +67,7 @@ class HashJoinWideFixture : public RewriterFixtureBase {
   int64_t num_nodes_ = 0;
   int64_t num_unique_x_ = 0;
   TestRewriteRule rule_ = RuleWideJoin();
+  memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
 
   void SetUp(const benchmark::State &state) override {
     num_nodes_ = state.range(0);
@@ -71,13 +75,14 @@ class HashJoinWideFixture : public RewriterFixtureBase {
     ResetEGraph();
     BuildAddMulFewSharedX(egraph_, num_nodes_, num_unique_x_);
     CreateMatcher();
+    vm_executor_ = memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis>(egraph_);
   }
 };
 
 BENCHMARK_DEFINE_F(HashJoinWideFixture, Match)(benchmark::State &state) {
   for (auto _ : state) {
     rewrite_context_.clear_new_eclasses();
-    auto rewrites = rule_.apply(egraph_, *matcher_, rewrite_context_);
+    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, rewrite_context_);
     benchmark::DoNotOptimize(rewrites);
   }
   auto matches_per_x = num_nodes_ / num_unique_x_;
@@ -98,19 +103,21 @@ class CartesianJoinFixture : public RewriterFixtureBase {
  protected:
   int64_t num_nodes_ = 0;
   TestRewriteRule rule_ = RuleCartesian();
+  memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
 
   void SetUp(const benchmark::State &state) override {
     num_nodes_ = state.range(0);
     ResetEGraph();
     BuildAddNegDisjoint(egraph_, num_nodes_);
     CreateMatcher();
+    vm_executor_ = memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis>(egraph_);
   }
 };
 
 BENCHMARK_DEFINE_F(CartesianJoinFixture, Match)(benchmark::State &state) {
   for (auto _ : state) {
     rewrite_context_.clear_new_eclasses();
-    auto rewrites = rule_.apply(egraph_, *matcher_, rewrite_context_);
+    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, rewrite_context_);
     benchmark::DoNotOptimize(rewrites);
   }
   state.SetItemsProcessed(state.iterations());

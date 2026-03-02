@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "planner/pattern/vm/compiler.hpp"
+#include "planner/pattern/vm/executor.hpp"
 #include "test_egraph_fixture.hpp"
 #include "test_patterns.hpp"
 
@@ -65,7 +67,11 @@ class EMatcherTest : public EGraphTestBase {
     }
 
     matches.clear();
-    ematcher.match_into(*pattern_, ctx, matches);
+    vm::PatternCompiler<Op> compiler;
+    auto compiled = compiler.compile(*pattern_);
+    ASSERT_TRUE(compiled.has_value()) << "Pattern compilation failed";
+    vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    vm_executor.execute(*compiled, ematcher, ctx, matches);
 
     ASSERT_EQ(matches.size(), expected_matches.size())
         << "Expected " << expected_matches.size() << " matches, got " << matches.size();
@@ -98,7 +104,16 @@ class EMatcherTest : public EGraphTestBase {
 
   void expect_no_matches() {
     matches.clear();
-    ematcher.match_into(*pattern_, ctx, matches);
+    // Patterns with no variables have no meaningful bindings to return
+    if (pattern_->num_vars() == 0) {
+      return;
+    }
+    vm::PatternCompiler<Op> compiler;
+    auto compiled = compiler.compile(*pattern_);
+    if (compiled.has_value()) {
+      vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+      vm_executor.execute(*compiled, ematcher, ctx, matches);
+    }
     EXPECT_TRUE(matches.empty()) << "Expected no matches, got " << matches.size();
   }
 

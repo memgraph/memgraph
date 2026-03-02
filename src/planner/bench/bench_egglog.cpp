@@ -21,7 +21,7 @@
 //
 // Benchmarks measure:
 //   1. Pattern compilation (VM compiler)
-//   2. Pattern matching (EMatcher vs VM executor)
+//   2. Pattern matching (VM executor)
 //
 // This replaces the old benchmark__egglog.cpp GTest-based benchmark.
 // ============================================================================
@@ -119,98 +119,6 @@ BENCHMARK_DEFINE_F(PatternCompileFixture, CompileAllPatterns)(benchmark::State &
 }
 
 BENCHMARK_REGISTER_F(PatternCompileFixture, CompileAllPatterns)->Unit(benchmark::kNanosecond);
-
-// ============================================================================
-// EMatcher Pattern Matching Benchmarks
-// ============================================================================
-//
-// Measures: Cost of pattern matching using EMatcher (tree-walking approach).
-
-class EMatcherMatchFixture : public EgglogFixtureBase {};
-
-BENCHMARK_DEFINE_F(EMatcherMatchFixture, MatchNeg)(benchmark::State &state) {
-  auto pattern = PatternEgglogNeg();
-  for (auto _ : state) {
-    match_context_.clear();
-    matches_.clear();
-    matcher_->match_into(pattern, match_context_, matches_);
-    benchmark::DoNotOptimize(matches_);
-  }
-  state.counters["matches"] = static_cast<double>(matches_.size());
-}
-
-BENCHMARK_REGISTER_F(EMatcherMatchFixture, MatchNeg)->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_DEFINE_F(EMatcherMatchFixture, MatchAddSame)(benchmark::State &state) {
-  auto pattern = PatternEgglogAddSame();
-  for (auto _ : state) {
-    match_context_.clear();
-    matches_.clear();
-    matcher_->match_into(pattern, match_context_, matches_);
-    benchmark::DoNotOptimize(matches_);
-  }
-  state.counters["matches"] = static_cast<double>(matches_.size());
-}
-
-BENCHMARK_REGISTER_F(EMatcherMatchFixture, MatchAddSame)->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_DEFINE_F(EMatcherMatchFixture, MatchFAddNeg)(benchmark::State &state) {
-  auto pattern = PatternEgglogFAddNeg();
-  for (auto _ : state) {
-    match_context_.clear();
-    matches_.clear();
-    matcher_->match_into(pattern, match_context_, matches_);
-    benchmark::DoNotOptimize(matches_);
-  }
-  state.counters["matches"] = static_cast<double>(matches_.size());
-}
-
-BENCHMARK_REGISTER_F(EMatcherMatchFixture, MatchFAddNeg)->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_DEFINE_F(EMatcherMatchFixture, MatchF2FMul)(benchmark::State &state) {
-  auto pattern = PatternEgglogF2FMul();
-  for (auto _ : state) {
-    match_context_.clear();
-    matches_.clear();
-    matcher_->match_into(pattern, match_context_, matches_);
-    benchmark::DoNotOptimize(matches_);
-  }
-  state.counters["matches"] = static_cast<double>(matches_.size());
-}
-
-BENCHMARK_REGISTER_F(EMatcherMatchFixture, MatchF2FMul)->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_DEFINE_F(EMatcherMatchFixture, MatchTest)(benchmark::State &state) {
-  auto pattern = PatternEgglogTest();
-  for (auto _ : state) {
-    match_context_.clear();
-    matches_.clear();
-    matcher_->match_into(pattern, match_context_, matches_);
-    benchmark::DoNotOptimize(matches_);
-  }
-  state.counters["matches"] = static_cast<double>(matches_.size());
-}
-
-BENCHMARK_REGISTER_F(EMatcherMatchFixture, MatchTest)->Unit(benchmark::kMicrosecond);
-
-// Match all 5 patterns consecutively
-BENCHMARK_DEFINE_F(EMatcherMatchFixture, MatchAllPatterns)(benchmark::State &state) {
-  std::array patterns = {
-      PatternEgglogNeg(), PatternEgglogAddSame(), PatternEgglogFAddNeg(), PatternEgglogF2FMul(), PatternEgglogTest()};
-  std::size_t total_matches = 0;
-  for (auto _ : state) {
-    for (auto const &p : patterns) {
-      match_context_.clear();
-      matches_.clear();
-      matcher_->match_into(p, match_context_, matches_);
-      benchmark::DoNotOptimize(matches_);
-      total_matches = matches_.size();  // Last iteration's count
-    }
-  }
-  state.SetItemsProcessed(state.iterations() * patterns.size());
-}
-
-BENCHMARK_REGISTER_F(EMatcherMatchFixture, MatchAllPatterns)->Unit(benchmark::kMicrosecond);
 
 // ============================================================================
 // VM Executor Pattern Matching Benchmarks

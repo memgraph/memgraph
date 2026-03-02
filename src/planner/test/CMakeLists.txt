@@ -8,7 +8,6 @@ add_unit_test(planner
         unittest__match_arena.cpp
         unittest__ematch.cpp
         unittest__rewrite.cpp
-        unittest__join_order.cpp
         unittest__vm_compiler.cpp
         unittest__vm_executor.cpp
         unittest__vm_state.cpp

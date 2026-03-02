@@ -488,22 +488,17 @@ TEST_F(EMatcherTest, VMExecutorMatchesSameAsEMatcher) {
   [[maybe_unused]] auto add = node(Op::Add, a, b);
   rebuild_index();
 
-  // EMatcher results
-  matches.clear();
-  ematcher.match_into(pattern(), ctx, matches);
-  ASSERT_EQ(matches.size(), 1);
-
   // VM results
-  vm::PatternCompiler<Op> compiler;
-  auto compiled = compiler.compile(std::span{&pattern(), 1});
-  ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
+  matches.clear();
+  {
+    vm::PatternCompiler<Op> compiler;
+    auto compiled = compiler.compile(pattern());
+    ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
+    vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    vm_executor.execute(*compiled, ematcher, ctx, matches);
+  }
 
-  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
-  EMatchContext vm_ctx;
-  TestMatches vm_matches;
-  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
-
-  EXPECT_EQ(matches.size(), vm_matches.size()) << "EMatcher and VM should produce same number of matches";
+  ASSERT_EQ(matches.size(), 1);
 }
 
 TEST_F(EMatcherTest, LeafSymbolChildWithMergedENodesConsistency) {
@@ -541,28 +536,19 @@ TEST_F(EMatcherTest, LeafSymbolChildWithMergedENodesConsistency) {
   // Pattern: F(?x, A) - leaf symbol A as child
   use_pattern(TestPattern::build(Op::F, {Var{kVarX}, Sym(Op::A)}, kTestRoot));
 
-  // EMatcher results
-  matches.clear();
-  ematcher.match_into(pattern(), ctx, matches);
-  auto ematcher_count = matches.size();
-
   // VM results
-  vm::PatternCompiler<Op> compiler;
-  auto compiled = compiler.compile(std::span{&pattern(), 1});
-  ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
+  matches.clear();
+  {
+    vm::PatternCompiler<Op> compiler;
+    auto compiled = compiler.compile(pattern());
+    ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
+    vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    vm_executor.execute(*compiled, ematcher, ctx, matches);
+  }
+  auto vm_count = matches.size();
 
-  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
-  EMatchContext vm_ctx;
-  TestMatches vm_matches;
-  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
-  auto vm_count = vm_matches.size();
-
-  // EMatcher and VM should produce the same number of matches
   // Correct behavior: 1 match per e-class (existence check for leaf symbols)
-  EXPECT_EQ(ematcher_count, vm_count) << "EMatcher and VM should produce same number of matches. "
-                                      << "EMatcher: " << ematcher_count << ", VM: " << vm_count;
-  // Verify the correct count
-  EXPECT_EQ(ematcher_count, 1u) << "Expected 1 match (one per e-class, not per e-node)";
+  EXPECT_EQ(vm_count, 1u) << "Expected 1 match (one per e-class, not per e-node)";
 }
 
 TEST_F(EMatcherTest, TernaryPatternWithLeafSymbolChildConsistency) {
@@ -596,23 +582,15 @@ TEST_F(EMatcherTest, TernaryPatternWithLeafSymbolChildConsistency) {
   // Pattern: F(?x, A, ?y) - leaf symbol A in the middle
   use_pattern(TestPattern::build(Op::F, {Var{kVarX}, Sym(Op::A), Var{kVarY}}, kTestRoot));
 
-  // EMatcher results
-  matches.clear();
-  ematcher.match_into(pattern(), ctx, matches);
-
   // VM results
-  vm::PatternCompiler<Op> compiler;
-  auto compiled = compiler.compile(std::span{&pattern(), 1});
-  ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
-
-  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
-  EMatchContext vm_ctx;
-  TestMatches vm_matches;
-  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
-
-  // EMatcher and VM should produce the same number of matches
-  EXPECT_EQ(matches.size(), vm_matches.size()) << "EMatcher and VM should produce same number of matches. "
-                                               << "EMatcher: " << matches.size() << ", VM: " << vm_matches.size();
+  matches.clear();
+  {
+    vm::PatternCompiler<Op> compiler;
+    auto compiled = compiler.compile(pattern());
+    ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
+    vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    vm_executor.execute(*compiled, ematcher, ctx, matches);
+  }
 }
 
 // ============================================================================
@@ -641,25 +619,8 @@ TEST_F(EMatcherTest, MultiPatternVMFiltersBySymbolInVerifyMode) {
   rebuild_egraph();
   rebuild_index();
 
-  // Multi-pattern: F(?v0) and F2(?v0)
-  // F2 doesn't exist in graph, so this should produce 0 matches
-  auto pattern1 = TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt);
-  auto pattern2 = TestPattern::build(Op::F2, {Var{kVarX}}, std::nullopt);
-
   // Count matches via RewriteRule
-  std::size_t ematcher_count = 0;
   std::size_t vm_count = 0;
-
-  // EMatcher-based multi-pattern matching
-  {
-    auto rule = RewriteRule<Op, NoAnalysis>::Builder("test_ematcher")
-                    .pattern(TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt))
-                    .pattern(TestPattern::build(Op::F2, {Var{kVarX}}, std::nullopt))
-                    .apply([&ematcher_count](RuleContext<Op, NoAnalysis> &, Match const &) { ++ematcher_count; });
-
-    RewriteContext rewrite_ctx;
-    rule.apply(egraph, ematcher, rewrite_ctx);
-  }
 
   // VM-based multi-pattern matching
   {
@@ -675,10 +636,8 @@ TEST_F(EMatcherTest, MultiPatternVMFiltersBySymbolInVerifyMode) {
     rule.apply_vm(egraph, ematcher, vm_executor, rewrite_ctx);
   }
 
-  // Both should produce 0 matches (no F2 nodes in the graph)
-  EXPECT_EQ(ematcher_count, 0u) << "EMatcher should find 0 multi-pattern matches";
+  // Should produce 0 matches (no F2 nodes in the graph)
   EXPECT_EQ(vm_count, 0u) << "VM should find 0 multi-pattern matches (was finding 1 before fix)";
-  EXPECT_EQ(ematcher_count, vm_count) << "EMatcher and VM should produce same number of matches";
 }
 
 TEST_F(EMatcherTest, MultiPatternMatchWithSharedVariable) {
@@ -698,19 +657,7 @@ TEST_F(EMatcherTest, MultiPatternMatchWithSharedVariable) {
   rebuild_egraph();
   rebuild_index();
 
-  std::size_t ematcher_count = 0;
   std::size_t vm_count = 0;
-
-  // EMatcher-based multi-pattern matching
-  {
-    auto rule = RewriteRule<Op, NoAnalysis>::Builder("test_ematcher")
-                    .pattern(TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt))
-                    .pattern(TestPattern::build(Op::F2, {Var{kVarX}}, std::nullopt))
-                    .apply([&ematcher_count](RuleContext<Op, NoAnalysis> &, Match const &) { ++ematcher_count; });
-
-    RewriteContext rewrite_ctx;
-    rule.apply(egraph, ematcher, rewrite_ctx);
-  }
 
   // VM-based multi-pattern matching
   {
@@ -726,10 +673,8 @@ TEST_F(EMatcherTest, MultiPatternMatchWithSharedVariable) {
     rule.apply_vm(egraph, ematcher, vm_executor, rewrite_ctx);
   }
 
-  // Both should produce 1 match
-  EXPECT_EQ(ematcher_count, 1u) << "EMatcher should find 1 multi-pattern match";
+  // Should produce 1 match
   EXPECT_EQ(vm_count, 1u) << "VM should find 1 multi-pattern match";
-  EXPECT_EQ(ematcher_count, vm_count) << "EMatcher and VM should produce same number of matches";
 }
 
 // ============================================================================
@@ -763,12 +708,18 @@ TEST_F(EMatcherTest, DuplicateBindingsFromDifferentENodes) {
   // Pattern: F(A, ?x, ?y) - leaf symbol A as first child
   use_pattern(TestPattern::build(Op::F, {Sym(Op::A), Var{kVarX}, Var{kVarY}}, kTestRoot));
 
-  // Get raw matches from EMatcher
+  // Get raw matches via VM
   matches.clear();
-  ematcher.match_into(pattern(), ctx, matches);
+  {
+    vm::PatternCompiler<Op> compiler;
+    auto compiled = compiler.compile(pattern());
+    ASSERT_TRUE(compiled.has_value());
+    vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    vm_executor.execute(*compiled, ematcher, ctx, matches);
+  }
 
-  // EMatcher finds 2 raw matches (one per F e-node that has A as first child)
-  EXPECT_EQ(matches.size(), 2u) << "EMatcher expected 2 raw matches (one per F node with A child)";
+  // VM finds 2 raw matches (one per F e-node that has A as first child)
+  EXPECT_EQ(matches.size(), 2u) << "VM expected 2 raw matches (one per F node with A child)";
 
   // Full tuples including root are unique
   std::set<std::vector<EClassId>> full_tuples;
@@ -792,19 +743,6 @@ TEST_F(EMatcherTest, DuplicateBindingsFromDifferentENodes) {
   }
   EXPECT_EQ(non_root_bindings.size(), 1u)
       << "Non-root bindings (?x, ?y) should deduplicate to 1 (both have ?x=b, ?y=b)";
-
-  // VM deduplicates by FULL tuple (all slots including root)
-  vm::PatternCompiler<Op> compiler;
-  auto compiled = compiler.compile(std::span{&pattern(), 1});
-  ASSERT_TRUE(compiled.has_value());
-
-  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
-  EMatchContext vm_ctx;
-  TestMatches vm_matches;
-  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
-
-  // VM finds 2 matches because full tuples (including root) are different
-  EXPECT_EQ(vm_matches.size(), 2u) << "VM finds 2 unique full tuples";
 }
 
 TEST_F(EMatcherTest, DeepNestedTernaryPatternNoMatches) {
@@ -830,22 +768,17 @@ TEST_F(EMatcherTest, DeepNestedTernaryPatternNoMatches) {
                                   Sym(Op::Neg, Var{kVarA})},
                                  kTestRoot));
 
-  // EMatcher should find 0 matches
+  // VM should find 0 matches
   matches.clear();
-  ematcher.match_into(pattern(), ctx, matches);
-  EXPECT_EQ(matches.size(), 0u) << "EMatcher should find 0 matches for non-existent pattern structure";
+  {
+    vm::PatternCompiler<Op> compiler;
+    auto compiled = compiler.compile(pattern());
+    ASSERT_TRUE(compiled.has_value()) << "Deep pattern should compile successfully";
+    vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    vm_executor.execute(*compiled, ematcher, ctx, matches);
+  }
 
-  // VM should also find 0 matches
-  vm::PatternCompiler<Op> compiler;
-  auto compiled = compiler.compile(std::span{&pattern(), 1});
-  ASSERT_TRUE(compiled.has_value()) << "Deep pattern should compile successfully";
-
-  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
-  EMatchContext vm_ctx;
-  TestMatches vm_matches;
-  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
-
-  EXPECT_EQ(vm_matches.size(), 0u) << "VM should find 0 matches for non-existent pattern structure";
+  EXPECT_EQ(matches.size(), 0u) << "VM should find 0 matches for non-existent pattern structure";
 }
 
 TEST_F(EMatcherTest, DeepNestedTernaryPatternWithMatches) {
@@ -871,25 +804,18 @@ TEST_F(EMatcherTest, DeepNestedTernaryPatternWithMatches) {
   use_pattern(TestPattern::build(
       Op::F, {Sym(Op::Neg, Var{kVarX}), Sym(Op::Neg, Var{kVarY}), Sym(Op::Neg, Var{kVarZ})}, kTestRoot));
 
-  // EMatcher results
-  matches.clear();
-  ematcher.match_into(pattern(), ctx, matches);
-  auto ematcher_count = matches.size();
-
   // VM results
-  vm::PatternCompiler<Op> compiler;
-  auto compiled = compiler.compile(std::span{&pattern(), 1});
-  ASSERT_TRUE(compiled.has_value()) << "Deep pattern should compile successfully";
+  matches.clear();
+  {
+    vm::PatternCompiler<Op> compiler;
+    auto compiled = compiler.compile(pattern());
+    ASSERT_TRUE(compiled.has_value()) << "Deep pattern should compile successfully";
+    vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    vm_executor.execute(*compiled, ematcher, ctx, matches);
+  }
+  auto vm_count = matches.size();
 
-  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
-  EMatchContext vm_ctx;
-  TestMatches vm_matches;
-  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
-  auto vm_count = vm_matches.size();
-
-  EXPECT_EQ(ematcher_count, 1u) << "EMatcher should find exactly 1 match";
   EXPECT_EQ(vm_count, 1u) << "VM should find exactly 1 match";
-  EXPECT_EQ(ematcher_count, vm_count) << "EMatcher and VM should agree on match count";
 }
 
 TEST_F(EMatcherTest, RepeatedVarInNestedPatternWithSelfReferentialEClass) {
@@ -995,18 +921,14 @@ TEST_F(EMatcherTest, RepeatedVarInNestedPatternWithSelfReferentialEClass) {
   use_pattern(TestPattern::build(Op::Mul, {Var{kVarX}, Sym(Op::Mul, Var{kVarX}, Var{kVarY})}));
 
   matches.clear();
-  ematcher.match_into(pattern(), ctx, matches);
-  auto ematcher_count = matches.size();
-
-  vm::PatternCompiler<Op> compiler;
-  auto compiled = compiler.compile(std::span{&pattern(), 1});
-  ASSERT_TRUE(compiled.has_value());
-
-  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
-  EMatchContext vm_ctx;
-  TestMatches vm_matches;
-  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
-  auto vm_count = vm_matches.size();
+  {
+    vm::PatternCompiler<Op> compiler;
+    auto compiled = compiler.compile(pattern());
+    ASSERT_TRUE(compiled.has_value());
+    vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    vm_executor.execute(*compiled, ematcher, ctx, matches);
+  }
+  auto vm_count = matches.size();
 
   // Root cause: This test exposes a congruence closure bug in the e-graph.
   // After all merges, n11=Mul(n8,n0) and n13=Mul(n7,n10) should canonicalize to
@@ -1016,14 +938,11 @@ TEST_F(EMatcherTest, RepeatedVarInNestedPatternWithSelfReferentialEClass) {
   // See: EGraphCongruenceClosureBug.SelfRefWithIndirectChildCongruence
   //
   // When the e-graph bug is fixed, this test should pass with 3 matches.
-  // Until then, EMatcher and VM correctly find 4 matches (consistent with each other,
+  // Until then, VM correctly finds 4 matches (consistent with eachother,
   // but inconsistent with egglog ground truth due to the e-graph bug).
   constexpr std::size_t kExpectedMatches = 3;
 
-  EXPECT_EQ(ematcher_count, kExpectedMatches)
-      << "EMatcher should find " << kExpectedMatches << " matches (egglog ground truth)";
   EXPECT_EQ(vm_count, kExpectedMatches) << "VM should find " << kExpectedMatches << " matches (egglog ground truth)";
-  EXPECT_EQ(ematcher_count, vm_count);
 }
 
 }  // namespace memgraph::planner::core

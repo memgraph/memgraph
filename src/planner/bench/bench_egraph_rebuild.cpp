@@ -11,10 +11,7 @@
 
 #include "bench_common.hpp"
 
-#include <random>
-#include <vector>
-
-#include "range/v3/all.hpp"
+import memgraph.planner.core.eids;
 
 using namespace memgraph::planner::bench;
 using TestContext = memgraph::planner::core::ProcessingContext<Op>;

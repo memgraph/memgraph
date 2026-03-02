@@ -14,6 +14,8 @@
 #include <array>
 #include <optional>
 
+import memgraph.planner.core.eids;
+
 using namespace memgraph::planner::bench;
 using namespace memgraph::planner::bench::sizes;
 
@@ -103,7 +105,8 @@ BENCHMARK_REGISTER_F(IncrementalUpdateFixture, Update)
 
 class SimplePatternFixture : public MatcherFixtureBase {
  protected:
-  std::optional<TestPattern> pattern_;
+  std::optional<vm::CompiledPattern<Op>> compiled_;
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -111,13 +114,16 @@ class SimplePatternFixture : public MatcherFixtureBase {
     graph_size_ = state.range(0);
     context_mode_ = state.range(1);
     SetupGraphAndMatcher([this](TestEGraph &g) { BuildIndependentAdds(g, graph_size_); });
-    pattern_.emplace(PatternAdd());
+    vm_executor_ = vm::VMExecutorVerify<Op, NoAnalysis>(egraph_);
+    vm::PatternCompiler<Op> compiler;
+    compiled_ = compiler.compile(PatternAdd());
   }
 };
 
 BENCHMARK_DEFINE_F(SimplePatternFixture, Match)(benchmark::State &state) {
   BenchmarkWithMatchContext(state, context_mode_, match_context_, [&](EMatchContext &ctx) {
-    matcher_->match_into(*pattern_, ctx, matches_);
+    matches_.clear();
+    vm_executor_.execute(*compiled_, *matcher_, ctx, matches_);
     benchmark::DoNotOptimize(matches_);
   });
   state.SetItemsProcessed(state.iterations() * graph_size_);
@@ -139,7 +145,8 @@ BENCHMARK_REGISTER_F(SimplePatternFixture, Match)
 
 class DeepPatternFixture : public MatcherFixtureBase {
  protected:
-  std::optional<TestPattern> pattern_;
+  std::optional<vm::CompiledPattern<Op>> compiled_;
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
   int64_t pattern_depth_ = 0;
   int64_t context_mode_ = 0;
 
@@ -147,13 +154,16 @@ class DeepPatternFixture : public MatcherFixtureBase {
     pattern_depth_ = state.range(0);
     context_mode_ = state.range(1);
     SetupGraphAndMatcher([this](TestEGraph &g) { BuildNegChain(g, pattern_depth_); });
-    pattern_.emplace(PatternNestedNeg(static_cast<int>(pattern_depth_)));
+    vm_executor_ = vm::VMExecutorVerify<Op, NoAnalysis>(egraph_);
+    vm::PatternCompiler<Op> compiler;
+    compiled_ = compiler.compile(PatternNestedNeg(static_cast<int>(pattern_depth_)));
   }
 };
 
 BENCHMARK_DEFINE_F(DeepPatternFixture, Match)(benchmark::State &state) {
   BenchmarkWithMatchContext(state, context_mode_, match_context_, [&](EMatchContext &ctx) {
-    matcher_->match_into(*pattern_, ctx, matches_);
+    matches_.clear();
+    vm_executor_.execute(*compiled_, *matcher_, ctx, matches_);
     benchmark::DoNotOptimize(matches_);
   });
   state.SetItemsProcessed(state.iterations());
@@ -174,7 +184,8 @@ BENCHMARK_REGISTER_F(DeepPatternFixture, Match)
 
 class SameVariableFixture : public MatcherFixtureBase {
  protected:
-  std::optional<TestPattern> pattern_;
+  std::optional<vm::CompiledPattern<Op>> compiled_;
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -182,13 +193,16 @@ class SameVariableFixture : public MatcherFixtureBase {
     graph_size_ = state.range(0);
     context_mode_ = state.range(1);
     SetupGraphAndMatcher([this](TestEGraph &g) { BuildMixedAdds(g, graph_size_); });
-    pattern_.emplace(PatternAddSameVar());
+    vm_executor_ = vm::VMExecutorVerify<Op, NoAnalysis>(egraph_);
+    vm::PatternCompiler<Op> compiler;
+    compiled_ = compiler.compile(PatternAddSameVar());
   }
 };
 
 BENCHMARK_DEFINE_F(SameVariableFixture, Match)(benchmark::State &state) {
   BenchmarkWithMatchContext(state, context_mode_, match_context_, [&](EMatchContext &ctx) {
-    matcher_->match_into(*pattern_, ctx, matches_);
+    matches_.clear();
+    vm_executor_.execute(*compiled_, *matcher_, ctx, matches_);
     benchmark::DoNotOptimize(matches_);
   });
   state.SetItemsProcessed(state.iterations() * graph_size_);
@@ -210,7 +224,8 @@ BENCHMARK_REGISTER_F(SameVariableFixture, Match)
 
 class MergedEGraphFixture : public MatcherFixtureBase {
  protected:
-  std::optional<TestPattern> pattern_;
+  std::optional<vm::CompiledPattern<Op>> compiled_;
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -218,13 +233,16 @@ class MergedEGraphFixture : public MatcherFixtureBase {
     graph_size_ = state.range(0);
     context_mode_ = state.range(1);
     SetupGraphAndMatcher([this](TestEGraph &g) { BuildMergedAddMul(g, graph_size_); });
-    pattern_.emplace(PatternAdd());
+    vm_executor_ = vm::VMExecutorVerify<Op, NoAnalysis>(egraph_);
+    vm::PatternCompiler<Op> compiler;
+    compiled_ = compiler.compile(PatternAdd());
   }
 };
 
 BENCHMARK_DEFINE_F(MergedEGraphFixture, Match)(benchmark::State &state) {
   BenchmarkWithMatchContext(state, context_mode_, match_context_, [&](EMatchContext &ctx) {
-    matcher_->match_into(*pattern_, ctx, matches_);
+    matches_.clear();
+    vm_executor_.execute(*compiled_, *matcher_, ctx, matches_);
     benchmark::DoNotOptimize(matches_);
   });
   state.SetItemsProcessed(state.iterations() * graph_size_);
@@ -246,7 +264,8 @@ BENCHMARK_REGISTER_F(MergedEGraphFixture, Match)
 
 class SelectivePatternFixture : public MatcherFixtureBase {
  protected:
-  std::optional<TestPattern> pattern_;
+  std::optional<vm::CompiledPattern<Op>> compiled_;
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -254,13 +273,16 @@ class SelectivePatternFixture : public MatcherFixtureBase {
     graph_size_ = state.range(0);
     context_mode_ = state.range(1);
     SetupGraphAndMatcher([this](TestEGraph &g) { BuildAddsWithOneNeg(g, graph_size_); });
-    pattern_.emplace(PatternSelective());
+    vm_executor_ = vm::VMExecutorVerify<Op, NoAnalysis>(egraph_);
+    vm::PatternCompiler<Op> compiler;
+    compiled_ = compiler.compile(PatternSelective());
   }
 };
 
 BENCHMARK_DEFINE_F(SelectivePatternFixture, Match)(benchmark::State &state) {
   BenchmarkWithMatchContext(state, context_mode_, match_context_, [&](EMatchContext &ctx) {
-    matcher_->match_into(*pattern_, ctx, matches_);
+    matches_.clear();
+    vm_executor_.execute(*compiled_, *matcher_, ctx, matches_);
     benchmark::DoNotOptimize(matches_);
   });
   state.SetItemsProcessed(state.iterations());

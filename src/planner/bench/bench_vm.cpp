@@ -236,11 +236,10 @@ BENCHMARK_REGISTER_F(VMSelectivePatternFixture, Match)
 
 // ============================================================================
 // Multi-Pattern Join: Bind(_, ?sym, ?expr) + ?id = Ident(?sym)
-// Compares EMatcher hash-join vs VM fused parent traversal
 // ============================================================================
 
-// EMatcher approach: Use hash-join via RewriteRule
-class BindIdentEMatcherFixture : public RewriterFixtureBase {
+// RewriteRule approach: baseline for comparison with VM fused parent traversal
+class BindIdentRewriteRuleFixture : public RewriterFixtureBase {
  protected:
   int64_t num_binds_ = 0;
   int64_t idents_per_sym_ = 0;
@@ -260,24 +259,6 @@ class BindIdentEMatcherFixture : public RewriterFixtureBase {
                                                   .apply([](TestRuleContext &, Match const &) {}));
   }
 };
-
-BENCHMARK_DEFINE_F(BindIdentEMatcherFixture, HashJoin)(benchmark::State &state) {
-  for (auto _ : state) {
-    rewrite_context_.clear_new_eclasses();
-    auto rewrites = rule_->apply(egraph_, *matcher_, rewrite_context_);
-    benchmark::DoNotOptimize(rewrites);
-  }
-  state.SetItemsProcessed(state.iterations() * num_binds_ * idents_per_sym_);
-}
-
-BENCHMARK_REGISTER_F(BindIdentEMatcherFixture, HashJoin)
-    ->Args({10, 1})    // 10 binds, 1 ident each = 10 matches
-    ->Args({100, 1})   // 100 binds, 1 ident each = 100 matches
-    ->Args({10, 10})   // 10 binds, 10 idents each = 100 matches
-    ->Args({100, 10})  // 100 binds, 10 idents each = 1000 matches
-    ->Args({1000, 1})  // 1000 binds, 1 ident each = 1000 matches
-    ->ArgNames({"binds", "idents_per"})
-    ->Unit(benchmark::kMicrosecond);
 
 // VM Fused approach: Use PatternCompiler with parent traversal
 class BindIdentVMFusedFixture : public VMFixtureBase {
@@ -434,8 +415,7 @@ BENCHMARK_REGISTER_F(VMParentDiversityFixture, Match)
 // Nested Join Pattern: (F ?v0) JOIN (F (F (F (F ?v0))))
 // ============================================================================
 //
-// This pattern was identified by fuzzer as a VM bottleneck case (only 2-5x
-// speedup vs EMatcher, compared to 10-30x for simpler patterns).
+// This pattern was identified by fuzzer as a VM bottleneck case.
 //
 // Measures: Performance of deep nested patterns with shared variables.
 // Why it's slow: Pattern 2 needs 4x LoadChild + CheckSymbol ops, and the

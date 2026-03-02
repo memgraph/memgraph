@@ -235,7 +235,7 @@ BENCHMARK_REGISTER_F(RealisticFixture, Saturate)
 // for single-pattern rules where VM should be faster.
 // Why it matters: Validates the performance benefit of VM integration.
 
-class VMvsEMatcherFixture : public benchmark::Fixture {
+class RewriteFixture : public benchmark::Fixture {
  protected:
   TestEGraph egraph_;
   std::unique_ptr<TestEMatcher> matcher_;
@@ -255,18 +255,8 @@ class VMvsEMatcherFixture : public benchmark::Fixture {
   }
 };
 
-// Benchmark apply() - uses EMatcher for pattern matching
-BENCHMARK_DEFINE_F(VMvsEMatcherFixture, ApplyEMatcher)(benchmark::State &state) {
-  for (auto _ : state) {
-    ctx_.clear();
-    auto rewrites = rule_.apply(egraph_, *matcher_, ctx_);
-    benchmark::DoNotOptimize(rewrites);
-  }
-  state.SetItemsProcessed(state.iterations() * num_chains_);
-}
-
 // Benchmark apply_vm() - uses VM executor for pattern matching
-BENCHMARK_DEFINE_F(VMvsEMatcherFixture, ApplyVM)(benchmark::State &state) {
+BENCHMARK_DEFINE_F(RewriteFixture, Apply)(benchmark::State &state) {
   for (auto _ : state) {
     ctx_.clear();
     auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, ctx_);
@@ -275,12 +265,7 @@ BENCHMARK_DEFINE_F(VMvsEMatcherFixture, ApplyVM)(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations() * num_chains_);
 }
 
-BENCHMARK_REGISTER_F(VMvsEMatcherFixture, ApplyEMatcher)
-    ->ArgsProduct({{kSmall, kMedium, kLarge}, {2, 4, 8}})
-    ->ArgNames({"chains", "depth"})
-    ->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_REGISTER_F(VMvsEMatcherFixture, ApplyVM)
+BENCHMARK_REGISTER_F(RewriteFixture, Apply)
     ->ArgsProduct({{kSmall, kMedium, kLarge}, {2, 4, 8}})
     ->ArgNames({"chains", "depth"})
     ->Unit(benchmark::kMicrosecond);
@@ -289,9 +274,9 @@ BENCHMARK_REGISTER_F(VMvsEMatcherFixture, ApplyVM)
 // Single-Pattern Rule Comparison (Larger Scale)
 // ============================================================================
 //
-// Measures: VM vs EMatcher for larger graphs with more matches.
+// Measures: VM for larger graphs with more matches.
 
-class VMvsEMatcherLargeFixture : public benchmark::Fixture {
+class RewriteLargeFixture : public benchmark::Fixture {
  protected:
   TestEGraph egraph_;
   std::unique_ptr<TestEMatcher> matcher_;
@@ -314,16 +299,7 @@ class VMvsEMatcherLargeFixture : public benchmark::Fixture {
   }
 };
 
-BENCHMARK_DEFINE_F(VMvsEMatcherLargeFixture, EMatcher)(benchmark::State &state) {
-  for (auto _ : state) {
-    ctx_.clear();
-    auto rewrites = rule_.apply(egraph_, *matcher_, ctx_);
-    benchmark::DoNotOptimize(rewrites);
-  }
-  state.SetItemsProcessed(state.iterations() * graph_size_);
-}
-
-BENCHMARK_DEFINE_F(VMvsEMatcherLargeFixture, VM)(benchmark::State &state) {
+BENCHMARK_DEFINE_F(RewriteLargeFixture, VM)(benchmark::State &state) {
   for (auto _ : state) {
     ctx_.clear();
     auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, ctx_);
@@ -332,15 +308,7 @@ BENCHMARK_DEFINE_F(VMvsEMatcherLargeFixture, VM)(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations() * graph_size_);
 }
 
-BENCHMARK_REGISTER_F(VMvsEMatcherLargeFixture, EMatcher)
-    ->Args({kMedium})
-    ->Args({kLarge})
-    ->Args({kXLarge})
-    ->Args({kHuge})
-    ->ArgNames({"matches"})
-    ->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_REGISTER_F(VMvsEMatcherLargeFixture, VM)
+BENCHMARK_REGISTER_F(RewriteLargeFixture, VM)
     ->Args({kMedium})
     ->Args({kLarge})
     ->Args({kXLarge})

@@ -28,7 +28,6 @@ target_sources(mg-planner
     include/planner/pattern/pattern.hpp
 
     # rewrite/ - Rewriting/saturation engine
-    include/planner/rewrite/join.hpp
     include/planner/rewrite/rewriter.hpp
     include/planner/rewrite/rule.hpp
 
