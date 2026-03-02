@@ -27,6 +27,8 @@ default_storage_info_dict = {
     "disk_usage": "",  # machine dependent
     "memory_tracked": "",  # machine dependent
     "allocation_limit": "",  # machine dependent
+    "graph_memory_tracked": "",  # machine dependent
+    "embeddings_memory_tracked": "",  # machine dependent
     "global_isolation_level": "SNAPSHOT_ISOLATION",
     "session_isolation_level": "",
     "next_session_isolation_level": "",
@@ -63,6 +65,8 @@ def test_does_default_config_match():
         "disk_usage",
         "memory_tracked",
         "allocation_limit",
+        "graph_memory_tracked",
+        "embeddings_memory_tracked",
         "vm_max_map_count",
     ]
     # Number of different data-points returned by SHOW STORAGE INFO
