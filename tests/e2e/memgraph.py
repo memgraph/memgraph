@@ -229,8 +229,6 @@ class MemgraphInstanceRunner:
             f"--storage-snapshot-on-exit={storage_snapshot_on_exit}",
         ] + self.args
 
-        print(args_mg)
-
         if bolt_port:
             self.bolt_port = bolt_port
         else:
@@ -246,9 +244,7 @@ class MemgraphInstanceRunner:
             print("Waiting for debugger to attach... (press Enter in gdb to continue)")
             print("=" * 80 + "\n")
 
-        env = os.environ.copy()
-        env["TSAN_OPTIONS"] = "detect_deadlocks=1:second_deadlock_stack=1"
-        self.proc_mg = subprocess.Popen(args_mg, env=env)
+        self.proc_mg = subprocess.Popen(args_mg)
 
         # Use much longer timeout when debugging with gdb
         timeout = 3600 if self.gdb_port else 15
