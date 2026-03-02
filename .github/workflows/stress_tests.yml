@@ -26,6 +26,11 @@ on:
           - amd
           - arm
         default: amd
+      workload:
+        description: 'Specific workload to run (path relative to deployment dir, e.g. ha/workloads/config_ssl.yaml). Runs all workloads if omitted.'
+        required: false
+        type: string
+        default: ''
 
 run-name: "Stress Tests (${{ inputs.deployment }} - ${{ inputs.arch }})"
 
@@ -53,6 +58,7 @@ jobs:
     with:
       deployment: ${{ inputs.deployment }}
       arch: ${{ inputs.arch }}
+      workload: ${{ inputs.workload }}
     secrets: inherit
 
   stress_test_native_ha:
@@ -62,6 +68,7 @@ jobs:
     with:
       deployment: ${{ inputs.deployment }}
       arch: ${{ inputs.arch }}
+      workload: ${{ inputs.workload }}
     secrets: inherit
 
   stress_test_docker_ha:
@@ -73,6 +80,7 @@ jobs:
       deployment: ${{ inputs.deployment }}
       memgraph_image: ${{ inputs.memgraph_image != '' && inputs.memgraph_image || needs.BuildMageImage.outputs.s3_package_url }}
       arch: ${{ inputs.arch }}
+      workload: ${{ inputs.workload }}
     secrets: inherit
 
   stress_test_eks_ha:
@@ -84,4 +92,5 @@ jobs:
       deployment: ${{ inputs.deployment }}
       memgraph_image: ${{ inputs.memgraph_image != '' && inputs.memgraph_image || needs.BuildMageImage.outputs.s3_package_url }}
       arch: ${{ inputs.arch }}
+      workload: ${{ inputs.workload }}
     secrets: inherit
