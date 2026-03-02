@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 
 #include <gtest/gtest.h>
 
+#include "utils/crash_handler.hpp"
 #include "utils/signals.hpp"
 #include "utils/stacktrace.hpp"
 
@@ -52,4 +53,32 @@ TEST(SignalsMultithreaded, Ignore) {
   ASSERT_TRUE(memgraph::utils::SignalIgnore(memgraph::utils::Signal::BusError));
   std::thread thread([] { std::raise(SIGBUS); });
   thread.join();
+}
+
+TEST(CrashSignals, SegmentationFaultStacktraceToStderr) {
+#if !defined(__SANITIZE_THREAD__) && !__has_feature(thread_sanitizer)
+  ASSERT_EXIT(
+      {
+        memgraph::utils::InstallCrashHandler();
+        std::raise(SIGSEGV);
+      },
+      ::testing::KilledBySignal(SIGSEGV),
+      "Memgraph fatal signal 11 received\\. Stack trace:");
+#else
+  GTEST_SKIP() << "Crash stacktrace signal test is skipped under TSAN.";
+#endif
+}
+
+TEST(CrashSignals, AbortStacktraceToStderr) {
+#if !defined(__SANITIZE_THREAD__) && !__has_feature(thread_sanitizer)
+  ASSERT_EXIT(
+      {
+        memgraph::utils::InstallCrashHandler();
+        std::raise(SIGABRT);
+      },
+      ::testing::KilledBySignal(SIGABRT),
+      "Memgraph fatal signal 6 received\\. Stack trace:");
+#else
+  GTEST_SKIP() << "Crash stacktrace signal test is skipped under TSAN.";
+#endif
 }
