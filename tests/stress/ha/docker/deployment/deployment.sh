@@ -395,8 +395,37 @@ wait_for_healthy_cluster() {
     return 1
 }
 
+collect_logs() {
+    local dest_dir="${1:-stress_logs}"
+    mkdir -p "$dest_dir"
+    echo "Collecting container logs to $dest_dir/..."
+
+    for node in "${DATA_NODES[@]}"; do
+        read -r name _ <<< "$node"
+        local container_name="${CONTAINER_PREFIX}_${name}"
+        if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+            echo "  $container_name -> $dest_dir/${container_name}.log"
+            docker logs "$container_name" > "$dest_dir/${container_name}.log" 2>&1
+        fi
+    done
+
+    for node in "${COORD_NODES[@]}"; do
+        read -r name _ <<< "$node"
+        local container_name="${CONTAINER_PREFIX}_${name}"
+        if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+            echo "  $container_name -> $dest_dir/${container_name}.log"
+            docker logs "$container_name" > "$dest_dir/${container_name}.log" 2>&1
+        fi
+    done
+
+    echo "Logs collected."
+}
+
 stop_memgraph() {
     echo "Stopping Memgraph HA Deployment (Docker)..."
+
+    # Collect logs before removing containers
+    collect_logs
 
     # Stop monitoring stack if running
     stop_monitoring
@@ -596,6 +625,9 @@ case "$1" in
     stop)
         stop_memgraph
         ;;
+    collect-logs)
+        collect_logs "$2"
+        ;;
     status)
         check_status
         ;;
@@ -607,14 +639,15 @@ case "$1" in
         fi
         ;;
     *)
-        echo "Usage: $0 {start|stop|status|restart [instance_name]} [memgraph flags...]"
+        echo "Usage: $0 {start|stop|collect-logs [dir]|status|restart [instance_name]} [memgraph flags...]"
         echo ""
         echo "Commands:"
-        echo "  start              - Start the HA cluster"
-        echo "  stop               - Stop the HA cluster"
-        echo "  status             - Check cluster status"
-        echo "  restart            - Restart all containers"
-        echo "  restart <instance> - Restart specific instance (e.g., data_1, coord_2)"
+        echo "  start                   - Start the HA cluster"
+        echo "  stop                    - Stop the HA cluster (collects logs first)"
+        echo "  collect-logs [dir]      - Collect container logs to dir (default: stress_logs)"
+        echo "  status                  - Check cluster status"
+        echo "  restart                 - Restart all containers"
+        echo "  restart <instance>      - Restart specific instance (e.g., data_1, coord_2)"
         echo ""
         echo "Instance names: data_1, data_2, coord_1, coord_2, coord_3"
         echo ""
