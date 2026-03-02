@@ -311,12 +311,6 @@ def cleanup(coordinator: str = "coord_1") -> None:
     all data instances. Safe to call between workloads when the cluster
     stays running.
     """
-    print("Cleanup: dropping all indexes...")
-    execute_query(coordinator, "DROP ALL INDEXES", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
-
-    print("Cleanup: dropping all constraints...")
-    execute_query(coordinator, "DROP ALL CONSTRAINTS", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
-
     print("Cleanup: deleting all nodes and edges...")
     execute_query(
         coordinator,
@@ -324,4 +318,11 @@ def cleanup(coordinator: str = "coord_1") -> None:
         protocol=Protocol.BOLT_ROUTING,
         query_type=QueryType.WRITE,
     )
+
+    print("Cleanup: dropping all indexes...")
+    execute_query(coordinator, "DROP ALL INDEXES", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
+
+    print("Cleanup: dropping all constraints...")
+    execute_query(coordinator, "DROP ALL CONSTRAINTS", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
+
     print("Cleanup complete.")
