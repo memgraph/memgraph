@@ -53,8 +53,12 @@ class TrackedVectorAllocator {
     return *this;
   }
 
+  /// Matches memory_mapping_allocator_gt's own copy semantics. The copy starts
+  /// as a fresh empty allocator; the original retains its arena and tracking.
   TrackedVectorAllocator(TrackedVectorAllocator const &) noexcept {}
 
+  /// Releases any existing arena owned by *this, then becomes an empty allocator.
+  /// Matches memory_mapping_allocator_gt's own copy-assignment semantics.
   TrackedVectorAllocator &operator=(TrackedVectorAllocator const &) noexcept {
     reset();
     return *this;
@@ -62,29 +66,23 @@ class TrackedVectorAllocator {
 
   ~TrackedVectorAllocator() noexcept { reset(); }
 
-  pointer allocate(size_type count_bytes) noexcept {
+  pointer allocate(size_type count_bytes) {
     const auto extended = unum::usearch::divide_round_up<alignment_ak>(count_bytes) * alignment_ak;
-    try {
-      if (!utils::mmap_memory_tracker.Alloc(static_cast<int64_t>(extended))) {
-        return nullptr;
-      }
-    } catch (...) {
-      return nullptr;
+    if (!utils::mmap_memory_tracker.Alloc(static_cast<int64_t>(extended))) {
+      throw utils::OutOfMemoryException(*utils::MemoryErrorStatus().msg());
     }
 
     auto *result = inner_.allocate(count_bytes);
-    if (result) {
-      // Track the aligned bytes actually bump-pointer-allocated (what usearch
-      // will write to), matching memory_mapping_allocator_gt's internal rounding.
-      // This mirrors RSS far more closely than total_allocated(), which includes
-      // the full unwritten tail of the current arena.
-      tracked_bytes_.fetch_add(extended, std::memory_order_relaxed);
-    } else {
+    if (!result) {
       utils::mmap_memory_tracker.Free(static_cast<int64_t>(extended));
+      throw utils::OutOfMemoryException("Failed to allocate memory for vector index.");
     }
+    tracked_bytes_.fetch_add(extended, std::memory_order_relaxed);
     return result;
   }
 
+  /// Any call to deallocate() frees the entire arena — individual element
+  /// deallocation is not supported by the underlying bump-pointer allocator.
   void deallocate(pointer /*p*/ = nullptr, size_type /*n*/ = 0) noexcept { reset(); }
 
   void reset() noexcept {

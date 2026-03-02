@@ -1,5 +1,6 @@
 # Claude
 .claude/
+CLAUDE.md
 
 # Conan files
 conanbuild.sh
