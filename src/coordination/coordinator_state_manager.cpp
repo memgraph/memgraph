@@ -116,6 +116,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   cluster_config_->get_servers().push_back(my_srv_config_);
 
   HandleVersionMigration();
+  auto lock = std::lock_guard{config_mutex_};
   TryUpdateClusterConfigFromDisk();
 }
 
