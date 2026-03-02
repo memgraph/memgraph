@@ -365,7 +365,7 @@ TEST_F(VMExecutionTest, SameVariableInnerLoopMultipleENodes) {
   rebuild_egraph();
 
   // Create Add that uses 'a' and the merged Neg e-class
-  auto add = node(Op::Add, a, neg_b);  // Uses the merged Neg e-class
+  [[maybe_unused]] auto add = node(Op::Add, a, neg_b);  // Uses the merged Neg e-class
   rebuild_egraph();
 
   // Verify the structure
@@ -482,7 +482,7 @@ TEST_F(VMExecutionTest, DeduplicationSelfReferentialEClass) {
   rebuild_egraph();
 
   // EC1 = {F(a), F(EC1)} - self-referential
-  auto ec1 = egraph.find(n0);
+  [[maybe_unused]] auto ec1 = egraph.find(n0);
 
   // Pattern: F(?x)
   auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, kTestRoot);
@@ -583,9 +583,9 @@ TEST_F(VMExecutionTest, DeduplicationSlotOrderIndependence) {
   auto b = leaf(Op::Const, 2);
   auto c = leaf(Op::Const, 3);
 
-  auto f1 = node(Op::F, a, b);  // F(a, b)
-  auto f2 = node(Op::F, a, c);  // F(a, c)
-  auto f3 = node(Op::F, b, a);  // F(b, a)
+  [[maybe_unused]] auto f1 = node(Op::F, a, b);  // F(a, b)
+  [[maybe_unused]] auto f2 = node(Op::F, a, c);  // F(a, c)
+  [[maybe_unused]] auto f3 = node(Op::F, b, a);  // F(b, a)
 
   rebuild_egraph();
 
@@ -661,8 +661,8 @@ TEST_F(VMExecutionTest, DeduplicationPrefixChange) {
 
   auto f_ab = node(Op::F, a, b);
   auto f_ac = node(Op::F, a, c);
-  auto add1 = node(Op::Add, a, f_ab);
-  auto add2 = node(Op::Add, a, f_ac);
+  [[maybe_unused]] auto add1 = node(Op::Add, a, f_ab);
+  [[maybe_unused]] auto add2 = node(Op::Add, a, f_ac);
 
   rebuild_egraph();
 
@@ -733,7 +733,7 @@ TEST_F(VMExecutionTest, MultiPattern_JoinWithParentTraversal) {
   auto placeholder = leaf(Op::Const, 0);
   auto sym_val = leaf(Op::Const, 1);
   auto expr_val = leaf(Op::Const, 2);
-  auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
+  [[maybe_unused]] auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
   [[maybe_unused]] auto ident_node = node(Op::Ident, sym_val);
 
   rebuild_egraph();
@@ -765,7 +765,7 @@ TEST_F(VMExecutionTest, MultiPattern_NoMatchingJoin) {
   auto sym_val1 = leaf(Op::Const, 1);
   auto sym_val2 = leaf(Op::Const, 2);
   auto expr_val = leaf(Op::Const, 3);
-  auto bind_node = node(Op::Bind, placeholder, sym_val1, expr_val);
+  [[maybe_unused]] auto bind_node = node(Op::Bind, placeholder, sym_val1, expr_val);
   node(Op::Ident, sym_val2);  // Uses different sym!
 
   rebuild_egraph();
@@ -794,9 +794,9 @@ TEST_F(VMExecutionTest, MultiPattern_MultipleJoinMatches) {
   auto placeholder = leaf(Op::Const, 0);
   auto sym_val = leaf(Op::Const, 1);
   auto expr_val = leaf(Op::Const, 2);
-  auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
-  auto ident1 = node(Op::Ident, sym_val);
-  auto ident2 = node(Op::Ident, sym_val);
+  [[maybe_unused]] auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
+  [[maybe_unused]] auto ident1 = node(Op::Ident, sym_val);
+  [[maybe_unused]] auto ident2 = node(Op::Ident, sym_val);
 
   rebuild_egraph();
 
@@ -857,7 +857,7 @@ TEST_F(VMExecutionTest, MultiPattern_ThreePatternJoin) {
   auto placeholder = leaf(Op::Const, 0);
   auto sym_val = leaf(Op::Const, 1);
   auto expr_val = leaf(Op::Const, 2);
-  auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
+  [[maybe_unused]] auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
   [[maybe_unused]] auto ident_node = node(Op::Ident, sym_val);
   [[maybe_unused]] auto neg_node = node(Op::Neg, sym_val);
 
@@ -888,7 +888,7 @@ TEST_F(VMExecutionTest, MultiPattern_ManyParentTraversals) {
   auto placeholder = leaf(Op::Const, 0);
   auto sym_val = leaf(Op::Const, 1);
   auto expr_val = leaf(Op::Const, 2);
-  auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
+  [[maybe_unused]] auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
 
   // Create 3 structurally distinct F2 parents
   [[maybe_unused]] auto f2_1 = node(Op::F2, sym_val, leaf(Op::Const, 101));
@@ -929,8 +929,8 @@ TEST_F(VMExecutionTest, MultiPattern_DeduplicationWithPrefixChange) {
   auto c1 = leaf(Op::Const, 100);
   auto c2 = leaf(Op::Const, 101);
 
-  auto f1 = node(Op::F, a1, b1);
-  auto f2 = node(Op::F, a2, b1);
+  [[maybe_unused]] auto f1 = node(Op::F, a1, b1);
+  [[maybe_unused]] auto f2 = node(Op::F, a2, b1);
   [[maybe_unused]] auto g1 = node(Op::F2, b1, c1);
   [[maybe_unused]] auto g2 = node(Op::F2, b1, c2);
 
@@ -961,7 +961,7 @@ TEST_F(VMExecutionTest, MultiPattern_DeduplicationWithPrefixChange) {
 TEST_F(VMExecutionTest, MultiPattern_DeduplicationMultiplePaths) {
   // Same tuple reachable via multiple paths should be deduplicated
   auto x = leaf(Op::Const, 1);
-  auto f_xx = node(Op::F, x, x);  // F(x, x)
+  [[maybe_unused]] auto f_xx = node(Op::F, x, x);  // F(x, x)
 
   [[maybe_unused]] auto x2 = leaf(Op::Const, 1);  // Same value, will merge
   rebuild_egraph();

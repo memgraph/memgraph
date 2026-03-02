@@ -485,7 +485,7 @@ TEST_F(EMatcherTest, VMExecutorMatchesSameAsEMatcher) {
 
   auto a = leaf(Op::Var, 1);
   auto b = leaf(Op::Var, 2);
-  auto add = node(Op::Add, a, b);
+  [[maybe_unused]] auto add = node(Op::Add, a, b);
   rebuild_index();
 
   // EMatcher results
@@ -637,7 +637,7 @@ TEST_F(EMatcherTest, MultiPatternVMFiltersBySymbolInVerifyMode) {
 
   // Setup: A(4), F(A(4))
   auto a = leaf(Op::A, 4);
-  auto f_node = node(Op::F, a);
+  [[maybe_unused]] auto f_node = node(Op::F, a);
   rebuild_egraph();
   rebuild_index();
 
@@ -755,8 +755,8 @@ TEST_F(EMatcherTest, DuplicateBindingsFromDifferentENodes) {
 
   auto a = leaf(Op::A, 0);
   auto b = leaf(Op::A, 1);
-  auto t1 = node(Op::F, a, b, b);  // 3-ary F(a, b, b)
-  auto t2 = node(Op::F, b, b, b);  // 3-ary F(b, b, b)
+  [[maybe_unused]] auto t1 = node(Op::F, a, b, b);  // 3-ary F(a, b, b)
+  [[maybe_unused]] auto t2 = node(Op::F, b, b, b);  // 3-ary F(b, b, b)
   rebuild_egraph();
   rebuild_index();
 
@@ -818,7 +818,7 @@ TEST_F(EMatcherTest, DeepNestedTernaryPatternNoMatches) {
   // E-graph: Single leaf node B(0)
   // Expected: 0 matches (pattern structure doesn't exist in e-graph)
 
-  auto b = leaf(Op::B, 0);
+  [[maybe_unused]] auto b = leaf(Op::B, 0);
   rebuild_egraph();
   rebuild_index();
 
@@ -863,7 +863,7 @@ TEST_F(EMatcherTest, DeepNestedTernaryPatternWithMatches) {
   auto neg_a = node(Op::Neg, a);
   auto neg_b = node(Op::Neg, b);
   auto neg_c = node(Op::Neg, c);
-  auto f = node(Op::F, neg_a, neg_b, neg_c);
+  [[maybe_unused]] auto f = node(Op::F, neg_a, neg_b, neg_c);
   rebuild_egraph();
   rebuild_index();
 

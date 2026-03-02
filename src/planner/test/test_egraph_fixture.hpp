@@ -47,7 +47,8 @@ class EGraphTestBase : public ::testing::Test {
   // ---------------------------------------------------------------------------
 
   /// Create a leaf node with the given op and optional disambiguator.
-  auto leaf(Op op, int disambiguator = 0) -> EClassId { return egraph.emplace(op, disambiguator).eclass_id; }
+  /// Note: disambiguator is uint64_t to match ENode and allow fuzzer crash reproducers.
+  auto leaf(Op op, uint64_t disambiguator = 0) -> EClassId { return egraph.emplace(op, disambiguator).eclass_id; }
 
   /// Create a node with the given op and children.
   template <typename... Children>
