@@ -10,7 +10,7 @@ import sys
 import time
 
 from cluster_monitor import ClusterMonitor
-from ha_common import Protocol, QueryType, execute_and_fetch, execute_query
+from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_query
 
 COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
@@ -274,30 +274,33 @@ def main():
 
     total_start = time.time()
 
-    with monitor:
-        create_indices_and_constraints()
-        import_data(s3_secret)
+    try:
+        with monitor:
+            create_indices_and_constraints()
+            import_data(s3_secret)
 
-    total_elapsed = time.time() - total_start
+        total_elapsed = time.time() - total_start
 
-    print("-" * 60)
-    print(f"Total import time: {total_elapsed:.1f}s ({total_elapsed/60:.1f} minutes)")
+        print("-" * 60)
+        print(f"Total import time: {total_elapsed:.1f}s ({total_elapsed/60:.1f} minutes)")
 
-    print("\nNode counts:")
-    counts = get_node_counts()
-    for label, count in counts.items():
-        print(f"  {label}: {count:,}")
+        print("\nNode counts:")
+        counts = get_node_counts()
+        for label, count in counts.items():
+            print(f"  {label}: {count:,}")
 
-    print("\nWaiting 30 seconds before final verification...")
-    time.sleep(30)
+        print("\nWaiting 30 seconds before final verification...")
+        time.sleep(30)
 
-    print("\nFinal replica status:")
-    monitor.show_replicas()
+        print("\nFinal replica status:")
+        monitor.show_replicas()
 
-    ok = monitor.verify_all_ready() and monitor.verify_instances_up()
-    if not ok:
-        sys.exit(1)
-    print("Workload completed successfully!")
+        ok = monitor.verify_all_ready() and monitor.verify_instances_up()
+        if not ok:
+            sys.exit(1)
+        print("Workload completed successfully!")
+    finally:
+        cleanup()
 
 
 if __name__ == "__main__":

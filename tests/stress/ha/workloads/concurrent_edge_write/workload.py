@@ -8,7 +8,7 @@ import sys
 import time
 
 from cluster_monitor import ClusterMonitor
-from ha_common import Protocol, QueryType, execute_and_fetch, execute_query, run_parallel
+from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_query, run_parallel
 
 COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
@@ -87,36 +87,39 @@ def main():
 
     total_start = time.time()
 
-    with monitor:
-        create_indices_and_constraints()
-        create_nodes()
-        run_concurrent_edge_writes()
+    try:
+        with monitor:
+            create_indices_and_constraints()
+            create_nodes()
+            run_concurrent_edge_writes()
 
-    total_elapsed = time.time() - total_start
+        total_elapsed = time.time() - total_start
 
-    print("-" * 60)
-    print(f"Total time: {total_elapsed:.1f}s ({total_elapsed/60:.1f} minutes)")
+        print("-" * 60)
+        print(f"Total time: {total_elapsed:.1f}s ({total_elapsed/60:.1f} minutes)")
 
-    result = execute_and_fetch(COORDINATOR, "MATCH (n:Node) RETURN count(n) as cnt", protocol=Protocol.BOLT_ROUTING)
-    node_count = result[0]["cnt"] if result else 0
+        result = execute_and_fetch(COORDINATOR, "MATCH (n:Node) RETURN count(n) as cnt", protocol=Protocol.BOLT_ROUTING)
+        node_count = result[0]["cnt"] if result else 0
 
-    result = execute_and_fetch(
-        COORDINATOR, "MATCH ()-[r:RELATED_TO]->() RETURN count(r) as cnt", protocol=Protocol.BOLT_ROUTING
-    )
-    edge_count = result[0]["cnt"] if result else 0
+        result = execute_and_fetch(
+            COORDINATOR, "MATCH ()-[r:RELATED_TO]->() RETURN count(r) as cnt", protocol=Protocol.BOLT_ROUTING
+        )
+        edge_count = result[0]["cnt"] if result else 0
 
-    print(f"\nFinal counts: {node_count:,} nodes, {edge_count:,} edges")
+        print(f"\nFinal counts: {node_count:,} nodes, {edge_count:,} edges")
 
-    print("\nWaiting 30 seconds before final verification...")
-    time.sleep(30)
+        print("\nWaiting 30 seconds before final verification...")
+        time.sleep(30)
 
-    print("\nFinal replica status:")
-    monitor.show_replicas()
+        print("\nFinal replica status:")
+        monitor.show_replicas()
 
-    ok = monitor.verify_all_ready() and monitor.verify_instances_up()
-    if not ok:
-        sys.exit(1)
-    print("Workload completed successfully!")
+        ok = monitor.verify_all_ready() and monitor.verify_instances_up()
+        if not ok:
+            sys.exit(1)
+        print("Workload completed successfully!")
+    finally:
+        cleanup()
 
 
 if __name__ == "__main__":

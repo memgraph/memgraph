@@ -14,7 +14,7 @@ import time
 from typing import Callable
 
 from cluster_monitor import ClusterMonitor
-from ha_common import Protocol, QueryType, execute_and_fetch, execute_query, get_restart_fn, run_parallel
+from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_query, get_restart_fn, run_parallel
 
 MAIN = "data_1"
 COORDINATOR = "coord_1"
@@ -121,21 +121,24 @@ def main():
         interval=10,
     )
 
-    with monitor:
-        create_indexes()
-        run_workload(monitor, restart_fn=restart_fn)
+    try:
+        with monitor:
+            create_indexes()
+            run_workload(monitor, restart_fn=restart_fn)
 
-    print("-" * 60)
-    print("Waiting 120 seconds before final verification...")
-    time.sleep(120)
+        print("-" * 60)
+        print("Waiting 120 seconds before final verification...")
+        time.sleep(120)
 
-    print("\nFinal replica status:")
-    monitor.show_replicas()
+        print("\nFinal replica status:")
+        monitor.show_replicas()
 
-    ok = monitor.verify_all_ready() and monitor.verify_instances_up()
-    if not ok:
-        sys.exit(1)
-    print("Workload completed successfully!")
+        ok = monitor.verify_all_ready() and monitor.verify_instances_up()
+        if not ok:
+            sys.exit(1)
+        print("Workload completed successfully!")
+    finally:
+        cleanup()
 
 
 if __name__ == "__main__":

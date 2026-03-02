@@ -296,3 +296,32 @@ def execute_and_fetch(
         result_handler=lambda result: [record.data() for record in result],
     )
     return result if result is not None else []
+
+
+# ---------------------------------------------------------------------------
+# Cluster cleanup
+# ---------------------------------------------------------------------------
+
+
+def cleanup(coordinator: str = "coord_1") -> None:
+    """
+    Full wipe of the cluster: drops all indexes, constraints, and graph data.
+
+    Runs via bolt+routing on the given coordinator so changes propagate to
+    all data instances. Safe to call between workloads when the cluster
+    stays running.
+    """
+    print("Cleanup: dropping all indexes...")
+    execute_query(coordinator, "DROP ALL INDEXES", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
+
+    print("Cleanup: dropping all constraints...")
+    execute_query(coordinator, "DROP ALL CONSTRAINTS", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
+
+    print("Cleanup: deleting all nodes and edges...")
+    execute_query(
+        coordinator,
+        "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n",
+        protocol=Protocol.BOLT_ROUTING,
+        query_type=QueryType.WRITE,
+    )
+    print("Cleanup complete.")
