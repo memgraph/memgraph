@@ -348,7 +348,7 @@ std::vector<float> VectorEdgeIndex::GetVectorFromEdge(Vertex *from_vertex, Verte
   auto locked_index = mg_index.ReadLock();
   std::vector<float> vector(locked_index->dimensions());
   const EdgeIndexEntry entry{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge};
-  locked_index->get(entry, vector.data());
+  if (!locked_index->get(entry, vector.data())) return {};
   return vector;
 }
 
