@@ -268,7 +268,7 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
       const auto property_value_to_set = std::invoke([&]() {
         if (ids.empty()) {
           std::vector<double> vector(locked_index->dimensions());
-          locked_index->get(vertex, vector.data());
+          if (!locked_index->get(vertex, vector.data())) return PropertyValue();
           return PropertyValue(std::move(vector));
         }
         return old_vertex_property_value;

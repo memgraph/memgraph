@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,9 @@ class Encoder final : public durability::BaseEncoder {
   void WritePoint3d(storage::Point3d value) override;
 
   void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
+
+  uint64_t GetPosition() override;
+  void SetPosition(uint64_t position) override;
 
   void WriteFileBuffer(const uint8_t *buffer, size_t buffer_size);
 
