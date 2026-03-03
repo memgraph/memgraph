@@ -1562,3 +1562,63 @@ TEST(StorageV2GcLightEdge, Indices) {
     EXPECT_EQ(gids.size(), 2U);
   }
 }
+
+// Regression test: light edges deleted in analytical mode must be put in the graveyard
+// and freed by GC, not leaked.  Verifies that:
+//   - the storage destructor does not crash (no double-free / use-after-free)
+//   - ~Edge() is called (catches PropertyStore heap-allocation leak under ASan)
+//   - graveyard is drained correctly after mode switch back to transactional
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2GcLightEdge, AnalyticalModeDeleteGoesToGraveyard) {
+  auto storage = MakeLightEdgeGcStorage();
+  auto *mem_storage = static_cast<ms::InMemoryStorage *>(storage.get());
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    auto edge_res = acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("e"));
+    ASSERT_TRUE(edge_res.has_value());
+    // Set a property so the PropertyStore has a heap allocation — caught by ASan if ~Edge() is skipped.
+    ASSERT_TRUE(edge_res->SetProperty(acc->NameToProperty("key"), ms::PropertyValue{"value"}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Switch to analytical mode and delete the edge there.
+  mem_storage->SetStorageMode(ms::StorageMode::IN_MEMORY_ANALYTICAL);
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto edges = v1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+    auto edge = edges->edges[0];
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Switch back — this triggers a FreeMemory/GC pass which must not crash.
+  mem_storage->SetStorageMode(ms::StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+  // Run GC explicitly a second time to drain the graveyard.
+  {
+    auto main_guard = std::unique_lock{mem_storage->main_lock_};
+    mem_storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  // Verify the edge is gone and the two vertices are still intact.
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto edges = v1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    EXPECT_TRUE(edges->edges.empty());
+    EXPECT_TRUE(acc->FindVertex(v2_gid, ms::View::OLD).has_value());
+  }
+  // storage destructor runs here — must not crash or report sanitizer errors.
+}
