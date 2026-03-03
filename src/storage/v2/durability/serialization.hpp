@@ -67,8 +67,8 @@ class Encoder final : public BaseEncoder {
   void WritePoint3d(storage::Point3d value) override;
   void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
-  uint64_t GetPosition();
-  void SetPosition(uint64_t position);
+  uint64_t GetPosition() override;
+  void SetPosition(uint64_t position) override;
 
   void Sync();
 
