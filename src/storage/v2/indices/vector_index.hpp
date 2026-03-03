@@ -282,8 +282,7 @@ class VectorIndex {
   /// @brief Serializes all vector indices to a durability encoder in one pass.
   /// @param encoder The durability encoder to serialize to.
   /// @param mapped_ids Set of mapped IDs.
-  void SerializeAllVectorIndices(durability::Encoder<utils::NonConcurrentOutputFile> *encoder,
-                                 std::unordered_set<uint64_t> &mapped_ids) const;
+  void SerializeAllVectorIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids) const;
 
  private:
   /// @brief Removes a vertex from a vector index.

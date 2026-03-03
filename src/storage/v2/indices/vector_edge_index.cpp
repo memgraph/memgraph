@@ -345,7 +345,7 @@ std::vector<float> VectorEdgeIndex::GetVectorFromEdge(Vertex *from_vertex, Verte
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto &[mg_index, _] = pimpl->edge_index_.at(edge_type_prop->second);
-  auto locked_index = mg_index.ReadLock();
+  auto locked_index = mg_index.Lock();
   std::vector<float> vector(locked_index->dimensions());
   const EdgeIndexEntry entry{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge};
   if (!locked_index->get(entry, vector.data())) return {};
