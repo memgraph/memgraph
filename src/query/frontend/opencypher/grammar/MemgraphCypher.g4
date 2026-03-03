@@ -553,7 +553,7 @@ privilege : CREATE
           | SERVER_SIDE_PARAMETERS
           ;
 
-granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | ASTERISK ;
+granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
 
 granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
 

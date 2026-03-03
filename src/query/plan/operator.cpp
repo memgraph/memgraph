@@ -830,6 +830,20 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   // get the destination vertex (possibly an existing node)
   auto v2 = OtherVertex(frame, context, labels, evaluator);
 
+#ifdef MG_ENTERPRISE
+  // Check CREATE_EDGE permission on both endpoints
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+    if (!context.auth_checker->Has(
+            v1, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
+      throw QueryRuntimeException("Creating edge failed: missing CREATE EDGE permission on source node labels.");
+    }
+    if (!context.auth_checker->Has(
+            v2, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
+      throw QueryRuntimeException("Creating edge failed: missing CREATE EDGE permission on destination node labels.");
+    }
+  }
+#endif
+
   // create an edge between the two nodes
   auto *dba = context.db_accessor;
 

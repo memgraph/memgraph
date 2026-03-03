@@ -1170,6 +1170,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
                                 FineGrainedPermission::SET_PROPERTY);
     fga_permissions.GrantGlobal(FineGrainedPermission::DELETE);
     fga_permissions.GrantGlobal(FineGrainedPermission::DELETE_EDGE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::CREATE_EDGE);
     fga_permissions.GrantGlobal(FineGrainedPermission::SET_LABEL);
     fga_permissions.GrantGlobal(FineGrainedPermission::REMOVE_LABEL);
     fga_permissions.GrantGlobal(FineGrainedPermission::SET_PROPERTY);
@@ -1186,6 +1187,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
                                 FineGrainedPermission::SET_PROPERTY);
     fga_permissions.GrantGlobal(FineGrainedPermission::DELETE);
     fga_permissions.GrantGlobal(FineGrainedPermission::DELETE_EDGE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::CREATE_EDGE);
     fga_permissions.GrantGlobal(FineGrainedPermission::SET_LABEL);
     fga_permissions.GrantGlobal(FineGrainedPermission::REMOVE_LABEL);
     fga_permissions.GrantGlobal(FineGrainedPermission::SET_PROPERTY);
@@ -2335,7 +2337,7 @@ TEST_F(V2Auth, MigrationTestV2ToV3) {
   ASSERT_EQ(role1_label_perms.GetGlobalGrants().value(),
             static_cast<uint64_t>(FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL |
                                   FineGrainedPermission::SET_PROPERTY | FineGrainedPermission::DELETE_EDGE |
-                                  FineGrainedPermission::READ));
+                                  FineGrainedPermission::CREATE_EDGE | FineGrainedPermission::READ));
   ASSERT_TRUE(role1_label_perms.GetRules().empty());
   auto const &role1_edge_perms = role1->GetFineGrainedAccessEdgeTypePermissions();
   ASSERT_TRUE(role1_edge_perms.GetGlobalGrants().has_value());
