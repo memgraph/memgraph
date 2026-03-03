@@ -40,7 +40,8 @@ struct Indices {
   /// This function should be called from garbage collection to clean up the
   /// vertex indices.
   /// TODO: unused in disk indices
-  void RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
+  void RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp,
+                                   utils::SkipList<Vertex>::Accessor &vertices_accessor, std::stop_token token) const;
 
   /// This function should be called from garbage collection to clean up the
   /// edge indices.
