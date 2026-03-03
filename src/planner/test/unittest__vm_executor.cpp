@@ -54,7 +54,7 @@ TEST_F(PatternVM_Execution, SimpleMatch) {
   RecordingTracer tracer;
   VMExecutor<Op, NoAnalysis, true> executor(egraph, &tracer);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   std::ostringstream trace_ss;
   tracer.print(trace_ss);
@@ -83,7 +83,7 @@ TEST_F(PatternVM_Execution, NoMatch) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   EXPECT_EQ(results.size(), 0) << "Expected no matches";
 }
@@ -105,7 +105,7 @@ TEST_F(PatternVM_Execution, MultipleMatches) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   EXPECT_EQ(results.size(), 3) << "Expected 3 matches (n1, n2, n3 all contain Neg)";
 }
@@ -126,7 +126,7 @@ TEST_F(PatternVM_Execution, NestedPatternMatch) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   EXPECT_EQ(results.size(), 1) << "Expected exactly 1 match for Neg(Neg(?x))\nBytecode:\n" << bytecode;
 
@@ -160,7 +160,7 @@ TEST_F(PatternVM_Execution, SelfReferentialEClass) {
   RecordingTracer tracer;
   VMExecutor<Op, NoAnalysis, true> executor(egraph, &tracer);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   std::ostringstream trace_ss;
   tracer.print(trace_ss);
@@ -205,7 +205,7 @@ TEST_F(PatternVM_Execution, DeepNestedPattern) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // With depth 10 chain, pattern depth 3, we should find (10 - 3 + 1) = 8 matches
   EXPECT_EQ(results.size(), kDepth - 3 + 1)
@@ -241,7 +241,7 @@ TEST_F(PatternVM_Execution, VeryDeepNestedPattern) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // With depth 50 chain, pattern depth 10, we should find (50 - 10 + 1) = 41 matches
   EXPECT_EQ(results.size(), kDepth - kPatternDepth + 1)
@@ -315,7 +315,7 @@ TEST_F(PatternVM_Execution, SameVariableMergedEClass) {
 
   EMatchContext ctx;
   std::vector<PatternMatch> results;
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   std::ostringstream trace_ss;
   tracer.print(trace_ss);
@@ -388,7 +388,7 @@ TEST_F(PatternVM_Execution, SameVariableInnerLoopMultipleENodes) {
 
   EMatchContext ctx;
   std::vector<PatternMatch> results;
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   std::ostringstream trace_ss;
   tracer.print(trace_ss);
@@ -441,7 +441,7 @@ TEST_F(PatternVM_Execution, SameVariableMultipleMergedENodes) {
 
   EMatchContext ctx;
   std::vector<PatternMatch> results;
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Should find 2 matches: Add(a, Neg(a)) and Add(b, Neg(b))
   EXPECT_EQ(results.size(), 2) << "Should find 2 matches (Add(a,Neg(a)) and Add(b,Neg(b)))";
@@ -494,7 +494,7 @@ TEST_F(PatternVM_Execution, DeduplicationSelfReferentialEClass) {
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
   // EC1 has 2 e-nodes with different children - F(a) and F(EC1)
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Should get 2 distinct matches: {?x=a} and {?x=EC1}
   EXPECT_EQ(results.size(), 2) << "Self-referential e-class should yield 2 distinct matches";
@@ -517,7 +517,7 @@ TEST_F(PatternVM_Execution, SingleMatchForSimplePattern) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Should get exactly 1 match
   EXPECT_EQ(results.size(), 1) << "Should find exactly 1 match for single F node";
@@ -553,7 +553,7 @@ TEST_F(PatternVM_Execution, DeduplicationMergedDifferentSymbols) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Should get exactly 1 match: {?x=a} from F(a), F2(a) doesn't match F pattern
   EXPECT_EQ(results.size(), 1) << "Should match only F(a), not F2(a)";
@@ -598,7 +598,7 @@ TEST_F(PatternVM_Execution, DeduplicationSlotOrderIndependence) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Should find exactly 3 unique matches
   EXPECT_EQ(results.size(), 3) << "Should find 3 unique matches for F(?x, ?y)";
@@ -635,7 +635,7 @@ TEST_F(PatternVM_Execution, DeduplicationMultiplePaths) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Should find only 1 unique match (identical F(a,b) nodes merge)
   EXPECT_EQ(results.size(), 1) << "Identical nodes should produce single match";
@@ -675,7 +675,7 @@ TEST_F(PatternVM_Execution, DeduplicationPrefixChange) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Should find 2 unique matches: (?x=a, ?y=b) and (?x=a, ?y=c)
   EXPECT_EQ(results.size(), 2) << "Should find 2 matches with same ?x but different ?y";
@@ -714,7 +714,7 @@ TEST_F(PatternVM_Execution, DeduplicationWideEClass) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Should find kNumVariants unique matches (each F(a, xi) is unique)
   EXPECT_EQ(results.size(), kNumVariants) << "Should find " << kNumVariants << " unique matches";
@@ -753,7 +753,7 @@ TEST_F(PatternVM_Execution, MultiPattern_JoinWithParentTraversal) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Should find 1 match: Bind paired with Ident (both reference same sym_val)
   EXPECT_EQ(results.size(), 1) << "Should find exactly 1 match where Bind and Ident share ?sym";
@@ -784,7 +784,7 @@ TEST_F(PatternVM_Execution, MultiPattern_NoMatchingJoin) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   EXPECT_EQ(results.size(), 0) << "Should find no matches when Ident uses different symbol";
 }
@@ -814,7 +814,7 @@ TEST_F(PatternVM_Execution, MultiPattern_MultipleJoinMatches) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Idents may merge due to structural sharing
   bool idents_same_eclass = (egraph.find(ident1) == egraph.find(ident2));
@@ -847,7 +847,7 @@ TEST_F(PatternVM_Execution, MultiPattern_NestedJoinedPattern) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   EXPECT_EQ(results.size(), 1) << "Should find 1 match for nested pattern";
 }
@@ -878,7 +878,7 @@ TEST_F(PatternVM_Execution, MultiPattern_ThreePatternJoin) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   EXPECT_EQ(results.size(), 1) << "Should find 1 match for three-pattern join";
 }
@@ -915,7 +915,7 @@ TEST_F(PatternVM_Execution, MultiPattern_ManyParentTraversals) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Expected: 3 F2 e-classes * 1 Neg e-class = 3 matches
   EXPECT_EQ(results.size(), 3) << "Expected 3 F2 * 1 Neg = 3 matches";
@@ -952,7 +952,7 @@ TEST_F(PatternVM_Execution, MultiPattern_DeduplicationWithPrefixChange) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   // Expected: 2 F's * 2 F2's = 4 matches
   EXPECT_EQ(results.size(), 4) << "Expected 4 unique matches (2 F's * 2 F2's)";
@@ -977,7 +977,7 @@ TEST_F(PatternVM_Execution, MultiPattern_DeduplicationMultiplePaths) {
 
   VMExecutor<Op, NoAnalysis> executor(egraph);
 
-  executor.execute(*compiled, matcher, ctx, results);
+  executor.execute(*compiled, matcher, ctx.arena(), results);
 
   EXPECT_EQ(results.size(), 1) << "Should find exactly 1 match for F(?a, ?a)";
 }

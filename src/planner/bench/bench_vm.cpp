@@ -42,14 +42,14 @@ BENCHMARK_DEFINE_F(VMSimplePatternFixture, Match)(benchmark::State &state) {
     for (auto _ : state) {
       match_context_.clear();
       matches_.clear();
-      executor.execute(*pattern_, *matcher_, match_context_, matches_);
+      executor.execute(*pattern_, *matcher_, match_context_.arena(), matches_);
       benchmark::DoNotOptimize(matches_);
     }
   } else {
     for (auto _ : state) {
       EMatchContext fresh_context;
       matches_.clear();
-      executor.execute(*pattern_, *matcher_, fresh_context, matches_);
+      executor.execute(*pattern_, *matcher_, fresh_context.arena(), matches_);
       benchmark::DoNotOptimize(matches_);
     }
   }
@@ -85,14 +85,14 @@ BENCHMARK_DEFINE_F(VMDeepPatternFixture, Match)(benchmark::State &state) {
     for (auto _ : state) {
       match_context_.clear();
       matches_.clear();
-      executor.execute(*pattern_, *matcher_, match_context_, matches_);
+      executor.execute(*pattern_, *matcher_, match_context_.arena(), matches_);
       benchmark::DoNotOptimize(matches_);
     }
   } else {
     for (auto _ : state) {
       EMatchContext fresh_context;
       matches_.clear();
-      executor.execute(*pattern_, *matcher_, fresh_context, matches_);
+      executor.execute(*pattern_, *matcher_, fresh_context.arena(), matches_);
       benchmark::DoNotOptimize(matches_);
     }
   }
@@ -129,14 +129,14 @@ BENCHMARK_DEFINE_F(VMSameVariableFixture, Match)(benchmark::State &state) {
     for (auto _ : state) {
       match_context_.clear();
       matches_.clear();
-      executor.execute(*pattern_, *matcher_, match_context_, matches_);
+      executor.execute(*pattern_, *matcher_, match_context_.arena(), matches_);
       benchmark::DoNotOptimize(matches_);
     }
   } else {
     for (auto _ : state) {
       EMatchContext fresh_context;
       matches_.clear();
-      executor.execute(*pattern_, *matcher_, fresh_context, matches_);
+      executor.execute(*pattern_, *matcher_, fresh_context.arena(), matches_);
       benchmark::DoNotOptimize(matches_);
     }
   }
@@ -172,14 +172,14 @@ BENCHMARK_DEFINE_F(VMMergedEGraphFixture, Match)(benchmark::State &state) {
     for (auto _ : state) {
       match_context_.clear();
       matches_.clear();
-      executor.execute(*pattern_, *matcher_, match_context_, matches_);
+      executor.execute(*pattern_, *matcher_, match_context_.arena(), matches_);
       benchmark::DoNotOptimize(matches_);
     }
   } else {
     for (auto _ : state) {
       EMatchContext fresh_context;
       matches_.clear();
-      executor.execute(*pattern_, *matcher_, fresh_context, matches_);
+      executor.execute(*pattern_, *matcher_, fresh_context.arena(), matches_);
       benchmark::DoNotOptimize(matches_);
     }
   }
@@ -215,14 +215,14 @@ BENCHMARK_DEFINE_F(VMSelectivePatternFixture, Match)(benchmark::State &state) {
     for (auto _ : state) {
       match_context_.clear();
       matches_.clear();
-      executor.execute(*pattern_, *matcher_, match_context_, matches_);
+      executor.execute(*pattern_, *matcher_, match_context_.arena(), matches_);
       benchmark::DoNotOptimize(matches_);
     }
   } else {
     for (auto _ : state) {
       EMatchContext fresh_context;
       matches_.clear();
-      executor.execute(*pattern_, *matcher_, fresh_context, matches_);
+      executor.execute(*pattern_, *matcher_, fresh_context.arena(), matches_);
       benchmark::DoNotOptimize(matches_);
     }
   }
@@ -283,7 +283,7 @@ BENCHMARK_DEFINE_F(BindIdentVMFusedFixture, ParentTraversal)(benchmark::State &s
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
-    executor.execute(*compiled_, *matcher_, match_context_, matches_);
+    executor.execute(*compiled_, *matcher_, match_context_.arena(), matches_);
     benchmark::DoNotOptimize(matches_);
   }
   state.SetItemsProcessed(state.iterations() * num_binds_ * idents_per_sym_);
@@ -326,7 +326,7 @@ BENCHMARK_DEFINE_F(VMHighParentFixture, Match)(benchmark::State &state) {
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
-    executor.execute(*pattern_, *matcher_, match_context_, matches_);
+    executor.execute(*pattern_, *matcher_, match_context_.arena(), matches_);
     benchmark::DoNotOptimize(matches_);
   }
   state.SetItemsProcessed(state.iterations() * parents_neg_);
@@ -363,7 +363,7 @@ BENCHMARK_DEFINE_F(VMSelfRefFixture, Match)(benchmark::State &state) {
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
-    executor.execute(*pattern_, *matcher_, match_context_, matches_);
+    executor.execute(*pattern_, *matcher_, match_context_.arena(), matches_);
     benchmark::DoNotOptimize(matches_);
   }
   state.SetItemsProcessed(state.iterations());
@@ -398,7 +398,7 @@ BENCHMARK_DEFINE_F(VMParentDiversityFixture, Match)(benchmark::State &state) {
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
-    executor.execute(*pattern_, *matcher_, match_context_, matches_);
+    executor.execute(*pattern_, *matcher_, match_context_.arena(), matches_);
     benchmark::DoNotOptimize(matches_);
   }
   state.SetItemsProcessed(state.iterations());
@@ -441,7 +441,7 @@ BENCHMARK_DEFINE_F(VMNestedJoinFixture, Match)(benchmark::State &state) {
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
-    executor.execute(*pattern_, *matcher_, match_context_, matches_);
+    executor.execute(*pattern_, *matcher_, match_context_.arena(), matches_);
     benchmark::DoNotOptimize(matches_);
   }
   state.SetItemsProcessed(state.iterations() * num_leaves_);

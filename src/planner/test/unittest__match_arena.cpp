@@ -11,7 +11,7 @@
 
 #include <gtest/gtest.h>
 
-#include "planner/pattern/match.hpp"
+#include "planner/pattern/match_storage.hpp"
 
 import memgraph.planner.core.egraph;
 

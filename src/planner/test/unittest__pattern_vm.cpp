@@ -495,7 +495,7 @@ TEST_F(PatternVM_MatcherIndex, VMExecutorMatchesSameAsMatcherIndex) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, index, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx.arena(), matches);
   }
 
   ASSERT_EQ(matches.size(), 1);
@@ -543,7 +543,7 @@ TEST_F(PatternVM_MatcherIndex, LeafSymbolChildWithMergedENodesConsistency) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, index, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx.arena(), matches);
   }
   auto vm_count = matches.size();
 
@@ -589,7 +589,7 @@ TEST_F(PatternVM_MatcherIndex, TernaryPatternWithLeafSymbolChildConsistency) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, index, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx.arena(), matches);
   }
 }
 
@@ -717,7 +717,7 @@ TEST_F(PatternVM_MatcherIndex, DuplicateBindingsFromDifferentENodes) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value());
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, index, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx.arena(), matches);
   }
 
   // VM finds 2 raw matches (one per F e-node that has A as first child)
@@ -779,7 +779,7 @@ TEST_F(PatternVM_MatcherIndex, DeepNestedTernaryPatternNoMatches) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value()) << "Deep pattern should compile successfully";
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, index, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx.arena(), matches);
   }
 
   EXPECT_EQ(matches.size(), 0u) << "VM should find 0 matches for non-existent pattern structure";
@@ -815,7 +815,7 @@ TEST_F(PatternVM_MatcherIndex, DeepNestedTernaryPatternWithMatches) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value()) << "Deep pattern should compile successfully";
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, index, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx.arena(), matches);
   }
   auto vm_count = matches.size();
 
@@ -930,7 +930,7 @@ TEST_F(PatternVM_MatcherIndex, RepeatedVarInNestedPatternWithSelfReferentialECla
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value());
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, index, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx.arena(), matches);
   }
   auto vm_count = matches.size();
 

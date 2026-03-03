@@ -105,7 +105,7 @@ class RewriteRule {
   template <typename VMExecutor>
   void match(MatcherIndex<Symbol, Analysis> &index, VMExecutor &vm_executor, MatcherContext &ctx) const {
     ctx.clear();
-    vm_executor.execute(compiled_, index, ctx.match_ctx, ctx.match_buffer);
+    vm_executor.execute(compiled_, index, ctx.match_ctx.arena(), ctx.match_buffer);
   }
 
   /// Apply matches from buffer to egraph. Returns number of rewrites.

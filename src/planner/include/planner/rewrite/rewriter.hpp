@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -260,7 +261,7 @@ class Rewriter {
    * @return Total number of rewrites applied across all rules
    */
   auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats) -> std::size_t {
-    DMG_ASSERT(!egraph_->needs_rebuild(), "E-graph must be clean at start of rewrite iteration");
+    assert(!egraph_->needs_rebuild() && "E-graph must be clean at start of rewrite iteration");
 
     ctx_.clear_new_eclasses();
     std::size_t total_rewrites = 0;

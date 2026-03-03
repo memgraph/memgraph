@@ -11,15 +11,14 @@
 
 #pragma once
 
+#include <cassert>
 #include <span>
 #include <type_traits>
 #include <vector>
 
-#include "planner/pattern/match.hpp"
 #include "planner/pattern/match_index.hpp"
+#include "planner/pattern/match_storage.hpp"
 #include "planner/pattern/vm/compiled_pattern.hpp"
-#include "planner/pattern/vm/instruction.hpp"
-#include "planner/pattern/vm/state.hpp"
 #include "planner/pattern/vm/tracer.hpp"
 
 import memgraph.planner.core.egraph;
@@ -143,16 +142,16 @@ class VMExecutor {
   ///
   /// @pre pattern was produced by PatternCompiler (satisfies all bytecode contracts)
   /// @pre matcher's index is up-to-date with the e-graph
-  /// @pre ctx.arena() is valid for storing match bindings
+  /// @pre arena is valid for storing match bindings
   ///
   /// @post results contains all unique matches found
   /// @post Stale index entries (merged e-classes) are handled via canonicalization
   ///
   /// @param pattern The compiled bytecode to execute
   /// @param index MatcherIndex with symbol index for candidate lookup
-  /// @param ctx Match context with arena for storing bindings
+  /// @param arena MatchArena for storing match bindings
   /// @param results Output vector for matches (appended, not cleared)
-  void execute(CompiledPattern<Symbol> const &pattern, MatcherIndex<Symbol, Analysis> &index, EMatchContext &ctx,
+  void execute(CompiledPattern<Symbol> const &pattern, MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
                std::vector<PatternMatch> &results) {
     // Get candidates based on pattern's entry symbol
     candidates_buffer_.clear();
@@ -163,7 +162,7 @@ class VMExecutor {
       index.all_candidates(candidates_buffer_);
     }
 
-    execute_impl(pattern, candidates_buffer_, ctx, results);
+    execute_impl(pattern, candidates_buffer_, arena, results);
   }
 
   /// Get execution stats (only available when DevMode=true)
@@ -184,7 +183,7 @@ class VMExecutor {
   /// Execute compiled pattern with explicit candidate list (internal implementation).
   ///
   /// @pre candidates contains ONLY canonical e-class IDs (egraph.find(id) == id)
-  void execute_impl(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
+  void execute_impl(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, MatchArena &arena,
                     std::vector<PatternMatch> &results) {
     // Pattern with no slots has nothing to bind - skip execution
     if (pattern.num_slots() == 0) return;
@@ -200,15 +199,15 @@ class VMExecutor {
     all_eclasses_ = egraph_->canonical_eclass_ids();
 
     for (auto candidate : candidates) {
-      DMG_ASSERT(egraph_->find(candidate) == candidate, "candidates must be canonical");
+      assert(egraph_->find(candidate) == candidate && "candidates must be canonical");
       state_.eclass_regs[0] = candidate;
       state_.pc = 0;
 
-      run_until_halt(ctx, results);
+      run_until_halt(arena, results);
     }
   }
 
-  void run_until_halt(EMatchContext &ctx, std::vector<PatternMatch> &results) {
+  void run_until_halt(MatchArena &arena, std::vector<PatternMatch> &results) {
     // Dispatch table - must match VMOp enum order exactly
     static constexpr void *dispatch_table[] = {
         &&op_LoadChild,
@@ -301,7 +300,7 @@ class VMExecutor {
     JUMP(instr.target);
 
   op_Yield:
-    exec_yield(instr, ctx, results);
+    exec_yield(instr, arena, results);
     NEXT();
 
   op_Halt:
@@ -486,14 +485,14 @@ class VMExecutor {
     return true;
   }
 
-  [[gnu::always_inline]] void exec_yield(Instruction instr, EMatchContext &ctx, std::vector<PatternMatch> &results) {
+  [[gnu::always_inline]] void exec_yield(Instruction instr, MatchArena &arena, std::vector<PatternMatch> &results) {
     // Mark last slot as seen (Yield is a special MarkSeen + emit)
     state_.mark_seen(instr.arg);
 
     if constexpr (DevMode) {
       collector_.on_yield(state_.slots);
     }
-    results.push_back(ctx.arena().intern(state_.slots));
+    results.push_back(arena.intern(state_.slots));
   }
 
   [[gnu::always_inline]] void exec_mark_seen(Instruction instr) { state_.mark_seen(instr.arg); }

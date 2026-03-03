@@ -19,7 +19,7 @@ import memgraph.planner.core.egraph;
 #include <boost/container/small_vector.hpp>
 
 #include <absl/container/flat_hash_set.h>
-#include "utils/logging.hpp"
+#include <cassert>
 
 namespace memgraph::planner::core::vm {
 
@@ -116,7 +116,7 @@ struct VMState {
 
   /// Initialize state for execution
   void reset(VMStateConfig const &cfg) {
-    DMG_ASSERT(cfg.binding_order.size() == cfg.slot_to_order.size());
+    assert(cfg.binding_order.size() == cfg.slot_to_order.size());
     auto const num_slots = cfg.binding_order.size();
     slots.assign(num_slots, EClassId{});
     pc = 0;

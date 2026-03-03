@@ -11,65 +11,17 @@
 
 #pragma once
 
+#include <cassert>
 #include <cstddef>
-#include <cstdint>
-#include <span>
 #include <vector>
 
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
+#include "planner/pattern/match_storage.hpp"
 #include "planner/pattern/pattern.hpp"
-#include "utils/logging.hpp"
-
-import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
-
-/// A complete match of a single pattern - offset into MatchArena where bindings are stored.
-class PatternMatch {
- public:
-  PatternMatch() = default;
-
-  auto operator==(PatternMatch const &other) const -> bool = default;
-
- private:
-  friend class MatchArena;
-
-  explicit PatternMatch(uint32_t offset) : offset_(offset) {}
-
-  uint32_t offset_ = 0;
-};
-
-/// Slot index for variable binding lookup. Precomputed for O(1) lookup.
-using SlotIndex = uint8_t;
-
-/// Append-only pool for pattern match bindings. Bulk-freed via clear().
-/// Uses vector instead of deque for better cache locality on append-only workloads.
-/// Since we return offsets (not pointers), we don't need deque's iterator stability.
-class MatchArena {
- public:
-  auto intern(std::span<EClassId const> bindings) -> PatternMatch {
-    auto offset = PatternMatch{static_cast<uint32_t>(pool_.size())};
-    pool_.insert(pool_.end(), bindings.begin(), bindings.end());
-    return offset;
-  }
-
-  /// Get all bindings for a match as a span
-  [[nodiscard]] auto bindings(PatternMatch match, std::size_t num_slots) const -> std::span<EClassId const> {
-    return std::span{pool_}.subspan(match.offset_, num_slots);
-  }
-
-  void clear() { pool_.clear(); }
-
-  [[nodiscard]] auto size() const -> std::size_t { return pool_.size(); }
-
-  /// Reserve capacity to avoid reallocations during matching
-  void reserve(std::size_t capacity) { pool_.reserve(capacity); }
-
- private:
-  std::vector<EClassId> pool_;
-};
 
 /// Context for e-matching: arena for storing matches, processed set for deduplication.
 struct EMatchContext {
@@ -110,7 +62,7 @@ class Match {
 
   [[nodiscard]] auto operator[](PatternVar var) const -> EClassId {
     auto it = var_slots_->find(var);
-    DMG_ASSERT(it != var_slots_->end(), "Match::operator[]: variable {} not found", var.id);
+    assert(it != var_slots_->end() && "Match::operator[]: variable not found");
     return bindings_[it->second];
   }
 

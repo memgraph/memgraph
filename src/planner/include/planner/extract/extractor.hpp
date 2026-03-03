@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-#include "utils/logging.hpp"
+#include <cassert>
 #include "utils/tag.hpp"
 
 import memgraph.planner.core.egraph;
@@ -39,7 +39,7 @@ auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_
     -> std::optional<typename CostModel::CostResult> {
   using CostResult = CostModel::CostResult;
 
-  DMG_ASSERT(!egraph.needs_rebuild(), "to avoid internal cost of getting canonical looking up we should");
+  assert(!egraph.needs_rebuild() && "to avoid internal cost of getting canonical looking up we should");
 
   if (const auto it = enode_selection.find(eclass_id); it != enode_selection.end()) {
     // If cost is nullopt, we're currently processing this e-class (cycle
@@ -131,7 +131,7 @@ auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
     bfs.pop_back();
 
     auto enode_it = enode_selection.find(curr);
-    DMG_ASSERT(enode_it != enode_selection.end(), "all reachable EClasses should have selected ENode");
+    assert(enode_it != enode_selection.end() && "all reachable EClasses should have selected ENode");
 
     auto const &enode = egraph.get_enode(enode_it->second.enode_id);
     for (auto child : enode.children()) {
@@ -163,7 +163,7 @@ auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
     queue.pop();
 
     auto it = enode_selection.find(current);
-    DMG_ASSERT(it != enode_selection.end(), "all reachable EClasses should have selected ENode");
+    assert(it != enode_selection.end() && "all reachable EClasses should have selected ENode");
 
     auto enode_id = it->second.enode_id;
     result.emplace_back(current, enode_id);

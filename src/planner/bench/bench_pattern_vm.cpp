@@ -123,7 +123,7 @@ class SimplePatternFixture : public MatcherFixtureBase {
 BENCHMARK_DEFINE_F(SimplePatternFixture, Match)(benchmark::State &state) {
   BenchmarkWithMatchContext(state, context_mode_, match_context_, [&](EMatchContext &ctx) {
     matches_.clear();
-    vm_executor_.execute(*compiled_, *matcher_, ctx, matches_);
+    vm_executor_.execute(*compiled_, *matcher_, ctx.arena(), matches_);
     benchmark::DoNotOptimize(matches_);
   });
   state.SetItemsProcessed(state.iterations() * graph_size_);
@@ -163,7 +163,7 @@ class DeepPatternFixture : public MatcherFixtureBase {
 BENCHMARK_DEFINE_F(DeepPatternFixture, Match)(benchmark::State &state) {
   BenchmarkWithMatchContext(state, context_mode_, match_context_, [&](EMatchContext &ctx) {
     matches_.clear();
-    vm_executor_.execute(*compiled_, *matcher_, ctx, matches_);
+    vm_executor_.execute(*compiled_, *matcher_, ctx.arena(), matches_);
     benchmark::DoNotOptimize(matches_);
   });
   state.SetItemsProcessed(state.iterations());
@@ -202,7 +202,7 @@ class SameVariableFixture : public MatcherFixtureBase {
 BENCHMARK_DEFINE_F(SameVariableFixture, Match)(benchmark::State &state) {
   BenchmarkWithMatchContext(state, context_mode_, match_context_, [&](EMatchContext &ctx) {
     matches_.clear();
-    vm_executor_.execute(*compiled_, *matcher_, ctx, matches_);
+    vm_executor_.execute(*compiled_, *matcher_, ctx.arena(), matches_);
     benchmark::DoNotOptimize(matches_);
   });
   state.SetItemsProcessed(state.iterations() * graph_size_);
@@ -242,7 +242,7 @@ class MergedEGraphFixture : public MatcherFixtureBase {
 BENCHMARK_DEFINE_F(MergedEGraphFixture, Match)(benchmark::State &state) {
   BenchmarkWithMatchContext(state, context_mode_, match_context_, [&](EMatchContext &ctx) {
     matches_.clear();
-    vm_executor_.execute(*compiled_, *matcher_, ctx, matches_);
+    vm_executor_.execute(*compiled_, *matcher_, ctx.arena(), matches_);
     benchmark::DoNotOptimize(matches_);
   });
   state.SetItemsProcessed(state.iterations() * graph_size_);
@@ -282,7 +282,7 @@ class SelectivePatternFixture : public MatcherFixtureBase {
 BENCHMARK_DEFINE_F(SelectivePatternFixture, Match)(benchmark::State &state) {
   BenchmarkWithMatchContext(state, context_mode_, match_context_, [&](EMatchContext &ctx) {
     matches_.clear();
-    vm_executor_.execute(*compiled_, *matcher_, ctx, matches_);
+    vm_executor_.execute(*compiled_, *matcher_, ctx.arena(), matches_);
     benchmark::DoNotOptimize(matches_);
   });
   state.SetItemsProcessed(state.iterations());
