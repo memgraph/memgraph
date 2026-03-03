@@ -134,9 +134,8 @@ DEFINE_bool(storage_enable_edges_metadata, false,
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_light_edge, false,
-            "When true (and properties on edges enabled), edges live only in "
-            "vertex adjacency lists without the global edge skip list. "
-            "Reduces memory overhead per edge but disables edge indices.");
+            "Controls whether edges are stored as lightweight objects in order to reduce memory footprint; implies "
+            "--storage-properties-on-edges.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_delta_on_identical_property_update, true,
