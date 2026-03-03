@@ -11,7 +11,8 @@
 
 module;
 
-#include "utils/logging.hpp"
+#include <cassert>
+
 #include "utils/small_vector.hpp"
 
 // When fuzzing we always want assert regardless of Debug vs Release
@@ -259,7 +260,7 @@ struct EGraph : private detail::EGraphBase {
    * @brief Get e-class by canonical ID
    */
   auto eclass(EClassId id) -> EClass<Analysis> & {
-    DMG_ASSERT(classes_.contains(id), "id needs to be canonical");
+    assert(classes_.contains(id) && "id needs to be canonical");
     return *classes_.find(id)->second;
   }
 
@@ -267,7 +268,7 @@ struct EGraph : private detail::EGraphBase {
    * @brief Get e-class by canonical ID
    */
   auto eclass(EClassId id) const -> EClass<Analysis> const & {
-    DMG_ASSERT(classes_.contains(id), "id needs to be canonical");
+    assert(classes_.contains(id) && "id needs to be canonical");
     return *classes_.find(id)->second;
   }
 
@@ -533,7 +534,7 @@ void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
       // Re-lookup the class since it might have been merged during repair
       if (canonical_after_repair != eclass_id) {
         it = classes_.find(canonical_after_repair);
-        DMG_ASSERT(it != classes_.end());
+        assert(it != classes_.end());
       }
       process_parents(*it->second, ctx);
     }
@@ -588,8 +589,8 @@ template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::repair_hashcons_enode(ENodeId enode_id, EClassId eclass_id) -> std::optional<EClassId> {
   auto &enode = get_enode(enode_id);
   auto old_it = hashcons_.find(ENodeRef{enode});
-  DMG_ASSERT(old_it != hashcons_.end(), "canonical e-node must exist in hashcons");
-  DMG_ASSERT(canonical_eclass(union_find_, eclass_id) == eclass_id);
+  assert(old_it != hashcons_.end() && "canonical e-node must exist in hashcons");
+  assert(canonical_eclass(union_find_, eclass_id) == eclass_id);
 
   // Canonicalize the enode in place
   auto const changed = enode.canonicalize_in_place(union_find_);
@@ -703,7 +704,7 @@ void EGraph<Symbol, Analysis>::remove_duplicate_enode(ENode<Symbol> const &enode
 
   // Remove from each child's parent set
   for (auto child_id : enode.children()) {
-    DMG_ASSERT(child_id == canonical_eclass(union_find_, child_id), "enode children must be canonical");
+    assert(child_id == canonical_eclass(union_find_, child_id) && "enode children must be canonical");
     auto child_it = classes_.find(child_id);
     if (child_it != classes_.end()) {
       child_it->second->remove_parent(enode_id);
