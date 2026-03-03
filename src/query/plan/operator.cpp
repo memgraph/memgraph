@@ -823,17 +823,18 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   auto edge_type = EvaluateEdgeType(self_.edge_info_.edge_type, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast()) {
-    const auto fine_grained_permission = self_.existing_node_
-                                             ? memgraph::query::AuthQuery::FineGrainedPrivilege::SET_LABEL
-
-                                             : memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE;
-
-    if (context.auth_checker &&
-        !(context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE) &&
-          context.auth_checker->Has(labels, fine_grained_permission))) {
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+    if (!context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
       throw QueryRuntimeException(
           "Edge not created due to not having enough permission! This error means that the fine grained access control "
+          "was not correctly set up for the user on this edge type. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; "
+          "to check if you have correct privileges to do operations involving edge types. If you do try running SHOW "
+          "CURRENT DATABASE; to verify you are pointing to correct database.");
+    }
+    if (!self_.existing_node_ &&
+        !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
+      throw QueryRuntimeException(
+          "Node not created due to not having enough permission! This error means that the fine grained access control "
           "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
           "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
           "DATABASE; to verify you are pointing to correct database.");
