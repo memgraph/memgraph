@@ -2491,7 +2491,7 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilegeList(MemgraphCypher::Gran
              p == AuthQuery::FineGrainedPrivilege::SET_PROPERTY || p == AuthQuery::FineGrainedPrivilege::DELETE_EDGE ||
              p == AuthQuery::FineGrainedPrivilege::CREATE_EDGE;
     };
-    if (priv == AuthQuery::FineGrainedPrivilege::UPDATE && std::any_of(seen.begin(), seen.end(), is_update_component)) {
+    if (priv == AuthQuery::FineGrainedPrivilege::UPDATE && std::ranges::any_of(seen, is_update_component)) {
       throw SemanticException(
           "Cannot combine UPDATE with SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE, or CREATE EDGE");
     }
