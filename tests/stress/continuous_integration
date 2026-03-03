@@ -299,6 +299,13 @@ Examples:
         help="Path to Python interpreter",
     )
 
+    parser.add_argument(
+        "--externally-managed",
+        action="store_true",
+        default=False,
+        help="Force externally_managed=true for all workloads, skipping deployment start/stop",
+    )
+
     return parser.parse_args()
 
 
@@ -447,6 +454,8 @@ def run_config_file(
     runtimes = {}
 
     raw = config_dict if config_dict is not None else yaml.safe_load(open(config_file))
+    if getattr(args, "externally_managed", False):
+        raw = _deep_merge(raw, {"memgraph": {"deployment": {"externally_managed": True}}})
     config = Config(raw, config_file, deployment=deployment)
 
     if config.manage_deployment:
