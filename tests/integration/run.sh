@@ -17,6 +17,9 @@ test_one() {
   fi
   if [ -x runner.py ]; then
     $DIR/../ve3/bin/python3 -u runner.py
+    if [ "$integration_test_folder_name" = "durability" ]; then
+      $DIR/../ve3/bin/python3 -u runner.py --light-edge
+    fi
   elif [ -x runner.sh ]; then
     ./runner.sh
   fi
