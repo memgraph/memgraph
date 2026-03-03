@@ -19,7 +19,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
-#include "utils/file.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/synchronized.hpp"
 
@@ -36,7 +35,8 @@ using synchronized_mg_vector_index_t = utils::Synchronized<mg_vector_index_t, st
 struct IndexItem {
   // unum::usearch::index_dense_gt is thread-safe and supports concurrent operations. However, we still need to use
   // locking because resizing the index requires exclusive access.
-  synchronized_mg_vector_index_t mg_index;
+  // Mutable because locking is logically const (doesn't change index data).
+  mutable synchronized_mg_vector_index_t mg_index;
   VectorIndexSpec spec;
 
   IndexItem(mg_vector_index_t &&index, VectorIndexSpec spec) : mg_index(std::move(index)), spec(std::move(spec)) {}
@@ -197,9 +197,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
   std::vector<double> vector(dimension);
   for (auto &vertex : vertices) {
     if (locked_index->contains(&vertex)) {
-      auto vector_property = vertex.properties.GetProperty(
-          spec.property,
-          IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex});
+      auto vector_property = vertex.properties.GetProperty(spec.property);
       if (ShouldUnregisterFromIndex(vector_property, index_id)) {
         locked_index->get(&vertex, vector.data());
         vertex.properties.SetProperty(spec.property, PropertyValue(vector));
@@ -263,7 +261,7 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
       ids.erase(ranges::remove(ids, index_id), ids.end());
       auto &index_item = pimpl->index_by_id_.at(index_id);
 
-      auto locked_index = index_item.mg_index.MutableSharedLock();
+      auto locked_index = index_item.mg_index.Lock();
       // If the list of index ids is empty, we restore the vector from the index. Otherwise, we keep the property value
       // as is.
       const auto property_value_to_set = std::invoke([&]() {
@@ -320,7 +318,7 @@ utils::small_vector<float> VectorIndex::GetVectorPropertyFromIndex(Vertex *verte
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto &index_item = it->second;
-  auto locked_index = index_item.mg_index.ReadLock();
+  auto locked_index = index_item.mg_index.Lock();
   utils::small_vector<float> vector(locked_index->dimensions());
   if (!locked_index->get(vertex, vector.data())) return {};
   return vector;
@@ -353,12 +351,13 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
   return result;
 }
 
-void VectorIndex::SerializeAllVectorIndices(durability::Encoder<utils::NonConcurrentOutputFile> *encoder,
+void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
                                             std::unordered_set<uint64_t> &mapped_ids) const {
   auto write_mapping = [&](auto mapping) {
     mapped_ids.insert(mapping.AsUint());
     encoder->WriteUint(mapping.AsUint());
   };
+
   encoder->WriteUint(pimpl->index_by_id_.size());
   for (const auto &[_, index_item] : pimpl->index_by_id_) {
     const auto &[mg_index, spec] = index_item;
@@ -371,43 +370,32 @@ void VectorIndex::SerializeAllVectorIndices(durability::Encoder<utils::NonConcur
     encoder->WriteUint(spec.capacity);
     encoder->WriteUint(static_cast<uint64_t>(spec.scalar_kind));
 
-    auto locked_index = mg_index.ReadLock();
-    const auto index_size = locked_index->size();
-    const auto dimension = locked_index->dimensions();
+    // Snapshot index data under exclusive lock to avoid the get()+add() race
+    // in usearch (get() can segfault if add() is halfway through populating a
+    // slot). File I/O happens after the lock is released.
+    using Entry = std::pair<uint64_t, std::vector<float>>;
+    auto const entries = std::invoke([&]() -> std::vector<Entry> {
+      auto locked_index = mg_index.Lock();
+      auto const size = locked_index->size();
+      if (size == 0) return {};
 
-    if (index_size == 0) {
-      encoder->WriteUint(0);
-      continue;
-    }
+      auto keys = std::vector<Vertex *>(size);
+      locked_index->export_keys(keys.data(), 0, size);
 
-    std::vector<Vertex *> vertices(index_size);
-    locked_index->export_keys(vertices.data(), 0, index_size);
-
-    auto new_vertices = vertices |
-                        std::ranges::views::filter([](auto const *vertex) { return vertex && !vertex->deleted(); }) |
-                        std::ranges::to<std::vector>();
-
-    auto const new_vertices_size = new_vertices.size();
-
-    auto const size_pos = encoder->GetPosition();
-    encoder->WriteUint(new_vertices_size);
-
-    uint64_t num_processed{0};
-    std::vector<float> buffer(dimension);
-    for (auto *vertex : new_vertices) {
-      if (!locked_index->get(vertex, buffer.data())) {
-        continue;
+      auto result = std::vector<Entry>{};
+      auto buffer = std::vector<float>(locked_index->dimensions());
+      for (auto *vertex : keys) {
+        if (vertex->deleted()) continue;
+        locked_index->get(vertex, buffer.data());
+        result.emplace_back(vertex->gid.AsUint(), buffer);
       }
-      encoder->WriteUint(vertex->gid.AsUint());
-      std::ranges::for_each(buffer, [&](auto value) { encoder->WriteDouble(value); });
-      num_processed++;
-    }
+      return result;
+    });
 
-    auto const current_pos = encoder->GetPosition();
-    if (num_processed != new_vertices_size) {
-      encoder->SetPosition(size_pos);
-      encoder->WriteUint(num_processed);
-      encoder->SetPosition(current_pos);
+    encoder->WriteUint(entries.size());
+    for (const auto &[gid, vector] : entries) {
+      encoder->WriteUint(gid);
+      for (auto value : vector) encoder->WriteDouble(value);
     }
   }
 }
