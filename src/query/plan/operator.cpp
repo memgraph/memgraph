@@ -838,8 +838,8 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
       throw QueryRuntimeException(
           "Creating edge failed: missing CREATE EDGE or UPDATE permission on source node labels.");
     }
-    if (!context.auth_checker->Has(
-            v2, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
+    if (v1 != v2 && !context.auth_checker->Has(
+                        v2, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
       throw QueryRuntimeException(
           "Creating edge failed: missing CREATE EDGE or UPDATE permission on destination node labels.");
     }
