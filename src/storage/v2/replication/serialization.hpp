@@ -42,9 +42,6 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
-  uint64_t GetPosition() override;
-  void SetPosition(uint64_t position) override;
-
   void WriteFileBuffer(const uint8_t *buffer, size_t buffer_size);
 
   void WriteFileData(utils::InputFile *file);
