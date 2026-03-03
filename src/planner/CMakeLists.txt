@@ -20,6 +20,7 @@ target_sources(mg-planner
     # pattern/ - Pattern definition and matching
     include/planner/pattern/match.hpp
     include/planner/pattern/match_index.hpp
+    include/planner/pattern/match_storage.hpp
     include/planner/pattern/pattern.hpp
 
     # pattern/vm/ - VM-based pattern matching
@@ -45,13 +46,22 @@ target_sources(mg-planner
     src/egraph/egraph.cpp
     src/egraph/enode.cpp
     # pattern/
+    src/pattern/match.cpp
     src/pattern/match_index.cpp
+    src/pattern/match_storage.cpp
     src/pattern/pattern.cpp
     # pattern/vm/
     src/pattern/vm/compiled_pattern.cpp
     src/pattern/vm/compiler.cpp
+    src/pattern/vm/executor.cpp
+    src/pattern/vm/instruction.cpp
+    src/pattern/vm/state.cpp
+    src/pattern/vm/tracer.cpp
     # rewrite/
     src/rewrite/rewriter.cpp
+    src/rewrite/rule.cpp
+    src/rewrite/rule_context.cpp
+    src/rewrite/rule_set.cpp
     # extract/
     src/extract/extractor.cpp
 )

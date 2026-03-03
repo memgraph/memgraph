@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// This file exists to provide clangd with correct module dependencies for rewrite.hpp.
+// This file exists to provide clangd with correct module dependencies for state.hpp.
 // The header is template-only, so this compilation unit is intentionally minimal.
 
-#include "planner/rewrite/rewrite.hpp"
+#include "planner/pattern/vm/state.hpp"
