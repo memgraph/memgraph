@@ -115,34 +115,7 @@ struct VMState {
   int seen_watermark_{-1};
 
   /// Initialize state for execution
-  void reset(VMStateConfig const &cfg) {
-    assert(cfg.binding_order.size() == cfg.slot_to_order.size());
-    auto const num_slots = cfg.binding_order.size();
-    slots.assign(num_slots, EClassId{});
-    pc = 0;
-
-    // Store binding order information as spans (no allocation)
-    binding_order_ = cfg.binding_order;
-    slot_to_order_ = cfg.slot_to_order;
-
-    // Resize register arrays if needed
-    if (eclass_regs.size() < cfg.num_eclass_regs) {
-      eclass_regs.resize(cfg.num_eclass_regs);
-      eclasses_iters.resize(cfg.num_eclass_regs);
-    }
-    if (enode_regs.size() < cfg.num_enode_regs) {
-      enode_regs.resize(cfg.num_enode_regs);
-      enodes_iters.resize(cfg.num_enode_regs);
-      parents_iters.resize(cfg.num_enode_regs);
-    }
-
-    // Reset per-slot seen maps for deduplication.
-    for (auto &seen_set : seen_per_slot) {
-      seen_set.clear();
-    }
-    seen_watermark_ = -1;
-    seen_per_slot.resize(num_slots);
-  }
+  void reset(VMStateConfig const &cfg);
 
   /// Start an e-node iteration on a register (uses span)
   void start_enode_iter(uint8_t reg, std::span<ENodeId const> nodes) { enodes_iters[reg] = ENodesIter{nodes}; }
@@ -179,36 +152,69 @@ struct VMState {
   /// The seen set tracks values that have been marked as exhausted (via mark_seen).
   /// A value is exhausted when we've finished exploring all paths with that binding
   /// (either yielded or exhausted all downstream iterations).
-  [[nodiscard]] auto try_bind_dedup(std::size_t slot, EClassId eclass) -> bool {
-    // Check if we've already exhausted this value at this slot
-    if (seen_per_slot[slot].contains(eclass)) {
-      return false;  // Already exhausted - backtrack
-    }
-
-    // Clear seen sets for slots bound after this one, up to the watermark.
-    // Uses watermark to avoid clearing already-empty sets.
-    auto my_order = static_cast<int>(slot_to_order_[slot]);
-    while (seen_watermark_ > my_order) {
-      seen_per_slot[binding_order_[seen_watermark_]].clear();
-      --seen_watermark_;
-    }
-    slots[slot] = eclass;
-    return true;
-  }
+  [[nodiscard]] auto try_bind_dedup(std::size_t slot, EClassId eclass) -> bool;
 
   /// Mark a slot's current value as seen (exhausted) for deduplication.
   /// Called when an iteration exhausts (for earlier slots) or at yield time (for last slot).
-  void mark_seen(std::size_t slot) {
-    seen_per_slot[slot].insert(slots[slot]);
-    // Update watermark if this slot is later in binding order
-    auto order_pos = static_cast<int>(slot_to_order_[slot]);
-    if (order_pos > seen_watermark_) {
-      seen_watermark_ = order_pos;
-    }
-  }
+  void mark_seen(std::size_t slot);
 
   /// Get bound value
   [[nodiscard]] auto get(std::size_t slot) const -> EClassId { return slots[slot]; }
 };
+
+inline void VMState::reset(VMStateConfig const &cfg) {
+  assert(cfg.binding_order.size() == cfg.slot_to_order.size());
+  auto const num_slots = cfg.binding_order.size();
+  slots.assign(num_slots, EClassId{});
+  pc = 0;
+
+  // Store binding order information as spans (no allocation)
+  binding_order_ = cfg.binding_order;
+  slot_to_order_ = cfg.slot_to_order;
+
+  // Resize register arrays if needed
+  if (eclass_regs.size() < cfg.num_eclass_regs) {
+    eclass_regs.resize(cfg.num_eclass_regs);
+    eclasses_iters.resize(cfg.num_eclass_regs);
+  }
+  if (enode_regs.size() < cfg.num_enode_regs) {
+    enode_regs.resize(cfg.num_enode_regs);
+    enodes_iters.resize(cfg.num_enode_regs);
+    parents_iters.resize(cfg.num_enode_regs);
+  }
+
+  // Reset per-slot seen maps for deduplication.
+  for (auto &seen_set : seen_per_slot) {
+    seen_set.clear();
+  }
+  seen_watermark_ = -1;
+  seen_per_slot.resize(num_slots);
+}
+
+inline auto VMState::try_bind_dedup(std::size_t slot, EClassId eclass) -> bool {
+  // Check if we've already exhausted this value at this slot
+  if (seen_per_slot[slot].contains(eclass)) {
+    return false;  // Already exhausted - backtrack
+  }
+
+  // Clear seen sets for slots bound after this one, up to the watermark.
+  // Uses watermark to avoid clearing already-empty sets.
+  auto my_order = static_cast<int>(slot_to_order_[slot]);
+  while (seen_watermark_ > my_order) {
+    seen_per_slot[binding_order_[seen_watermark_]].clear();
+    --seen_watermark_;
+  }
+  slots[slot] = eclass;
+  return true;
+}
+
+inline void VMState::mark_seen(std::size_t slot) {
+  seen_per_slot[slot].insert(slots[slot]);
+  // Update watermark if this slot is later in binding order
+  auto order_pos = static_cast<int>(slot_to_order_[slot]);
+  if (order_pos > seen_watermark_) {
+    seen_watermark_ = order_pos;
+  }
+}
 
 }  // namespace memgraph::planner::core::vm

@@ -152,18 +152,7 @@ class VMExecutor {
   /// @param arena MatchArena for storing match bindings
   /// @param results Output vector for matches (appended, not cleared)
   void execute(CompiledPattern<Symbol> const &pattern, MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
-               std::vector<PatternMatch> &results) {
-    // Get candidates based on pattern's entry symbol
-    candidates_buffer_.clear();
-    if (auto entry_sym = pattern.entry_symbol()) {
-      index.candidates_for_symbol(*entry_sym, candidates_buffer_);
-    } else {
-      // Root is variable/wildcard - get all canonical e-classes
-      index.all_candidates(candidates_buffer_);
-    }
-
-    execute_impl(pattern, candidates_buffer_, arena, results);
-  }
+               std::vector<PatternMatch> &results);
 
   /// Get execution stats (only available when DevMode=true)
   [[nodiscard]] auto stats() const -> VMStats const &
@@ -184,136 +173,9 @@ class VMExecutor {
   ///
   /// @pre candidates contains ONLY canonical e-class IDs (egraph.find(id) == id)
   void execute_impl(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, MatchArena &arena,
-                    std::vector<PatternMatch> &results) {
-    // Pattern with no slots has nothing to bind - skip execution
-    if (pattern.num_slots() == 0) return;
+                    std::vector<PatternMatch> &results);
 
-    state_.reset(pattern.state_config());
-    if constexpr (DevMode) {
-      collector_.reset();
-    }
-    code_ = pattern.code();
-    symbols_ = pattern.symbols();
-
-    // E-graph maintains canonical e-class list directly - used by IterAllEClasses
-    all_eclasses_ = egraph_->canonical_eclass_ids();
-
-    for (auto candidate : candidates) {
-      assert(egraph_->find(candidate) == candidate && "candidates must be canonical");
-      state_.eclass_regs[0] = candidate;
-      state_.pc = 0;
-
-      run_until_halt(arena, results);
-    }
-  }
-
-  void run_until_halt(MatchArena &arena, std::vector<PatternMatch> &results) {
-    // Dispatch table - must match VMOp enum order exactly
-    static constexpr void *dispatch_table[] = {
-        &&op_LoadChild,
-        &&op_GetENodeEClass,
-        &&op_IterENodes,
-        &&op_NextENode,
-        &&op_IterAllEClasses,
-        &&op_NextEClass,
-        &&op_IterParents,
-        &&op_NextParent,
-        &&op_CheckSymbol,
-        &&op_CheckArity,
-        &&op_BindSlotDedup,
-        &&op_CheckSlot,
-        &&op_CheckEClassEq,
-        &&op_MarkSeen,
-        &&op_Jump,
-        &&op_Yield,
-        &&op_Halt,
-    };
-
-    // Cache current instruction - fetched once per dispatch, used by all handlers
-    Instruction instr;
-
-    // clang-format off
-#define DISPATCH()                                                      \
-  do {                                                                  \
-    if (state_.pc >= code_.size()) return; /*DMG_ASSERT*/               \
-    instr = code_[state_.pc];                                           \
-    if constexpr (DevMode) {                                            \
-      collector_.on_instruction(state_.pc, instr);                      \
-    }                                                                   \
-    goto *dispatch_table[static_cast<uint8_t>(instr.op)];               \
-  } while (0)
-
-#define NEXT() do { ++state_.pc; DISPATCH(); } while (0)
-#define JUMP(target) do { state_.pc = (target); DISPATCH(); } while (0)
-#define NEXT_OR_JUMP(condition) \
-  do { if (condition) { NEXT(); } else { JUMP(instr.target); } } while (0)
-    // clang-format on
-
-    DISPATCH();
-
-  op_LoadChild:
-    exec_load_child(instr);
-    NEXT();
-
-  op_GetENodeEClass:
-    exec_get_enode_eclass(instr);
-    NEXT();
-
-  op_IterENodes:
-    NEXT_OR_JUMP(exec_iter_enodes(instr));
-
-  op_NextENode:
-    NEXT_OR_JUMP(exec_next_enode(instr));
-
-  op_IterAllEClasses:
-    NEXT_OR_JUMP(exec_iter_all_eclasses(instr));
-
-  op_NextEClass:
-    NEXT_OR_JUMP(exec_next_eclass(instr));
-
-  op_IterParents:
-    NEXT_OR_JUMP(exec_iter_parents(instr));
-
-  op_NextParent:
-    NEXT_OR_JUMP(exec_next_parent(instr));
-
-  op_CheckSymbol:
-    NEXT_OR_JUMP(exec_check_symbol(instr));
-
-  op_CheckArity:
-    NEXT_OR_JUMP(exec_check_arity(instr));
-
-  op_BindSlotDedup:
-    NEXT_OR_JUMP(exec_bind_slot_dedup(instr));
-
-  op_CheckSlot:
-    NEXT_OR_JUMP(exec_check_slot(instr));
-
-  op_CheckEClassEq:
-    NEXT_OR_JUMP(exec_check_eclass_eq(instr));
-
-  op_MarkSeen:
-    exec_mark_seen(instr);
-    NEXT();
-
-  op_Jump:
-    JUMP(instr.target);
-
-  op_Yield:
-    exec_yield(instr, arena, results);
-    NEXT();
-
-  op_Halt:
-    if constexpr (DevMode) {
-      collector_.on_halt();
-    }
-    return;
-
-#undef DISPATCH
-#undef NEXT
-#undef JUMP
-#undef NEXT_OR_JUMP
-  }
+  void run_until_halt(MatchArena &arena, std::vector<PatternMatch> &results);
 
   // Instruction is 6 bytes - pass by value for efficiency (fits in register)
   [[gnu::always_inline]] void exec_load_child(Instruction instr) {
@@ -327,173 +189,38 @@ class VMExecutor {
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction instr) -> bool {
-    auto eclass_id = state_.eclass_regs[instr.src];
-    auto nodes = egraph_->eclass(eclass_id).nodes();
-
-    if constexpr (DevMode) {
-      collector_.on_iter_enode_start(state_.pc, nodes.size());
-    }
-
-    if (nodes.empty()) {
-      return false;
-    }
-
-    state_.start_enode_iter(instr.dst, nodes);
-    state_.enode_regs[instr.dst] = nodes[0];
-    return true;
-  }
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction instr) -> bool;
 
   /// Common helper for advancing span-based iterators (ENodesIter, AllEClassesIter)
   template <typename Iter, typename IdType>
-  [[nodiscard]] [[gnu::always_inline]] auto advance_span_iter(Iter &iter, IdType &out_reg) -> bool {
-    iter.advance();
-    if (iter.exhausted()) {
-      if constexpr (DevMode) {
-        collector_.on_iter_advance(state_.pc, 0);
-      }
-      return false;
-    }
-    if constexpr (DevMode) {
-      collector_.on_iter_advance(state_.pc, iter.remaining());
-    }
-    out_reg = iter.current();
-    return true;
-  }
+  [[nodiscard]] [[gnu::always_inline]] auto advance_span_iter(Iter &iter, IdType &out_reg) -> bool;
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_next_enode(Instruction instr) -> bool {
     return advance_span_iter(state_.get_enodes_iter(instr.dst), state_.enode_regs[instr.dst]);
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction instr) -> bool {
-    // E-graph maintains canonical e-class list - set in execute_impl()
-    if constexpr (DevMode) {
-      collector_.on_iter_all_eclasses_start(state_.pc, all_eclasses_.size());
-    }
-
-    if (all_eclasses_.empty()) [[unlikely]] {
-      return false;
-    }
-
-    state_.start_all_eclasses_iter(instr.dst, all_eclasses_);
-    state_.eclass_regs[instr.dst] = all_eclasses_[0];
-    return true;
-  }
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction instr) -> bool;
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_next_eclass(Instruction instr) -> bool {
     return advance_span_iter(state_.get_eclasses_iter(instr.dst), state_.eclass_regs[instr.dst]);
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_parents(Instruction instr) -> bool {
-    auto eclass_id = state_.eclass_regs[instr.src];
-    auto const &parents = egraph_->eclass(eclass_id).parents();
-
-    if constexpr (DevMode) {
-      collector_.on_iter_parent_start(state_.pc, parents.size());
-    }
-
-    if (parents.empty()) {
-      return false;
-    }
-
-    state_.start_parent_iter(instr.dst, eclass_id, parents.size());
-    state_.enode_regs[instr.dst] = *parents.begin();
-    return true;
-  }
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_parents(Instruction instr) -> bool;
 
   /// Advance index-based parent iteration (for IterParents)
-  [[nodiscard]] [[gnu::always_inline]] auto exec_next_parent(Instruction instr) -> bool {
-    auto &iter = state_.get_parents_iter(instr.dst);
-    iter.advance();
-    if (iter.exhausted()) {
-      if constexpr (DevMode) {
-        collector_.on_iter_advance(state_.pc, 0);
-      }
-      return false;
-    }
-    if constexpr (DevMode) {
-      collector_.on_iter_advance(state_.pc, iter.remaining());
-    }
-    // Index-based iteration requires looking up the e-class again
-    auto pit = egraph_->eclass(iter.eclass).parents().begin();
-    std::advance(pit, static_cast<std::ptrdiff_t>(iter.index()));
-    state_.enode_regs[instr.dst] = *pit;
-    return true;
-  }
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_parent(Instruction instr) -> bool;
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_check_symbol(Instruction instr) -> bool {
-    auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
-    if (enode.symbol() != symbols_[instr.arg]) {
-      if constexpr (DevMode) {
-        collector_.on_check_symbol_miss(state_.pc);
-      }
-      return false;
-    }
-    if constexpr (DevMode) {
-      collector_.on_check_symbol_hit();
-    }
-    return true;
-  }
+  [[nodiscard]] [[gnu::always_inline]] auto exec_check_symbol(Instruction instr) -> bool;
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_check_arity(Instruction instr) -> bool {
-    auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
-    if (enode.arity() != instr.arg) {
-      if constexpr (DevMode) {
-        collector_.on_check_arity_fail(state_.pc);
-      }
-      return false;
-    }
-    return true;
-  }
+  [[nodiscard]] [[gnu::always_inline]] auto exec_check_arity(Instruction instr) -> bool;
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_bind_slot_dedup(Instruction instr) -> bool {
-    auto eclass = state_.eclass_regs[instr.src];
-    bool is_new = state_.try_bind_dedup(instr.arg, eclass);
-    if constexpr (DevMode) {
-      collector_.on_bind(instr.arg, eclass);
-      if (!is_new) {
-        collector_.on_bind_duplicate(state_.pc);
-      }
-    }
-    return is_new;
-  }
+  [[nodiscard]] [[gnu::always_inline]] auto exec_bind_slot_dedup(Instruction instr) -> bool;
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_check_slot(Instruction instr) -> bool {
-    // Both values are already canonical:
-    // - slots[] was set by BindSlotDedup from canonical eclass_regs
-    // - eclass_regs[] was set by LoadChild which canonicalizes
-    if (state_.slots[instr.arg] != state_.eclass_regs[instr.src]) {
-      if constexpr (DevMode) {
-        collector_.on_check_slot_miss(state_.pc);
-      }
-      return false;
-    }
-    if constexpr (DevMode) {
-      collector_.on_check_slot_hit();
-    }
-    return true;
-  }
+  [[nodiscard]] [[gnu::always_inline]] auto exec_check_slot(Instruction instr) -> bool;
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_check_eclass_eq(Instruction instr) -> bool {
-    // Compare two e-class registers directly (both already canonical)
-    if (state_.eclass_regs[instr.dst] != state_.eclass_regs[instr.src]) {
-      if constexpr (DevMode) {
-        collector_.on_check_eclass_eq_fail(state_.pc);
-      }
-      return false;
-    }
-    return true;
-  }
+  [[nodiscard]] [[gnu::always_inline]] auto exec_check_eclass_eq(Instruction instr) -> bool;
 
-  [[gnu::always_inline]] void exec_yield(Instruction instr, MatchArena &arena, std::vector<PatternMatch> &results) {
-    // Mark last slot as seen (Yield is a special MarkSeen + emit)
-    state_.mark_seen(instr.arg);
-
-    if constexpr (DevMode) {
-      collector_.on_yield(state_.slots);
-    }
-    results.push_back(arena.intern(state_.slots));
-  }
+  [[gnu::always_inline]] void exec_yield(Instruction instr, MatchArena &arena, std::vector<PatternMatch> &results);
 
   [[gnu::always_inline]] void exec_mark_seen(Instruction instr) { state_.mark_seen(instr.arg); }
 
@@ -509,5 +236,326 @@ class VMExecutor {
 
   [[no_unique_address]] std::conditional_t<DevMode, VMCollector, NoDevState> collector_;
 };
+
+template <typename Symbol, typename Analysis, bool DevMode>
+void VMExecutor<Symbol, Analysis, DevMode>::execute(CompiledPattern<Symbol> const &pattern,
+                                                    MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
+                                                    std::vector<PatternMatch> &results) {
+  // Get candidates based on pattern's entry symbol
+  candidates_buffer_.clear();
+  if (auto entry_sym = pattern.entry_symbol()) {
+    index.candidates_for_symbol(*entry_sym, candidates_buffer_);
+  } else {
+    // Root is variable/wildcard - get all canonical e-classes
+    index.all_candidates(candidates_buffer_);
+  }
+
+  execute_impl(pattern, candidates_buffer_, arena, results);
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+void VMExecutor<Symbol, Analysis, DevMode>::execute_impl(CompiledPattern<Symbol> const &pattern,
+                                                         std::span<EClassId const> candidates, MatchArena &arena,
+                                                         std::vector<PatternMatch> &results) {
+  // Pattern with no slots has nothing to bind - skip execution
+  if (pattern.num_slots() == 0) return;
+
+  state_.reset(pattern.state_config());
+  if constexpr (DevMode) {
+    collector_.reset();
+  }
+  code_ = pattern.code();
+  symbols_ = pattern.symbols();
+
+  // E-graph maintains canonical e-class list directly - used by IterAllEClasses
+  all_eclasses_ = egraph_->canonical_eclass_ids();
+
+  for (auto candidate : candidates) {
+    assert(egraph_->find(candidate) == candidate && "candidates must be canonical");
+    state_.eclass_regs[0] = candidate;
+    state_.pc = 0;
+
+    run_until_halt(arena, results);
+  }
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+void VMExecutor<Symbol, Analysis, DevMode>::run_until_halt(MatchArena &arena, std::vector<PatternMatch> &results) {
+  // Dispatch table - must match VMOp enum order exactly
+  static constexpr void *dispatch_table[] = {
+      &&op_LoadChild,
+      &&op_GetENodeEClass,
+      &&op_IterENodes,
+      &&op_NextENode,
+      &&op_IterAllEClasses,
+      &&op_NextEClass,
+      &&op_IterParents,
+      &&op_NextParent,
+      &&op_CheckSymbol,
+      &&op_CheckArity,
+      &&op_BindSlotDedup,
+      &&op_CheckSlot,
+      &&op_CheckEClassEq,
+      &&op_MarkSeen,
+      &&op_Jump,
+      &&op_Yield,
+      &&op_Halt,
+  };
+
+  // Cache current instruction - fetched once per dispatch, used by all handlers
+  Instruction instr;
+
+  // clang-format off
+#define DISPATCH()                                                      \
+  do {                                                                  \
+    if (state_.pc >= code_.size()) return; /*DMG_ASSERT*/               \
+    instr = code_[state_.pc];                                           \
+    if constexpr (DevMode) {                                            \
+      collector_.on_instruction(state_.pc, instr);                      \
+    }                                                                   \
+    goto *dispatch_table[static_cast<uint8_t>(instr.op)];               \
+  } while (0)
+
+#define NEXT() do { ++state_.pc; DISPATCH(); } while (0)
+#define JUMP(target) do { state_.pc = (target); DISPATCH(); } while (0)
+#define NEXT_OR_JUMP(condition) \
+  do { if (condition) { NEXT(); } else { JUMP(instr.target); } } while (0)
+  // clang-format on
+
+  DISPATCH();
+
+op_LoadChild:
+  exec_load_child(instr);
+  NEXT();
+
+op_GetENodeEClass:
+  exec_get_enode_eclass(instr);
+  NEXT();
+
+op_IterENodes:
+  NEXT_OR_JUMP(exec_iter_enodes(instr));
+
+op_NextENode:
+  NEXT_OR_JUMP(exec_next_enode(instr));
+
+op_IterAllEClasses:
+  NEXT_OR_JUMP(exec_iter_all_eclasses(instr));
+
+op_NextEClass:
+  NEXT_OR_JUMP(exec_next_eclass(instr));
+
+op_IterParents:
+  NEXT_OR_JUMP(exec_iter_parents(instr));
+
+op_NextParent:
+  NEXT_OR_JUMP(exec_next_parent(instr));
+
+op_CheckSymbol:
+  NEXT_OR_JUMP(exec_check_symbol(instr));
+
+op_CheckArity:
+  NEXT_OR_JUMP(exec_check_arity(instr));
+
+op_BindSlotDedup:
+  NEXT_OR_JUMP(exec_bind_slot_dedup(instr));
+
+op_CheckSlot:
+  NEXT_OR_JUMP(exec_check_slot(instr));
+
+op_CheckEClassEq:
+  NEXT_OR_JUMP(exec_check_eclass_eq(instr));
+
+op_MarkSeen:
+  exec_mark_seen(instr);
+  NEXT();
+
+op_Jump:
+  JUMP(instr.target);
+
+op_Yield:
+  exec_yield(instr, arena, results);
+  NEXT();
+
+op_Halt:
+  if constexpr (DevMode) {
+    collector_.on_halt();
+  }
+  return;
+
+#undef DISPATCH
+#undef NEXT
+#undef JUMP
+#undef NEXT_OR_JUMP
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_iter_enodes(Instruction instr) -> bool {
+  auto eclass_id = state_.eclass_regs[instr.src];
+  auto nodes = egraph_->eclass(eclass_id).nodes();
+
+  if constexpr (DevMode) {
+    collector_.on_iter_enode_start(state_.pc, nodes.size());
+  }
+
+  if (nodes.empty()) {
+    return false;
+  }
+
+  state_.start_enode_iter(instr.dst, nodes);
+  state_.enode_regs[instr.dst] = nodes[0];
+  return true;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+template <typename Iter, typename IdType>
+auto VMExecutor<Symbol, Analysis, DevMode>::advance_span_iter(Iter &iter, IdType &out_reg) -> bool {
+  iter.advance();
+  if (iter.exhausted()) {
+    if constexpr (DevMode) {
+      collector_.on_iter_advance(state_.pc, 0);
+    }
+    return false;
+  }
+  if constexpr (DevMode) {
+    collector_.on_iter_advance(state_.pc, iter.remaining());
+  }
+  out_reg = iter.current();
+  return true;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_iter_all_eclasses(Instruction instr) -> bool {
+  // E-graph maintains canonical e-class list - set in execute_impl()
+  if constexpr (DevMode) {
+    collector_.on_iter_all_eclasses_start(state_.pc, all_eclasses_.size());
+  }
+
+  if (all_eclasses_.empty()) [[unlikely]] {
+    return false;
+  }
+
+  state_.start_all_eclasses_iter(instr.dst, all_eclasses_);
+  state_.eclass_regs[instr.dst] = all_eclasses_[0];
+  return true;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_iter_parents(Instruction instr) -> bool {
+  auto eclass_id = state_.eclass_regs[instr.src];
+  auto const &parents = egraph_->eclass(eclass_id).parents();
+
+  if constexpr (DevMode) {
+    collector_.on_iter_parent_start(state_.pc, parents.size());
+  }
+
+  if (parents.empty()) {
+    return false;
+  }
+
+  state_.start_parent_iter(instr.dst, eclass_id, parents.size());
+  state_.enode_regs[instr.dst] = *parents.begin();
+  return true;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_next_parent(Instruction instr) -> bool {
+  auto &iter = state_.get_parents_iter(instr.dst);
+  iter.advance();
+  if (iter.exhausted()) {
+    if constexpr (DevMode) {
+      collector_.on_iter_advance(state_.pc, 0);
+    }
+    return false;
+  }
+  if constexpr (DevMode) {
+    collector_.on_iter_advance(state_.pc, iter.remaining());
+  }
+  // Index-based iteration requires looking up the e-class again
+  auto pit = egraph_->eclass(iter.eclass).parents().begin();
+  std::advance(pit, static_cast<std::ptrdiff_t>(iter.index()));
+  state_.enode_regs[instr.dst] = *pit;
+  return true;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_check_symbol(Instruction instr) -> bool {
+  auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
+  if (enode.symbol() != symbols_[instr.arg]) {
+    if constexpr (DevMode) {
+      collector_.on_check_symbol_miss(state_.pc);
+    }
+    return false;
+  }
+  if constexpr (DevMode) {
+    collector_.on_check_symbol_hit();
+  }
+  return true;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_check_arity(Instruction instr) -> bool {
+  auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
+  if (enode.arity() != instr.arg) {
+    if constexpr (DevMode) {
+      collector_.on_check_arity_fail(state_.pc);
+    }
+    return false;
+  }
+  return true;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_bind_slot_dedup(Instruction instr) -> bool {
+  auto eclass = state_.eclass_regs[instr.src];
+  bool is_new = state_.try_bind_dedup(instr.arg, eclass);
+  if constexpr (DevMode) {
+    collector_.on_bind(instr.arg, eclass);
+    if (!is_new) {
+      collector_.on_bind_duplicate(state_.pc);
+    }
+  }
+  return is_new;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_check_slot(Instruction instr) -> bool {
+  // Both values are already canonical:
+  // - slots[] was set by BindSlotDedup from canonical eclass_regs
+  // - eclass_regs[] was set by LoadChild which canonicalizes
+  if (state_.slots[instr.arg] != state_.eclass_regs[instr.src]) {
+    if constexpr (DevMode) {
+      collector_.on_check_slot_miss(state_.pc);
+    }
+    return false;
+  }
+  if constexpr (DevMode) {
+    collector_.on_check_slot_hit();
+  }
+  return true;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_check_eclass_eq(Instruction instr) -> bool {
+  // Compare two e-class registers directly (both already canonical)
+  if (state_.eclass_regs[instr.dst] != state_.eclass_regs[instr.src]) {
+    if constexpr (DevMode) {
+      collector_.on_check_eclass_eq_fail(state_.pc);
+    }
+    return false;
+  }
+  return true;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+void VMExecutor<Symbol, Analysis, DevMode>::exec_yield(Instruction instr, MatchArena &arena,
+                                                       std::vector<PatternMatch> &results) {
+  // Mark last slot as seen (Yield is a special MarkSeen + emit)
+  state_.mark_seen(instr.arg);
+
+  if constexpr (DevMode) {
+    collector_.on_yield(state_.slots);
+  }
+  results.push_back(arena.intern(state_.slots));
+}
 
 }  // namespace memgraph::planner::core::vm

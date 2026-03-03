@@ -22,6 +22,54 @@
 
 namespace memgraph::planner::core::vm {
 
+/// Non-templated base class for CompiledPattern.
+///
+/// Contains all Symbol-independent state and accessors. This reduces template
+/// instantiation overhead and allows code that only needs bytecode/register
+/// metadata to work with a non-templated interface.
+///
+/// @see CompiledPattern for the full templated interface
+class CompiledPatternBase {
+ public:
+  CompiledPatternBase() = default;
+
+  CompiledPatternBase(std::vector<Instruction> code, std::size_t num_eclass_regs, std::size_t num_enode_regs,
+                      std::vector<uint8_t> binding_order, VarSlotMap var_slots);
+
+  [[nodiscard]] auto code() const -> std::span<Instruction const> { return code_; }
+
+  [[nodiscard]] auto num_slots() const -> std::size_t { return var_slots_.size(); }
+
+  [[nodiscard]] auto num_eclass_regs() const -> std::size_t { return num_eclass_regs_; }
+
+  [[nodiscard]] auto num_enode_regs() const -> std::size_t { return num_enode_regs_; }
+
+  /// The order in which slots are bound during pattern matching.
+  /// For pattern A(?x, B(?y, ?z)) compiled as B-first, this might be [1, 2, 0]
+  /// meaning ?y (slot 1) is bound first, then ?z (slot 2), then ?x (slot 0).
+  [[nodiscard]] auto binding_order() const -> std::span<uint8_t const> { return binding_order_; }
+
+  /// Inverse mapping: slot index -> order position.
+  /// For binding_order [1, 2, 0], slot_to_order returns [2, 0, 1].
+  /// Used by deduplication: when slot s changes, clear seen sets for all slots
+  /// at positions > slot_to_order[s] in binding_order.
+  [[nodiscard]] auto slot_to_order() const -> std::span<uint8_t const> { return slot_to_order_; }
+
+  /// Get VMState configuration for this pattern
+  [[nodiscard]] auto state_config() const -> VMStateConfig;
+
+  /// Variable to slot index mapping for binding lookup
+  [[nodiscard]] auto var_slots() const -> VarSlotMap const & { return var_slots_; }
+
+ protected:
+  std::vector<Instruction> code_{Instruction::halt()};
+  std::size_t num_eclass_regs_ = 0;     // Registers holding e-class IDs
+  std::size_t num_enode_regs_ = 0;      // Registers holding e-node IDs (and iteration state)
+  std::vector<uint8_t> binding_order_;  // Order in which slots are bound during matching
+  std::vector<uint8_t> slot_to_order_;  // Inverse: slot index -> order position (O(n) vs O(n²))
+  VarSlotMap var_slots_;                // Variable to slot index mapping
+};
+
 /// Compiled pattern ready for VM execution.
 ///
 /// Contains the bytecode, symbol table, and metadata needed by VMExecutor.
@@ -46,73 +94,32 @@ namespace memgraph::planner::core::vm {
 /// @see VMExecutor for bytecode execution
 /// @see Instruction for bytecode format
 template <typename Symbol>
-class CompiledPattern {
+class CompiledPattern : public CompiledPatternBase {
  public:
   /// Default constructor creates a no-op pattern that produces no matches.
   CompiledPattern() = default;
 
   CompiledPattern(std::vector<Instruction> code, std::size_t num_eclass_regs, std::size_t num_enode_regs,
                   std::vector<Symbol> symbols, std::optional<Symbol> entry_symbol, std::vector<uint8_t> binding_order,
-                  VarSlotMap var_slots)
-      : code_(std::move(code)),
-        num_eclass_regs_(num_eclass_regs),
-        num_enode_regs_(num_enode_regs),
-        symbols_(std::move(symbols)),
-        entry_symbol_(std::move(entry_symbol)),
-        binding_order_(std::move(binding_order)),
-        var_slots_(std::move(var_slots)) {
-    // Compute inverse mapping: slot -> order position
-    // For binding_order [1, 2, 0], slot_to_order_ becomes [2, 0, 1]
-    // meaning slot 0 is bound at position 2, slot 1 at position 0, slot 2 at position 1
-    slot_to_order_.resize(var_slots_.size());
-    for (std::size_t order_idx = 0; order_idx < binding_order_.size(); ++order_idx) {
-      slot_to_order_[binding_order_[order_idx]] = static_cast<uint8_t>(order_idx);
-    }
-  }
-
-  [[nodiscard]] auto code() const -> std::span<Instruction const> { return code_; }
-
-  [[nodiscard]] auto num_slots() const -> std::size_t { return var_slots_.size(); }
-
-  [[nodiscard]] auto num_eclass_regs() const -> std::size_t { return num_eclass_regs_; }
-
-  [[nodiscard]] auto num_enode_regs() const -> std::size_t { return num_enode_regs_; }
+                  VarSlotMap var_slots);
 
   [[nodiscard]] auto symbols() const -> std::span<Symbol const> { return symbols_; }
 
   [[nodiscard]] auto entry_symbol() const -> std::optional<Symbol> const & { return entry_symbol_; }
 
-  /// The order in which slots are bound during pattern matching.
-  /// For pattern A(?x, B(?y, ?z)) compiled as B-first, this might be [1, 2, 0]
-  /// meaning ?y (slot 1) is bound first, then ?z (slot 2), then ?x (slot 0).
-  [[nodiscard]] auto binding_order() const -> std::span<uint8_t const> { return binding_order_; }
-
-  /// Inverse mapping: slot index -> order position.
-  /// For binding_order [1, 2, 0], slot_to_order returns [2, 0, 1].
-  /// Used by deduplication: when slot s changes, clear seen sets for all slots
-  /// at positions > slot_to_order[s] in binding_order.
-  [[nodiscard]] auto slot_to_order() const -> std::span<uint8_t const> { return slot_to_order_; }
-
-  /// Get VMState configuration for this pattern
-  [[nodiscard]] auto state_config() const -> VMStateConfig {
-    return {.num_eclass_regs = num_eclass_regs_,
-            .num_enode_regs = num_enode_regs_,
-            .binding_order = binding_order_,
-            .slot_to_order = slot_to_order_};
-  }
-
-  /// Variable to slot index mapping for binding lookup
-  [[nodiscard]] auto var_slots() const -> VarSlotMap const & { return var_slots_; }
-
  private:
-  std::vector<Instruction> code_{Instruction::halt()};
-  std::size_t num_eclass_regs_ = 0;     // Registers holding e-class IDs
-  std::size_t num_enode_regs_ = 0;      // Registers holding e-node IDs (and iteration state)
   std::vector<Symbol> symbols_;         // Symbol table for CheckSymbol (deduplicated by compiler)
   std::optional<Symbol> entry_symbol_;  // For index-based candidate lookup
-  std::vector<uint8_t> binding_order_;  // Order in which slots are bound during matching
-  std::vector<uint8_t> slot_to_order_;  // Inverse: slot index -> order position (O(n) vs O(n²))
-  VarSlotMap var_slots_;                // Variable to slot index mapping
 };
+
+template <typename Symbol>
+CompiledPattern<Symbol>::CompiledPattern(std::vector<Instruction> code, std::size_t num_eclass_regs,
+                                         std::size_t num_enode_regs, std::vector<Symbol> symbols,
+                                         std::optional<Symbol> entry_symbol, std::vector<uint8_t> binding_order,
+                                         VarSlotMap var_slots)
+    : CompiledPatternBase(std::move(code), num_eclass_regs, num_enode_regs, std::move(binding_order),
+                          std::move(var_slots)),
+      symbols_(std::move(symbols)),
+      entry_symbol_(std::move(entry_symbol)) {}
 
 }  // namespace memgraph::planner::core::vm

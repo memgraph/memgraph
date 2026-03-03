@@ -497,31 +497,7 @@ class Pattern {
    * Uses iterative approach with explicit stack to avoid recursion.
    * Called once at construction time.
    */
-  [[nodiscard]] auto compute_depth() const -> std::size_t {
-    if (nodes_.empty()) return 0;
-
-    std::size_t max_depth = 0;
-    // Stack of (node_id, current_depth)
-    std::vector<std::pair<PatternNodeId, std::size_t>> stack;
-    stack.emplace_back(root_, 0);
-
-    while (!stack.empty()) {
-      auto [node_id, current_depth] = stack.back();
-      stack.pop_back();
-
-      max_depth = std::max(max_depth, current_depth);
-
-      auto const &node = nodes_[node_id.value_of()];
-      if (auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&node)) {
-        for (auto child_id : sym->children) {
-          stack.emplace_back(child_id, current_depth + 1);
-        }
-      }
-      // PatternVar and Wildcard are leaves - no children to process
-    }
-
-    return max_depth;
-  }
+  [[nodiscard]] auto compute_depth() const -> std::size_t;
 
   /**
    * @brief Collect all unique variables and assign slot indices
@@ -532,30 +508,7 @@ class Pattern {
    *
    * Called once at construction time.
    */
-  [[nodiscard]] auto compute_var_slots() const -> boost::unordered_flat_map<PatternVar, uint8_t> {
-    boost::unordered_flat_map<PatternVar, uint8_t> slots;
-    uint8_t next_slot = 0;
-
-    auto assign_slot = [&](PatternVar var) {
-      if (!slots.contains(var)) {
-        slots[var] = next_slot++;
-      }
-    };
-
-    // Collect from pattern nodes (PatternVar nodes)
-    for (auto const &node : nodes_) {
-      if (auto const *var = std::get_if<PatternVar>(&node)) {
-        assign_slot(*var);
-      }
-    }
-
-    // Collect from symbol node bindings
-    for (auto const &[_, var] : bindings_) {
-      assign_slot(var);
-    }
-
-    return slots;
-  }
+  [[nodiscard]] auto compute_var_slots() const -> boost::unordered_flat_map<PatternVar, uint8_t>;
 
   std::vector<PatternNode<Symbol>> nodes_;
   PatternNodeId root_{0};
@@ -563,5 +516,60 @@ class Pattern {
   std::size_t depth_{0};                                           ///< Cached maximum depth (root to deepest leaf)
   boost::unordered_flat_map<PatternVar, uint8_t> var_slots_;       ///< Variable to slot index mapping
 };
+
+template <typename Symbol>
+  requires ENodeSymbol<Symbol>
+auto Pattern<Symbol>::compute_depth() const -> std::size_t {
+  if (nodes_.empty()) return 0;
+
+  std::size_t max_depth = 0;
+  // Stack of (node_id, current_depth)
+  std::vector<std::pair<PatternNodeId, std::size_t>> stack;
+  stack.emplace_back(root_, 0);
+
+  while (!stack.empty()) {
+    auto [node_id, current_depth] = stack.back();
+    stack.pop_back();
+
+    max_depth = std::max(max_depth, current_depth);
+
+    auto const &node = nodes_[node_id.value_of()];
+    if (auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&node)) {
+      for (auto child_id : sym->children) {
+        stack.emplace_back(child_id, current_depth + 1);
+      }
+    }
+    // PatternVar and Wildcard are leaves - no children to process
+  }
+
+  return max_depth;
+}
+
+template <typename Symbol>
+  requires ENodeSymbol<Symbol>
+auto Pattern<Symbol>::compute_var_slots() const -> boost::unordered_flat_map<PatternVar, uint8_t> {
+  boost::unordered_flat_map<PatternVar, uint8_t> slots;
+  uint8_t next_slot = 0;
+
+  auto assign_slot = [&](PatternVar var) {
+    if (!slots.contains(var)) {
+      slots[var] = next_slot++;
+    }
+  };
+
+  // Collect from pattern nodes (PatternVar nodes)
+  for (auto const &node : nodes_) {
+    if (auto const *var = std::get_if<PatternVar>(&node)) {
+      assign_slot(*var);
+    }
+  }
+
+  // Collect from symbol node bindings
+  for (auto const &[_, var] : bindings_) {
+    assign_slot(var);
+  }
+
+  return slots;
+}
 
 }  // namespace memgraph::planner::core

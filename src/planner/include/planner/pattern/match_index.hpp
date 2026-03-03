@@ -97,15 +97,7 @@ class MatcherIndex {
    * @param sym The symbol to look up
    * @param candidates Output vector to append candidate e-class IDs to (cleared first)
    */
-  void candidates_for_symbol(Symbol sym, std::vector<EClassId> &candidates) const {
-    candidates.clear();
-    if (auto it = index_.find(sym); it != index_.end()) {
-      candidates.reserve(it->second.size());
-      for (auto id : it->second) {
-        candidates.push_back(egraph_->find(id));
-      }
-    }
-  }
+  void candidates_for_symbol(Symbol sym, std::vector<EClassId> &candidates) const;
 
   /**
    * @brief Get all e-classes for wildcard/variable pattern matching
@@ -162,6 +154,17 @@ void MatcherIndex<Symbol, Analysis>::rebuild_index(std::span<EClassId const> new
       auto const &enode = egraph_->get_enode(enode_id);
       // Set insert handles duplicates naturally
       index_[enode.symbol()].insert(canonical_id);
+    }
+  }
+}
+
+template <typename Symbol, typename Analysis>
+void MatcherIndex<Symbol, Analysis>::candidates_for_symbol(Symbol sym, std::vector<EClassId> &candidates) const {
+  candidates.clear();
+  if (auto it = index_.find(sym); it != index_.end()) {
+    candidates.reserve(it->second.size());
+    for (auto id : it->second) {
+      candidates.push_back(egraph_->find(id));
     }
   }
 }
