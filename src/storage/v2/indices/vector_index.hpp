@@ -181,10 +181,9 @@ class VectorIndex {
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @param vertices Vertices accessor (used to iterate and decode properties).
-  /// @param indices Indices (for property decoding).
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @return true if the index was dropped successfully, false otherwise.
-  bool DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
+  bool DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,
                  NameIdMapper *name_id_mapper);
 
   /// @brief Drops all existing indexes.
@@ -220,7 +219,7 @@ class VectorIndex {
   /// @param name_id_mapper Mapper for name/ID conversions.
   /// @return The vector of the vertex as a list of float values.
   utils::small_vector<float> GetVectorPropertyFromIndex(Vertex *vertex, std::string_view index_name,
-                                                        NameIdMapper *name_id_mapper) const;
+                                                        NameIdMapper *name_id_mapper);
 
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
@@ -282,7 +281,7 @@ class VectorIndex {
   /// @brief Serializes all vector indices to a durability encoder in one pass.
   /// @param encoder The durability encoder to serialize to.
   /// @param mapped_ids Set of mapped IDs.
-  void SerializeAllVectorIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids) const;
+  void SerializeAllVectorIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids);
 
  private:
   /// @brief Removes a vertex from a vector index.

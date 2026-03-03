@@ -35,8 +35,7 @@ using synchronized_mg_vector_index_t = utils::Synchronized<mg_vector_index_t, st
 struct IndexItem {
   // unum::usearch::index_dense_gt is thread-safe and supports concurrent operations. However, we still need to use
   // locking because resizing the index requires exclusive access.
-  // Mutable because locking is logically const (doesn't change index data).
-  mutable synchronized_mg_vector_index_t mg_index;
+  synchronized_mg_vector_index_t mg_index;
   VectorIndexSpec spec;
 
   IndexItem(mg_vector_index_t &&index, VectorIndexSpec spec) : mg_index(std::move(index)), spec(std::move(spec)) {}
@@ -72,7 +71,7 @@ bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Ac
     });
     return true;
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, vertices, indices, name_id_mapper);
+    DropIndex(spec.index_name, vertices, name_id_mapper);
     throw;
   }
 }
@@ -146,7 +145,7 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
       PopulateVectorIndexSingleThreaded(vertices, process_vertex_for_recovery);
     }
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, vertices, indices, name_id_mapper);
+    DropIndex(spec.index_name, vertices, name_id_mapper);
     throw;
   }
 }
@@ -177,7 +176,7 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
   UpdateVectorIndex(index_item.mg_index, spec, &vertex, property.ValueVectorIndexList(), thread_id);
 }
 
-bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
+bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,
                             NameIdMapper *name_id_mapper) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
@@ -308,7 +307,7 @@ void VectorIndex::RemoveVertexFromIndex(Vertex *vertex, uint64_t index_id) {
 }
 
 utils::small_vector<float> VectorIndex::GetVectorPropertyFromIndex(Vertex *vertex, std::string_view index_name,
-                                                                   NameIdMapper *name_id_mapper) const {
+                                                                   NameIdMapper *name_id_mapper) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
@@ -352,15 +351,15 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
 }
 
 void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
-                                            std::unordered_set<uint64_t> &mapped_ids) const {
+                                            std::unordered_set<uint64_t> &mapped_ids) {
   auto write_mapping = [&](auto mapping) {
     mapped_ids.insert(mapping.AsUint());
     encoder->WriteUint(mapping.AsUint());
   };
 
   encoder->WriteUint(pimpl->index_by_id_.size());
-  for (const auto &[_, index_item] : pimpl->index_by_id_) {
-    const auto &[mg_index, spec] = index_item;
+  for (auto &[_, index_item] : pimpl->index_by_id_) {
+    auto &[mg_index, spec] = index_item;
     encoder->WriteString(spec.index_name);
     write_mapping(spec.label_id);
     write_mapping(spec.property);
@@ -370,9 +369,6 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
     encoder->WriteUint(spec.capacity);
     encoder->WriteUint(static_cast<uint64_t>(spec.scalar_kind));
 
-    // Snapshot index data under exclusive lock to avoid the get()+add() race
-    // in usearch (get() can segfault if add() is halfway through populating a
-    // slot). File I/O happens after the lock is released.
     using Entry = std::pair<uint64_t, std::vector<float>>;
     auto const entries = std::invoke([&]() -> std::vector<Entry> {
       auto locked_index = mg_index.Lock();
@@ -382,8 +378,9 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
       auto keys = std::vector<Vertex *>(size);
       locked_index->export_keys(keys.data(), 0, size);
 
-      auto result = std::vector<Entry>{};
-      auto buffer = std::vector<float>(locked_index->dimensions());
+      std::vector<Entry> result;
+      result.reserve(size);
+      std::vector<float> buffer(locked_index->dimensions());
       for (auto *vertex : keys) {
         if (vertex->deleted()) continue;
         locked_index->get(vertex, buffer.data());
