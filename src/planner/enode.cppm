@@ -18,11 +18,11 @@ module;
 
 #include "utils/small_vector.hpp"
 
-export module memgraph.planner.core.enode;
+export module memgraph.planner.core.egraph:enode;
 
-export import memgraph.planner.core.eids;
-export import memgraph.planner.core.concepts;
-export import memgraph.planner.core.union_find;
+import memgraph.planner.core.eids;
+import memgraph.planner.core.concepts;
+import memgraph.planner.core.union_find;
 
 export namespace memgraph::planner::core {
 

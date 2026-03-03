@@ -42,12 +42,17 @@ module;
 
 export module memgraph.planner.core.egraph;
 
-export import memgraph.planner.core.constants;
+// Export partitions
+export import :enode;
+export import :eclass;
+
+// Export types consumers need
 export import memgraph.planner.core.eids;
 export import memgraph.planner.core.concepts;
-export import memgraph.planner.core.union_find;
-export import memgraph.planner.core.enode;
-export import memgraph.planner.core.eclass;
+
+// Internal dependencies (not exported to consumers)
+import memgraph.planner.core.constants;
+import memgraph.planner.core.union_find;
 
 export namespace memgraph::planner::core {
 

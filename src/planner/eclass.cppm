@@ -19,9 +19,9 @@ module;
 #include <boost/container/small_vector.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
-export module memgraph.planner.core.eclass;
+export module memgraph.planner.core.egraph:eclass;
 
-export import memgraph.planner.core.eids;
+import memgraph.planner.core.eids;
 
 export namespace memgraph::planner::core {
 

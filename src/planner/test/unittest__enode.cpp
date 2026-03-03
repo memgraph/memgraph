@@ -14,7 +14,8 @@
 #include "test_symbols.hpp"
 #include "utils/small_vector.hpp"
 
-import memgraph.planner.core.enode;
+import memgraph.planner.core.egraph;
+import memgraph.planner.core.union_find;
 
 namespace memgraph::planner::core {
 

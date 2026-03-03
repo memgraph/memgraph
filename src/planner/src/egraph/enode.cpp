@@ -15,7 +15,7 @@ module;
 
 #include "utils/small_vector.hpp"
 
-module memgraph.planner.core.enode;
+module memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::detail {
 
