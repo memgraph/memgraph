@@ -837,11 +837,13 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
     if (!context.auth_checker->Has(
             v1, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
-      throw QueryRuntimeException("Creating edge failed: missing CREATE EDGE permission on source node labels.");
+      throw QueryRuntimeException(
+          "Creating edge failed: missing CREATE EDGE or UPDATE permission on source node labels.");
     }
     if (!context.auth_checker->Has(
             v2, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
-      throw QueryRuntimeException("Creating edge failed: missing CREATE EDGE permission on destination node labels.");
+      throw QueryRuntimeException(
+          "Creating edge failed: missing CREATE EDGE or UPDATE permission on destination node labels.");
     }
   }
 #endif
@@ -4814,7 +4816,8 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
           buffer_.edges.push_back(ea);
         } else {
           throw QueryRuntimeException(
-              "Deleting edge failed: missing DELETE permission on edge type or DELETE EDGE permission on connected "
+              "Deleting edge failed: missing DELETE permission on edge type or DELETE EDGE/UPDATE permission on "
+              "connected "
               "node labels.");
         }
         break;
@@ -4973,7 +4976,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(
               lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException("Setting node property failed: missing SET PROPERTY permission on labels.");
+        throw QueryRuntimeException(
+            "Setting node property failed: missing SET PROPERTY or UPDATE permission on labels.");
       }
 #endif
       auto old_value = PropsSetChecked(
@@ -4993,7 +4997,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException("Setting edge property failed: missing SET PROPERTY permission on edge type.");
+        throw QueryRuntimeException(
+            "Setting edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
       }
 #endif
       auto old_value = PropsSetChecked(
@@ -5172,7 +5177,8 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(
               lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException("Setting node property failed: missing SET PROPERTY permission on labels.");
+        throw QueryRuntimeException(
+            "Setting node property failed: missing SET PROPERTY or UPDATE permission on labels.");
       }
 #endif
       set_nested_property(&lhs.ValueVertex());
@@ -5182,7 +5188,8 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException("Setting edge property failed: missing SET PROPERTY permission on edge type.");
+        throw QueryRuntimeException(
+            "Setting edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
       }
 #endif
       set_nested_property(&lhs.ValueEdge());
@@ -5403,7 +5410,8 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(
               lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException("Setting node properties failed: missing SET PROPERTY permission on labels.");
+        throw QueryRuntimeException(
+            "Setting node properties failed: missing SET PROPERTY or UPDATE permission on labels.");
       }
 #endif
       auto set_properties_on_record = [&](TypedValue &vertex) {
@@ -5416,7 +5424,8 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException("Setting edge properties failed: missing SET PROPERTY permission on edge type.");
+        throw QueryRuntimeException(
+            "Setting edge properties failed: missing SET PROPERTY or UPDATE permission on edge type.");
       }
 #endif
       auto set_properties_on_record = [&](TypedValue &edge) {
@@ -5508,7 +5517,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(
             vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_LABEL)) {
-      throw QueryRuntimeException("Adding label failed: missing SET LABEL permission on existing labels.");
+      throw QueryRuntimeException("Adding label failed: missing SET LABEL or UPDATE permission on existing labels.");
     }
 #endif
 
@@ -5619,7 +5628,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(
               lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException("Removing node property failed: missing SET PROPERTY permission on labels.");
+        throw QueryRuntimeException(
+            "Removing node property failed: missing SET PROPERTY or UPDATE permission on labels.");
       }
 #endif
       remove_prop(&lhs.ValueVertex());
@@ -5629,7 +5639,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException("Removing edge property failed: missing SET PROPERTY permission on edge type.");
+        throw QueryRuntimeException(
+            "Removing edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
       }
 #endif
       remove_prop(&lhs.ValueEdge());
@@ -5749,7 +5760,8 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(
               lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException("Removing node property failed: missing SET PROPERTY permission on labels.");
+        throw QueryRuntimeException(
+            "Removing node property failed: missing SET PROPERTY or UPDATE permission on labels.");
       }
 #endif
       remove_nested_property(&lhs.ValueVertex());
@@ -5759,7 +5771,8 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException("Removing edge property failed: missing SET PROPERTY permission on edge type.");
+        throw QueryRuntimeException(
+            "Removing edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
       }
 #endif
       remove_nested_property(&lhs.ValueEdge());
@@ -5846,7 +5859,8 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(
             vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL)) {
-      throw QueryRuntimeException("Removing label failed: missing REMOVE LABEL permission on existing labels.");
+      throw QueryRuntimeException(
+          "Removing label failed: missing REMOVE LABEL or UPDATE permission on existing labels.");
     }
 #endif
 
