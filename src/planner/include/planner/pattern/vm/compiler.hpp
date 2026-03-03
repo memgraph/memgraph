@@ -25,6 +25,51 @@
 
 namespace memgraph::planner::core::vm {
 
+/// Non-templated base class for PatternCompiler.
+///
+/// Contains Symbol-independent state and helper methods for bytecode generation.
+/// This reduces template instantiation overhead by moving common logic to a
+/// single compilation unit.
+///
+/// @see PatternCompiler for the full templated interface
+class PatternCompilerBase {
+ protected:
+  PatternCompilerBase() = default;
+
+  /// Reset all compiler state for a fresh compilation
+  void reset();
+
+  /// Emit standard iteration loop: IterX, Jump, NextX, patch-jump.
+  /// Returns the loop position (where NextX is).
+  auto emit_iter_loop(Instruction iter_instr, Instruction next_instr) -> uint16_t;
+
+  /// Emit a BindSlotDedup instruction with backtrack target for early duplicate detection.
+  /// All bind_slot emissions should go through this to ensure binding order is tracked.
+  void emit_bind_slot(uint8_t slot, uint8_t eclass_reg, uint16_t backtrack);
+
+  /// Allocate an e-class register (for LoadChild, GetENodeEClass, IterAllEClasses destinations)
+  auto alloc_eclass_reg() -> uint8_t;
+
+  /// Allocate an e-node register (for IterENodes, IterParents destinations)
+  auto alloc_enode_reg() -> uint8_t;
+
+  /// Get slot index for a pattern variable
+  [[nodiscard]] auto get_slot(PatternVar var) const -> uint8_t;
+
+  /// Emit variable binding (check if seen, else bind with dedup)
+  void emit_var_binding(PatternVar var, uint8_t eclass_reg, uint16_t backtrack);
+
+  static constexpr uint16_t kHaltPlaceholder = 0xFFFF;
+
+  std::vector<Instruction> code_;
+  boost::unordered_flat_set<PatternVar> seen_vars_;
+  boost::unordered_flat_map<PatternVar, uint8_t> slot_map_;
+  boost::unordered_flat_map<PatternVar, uint8_t> var_to_reg_;  // Maps vars to eclass registers
+  std::vector<uint8_t> binding_order_;                         // Order in which slots are bound
+  uint8_t next_eclass_reg_{1};                                 // eclass_regs[0] reserved for input
+  uint8_t next_enode_reg_{0};
+};
+
 // =============================================================================
 // PatternCompiler Contract Documentation
 // =============================================================================
@@ -134,7 +179,7 @@ namespace memgraph::planner::core::vm {
 /// @see VMExecutor for bytecode execution
 /// @see CompiledPattern for the compiled bytecode container
 template <typename Symbol>
-class PatternCompiler {
+class PatternCompiler : protected PatternCompilerBase {
  public:
   /// Compile a single pattern into bytecode.
   /// @return Compiled pattern or nullopt if pattern exceeds register limit
@@ -183,14 +228,6 @@ class PatternCompiler {
   void build_slot_map(std::span<Pattern<Symbol> const> patterns);
 
   // ============================================================================
-  // Iteration loop helper
-  // ============================================================================
-
-  /// Emit standard iteration loop: IterX, Jump, NextX, patch-jump.
-  /// Returns the loop position (where NextX is).
-  auto emit_iter_loop(Instruction iter_instr, Instruction next_instr) -> uint16_t;
-
-  // ============================================================================
   // Pattern emission (anchor)
   // ============================================================================
 
@@ -227,17 +264,6 @@ class PatternCompiler {
       -> uint16_t;
 
   // ============================================================================
-  // Variable binding
-  // ============================================================================
-
-  void emit_var_binding(PatternVar var, uint8_t eclass_reg, uint16_t backtrack);
-
-  /// Emit a BindSlotDedup instruction with backtrack target for early duplicate detection.
-  /// All bind_slot emissions should go through this to ensure binding order is tracked.
-  /// @param backtrack The loop to backtrack to if this binding is a duplicate
-  void emit_bind_slot(uint8_t slot, uint8_t eclass_reg, uint16_t backtrack);
-
-  // ============================================================================
   // Helpers
   // ============================================================================
 
@@ -256,26 +282,9 @@ class PatternCompiler {
   /// But in "F(?v0) JOIN F2(?v0)", we still need to verify F2 nodes exist.
   [[nodiscard]] auto is_redundant_joined_pattern(Pattern<Symbol> const &pattern) const -> bool;
 
-  auto get_slot(PatternVar var) const -> uint8_t;
-
   auto get_symbol_index(Symbol const &sym) -> uint8_t;
 
-  /// Allocate an e-class register (for LoadChild, GetENodeEClass, IterAllEClasses destinations)
-  auto alloc_eclass_reg() -> uint8_t;
-
-  /// Allocate an e-node register (for IterENodes, IterParents destinations)
-  auto alloc_enode_reg() -> uint8_t;
-
-  static constexpr uint16_t kHaltPlaceholder = 0xFFFF;
-
-  std::vector<Instruction> code_;
-  std::vector<Symbol> symbols_;
-  boost::unordered_flat_set<PatternVar> seen_vars_;
-  boost::unordered_flat_map<PatternVar, uint8_t> slot_map_;
-  boost::unordered_flat_map<PatternVar, uint8_t> var_to_reg_;  // Maps vars to eclass registers
-  std::vector<uint8_t> binding_order_;                         // Order in which slots are bound
-  uint8_t next_eclass_reg_{1};                                 // eclass_regs[0] reserved for input
-  uint8_t next_enode_reg_{0};
+  std::vector<Symbol> symbols_;  // Symbol table (Symbol-dependent)
 };
 
 template <typename Symbol>
@@ -329,14 +338,8 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
 
 template <typename Symbol>
 void PatternCompiler<Symbol>::reset() {
-  code_.clear();
+  PatternCompilerBase::reset();
   symbols_.clear();
-  seen_vars_.clear();
-  var_to_reg_.clear();
-  slot_map_.clear();
-  binding_order_.clear();
-  next_eclass_reg_ = 1;  // eclass_regs[0] is reserved for input e-class
-  next_enode_reg_ = 0;
 }
 
 template <typename Symbol>
@@ -422,17 +425,6 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
       }
     }
   }
-}
-
-template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_iter_loop(Instruction iter_instr, Instruction next_instr) -> uint16_t {
-  code_.push_back(iter_instr);
-  auto jump_pos = static_cast<uint16_t>(code_.size());
-  code_.push_back(Instruction::jmp(0));  // placeholder
-  auto loop_pos = static_cast<uint16_t>(code_.size());
-  code_.push_back(next_instr);
-  code_[jump_pos].target = static_cast<uint16_t>(code_.size());
-  return loop_pos;
 }
 
 template <typename Symbol>
@@ -751,27 +743,6 @@ auto PatternCompiler<Symbol>::emit_joined_child(Pattern<Symbol> const &pattern, 
 }
 
 template <typename Symbol>
-void PatternCompiler<Symbol>::emit_var_binding(PatternVar var, uint8_t eclass_reg, uint16_t backtrack) {
-  auto slot = get_slot(var);
-  if (seen_vars_.contains(var)) {
-    code_.push_back(Instruction::check_slot(slot, eclass_reg, backtrack));
-  } else {
-    seen_vars_.insert(var);
-    emit_bind_slot(slot, eclass_reg, backtrack);
-  }
-}
-
-template <typename Symbol>
-void PatternCompiler<Symbol>::emit_bind_slot(uint8_t slot, uint8_t eclass_reg, uint16_t backtrack) {
-  // Track binding order for deduplication
-  // Only add if not already in binding_order (handles repeated bindings of same variable)
-  if (std::find(binding_order_.begin(), binding_order_.end(), slot) == binding_order_.end()) {
-    binding_order_.push_back(slot);
-  }
-  code_.push_back(Instruction::bind_slot_dedup(slot, eclass_reg, backtrack));
-}
-
-template <typename Symbol>
 auto PatternCompiler<Symbol>::find_path_to_shared_var(Pattern<Symbol> const &pattern) const
     -> std::optional<PatternPath> {
   auto const &root_node = pattern[pattern.root()];
@@ -830,30 +801,12 @@ auto PatternCompiler<Symbol>::is_redundant_joined_pattern(Pattern<Symbol> const 
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::get_slot(PatternVar var) const -> uint8_t {
-  auto it = slot_map_.find(var);
-  return it != slot_map_.end() ? it->second : 0;
-}
-
-template <typename Symbol>
 auto PatternCompiler<Symbol>::get_symbol_index(Symbol const &sym) -> uint8_t {
   for (std::size_t i = 0; i < symbols_.size(); ++i) {
     if (symbols_[i] == sym) return static_cast<uint8_t>(i);
   }
   symbols_.push_back(sym);
   return static_cast<uint8_t>(symbols_.size() - 1);
-}
-
-template <typename Symbol>
-auto PatternCompiler<Symbol>::alloc_eclass_reg() -> uint8_t {
-  // Register indices are uint8_t in instructions, so max 256 registers
-  return next_eclass_reg_++;
-}
-
-template <typename Symbol>
-auto PatternCompiler<Symbol>::alloc_enode_reg() -> uint8_t {
-  // Register indices are uint8_t in instructions, so max 256 registers
-  return next_enode_reg_++;
 }
 
 }  // namespace memgraph::planner::core::vm

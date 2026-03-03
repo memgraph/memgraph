@@ -49,6 +49,7 @@ target_sources(mg-planner
     src/pattern/pattern.cpp
     # pattern/vm/
     src/pattern/vm/compiled_pattern.cpp
+    src/pattern/vm/compiler.cpp
     # rewrite/
     src/rewrite/rewriter.cpp
     # extract/
