@@ -3595,11 +3595,28 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
       [=]() -> mgp_edge * {
         auto *ctx = graph->ctx;
 #ifdef MG_ENTERPRISE
-        const auto edge_id =
-            std::visit([type](auto *impl) { return impl->NameToEdgeType(type.name); }, from->graph->impl);
-        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
-            !ctx->auth_checker->Has(edge_id, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
-          throw AuthorizationException{"Insufficient permissions for creating edges!"};
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker) {
+          const auto edge_id =
+              std::visit([type](auto *impl) { return impl->NameToEdgeType(type.name); }, from->graph->impl);
+          if (!ctx->auth_checker->Has(edge_id, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
+            throw AuthorizationException{"Creating edge failed: missing CREATE permission on edge type."};
+          }
+          const auto &from_vertex =
+              GetValueImpl<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor>(from);
+          const auto &to_vertex =
+              GetValueImpl<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor>(to);
+          if (!ctx->auth_checker->Has(from_vertex,
+                                      memgraph::storage::View::NEW,
+                                      memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
+            throw AuthorizationException{
+                "Creating edge failed: missing CREATE EDGE permission on source vertex labels."};
+          }
+          if (!ctx->auth_checker->Has(to_vertex,
+                                      memgraph::storage::View::NEW,
+                                      memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
+            throw AuthorizationException{
+                "Creating edge failed: missing CREATE EDGE permission on destination vertex labels."};
+          }
         }
 #endif
         if (!MgpGraphIsMutable(*graph)) {
