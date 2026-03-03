@@ -3612,15 +3612,16 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
           }
           const auto &from_vertex =
               GetValueImpl<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor>(from);
-          const auto &to_vertex =
-              GetValueImpl<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor>(to);
           if (!ctx->auth_checker->Has(from_vertex,
                                       memgraph::storage::View::NEW,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
             throw AuthorizationException{
                 "Creating edge failed: missing CREATE EDGE or UPDATE permission on source vertex labels."};
           }
-          if (!ctx->auth_checker->Has(to_vertex,
+          const auto &to_vertex =
+              GetValueImpl<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor>(to);
+          if (from_vertex != to_vertex &&
+              !ctx->auth_checker->Has(to_vertex,
                                       memgraph::storage::View::NEW,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
             throw AuthorizationException{
@@ -3692,7 +3693,8 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
         throw AuthorizationException{
             "Deleting edge failed: missing DELETE EDGE or UPDATE permission on source vertex labels."};
       }
-      if (!ctx->auth_checker->Has(
+      if (edge->from.getImpl() != edge->to.getImpl() &&
+          !ctx->auth_checker->Has(
               edge->to.getImpl(), graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE_EDGE)) {
         throw AuthorizationException{
             "Deleting edge failed: missing DELETE EDGE or UPDATE permission on destination vertex labels."};
