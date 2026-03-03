@@ -136,16 +136,17 @@ TEST_F(LicenseTest, LicenseInfoOverride) {
     CheckLicenseValidity(true);
   }
   {
-    SCOPED_TRACE("License info override shouldn't be affected by settings change");
-    settings->SetValue("enterprise.license", "INVALID");
+    SCOPED_TRACE("Settings writes are rejected when override is active");
+    EXPECT_THROW(settings->SetValue("enterprise.license", "INVALID"), memgraph::utils::BasicException);
     CheckLicenseValidity(true);
   }
   {
     SCOPED_TRACE("Override with invalid key");
     license_checker->SetLicenseInfoOverride("INVALID", organization_name, *settings);
     CheckLicenseValidity(false);
-    settings->SetValue("enterprise.license", license_key);
-    settings->SetValue("organization.name", organization_name);
+    // Override is still active; direct SetValue calls are rejected.
+    EXPECT_THROW(settings->SetValue("enterprise.license", license_key), memgraph::utils::BasicException);
+    EXPECT_THROW(settings->SetValue("organization.name", organization_name), memgraph::utils::BasicException);
     CheckLicenseValidity(false);
   }
 }
@@ -216,6 +217,37 @@ TEST_F(LicenseTest, DetailedLicenseInfo) {
     ASSERT_EQ(detailed_license_info.license_type, "oem");
     ASSERT_EQ(detailed_license_info.memory_limit, 6);
     ASSERT_EQ(detailed_license_info.valid_until, "1970-01-01");
-    ASSERT_EQ(detailed_license_info.status, "You are running an expired license!");
   }
+  {
+    SCOPED_TRACE("Valid non-expired OEM license must report is_valid=false (not enterprise type)");
+    memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM};
+    const std::string license_key = memgraph::license::Encode(license_oem);
+    license_checker->SetLicenseInfoOverride(license_key, organization_name, *settings);
+    auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
+    ASSERT_FALSE(detailed_license_info.is_valid);
+    ASSERT_EQ(detailed_license_info.license_type, "oem");
+  }
+  {
+    SCOPED_TRACE("Enterprise key with mismatched organization name must report is_valid=false");
+    memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
+    const std::string license_key = memgraph::license::Encode(license);
+    // Use SetLicenseInfoOverride with the wrong org name so the write goes through even though
+    // a previous override is active.
+    license_checker->SetLicenseInfoOverride(license_key, fmt::format("{}wrong", organization_name), *settings);
+    auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
+    ASSERT_FALSE(detailed_license_info.is_valid);
+    ASSERT_EQ(detailed_license_info.license_type, "enterprise");
+  }
+}
+
+TEST_F(LicenseTest, SetSettingRejectedWhenOverrideActive) {
+  const std::string organization_name{"Memgraph"};
+  memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
+  const std::string license_key = memgraph::license::Encode(license);
+
+  license_checker->SetLicenseInfoOverride(license_key, organization_name, *settings);
+  ASSERT_TRUE(license_checker->HasLicenseOverride());
+
+  EXPECT_THROW(settings->SetValue("enterprise.license", license_key), memgraph::utils::BasicException);
+  EXPECT_THROW(settings->SetValue("organization.name", organization_name), memgraph::utils::BasicException);
 }

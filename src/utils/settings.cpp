@@ -64,7 +64,7 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
     const auto val = validations_.find(setting_name);
     MG_ASSERT(val != validations_.end(), "Settings storage is out of sync");
     if (const auto msg = val->second(new_value); !msg.has_value()) {
-      throw utils::BasicException("'{}' not valid for '{}': {}", new_value, setting_name, msg.error());
+      throw utils::BasicException("Cannot update setting '{}': {}", setting_name, msg.error());
     }
 
     MG_ASSERT(storage_->Put(setting_name, new_value), "Failed to modify the setting");

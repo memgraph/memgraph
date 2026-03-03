@@ -102,6 +102,8 @@ struct LicenseChecker {
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &GetLicenseInfo();
   DetailedLicenseInfo GetDetailedLicenseInfo();
 
+  bool HasLicenseOverride() const noexcept { return license_info_override_.has_value(); }
+
   void Finalize() { scheduler_.Stop(); }
 
  private:
