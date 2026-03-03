@@ -74,6 +74,7 @@ class ClusterMonitor:
         raise last_err  # type: ignore[misc]
 
     def start(self) -> None:
+        self._stop_event.clear()
         if self._show_replicas:
             t = threading.Thread(target=self._replicas_loop, daemon=True)
             t.start()

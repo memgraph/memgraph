@@ -27,3 +27,6 @@ workloads:
 
   - config: ../workloads/concurrent_edge_write/workload.yaml
     enabled: true
+
+  - config: ../workloads/vector_index_recovery/workload.yaml
+    enabled: true
