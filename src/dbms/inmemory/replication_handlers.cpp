@@ -1360,9 +1360,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             auto const edge_type_id = transaction->NameToEdgeType(*data.edge_type);
             auto found = transaction->FindEdge(data.gid, View::NEW, edge_type_id, &*from_v, &*to_v);
             if (!found) {
-              constexpr auto src_loc{std::source_location()};
-              throw utils::BasicException(
-                  "Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(), src_loc.line());
+              throw utils::BasicException("Failed to find edge {} when setting edge property.", data.gid.AsUint());
             }
             cached_edge_info.emplace(found->edge_, found->edge_type_, found->from_vertex_, found->to_vertex_);
           } else if (data.from_gid.has_value()) {

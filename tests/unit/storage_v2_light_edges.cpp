@@ -66,7 +66,7 @@ auto CreateTwoVertices(Storage *store) -> std::pair<Gid, Gid> {
 
 TEST(LightEdgesPoolAllocator, BasicAllocDealloc) {
   // Pool with block_size = 32, 64 blocks per chunk
-  memgraph::utils::SingleSizeThreadSafePoolResource pool(32, 64);
+  memgraph::utils::SingleSizePoolResource pool(32, 64);
 
   void *p1 = pool.allocate(32, 8);
   ASSERT_NE(p1, nullptr);
@@ -85,7 +85,7 @@ TEST(LightEdgesPoolAllocator, BasicAllocDealloc) {
 }
 
 TEST(LightEdgesPoolAllocator, MultiThreadedStress) {
-  memgraph::utils::SingleSizeThreadSafePoolResource pool(32, 1024);
+  memgraph::utils::SingleSizePoolResource pool(32, 1024);
   constexpr int kThreads = 8;
   constexpr int kOpsPerThread = 10000;
 
@@ -2034,4 +2034,98 @@ TEST(LightEdgesStress, ConcurrentCrudWithIndices) {
   // Run final GC and verify no crash during cleanup
   store->FreeMemory();
   store->FreeMemory();
+}
+
+// ===========================================================================
+// 12. DropGraph tests
+// ===========================================================================
+
+// DropGraph on a light-edge storage must free all pool-allocated edges (no
+// ASAN/MSAN errors), leave the storage empty, and leave the pool reusable.
+TEST(LightEdgesCleanup, DropGraphFreesEdgesAndPool) {
+  auto store = MakeLightEdgeStorage();
+  auto *mem_storage = static_cast<InMemoryStorage *>(store.get());
+
+  auto [gid_from, gid_to] = CreateTwoVertices(store.get());
+
+  // Create enough edges to span multiple pool chunks.
+  constexpr int kEdges = 500;
+  {
+    auto acc = store->Access(WRITE);
+    auto vf = acc->FindVertex(gid_from, View::NEW);
+    auto vt = acc->FindVertex(gid_to, View::NEW);
+    auto etype = acc->NameToEdgeType("T");
+    for (int idx = 0; idx < kEdges; ++idx) {
+      ASSERT_TRUE(acc->CreateEdge(&*vf, &*vt, etype).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // DropGraph requires IN_MEMORY_ANALYTICAL mode.
+  mem_storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+  {
+    auto acc = store->UniqueAccess();
+    acc->DropGraph();
+  }
+
+  // Verify storage is empty.
+  mem_storage->SetStorageMode(StorageMode::IN_MEMORY_TRANSACTIONAL);
+  {
+    auto acc = store->Access(READ);
+    int edge_count = 0;
+    for (auto vertex : acc->Vertices(View::OLD)) {
+      auto out = vertex.OutEdges(View::OLD);
+      if (out.has_value()) edge_count += static_cast<int>(out->edges.size());
+    }
+    EXPECT_EQ(edge_count, 0);
+  }
+
+  // Pool must still be usable after DropGraph + Reclaim.
+  auto [gf2, gt2] = CreateTwoVertices(store.get());
+  {
+    auto acc = store->Access(WRITE);
+    auto vf = acc->FindVertex(gf2, View::NEW);
+    auto vt = acc->FindVertex(gt2, View::NEW);
+    ASSERT_TRUE(acc->CreateEdge(&*vf, &*vt, acc->NameToEdgeType("NEW")).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+// DropGraph with edges in the graveyard (deleted but not yet GC'd).
+TEST(LightEdgesCleanup, DropGraphWithGraveyardEdges) {
+  auto store = MakeLightEdgeStorage();
+  auto *mem_storage = static_cast<InMemoryStorage *>(store.get());
+
+  auto [gid_from, gid_to] = CreateTwoVertices(store.get());
+
+  // Create and then delete edges so they sit in the graveyard.
+  {
+    auto acc = store->Access(WRITE);
+    auto vf = acc->FindVertex(gid_from, View::NEW);
+    auto vt = acc->FindVertex(gid_to, View::NEW);
+    auto etype = acc->NameToEdgeType("T");
+    for (int idx = 0; idx < 50; ++idx) {
+      ASSERT_TRUE(acc->CreateEdge(&*vf, &*vt, etype).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  {
+    auto acc = store->Access(WRITE);
+    auto vf = acc->FindVertex(gid_from, View::NEW);
+    while (true) {
+      auto out = vf->OutEdges(View::NEW);
+      if (!out.has_value() || out->edges.empty()) break;
+      auto edge = out->edges[0];
+      ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Deliberately skip GC so edges remain in graveyard.
+
+  mem_storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+  {
+    auto acc = store->UniqueAccess();
+    acc->DropGraph();
+    // No crash / ASAN error = graveyard was drained and pool reclaimed.
+  }
 }

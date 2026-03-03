@@ -1187,6 +1187,8 @@ struct LightEdgeLoader {
                              &per_batch[batch_index]);
           },
           edge_batches);
+      // merge() moves nodes from each per_batch map into all_edges (O(n), no copies).
+      // After this loop every per_batch[i] is empty, so FreeAll() won't double-free.
       for (auto &m : per_batch) all_edges.merge(m);
       per_batch.clear();
     } else {
@@ -10798,7 +10800,6 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     BatchedProgressCounter progress_counter(progress);
 
     auto vacc = vertices->access();
-    auto const unused_edge_gid = storage->edge_id_.load(std::memory_order_acquire);
 
     for (auto &vertex : vacc) {
       if (snapshot_aborted()) return;
@@ -10808,7 +10809,6 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       if (!maybe_out.has_value()) continue;
       for (auto &ea : maybe_out->edges) {
         auto gid = ea.Gid().AsUint();
-        if (gid >= unused_edge_gid) continue;
         auto maybe_props = ea.Properties(View::OLD);
         MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
         collected.push_back({gid, std::move(*maybe_props)});

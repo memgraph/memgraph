@@ -1452,7 +1452,9 @@ std::optional<RecoveryInfo> LoadWal(
               edge_full_info.emplace(EdgeRef{&*edge_it}, edge_type_id, &*from_v, &*to_v);
             }
           } else if (data.from_gid.has_value()) {
-            // Case 2: GID scan of from_vertex->out_edges — same for light and heavy.
+            // Case 2: scan from_vertex->out_edges by GID — same for light and heavy.
+            // out_edges scan is used (rather than edge_acc.find) because we need the full topology
+            // (edge_type, to_vertex) for schema_info tracking without an extra vertex lookup.
             const auto from_v = vertex_acc.find(*data.from_gid);
             if (from_v == vertex_acc.end())
               throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
@@ -1484,7 +1486,9 @@ std::optional<RecoveryInfo> LoadWal(
         const auto property_value = ToPropertyValue(data.value, name_id_mapper);
 
         // Update schema info
+        // Invariant: schema_info → use_edge_cache → edge_full_info is set (or an exception was thrown above).
         if (schema_info) {
+          DMG_ASSERT(edge_full_info.has_value(), "edge_full_info must be set when schema_info is active");
           const auto &[edge_ref, edge_type, from_v, to_v] = *edge_full_info;
           const auto old_type = edge_raw->properties.GetExtendedPropertyType(property_id);
           schema_info->SetProperty(edge_type,

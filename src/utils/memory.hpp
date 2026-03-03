@@ -389,54 +389,61 @@ class ThreadSafePool {
     Node *next;
   };
 
-  // We need to store more state per thread now:
-  // 1. The free list (recycled nodes)
-  // 2. The bump pointer (for fresh, untouched memory)
   struct ThreadLocalState {
-    Node *free_list_head = nullptr;
-    char *cursor = nullptr;  // Current position in the fresh chunk
-    char *end = nullptr;     // End of the fresh chunk
+    // Aligned to 64 bytes to prevent false sharing between threads and Reclaim()
+    alignas(64) Node *free_list_head = nullptr;
+    char *cursor = nullptr;
+    char *end = nullptr;
+    ThreadSafePool *self = nullptr;
+
+    // atomic because Reclaim() and OnThreadExit() access this concurrently
+    std::atomic<bool> is_active{true};
   };
 
-  static thread_local ThreadLocalState *tls_cache_;  // Updated type
-  static thread_local uint64_t last_pool_;
-  static std::atomic<uint64_t> pool_id_;
-
-  mutable std::mutex mtx_;
+  // Static TLS cache for O(1) access on the hot path
+  static thread_local ThreadLocalState *tls_cache_;
+  static thread_local uint64_t last_pool_id_;
+  static std::atomic<uint64_t> global_pool_counter_;
 
   const std::size_t block_size_;
   const std::size_t blocks_per_chunk_;
   const uint64_t id_;
   MemoryResource *chunk_memory_;
-  pthread_key_t thread_local_key_;
 
-  std::vector<ThreadLocalState *> states_;
-  AList<void *> chunks_;
+  pthread_key_t key_;
+  std::atomic<int> active_states_{0};
 
-  size_t chunk_size() const { return blocks_per_chunk_ * block_size_; }
+  mutable std::mutex mtx_;
+  std::vector<ThreadLocalState *> states_;  // Protected by mtx_
+  std::vector<char *> chunks_;              // Protected by mtx_
+  Node *global_orphan_list_ = nullptr;      // Protected by mtx_
+
+  ThreadLocalState *get_or_create_state();
+  static void OnThreadExit(void *ptr) noexcept;
+
+  void *carve_new_chunk();
+
+  std::size_t chunk_size() const { return blocks_per_chunk_ * block_size_; }
 
   size_t chunk_alignment() const { return Ceil2(block_size_); }
 
-  // Returns raw memory chunk, does NOT initialize linked list
-  void *carve_block();
-
-  // Helper to get the full state struct
-  ThreadLocalState *thread_state();
-
  public:
-  explicit ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks = 1024,
+  explicit ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunk = 1024,
                           MemoryResource *chunk_memory = NewDeleteResource());
-
   ~ThreadSafePool();
 
-  ThreadSafePool(ThreadSafePool &) = delete;
-  ThreadSafePool(ThreadSafePool &&) = delete;
-  ThreadSafePool operator=(ThreadSafePool &) = delete;
-  ThreadSafePool operator=(ThreadSafePool &&) = delete;
+  // Deleted copy/move to prevent double-deletion of the pthread key
+  ThreadSafePool(const ThreadSafePool &) = delete;
+  ThreadSafePool &operator=(const ThreadSafePool &) = delete;
 
   void *Allocate();
-
   void Deallocate(void *p) noexcept;
+
+  /**
+   * Scavenges memory from orphaned states and returns fully empty chunks to the system.
+   * Precondition: No other thread is concurrently calling Allocate/Deallocate.
+   */
+  void Reclaim();
 };
 
 // C++ overloads for clz
@@ -648,12 +655,15 @@ class PoolResource final : public std::pmr::memory_resource {
 /// units of blocks_per_chunk * block_size.  Choose blocks_per_chunk large enough so that
 /// each chunk exceeds jemalloc's "large" threshold (~14 KiB), ensuring dedicated pages
 /// with no slab-level interleaving from other allocations.
-class SingleSizeThreadSafePoolResource final : public std::pmr::memory_resource {
+class SingleSizePoolResource final : public std::pmr::memory_resource {
  public:
-  explicit SingleSizeThreadSafePoolResource(std::size_t block_size, std::size_t blocks_per_chunk = 8192,
-                                            std::pmr::memory_resource *chunk_memory = NewDeleteResource());
+  explicit SingleSizePoolResource(std::size_t block_size, std::size_t blocks_per_chunk = 8192,
+                                  std::pmr::memory_resource *chunk_memory = NewDeleteResource());
 
-  ~SingleSizeThreadSafePoolResource() override;
+  ~SingleSizePoolResource() override;
+
+  // Delegates to ThreadSafePool::Reclaim(). See that method for preconditions.
+  void Reclaim();
 
  protected:
   void *do_allocate(size_t bytes, size_t alignment) override;

@@ -21,9 +21,32 @@
 
 namespace memgraph::storage::replication {
 
+// V1: SalientConfig without storage_light_edge
+struct CreateDatabaseReqV1 {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_REQ, .name = "CreateDatabaseReqV1"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(CreateDatabaseReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const CreateDatabaseReqV1 &self, memgraph::slk::Builder *builder);
+  CreateDatabaseReqV1() = default;
+
+  CreateDatabaseReqV1(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
+                      uint64_t const new_group_timestamp, SalientConfig config)
+      : main_uuid(main_uuid),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        config(std::move(config)) {}
+
+  utils::UUID main_uuid;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
+  storage::SalientConfig config;
+};
+
+// V2 (current): SalientConfig includes storage_light_edge
 struct CreateDatabaseReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_REQ, .name = "CreateDatabaseReq"};
-  static constexpr uint64_t kVersion{1};
+  static constexpr uint64_t kVersion{2};
 
   static void Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder);
@@ -36,15 +59,34 @@ struct CreateDatabaseReq {
         new_group_timestamp(new_group_timestamp),
         config(std::move(config)) {}
 
+  static CreateDatabaseReq Upgrade(CreateDatabaseReqV1 const &v1) {
+    return CreateDatabaseReq{v1.main_uuid, v1.expected_group_timestamp, v1.new_group_timestamp, v1.config};
+  }
+
   utils::UUID main_uuid;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
   storage::SalientConfig config;
 };
 
+struct CreateDatabaseResV1 {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_RES, .name = "CreateDatabaseResV1"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(CreateDatabaseResV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const CreateDatabaseResV1 &self, memgraph::slk::Builder *builder);
+  CreateDatabaseResV1() = default;
+
+  explicit CreateDatabaseResV1(Result res) : result(res) {}
+
+  Result result;
+};
+
 struct CreateDatabaseRes {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_RES, .name = "CreateDatabaseRes"};
-  static constexpr uint64_t kVersion{1};
+  static constexpr uint64_t kVersion{2};
 
   enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
 
@@ -53,6 +95,10 @@ struct CreateDatabaseRes {
   CreateDatabaseRes() = default;
 
   explicit CreateDatabaseRes(Result res) : result(res) {}
+
+  CreateDatabaseResV1 Downgrade() const {
+    return CreateDatabaseResV1{static_cast<CreateDatabaseResV1::Result>(result)};
+  }
 
   Result result;
 };
@@ -144,9 +190,17 @@ using RenameDatabaseRpc = rpc::RequestResponse<RenameDatabaseReq, RenameDatabase
 // SLK serialization declarations
 namespace memgraph::slk {
 
+void Save(const memgraph::storage::replication::CreateDatabaseReqV1 &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::CreateDatabaseReqV1 *self, memgraph::slk::Reader *reader);
+
 void Save(const memgraph::storage::replication::CreateDatabaseReq &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::CreateDatabaseResV1 &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::CreateDatabaseResV1 *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::replication::CreateDatabaseRes &self, memgraph::slk::Builder *builder);
 
