@@ -10694,7 +10694,8 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write vector indices
     {
-      storage->indices_.vector_index_.SerializeAllVectorIndices(&snapshot, used_ids);
+      auto vertices_acc = vertices->access();
+      storage->indices_.vector_index_.SerializeAllVectorIndices(&snapshot, used_ids, vertices_acc);
       if (snapshot_aborted()) {
         return std::nullopt;
       }
