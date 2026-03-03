@@ -241,18 +241,13 @@ class VectorIndex {
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
   /// @param name_id_mapper Mapper for name/ID conversions.
-  /// @param vertices_accessor A live accessor to the vertex skip list. Caller must hold this for at least as
-  /// long as the returned Vertex* pointers are in use, to prevent GC from freeing them.
   /// @return A vector of tuples containing the vertex, distance, and similarity of the search results.
   VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
-                                      const std::vector<float> &query_vector, NameIdMapper *name_id_mapper,
-                                      const utils::SkipList<Vertex>::Accessor &vertices_accessor) const;
+                                      const std::vector<float> &query_vector, NameIdMapper *name_id_mapper) const;
 
   /// @brief Removes obsolete entries from the index.
-  /// @param vertices_accessor A live accessor to the vertex skip list, kept alive to prevent GC from freeing
-  /// vertex memory while raw Vertex* pointers exported from the index are still in use.
   /// @param token A stop token to allow for cancellation of the operation.
-  void RemoveObsoleteEntries(utils::SkipList<Vertex>::Accessor &vertices_accessor, std::stop_token token) const;
+  void RemoveObsoleteEntries(std::stop_token token) const;
 
   /// @brief Returns an abort processor snapshot used during transaction abort.
   /// @return AbortProcessor containing label/property mappings for vector indices.
@@ -287,10 +282,7 @@ class VectorIndex {
   /// @brief Serializes all vector indices to a durability encoder in one pass.
   /// @param encoder The durability encoder to serialize to.
   /// @param mapped_ids Set of mapped IDs.
-  /// @param vertices_accessor A live accessor to the vertex skip list, kept alive to prevent GC from freeing
-  /// vertex memory while raw Vertex* pointers exported from the index are still in use.
-  void SerializeAllVectorIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids,
-                                 const utils::SkipList<Vertex>::Accessor &vertices_accessor) const;
+  void SerializeAllVectorIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids) const;
 
  private:
   /// @brief Removes a vertex from a vector index.

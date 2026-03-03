@@ -352,8 +352,8 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
   return result;
 }
 
-void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids,
-                                            const utils::SkipList<Vertex>::Accessor & /*vertices_accessor*/) const {
+void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
+                                            std::unordered_set<uint64_t> &mapped_ids) const {
   auto write_mapping = [&](auto mapping) {
     mapped_ids.insert(mapping.AsUint());
     encoder->WriteUint(mapping.AsUint());
@@ -423,9 +423,9 @@ std::optional<uint64_t> VectorIndex::ApproximateNodesVectorCount(LabelId label, 
   return std::nullopt;
 }
 
-VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(
-    std::string_view index_name, uint64_t result_set_size, const std::vector<float> &query_vector,
-    NameIdMapper *name_id_mapper, const utils::SkipList<Vertex>::Accessor & /*vertices_accessor*/) const {
+VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view index_name, uint64_t result_set_size,
+                                                              const std::vector<float> &query_vector,
+                                                              NameIdMapper *name_id_mapper) const {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
@@ -456,8 +456,7 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(
   return result;
 }
 
-void VectorIndex::RemoveObsoleteEntries(utils::SkipList<Vertex>::Accessor & /*vertices_accessor*/,
-                                        std::stop_token token) const {
+void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
   auto maybe_stop = utils::ResettableCounter(2048);
   for (auto &[_, index_item] : pimpl->index_by_id_) {
     if (maybe_stop() && token.stop_requested()) {

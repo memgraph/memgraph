@@ -162,8 +162,7 @@ TEST_F(VectorIndexTest, DeleteVertexTest) {
 
   // Vertex is deleted after gc runs
   auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-  auto vertices_acc = mem_storage->vertices_.access();
-  mem_storage->indices_.vector_index_.RemoveObsoleteEntries(vertices_acc, std::stop_token());
+  mem_storage->indices_.vector_index_.RemoveObsoleteEntries(std::stop_token());
   EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
 }
 
@@ -314,8 +313,7 @@ TEST_F(VectorIndexTest, RemoveObsoleteEntriesTest) {
   {
     auto acc = this->storage->Access(memgraph::storage::READ);
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    auto vertices_acc = mem_storage->vertices_.access();
-    mem_storage->indices_.vector_index_.RemoveObsoleteEntries(vertices_acc, std::stop_token());
+    mem_storage->indices_.vector_index_.RemoveObsoleteEntries(std::stop_token());
     EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
   }
 }
@@ -335,8 +333,7 @@ TEST_F(VectorIndexTest, RemoveObsoleteEntriesConcurrentAddRaceTest) {
 
   std::jthread gc_thread([&](std::stop_token stoken) {
     while (!stoken.stop_requested()) {
-      auto vertices_acc = mem_storage->vertices_.access();
-      mem_storage->indices_.vector_index_.RemoveObsoleteEntries(vertices_acc, std::stop_token());
+      mem_storage->indices_.vector_index_.RemoveObsoleteEntries(std::stop_token());
     }
   });
 
