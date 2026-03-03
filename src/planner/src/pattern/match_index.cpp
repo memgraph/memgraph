@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// This file exists to provide clangd with correct module dependencies for ematch.hpp.
+// This file exists to provide clangd with correct module dependencies for match_index.hpp.
 // The header is template-only, so this compilation unit is intentionally minimal.
 
 #include "planner/pattern/match_index.hpp"

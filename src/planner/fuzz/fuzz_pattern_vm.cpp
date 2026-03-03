@@ -9,10 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// Fuzzer for VM pattern build, compile, and matching.
+// Verifies match counts against egglog as an oracle.
+//
 // NOTE: This fuzzer is NOT safe to run with multiple threads (e.g. libFuzzer's
 // -fork or custom multi-threaded executor modes). There are two reasons:
 //
-//  1. The egglog oracle writes to a fixed path (/tmp/fuzz_ematch.egg). Parallel
+//  1. The egglog oracle writes to a fixed path (/tmp/fuzz_pattern_vm.egg). Parallel
 //     instances would overwrite each other's temp files, producing wrong egglog
 //     input and therefore spurious mismatch reports.
 //
@@ -24,14 +27,14 @@
 // separate processes rather than threads).
 //
 // Running example:
-//   ./build/src/planner/test/fuzz_ematch -max_total_time=10
+//   ./build/src/planner/fuzz/fuzz_pattern_vm -max_total_time=10
 //
 // On a mismatch the fuzzer calls abort(), which libFuzzer treats as a crash. It
 // will stop immediately, print the mismatch details (counts, pattern, egglog
 // program and output) to stderr, and write a reproducer file in the current
 // directory named crash-<sha1hash>. To reproduce:
 //
-//   FUZZ_VERBOSE=1 ./build/src/planner/test/fuzz_ematch crash-<sha1hash>
+//   FUZZ_VERBOSE=1 ./build/src/planner/fuzz/fuzz_pattern_vm crash-<sha1hash>
 
 #include <array>
 #include <charconv>
@@ -153,7 +156,7 @@ auto run_egglog(std::string_view program) -> EgglogResult {
   EgglogResult result;
 
   // Write program to temp file
-  auto temp_path = std::filesystem::temp_directory_path() / "fuzz_ematch.egg";
+  auto temp_path = std::filesystem::temp_directory_path() / "fuzz_pattern_vm.egg";
   {
     std::ofstream temp_file(temp_path);
     if (!temp_file) {

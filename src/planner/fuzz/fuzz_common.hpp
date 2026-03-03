@@ -16,7 +16,7 @@
 // ============================================================================
 //
 // This header provides shared types and utilities for:
-//   - fuzz_ematch.cpp: Pattern matching fuzzer (MatcherIndex vs VM vs egglog)
+//   - fuzz_pattern_vm.cpp: Pattern matching fuzzer (VM vs egglog)
 //   - fuzz_egraph.cpp: E-graph operations fuzzer
 //   - corpus_benchmark.cpp: Corpus benchmark tool
 //   - corpus_profile.cpp: Corpus profiling tool

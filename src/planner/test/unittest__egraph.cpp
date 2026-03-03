@@ -694,7 +694,7 @@ TEST(EGraphCongruenceClosureBug, SelfRefWithIndirectChildCongruence) {
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
 
-  // Exact reproduction from unittest__ematch.cpp
+  // Exact reproduction from unittest__pattern_vm.cpp
   auto n0 = egraph.emplace(Op::A, 0).eclass_id;
   auto n1 = egraph.emplace(Op::A, 1).eclass_id;
   auto n2 = egraph.emplace(Op::F, {n1, n1}).eclass_id;

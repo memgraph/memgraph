@@ -41,14 +41,14 @@ namespace memgraph::planner::core {
  *
  * Usage:
  * @code
- *   MatcherIndex<Symbol, Analysis> ematcher(egraph);
+ *   MatcherIndex<Symbol, Analysis> index(egraph);
  *   vm::VMExecutor<Symbol, Analysis> vm_executor(egraph);
  *   EMatchContext ctx;
  *   std::vector<PatternMatch> matches;
- *   vm_executor.execute(compiled_pattern, ematcher, ctx, matches);
+ *   vm_executor.execute(compiled_pattern, index, ctx, matches);
  *
  *   // After adding new e-classes, update index incrementally
- *   ematcher.rebuild_index(new_eclasses);
+ *   index.rebuild_index(new_eclasses);
  * @endcode
  *
  * @tparam Symbol Must satisfy ENodeSymbol concept

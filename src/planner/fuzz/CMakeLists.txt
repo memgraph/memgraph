@@ -9,16 +9,16 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_link_options(fuzz_egraph PRIVATE -fsanitize=fuzzer,address)
     target_compile_definitions(fuzz_egraph PUBLIC ASSERT_FUZZ)
 
-    # Fuzzer for e-match verification against egglog
-    add_executable(fuzz_ematch fuzz_ematch.cpp)
-    target_link_libraries(fuzz_ematch PRIVATE mg::planner fmt::fmt)
-    target_compile_options(fuzz_ematch PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
-    target_link_options(fuzz_ematch PRIVATE -fsanitize=fuzzer,address)
-    target_compile_definitions(fuzz_ematch PUBLIC ASSERT_FUZZ)
+    # Fuzzer for VM pattern build, compile, and matching (verified against egglog)
+    add_executable(fuzz_pattern_vm fuzz_pattern_vm.cpp)
+    target_link_libraries(fuzz_pattern_vm PRIVATE mg::planner fmt::fmt)
+    target_compile_options(fuzz_pattern_vm PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
+    target_link_options(fuzz_pattern_vm PRIVATE -fsanitize=fuzzer,address)
+    target_compile_definitions(fuzz_pattern_vm PUBLIC ASSERT_FUZZ)
 
     # Create corpus directories for each fuzzer
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_egraph)
-    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_ematch)
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_pattern_vm)
 
     # Corpus profiling: run single corpus file for perf analysis
     add_executable(corpus_profile corpus_profile.cpp)
@@ -36,11 +36,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         COMMENT "Running e-graph fuzzer..."
     )
 
-    add_custom_target(run_fuzz_ematch
-        COMMAND $<TARGET_FILE:fuzz_ematch> ${CMAKE_CURRENT_BINARY_DIR}/corpus_ematch
-        DEPENDS fuzz_ematch
+    add_custom_target(run_fuzz_pattern_vm
+        COMMAND $<TARGET_FILE:fuzz_pattern_vm> ${CMAKE_CURRENT_BINARY_DIR}/corpus_pattern_vm
+        DEPENDS fuzz_pattern_vm
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-        COMMENT "Running e-match fuzzer..."
+        COMMENT "Running pattern VM fuzzer..."
     )
 
     # Clear corpus directories
@@ -49,13 +49,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         COMMENT "Clearing e-graph corpus..."
     )
 
-    add_custom_target(clear_corpus_ematch
-        COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/corpus_ematch/*
-        COMMENT "Clearing e-match corpus..."
+    add_custom_target(clear_corpus_pattern_vm
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/corpus_pattern_vm/*
+        COMMENT "Clearing pattern VM corpus..."
     )
 
     add_custom_target(clear_corpus_all
-        DEPENDS clear_corpus_egraph clear_corpus_ematch
+        DEPENDS clear_corpus_egraph clear_corpus_pattern_vm
         COMMENT "Clearing all corpus directories..."
     )
 

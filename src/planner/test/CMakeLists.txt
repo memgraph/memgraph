@@ -6,7 +6,7 @@ add_unit_test(planner
         unittest__extractor.cpp
         unittest__pattern.cpp
         unittest__match_arena.cpp
-        unittest__ematch.cpp
+        unittest__pattern_vm.cpp
         unittest__rewrite.cpp
         unittest__vm_compiler.cpp
         unittest__vm_executor.cpp

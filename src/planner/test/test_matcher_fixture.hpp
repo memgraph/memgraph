@@ -24,7 +24,7 @@ namespace memgraph::planner::core::test {
 
 class MatcherIndexTest : public EGraphTestBase {
  protected:
-  TestMatcherIndex ematcher{egraph};
+  TestMatcherIndex index{egraph};
   EMatchContext ctx;
   TestMatches matches;
   std::optional<TestPattern> pattern_;
@@ -41,12 +41,12 @@ class MatcherIndexTest : public EGraphTestBase {
   // Matcher Index Rebuild
   // ---------------------------------------------------------------------------
 
-  void rebuild_index() { ematcher.rebuild_index(); }
+  void rebuild_index() { index.rebuild_index(); }
 
   template <typename... Ids>
   void rebuild_index_with(Ids... ids) {
     std::array<EClassId, sizeof...(Ids)> updated{ids...};
-    ematcher.rebuild_index(updated);
+    index.rebuild_index(updated);
   }
 
   // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ class MatcherIndexTest : public EGraphTestBase {
     auto compiled = compiler.compile(*pattern_);
     ASSERT_TRUE(compiled.has_value()) << "Pattern compilation failed";
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, ematcher, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx, matches);
 
     ASSERT_EQ(matches.size(), expected_matches.size())
         << "Expected " << expected_matches.size() << " matches, got " << matches.size();
@@ -112,7 +112,7 @@ class MatcherIndexTest : public EGraphTestBase {
     auto compiled = compiler.compile(*pattern_);
     if (compiled.has_value()) {
       vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-      vm_executor.execute(*compiled, ematcher, ctx, matches);
+      vm_executor.execute(*compiled, index, ctx, matches);
     }
     EXPECT_TRUE(matches.empty()) << "Expected no matches, got " << matches.size();
   }

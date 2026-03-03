@@ -14,7 +14,7 @@
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
 #include "planner/rewrite/rule.hpp"
-#include "test_ematcher_fixture.hpp"
+#include "test_matcher_fixture.hpp"
 #include "test_patterns.hpp"
 
 import memgraph.planner.core.eids;
@@ -495,7 +495,7 @@ TEST_F(MatcherIndexTest, VMExecutorMatchesSameAsMatcherIndex) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, ematcher, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx, matches);
   }
 
   ASSERT_EQ(matches.size(), 1);
@@ -543,7 +543,7 @@ TEST_F(MatcherIndexTest, LeafSymbolChildWithMergedENodesConsistency) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, ematcher, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx, matches);
   }
   auto vm_count = matches.size();
 
@@ -589,7 +589,7 @@ TEST_F(MatcherIndexTest, TernaryPatternWithLeafSymbolChildConsistency) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, ematcher, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx, matches);
   }
 }
 
@@ -633,7 +633,7 @@ TEST_F(MatcherIndexTest, MultiPatternVMFiltersBySymbolInVerifyMode) {
     std::vector<EClassId> new_eclasses;
     RuleContext<Op, NoAnalysis> rule_ctx(egraph, new_eclasses);
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    rule.match(ematcher, vm_executor, matcher_ctx);
+    rule.match(index, vm_executor, matcher_ctx);
     rule.apply(rule_ctx, matcher_ctx);
   }
 
@@ -671,7 +671,7 @@ TEST_F(MatcherIndexTest, MultiPatternMatchWithSharedVariable) {
     std::vector<EClassId> new_eclasses;
     RuleContext<Op, NoAnalysis> rule_ctx(egraph, new_eclasses);
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    rule.match(ematcher, vm_executor, matcher_ctx);
+    rule.match(index, vm_executor, matcher_ctx);
     rule.apply(rule_ctx, matcher_ctx);
   }
 
@@ -717,7 +717,7 @@ TEST_F(MatcherIndexTest, DuplicateBindingsFromDifferentENodes) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value());
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, ematcher, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx, matches);
   }
 
   // VM finds 2 raw matches (one per F e-node that has A as first child)
@@ -779,7 +779,7 @@ TEST_F(MatcherIndexTest, DeepNestedTernaryPatternNoMatches) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value()) << "Deep pattern should compile successfully";
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, ematcher, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx, matches);
   }
 
   EXPECT_EQ(matches.size(), 0u) << "VM should find 0 matches for non-existent pattern structure";
@@ -815,7 +815,7 @@ TEST_F(MatcherIndexTest, DeepNestedTernaryPatternWithMatches) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value()) << "Deep pattern should compile successfully";
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, ematcher, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx, matches);
   }
   auto vm_count = matches.size();
 
@@ -930,7 +930,7 @@ TEST_F(MatcherIndexTest, RepeatedVarInNestedPatternWithSelfReferentialEClass) {
     auto compiled = compiler.compile(pattern());
     ASSERT_TRUE(compiled.has_value());
     vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    vm_executor.execute(*compiled, ematcher, ctx, matches);
+    vm_executor.execute(*compiled, index, ctx, matches);
   }
   auto vm_count = matches.size();
 

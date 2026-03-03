@@ -8,23 +8,24 @@ Core e-graph infrastructure for the V2 query planner based on equality saturatio
 
 ```
 src/planner/
+├── *.cppm            # C++20 modules (egraph, eclass, enode, etc.)
 ├── include/planner/
-│   ├── egraph/       # E-graph data structure
 │   ├── pattern/      # Pattern matching (including VM executor)
 │   ├── rewrite/      # Rewrite rules and saturation
 │   └── extract/      # Cost-based extraction
 ├── src/              # Implementation files
-├── test/             # Unit tests and fuzzers
+├── test/             # Unit tests
+├── fuzz/             # Fuzz tests
 └── bench/            # Performance benchmarks
 ```
 
 ## Components
 
-### E-Graph (`egraph/`)
-- `egraph.hpp` - E-graph with union-find and congruence closure
-- `eclass.hpp` - E-class (equivalence class of e-nodes)
-- `enode.hpp` - E-node (expression node)
-- `processing_context.hpp` - Reusable buffers for rebuild operations
+### E-Graph (C++20 Modules)
+- `egraph.cppm` - E-graph with union-find and congruence closure
+- `eclass.cppm` - E-class (equivalence class of e-nodes)
+- `enode.cppm` - E-node (expression node)
+- Use: `import memgraph.planner.core.egraph;`
 
 ### Pattern Matching (`pattern/`)
 - `pattern.hpp` - Pattern DSL for e-matching
@@ -75,8 +76,8 @@ cmake --build build --preset conan-relwithdebinfo --target planner -j 15
 ./build/src/planner/test/planner --gtest_filter="Rewrite*"
 
 # Run fuzzers
-./build/src/planner/test/fuzz_egraph      # E-graph correctness
-./build/src/planner/test/fuzz_ematch      # Pattern matching correctness
+./build/src/planner/fuzz/fuzz_egraph       # E-graph correctness
+./build/src/planner/fuzz/fuzz_pattern_vm   # Pattern VM correctness
 ```
 
 ## Benchmarking
