@@ -672,16 +672,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
-      throw QueryRuntimeException(
-          "Vertex not created due to not having enough permission! This error means that the fine grained access "
-          "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
-          "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running "
-          "SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
-      throw QueryRuntimeException(
-          "Vertex not created due to not having enough permission! This error means that the fine grained access "
-          "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
-          "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running "
-          "SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException("Creating node failed: missing CREATE permission on labels.");
     }
 #endif
 
@@ -823,19 +814,11 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
     if (!context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
-      throw QueryRuntimeException(
-          "Edge not created due to not having enough permission! This error means that the fine grained access control "
-          "was not correctly set up for the user on this edge type. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; "
-          "to check if you have correct privileges to do operations involving edge types. If you do try running SHOW "
-          "CURRENT DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException("Creating edge failed: missing CREATE permission on edge type.");
     }
     if (!self_.existing_node_ &&
         !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
-      throw QueryRuntimeException(
-          "Node not created due to not having enough permission! This error means that the fine grained access control "
-          "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
-          "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
-          "DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException("Creating node failed: missing CREATE permission on labels.");
     }
   }
 #endif
@@ -4805,11 +4788,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
         if (vertex_auth_checker(va)) {
           buffer_.nodes.push_back(va);
         } else {
-          throw QueryRuntimeException(
-              "Vertex not deleted due to not having enough permission! This error means that the fine grained access "
-              "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
-              "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
-              "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+          throw QueryRuntimeException("Deleting node failed: missing DELETE permission on labels.");
         }
         break;
       }
@@ -4819,10 +4798,8 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
           buffer_.edges.push_back(ea);
         } else {
           throw QueryRuntimeException(
-              "Edge not deleted due to not having enough permission! This error means that the fine grained access "
-              "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
-              "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
-              "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+              "Deleting edge failed: missing DELETE permission on edge type or DELETE EDGE permission on connected "
+              "node labels.");
         }
         break;
       }
@@ -4837,12 +4814,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
                                         [&vertex_auth_checker](const auto &va) { return !vertex_auth_checker(va); });
 
         if (edges_res || vertices_res) {
-          throw QueryRuntimeException(
-              "Path not deleted due to not having enough permission on all edges and vertices on the path! This error "
-              "means that the fine grained access control was not correctly set up for the user on this label. Use "
-              "SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations "
-              "involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct "
-              "database.");
+          throw QueryRuntimeException("Deleting path failed: missing DELETE permission on path elements.");
         }
 #endif
         buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
@@ -4985,11 +4957,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(
               lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Vertex property not set due to not having enough permission! This error means that the fine grained "
-            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
-            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
-            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException("Setting node property failed: missing SET PROPERTY permission on labels.");
       }
 #endif
       auto old_value = PropsSetChecked(
@@ -5009,11 +4977,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Edge property not set due to not having enough permission! This error means that the fine grained access "
-            "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
-            "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running "
-            "SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException("Setting edge property failed: missing SET PROPERTY permission on edge type.");
       }
 #endif
       auto old_value = PropsSetChecked(
@@ -5192,11 +5156,7 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(
               lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Vertex nested property not set due to not having enough permission! This error means that the fine "
-            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
-            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
-            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException("Setting node property failed: missing SET PROPERTY permission on labels.");
       }
 #endif
       set_nested_property(&lhs.ValueVertex());
@@ -5206,11 +5166,7 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Edge nested property not set due to not having enough permission! This error means that the fine grained "
-            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
-            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
-            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException("Setting edge property failed: missing SET PROPERTY permission on edge type.");
       }
 #endif
       set_nested_property(&lhs.ValueEdge());
@@ -5431,11 +5387,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(
               lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Vertex properties not set due to not having enough permission! This error means that the fine grained "
-            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
-            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
-            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException("Setting node properties failed: missing SET PROPERTY permission on labels.");
       }
 #endif
       auto set_properties_on_record = [&](TypedValue &vertex) {
@@ -5448,11 +5400,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Edge properties not set due to not having enough permission! This error means that the fine grained "
-            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
-            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
-            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException("Setting edge properties failed: missing SET PROPERTY permission on edge type.");
       }
 #endif
       auto set_properties_on_record = [&](TypedValue &edge) {
@@ -5529,11 +5477,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   // Check CREATE on the labels being added (target check)
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
-    throw QueryRuntimeException(
-        "Couldn't set label due to not having enough permission! This error means that the fine grained access control "
-        "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
-        "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
-        "DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException("Adding label failed: missing CREATE permission on target labels.");
   }
 #endif
 
@@ -5548,12 +5492,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(
             vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_LABEL)) {
-      throw QueryRuntimeException(
-          "Couldn't set label due to not having enough permission! This error means that the fine grained access "
-          "control "
-          "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
-          "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
-          "DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException("Adding label failed: missing SET LABEL permission on existing labels.");
     }
 #endif
 
@@ -5664,11 +5603,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(
               lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Vertex property not removed due to not having enough permission! This error means that the fine grained "
-            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
-            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
-            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException("Removing node property failed: missing SET PROPERTY permission on labels.");
       }
 #endif
       remove_prop(&lhs.ValueVertex());
@@ -5678,11 +5613,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Edge property not removed due to not having enough permission! This error means that the fine grained "
-            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
-            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
-            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException("Removing edge property failed: missing SET PROPERTY permission on edge type.");
       }
 #endif
       remove_prop(&lhs.ValueEdge());
@@ -5802,11 +5733,7 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(
               lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Vertex nested property not removed due to not having enough permission! This error means that the fine "
-            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
-            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
-            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException("Removing node property failed: missing SET PROPERTY permission on labels.");
       }
 #endif
       remove_nested_property(&lhs.ValueVertex());
@@ -5816,11 +5743,7 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
-        throw QueryRuntimeException(
-            "Edge nested property not removed due to not having enough permission! This error means that the fine "
-            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
-            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
-            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException("Removing edge property failed: missing SET PROPERTY permission on edge type.");
       }
 #endif
       remove_nested_property(&lhs.ValueEdge());
@@ -5892,11 +5815,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   // Check DELETE on the target labels being removed
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
-    throw QueryRuntimeException(
-        "Couldn't remove label due to not having enough permission! This error means that the fine grained access "
-        "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; "
-        "to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
-        "DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException("Removing label failed: missing DELETE permission on target labels.");
   }
 #endif
 
@@ -5911,13 +5830,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(
             vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL)) {
-      throw QueryRuntimeException(
-          "Couldn't remove label due to not having enough permission! This error means that the fine grained access "
-          "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
-          "CURRENT; "
-          "to check if you have correct privileges to do operations involving labels. If you do try running SHOW "
-          "CURRENT "
-          "DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException("Removing label failed: missing REMOVE LABEL permission on existing labels.");
     }
 #endif
 
