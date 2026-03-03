@@ -62,7 +62,7 @@ constexpr auto full_json_str = R"({
   "databases":{"allow_all":true,"default":"db1","denies":["db2","db3"],"grants":["db1", "memgraph"]},
   "fine_grained_permissions":{
     "edge_type_permissions":{"global_grants":27,"global_denies":-1,"permissions":[{"symbols":["E"],"granted":1,"denied":0,"matching":"ANY"}]},
-    "label_permissions":{"global_grants":251,"global_denies":-1,"permissions":[{"symbols":["A"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["B"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["C"],"granted":99,"denied":0,"matching":"ANY"},{"symbols":["D"],"granted":0,"denied":251,"matching":"ANY"}]}
+    "label_permissions":{"global_grants":507,"global_denies":-1,"permissions":[{"symbols":["A"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["B"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["C"],"granted":99,"denied":0,"matching":"ANY"},{"symbols":["D"],"granted":0,"denied":507,"matching":"ANY"}]}
   },
   "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
   "permissions":{"denies":0,"grants":134217727},

@@ -3379,11 +3379,14 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT UPDATE, DELETE EDGE ON NODES CONTAINING LABELS :Label1 TO user"),
                SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT UPDATE, CREATE EDGE ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
 
-  // SET LABEL, REMOVE LABEL, DELETE EDGE not applicable to edges
+  // SET LABEL, REMOVE LABEL, DELETE EDGE, CREATE EDGE not applicable to edges
   ASSERT_THROW(ast_generator.ParseQuery("GRANT SET LABEL ON EDGES OF TYPE :KNOWS TO user"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT REMOVE LABEL ON EDGES OF TYPE :KNOWS TO user"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT DELETE EDGE ON EDGES OF TYPE :KNOWS TO user"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE EDGE ON EDGES OF TYPE :KNOWS TO user"), SemanticException);
 
   label_privileges.clear();
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_LABEL}, {{"*"}}}});

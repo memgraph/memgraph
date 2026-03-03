@@ -2303,8 +2303,10 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
 
       for (const auto &key : keys) {
         if (key == AuthQuery::FineGrainedPrivilege::SET_LABEL || key == AuthQuery::FineGrainedPrivilege::REMOVE_LABEL ||
-            key == AuthQuery::FineGrainedPrivilege::DELETE_EDGE) {
-          throw SemanticException("SET LABEL, REMOVE LABEL, and DELETE EDGE permissions are not applicable to edges");
+            key == AuthQuery::FineGrainedPrivilege::DELETE_EDGE ||
+            key == AuthQuery::FineGrainedPrivilege::CREATE_EDGE) {
+          throw SemanticException(
+              "SET LABEL, REMOVE LABEL, DELETE EDGE, and CREATE EDGE permissions are not applicable to edges");
         }
         if (key == AuthQuery::FineGrainedPrivilege::ALL) {
           edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
@@ -2447,6 +2449,7 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::Granular
   if (ctx->SET() && ctx->LABEL()) return AuthQuery::FineGrainedPrivilege::SET_LABEL;
   if (ctx->REMOVE() && ctx->LABEL()) return AuthQuery::FineGrainedPrivilege::REMOVE_LABEL;
   if (ctx->SET() && ctx->PROPERTY()) return AuthQuery::FineGrainedPrivilege::SET_PROPERTY;
+  if (ctx->CREATE() && ctx->EDGE()) return AuthQuery::FineGrainedPrivilege::CREATE_EDGE;
   if (ctx->CREATE()) return AuthQuery::FineGrainedPrivilege::CREATE;
   if (ctx->DELETE() && ctx->EDGE()) return AuthQuery::FineGrainedPrivilege::DELETE_EDGE;
   if (ctx->DELETE()) return AuthQuery::FineGrainedPrivilege::DELETE;
@@ -2474,17 +2477,20 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilegeList(MemgraphCypher::Gran
     }
 
     // UPDATE is a shorthand for SET_LABEL, REMOVE_LABEL, SET_PROPERTY,
-    // DELETE_EDGE: we cannot combine the compound permission with the discrete
-    // ones.
+    // DELETE_EDGE, CREATE_EDGE: we cannot combine the compound permission with
+    // the discrete ones.
     auto const is_update_component = [](AuthQuery::FineGrainedPrivilege p) {
       return p == AuthQuery::FineGrainedPrivilege::SET_LABEL || p == AuthQuery::FineGrainedPrivilege::REMOVE_LABEL ||
-             p == AuthQuery::FineGrainedPrivilege::SET_PROPERTY || p == AuthQuery::FineGrainedPrivilege::DELETE_EDGE;
+             p == AuthQuery::FineGrainedPrivilege::SET_PROPERTY || p == AuthQuery::FineGrainedPrivilege::DELETE_EDGE ||
+             p == AuthQuery::FineGrainedPrivilege::CREATE_EDGE;
     };
     if (priv == AuthQuery::FineGrainedPrivilege::UPDATE && std::any_of(seen.begin(), seen.end(), is_update_component)) {
-      throw SemanticException("Cannot combine UPDATE with SET LABEL, REMOVE LABEL, SET PROPERTY, or DELETE EDGE");
+      throw SemanticException(
+          "Cannot combine UPDATE with SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE, or CREATE EDGE");
     }
     if (is_update_component(priv) && seen.contains(AuthQuery::FineGrainedPrivilege::UPDATE)) {
-      throw SemanticException("Cannot combine UPDATE with SET LABEL, REMOVE LABEL, SET PROPERTY, or DELETE EDGE");
+      throw SemanticException(
+          "Cannot combine UPDATE with SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE, or CREATE EDGE");
     }
 
     seen.insert(priv);

@@ -18,7 +18,7 @@ For each operation, we test:
 3. Missing each required permission individually = FAIL
 
 Memgraph 3.9 permissions:
-- Labels: CREATE, READ, SET_PROPERTY, SET_LABEL, REMOVE_LABEL, DELETE, DELETE_EDGE
+- Labels: CREATE, READ, SET_PROPERTY, SET_LABEL, REMOVE_LABEL, DELETE, DELETE_EDGE, CREATE_EDGE
 - Edge types: CREATE, READ, SET_PROPERTY, DELETE
 """
 
@@ -284,13 +284,13 @@ class TestRemoveLabel:
 
 
 class TestCreateEdge:
-    """MATCH (a), (b) CREATE (a)-[:Type]->(b) requires READ on labels + CREATE on edge type."""
+    """MATCH (a), (b) CREATE (a)-[:Type]->(b) requires READ + CREATE EDGE on labels + CREATE on edge type."""
 
     def test_with_required_permissions(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Source), (:Dest)")
-        grant_label_permissions(admin, {"READ"})
+        grant_label_permissions(admin, {"READ", "CREATE EDGE"})
         grant_edge_permissions(admin, {"CREATE"})
 
         user = get_user_cursor()
@@ -306,6 +306,17 @@ class TestCreateEdge:
         user = get_user_cursor()
         # With DENY on labels, MATCH returns empty, so no edge created (no error)
         execute_and_fetch_all(user, "MATCH (a:Source), (b:Dest) CREATE (a)-[:Target]->(b)")
+
+    def test_without_create_edge_on_labels_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source), (:Dest)")
+        grant_label_permissions(admin, {"READ"})  # Missing CREATE EDGE
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (a:Source), (b:Dest) CREATE (a)-[:Target]->(b)")
 
     def test_with_edge_deny_fails(self):
         admin = get_admin_cursor()
