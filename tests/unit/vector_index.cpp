@@ -15,6 +15,7 @@
 #include <thread>
 
 #include "flags/general.hpp"
+#include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -22,6 +23,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/file.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -342,6 +344,43 @@ TEST_F(VectorIndexTest, RemoveObsoleteEntriesConcurrentAddRaceTest) {
   for (int t = 0; t < kNumWriterThreads; t++) {
     writer_threads.emplace_back([this, t]() {
       for (int i = 0; i < kVerticesPerThread; i++) {
+        auto acc = this->storage->Access(memgraph::storage::WRITE);
+        auto val = static_cast<float>((t * kVerticesPerThread) + i);
+        auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{val, val + 1.0F});
+        [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+        ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+      }
+    });
+  }
+}
+
+TEST_F(VectorIndexTest, SerializeAllVectorIndicesConcurrentAddRemoveTest) {
+  static constexpr auto kVerticesPerThread = 50;
+  static constexpr auto kNumWriterThreads = 4;
+  static constexpr auto kCapacity = kVerticesPerThread * kNumWriterThreads * 2;
+
+  this->CreateIndex(2, kCapacity);
+  auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
+
+  auto tmp_dir = std::filesystem::temp_directory_path() / "mg_serialize_vector_index_test";
+  std::filesystem::create_directories(tmp_dir);
+
+  std::jthread serialize_thread([&](std::stop_token stoken) {
+    while (!stoken.stop_requested()) {
+      auto path = tmp_dir / "snapshot_test.bin";
+      durability::Encoder<memgraph::utils::NonConcurrentOutputFile> encoder;
+      encoder.Initialize(path);
+      auto mapped_ids = std::unordered_set<uint64_t>{};
+      mem_storage->indices_.vector_index_.SerializeAllVectorIndices(&encoder, mapped_ids);
+      encoder.Close();
+    }
+  });
+
+  std::vector<std::jthread> writer_threads;
+  writer_threads.reserve(kNumWriterThreads);
+  for (auto t = 0; t < kNumWriterThreads; t++) {
+    writer_threads.emplace_back([this, t]() {
+      for (auto i = 0; i < kVerticesPerThread; i++) {
         auto acc = this->storage->Access(memgraph::storage::WRITE);
         auto val = static_cast<float>((t * kVerticesPerThread) + i);
         auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{val, val + 1.0F});
