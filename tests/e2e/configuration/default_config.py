@@ -154,7 +154,7 @@ startup_config_dict = {
     "storage_light_edge": (
         "false",
         "false",
-        "When true, edges live only in vertex adjacency lists without the global edge skip list.",
+        "Controls whether edges are stored as lightweight objects in order to reduce memory footprint; implies --storage-properties-on-edges.",
     ),
     "storage_property_store_compression_enabled": (
         "false",
