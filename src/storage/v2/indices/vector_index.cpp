@@ -382,15 +382,31 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
     std::vector<Vertex *> vertices(index_size);
     locked_index->export_keys(vertices.data(), 0, index_size);
 
-    auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) { return vertex && !vertex->deleted(); });
-    encoder->WriteUint(valid_count);
+    auto new_vertices = vertices |
+                        std::ranges::views::filter([](auto const *vertex) { return vertex && !vertex->deleted(); }) |
+                        std::ranges::to<std::vector>();
 
+    auto const new_vertices_size = new_vertices.size();
+
+    auto const size_pos = encoder->GetPosition();
+    encoder->WriteUint(new_vertices_size);
+
+    uint64_t num_processed{0};
     std::vector<float> buffer(dimension);
-    for (auto *vertex : vertices) {
-      if (!vertex || vertex->deleted()) continue;
+    for (auto *vertex : new_vertices) {
+      if (!locked_index->get(vertex, buffer.data())) {
+        continue;
+      }
       encoder->WriteUint(vertex->gid.AsUint());
-      locked_index->get(vertex, buffer.data());
       std::ranges::for_each(buffer, [&](auto value) { encoder->WriteDouble(value); });
+      num_processed++;
+    }
+
+    auto const current_pos = encoder->GetPosition();
+    if (num_processed != new_vertices_size) {
+      encoder->SetPosition(size_pos);
+      encoder->WriteUint(num_processed);
+      encoder->SetPosition(current_pos);
     }
   }
 }
