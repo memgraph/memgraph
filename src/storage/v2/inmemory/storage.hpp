@@ -802,6 +802,12 @@ class InMemoryStorage final : public Storage {
 
   void DeleteLightEdge(Edge *p);
 
+  // Free all pool-allocated Edge objects: walk out_edges of every vertex (each
+  // edge appears exactly once) and drain the graveyard.  Must be called before
+  // vertices_.clear() so the adjacency lists are still intact.
+  // Requires gc_lock_ to be held by the caller.
+  void ClearLightEdges();
+
   void Clear();
 
   // Main object storage
@@ -812,7 +818,7 @@ class InMemoryStorage final : public Storage {
   // Pool allocator for light-edge Edge objects (block_size = sizeof(Edge), 256 KiB chunks).
   // Chunks are large enough for jemalloc to give them dedicated pages, preventing
   // slab-level interleaving with unrelated allocations of the same size class.
-  std::unique_ptr<utils::SingleSizeThreadSafePoolResource> light_edge_pool_;
+  std::unique_ptr<utils::SingleSizePoolResource> light_edge_pool_;
 
   // Durability
   durability::Recovery recovery_;
