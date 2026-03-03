@@ -16,8 +16,19 @@ COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 
 S3_BUCKET = "memgraph-stress-tests-bucket"
-S3_DATASET_PATH = "publications-dataset-1-percent"
 S3_REGION = "eu-west-1"
+
+_VALID_DATASET_PATHS = {
+    "publications-dataset",
+    "publications-dataset-1-percent",
+    "publications-dataset-10-percent",
+}
+S3_DATASET_PATH = os.environ.get("PUBLICATIONS_DATASET_PATH", "publications-dataset-1-percent")
+if S3_DATASET_PATH not in _VALID_DATASET_PATHS:
+    raise ValueError(
+        f"Invalid PUBLICATIONS_DATASET_PATH: '{S3_DATASET_PATH}'. "
+        f"Must be one of: {', '.join(sorted(_VALID_DATASET_PATHS))}"
+    )
 
 
 def get_s3_secret() -> str:

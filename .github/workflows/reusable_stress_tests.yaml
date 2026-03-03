@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: ''
+      publications_dataset_path:
+        description: 'Publications dataset to use. Overrides the deployment registry default. Valid values: publications-dataset, publications-dataset-1-percent, publications-dataset-10-percent'
+        required: false
+        type: string
+        default: ''
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -268,6 +273,7 @@ jobs:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          PUBLICATIONS_DATASET_PATH: ${{ inputs.publications_dataset_path }}
 
       - name: Clean up Docker
         if: always()
@@ -377,6 +383,7 @@ jobs:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
           AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
+          PUBLICATIONS_DATASET_PATH: ${{ inputs.publications_dataset_path }}
 
       - name: Clean up Docker
         if: always()

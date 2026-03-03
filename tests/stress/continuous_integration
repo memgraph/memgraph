@@ -126,6 +126,12 @@ def load_workloads_registry(deployment: str) -> List[Dict[str, Any]]:
 
         merged = _deep_merge(defaults, workload_config)
 
+        # Per-entry keys in the deployment registry (besides 'config'/'enabled') take
+        # highest precedence, overriding both defaults and the workload YAML.
+        entry_overrides = {k: v for k, v in workload_entry.items() if k not in ("config", "enabled")}
+        if entry_overrides:
+            merged = _deep_merge(merged, entry_overrides)
+
         enabled_workloads.append(
             {
                 "config": merged,
@@ -349,6 +355,9 @@ def run_workload_script(workload: Dict[str, Any], args: Args, timeout_sec: int, 
     run_env = os.environ.copy()
     if deployment_type:
         run_env["STRESS_DEPLOYMENT"] = deployment_type
+
+    for key, value in workload.get("env", {}).items():
+        run_env.setdefault(key, str(value))
 
     ha_dir = os.path.join(SCRIPT_DIR, "ha")
     script_dir = os.path.dirname(workload_script)
