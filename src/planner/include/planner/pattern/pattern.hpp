@@ -23,7 +23,7 @@
 
 #include "utils/small_vector.hpp"
 
-import memgraph.planner.core.concepts;
+import memgraph.planner.core.egraph;
 import rollbear.strong_type;
 
 namespace memgraph::planner::core {

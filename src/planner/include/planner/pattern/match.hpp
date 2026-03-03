@@ -22,7 +22,7 @@
 #include "planner/pattern/pattern.hpp"
 #include "utils/logging.hpp"
 
-import memgraph.planner.core.eids;
+import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
 

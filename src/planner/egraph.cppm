@@ -30,6 +30,7 @@ module;
 #include <limits>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -43,12 +44,10 @@ module;
 export module memgraph.planner.core.egraph;
 
 // Export partitions
+export import :eids;
+export import :concepts;
 export import :enode;
 export import :eclass;
-
-// Export types consumers need
-export import memgraph.planner.core.eids;
-export import memgraph.planner.core.concepts;
 
 // Internal dependencies (not exported to consumers)
 import memgraph.planner.core.constants;
@@ -302,10 +301,12 @@ struct EGraph : private detail::EGraphBase {
 
   /**
    * @brief Get range of all canonical e-classes
+   *
+   * Uses std::views instead of range-v3 so ADL works with C++20 modules.
    */
   auto canonical_classes() const {
-    return ranges::views::transform(
-        classes_, [](const auto &pair) { return std::make_pair(pair.first, std::cref(*pair.second)); });
+    return std::views::transform(classes_,
+                                 [](const auto &pair) { return std::make_pair(pair.first, std::cref(*pair.second)); });
   }
 
   /**

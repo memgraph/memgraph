@@ -13,7 +13,7 @@
 
 #include "planner/pattern/match.hpp"
 
-import memgraph.planner.core.eids;
+import memgraph.planner.core.egraph;
 
 using namespace memgraph::planner::core;
 

@@ -21,7 +21,7 @@ module;
 
 export module memgraph.planner.core.egraph:eclass;
 
-import memgraph.planner.core.eids;
+import :eids;
 
 export namespace memgraph::planner::core {
 

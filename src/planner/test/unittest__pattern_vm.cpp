@@ -17,7 +17,7 @@
 #include "test_matcher_fixture.hpp"
 #include "test_patterns.hpp"
 
-import memgraph.planner.core.eids;
+import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
 

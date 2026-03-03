@@ -14,7 +14,7 @@ module;
 #include <concepts>
 #include <functional>
 
-export module memgraph.planner.core.concepts;
+export module memgraph.planner.core.egraph:concepts;
 
 export namespace memgraph::planner::core {
 /// Concept: Symbol must be hashable, trivially copyable, and equality comparable
@@ -22,7 +22,6 @@ template <typename T>
 concept ENodeSymbol = requires(T a, T b) {
   { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
   { a == b } -> std::convertible_to<bool>;
-}
-&&std::is_trivially_copyable_v<T>;
+} && std::is_trivially_copyable_v<T>;
 
 }  // namespace memgraph::planner::core

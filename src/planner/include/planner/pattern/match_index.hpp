@@ -16,7 +16,6 @@
 
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
-#include <range/v3/all.hpp>
 
 #include "planner/pattern/match.hpp"
 #include "planner/pattern/pattern.hpp"

@@ -34,13 +34,10 @@
 #include <vector>
 
 #include <fmt/format.h>
-#include <range/v3/all.hpp>
 
 #include "planner/pattern/pattern.hpp"
 
 import memgraph.planner.core.egraph;
-
-import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core::fuzz {
 

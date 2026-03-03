@@ -20,7 +20,6 @@
 #include <vector>
 
 #include <fmt/format.h>
-#include <range/v3/all.hpp>
 
 #include "utils/small_vector.hpp"
 

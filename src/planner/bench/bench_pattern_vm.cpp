@@ -14,7 +14,7 @@
 #include <array>
 #include <optional>
 
-import memgraph.planner.core.eids;
+import memgraph.planner.core.egraph;
 
 using namespace memgraph::planner::bench;
 using namespace memgraph::planner::bench::sizes;

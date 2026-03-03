@@ -9,9 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <ranges>
+
 #include "bench_common.hpp"
 
-import memgraph.planner.core.eids;
+import memgraph.planner.core.egraph;
 
 using namespace memgraph::planner::bench;
 using TestContext = memgraph::planner::core::ProcessingContext<Op>;
@@ -37,7 +39,7 @@ static void BM_EGraph_CongruenceChain(benchmark::State &state) {
       }
     }
     // merge the chains
-    auto rng = ranges::views::zip(chain_head | ranges::views::drop(1), chain_head);
+    auto rng = std::views::zip(chain_head | std::views::drop(1), chain_head);
     for (auto [a, b] : rng) {
       egraph.merge(a, b);
     }
