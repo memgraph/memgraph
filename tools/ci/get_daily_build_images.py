@@ -20,8 +20,12 @@ def get_daily_build_mage_images(date: int, mock: bool = False) -> Tuple[str, str
     Get the Releasse Memgraph MAGE docker images for x86_64 and arm64 for the given date
     """
     packages = list_daily_release_packages(date, image_type="mage", return_url=False, mock=mock)
-    amd_docker = f"https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/{packages['docker']['x86_64']}"
-    arm_docker = f"https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/{packages['docker']['arm64']}"
+    amd_docker = (
+        f"https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/{packages['Docker (x86_64)']['x86_64-relwithdebinfo']}"
+    )
+    arm_docker = (
+        f"https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/{packages['Docker (arm64)']['arm64-relwithdebinfo']}"
+    )
     return amd_docker, arm_docker
 
 
