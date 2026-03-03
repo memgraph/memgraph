@@ -1165,6 +1165,10 @@ std::optional<RecoveryInfo> LoadWal(
           std::swap(*it, to_vertex->in_edges.back());
           to_vertex->in_edges.pop_back();
         }
+        // Update schema info before deallocating the edge, as it reads edge properties.
+        if (schema_info) {
+          schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
+        }
         if (items.properties_on_edges) {
           if (light_edge_pool) {
             // Pool-deallocate the light edge
@@ -1176,10 +1180,6 @@ std::optional<RecoveryInfo> LoadWal(
         }
         // Decrement edge count.
         edge_count->fetch_add(-1, std::memory_order_acq_rel);
-        // Update schema info
-        if (schema_info) {
-          schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
-        }
         // Edge cache update
         if (use_edge_cache) {
           edge_recovery_cache.erase(data.gid);
