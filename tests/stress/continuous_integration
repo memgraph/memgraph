@@ -204,12 +204,6 @@ class Config:
 
         self._custom_workloads = config.get("customWorkloads", {}).get("tests", [])
 
-        if self._tests and self._custom_workloads:
-            raise ValueError(
-                f"Config file '{config_file}' defines both 'dataset.tests' and 'customWorkloads.tests'. "
-                "These are mutually exclusive — use one or the other."
-            )
-
         if deployment:
             self._deployment_type = deployment
         else:
