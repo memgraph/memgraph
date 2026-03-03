@@ -382,11 +382,12 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
     std::vector<Vertex *> vertices(index_size);
     locked_index->export_keys(vertices.data(), 0, index_size);
 
-    auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) { return !vertex->deleted(); });
+    auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) { return vertex && !vertex->deleted(); });
     encoder->WriteUint(valid_count);
 
     std::vector<float> buffer(dimension);
     for (auto *vertex : vertices) {
+      if (!vertex || vertex->deleted()) continue;
       encoder->WriteUint(vertex->gid.AsUint());
       locked_index->get(vertex, buffer.data());
       std::ranges::for_each(buffer, [&](auto value) { encoder->WriteDouble(value); });
