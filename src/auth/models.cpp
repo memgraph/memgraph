@@ -221,6 +221,9 @@ std::string FineGrainedPermissionToString(uint64_t const permission) {
   if (permission & FineGrainedPermission::DELETE_EDGE) {
     permissions.emplace_back("DELETE EDGE");
   }
+  if (permission & FineGrainedPermission::CREATE_EDGE) {
+    permissions.emplace_back("CREATE EDGE");
+  }
 
   return utils::Join(permissions, ", ");
 }

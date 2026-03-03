@@ -402,7 +402,7 @@ void MigrateVersions(kvstore::KVStore &store) {
     // V4 changes the fine-grained permissions JSON structure:
     // - `global_permission` is split into `global_grants`/`global_denies`
     // - permissions array entries gain a `denied` field
-    // - For labels: UPDATE (bit 1) expands to SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE
+    // - For labels: UPDATE (bit 1) expands to SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE | CREATE_EDGE
     // - For edge types: UPDATE (bit 1) becomes SET_PROPERTY (bit 1), which is the
     //   same bit so no migration needed.
     // - NOTHING becomes a DENY ALL
@@ -412,12 +412,12 @@ void MigrateVersions(kvstore::KVStore &store) {
 
     constexpr uint64_t kUpdate = 2;  // Old UPDATE bit, no longer exists in enum
 
-    // For labels: UPDATE -> SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE
+    // For labels: UPDATE -> SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE | CREATE_EDGE
     auto const migrate_label_permissions = [&](uint64_t const v3_perm) -> uint64_t {
       uint64_t result = v3_perm;
       if (result & kUpdate) {
         result = (result & ~kUpdate) | to_uint(SET_LABEL) | to_uint(REMOVE_LABEL) | to_uint(SET_PROPERTY) |
-                 to_uint(DELETE_EDGE);
+                 to_uint(DELETE_EDGE) | to_uint(CREATE_EDGE);
       }
       return result;
     };
