@@ -81,6 +81,17 @@ def insert_vectors(cursor, count, dimension):
         )
 
 
+def setup_index_and_data(cursor):
+    execute_and_fetch_all(
+        cursor,
+        f"CREATE VECTOR INDEX emb_idx ON :Embedding(vec) "
+        f'WITH CONFIG {{"dimension": {DIMENSION}, "capacity": {INDEX_CAPACITY}}}',
+    )
+    insert_vectors(cursor, INDEX_VECTOR_COUNT, DIMENSION)
+    for i in range(INDEX_VECTOR_COUNT):
+        execute_and_fetch_all(cursor, "CREATE (:Data {value: $val})", {"val": i})
+
+
 def test_graph_and_embeddings_tracked_sum_to_total():
     """
     embeddings_memory_tracked + graph_memory_tracked must approximately equal
@@ -150,6 +161,78 @@ def test_vector_insert_oom_throws_exception_not_segfault():
         "Expected an OutOfMemoryException to be raised during vector insertion, but it was not. Tracked memory info: "
         + str(info)
     )
+
+
+def test_remove_vector_property_embeddings_unchanged():
+    """
+    Removing the vector property from vertices does not free embeddings memory
+    because usearch's bump-pointer allocator cannot free individual entries.
+    """
+    interactive_mg_runner.start_all(INSTANCE_200MB)
+    cursor = connect(host="localhost", port=BOLT_PORT).cursor()
+    setup_index_and_data(cursor)
+
+    embeddings_before = parse_mib(get_storage_info(cursor)["embeddings_memory_tracked"])
+    assert embeddings_before > 0, "embeddings_memory_tracked should be non-zero after setup"
+
+    execute_and_fetch_all(cursor, "MATCH (n:Embedding) REMOVE n.vec")
+
+    embeddings_after = parse_mib(get_storage_info(cursor)["embeddings_memory_tracked"])
+    assert embeddings_after == embeddings_before, (
+        f"embeddings_memory_tracked changed after removing vec property: "
+        f"before={embeddings_before:.2f} MiB, after={embeddings_after:.2f} MiB"
+    )
+
+
+def test_delete_vertices_graph_down_embeddings_unchanged():
+    """
+    Deleting whole vertices frees graph memory (vertex objects) but not
+    embeddings memory (usearch arena stays allocated).
+    """
+    interactive_mg_runner.start_all(INSTANCE_200MB)
+    cursor = connect(host="localhost", port=BOLT_PORT).cursor()
+    setup_index_and_data(cursor)
+
+    info_before = get_storage_info(cursor)
+    graph_before = parse_mib(info_before["graph_memory_tracked"])
+    embeddings_before = parse_mib(info_before["embeddings_memory_tracked"])
+
+    execute_and_fetch_all(cursor, "MATCH (n:Embedding) DETACH DELETE n")
+    execute_and_fetch_all(cursor, "FREE MEMORY")
+
+    info_after = get_storage_info(cursor)
+    graph_after = parse_mib(info_after["graph_memory_tracked"])
+    embeddings_after = parse_mib(info_after["embeddings_memory_tracked"])
+
+    assert embeddings_after == embeddings_before, (
+        f"embeddings_memory_tracked changed after deleting vertices: "
+        f"before={embeddings_before:.2f} MiB, after={embeddings_after:.2f} MiB"
+    )
+    assert graph_after < graph_before, (
+        f"graph_memory_tracked should decrease after deleting vertices: "
+        f"before={graph_before:.2f} MiB, after={graph_after:.2f} MiB"
+    )
+
+
+def test_drop_index_embeddings_zero():
+    """
+    Dropping the vector index destroys the usearch index object, which triggers
+    TrackedVectorAllocator::deallocate() → reset() → embeddings_memory_tracker.Free().
+    Embeddings memory should go to 0.
+    """
+    interactive_mg_runner.start_all(INSTANCE_200MB)
+    cursor = connect(host="localhost", port=BOLT_PORT).cursor()
+    setup_index_and_data(cursor)
+
+    embeddings_before = parse_mib(get_storage_info(cursor)["embeddings_memory_tracked"])
+    assert embeddings_before > 0, "embeddings_memory_tracked should be non-zero before drop"
+
+    execute_and_fetch_all(cursor, "DROP VECTOR INDEX emb_idx")
+
+    embeddings_after = parse_mib(get_storage_info(cursor)["embeddings_memory_tracked"])
+    assert (
+        embeddings_after < 1.0
+    ), f"embeddings_memory_tracked should be ~0 after dropping index, got {embeddings_after:.2f} MiB"
 
 
 if __name__ == "__main__":

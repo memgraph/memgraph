@@ -26,8 +26,8 @@ constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::coun
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 constinit MemoryTracker total_memory_tracker{};
-constinit MemoryTracker malloc_memory_tracker{&total_memory_tracker};
-constinit MemoryTracker mmap_memory_tracker{&total_memory_tracker};
+constinit MemoryTracker graph_memory_tracker{&total_memory_tracker};
+constinit MemoryTracker embeddings_memory_tracker{&total_memory_tracker};
 
 // TODO (antonio2368): Define how should the peak memory be logged.
 // Logging every time the peak changes is too much so some kind of distribution

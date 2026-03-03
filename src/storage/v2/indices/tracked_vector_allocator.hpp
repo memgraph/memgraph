@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "usearch/index_plugins.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
 namespace memgraph::storage {
@@ -68,17 +69,18 @@ class TrackedVectorAllocator {
 
   pointer allocate(size_type count_bytes) {
     const auto extended = unum::usearch::divide_round_up<alignment_ak>(count_bytes) * alignment_ak;
-    if (!utils::mmap_memory_tracker.Alloc(static_cast<int64_t>(extended))) {
-      if (auto maybe_msg = utils::MemoryErrorStatus().msg(); maybe_msg) {
-        throw utils::OutOfMemoryException(std::move(*maybe_msg));
-      }
-      throw utils::OutOfMemoryException("Failed to allocate memory for vector index.");
+    if (!utils::embeddings_memory_tracker.Alloc(static_cast<int64_t>(extended))) {
+      auto msg = utils::MemoryErrorStatus().msg();
+      DMG_ASSERT(msg, "MemoryErrorStatus should have a message when allocation fails");
+      [[maybe_unused]] auto blocker = utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+      throw utils::OutOfMemoryException(std::move(*msg));
     }
 
     auto *result = inner_.allocate(count_bytes);
     if (!result) {
-      utils::mmap_memory_tracker.Free(static_cast<int64_t>(extended));
-      throw utils::OutOfMemoryException("Failed to allocate memory for vector index.");
+      utils::embeddings_memory_tracker.Free(static_cast<int64_t>(extended));
+      return nullptr;  // Since this is a drop-in replacement for memory_mapping_allocator_gt, we return nullptr on
+                       // allocation failure as usearch expects it
     }
     tracked_bytes_.fetch_add(extended, std::memory_order_relaxed);
     return result;
@@ -92,7 +94,7 @@ class TrackedVectorAllocator {
     auto old = tracked_bytes_.exchange(0, std::memory_order_relaxed);
     inner_.reset();
     if (old > 0) {
-      utils::mmap_memory_tracker.Free(static_cast<int64_t>(old));
+      utils::embeddings_memory_tracker.Free(static_cast<int64_t>(old));
     }
   }
 

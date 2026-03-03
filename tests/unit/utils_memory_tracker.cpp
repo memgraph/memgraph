@@ -61,7 +61,7 @@ TEST(MemoryTrackerTest, ExceptionBlocker) {
 }
 
 // Tests for parent-child memory tracker propagation (embedding tracking).
-// malloc_memory_tracker and mmap_memory_tracker are children of total_memory_tracker
+// graph_memory_tracker and embeddings_memory_tracker are children of total_memory_tracker
 // so that every byte tracked in a child is also reflected in the parent aggregate.
 
 TEST(EmbeddingTrackingTest, TwoChildrenTrackedSeparatelyParentAggregates) {
