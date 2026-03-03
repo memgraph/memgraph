@@ -665,6 +665,17 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
     if (!deleted_edges.empty() && transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       mem_storage->gc_full_scan_edges_delete_.store(true, std::memory_order_release);
+      // Light edges are not in the edges_ skip list, so the full-scan GC path cannot find them.
+      // Collect their pointers here for deferred freeing by GC.
+      if (config_.storage_light_edge) {
+        std::vector<Edge *> light_edge_ptrs;
+        light_edge_ptrs.reserve(deleted_edges.size());
+        for (auto const &edge : deleted_edges) {
+          light_edge_ptrs.push_back(edge.edge_.ptr);
+        }
+        mem_storage->deleted_light_edges_analytical_.WithLock(
+            [&](auto &vec) { vec.insert(vec.end(), light_edge_ptrs.begin(), light_edge_ptrs.end()); });
+      }
     }
   }};
 
@@ -3079,6 +3090,16 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       if (edge.delta() == nullptr && edge.deleted()) {
         edge_acc.remove(edge);
         edge_metadata_acc.remove(edge.gid);
+      }
+    }
+    // Light edges are not in the edges_ skip list, so handle them separately.
+    // They were collected in deleted_light_edges_analytical_ during DetachDelete.
+    if (light_edges) {
+      std::vector<Edge *> analytical_light_edges;
+      deleted_light_edges_analytical_.WithLock([&](auto &vec) { analytical_light_edges.swap(vec); });
+      for (auto *edge : analytical_light_edges) {
+        edges_metadata_.access().remove(edge->gid);
+        DeleteLightEdge(edge);
       }
     }
   }

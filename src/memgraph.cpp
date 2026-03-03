@@ -448,6 +448,12 @@ int main(int argc, char **argv) {
     if (!db_config.salient.items.properties_on_edges) {
       spdlog::warn("Light edges require properties on edges. Forcing properties_on_edges to true.");
       db_config.salient.items.properties_on_edges = true;
+      // Re-evaluate enable_edges_metadata now that properties_on_edges is forced to true.
+      // Without this, --storage-light-edge --storage-enable-edges-metadata would silently
+      // disable edges metadata, degrading FindEdge(Gid) performance.
+      if (FLAGS_storage_enable_edges_metadata) {
+        db_config.salient.items.enable_edges_metadata = true;
+      }
     }
   }
   if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {

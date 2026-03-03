@@ -247,13 +247,16 @@ void Load(memgraph::storage::replication::FinalizeCommitReq *self, memgraph::slk
 }
 
 // Serialize SalientConfig
+// Note: storage_light_edge is intentionally not serialized here for backward compatibility.
+// SLK is a binary protocol without field markers, so adding new fields would corrupt
+// deserialization when an older primary (without storage_light_edge) sends to a newer replica.
+// Replicas should use their local config for storage_light_edge setting.
 void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(*self.name.str_view(), builder);
   memgraph::slk::Save(self.uuid, builder);
   memgraph::slk::Save(std::to_underlying(self.storage_mode), builder);
   memgraph::slk::Save(self.items.properties_on_edges, builder);
   memgraph::slk::Save(self.items.enable_schema_metadata, builder);
-  memgraph::slk::Save(self.items.storage_light_edge, builder);
 }
 
 void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader) {
@@ -268,7 +271,7 @@ void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader)
   }
   memgraph::slk::Load(&self->items.properties_on_edges, reader);
   memgraph::slk::Load(&self->items.enable_schema_metadata, reader);
-  memgraph::slk::Load(&self->items.storage_light_edge, reader);
+  // storage_light_edge is not serialized; defaults to false (from struct initialization)
 }
 
 }  // namespace slk

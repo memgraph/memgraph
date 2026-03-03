@@ -883,6 +883,11 @@ class InMemoryStorage final : public Storage {
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
 
+  // Light edges deleted in analytical mode (without deltas). Since light edges
+  // are not in the edges_ skip list, the full-scan GC path cannot find them.
+  // This container collects their pointers for deferred freeing.
+  utils::Synchronized<std::vector<Edge *>, utils::SpinLock> deleted_light_edges_analytical_;
+
   // Graveyard for light edges: deleted Edge* kept alive until GC determines
   // no active transaction can see them. Timestamp-based: freed when
   // mark_timestamp < oldest_active_start_timestamp.
