@@ -16,7 +16,7 @@
 #include <span>
 #include <vector>
 
-import memgraph.planner.core.egraph;
+import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core {
 

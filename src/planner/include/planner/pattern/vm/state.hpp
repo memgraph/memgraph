@@ -11,7 +11,7 @@
 
 #pragma once
 
-import memgraph.planner.core.egraph;
+import memgraph.planner.core.eids;
 
 #include <span>
 #include <vector>
