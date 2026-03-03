@@ -2886,8 +2886,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // in every index every time.
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
-      auto vertices_acc = vertices_.access();
-      indices_.RemoveObsoleteVertexEntries(oldest_active_start_timestamp, vertices_acc, token);
+      indices_.RemoveObsoleteVertexEntries(oldest_active_start_timestamp, token);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
       mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
     }
@@ -4333,7 +4332,7 @@ std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemor
   // we have to take vertices accessor to be sure no vertex is deleted while we are searching
   auto acc = mem_storage->vertices_.access();
   const auto search_results = storage_->indices_.vector_index_.SearchNodes(
-      index_name, number_of_results, vector, mem_storage->name_id_mapper_.get(), acc);
+      index_name, number_of_results, vector, mem_storage->name_id_mapper_.get());
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
     auto &[vertex, distance, score] = item;
     return std::make_tuple(VertexAccessor{vertex, storage_, &transaction_}, distance, score);
