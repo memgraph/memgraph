@@ -20,9 +20,9 @@ using namespace test;
 
 // --- Saturation ---
 
-class ChainedNegationTest : public RewriterTest, public ::testing::WithParamInterface<int> {};
+class Rewrite_ChainedNegation : public Rewrite, public ::testing::WithParamInterface<int> {};
 
-TEST_P(ChainedNegationTest, CollapsesToCorrectEClass) {
+TEST_P(Rewrite_ChainedNegation, CollapsesToCorrectEClass) {
   // Neg(Neg(?x)) -> ?x collapses chains of negations:
   //   - Even depth: Neg^(2n)(x)   -> x
   //   - Odd depth:  Neg^(2n+1)(x) -> Neg(x)
@@ -66,10 +66,10 @@ TEST_P(ChainedNegationTest, CollapsesToCorrectEClass) {
   expect_rewrites(depth - 1);  // Neg^2..Neg^depth each match once
 }
 
-INSTANTIATE_TEST_SUITE_P(Depths, ChainedNegationTest, ::testing::Values(2, 3, 4, 5, 6, 7, 8),
+INSTANTIATE_TEST_SUITE_P(Depths, Rewrite_ChainedNegation, ::testing::Values(2, 3, 4, 5, 6, 7, 8),
                          [](auto const &info) { return "depth_" + std::to_string(info.param); });
 
-TEST_F(RewriterTest, MultipleRules_FireIndependently) {
+TEST_F(Rewrite, MultipleRules_FireIndependently) {
   // Two rules with disjoint patterns both fire in the same saturation.
   //
   //   ┌────────────┐       ┌────────────┐
@@ -104,7 +104,7 @@ TEST_F(RewriterTest, MultipleRules_FireIndependently) {
   expect_rewrites(2);
 }
 
-TEST_F(RewriterTest, DisjointMatches_AllProcessed) {
+TEST_F(Rewrite, DisjointMatches_AllProcessed) {
   // Two independent subgraphs both match the same rule pattern.
   //
   //   Neg(Neg(a))     Neg(Neg(b))
@@ -129,7 +129,7 @@ TEST_F(RewriterTest, DisjointMatches_AllProcessed) {
 
 // --- Termination Limits ---
 
-TEST_F(RewriterTest, IterationLimitReached_StopsRewriting) {
+TEST_F(Rewrite, IterationLimitReached_StopsRewriting) {
   // A rule that always produces changes will never saturate.
   // The iteration limit prevents infinite loops.
   //
@@ -155,7 +155,7 @@ TEST_F(RewriterTest, IterationLimitReached_StopsRewriting) {
   expect_iterations(5);
 }
 
-TEST_F(RewriterTest, ENodeLimitReached_StopsRewriting) {
+TEST_F(Rewrite, ENodeLimitReached_StopsRewriting) {
   // A rule that creates many nodes causes exponential growth.
   // The e-node limit prevents out-of-memory.
   //
@@ -184,7 +184,7 @@ TEST_F(RewriterTest, ENodeLimitReached_StopsRewriting) {
 
 // --- Multi-Pattern Joins ---
 
-TEST_F(RewriterTest, TwoPatterns_JoinOnSharedVariables) {
+TEST_F(Rewrite, TwoPatterns_JoinOnSharedVariables) {
   // Two patterns with shared variables (?x, ?y) are joined.
   // Only matches where both patterns bind the SAME e-classes fire.
   //
@@ -220,7 +220,7 @@ TEST_F(RewriterTest, TwoPatterns_JoinOnSharedVariables) {
   expect_rewrites(1);
 }
 
-TEST_F(RewriterTest, ThreePatternChain_TransitiveVariableBinding) {
+TEST_F(Rewrite, ThreePatternChain_TransitiveVariableBinding) {
   // Three patterns form a chain: P1(?x) - P2(?x,?y) - P3(?y)
   // Variables propagate transitively through the middle pattern.
   //
@@ -255,7 +255,7 @@ TEST_F(RewriterTest, ThreePatternChain_TransitiveVariableBinding) {
   expect_rewrites(1);
 }
 
-TEST_F(RewriterTest, ThreePatternChain_IncompleteChainDoesNotFire) {
+TEST_F(Rewrite, ThreePatternChain_IncompleteChainDoesNotFire) {
   // Same patterns as above, but the graph breaks the chain.
   // F2(a,c) exists, but F(b) has b≠c, so ?y can't bind consistently.
   //
@@ -290,7 +290,7 @@ TEST_F(RewriterTest, ThreePatternChain_IncompleteChainDoesNotFire) {
   expect_saturated();
 }
 
-TEST_F(RewriterTest, MultiPattern_RequiresAllPatternsMatch) {
+TEST_F(Rewrite, MultiPattern_RequiresAllPatternsMatch) {
   // Multi-pattern rule requires ALL patterns to match for the rule to fire.
   auto rule = TestRewriteRule::Builder{"needs_both"}
                   .pattern(TestPattern::build(Op::F, {Var{kVarX}}))
@@ -308,7 +308,7 @@ TEST_F(RewriterTest, MultiPattern_RequiresAllPatternsMatch) {
 
 // --- Node Creation ---
 
-TEST_F(RewriterTest, Emplace_CreatesNewNodes) {
+TEST_F(Rewrite, Emplace_CreatesNewNodes) {
   // Rules can create new nodes using ctx.emplace().
   //
   //   Before:          After:
@@ -335,7 +335,7 @@ TEST_F(RewriterTest, Emplace_CreatesNewNodes) {
   EXPECT_EQ(egraph.eclass(egraph.find(x)).nodes().size(), 2);  // Var and F
 }
 
-TEST_F(RewriterTest, EmplacedNodes_Matchable) {
+TEST_F(Rewrite, EmplacedNodes_Matchable) {
   // Nodes created in iteration N must be matchable in iteration N+1.
   auto create_f = TestRewriteRule::Builder{"create_f"}
                       .pattern(TestPattern::build(Op::Var, kVarX))
@@ -375,7 +375,7 @@ TEST_F(RewriterTest, EmplacedNodes_Matchable) {
   EXPECT_EQ(f2_count, 2);
 }
 
-TEST_F(RewriterTest, RebuildIndex_IndexesNewNodes) {
+TEST_F(Rewrite, RebuildIndex_IndexesNewNodes) {
   // Nodes added after index build are not matchable until rebuild.
   use_rules(make_double_neg_rule());
   rebuild_index();  // Index is empty
@@ -397,7 +397,7 @@ TEST_F(RewriterTest, RebuildIndex_IndexesNewNodes) {
 
 // --- Congruence and Merge Effects ---
 
-TEST_F(RewriterTest, Congruence_PropagatesAfterMerge) {
+TEST_F(Rewrite, Congruence_PropagatesAfterMerge) {
   // When a rule merges a≡b, parent nodes F(a) and F(b) should also merge
   // due to e-graph congruence closure.
   //
@@ -427,7 +427,7 @@ TEST_F(RewriterTest, Congruence_PropagatesAfterMerge) {
   EXPECT_EQ(egraph.find(f_a), egraph.find(f_b));  // Congruence propagated
 }
 
-TEST_F(RewriterTest, EmplaceExisting_ReturnsSameEClass) {
+TEST_F(Rewrite, EmplaceExisting_ReturnsSameEClass) {
   // Emplacing a node that already exists returns the existing e-class
   // with did_insert=false (hash-consing property).
   //
@@ -460,7 +460,7 @@ TEST_F(RewriterTest, EmplaceExisting_ReturnsSameEClass) {
   expect_rewrites(0);
 }
 
-TEST_F(RewriterTest, MergeUnlocksNewMatches) {
+TEST_F(Rewrite, MergeUnlocksNewMatches) {
   // A pattern requiring equal children F(?x, ?x) doesn't match F(a, b) initially.
   // After merging a≡b, the pattern now matches.
   //
@@ -496,7 +496,7 @@ TEST_F(RewriterTest, MergeUnlocksNewMatches) {
 
 // --- Edge Cases ---
 
-TEST_F(RewriterTest, EmptyRuleset_Saturates) {
+TEST_F(Rewrite, EmptyRuleset_Saturates) {
   leaf(Op::Var, 1);
   rebuild_index();
   use_rules();
@@ -506,7 +506,7 @@ TEST_F(RewriterTest, EmptyRuleset_Saturates) {
   expect_rewrites(0);
 }
 
-TEST_F(RewriterTest, NoMatches_Saturates) {
+TEST_F(Rewrite, NoMatches_Saturates) {
   node(Op::F, leaf(Op::Var, 1));
   rebuild_index();
   use_rules(make_double_neg_rule());  // Matches Neg(Neg(?x)), not F
@@ -516,14 +516,14 @@ TEST_F(RewriterTest, NoMatches_Saturates) {
   expect_rewrites(0);
 }
 
-TEST_F(RewriterTest, ZeroPatternRule_NeverFires) {
+TEST_F(Rewrite, ZeroPatternRule_NeverFires) {
   leaf(Op::Var, 1);
   rebuild_index();
   use_rules(TestRewriteRule::Builder{"empty"}.apply([](TestRuleContext &, Match const &) {}));
   EXPECT_EQ(rewriter().iterate_once(), 0);
 }
 
-TEST_F(RewriterTest, PerRuleStatistics_Tracked) {
+TEST_F(Rewrite, PerRuleStatistics_Tracked) {
   node(Op::Neg, node(Op::Neg, leaf(Op::Var, 1)));
   rebuild_index();
   auto rule = make_double_neg_rule();
@@ -536,7 +536,7 @@ TEST_F(RewriterTest, PerRuleStatistics_Tracked) {
 
 // --- VM Integration Tests ---
 
-TEST_F(RewriterTest, VM_SinglePatternRule_ProducesSameResults) {
+TEST_F(Rewrite, VM_SinglePatternRule_ProducesSameResults) {
   // Single-pattern rules use the VM executor. This test verifies
   // the VM produces the same results as the MatcherIndex-based approach.
   //
@@ -559,7 +559,7 @@ TEST_F(RewriterTest, VM_SinglePatternRule_ProducesSameResults) {
   expect_rewrites(1);
 }
 
-TEST_F(RewriterTest, VM_CompiledPatternsAreAvailable) {
+TEST_F(Rewrite, VM_CompiledPatternsAreAvailable) {
   // Verify that patterns are compiled at rule construction time
   auto rule = make_double_neg_rule();
   auto const &compiled = rule.compiled();
@@ -568,7 +568,7 @@ TEST_F(RewriterTest, VM_CompiledPatternsAreAvailable) {
   EXPECT_TRUE(compiled.entry_symbol().has_value()) << "Pattern should have entry symbol";
 }
 
-TEST_F(RewriterTest, VM_FallbackForMultiPatternRules) {
+TEST_F(Rewrite, VM_FallbackForMultiPatternRules) {
   // Multi-pattern rules should fall back to MatcherIndex-based join.
   // This test verifies the fallback works correctly.
   auto join_rule =
@@ -592,7 +592,7 @@ TEST_F(RewriterTest, VM_FallbackForMultiPatternRules) {
   expect_rewrites(1);
 }
 
-TEST_F(RewriterTest, VM_VariablePatternRoot_FallbackToAllCandidates) {
+TEST_F(Rewrite, VM_VariablePatternRoot_FallbackToAllCandidates) {
   // When pattern root is a variable (not a symbol), we can't use
   // symbol index and must iterate all e-classes.
   auto var_root_rule = TestRewriteRule::Builder{"var_root"}
@@ -620,7 +620,7 @@ TEST_F(RewriterTest, VM_VariablePatternRoot_FallbackToAllCandidates) {
   EXPECT_EQ(f_count, 2);
 }
 
-TEST_F(RewriterTest, VM_ChainedRewrites_MultipleIterations) {
+TEST_F(Rewrite, VM_ChainedRewrites_MultipleIterations) {
   // Verify VM-based matching works correctly across multiple iterations
   // with intermediate e-graph modifications.
   use_rules(make_double_neg_rule());

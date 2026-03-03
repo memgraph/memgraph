@@ -32,9 +32,9 @@ using namespace vm;
 // Compiler Bytecode Tests
 // ============================================================================
 
-class VMCompilerTest : public EGraphTestBase {};
+class PatternVM_Compiler : public EGraphTestBase {};
 
-TEST_F(VMCompilerTest, WildcardPattern) {
+TEST_F(PatternVM_Compiler, WildcardPattern) {
   // Pattern: _ (wildcard)
   auto builder = TestPattern::Builder{};
   builder.wildcard();
@@ -51,7 +51,7 @@ TEST_F(VMCompilerTest, WildcardPattern) {
   EXPECT_EQ(code[2], Instruction::halt());
 }
 
-TEST_F(VMCompilerTest, VariablePattern) {
+TEST_F(PatternVM_Compiler, VariablePattern) {
   // Pattern: ?x
   auto pattern = make_var_pattern(kVarX);
 
@@ -67,7 +67,7 @@ TEST_F(VMCompilerTest, VariablePattern) {
   EXPECT_EQ(code[3], Instruction::halt());
 }
 
-TEST_F(VMCompilerTest, SimpleSymbolPattern) {
+TEST_F(PatternVM_Compiler, SimpleSymbolPattern) {
   // Pattern: Neg(?x)
   auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
 
@@ -114,7 +114,7 @@ TEST_F(VMCompilerTest, SimpleSymbolPattern) {
   EXPECT_EQ(code[5].target, loop_pos) << "CheckArity should backtrack to NextENode";
 }
 
-TEST_F(VMCompilerTest, NestedSymbolPattern) {
+TEST_F(PatternVM_Compiler, NestedSymbolPattern) {
   // Pattern: Neg(Neg(?x))
   auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Var{kVarX})}, kTestRoot);
 
@@ -170,7 +170,7 @@ TEST_F(VMCompilerTest, NestedSymbolPattern) {
       << "Inner NextENode should backtrack to outer loop";
 }
 
-TEST_F(VMCompilerTest, BinarySymbolPattern) {
+TEST_F(PatternVM_Compiler, BinarySymbolPattern) {
   // Pattern: Add(?x, ?y)
   auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}, kTestRoot);
 
@@ -206,7 +206,7 @@ TEST_F(VMCompilerTest, BinarySymbolPattern) {
 // Multi-Pattern Compilation Tests
 // ============================================================================
 
-TEST_F(VMCompilerTest, MultiPattern_DeepNestedUsesParentChain) {
+TEST_F(PatternVM_Compiler, MultiPattern_DeepNestedUsesParentChain) {
   // Pattern 1: Neg(?x) - shallow pattern that binds ?x
   // Pattern 2: Neg(Neg(Neg(Neg(?x)))) - deep nested pattern with shared ?x at bottom
   //
@@ -259,7 +259,7 @@ TEST_F(VMCompilerTest, MultiPattern_DeepNestedUsesParentChain) {
       << bytecode;
 }
 
-TEST_F(VMCompilerTest, MultiPattern_SharedVarUsesParentTraversal) {
+TEST_F(PatternVM_Compiler, MultiPattern_SharedVarUsesParentTraversal) {
   // Anchor: Bind(_, ?sym, ?expr)
   // Joined: Ident(?sym) - shared variable at direct child position
   //
@@ -295,7 +295,7 @@ TEST_F(VMCompilerTest, MultiPattern_SharedVarUsesParentTraversal) {
   EXPECT_TRUE(has_get_enode_eclass) << "Should have GetENodeEClass for binding\nBytecode:\n" << bytecode;
 }
 
-TEST_F(VMCompilerTest, MultiPattern_NoSharedVarUsesCartesianProduct) {
+TEST_F(PatternVM_Compiler, MultiPattern_NoSharedVarUsesCartesianProduct) {
   // Anchor: Add(?x, ?y)
   // Joined: Neg(?z) - no shared variable with anchor
   //
@@ -329,7 +329,7 @@ TEST_F(VMCompilerTest, MultiPattern_NoSharedVarUsesCartesianProduct) {
   EXPECT_TRUE(has_next_eclass) << "Cartesian product should use NextEClass instruction\nBytecode:\n" << bytecode;
 }
 
-TEST_F(VMCompilerTest, MultiPattern_VariableOnlyUsesIterAllEClasses) {
+TEST_F(PatternVM_Compiler, MultiPattern_VariableOnlyUsesIterAllEClasses) {
   // Anchor: Add(?x, ?y)
   // Joined: ?z - just a variable, no symbol
   //
@@ -374,7 +374,7 @@ TEST_F(VMCompilerTest, MultiPattern_VariableOnlyUsesIterAllEClasses) {
 // which is tested via rule.join_steps(), VM join order is embedded in the compiled
 // bytecode, so we verify properties of the generated code.
 
-TEST_F(VMCompilerTest, JoinOrder_HubPatternsFirst) {
+TEST_F(PatternVM_Compiler, JoinOrder_HubPatternsFirst) {
   // Tests that hub patterns (high connectivity) are processed before leaf patterns,
   // regardless of the declaration order of patterns.
   //
@@ -492,7 +492,7 @@ TEST_F(VMCompilerTest, JoinOrder_HubPatternsFirst) {
   EXPECT_EQ(permutation_count, 720);
 }
 
-TEST_F(VMCompilerTest, JoinOrder_CheckSlotProximity) {
+TEST_F(PatternVM_Compiler, JoinOrder_CheckSlotProximity) {
   // Tests that CheckSlot instructions appear close to their corresponding BindSlotDedup.
   // Early invalidation is critical for performance: if a variable binding fails the
   // equality check, we should fail fast rather than doing unnecessary work.
@@ -568,7 +568,7 @@ TEST_F(VMCompilerTest, JoinOrder_CheckSlotProximity) {
       << bytecode;
 }
 
-TEST_F(VMCompilerTest, JoinOrder_SharedVarBindBeforeCheck) {
+TEST_F(PatternVM_Compiler, JoinOrder_SharedVarBindBeforeCheck) {
   // Verifies that for any shared variable, the pattern that BINDs it comes before
   // patterns that CHECK it. This is implicit in join order but worth verifying.
   //
@@ -625,7 +625,7 @@ TEST_F(VMCompilerTest, JoinOrder_SharedVarBindBeforeCheck) {
   }
 }
 
-TEST_F(VMCompilerTest, JoinOrder_NoCartesianWhenPathWalkingPossible) {
+TEST_F(PatternVM_Compiler, JoinOrder_NoCartesianWhenPathWalkingPossible) {
   // Verifies that when a shared variable exists deep in a pattern structure,
   // the compiler uses parent chain traversal instead of Cartesian product.
   //

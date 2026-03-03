@@ -31,13 +31,13 @@ using TestRewriter = Rewriter<Op, NoAnalysis>;
 using TestRuleContext = RuleContext<Op, NoAnalysis>;
 
 // ============================================================================
-// Rewriter Test Fixture
+// Rewrite Test Fixture
 // ============================================================================
 //
 // Provides e-graph building DSL (leaf, node, merge, rebuild) from EGraphTestBase
 // plus rewriter-specific helpers.
 
-class RewriterTest : public EGraphTestBase {
+class Rewrite : public EGraphTestBase {
  protected:
   TestRewriter rewriter_{egraph};
   RewriteResult result_;

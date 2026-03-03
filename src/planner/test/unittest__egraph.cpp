@@ -19,7 +19,7 @@ namespace memgraph::planner::core {
 
 using namespace test;
 
-TEST(EGraphBasicOperations, EmptyEGraph) {
+TEST(EGraph_Basic, EmptyEGraph) {
   auto const egraph = EGraph<Op, NoAnalysis>{};
 
   EXPECT_TRUE(egraph.empty());
@@ -27,7 +27,7 @@ TEST(EGraphBasicOperations, EmptyEGraph) {
   EXPECT_EQ(egraph.num_nodes(), 0);
 }
 
-TEST(EGraphBasicOperations, AddSimpleENodes) {
+TEST(EGraph_Basic, AddSimpleENodes) {
   EGraph<Op, NoAnalysis> egraph;
 
   // Add leaf nodes
@@ -43,7 +43,7 @@ TEST(EGraphBasicOperations, AddSimpleENodes) {
   EXPECT_TRUE(inserted2);
 }
 
-TEST(EGraphBasicOperations, AddNodesWithChildren) {
+TEST(EGraph_Basic, AddNodesWithChildren) {
   EGraph<Op, NoAnalysis> egraph;
 
   // Add leaf nodes first
@@ -63,7 +63,7 @@ TEST(EGraphBasicOperations, AddNodesWithChildren) {
   EXPECT_EQ(eclass.size(), 1);
 }
 
-TEST(EGraphBasicOperations, DuplicateNodesReturnSameEClass) {
+TEST(EGraph_Basic, DuplicateNodesReturnSameEClass) {
   EGraph<Op, NoAnalysis> egraph;
 
   // Add same node twice
@@ -77,7 +77,7 @@ TEST(EGraphBasicOperations, DuplicateNodesReturnSameEClass) {
   EXPECT_FALSE(inserted2);  // Second emplace finds existing node
 }
 
-TEST(EGraphMergingOperations, MergeTwoDifferentEClasses) {
+TEST(EGraph_Merge, MergeTwoDifferentEClasses) {
   EGraph<Op, NoAnalysis> egraph;
 
   auto [info1, info1_node, ins1] = egraph.emplace(Op::A);
@@ -95,7 +95,7 @@ TEST(EGraphMergingOperations, MergeTwoDifferentEClasses) {
   EXPECT_TRUE(did_merge);
 }
 
-TEST(EGraphMergingOperations, MergeSameEClassIsNoOp) {
+TEST(EGraph_Merge, MergeSameEClassIsNoOp) {
   EGraph<Op, NoAnalysis> egraph;
 
   auto [info1, info1_node, ins1] = egraph.emplace(Op::A);
@@ -107,7 +107,7 @@ TEST(EGraphMergingOperations, MergeSameEClassIsNoOp) {
   EXPECT_FALSE(did_merge);  // Same e-class, no merge needed
 }
 
-TEST(EGraphMergingOperations, CongruenceAfterMergeAndRebuild) {
+TEST(EGraph_Merge, CongruenceAfterMergeAndRebuild) {
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
 
@@ -138,7 +138,7 @@ TEST(EGraphMergingOperations, CongruenceAfterMergeAndRebuild) {
   EXPECT_EQ(egraph.num_classes(), 2);  // One for a=b, one for f(a)=f(b)
 }
 
-TEST(EGraphMergingOperations, CongruenceAfterMergeAndRebuildSelfReference) {
+TEST(EGraph_Merge, CongruenceAfterMergeAndRebuildSelfReference) {
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
 
@@ -155,7 +155,7 @@ TEST(EGraphMergingOperations, CongruenceAfterMergeAndRebuildSelfReference) {
   EXPECT_EQ(egraph.num_classes(), 1);
 }
 
-TEST(EGraphBasicOperations, GetEClassByID) {
+TEST(EGraph_Basic, GetEClassByID) {
   EGraph<Op, NoAnalysis> egraph;
 
   auto [info, info_node, ins] = egraph.emplace(Op::Test);
@@ -169,7 +169,7 @@ TEST(EGraphBasicOperations, GetEClassByID) {
   EXPECT_EQ(repr.symbol(), Op::Test);
 }
 
-TEST(EGraphBasicOperations, ClearEmptiesTheGraph) {
+TEST(EGraph_Basic, ClearEmptiesTheGraph) {
   EGraph<Op, NoAnalysis> egraph;
 
   egraph.emplace(Op::A);
@@ -184,7 +184,7 @@ TEST(EGraphBasicOperations, ClearEmptiesTheGraph) {
   EXPECT_EQ(egraph.num_nodes(), 0);
 }
 
-TEST(EGraphRebuildHashconsConsistency, SingleParentHashconsCheck) {
+TEST(EGraph_Rebuild, SingleParentHashconsCheck) {
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
 
@@ -212,7 +212,7 @@ TEST(EGraphRebuildHashconsConsistency, SingleParentHashconsCheck) {
   EXPECT_EQ(egraph.num_classes(), 2);
 }
 
-TEST(EGraphRebuildHashconsConsistency, MultipleParentsAfterMerge) {
+TEST(EGraph_Rebuild, MultipleParentsAfterMerge) {
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
 
@@ -239,7 +239,7 @@ TEST(EGraphRebuildHashconsConsistency, MultipleParentsAfterMerge) {
   EXPECT_EQ(egraph.num_classes(), 3);  // a=c, b, f(a,b)=f(c,b)
 }
 
-TEST(EGraphRebuildHashconsConsistency, DeepRebuildSingleParentChain) {
+TEST(EGraph_Rebuild, DeepRebuildSingleParentChain) {
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
 
@@ -265,7 +265,7 @@ TEST(EGraphRebuildHashconsConsistency, DeepRebuildSingleParentChain) {
   EXPECT_EQ(egraph.num_classes(), 4);
 }
 
-TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForSingleParent) {
+TEST(EGraph_CongruenceClosure, MissingHashconsUpdateForSingleParent) {
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
 
@@ -297,7 +297,7 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForSingleParent) {
   EXPECT_EQ(egraph.num_classes(), 2);  // (a≡b), F(a≡b)
 }
 
-TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForMultipleParents) {
+TEST(EGraph_CongruenceClosure, MissingHashconsUpdateForMultipleParents) {
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
 
@@ -320,7 +320,7 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForMultipleParents) {
   EXPECT_EQ(egraph.find(f_a), egraph.find(a));
 }
 
-TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
+TEST(EGraph_CongruenceClosure, ComplexFuzzSequenceInvariantViolation) {
   // This case came for a fuzz test and found a complex example where cogruence was broken
   // Fix has been applied but this test remains to ensure we do not redo the bug
   EGraph<Op, NoAnalysis> egraph;
@@ -355,7 +355,7 @@ TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
   }
 }
 
-TEST(EGraphCongruenceClosureBug, InfiniteSelfReference) {
+TEST(EGraph_CongruenceClosure, InfiniteSelfReference) {
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
 
@@ -378,7 +378,7 @@ TEST(EGraphCongruenceClosureBug, InfiniteSelfReference) {
 // When congruence causes multiple e-nodes to have the same canonical form,
 // duplicates are detected via hashcons collision and removed.
 
-TEST(EGraphDuplicateRemoval, CongruenceRemovesDuplicateENodes) {
+TEST(EGraph_DuplicateRemoval, CongruenceRemovesDuplicateENodes) {
   // When e-nodes become identical after canonicalization, duplicates are removed.
   //
   //   F(a) and F(b) are separate e-nodes
@@ -406,7 +406,7 @@ TEST(EGraphDuplicateRemoval, CongruenceRemovesDuplicateENodes) {
   EXPECT_EQ(egraph.num_classes(), 2);     // a≡b, F(a)≡F(b)
 }
 
-TEST(EGraphDuplicateRemoval, MultipleDuplicatesRemoved) {
+TEST(EGraph_DuplicateRemoval, MultipleDuplicatesRemoved) {
   // When 3+ e-nodes canonicalize to the same form, all but one are removed.
   //
   //   F(a), F(b), F(c) where a, b, c are separate
@@ -443,7 +443,7 @@ TEST(EGraphDuplicateRemoval, MultipleDuplicatesRemoved) {
   EXPECT_EQ(sum, egraph.num_live_nodes());
 }
 
-TEST(EGraphDuplicateRemoval, CascadingCongruenceRemovesDuplicates) {
+TEST(EGraph_DuplicateRemoval, CascadingCongruenceRemovesDuplicates) {
   // Test deferred duplicate detection: when parent e-nodes are in different
   // e-classes, they're merged first, then duplicates detected in subsequent
   // rebuild iteration.
@@ -484,7 +484,7 @@ TEST(EGraphDuplicateRemoval, CascadingCongruenceRemovesDuplicates) {
   EXPECT_EQ(sum, egraph.num_live_nodes());
 }
 
-TEST(EGraphDuplicateRemoval, ClearResetsDuplicateCount) {
+TEST(EGraph_DuplicateRemoval, ClearResetsDuplicateCount) {
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
 
@@ -514,7 +514,7 @@ TEST(EGraphDuplicateRemoval, ClearResetsDuplicateCount) {
 //   2. During rebuild, hashcons repair detects duplicates
 //   3. The e-classes containing the duplicates must be merged
 
-TEST(EGraphCongruenceClosureBug, DuplicateDetectionMergesEClasses) {
+TEST(EGraph_CongruenceClosure, DuplicateDetectionMergesEClasses) {
   // Reproduces the bug from crash-19575df5f7b4c24248ece3ea22ac44956c4bacb9
   //
   // Scenario:
@@ -577,7 +577,7 @@ TEST(EGraphCongruenceClosureBug, DuplicateDetectionMergesEClasses) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
-TEST(EGraphCongruenceClosureBug, DuplicateDetectionWithMultipleLayers) {
+TEST(EGraph_CongruenceClosure, DuplicateDetectionWithMultipleLayers) {
   // Similar to above but with deeper nesting to ensure cascading works
   //
   //   a, b separate
@@ -614,7 +614,7 @@ TEST(EGraphCongruenceClosureBug, DuplicateDetectionWithMultipleLayers) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
-TEST(EGraphCongruenceClosureBug, IndirectCongruenceViaChildMerges) {
+TEST(EGraph_CongruenceClosure, IndirectCongruenceViaChildMerges) {
   // Regression test for congruence closure bug where two e-nodes become
   // congruent via child merges but aren't detected as duplicates.
   //
@@ -681,7 +681,7 @@ TEST(EGraphCongruenceClosureBug, IndirectCongruenceViaChildMerges) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
-TEST(EGraphCongruenceClosureBug, SelfRefWithIndirectChildCongruence) {
+TEST(EGraph_CongruenceClosure, SelfRefWithIndirectChildCongruence) {
   // Exact reproduction from the failing fuzzer test
   // RepeatedVarInNestedPatternWithSelfReferentialEClass
   //
@@ -789,7 +789,7 @@ TEST(EGraphCongruenceClosureBug, SelfRefWithIndirectChildCongruence) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
-TEST(EGraphCongruenceClosureBug, DuplicateInSameEClass) {
+TEST(EGraph_CongruenceClosure, DuplicateInSameEClass) {
   // Test: When two e-nodes in the SAME e-class canonicalize to the same form,
   // one is removed as a duplicate but no merge is triggered.
   //
@@ -841,7 +841,7 @@ TEST(EGraphCongruenceClosureBug, DuplicateInSameEClass) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
-TEST(EGraphCongruenceClosureBug, DuplicateInDifferentEClass) {
+TEST(EGraph_CongruenceClosure, DuplicateInDifferentEClass) {
   // Test: When two e-nodes in DIFFERENT e-classes canonicalize to the same form,
   // a merge must be triggered.
   //
@@ -882,7 +882,7 @@ TEST(EGraphCongruenceClosureBug, DuplicateInDifferentEClass) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
-TEST(EGraphCongruenceClosureBug, MultipleParentsFromDifferentClasses) {
+TEST(EGraph_CongruenceClosure, MultipleParentsFromDifferentClasses) {
   // Test: Multiple parent e-nodes from different e-classes all canonicalize
   // to the same form, triggering a multi-way merge.
   //
@@ -925,7 +925,7 @@ TEST(EGraphCongruenceClosureBug, MultipleParentsFromDifferentClasses) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
-TEST(EGraphCongruenceClosureBug, AlreadyCanonicalNoChange) {
+TEST(EGraph_CongruenceClosure, AlreadyCanonicalNoChange) {
   // Test: When an e-node's children are already canonical, repair_hashcons_enode
   // should just update the eclass_id in the hashcons entry without triggering
   // any merges or duplicate detection.
@@ -956,7 +956,7 @@ TEST(EGraphCongruenceClosureBug, AlreadyCanonicalNoChange) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
-TEST(EGraphCongruenceClosureBug, ChainedCongruencePropagation) {
+TEST(EGraph_CongruenceClosure, ChainedCongruencePropagation) {
   // Test: Congruence propagates through multiple levels in a single rebuild.
   //
   // Scenario:
@@ -999,7 +999,7 @@ TEST(EGraphCongruenceClosureBug, ChainedCongruencePropagation) {
 // Coverage tests for utility functions and edge cases
 // ============================================================================
 
-TEST(EGraphCoverage, NeedsRebuildAndWorklistSize) {
+TEST(EGraph_EdgeCases, NeedsRebuildAndWorklistSize) {
   // Test: needs_rebuild() and worklist_size() utility functions
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
@@ -1028,7 +1028,7 @@ TEST(EGraphCoverage, NeedsRebuildAndWorklistSize) {
   EXPECT_EQ(egraph.worklist_size(), 0);
 }
 
-TEST(EGraphCoverage, HasClassWithInvalidId) {
+TEST(EGraph_EdgeCases, HasClassWithInvalidId) {
   // Test: has_class() returns false for invalid e-class ID
   EGraph<Op, NoAnalysis> egraph;
 
@@ -1044,7 +1044,7 @@ TEST(EGraphCoverage, HasClassWithInvalidId) {
   EXPECT_FALSE(egraph.has_class(EClassId{egraph.num_nodes() + 100}));
 }
 
-TEST(EGraphCoverage, RepairHashconsEclassMergesAwayOriginal) {
+TEST(EGraph_EdgeCases, RepairHashconsEclassMergesAwayOriginal) {
   // Test: Line 475-478 branch where canonical_after_repair != eclass_id
   //
   // This happens when repair_hashcons_eclass causes the ORIGINAL e-class
@@ -1098,7 +1098,7 @@ TEST(EGraphCoverage, RepairHashconsEclassMergesAwayOriginal) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
-TEST(EGraphCoverage, RepairHashconsWithHigherRankTarget) {
+TEST(EGraph_EdgeCases, RepairHashconsWithHigherRankTarget) {
   // Test: Line 475-478 branch where canonical_after_repair != eclass_id
   //
   // This happens when the e-class being repaired gets merged INTO another
@@ -1141,7 +1141,7 @@ TEST(EGraphCoverage, RepairHashconsWithHigherRankTarget) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
-TEST(EGraphCoverage, ValidateCongruenceClosureDetectsFailure) {
+TEST(EGraph_EdgeCases, ValidateCongruenceClosureDetectsFailure) {
   // Test: ValidateCongruenceClosure returns false when congruence is broken
   //
   // We need to create a state where two e-nodes in different e-classes

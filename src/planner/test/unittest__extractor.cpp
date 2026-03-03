@@ -35,7 +35,7 @@ auto Add(EGraph &egraph, EClassId left, EClassId right) {
   return egraph.emplace(symbol::ADD, {left, right});
 }
 
-TEST(Extractor, BasicLeafExtraction) {
+TEST(Extract_Basic, BasicLeafExtraction) {
   struct CostModel {
     using CostResult = double;
 
@@ -53,7 +53,7 @@ TEST(Extractor, BasicLeafExtraction) {
   ASSERT_EQ(extracted[0].second, root_enode);
 }
 
-TEST(Extractor, CheapestRootSelected) {
+TEST(Extract_Basic, CheapestRootSelected) {
   struct CostModel {
     using CostResult = double;
 
@@ -77,10 +77,10 @@ TEST(Extractor, CheapestRootSelected) {
 }
 
 // ========================================
-// ProcessEGraph Tests
+// Extract_Cost Tests
 // ========================================
 
-TEST(ProcessEGraph, SingleLeafNode) {
+TEST(Extract_Cost, SingleLeafNode) {
   struct CostModel {
     using CostResult = double;
 
@@ -102,7 +102,7 @@ TEST(ProcessEGraph, SingleLeafNode) {
   ASSERT_EQ(cheapest_enode[leaf_class].cost_result, 5.0);
 }
 
-TEST(ProcessEGraph, SimpleTree) {
+TEST(Extract_Cost, SimpleTree) {
   struct CostModel {
     using CostResult = double;
 
@@ -125,7 +125,7 @@ TEST(ProcessEGraph, SimpleTree) {
   ASSERT_EQ(cheapest_enode.size(), 3);
 }
 
-TEST(ProcessEGraph, DeepTree) {
+TEST(Extract_Cost, DeepTree) {
   struct CostModel {
     using CostResult = double;
 
@@ -147,7 +147,7 @@ TEST(ProcessEGraph, DeepTree) {
   ASSERT_EQ(cheapest_enode.size(), 3);
 }
 
-TEST(ProcessEGraph, DiamondDAGSharedNode) {
+TEST(Extract_Cost, DiamondDAGSharedNode) {
   struct CostModel {
     using CostResult = double;
 
@@ -175,7 +175,7 @@ TEST(ProcessEGraph, DiamondDAGSharedNode) {
   ASSERT_EQ(cheapest_enode[root_class].cost_result, 5);
 }
 
-TEST(ProcessEGraph, VariableCostBySymbol) {
+TEST(Extract_Cost, VariableCostBySymbol) {
   struct CostModel {
     using CostResult = double;
 
@@ -198,7 +198,7 @@ TEST(ProcessEGraph, VariableCostBySymbol) {
   ASSERT_EQ(cost_b, 5.0);
 }
 
-TEST(ProcessEGraph, SelectsCheapestAmongEquivalents) {
+TEST(Extract_Cost, SelectsCheapestAmongEquivalents) {
   struct CostModel {
     using CostResult = double;
 
@@ -224,7 +224,7 @@ TEST(ProcessEGraph, SelectsCheapestAmongEquivalents) {
   ASSERT_EQ(cheapest_enode[root].cost_result, 1.0);
 }
 
-TEST(ProcessEGraph, CostAccumulationWithVariableCosts) {
+TEST(Extract_Cost, CostAccumulationWithVariableCosts) {
   struct CostModel {
     using CostResult = double;
 
@@ -247,7 +247,7 @@ TEST(ProcessEGraph, CostAccumulationWithVariableCosts) {
   ASSERT_EQ(cost, 7.0);
 }
 
-TEST(ProcessEGraph, CyclicEGraphInfiniteCost) {
+TEST(Extract_Cost, CyclicEGraphInfiniteCost) {
   // Test case: X (LITERAL 1) merged with (ADD X (LITERAL 0))
   // This creates a cycle: the 'ADD' e-node has a child that is its own e-class
   // When evaluating 'ADD' e-node: cost = 1 + cost(X_class) + cost(LITERAL 0)
@@ -291,7 +291,7 @@ TEST(ProcessEGraph, CyclicEGraphInfiniteCost) {
   ASSERT_EQ(cheapest_enode[cyclic_class].cost_result, 1.0);
 }
 
-TEST(ProcessEGraph, CyclicEGraphInfiniteCostComplex) {
+TEST(Extract_Cost, CyclicEGraphInfiniteCostComplex) {
   // Test case: X (LITERAL 1) merged with (ADD X (LITERAL 0))
   // This creates a cycle: the 'ADD' e-node has a child that is its own e-class
   // When evaluating 'ADD' e-node: cost = 1 + cost(X_class) + cost(LITERAL 0)
@@ -342,7 +342,7 @@ TEST(ProcessEGraph, CyclicEGraphInfiniteCostComplex) {
   ASSERT_EQ(cheapest_enode[zero_class].enode_id, zero_node);
 }
 
-TEST(ProcessEGraph, FullyCyclicEClassInfiniteCost) {
+TEST(Extract_Cost, FullyCyclicEClassInfiniteCost) {
   // Test case: All e-nodes in an e-class are cyclic
   // E.g., X contains only (ADD X (LITERAL 1)) and (ADD X (LITERAL 2))
   // Both ADD nodes reference the e-class they're in, creating unavoidable
@@ -391,10 +391,10 @@ TEST(ProcessEGraph, FullyCyclicEClassInfiniteCost) {
 }
 
 // ========================================
-// CollectDependencies Tests
+// Extract_Dependencies Tests
 // ========================================
 
-TEST(CollectDependencies, SingleLeafNode) {
+TEST(Extract_Dependencies, SingleLeafNode) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
   std::unordered_map<EClassId, Selection<double>> cheapest_enode;
@@ -406,7 +406,7 @@ TEST(CollectDependencies, SingleLeafNode) {
   ASSERT_EQ(in_degree.size(), 1);
 }
 
-TEST(CollectDependencies, LinearChain) {
+TEST(Extract_Dependencies, LinearChain) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
   auto [mid_class, mid_node, mid_new] = egraph.emplace(symbol::B, {leaf_class});
@@ -426,7 +426,7 @@ TEST(CollectDependencies, LinearChain) {
   ASSERT_EQ(in_degree[leaf_class], 1);
 }
 
-TEST(CollectDependencies, SimpleTree) {
+TEST(Extract_Dependencies, SimpleTree) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [left_class, left_node, left_new] = egraph.emplace(symbol::A);
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B);
@@ -446,7 +446,7 @@ TEST(CollectDependencies, SimpleTree) {
   ASSERT_EQ(in_degree[root_class], 0);
 }
 
-TEST(CollectDependencies, DiamondDAG) {
+TEST(Extract_Dependencies, DiamondDAG) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [shared_class, shared_node, shared_new] = egraph.emplace(symbol::A);
   auto [left_class, left_node, left_new] = egraph.emplace(symbol::B, {shared_class}, 1);     // disambiguator = 1
@@ -471,10 +471,10 @@ TEST(CollectDependencies, DiamondDAG) {
 }
 
 // ========================================
-// TopologicalSort Tests
+// Extract_TopologicalSort Tests
 // ========================================
 
-TEST(TopologicalSort, SingleNode) {
+TEST(Extract_TopologicalSort, SingleNode) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
   std::unordered_map<EClassId, Selection<double>> cheapest_enode{};
@@ -487,7 +487,7 @@ TEST(TopologicalSort, SingleNode) {
   ASSERT_EQ(result[0].second, leaf_node);
 }
 
-TEST(TopologicalSort, LinearChainOrdering) {
+TEST(Extract_TopologicalSort, LinearChainOrdering) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
   auto [mid_class, mid_node, mid_new] = egraph.emplace(symbol::B, {leaf_class});
@@ -510,7 +510,7 @@ TEST(TopologicalSort, LinearChainOrdering) {
   ASSERT_EQ(result[2].first, leaf_class);
 }
 
-TEST(TopologicalSort, SimpleTreeOrdering) {
+TEST(Extract_TopologicalSort, SimpleTreeOrdering) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [left_class, left_node, left_new] = egraph.emplace(symbol::A);
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B);
@@ -532,7 +532,7 @@ TEST(TopologicalSort, SimpleTreeOrdering) {
   // Left and right can come in any order, but both should be after root
 }
 
-TEST(TopologicalSort, DiamondTopology) {
+TEST(Extract_TopologicalSort, DiamondTopology) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [shared_class, shared_node, shared_new] = egraph.emplace(symbol::A);
   auto [left_class, left_node, left_new] = egraph.emplace(symbol::B, {shared_class}, 1);     // disambiguator = 1
@@ -562,7 +562,7 @@ TEST(TopologicalSort, DiamondTopology) {
 // Integration Tests (Full Extract Pipeline)
 // ========================================
 
-TEST(Extractor, IntegrationComplexTree) {
+TEST(Extract_Basic, IntegrationComplexTree) {
   struct CostModel {
     using CostResult = double;
 
@@ -586,7 +586,7 @@ TEST(Extractor, IntegrationComplexTree) {
   ASSERT_EQ(extracted[1].first, mid_class);
 }
 
-TEST(Extractor, IntegrationDiamondDAG) {
+TEST(Extract_Basic, IntegrationDiamondDAG) {
   struct CostModel {
     using CostResult = double;
 
@@ -610,7 +610,7 @@ TEST(Extractor, IntegrationDiamondDAG) {
   ASSERT_EQ(extracted[3].first, shared_class);
 }
 
-TEST(Extractor, IntegrationNestedEquivalence) {
+TEST(Extract_Basic, IntegrationNestedEquivalence) {
   struct CostModel {
     using CostResult = double;
 

@@ -27,7 +27,7 @@ static_assert(ENodeSymbol<int>);
 
 // --- Leaf Node Tests ---
 
-TEST(ENode, LeafNodeHasNoChildren) {
+TEST(Core_ENode, LeafNodeHasNoChildren) {
   TestNode x(Op::Var, {}, 1);
 
   EXPECT_TRUE(x.is_leaf());
@@ -35,33 +35,33 @@ TEST(ENode, LeafNodeHasNoChildren) {
   EXPECT_TRUE(x.children().empty());
 }
 
-TEST(ENode, LeafNodePreservesSymbol) {
+TEST(Core_ENode, LeafNodePreservesSymbol) {
   TestNode x(Op::Var, {}, 1);
 
   EXPECT_EQ(x.symbol(), Op::Var);
 }
 
-TEST(ENode, LeafNodePreservesDisambiguator) {
+TEST(Core_ENode, LeafNodePreservesDisambiguator) {
   TestNode x(Op::Var, {}, 42);
 
   EXPECT_EQ(x.disambiguator(), 42);
 }
 
-TEST(ENode, LeafNodesEqualWithSameSymbolAndDisambiguator) {
+TEST(Core_ENode, LeafNodesEqualWithSameSymbolAndDisambiguator) {
   TestNode x1(Op::Var, {}, 1);
   TestNode x2(Op::Var, {}, 1);
 
   EXPECT_EQ(x1, x2);
 }
 
-TEST(ENode, LeafNodesDifferWithDifferentDisambiguator) {
+TEST(Core_ENode, LeafNodesDifferWithDifferentDisambiguator) {
   TestNode x1(Op::Var, {}, 1);
   TestNode x2(Op::Var, {}, 2);
 
   EXPECT_NE(x1, x2);
 }
 
-TEST(ENode, LeafNodesDifferWithDifferentSymbol) {
+TEST(Core_ENode, LeafNodesDifferWithDifferentSymbol) {
   TestNode x(Op::Var, {}, 1);
   TestNode y(Op::Const, {}, 1);
 
@@ -70,7 +70,7 @@ TEST(ENode, LeafNodesDifferWithDifferentSymbol) {
 
 // --- Non-Leaf Node Tests ---
 
-TEST(ENode, NonLeafNodeHasChildren) {
+TEST(Core_ENode, NonLeafNodeHasChildren) {
   auto id0 = EClassId{0};
   auto id1 = EClassId{1};
   TestNode add(Op::Add, {id0, id1});
@@ -80,7 +80,7 @@ TEST(ENode, NonLeafNodeHasChildren) {
   EXPECT_EQ(add.children().size(), 2);
 }
 
-TEST(ENode, NonLeafNodePreservesChildOrder) {
+TEST(Core_ENode, NonLeafNodePreservesChildOrder) {
   auto id0 = EClassId{0};
   auto id1 = EClassId{1};
   TestNode add(Op::Add, {id0, id1});
@@ -89,7 +89,7 @@ TEST(ENode, NonLeafNodePreservesChildOrder) {
   EXPECT_EQ(add.children()[1], id1);
 }
 
-TEST(ENode, NonLeafNodesEqualWithSameStructure) {
+TEST(Core_ENode, NonLeafNodesEqualWithSameStructure) {
   auto id0 = EClassId{0};
   auto id1 = EClassId{1};
   TestNode add1(Op::Add, {id0, id1});
@@ -98,7 +98,7 @@ TEST(ENode, NonLeafNodesEqualWithSameStructure) {
   EXPECT_EQ(add1, add2);
 }
 
-TEST(ENode, NonLeafNodesDifferWithDifferentSymbol) {
+TEST(Core_ENode, NonLeafNodesDifferWithDifferentSymbol) {
   auto id0 = EClassId{0};
   auto id1 = EClassId{1};
   TestNode add(Op::Add, {id0, id1});
@@ -107,7 +107,7 @@ TEST(ENode, NonLeafNodesDifferWithDifferentSymbol) {
   EXPECT_NE(add, mul);
 }
 
-TEST(ENode, NonLeafNodesDifferWithDifferentChildOrder) {
+TEST(Core_ENode, NonLeafNodesDifferWithDifferentChildOrder) {
   auto id0 = EClassId{0};
   auto id1 = EClassId{1};
   TestNode forward(Op::Add, {id0, id1});
@@ -116,7 +116,7 @@ TEST(ENode, NonLeafNodesDifferWithDifferentChildOrder) {
   EXPECT_NE(forward, reverse);
 }
 
-TEST(ENode, UnaryNodeSupported) {
+TEST(Core_ENode, UnaryNodeSupported) {
   auto id0 = EClassId{0};
   TestNode neg(Op::Neg, {id0});
 
@@ -126,14 +126,14 @@ TEST(ENode, UnaryNodeSupported) {
 
 // --- Hash Tests ---
 
-TEST(ENode, EqualLeafNodesHaveSameHash) {
+TEST(Core_ENode, EqualLeafNodesHaveSameHash) {
   TestNode x1(Op::Var, {}, 42);
   TestNode x2(Op::Var, {}, 42);
 
   EXPECT_EQ(x1.hash(), x2.hash());
 }
 
-TEST(ENode, EqualNonLeafNodesHaveSameHash) {
+TEST(Core_ENode, EqualNonLeafNodesHaveSameHash) {
   auto id0 = EClassId{0};
   auto id1 = EClassId{1};
   TestNode add1(Op::Add, {id0, id1});
@@ -142,7 +142,7 @@ TEST(ENode, EqualNonLeafNodesHaveSameHash) {
   EXPECT_EQ(add1.hash(), add2.hash());
 }
 
-TEST(ENode, HashDiffersForDifferentDisambiguator) {
+TEST(Core_ENode, HashDiffersForDifferentDisambiguator) {
   TestNode x1(Op::Var, {}, 1);
   TestNode x2(Op::Var, {}, 2);
 
@@ -150,7 +150,7 @@ TEST(ENode, HashDiffersForDifferentDisambiguator) {
   EXPECT_NE(x1.hash(), x2.hash());
 }
 
-TEST(ENode, HashDiffersForDifferentSymbols) {
+TEST(Core_ENode, HashDiffersForDifferentSymbols) {
   auto id0 = EClassId{0};
   auto id1 = EClassId{1};
   TestNode add(Op::Add, {id0, id1});
@@ -160,7 +160,7 @@ TEST(ENode, HashDiffersForDifferentSymbols) {
   EXPECT_NE(add.hash(), mul.hash());
 }
 
-TEST(ENode, HashDiffersForDifferentChildOrder) {
+TEST(Core_ENode, HashDiffersForDifferentChildOrder) {
   auto id0 = EClassId{0};
   auto id1 = EClassId{1};
   TestNode forward(Op::Add, {id0, id1});
@@ -170,7 +170,7 @@ TEST(ENode, HashDiffersForDifferentChildOrder) {
   EXPECT_NE(forward.hash(), reverse.hash());
 }
 
-TEST(ENode, HashDiffersForDifferentChildren) {
+TEST(Core_ENode, HashDiffersForDifferentChildren) {
   auto id0 = EClassId{0};
   auto id1 = EClassId{1};
   auto id2 = EClassId{2};
@@ -181,7 +181,7 @@ TEST(ENode, HashDiffersForDifferentChildren) {
   EXPECT_NE(add1.hash(), add2.hash());
 }
 
-TEST(ENode, HashConsistentAcrossConstructions) {
+TEST(Core_ENode, HashConsistentAcrossConstructions) {
   auto id0 = EClassId{0};
   auto id1 = EClassId{1};
 
@@ -197,14 +197,14 @@ TEST(ENode, HashConsistentAcrossConstructions) {
   EXPECT_EQ(hash1, hash2);
 }
 
-TEST(ENode, StdHashSpecializationWorks) {
+TEST(Core_ENode, StdHashSpecializationWorks) {
   TestNode x(Op::Var, {}, 1);
   std::hash<TestNode> hasher;
 
   EXPECT_EQ(hasher(x), x.hash());
 }
 
-TEST(ENode, StdHashConsistentWithNodeHash) {
+TEST(Core_ENode, StdHashConsistentWithNodeHash) {
   auto id0 = EClassId{0};
   auto id1 = EClassId{1};
   TestNode add(Op::Add, {id0, id1});
@@ -218,7 +218,7 @@ TEST(ENode, StdHashConsistentWithNodeHash) {
 
 // --- Canonicalization Tests ---
 
-TEST(ENode, LeafNodeCanonicalizationIsIdentity) {
+TEST(Core_ENode, LeafNodeCanonicalizationIsIdentity) {
   UnionFind uf;  // does not matter about union find, cononicalization won't use it
   TestNode x(Op::Var, {}, 42);
 
@@ -227,7 +227,7 @@ TEST(ENode, LeafNodeCanonicalizationIsIdentity) {
   EXPECT_EQ(canonical, x);
 }
 
-TEST(ENode, NonLeafNodeCanonicalizesChildren) {
+TEST(Core_ENode, NonLeafNodeCanonicalizesChildren) {
   UnionFind uf;
   auto id0 = uf.MakeSet();
   auto id1 = uf.MakeSet();
@@ -246,7 +246,7 @@ TEST(ENode, NonLeafNodeCanonicalizesChildren) {
   EXPECT_EQ(canonical.children()[1], merged);
 }
 
-TEST(ENode, CanonicalizationDoesNotMutateOriginal) {
+TEST(Core_ENode, CanonicalizationDoesNotMutateOriginal) {
   UnionFind uf;
   auto id0 = uf.MakeSet();
   auto id1 = uf.MakeSet();
@@ -265,14 +265,14 @@ TEST(ENode, CanonicalizationDoesNotMutateOriginal) {
 
 // --- Edge Cases ---
 
-TEST(ENode, ZeroArityNodeIsLeaf) {
+TEST(Core_ENode, ZeroArityNodeIsLeaf) {
   TestNode nullary(Op::Add, {});  // Empty initializer list
 
   EXPECT_TRUE(nullary.is_leaf());
   EXPECT_EQ(nullary.disambiguator(), 0);
 }
 
-TEST(ENode, LargeAritySupported) {
+TEST(Core_ENode, LargeAritySupported) {
   utils::small_vector<EClassId> children;
   for (uint32_t i = 0; i < 5; ++i) {
     children.push_back(EClassId{i});
@@ -288,7 +288,7 @@ TEST(ENode, LargeAritySupported) {
 
 // --- Move Semantics ---
 
-TEST(ENode, MoveConstructionPreservesData) {
+TEST(Core_ENode, MoveConstructionPreservesData) {
   TestNode x(Op::F, {EClassId{42}, EClassId{43}, EClassId{44}});
   auto original_hash = x.hash();
   auto original_symbol = x.symbol();
@@ -303,7 +303,7 @@ TEST(ENode, MoveConstructionPreservesData) {
   EXPECT_EQ(moved.hash(), original_hash);
 }
 
-TEST(ENode, MoveAssignmentWorks) {
+TEST(Core_ENode, MoveAssignmentWorks) {
   TestNode target(Op::Var, {}, 1);
   TestNode source(Op::F, {EClassId{42}, EClassId{43}, EClassId{44}});
   auto original_hash = source.hash();

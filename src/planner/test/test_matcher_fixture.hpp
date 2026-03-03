@@ -19,10 +19,10 @@
 namespace memgraph::planner::core::test {
 
 // ============================================================================
-// MatcherIndex Test Fixture
+// PatternVM MatcherIndex Test Fixture
 // ============================================================================
 
-class MatcherIndexTest : public EGraphTestBase {
+class PatternVM_MatcherIndex : public EGraphTestBase {
  protected:
   TestMatcherIndex index{egraph};
   EMatchContext ctx;

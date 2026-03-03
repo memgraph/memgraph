@@ -27,7 +27,7 @@ using namespace vm;
 constexpr std::array<uint8_t, 2> kIdentityOrder2 = {0, 1};
 
 // Test: Global deduplication across candidates via bind-time dedup.
-TEST(VMStateTest, GlobalDeduplicationAcrossCandidates) {
+TEST(PatternVM_State, GlobalDeduplicationAcrossCandidates) {
   VMState state;
   state.reset(
       {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = kIdentityOrder2, .slot_to_order = kIdentityOrder2});
@@ -49,7 +49,7 @@ TEST(VMStateTest, GlobalDeduplicationAcrossCandidates) {
 }
 
 // Test: Verify correct behavior when slot value changes
-TEST(VMStateTest, BindSlotValueChange) {
+TEST(PatternVM_State, BindSlotValueChange) {
   VMState state;
   state.reset(
       {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = kIdentityOrder2, .slot_to_order = kIdentityOrder2});
@@ -67,7 +67,7 @@ TEST(VMStateTest, BindSlotValueChange) {
 }
 
 // Test: Deduplication within same candidate
-TEST(VMStateTest, DeduplicationWithinCandidate) {
+TEST(PatternVM_State, DeduplicationWithinCandidate) {
   VMState state;
   state.reset(
       {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = kIdentityOrder2, .slot_to_order = kIdentityOrder2});
@@ -82,7 +82,7 @@ TEST(VMStateTest, DeduplicationWithinCandidate) {
 }
 
 // Test: Binding order clears correct seen sets
-TEST(VMStateTest, BindingOrderClearsSlotsCorrectly) {
+TEST(PatternVM_State, BindingOrderClearsSlotsCorrectly) {
   // Binding order [1, 0, 2] means: slot 1 first, then slot 0, then slot 2
   // When slot 1 changes (pos 0), clear slots at positions 1, 2 = slots 0, 2
   // When slot 0 changes (pos 1), clear slots at positions 2 = slot 2
@@ -129,7 +129,7 @@ TEST(VMStateTest, BindingOrderClearsSlotsCorrectly) {
 //   When ?y (slot 2, pos 1) changes: clear ?w, ?z (slots 0, 3)
 //   When ?w (slot 0, pos 2) changes: clear ?z (slot 3)
 //   When ?z (slot 3, pos 3) changes: clear nothing
-TEST(VMStateTest, FourSlotComplexPermutation) {
+TEST(PatternVM_State, FourSlotComplexPermutation) {
   std::vector<uint8_t> binding_order = {1, 2, 0, 3};  // pos -> slot
   std::vector<uint8_t> slot_to_order = {2, 0, 1, 3};  // slot -> pos
 

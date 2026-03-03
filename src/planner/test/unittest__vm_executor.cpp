@@ -30,13 +30,13 @@ using namespace vm;
 // VM Execution with Tracer Tests
 // ============================================================================
 
-class VMExecutionTest : public EGraphTestBase {
+class PatternVM_Execution : public EGraphTestBase {
  protected:
   EMatchContext ctx;
   std::vector<PatternMatch> results;
 };
 
-TEST_F(VMExecutionTest, SimpleMatch) {
+TEST_F(PatternVM_Execution, SimpleMatch) {
   // Create e-graph: Neg(Const(42))
   auto c = leaf(Op::Const, 42);
   node(Op::Neg, c);
@@ -68,7 +68,7 @@ TEST_F(VMExecutionTest, SimpleMatch) {
   }
 }
 
-TEST_F(VMExecutionTest, NoMatch) {
+TEST_F(PatternVM_Execution, NoMatch) {
   // Create e-graph: Add(Const(1), Const(2))
   auto c1 = leaf(Op::Const, 1);
   auto c2 = leaf(Op::Const, 2);
@@ -88,7 +88,7 @@ TEST_F(VMExecutionTest, NoMatch) {
   EXPECT_EQ(results.size(), 0) << "Expected no matches";
 }
 
-TEST_F(VMExecutionTest, MultipleMatches) {
+TEST_F(PatternVM_Execution, MultipleMatches) {
   // Create e-graph with multiple Neg nodes
   auto c1 = leaf(Op::Const, 1);
   auto c2 = leaf(Op::Const, 2);
@@ -110,7 +110,7 @@ TEST_F(VMExecutionTest, MultipleMatches) {
   EXPECT_EQ(results.size(), 3) << "Expected 3 matches (n1, n2, n3 all contain Neg)";
 }
 
-TEST_F(VMExecutionTest, NestedPatternMatch) {
+TEST_F(PatternVM_Execution, NestedPatternMatch) {
   // Create e-graph: Neg(Neg(Const(42)))
   auto c = leaf(Op::Const, 42);
   node(Op::Neg, node(Op::Neg, c));
@@ -136,7 +136,7 @@ TEST_F(VMExecutionTest, NestedPatternMatch) {
   }
 }
 
-TEST_F(VMExecutionTest, SelfReferentialEClass) {
+TEST_F(PatternVM_Execution, SelfReferentialEClass) {
   // The self-referential case from the bug:
   // n0 = B(64)
   // n1 = F(n0)
@@ -183,7 +183,7 @@ TEST_F(VMExecutionTest, SelfReferentialEClass) {
 // Deep Pattern Tests (regression for crash)
 // ============================================================================
 
-TEST_F(VMExecutionTest, DeepNestedPattern) {
+TEST_F(PatternVM_Execution, DeepNestedPattern) {
   // Create a chain of Neg nodes: Neg(Neg(Neg(...Neg(x)...)))
   constexpr int kDepth = 10;
 
@@ -213,7 +213,7 @@ TEST_F(VMExecutionTest, DeepNestedPattern) {
       << bytecode;
 }
 
-TEST_F(VMExecutionTest, VeryDeepNestedPattern) {
+TEST_F(PatternVM_Execution, VeryDeepNestedPattern) {
   // Create a chain of Neg nodes: Neg(Neg(Neg(...Neg(x)...)))
   constexpr int kDepth = 50;
 
@@ -251,7 +251,7 @@ TEST_F(VMExecutionTest, VeryDeepNestedPattern) {
 }
 
 // Test that deep patterns compile successfully (dynamic register allocation)
-TEST_F(VMExecutionTest, DeepPatternCompiles) {
+TEST_F(PatternVM_Execution, DeepPatternCompiles) {
   // VM now supports dynamic register allocation (up to 256 due to uint8_t)
   // Deep patterns need ~2*depth+1 registers, so depth 35 uses ~71 registers
   constexpr int kPatternDepth = 35;
@@ -279,7 +279,7 @@ TEST_F(VMExecutionTest, DeepPatternCompiles) {
 
 // Test: Verify same variable pattern works correctly with merged e-classes.
 // Pattern Add(?x, Neg(?x)) uses CheckSlot for the second ?x occurrence.
-TEST_F(VMExecutionTest, SameVariableMergedEClass) {
+TEST_F(PatternVM_Execution, SameVariableMergedEClass) {
   // Create e-graph with merged e-class containing:
   //   n0 = Add(a, Neg(a))  -- ?x binds to a, Neg child is a, should match
   //   n1 = Add(a, Neg(b))  -- ?x binds to a, Neg child is b, should NOT match
@@ -336,7 +336,7 @@ TEST_F(VMExecutionTest, SameVariableMergedEClass) {
 
 // Critical bug test: Inner loop with multiple e-nodes, outer has one
 // This specifically tests when Yield clears bound and inner continues
-TEST_F(VMExecutionTest, SameVariableInnerLoopMultipleENodes) {
+TEST_F(PatternVM_Execution, SameVariableInnerLoopMultipleENodes) {
   // Pattern: Add(?x, Neg(?x))
   // E-graph:
   //   a = Const(1)
@@ -412,7 +412,7 @@ TEST_F(VMExecutionTest, SameVariableInnerLoopMultipleENodes) {
 }
 
 // Additional test: Three e-nodes, only one matches
-TEST_F(VMExecutionTest, SameVariableMultipleMergedENodes) {
+TEST_F(PatternVM_Execution, SameVariableMultipleMergedENodes) {
   // n0 = Add(a, Neg(a))  -- matches
   // n1 = Add(a, Neg(b))  -- no match
   // n2 = Add(b, Neg(b))  -- matches
@@ -453,7 +453,7 @@ TEST_F(VMExecutionTest, SameVariableMultipleMergedENodes) {
 
 // Test that VM executor correctly deduplicates matches
 // This tests the bind-time dedup mechanism with self-referential e-classes
-TEST_F(VMExecutionTest, DeduplicationSelfReferentialEClass) {
+TEST_F(PatternVM_Execution, DeduplicationSelfReferentialEClass) {
   // Create a self-referential e-class where multiple paths lead to the same binding:
   //   a = Const(1)
   //   n0 = F(a)
@@ -501,7 +501,7 @@ TEST_F(VMExecutionTest, DeduplicationSelfReferentialEClass) {
 }
 
 // Test that a simple pattern produces exactly one match
-TEST_F(VMExecutionTest, SingleMatchForSimplePattern) {
+TEST_F(PatternVM_Execution, SingleMatchForSimplePattern) {
   // Simple test: one F node should produce one match.
 
   auto a = leaf(Op::Const, 1);
@@ -524,7 +524,7 @@ TEST_F(VMExecutionTest, SingleMatchForSimplePattern) {
 }
 
 // Test deduplication with merged e-classes that have different symbols
-TEST_F(VMExecutionTest, DeduplicationMergedDifferentSymbols) {
+TEST_F(PatternVM_Execution, DeduplicationMergedDifferentSymbols) {
   // Create e-class with multiple e-nodes of different symbols pointing to same child:
   //   a = Const(1)
   //   f_a = F(a)
@@ -571,7 +571,7 @@ TEST_F(VMExecutionTest, DeduplicationMergedDifferentSymbols) {
 // Test: max_seen_slot_ tracking with non-sequential slot binding
 // Bug: bind() incorrectly sets max_seen_slot_ = end after clearing seen sets
 // This could cause incorrect deduplication behavior when slots are bound out of order
-TEST_F(VMExecutionTest, DeduplicationSlotOrderIndependence) {
+TEST_F(PatternVM_Execution, DeduplicationSlotOrderIndependence) {
   // Create a pattern where the slot binding order might not match slot indices
   // Pattern: F(?y, ?x) - variables may be bound as y=slot0, x=slot1 or vice versa
   //
@@ -607,7 +607,7 @@ TEST_F(VMExecutionTest, DeduplicationSlotOrderIndependence) {
 // Test: Deduplication with repeated candidate causing same bindings
 // Verifies that deduplication correctly prevents duplicate matches when
 // the same binding tuple is reached via different paths
-TEST_F(VMExecutionTest, DeduplicationMultiplePaths) {
+TEST_F(PatternVM_Execution, DeduplicationMultiplePaths) {
   // Create e-graph where same binding can be reached multiple ways:
   //   a, b are leaves
   //   f1 = F(a, b)
@@ -643,7 +643,7 @@ TEST_F(VMExecutionTest, DeduplicationMultiplePaths) {
 
 // Test: Deduplication with changing prefix (slot rebinding)
 // This tests the seen_per_slot clearing logic when a slot value changes
-TEST_F(VMExecutionTest, DeduplicationPrefixChange) {
+TEST_F(PatternVM_Execution, DeduplicationPrefixChange) {
   // Create pattern: Add(?x, F(?x, ?y))
   // This binds ?x first (from Add's first child), then ?y (from F's second child)
   //
@@ -683,7 +683,7 @@ TEST_F(VMExecutionTest, DeduplicationPrefixChange) {
 
 // Test: Wide e-class with many e-nodes and deduplication
 // This stress-tests the deduplication when iterating through many e-nodes
-TEST_F(VMExecutionTest, DeduplicationWideEClass) {
+TEST_F(PatternVM_Execution, DeduplicationWideEClass) {
   // Create multiple F(a, x) nodes for different x values, then merge them
   // Pattern F(?x, ?y) should find each unique binding once
 
@@ -724,7 +724,7 @@ TEST_F(VMExecutionTest, DeduplicationWideEClass) {
 // Multi-Pattern Execution Tests
 // ============================================================================
 
-TEST_F(VMExecutionTest, MultiPattern_JoinWithParentTraversal) {
+TEST_F(PatternVM_Execution, MultiPattern_JoinWithParentTraversal) {
   // Build e-graph:
   //   sym_val = Const(1)
   //   expr_val = Const(2)
@@ -759,7 +759,7 @@ TEST_F(VMExecutionTest, MultiPattern_JoinWithParentTraversal) {
   EXPECT_EQ(results.size(), 1) << "Should find exactly 1 match where Bind and Ident share ?sym";
 }
 
-TEST_F(VMExecutionTest, MultiPattern_NoMatchingJoin) {
+TEST_F(PatternVM_Execution, MultiPattern_NoMatchingJoin) {
   // Ident uses different symbol than Bind - no match expected
   auto placeholder = leaf(Op::Const, 0);
   auto sym_val1 = leaf(Op::Const, 1);
@@ -789,7 +789,7 @@ TEST_F(VMExecutionTest, MultiPattern_NoMatchingJoin) {
   EXPECT_EQ(results.size(), 0) << "Should find no matches when Ident uses different symbol";
 }
 
-TEST_F(VMExecutionTest, MultiPattern_MultipleJoinMatches) {
+TEST_F(PatternVM_Execution, MultiPattern_MultipleJoinMatches) {
   // Multiple Ident nodes reference same symbol -> multiple matches
   auto placeholder = leaf(Op::Const, 0);
   auto sym_val = leaf(Op::Const, 1);
@@ -823,7 +823,7 @@ TEST_F(VMExecutionTest, MultiPattern_MultipleJoinMatches) {
   EXPECT_EQ(results.size(), expected_matches) << "Expected " << expected_matches << " matches";
 }
 
-TEST_F(VMExecutionTest, MultiPattern_NestedJoinedPattern) {
+TEST_F(PatternVM_Execution, MultiPattern_NestedJoinedPattern) {
   // Joined pattern with nested symbols: F(?sym, Neg(?x))
   constexpr PatternVar kVarSym{0};
   constexpr PatternVar kVarX{1};
@@ -852,7 +852,7 @@ TEST_F(VMExecutionTest, MultiPattern_NestedJoinedPattern) {
   EXPECT_EQ(results.size(), 1) << "Should find 1 match for nested pattern";
 }
 
-TEST_F(VMExecutionTest, MultiPattern_ThreePatternJoin) {
+TEST_F(PatternVM_Execution, MultiPattern_ThreePatternJoin) {
   // Three patterns with shared variables
   auto placeholder = leaf(Op::Const, 0);
   auto sym_val = leaf(Op::Const, 1);
@@ -883,7 +883,7 @@ TEST_F(VMExecutionTest, MultiPattern_ThreePatternJoin) {
   EXPECT_EQ(results.size(), 1) << "Should find 1 match for three-pattern join";
 }
 
-TEST_F(VMExecutionTest, MultiPattern_ManyParentTraversals) {
+TEST_F(PatternVM_Execution, MultiPattern_ManyParentTraversals) {
   // Multiple distinct parents of shared variable
   auto placeholder = leaf(Op::Const, 0);
   auto sym_val = leaf(Op::Const, 1);
@@ -921,7 +921,7 @@ TEST_F(VMExecutionTest, MultiPattern_ManyParentTraversals) {
   EXPECT_EQ(results.size(), 3) << "Expected 3 F2 * 1 Neg = 3 matches";
 }
 
-TEST_F(VMExecutionTest, MultiPattern_DeduplicationWithPrefixChange) {
+TEST_F(PatternVM_Execution, MultiPattern_DeduplicationWithPrefixChange) {
   // Tests deduplication when prefix slot changes
   auto a1 = leaf(Op::Const, 1);
   auto a2 = leaf(Op::Const, 2);
@@ -958,7 +958,7 @@ TEST_F(VMExecutionTest, MultiPattern_DeduplicationWithPrefixChange) {
   EXPECT_EQ(results.size(), 4) << "Expected 4 unique matches (2 F's * 2 F2's)";
 }
 
-TEST_F(VMExecutionTest, MultiPattern_DeduplicationMultiplePaths) {
+TEST_F(PatternVM_Execution, MultiPattern_DeduplicationMultiplePaths) {
   // Same tuple reachable via multiple paths should be deduplicated
   auto x = leaf(Op::Const, 1);
   [[maybe_unused]] auto f_xx = node(Op::F, x, x);  // F(x, x)

@@ -18,12 +18,12 @@ import memgraph.planner.core.egraph;
 using namespace memgraph::planner::core;
 
 // ============================================================================
-// MatchArena Tests
+// Match_MatchArena Tests
 // ============================================================================
 //
 // MatchArena is a monotonic allocator for storing match bindings efficiently.
 
-TEST(MatchArena, InternAndRetrieve) {
+TEST(Match_MatchArena, InternAndRetrieve) {
   MatchArena arena;
 
   std::array bindings = {EClassId{10}, EClassId{20}, EClassId{30}};
@@ -36,7 +36,7 @@ TEST(MatchArena, InternAndRetrieve) {
   EXPECT_EQ(span[2], EClassId{30});
 }
 
-TEST(MatchArena, MultipleAllocationsAreIndependent) {
+TEST(Match_MatchArena, MultipleAllocationsAreIndependent) {
   MatchArena arena;
 
   auto offset1 = arena.intern(std::array{EClassId{1}, EClassId{2}});
@@ -52,7 +52,7 @@ TEST(MatchArena, MultipleAllocationsAreIndependent) {
   EXPECT_EQ(span2[2], EClassId{30});
 }
 
-TEST(MatchArena, ClearResetsForReuse) {
+TEST(Match_MatchArena, ClearResetsForReuse) {
   MatchArena arena;
 
   arena.intern(std::array{EClassId{1}, EClassId{2}, EClassId{3}});

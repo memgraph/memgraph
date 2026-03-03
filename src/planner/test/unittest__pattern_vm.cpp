@@ -30,7 +30,7 @@ using namespace test;
 // Tests fundamental matching: variables match anything, symbols filter by type,
 // and arity must match exactly.
 
-TEST_F(MatcherIndexTest, VariableMatchesAnyEClass) {
+TEST_F(PatternVM_MatcherIndex, VariableMatchesAnyEClass) {
   // Variable patterns (?x) match every e-class unconditionally.
   // This is the most permissive pattern type.
   //
@@ -50,7 +50,7 @@ TEST_F(MatcherIndexTest, VariableMatchesAnyEClass) {
   expect_matches({{{kVarX, a}}, {{kVarX, b}}, {{kVarX, c}}});
 }
 
-TEST_F(MatcherIndexTest, SymbolFiltersAndArityMustMatch) {
+TEST_F(PatternVM_MatcherIndex, SymbolFiltersAndArityMustMatch) {
   // Symbol patterns (Op::X) only match e-nodes with that symbol.
   // Arity must also match exactly.
   //
@@ -71,7 +71,7 @@ TEST_F(MatcherIndexTest, SymbolFiltersAndArityMustMatch) {
   expect_matches({{{kTestRoot, correct_f}, {kVarX, a}, {kVarY, b}}});
 }
 
-TEST_F(MatcherIndexTest, SymbolMismatchReturnsNoMatches) {
+TEST_F(PatternVM_MatcherIndex, SymbolMismatchReturnsNoMatches) {
   // Pattern only matches e-nodes with the exact symbol.
   //
   //   Pattern: Add(?x, ?y)
@@ -88,7 +88,7 @@ TEST_F(MatcherIndexTest, SymbolMismatchReturnsNoMatches) {
   expect_no_matches();
 }
 
-TEST_F(MatcherIndexTest, WildcardMatchesWithoutBinding) {
+TEST_F(PatternVM_MatcherIndex, WildcardMatchesWithoutBinding) {
   // Wildcards (_) match any e-class but create no binding.
   // Useful for "don't care" positions in patterns.
   //
@@ -112,7 +112,7 @@ TEST_F(MatcherIndexTest, WildcardMatchesWithoutBinding) {
   expect_matches({{{kVarX, b}}, {{kVarX, a}}});
 }
 
-TEST_F(MatcherIndexTest, PatternWithNoVariablesReturnsNoMatches) {
+TEST_F(PatternVM_MatcherIndex, PatternWithNoVariablesReturnsNoMatches) {
   // Edge case: patterns without variables have no bindings to return.
   // Matcher returns 0 matches since results would be meaningless.
   auto builder = TestPattern::Builder{};
@@ -135,7 +135,7 @@ TEST_F(MatcherIndexTest, PatternWithNoVariablesReturnsNoMatches) {
 // enforces that all occurrences bind to the same e-class. This is a key
 // feature for detecting equivalent subexpressions.
 
-TEST_F(MatcherIndexTest, RepeatedVariableEnforcesEquality) {
+TEST_F(PatternVM_MatcherIndex, RepeatedVariableEnforcesEquality) {
   // Pattern Add(?x, ?x) only matches when both children are equivalent.
   //
   //   E-graph:          Pattern:
@@ -159,7 +159,7 @@ TEST_F(MatcherIndexTest, RepeatedVariableEnforcesEquality) {
 // Patterns can have arbitrary nesting depth and width. The matcher collects
 // bindings from all levels into a single match result.
 
-TEST_F(MatcherIndexTest, DeepPatternCollectsAllBindings) {
+TEST_F(PatternVM_MatcherIndex, DeepPatternCollectsAllBindings) {
   // Deeply nested pattern with variables at multiple levels.
   //
   //   Pattern: Add(Mul(Neg(?x), ?y), ?z)
@@ -182,7 +182,7 @@ TEST_F(MatcherIndexTest, DeepPatternCollectsAllBindings) {
   expect_matches({{{kTestRoot, expr}, {kVarX, x}, {kVarY, y}, {kVarZ, z}}});
 }
 
-TEST_F(MatcherIndexTest, WidePatternCollectsFromAllBranches) {
+TEST_F(PatternVM_MatcherIndex, WidePatternCollectsFromAllBranches) {
   // Pattern with multiple branches, each containing variables.
   // All variables must be collected into one match.
   //
@@ -206,7 +206,7 @@ TEST_F(MatcherIndexTest, WidePatternCollectsFromAllBranches) {
   expect_matches({{{kTestRoot, f}, {kVarW, w}, {kVarX, x}, {kVarY, y}, {kVarZ, z}}});
 }
 
-TEST_F(MatcherIndexTest, PatternMatchesMultipleLocations) {
+TEST_F(PatternVM_MatcherIndex, PatternMatchesMultipleLocations) {
   // A pattern can match at multiple locations in the e-graph.
   //
   //   E-graph: Add(a, Add(b, c))
@@ -240,7 +240,7 @@ TEST_F(MatcherIndexTest, PatternMatchesMultipleLocations) {
 // 1. Matching different e-nodes that represent the same equivalence
 // 2. Patterns becoming matchable after merges create equivalences
 
-TEST_F(MatcherIndexTest, MergedEClassMatchesBothRepresentations) {
+TEST_F(PatternVM_MatcherIndex, MergedEClassMatchesBothRepresentations) {
   // Scenario: Analysis determined Add(x,y) and Mul(x,y) evaluate to the same
   // value (e.g., constant folding showed both equal 0). After merging, both
   // Add and Mul patterns should match the merged e-class.
@@ -269,7 +269,7 @@ TEST_F(MatcherIndexTest, MergedEClassMatchesBothRepresentations) {
   expect_matches({{{kTestRoot, merged}, {kVarX, x}, {kVarY, y}}});
 }
 
-TEST_F(MatcherIndexTest, MergeEnablesRepeatedVariableMatch) {
+TEST_F(PatternVM_MatcherIndex, MergeEnablesRepeatedVariableMatch) {
   // Merge can make a repeated-variable pattern match.
   //
   //   Pattern: Add(?x, ?x)
@@ -299,7 +299,7 @@ TEST_F(MatcherIndexTest, MergeEnablesRepeatedVariableMatch) {
   expect_matches({{{kTestRoot, add}, {kVarX, egraph.find(a)}}});
 }
 
-TEST_F(MatcherIndexTest, SelfReferentialEClassMatchesMultipleTimes) {
+TEST_F(PatternVM_MatcherIndex, SelfReferentialEClassMatchesMultipleTimes) {
   // Regression test for self-referential e-class matching.
   //
   // Setup:
@@ -349,7 +349,7 @@ TEST_F(MatcherIndexTest, SelfReferentialEClassMatchesMultipleTimes) {
   });
 }
 
-TEST_F(MatcherIndexTest, UnionNodeWithChildCreatesSimpleSelfReferentialEClass) {
+TEST_F(PatternVM_MatcherIndex, UnionNodeWithChildCreatesSimpleSelfReferentialEClass) {
   // Scenario:
   //
   //   (let n0 (A 10))
@@ -405,7 +405,7 @@ TEST_F(MatcherIndexTest, UnionNodeWithChildCreatesSimpleSelfReferentialEClass) {
 // The MatcherIndex maintains a symbol index for efficient candidate lookup.
 // These tests verify index correctness during incremental updates.
 
-TEST_F(MatcherIndexTest, IncrementalIndexFindsNewNodes) {
+TEST_F(PatternVM_MatcherIndex, IncrementalIndexFindsNewNodes) {
   // After adding nodes, incremental rebuild_index() makes them findable.
   //
   // Scenario:
@@ -429,7 +429,7 @@ TEST_F(MatcherIndexTest, IncrementalIndexFindsNewNodes) {
   expect_matches({{{kTestRoot, c}}});
 }
 
-TEST_F(MatcherIndexTest, MatchCountCorrectAfterCongruence) {
+TEST_F(PatternVM_MatcherIndex, MatchCountCorrectAfterCongruence) {
   // Congruence merges e-nodes that become structurally identical.
   // Pattern matching must return correct count (no duplicates).
   //
@@ -474,7 +474,7 @@ TEST_F(MatcherIndexTest, MatchCountCorrectAfterCongruence) {
 // This is important because the VM executor is used as an optimized alternative
 // to MatcherIndex in the rewrite engine.
 
-TEST_F(MatcherIndexTest, VMExecutorMatchesSameAsMatcherIndex) {
+TEST_F(PatternVM_MatcherIndex, VMExecutorMatchesSameAsMatcherIndex) {
   // Basic test: both matchers should produce the same results for a simple pattern.
   //
   //   Pattern: Add(?x, ?y)
@@ -501,7 +501,7 @@ TEST_F(MatcherIndexTest, VMExecutorMatchesSameAsMatcherIndex) {
   ASSERT_EQ(matches.size(), 1);
 }
 
-TEST_F(MatcherIndexTest, LeafSymbolChildWithMergedENodesConsistency) {
+TEST_F(PatternVM_MatcherIndex, LeafSymbolChildWithMergedENodesConsistency) {
   // Regression test: When a leaf symbol appears as a CHILD (not root) of a
   // pattern, and that child e-class contains multiple e-nodes with the same
   // symbol (but different disambiguators), MatcherIndex and VM should produce
@@ -551,7 +551,7 @@ TEST_F(MatcherIndexTest, LeafSymbolChildWithMergedENodesConsistency) {
   EXPECT_EQ(vm_count, 1u) << "Expected 1 match (one per e-class, not per e-node)";
 }
 
-TEST_F(MatcherIndexTest, TernaryPatternWithLeafSymbolChildConsistency) {
+TEST_F(PatternVM_MatcherIndex, TernaryPatternWithLeafSymbolChildConsistency) {
   // Regression test from fuzzer: Pattern with a leaf symbol child in 3-ary pattern.
   //
   //   Setup:
@@ -597,7 +597,7 @@ TEST_F(MatcherIndexTest, TernaryPatternWithLeafSymbolChildConsistency) {
 // Multi-Pattern Matching Tests
 // ============================================================================
 
-TEST_F(MatcherIndexTest, MultiPatternVMFiltersBySymbolInVerifyMode) {
+TEST_F(PatternVM_MatcherIndex, MultiPatternVMFiltersBySymbolInVerifyMode) {
   // Regression test for VM multi-pattern matching bug found by fuzzer.
   //
   // Historical note: The original bug was in IterParentsSym which iterated all
@@ -641,7 +641,7 @@ TEST_F(MatcherIndexTest, MultiPatternVMFiltersBySymbolInVerifyMode) {
   EXPECT_EQ(vm_count, 0u) << "VM should find 0 multi-pattern matches (was finding 1 before fix)";
 }
 
-TEST_F(MatcherIndexTest, MultiPatternMatchWithSharedVariable) {
+TEST_F(PatternVM_MatcherIndex, MultiPatternMatchWithSharedVariable) {
   // Test that multi-pattern matching correctly finds matches when both patterns
   // can be satisfied with a shared variable.
   //
@@ -683,7 +683,7 @@ TEST_F(MatcherIndexTest, MultiPatternMatchWithSharedVariable) {
 // Match Deduplication Tests
 // ============================================================================
 
-TEST_F(MatcherIndexTest, DuplicateBindingsFromDifferentENodes) {
+TEST_F(PatternVM_MatcherIndex, DuplicateBindingsFromDifferentENodes) {
   // Test: Multiple e-nodes can produce different binding tuples even when
   // some variables have the same values. VM deduplicates by FULL tuple.
   //
@@ -749,7 +749,7 @@ TEST_F(MatcherIndexTest, DuplicateBindingsFromDifferentENodes) {
       << "Non-root bindings (?x, ?y) should deduplicate to 1 (both have ?x=b, ?y=b)";
 }
 
-TEST_F(MatcherIndexTest, DeepNestedTernaryPatternNoMatches) {
+TEST_F(PatternVM_MatcherIndex, DeepNestedTernaryPatternNoMatches) {
   // Regression test from fuzzer crash-2f63faa4a8ed614df99ebc535024ccfb510b171f
   // Tests that deeply nested patterns with many variables correctly return
   // 0 matches when the e-graph doesn't contain matching structure.
@@ -785,7 +785,7 @@ TEST_F(MatcherIndexTest, DeepNestedTernaryPatternNoMatches) {
   EXPECT_EQ(matches.size(), 0u) << "VM should find 0 matches for non-existent pattern structure";
 }
 
-TEST_F(MatcherIndexTest, DeepNestedTernaryPatternWithMatches) {
+TEST_F(PatternVM_MatcherIndex, DeepNestedTernaryPatternWithMatches) {
   // Test deeply nested patterns actually finding matches when structure exists.
   // This ensures the pattern compilation and execution work correctly for
   // complex nested structures.
@@ -822,7 +822,7 @@ TEST_F(MatcherIndexTest, DeepNestedTernaryPatternWithMatches) {
   EXPECT_EQ(vm_count, 1u) << "VM should find exactly 1 match";
 }
 
-TEST_F(MatcherIndexTest, RepeatedVarInNestedPatternWithSelfReferentialEClass) {
+TEST_F(PatternVM_MatcherIndex, RepeatedVarInNestedPatternWithSelfReferentialEClass) {
   // Known failing test: E-graph congruence closure bug.
   //
   // Pattern: Mul(?x, Mul(?x, ?y))

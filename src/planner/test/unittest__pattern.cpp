@@ -60,7 +60,7 @@ void expect_vars(TestPattern const &pattern, std::initializer_list<PatternVar> v
 //          ?y
 // ============================================================================
 
-TEST(PatternDSL, NestedPatternConstruction) {
+TEST(Pattern_DSL, NestedPatternConstruction) {
   // Build: Add(Neg(?x), Mul(?y, ?z))
   //
   //         Add         <-- root (depth 0)
@@ -77,7 +77,7 @@ TEST(PatternDSL, NestedPatternConstruction) {
   expect_vars(pattern, {kVarX, kVarY, kVarZ});
 }
 
-TEST(PatternDSL, LeafSymbolPattern) {
+TEST(Pattern_DSL, LeafSymbolPattern) {
   // Build: Const (leaf symbol with no children)
   auto pattern = TestPattern::build(Op::Const);
 
@@ -87,7 +87,7 @@ TEST(PatternDSL, LeafSymbolPattern) {
   EXPECT_FALSE(pattern.is_variable_pattern());
 }
 
-TEST(PatternDSL, WildcardVsVariable) {
+TEST(Pattern_DSL, WildcardVsVariable) {
   // Build: Add(_, ?x)
   // Wildcard matches any e-class without creating a binding
   //
@@ -110,7 +110,7 @@ TEST(PatternDSL, WildcardVsVariable) {
 // Example: Add(?x, ?x) only matches when both children are in the same e-class.
 // ============================================================================
 
-TEST(PatternVariables, RepeatedVariableCountsOnce) {
+TEST(Pattern_Variables, RepeatedVariableCountsOnce) {
   // Build: Add(?x, ?x)
   // Same PatternVar ID used multiple times → only one unique variable.
   // During matching, both positions must bind to the same e-class.
@@ -126,7 +126,7 @@ TEST(PatternVariables, RepeatedVariableCountsOnce) {
   expect_vars(pattern, {kVarX});  // only one unique variable
 }
 
-TEST(PatternVariables, RootBinding) {
+TEST(Pattern_Variables, RootBinding) {
   // Build: Add(?x, ?y) with root bound to ?root
   // Bindings capture the matched e-class at a symbol node.
   //
@@ -150,7 +150,7 @@ TEST(PatternVariables, RootBinding) {
 // Important for matching algorithm scheduling (deeper patterns are more specific).
 // ============================================================================
 
-TEST(PatternDepth, AsymmetricTreeUsesDeepestBranch) {
+TEST(Pattern_Depth, AsymmetricTreeUsesDeepestBranch) {
   // Depth is max of all branches, not first branch.
   // Test both orderings to ensure correctness.
 
@@ -179,7 +179,7 @@ TEST(PatternDepth, AsymmetricTreeUsesDeepestBranch) {
   expect_vars(right_deep, {kVarX, kVarY});
 }
 
-TEST(PatternDepth, WideButShallow) {
+TEST(Pattern_Depth, WideButShallow) {
   // Build: F(?x, ?y, ?z, ?w) - 4-ary function
   // Wide patterns can have low depth.
   //
@@ -201,7 +201,7 @@ TEST(PatternDepth, WideButShallow) {
 // Both construction methods should produce identical patterns.
 // ============================================================================
 
-TEST(PatternConstruction, BuilderAndFluentDSLEquivalent) {
+TEST(Pattern_Construction, BuilderAndFluentDSLEquivalent) {
   // Pattern: Mul(Add(?x, ?y), Neg(?z))
   //
   //         Mul
@@ -235,7 +235,7 @@ TEST(PatternConstruction, BuilderAndFluentDSLEquivalent) {
 // Edge Cases
 // ============================================================================
 
-TEST(PatternEdgeCases, SingleVariableIsVariablePattern) {
+TEST(Pattern_EdgeCases, SingleVariableIsVariablePattern) {
   // Build: ?x (single variable pattern)
   // Variable patterns match any e-class.
   auto pattern = make_var_pattern(kVarX);
@@ -246,7 +246,7 @@ TEST(PatternEdgeCases, SingleVariableIsVariablePattern) {
   expect_vars(pattern, {kVarX});
 }
 
-TEST(PatternEdgeCases, SymbolPatternNotVariablePattern) {
+TEST(Pattern_EdgeCases, SymbolPatternNotVariablePattern) {
   // Build: Const() (leaf symbol)
   auto pattern = TestPattern::build(Op::Const);
 

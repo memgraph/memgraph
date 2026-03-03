@@ -48,7 +48,7 @@ struct MatcherResult {
 // Ground Truth Comparison Fixture
 // ============================================================================
 
-class MatcherCorrectnessTest : public EGraphTestBase {
+class PatternVM_Correctness : public EGraphTestBase {
  protected:
   EMatchContext ctx;
   std::vector<PatternMatch> results;
@@ -101,7 +101,7 @@ class MatcherCorrectnessTest : public EGraphTestBase {
 // Basic Pattern Tests
 // ============================================================================
 
-TEST_F(MatcherCorrectnessTest, SimplePattern_Neg) {
+TEST_F(PatternVM_Correctness, SimplePattern_Neg) {
   // Ground truth: N Neg nodes -> N matches
   constexpr std::size_t kNumNodes = 100;
 
@@ -115,7 +115,7 @@ TEST_F(MatcherCorrectnessTest, SimplePattern_Neg) {
   verify_vm(pattern, kNumNodes);
 }
 
-TEST_F(MatcherCorrectnessTest, NestedPattern_NegNeg) {
+TEST_F(PatternVM_Correctness, NestedPattern_NegNeg) {
   // Ground truth: N chains of Neg(Neg(x)) -> N matches
   constexpr std::size_t kNumChains = 50;
 
@@ -130,7 +130,7 @@ TEST_F(MatcherCorrectnessTest, NestedPattern_NegNeg) {
   verify_vm(pattern, kNumChains);
 }
 
-TEST_F(MatcherCorrectnessTest, DeepPattern_Chain4) {
+TEST_F(PatternVM_Correctness, DeepPattern_Chain4) {
   // Ground truth: N 4-deep chains -> N matches
   constexpr std::size_t kNumChains = 20;
 
@@ -147,7 +147,7 @@ TEST_F(MatcherCorrectnessTest, DeepPattern_Chain4) {
   verify_vm(pattern, kNumChains);
 }
 
-TEST_F(MatcherCorrectnessTest, SameVariablePattern_AddXX) {
+TEST_F(PatternVM_Correctness, SameVariablePattern_AddXX) {
   // Ground truth: Add(x, x) matches only when both children are same e-class
   constexpr std::size_t kNumLeaves = 20;
 
@@ -176,7 +176,7 @@ TEST_F(MatcherCorrectnessTest, SameVariablePattern_AddXX) {
   verify_vm(pattern, kNumLeaves);
 }
 
-TEST_F(MatcherCorrectnessTest, WideEClass_ManyENodes) {
+TEST_F(PatternVM_Correctness, WideEClass_ManyENodes) {
   // Ground truth: Merging N Neg nodes into one e-class -> N matches
   // Each e-node in the e-class produces a distinct binding for ?x
   constexpr std::size_t kNumMerges = 20;
@@ -201,7 +201,7 @@ TEST_F(MatcherCorrectnessTest, WideEClass_ManyENodes) {
 // Self-Referential E-Class Tests
 // ============================================================================
 
-TEST_F(MatcherCorrectnessTest, SelfReferentialEClass_DeepPattern) {
+TEST_F(PatternVM_Correctness, SelfReferentialEClass_DeepPattern) {
   // Setup:
   //   n0 = B(64)
   //   n1 = F(n0)
@@ -238,7 +238,7 @@ TEST_F(MatcherCorrectnessTest, SelfReferentialEClass_DeepPattern) {
 // Leaf Symbol in Pattern Tests
 // ============================================================================
 
-TEST_F(MatcherCorrectnessTest, TernaryPatternWithLeafSymbol) {
+TEST_F(PatternVM_Correctness, TernaryPatternWithLeafSymbol) {
   // Setup:
   //   v0 = X(0), v1 = Y(0)
   //   a0 = A(0), a1 = A(1)
@@ -273,7 +273,7 @@ TEST_F(MatcherCorrectnessTest, TernaryPatternWithLeafSymbol) {
 // Complex Pattern Tests
 // ============================================================================
 
-TEST_F(MatcherCorrectnessTest, MixedPattern_Complex) {
+TEST_F(PatternVM_Correctness, MixedPattern_Complex) {
   // Pattern: F(Add(?x, ?y), Neg(?z))
   // Ground truth: Each F node with Add and Neg children produces 1 match
   constexpr std::size_t kNumNodes = 20;
@@ -304,7 +304,7 @@ TEST_F(MatcherCorrectnessTest, MixedPattern_Complex) {
   EXPECT_GT(vm_result.count, 0u) << "Should find at least one match";
 }
 
-TEST_F(MatcherCorrectnessTest, BinaryPattern_RandomStructure) {
+TEST_F(PatternVM_Correctness, BinaryPattern_RandomStructure) {
   // Random binary patterns - both matchers should agree
   std::vector<EClassId> leaves;
   for (std::size_t i = 0; i < 20; ++i) {
@@ -331,7 +331,7 @@ TEST_F(MatcherCorrectnessTest, BinaryPattern_RandomStructure) {
 // Known MatcherIndex Limitations (XFAIL)
 // ============================================================================
 
-TEST_F(MatcherCorrectnessTest, SelfReferentialWithRewritePattern) {
+TEST_F(PatternVM_Correctness, SelfReferentialWithRewritePattern) {
   // Test single-pattern matching with self-referential e-classes.
   //
   // Setup simulates H(x)=x rewrite pattern which creates self-referential e-classes.
@@ -362,7 +362,7 @@ TEST_F(MatcherCorrectnessTest, SelfReferentialWithRewritePattern) {
   verify_vm(pattern, /*expected=*/1);
 }
 
-TEST_F(MatcherCorrectnessTest, ParentChainSiblingVerification_FuzzerCrashE6dbe1d) {
+TEST_F(PatternVM_Correctness, ParentChainSiblingVerification_FuzzerCrashE6dbe1d) {
   // Reproduction from fuzzer: crash-e6dbe1def61b072fe7794aa1369cd831a1840c0f
   //
   // Tests that the VM correctly verifies sibling children during parent chain
@@ -439,7 +439,7 @@ TEST_F(MatcherCorrectnessTest, ParentChainSiblingVerification_FuzzerCrashE6dbe1d
   verify_vm(patterns, /*expected=*/0);
 }
 
-TEST_F(MatcherCorrectnessTest, SelfReferentialMultiPattern_FuzzerCrash076d8fd2) {
+TEST_F(PatternVM_Correctness, SelfReferentialMultiPattern_FuzzerCrash076d8fd2) {
   // Full reproduction from fuzzer: crash-076d8fd27213c19330394bd68d4192059e83c745
   //
   // This test reproduces the exact fuzzer sequence where MatcherIndex=0 and VM=1.
@@ -523,7 +523,7 @@ TEST_F(MatcherCorrectnessTest, SelfReferentialMultiPattern_FuzzerCrash076d8fd2) 
   verify_vm(patterns, /*expected=*/0);
 }
 
-TEST_F(MatcherCorrectnessTest, IdenticalMultiPattern_FuzzerCrashE082976a) {
+TEST_F(PatternVM_Correctness, IdenticalMultiPattern_FuzzerCrashE082976a) {
   // Reproduction from fuzzer: crash-e082976a0f1cc28547105c4c30e79e96d4c43986
   //
   // Tests matching two IDENTICAL patterns joined together.
@@ -606,7 +606,7 @@ TEST_F(MatcherCorrectnessTest, IdenticalMultiPattern_FuzzerCrashE082976a) {
 //   - IterAllEClasses/NextEClass: for pure variable patterns and Cartesian products
 //   - MarkSeen/Yield: for deduplication of repeated bindings
 
-TEST_F(MatcherCorrectnessTest, PureVariablePattern_IterAllEClasses) {
+TEST_F(PatternVM_Correctness, PureVariablePattern_IterAllEClasses) {
   // Test: Pure variable pattern ?x matches all e-classes exactly once.
   //
   // This exercises IterAllEClasses/NextEClass VM operations which iterate
@@ -627,7 +627,7 @@ TEST_F(MatcherCorrectnessTest, PureVariablePattern_IterAllEClasses) {
   verify_vm(pattern, kNumLeaves);
 }
 
-TEST_F(MatcherCorrectnessTest, PureVariablePattern_WithMerges) {
+TEST_F(PatternVM_Correctness, PureVariablePattern_WithMerges) {
   // Test: Pure variable pattern after merges reduces match count.
   //
   // When e-classes are merged, the number of canonical e-classes decreases.
@@ -650,7 +650,7 @@ TEST_F(MatcherCorrectnessTest, PureVariablePattern_WithMerges) {
   verify_vm(pattern, kNumLeaves - kNumMerges);
 }
 
-TEST_F(MatcherCorrectnessTest, MultiPattern_VariableRootJoin) {
+TEST_F(PatternVM_Correctness, MultiPattern_VariableRootJoin) {
   // Test: Multi-pattern where second pattern is pure variable.
   //
   // Patterns:
@@ -677,7 +677,7 @@ TEST_F(MatcherCorrectnessTest, MultiPattern_VariableRootJoin) {
   verify_vm(patterns, kNumNegs);
 }
 
-TEST_F(MatcherCorrectnessTest, MultiPattern_CartesianProduct) {
+TEST_F(PatternVM_Correctness, MultiPattern_CartesianProduct) {
   // Test: Multi-pattern with NO shared variables -> Cartesian product.
   //
   // Patterns:
@@ -714,7 +714,7 @@ TEST_F(MatcherCorrectnessTest, MultiPattern_CartesianProduct) {
   verify_vm(patterns, kNumNegs * kNumAdds);
 }
 
-TEST_F(MatcherCorrectnessTest, MarkSeen_DeduplicatesSameBinding) {
+TEST_F(PatternVM_Correctness, MarkSeen_DeduplicatesSameBinding) {
   // Test: MarkSeen deduplication prevents reporting same binding twice.
   //
   // Setup: Create an e-class with multiple e-nodes that would match the pattern.
@@ -749,7 +749,7 @@ TEST_F(MatcherCorrectnessTest, MarkSeen_DeduplicatesSameBinding) {
   verify_vm(pattern, 1);
 }
 
-TEST_F(MatcherCorrectnessTest, MarkSeen_MultipleNegNodes) {
+TEST_F(PatternVM_Correctness, MarkSeen_MultipleNegNodes) {
   // Test: Multiple Neg e-nodes in same e-class, each with different child.
   //
   // Setup:
@@ -778,7 +778,7 @@ TEST_F(MatcherCorrectnessTest, MarkSeen_MultipleNegNodes) {
   verify_vm(pattern, 3);
 }
 
-TEST_F(MatcherCorrectnessTest, MarkSeen_SelfReferentialDedup) {
+TEST_F(PatternVM_Correctness, MarkSeen_SelfReferentialDedup) {
   // Test: Deduplication with self-referential e-classes.
   //
   // Setup: F(x)=x rewrite creates self-referential e-class containing both
