@@ -3610,18 +3610,14 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
           if (!ctx->auth_checker->Has(edge_id, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
             throw AuthorizationException{"Creating edge failed: missing CREATE permission on edge type."};
           }
-          const auto &from_vertex =
-              GetValueImpl<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor>(from);
-          if (!ctx->auth_checker->Has(from_vertex,
+          if (!ctx->auth_checker->Has(from->getImpl(),
                                       memgraph::storage::View::NEW,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
             throw AuthorizationException{
                 "Creating edge failed: missing CREATE EDGE or UPDATE permission on source vertex labels."};
           }
-          const auto &to_vertex =
-              GetValueImpl<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor>(to);
-          if (from_vertex != to_vertex &&
-              !ctx->auth_checker->Has(to_vertex,
+          if (from->getImpl() != to->getImpl() &&
+              !ctx->auth_checker->Has(to->getImpl(),
                                       memgraph::storage::View::NEW,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
             throw AuthorizationException{
