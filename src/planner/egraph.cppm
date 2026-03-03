@@ -44,9 +44,11 @@ module;
 
 export module memgraph.planner.core.egraph;
 
+// Export standalone modules (part of public API)
+export import memgraph.planner.core.eids;
+export import memgraph.planner.core.concepts;
+
 // Export partitions
-export import :eids;
-export import :concepts;
 export import :enode;
 export import :eclass;
 

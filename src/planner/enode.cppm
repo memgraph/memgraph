@@ -20,8 +20,8 @@ module;
 
 export module memgraph.planner.core.egraph:enode;
 
-import :eids;
-import :concepts;
+import memgraph.planner.core.eids;
+import memgraph.planner.core.concepts;
 import memgraph.planner.core.union_find;
 
 export namespace memgraph::planner::core {

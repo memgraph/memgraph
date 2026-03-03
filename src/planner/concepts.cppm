@@ -14,7 +14,7 @@ module;
 #include <concepts>
 #include <functional>
 
-export module memgraph.planner.core.egraph:concepts;
+export module memgraph.planner.core.concepts;
 
 export namespace memgraph::planner::core {
 /// Concept: Symbol must be hashable, trivially copyable, and equality comparable

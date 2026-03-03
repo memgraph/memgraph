@@ -14,7 +14,7 @@ module;
 #include <cstdint>
 #include <functional>
 
-export module memgraph.planner.core.egraph:eids;
+export module memgraph.planner.core.eids;
 
 import rollbear.strong_type;
 
