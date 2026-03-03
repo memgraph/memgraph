@@ -19,6 +19,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
+#include "utils/file.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/synchronized.hpp"
 
@@ -352,7 +353,7 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
   return result;
 }
 
-void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
+void VectorIndex::SerializeAllVectorIndices(durability::Encoder<utils::NonConcurrentOutputFile> *encoder,
                                             std::unordered_set<uint64_t> &mapped_ids) const {
   auto write_mapping = [&](auto mapping) {
     mapped_ids.insert(mapping.AsUint());

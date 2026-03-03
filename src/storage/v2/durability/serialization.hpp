@@ -38,9 +38,6 @@ class BaseEncoder {
   virtual void WritePoint2d(storage::Point2d value) = 0;
   virtual void WritePoint3d(storage::Point3d value) = 0;
   virtual void WriteExternalPropertyValue(const ExternalPropertyValue &value) = 0;
-
-  virtual uint64_t GetPosition() = 0;
-  virtual void SetPosition(uint64_t position) = 0;
 };
 
 /// Encoder that is used to generate a snapshot/WAL.
@@ -67,8 +64,8 @@ class Encoder final : public BaseEncoder {
   void WritePoint3d(storage::Point3d value) override;
   void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
-  uint64_t GetPosition() override;
-  void SetPosition(uint64_t position) override;
+  uint64_t GetPosition();
+  void SetPosition(uint64_t position);
 
   void Sync();
 

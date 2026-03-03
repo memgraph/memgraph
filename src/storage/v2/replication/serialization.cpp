@@ -11,8 +11,6 @@
 
 #include "storage/v2/replication/serialization.hpp"
 
-#include "utils/logging.hpp"
-
 namespace memgraph::storage::replication {
 ////// Encoder //////
 void Encoder::WriteMarker(durability::Marker marker) { slk::Save(marker, builder_); }
@@ -55,12 +53,6 @@ void Encoder::WritePoint3d(storage::Point3d value) {
 void Encoder::WriteExternalPropertyValue(const ExternalPropertyValue &value) {
   WriteMarker(durability::Marker::TYPE_PROPERTY_VALUE);
   slk::Save(value, builder_);
-}
-
-uint64_t Encoder::GetPosition() { LOG_FATAL("GetPosition is not supported on a replication encoder."); }
-
-void Encoder::SetPosition(uint64_t /*position*/) {
-  LOG_FATAL("SetPosition is not supported on a replication encoder.");
 }
 
 void Encoder::WriteFileBuffer(const uint8_t *buffer, const size_t buffer_size) {
