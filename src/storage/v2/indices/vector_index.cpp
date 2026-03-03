@@ -375,7 +375,7 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
       auto const size = locked_index->size();
       if (size == 0) return {};
 
-      auto keys = std::vector<Vertex *>(size);
+      std::vector<Vertex *> keys(size);
       locked_index->export_keys(keys.data(), 0, size);
 
       std::vector<Entry> result;
