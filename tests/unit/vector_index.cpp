@@ -15,7 +15,6 @@
 #include <thread>
 
 #include "flags/general.hpp"
-#include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -23,7 +22,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
-#include "utils/file.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
