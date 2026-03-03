@@ -307,7 +307,7 @@ void VectorIndex::RemoveVertexFromIndex(Vertex *vertex, uint64_t index_id) {
 }
 
 utils::small_vector<float> VectorIndex::GetVectorPropertyFromIndex(Vertex *vertex, std::string_view index_name,
-                                                                   NameIdMapper *name_id_mapper) {
+                                                                   NameIdMapper *name_id_mapper) const {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
@@ -351,7 +351,7 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
 }
 
 void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
-                                            std::unordered_set<uint64_t> &mapped_ids) {
+                                            std::unordered_set<uint64_t> &mapped_ids) const {
   auto write_mapping = [&](auto mapping) {
     mapped_ids.insert(mapping.AsUint());
     encoder->WriteUint(mapping.AsUint());

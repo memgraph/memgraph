@@ -219,7 +219,7 @@ class VectorIndex {
   /// @param name_id_mapper Mapper for name/ID conversions.
   /// @return The vector of the vertex as a list of float values.
   utils::small_vector<float> GetVectorPropertyFromIndex(Vertex *vertex, std::string_view index_name,
-                                                        NameIdMapper *name_id_mapper);
+                                                        NameIdMapper *name_id_mapper) const;
 
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
@@ -281,7 +281,7 @@ class VectorIndex {
   /// @brief Serializes all vector indices to a durability encoder in one pass.
   /// @param encoder The durability encoder to serialize to.
   /// @param mapped_ids Set of mapped IDs.
-  void SerializeAllVectorIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids);
+  void SerializeAllVectorIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids) const;
 
  private:
   /// @brief Removes a vertex from a vector index.
