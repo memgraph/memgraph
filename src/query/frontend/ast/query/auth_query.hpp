@@ -95,6 +95,7 @@ class AuthQuery : public memgraph::query::Query {
     CREATE,
     DELETE,
     DELETE_EDGE,
+    CREATE_EDGE,
     ALL
   };
 
