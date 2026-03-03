@@ -405,7 +405,8 @@ TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithEdgeTypesGrantedOnly) {
   ASSERT_THROW(this->ExecuteCreateExpand(true, user), QueryRuntimeException);
 }
 
-TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandThrowsWithoutCreateOnTargetLabelNoCycle) {
+TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithFirstLabelGrantedNoCycle) {
+  // First label granted, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant({"Node1"}, memgraph::auth::kAllLabelPermissions);
   user.fine_grained_access_handler().label_permissions().Grant({"Node2"}, memgraph::auth::FineGrainedPermission::READ);
@@ -414,13 +415,14 @@ TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandThrowsWithoutCreateOnTargetL
   ASSERT_THROW(this->ExecuteCreateExpand(false, user), QueryRuntimeException);
 }
 
-TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandSucceedsWithoutCreateOnTargetLabelWithCycle) {
+TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithFirstLabelGrantedWithCycle) {
+  // First label granted, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant({"Node1"}, memgraph::auth::kAllLabelPermissions);
   user.fine_grained_access_handler().label_permissions().Grant({"Node2"}, memgraph::auth::FineGrainedPermission::READ);
   user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
 
-  this->ExecuteCreateExpand(true, user);
+  ASSERT_NO_THROW(this->ExecuteCreateExpand(true, user));
   this->TestCreateExpandHypothesis(1, 1);
 }
 
@@ -701,23 +703,17 @@ TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedEd
   ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(true, 0, 0, user), QueryRuntimeException);
 }
 
-TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenMissingCreateOnLabelsNoCycle) {
+TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedLabels) {
+  // All labels denied, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
   user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
-
   ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(false, 0, 0, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(true, 0, 0, user), QueryRuntimeException);
 }
 
-TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandSucceedsWhenMissingCreateOnLabelsWithCycle) {
-  memgraph::auth::User user{"test"};
-  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
-
-  this->ExecuteMatchCreateExpandTestSuite(true, 3, 3, user);
-}
-
-TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenMissingCreateOnOneLabelNoCycle) {
+TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedOneLabel) {
+  // First two label granted, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant(
       {"l1"},
@@ -730,27 +726,11 @@ TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenMissingC
           memgraph::auth::FineGrainedPermission::SET_LABEL | memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
           memgraph::auth::FineGrainedPermission::SET_PROPERTY | memgraph::auth::FineGrainedPermission::READ));
   user.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::FineGrainedPermission::READ);
+
   user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
 
   ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(false, 0, 0, user), QueryRuntimeException);
-}
-
-TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandSucceedsWhenMissingCreateOnOneLabelWithCycle) {
-  memgraph::auth::User user{"test"};
-  user.fine_grained_access_handler().label_permissions().Grant(
-      {"l1"},
-      static_cast<memgraph::auth::FineGrainedPermission>(
-          memgraph::auth::FineGrainedPermission::SET_LABEL | memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
-          memgraph::auth::FineGrainedPermission::SET_PROPERTY | memgraph::auth::FineGrainedPermission::READ));
-  user.fine_grained_access_handler().label_permissions().Grant(
-      {"l3"},
-      static_cast<memgraph::auth::FineGrainedPermission>(
-          memgraph::auth::FineGrainedPermission::SET_LABEL | memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
-          memgraph::auth::FineGrainedPermission::SET_PROPERTY | memgraph::auth::FineGrainedPermission::READ));
-  user.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::FineGrainedPermission::READ);
-  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
-
-  this->ExecuteMatchCreateExpandTestSuite(true, 3, 3, user);
+  ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(true, 0, 0, user), QueryRuntimeException);
 }
 
 TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithoutCycleExecutesWhenGrantedSpecificallyEverything) {
