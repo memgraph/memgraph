@@ -9,8 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
+
 #include "utils/logging.hpp"
+#include "utils/small_vector.hpp"
 
 // When fuzzing we always want assert regardless of Debug vs Release
 #ifdef ASSERT_FUZZ
@@ -24,19 +26,30 @@
 
 #endif
 
-#include "planner/egraph/eclass.hpp"
-import memgraph.planner.core.eids;
-#include "planner/egraph/enode.hpp"
-#include "planner/egraph/processing_context.hpp"
-import memgraph.planner.core.union_find;
-
+#include <deque>
 #include <limits>
+#include <memory>
 #include <optional>
+#include <span>
+#include <unordered_map>
+#include <vector>
 
+#include <boost/container/flat_set.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <range/v3/all.hpp>
+#include <strong_type/strong_type.hpp>
 
-namespace memgraph::planner::core {
+export module memgraph.planner.core.egraph;
+
+export import memgraph.planner.core.constants;
+export import memgraph.planner.core.eids;
+export import memgraph.planner.core.concepts;
+export import memgraph.planner.core.union_find;
+export import memgraph.planner.core.enode;
+export import memgraph.planner.core.eclass;
+
+export namespace memgraph::planner::core {
 
 inline auto canonical_eclass(UnionFind &uf, EClassId id) -> EClassId { return EClassId{uf.Find(id.value_of())}; }
 
@@ -150,6 +163,37 @@ struct ENodeInfo {
 
   EClassId current_eclassid;
   ENodeId enode_id;
+};
+
+/**
+ * Contains reusable buffers and state that don't depend on Symbol type.
+ */
+struct BaseProcessingContext {
+  ENodeContext enode_context;
+  UnionFindContext union_find_context;
+  std::vector<strong::underlying_type_t<EClassId>> canonical_eclass_ids;
+  boost::container::flat_set<EClassId> canonicalized_chunk;
+};
+
+/**
+ * Contains reusable buffers and state
+ */
+template <typename Symbol>
+struct ProcessingContext : BaseProcessingContext {
+  ProcessingContext() { canonicalized_chunk.reserve(REBUILD_BATCH_SIZE); }
+
+  auto rebuild_canonicalized_chunk_container() -> boost::container::flat_set<EClassId> & {
+    canonicalized_chunk.clear();
+    return canonicalized_chunk;
+  }
+
+  auto rebuild_enode_to_parents_container() -> std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> & {
+    enode_to_parents.clear();
+    return enode_to_parents;
+  }
+
+ private:
+  std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> enode_to_parents;
 };
 
 /**

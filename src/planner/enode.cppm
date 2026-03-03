@@ -9,19 +9,22 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
+#include <cstddef>
 #include <functional>
 
 #include <boost/functional/hash.hpp>
 
 #include "utils/small_vector.hpp"
 
-import memgraph.planner.core.union_find;
-import memgraph.planner.core.eids;
-import memgraph.planner.core.concepts;
+export module memgraph.planner.core.enode;
 
-namespace memgraph::planner::core {
+export import memgraph.planner.core.eids;
+export import memgraph.planner.core.concepts;
+export import memgraph.planner.core.union_find;
+
+export namespace memgraph::planner::core {
 
 /**
  * @brief Processing context for ENode operations
@@ -176,17 +179,15 @@ std::size_t hash_value(const ENodeRef<Symbol> &node_ref) {
 
 }  // namespace memgraph::planner::core
 
-namespace std {
-template <typename Symbol>
-struct hash<memgraph::planner::core::ENode<Symbol>> {
+// std::hash specializations in global namespace
+export template <typename Symbol>
+struct std::hash<memgraph::planner::core::ENode<Symbol>> {
   std::size_t operator()(memgraph::planner::core::ENode<Symbol> const &node) const noexcept { return node.hash(); }
 };
 
-template <typename Symbol>
-struct hash<memgraph::planner::core::ENodeRef<Symbol>> {
+export template <typename Symbol>
+struct std::hash<memgraph::planner::core::ENodeRef<Symbol>> {
   std::size_t operator()(memgraph::planner::core::ENodeRef<Symbol> const &node_ref) const noexcept {
     return node_ref.hash();
   }
 };
-
-}  // namespace std

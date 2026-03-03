@@ -9,19 +9,14 @@ target_sources(mg-planner
     constants.cppm
     eids.cppm
     union_find.cppm
+    enode.cppm
+    eclass.cppm
+    egraph.cppm
 
     PUBLIC
     FILE_SET HEADERS
     BASE_DIRS include
     FILES
-    # New organized headers by concept
-    # egraph/ - Core e-graph data structure
-    include/planner/egraph/eclass.hpp
-    include/planner/egraph/egraph.hpp
-    include/planner/egraph/enode.hpp
-    include/planner/egraph/fwd.hpp
-    include/planner/egraph/processing_context.hpp
-
     # pattern/ - Pattern definition and matching
     include/planner/pattern/match.hpp
     include/planner/pattern/match_index.hpp
@@ -45,7 +40,7 @@ target_sources(mg-planner
     include/planner/extract/extractor.hpp
 
     PRIVATE
-    # egraph/
+    # egraph/ (module implementation units)
     src/egraph/eclass.cpp
     src/egraph/egraph.cpp
     src/egraph/enode.cpp

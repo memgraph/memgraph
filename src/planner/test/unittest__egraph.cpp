@@ -11,9 +11,11 @@
 
 #include <gtest/gtest.h>
 
-#include "planner/egraph/egraph.hpp"
-#include "planner/egraph/processing_context.hpp"
+#include <range/v3/all.hpp>
+
 #include "test_symbols.hpp"
+
+import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
 

@@ -20,11 +20,11 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <range/v3/all.hpp>
 
-#include "planner/egraph/egraph.hpp"
-#include "planner/egraph/processing_context.hpp"
+#include "utils/small_vector.hpp"
 
-import memgraph.planner.core.eids;
+import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
 

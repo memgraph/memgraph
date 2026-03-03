@@ -14,11 +14,9 @@
 #include <cstddef>
 #include <vector>
 
-#include "planner/egraph/egraph.hpp"
 #include "utils/small_vector.hpp"
 
-import memgraph.planner.core.concepts;
-import memgraph.planner.core.eids;
+import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
 

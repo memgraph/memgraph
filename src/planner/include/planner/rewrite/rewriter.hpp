@@ -20,15 +20,12 @@
 #include <span>
 #include <vector>
 
-#include "planner/egraph/egraph.hpp"
-#include "planner/egraph/processing_context.hpp"
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/vm/executor.hpp"
 #include "planner/rewrite/rule.hpp"
 #include "planner/rewrite/rule_set.hpp"
 
-import memgraph.planner.core.concepts;
-import memgraph.planner.core.eids;
+import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
 

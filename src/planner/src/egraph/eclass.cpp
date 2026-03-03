@@ -8,24 +8,32 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#include "planner/egraph/eclass.hpp"
+
+module;
 
 #include <algorithm>
 #include <cassert>
 
-memgraph::planner::core::detail::EClassBase::EClassBase(ENodeId initial_enode_id) {
+#include <boost/container/small_vector.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
+
+module memgraph.planner.core.eclass;
+
+namespace memgraph::planner::core::detail {
+
+EClassBase::EClassBase(ENodeId initial_enode_id) {
   parents_.reserve(16);
   nodes_.push_back(initial_enode_id);
 }
 
-void memgraph::planner::core::detail::EClassBase::remove_node(ENodeId enode_id) {
+void EClassBase::remove_node(ENodeId enode_id) {
   auto it = std::find(nodes_.begin(), nodes_.end(), enode_id);
   if (it != nodes_.end()) {
     nodes_.erase(it);
   }
 }
 
-void memgraph::planner::core::detail::EClassBase::merge_with(EClassBase &other) {
+void EClassBase::merge_with(EClassBase &other) {
   // Simple optimization: swap if other is significantly larger
   if (other.nodes_.size() > nodes_.size()) {
     nodes_.swap(other.nodes_);
@@ -39,3 +47,5 @@ void memgraph::planner::core::detail::EClassBase::merge_with(EClassBase &other) 
   // TODO: should parents ever be made canonical to reduce the set of equivalent parents
   parents_.insert(other.parents_.begin(), other.parents_.end());
 }
+
+}  // namespace memgraph::planner::core::detail

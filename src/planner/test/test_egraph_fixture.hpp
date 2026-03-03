@@ -15,7 +15,7 @@
 
 #include "test_egraph.hpp"
 
-import memgraph.planner.core.eids;
+import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::test {
 

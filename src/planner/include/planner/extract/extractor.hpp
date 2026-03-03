@@ -18,12 +18,10 @@
 #include <utility>
 #include <vector>
 
-#include "planner/egraph/egraph.hpp"
-#include "planner/egraph/enode.hpp"
-
+#include "utils/logging.hpp"
 #include "utils/tag.hpp"
 
-import memgraph.planner.core.eids;
+import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
 

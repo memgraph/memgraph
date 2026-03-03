@@ -9,20 +9,21 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
-import memgraph.planner.core.eids;
-
+#include <algorithm>
+#include <cassert>
 #include <span>
+#include <type_traits>
 
 #include <boost/container/small_vector.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
-namespace memgraph::planner::core {
+export module memgraph.planner.core.eclass;
 
-// Forward declaration for friend access
-template <typename Symbol, typename Analysis>
-struct EGraph;
+export import memgraph.planner.core.eids;
+
+export namespace memgraph::planner::core {
 
 namespace detail {
 struct EClassBase {
@@ -73,13 +74,13 @@ struct EClassBase {
  */
 template <typename Analysis>
 struct EClass : private detail::EClassBase {
-  template <typename Symbol, typename A>
-  friend struct EGraph;
-
   explicit EClass(ENodeId initial_enode_id) : EClassBase(initial_enode_id) {}
 
+  using EClassBase::add_parent;
   using EClassBase::nodes;
   using EClassBase::parents;
+  using EClassBase::remove_node;
+  using EClassBase::remove_parent;
   using EClassBase::representative;
   using EClassBase::size;
 

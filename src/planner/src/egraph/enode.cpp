@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,11 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "planner/egraph/enode.hpp"
+module;
 
-#include "planner/egraph/egraph.hpp"
-#include "planner/egraph/processing_context.hpp"
-import memgraph.planner.core.union_find;
+#include <boost/functional/hash.hpp>
+
+#include "utils/small_vector.hpp"
+
+module memgraph.planner.core.enode;
 
 namespace memgraph::planner::core::detail {
 
@@ -21,7 +23,7 @@ auto ENodeBase::canonicalize(UnionFind &uf) const -> ENodeBase {
   // Check if canonicalization is actually needed (quick optimization)
   bool needs_canonicalization = false;
   for (auto child : children_) {
-    if (canonical_eclass(uf, child) != child) {
+    if (EClassId{uf.Find(child.value_of())} != child) {
       needs_canonicalization = true;
       break;
     }
@@ -38,7 +40,7 @@ auto ENodeBase::canonicalize(UnionFind &uf) const -> ENodeBase {
 
   for (const auto child : children_) {
     // NOTE: UnionFind is mutable, so we are using the path halving optimization here
-    canonical_children.emplace_back(canonical_eclass(uf, child));
+    canonical_children.emplace_back(EClassId{uf.Find(child.value_of())});
   }
   return ENodeBase{disambiguator_, std::move(canonical_children)};
 }
@@ -51,7 +53,7 @@ auto ENodeBase::canonicalize_in_place(UnionFind &uf) -> bool {
 
   bool changed = false;
   for (auto &child : children_) {
-    auto canonical_child = canonical_eclass(uf, child);
+    auto canonical_child = EClassId{uf.Find(child.value_of())};
     if (canonical_child != child) {
       child = canonical_child;
       changed = true;
@@ -72,7 +74,7 @@ auto ENodeBase::canonicalize(UnionFind &uf, ENodeContext &ctx) const -> ENodeBas
 
   bool needs_canonicalization = false;
   for (auto child : children_) {
-    auto canonical_child = canonical_eclass(uf, child);
+    auto canonical_child = EClassId{uf.Find(child.value_of())};
     canonical_children.emplace_back(canonical_child);
     if (canonical_child != child) {
       needs_canonicalization = true;

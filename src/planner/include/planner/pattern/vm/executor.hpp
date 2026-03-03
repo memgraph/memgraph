@@ -11,19 +11,18 @@
 
 #pragma once
 
-import memgraph.planner.core.eids;
-
 #include <span>
 #include <type_traits>
 #include <vector>
 
-#include "planner/egraph/egraph.hpp"
 #include "planner/pattern/match.hpp"
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/vm/compiled_pattern.hpp"
 #include "planner/pattern/vm/instruction.hpp"
 #include "planner/pattern/vm/state.hpp"
 #include "planner/pattern/vm/tracer.hpp"
+
+import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::vm {
 

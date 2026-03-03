@@ -11,12 +11,10 @@
 
 #include <gtest/gtest.h>
 
-#include "planner/egraph/enode.hpp"
 #include "test_symbols.hpp"
+#include "utils/small_vector.hpp"
 
-import memgraph.planner.core.union_find;
-import memgraph.planner.core.concepts;
-import memgraph.planner.core.eids;
+import memgraph.planner.core.enode;
 
 namespace memgraph::planner::core {
 

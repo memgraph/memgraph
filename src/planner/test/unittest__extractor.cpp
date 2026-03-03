@@ -11,12 +11,12 @@
 
 #include <gtest/gtest.h>
 
-#include "planner/egraph/egraph.hpp"
-#include "planner/extract/extractor.hpp"
-
+#include <algorithm>
 #include <limits>
 
-import memgraph.planner.core.eids;
+#include "planner/extract/extractor.hpp"
+
+import memgraph.planner.core.egraph;
 
 using namespace memgraph::planner::core;
 

@@ -16,13 +16,12 @@
 
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
+#include <range/v3/all.hpp>
 
-#include "planner/egraph/egraph.hpp"
 #include "planner/pattern/match.hpp"
 #include "planner/pattern/pattern.hpp"
 
-import memgraph.planner.core.eids;
-import memgraph.planner.core.concepts;
+import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
 
@@ -71,7 +70,7 @@ class MatcherIndex {
    * Call after major e-graph changes or merges that may have invalidated
    * the index.
    */
-  void rebuild_index();
+  void rebuild_index() { rebuild_index_full(); }
 
   /**
    * @brief Incremental update for newly added e-classes
@@ -124,6 +123,8 @@ class MatcherIndex {
   }
 
  private:
+  void rebuild_index_full();
+
   using IndexType = boost::unordered_flat_map<Symbol, boost::unordered_flat_set<EClassId>>;
 
   EGraph<Symbol, Analysis> const *egraph_;
@@ -140,7 +141,7 @@ MatcherIndex<Symbol, Analysis>::MatcherIndex(EGraph<Symbol, Analysis> const &egr
 }
 
 template <typename Symbol, typename Analysis>
-void MatcherIndex<Symbol, Analysis>::rebuild_index() {
+void MatcherIndex<Symbol, Analysis>::rebuild_index_full() {
   index_.clear();
 
   // Scan all canonical e-classes

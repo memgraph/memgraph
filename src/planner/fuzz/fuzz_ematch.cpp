@@ -54,13 +54,14 @@
 #include <fmt/format.h>
 
 #include "fuzz_common.hpp"
-#include "planner/egraph/processing_context.hpp"
 #include "planner/pattern/match.hpp"
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
 #include "planner/pattern/vm/tracer.hpp"
 #include "planner/rewrite/rule.hpp"
+
+import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
 
