@@ -55,7 +55,7 @@ auto PatternCompilerBase::alloc_enode_reg() -> ENodeReg {
 
 auto PatternCompilerBase::get_slot(PatternVar var) const -> SlotIdx { return slot_map_.at(var); }
 
-void PatternCompilerBase::emit_var_binding(PatternVar var, EClassReg eclass_reg, InstrAddr backtrack) {
+auto PatternCompilerBase::emit_var_binding(PatternVar var, EClassReg eclass_reg, InstrAddr backtrack) -> InstrAddr {
   auto const slot = get_slot(var);
   if (seen_vars_.contains(var)) {
     emit(Instruction::check_slot(slot, eclass_reg, backtrack));
@@ -65,6 +65,7 @@ void PatternCompilerBase::emit_var_binding(PatternVar var, EClassReg eclass_reg,
     var_to_reg_[var] = eclass_reg;  // Enable parent traversal for later patterns
     emit(Instruction::bind_slot_dedup(slot, eclass_reg, backtrack));
   }
+  return backtrack;
 }
 
 }  // namespace memgraph::planner::core::pattern::vm

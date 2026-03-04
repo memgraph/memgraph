@@ -64,8 +64,9 @@ class PatternCompilerBase {
   /// Patch a jump target at the given address
   void patch_target(InstrAddr addr, InstrAddr target);
 
-  /// Emit variable binding (check if seen, else bind with dedup)
-  void emit_var_binding(PatternVar var, EClassReg eclass_reg, InstrAddr backtrack);
+  /// Emit variable binding (check if seen, else bind with dedup).
+  /// Returns backtrack address for chaining.
+  auto emit_var_binding(PatternVar var, EClassReg eclass_reg, InstrAddr backtrack) -> InstrAddr;
 
   static constexpr InstrAddr kHaltPlaceholder{0xFFFF};
 
@@ -235,8 +236,6 @@ class PatternCompiler : protected PatternCompilerBase {
   // Pattern emission (anchor)
   // ============================================================================
 
-  auto emit_pattern(Pattern<Symbol> const &pattern, EClassReg eclass_reg, InstrAddr backtrack) -> InstrAddr;
-
   auto emit_node(Pattern<Symbol> const &pattern, PatternNodeId node_id, EClassReg eclass_reg, InstrAddr backtrack)
       -> InstrAddr;
 
@@ -297,7 +296,7 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
   }
 
   // Emit anchor pattern
-  auto anchor_innermost = emit_pattern(anchor, EClassReg{0}, kHaltPlaceholder);
+  auto anchor_innermost = emit_node(anchor, anchor.root(), EClassReg{0}, kHaltPlaceholder);
 
   // Emit joined patterns
   InstrAddr innermost = anchor_innermost;
@@ -408,31 +407,16 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_pattern(Pattern<Symbol> const &pattern, EClassReg eclass_reg, InstrAddr backtrack)
-    -> InstrAddr {
-  return emit_node(pattern, pattern.root(), eclass_reg, backtrack);
-}
-
-template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_node(Pattern<Symbol> const &pattern, PatternNodeId node_id, EClassReg eclass_reg,
                                         InstrAddr backtrack) -> InstrAddr {
-  auto const &node = pattern[node_id];
-  InstrAddr innermost = backtrack;
-
-  std::visit(
-      [&](auto const &n) {
-        using T = std::decay_t<decltype(n)>;
-        if constexpr (std::is_same_v<T, Wildcard>) {
-          // Wildcard matches anything
-        } else if constexpr (std::is_same_v<T, PatternVar>) {
-          emit_var_binding(n, eclass_reg, backtrack);
-        } else if constexpr (std::is_same_v<T, SymbolWithChildren<Symbol>>) {
-          innermost = emit_symbol_node(pattern, node_id, n, eclass_reg, backtrack);
-        }
-      },
-      node);
-
-  return innermost;
+  return std::visit(utils::Overloaded{
+                        [&](Wildcard) { return backtrack; },
+                        [&](PatternVar const &var) { return emit_var_binding(var, eclass_reg, backtrack); },
+                        [&](SymbolWithChildren<Symbol> const &sym) {
+                          return emit_symbol_node(pattern, node_id, sym, eclass_reg, backtrack);
+                        },
+                    },
+                    pattern[node_id]);
 }
 
 template <typename Symbol>
@@ -504,8 +488,7 @@ auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &patte
             auto eclass_reg = alloc_eclass_reg();
             auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
                                               Instruction::next_eclass(eclass_reg, backtrack));
-            emit_var_binding(var, eclass_reg, eclass_loop);
-            return eclass_loop;
+            return emit_var_binding(var, eclass_reg, eclass_loop);
           },
           [&](SymbolWithChildren<Symbol> const &sym) {
             auto eclass_reg = alloc_eclass_reg();
@@ -606,48 +589,41 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
 template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_child(Pattern<Symbol> const &pattern, PatternNodeId node_id,
                                                 EClassReg eclass_reg, InstrAddr backtrack) -> InstrAddr {
-  auto const &node = pattern[node_id];
-  InstrAddr innermost = backtrack;
+  return std::visit(
+      utils::Overloaded{
+          [&](Wildcard) { return backtrack; },
+          [&](PatternVar const &var) { return emit_var_binding(var, eclass_reg, backtrack); },
+          [&](SymbolWithChildren<Symbol> const &sym) {
+            // Bind this node BEFORE iteration if it has a binding.
+            // The e-class is the same for all e-nodes, so we bind once.
+            if (auto binding = pattern.binding_for(node_id)) {
+              emit_var_binding(*binding, eclass_reg, backtrack);
+            }
 
-  std::visit(
-      [&](auto const &n) {
-        using T = std::decay_t<decltype(n)>;
-        if constexpr (std::is_same_v<T, Wildcard>) {
-          // Wildcard matches anything
-        } else if constexpr (std::is_same_v<T, PatternVar>) {
-          emit_var_binding(n, eclass_reg, backtrack);
-        } else if constexpr (std::is_same_v<T, SymbolWithChildren<Symbol>>) {
-          // Bind this node BEFORE iteration if it has a binding.
-          // The e-class is the same for all e-nodes, so we bind once.
-          if (auto binding = pattern.binding_for(node_id)) {
-            emit_var_binding(*binding, eclass_reg, backtrack);
-          }
+            auto sym_idx = get_symbol_index(sym.sym);
+            auto enode_reg = alloc_enode_reg();  // IterENodes produces e-node
 
-          auto sym_idx = get_symbol_index(n.sym);
-          auto enode_reg = alloc_enode_reg();  // IterENodes produces e-node
+            auto loop_pos = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, backtrack),
+                                           Instruction::next_enode(enode_reg, backtrack));
 
-          auto loop_pos = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, backtrack),
-                                         Instruction::next_enode(enode_reg, backtrack));
+            emit(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
+            emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
 
-          emit(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
-          emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(n.children.size()), loop_pos));
+            // For leaf symbols, backtrack to parent after match (existence check only)
+            if (sym.children.empty()) {
+              return backtrack;
+            }
 
-          // For leaf symbols, backtrack to parent after match (existence check only)
-          if (n.children.empty()) {
-            innermost = backtrack;
-          } else {
-            innermost = loop_pos;
-            for (std::size_t i = 0; i < n.children.size(); ++i) {
+            InstrAddr innermost = loop_pos;
+            for (std::size_t i = 0; i < sym.children.size(); ++i) {
               auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
               emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
-              innermost = emit_joined_child(pattern, n.children[i], child_reg, innermost);
+              innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
             }
-          }
-        }
+            return innermost;
+          },
       },
-      node);
-
-  return innermost;
+      pattern[node_id]);
 }
 
 template <typename Symbol>
