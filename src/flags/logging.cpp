@@ -33,9 +33,6 @@ namespace {
 constexpr auto kSync = "sync";
 constexpr auto kAsync = "async";
 
-// 5 weeks * 7 days
-inline constexpr auto log_retention_count = 35;
-
 spdlog::level::level_enum ParseLogLevel() {
   std::string ll;
   gflags::GetCommandLineOption("log_level", &ll);
@@ -49,6 +46,22 @@ spdlog::level::level_enum ParseLogLevel() {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_string(logger_type, "sync",
+                        "Controls whether synchronous or asynchronous logger will be used. Options: sync, async", {
+                          auto const logger_lower = memgraph::utils::ToLowerCase(value);
+                          if (logger_lower != kSync && logger_lower != kAsync) {
+                            std::cout << "Expected --" << flagname << " to be 'sync' or 'async' string\n";
+                            return false;
+                          }
+                          return true;
+                        });
+
+// default set to 35 days
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(log_retention_days, 35, "Controls for how many days will daily log files be preserved.",
+                        FLAG_IN_RANGE(1, 1'000'000));
+
 inline constexpr std::array log_level_mappings{std::pair{"TRACE"sv, spdlog::level::trace},
                                                std::pair{"DEBUG"sv, spdlog::level::debug},
                                                std::pair{"INFO"sv, spdlog::level::info},
@@ -57,21 +70,6 @@ inline constexpr std::array log_level_mappings{std::pair{"TRACE"sv, spdlog::leve
                                                std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
 namespace memgraph::flags {
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_string(logger_type, "sync",
-                        "Controls whether synchronous or asynchronous logger will be used. Options: sync, async",
-                        {
-                          auto const logger_lower = utils::ToLowerCase(value);
-                          if (logger_lower != kSync && logger_lower != kAsync) {
-                            std::cout << "Expected --" << flagname << " to be 'sync' or 'async' string\n";
-                            return false;
-                          }
-                          return true;
-                        }
-
-);
-
 const std::string &GetAllowedLogLevels() {
   static const std::string allowed_levels = memgraph::utils::GetAllowedEnumValuesString(log_level_mappings);
   return allowed_levels;
@@ -119,7 +117,7 @@ void InitializeLogger() {
     local_time = localtime(&current_time);
 
     sub_sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_st>(
-        FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, log_retention_count));
+        FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, FLAGS_log_retention_days));
   }
 
   auto dist_sink = std::make_shared<spdlog::sinks::dist_sink_mt>(std::move(sub_sinks));
