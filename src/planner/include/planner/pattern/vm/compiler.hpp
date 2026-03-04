@@ -276,7 +276,9 @@ class PatternCompiler : protected PatternCompilerBase {
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> patterns) -> CompiledPattern<Symbol> {
-  if (patterns.empty()) return CompiledPattern<Symbol>{};
+  if (patterns.empty()) {
+    return CompiledPattern<Symbol>{};
+  }
   reset();
 
   // Compute join order: first element is anchor, rest are join order
@@ -285,6 +287,10 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
 
   // Build unified slot map
   build_slot_map(patterns);
+
+  if (slot_map_.empty()) {
+    return CompiledPattern<Symbol>{};
+  }
 
   // Get entry symbol for index lookup
   std::optional<Symbol> entry_symbol;
@@ -301,11 +307,9 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
     innermost = emit_joined_pattern(patterns[idx], innermost);
   }
 
-  // Emit yield and continue loop (only if there are bindings to report)
-  if (!binding_order_.empty()) {
-    emit(Instruction::yield(binding_order_.back()));
-    emit(Instruction::jmp(innermost));
-  }
+  // Emit yield and continue loop
+  emit(Instruction::yield(binding_order_.back()));
+  emit(Instruction::jmp(innermost));
 
   // Patch halt placeholders and add halt
   auto halt_pos = current_addr();
@@ -487,6 +491,8 @@ auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &patte
                           return emit_var_binding(var, eclass_reg, eclass_loop);
                         },
                         [&](SymbolWithChildren<Symbol> const &sym) {
+                          // TODO: we should provide the VMExecutor with an index (by symbol) so we search fewer
+                          // eclasses
                           auto eclass_reg = alloc_eclass_reg();
                           auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
                                                             Instruction::next_eclass(eclass_reg, backtrack));
