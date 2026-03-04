@@ -383,7 +383,7 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
       std::vector<float> buffer(locked_index->dimensions());
       for (auto *vertex : keys) {
         if (vertex->deleted()) continue;
-        locked_index->get(vertex, buffer.data());
+        if (!locked_index->get(vertex, buffer.data())) continue;
         result.emplace_back(vertex->gid.AsUint(), buffer);
       }
       return result;
