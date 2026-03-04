@@ -414,7 +414,7 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
   // to ensure consistency with MatcherIndex's variable ordering.
   // For multi-pattern joins, we need to merge slot maps carefully.
   if (patterns.size() == 1) {
-    // TODO: slot_map_ = patterns[0].var_slots();
+    // Copy with type conversion: var_slots() uses uint8_t, slot_map_ uses SlotIdx
     for (auto const &[var, slot] : patterns[0].var_slots()) {
       slot_map_[var] = SlotIdx{slot};
     }

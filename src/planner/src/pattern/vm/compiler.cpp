@@ -11,7 +11,6 @@
 
 #include "planner/pattern/vm/compiler.hpp"
 
-#include <algorithm>
 #include <utility>
 
 namespace memgraph::planner::core::pattern::vm {
