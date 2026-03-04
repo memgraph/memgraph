@@ -87,5 +87,28 @@ def test_periodic_commit_acid_guarantee_in_batches(memgraph):
     assert results[3]["id"] == 4
 
 
+def test_periodic_commit_unique_constraint_violation_does_not_crash(memgraph):
+    """Regression test: periodic commit that hits a unique constraint violation must raise
+    DatabaseError, not crash with 'The transaction is already terminated!' assertion failure."""
+
+    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.id IS UNIQUE")
+    memgraph.execute("UNWIND range(1, 100) AS i CREATE (:Node {id: i})")
+
+    connection = connect_with_autocommit()
+    cursor = connection.cursor()
+
+    # CREATE on already-existing ids triggers a constraint violation mid-batch.
+    # Before the fix, this caused a double-Abort and crashed with an assertion failure.
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(
+            cursor,
+            "USING PERIODIC COMMIT 10 UNWIND range(1, 100) AS i CREATE (:Node {id: i})",
+        )
+
+    # The session must still be usable after the error (no crash, no broken connection).
+    result = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN count(n) AS cnt")
+    assert result[0][0] >= 100
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
