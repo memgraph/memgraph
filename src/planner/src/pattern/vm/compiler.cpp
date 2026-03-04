@@ -63,6 +63,7 @@ void PatternCompilerBase::emit_var_binding(PatternVar var, EClassReg eclass_reg,
   } else {
     seen_vars_.insert(var);
     binding_order_.push_back(slot);
+    var_to_reg_[var] = eclass_reg;  // Enable parent traversal for later patterns
     emit(Instruction::bind_slot_dedup(slot, eclass_reg, backtrack));
   }
 }

@@ -457,7 +457,6 @@ auto PatternCompiler<Symbol>::emit_node(Pattern<Symbol> const &pattern, PatternN
           // Wildcard matches anything
         } else if constexpr (std::is_same_v<T, PatternVar>) {
           emit_var_binding(n, eclass_reg, backtrack);
-          var_to_reg_[n] = eclass_reg;
         } else if constexpr (std::is_same_v<T, SymbolWithChildren<Symbol>>) {
           innermost = emit_symbol_node(pattern, node_id, n, eclass_reg, backtrack);
         }
@@ -476,7 +475,6 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
   // Backtrack goes to outer loop (not the e-node iteration we're about to create).
   if (auto binding = pattern.binding_for(node_id)) {
     emit_var_binding(*binding, eclass_reg, backtrack);
-    var_to_reg_[*binding] = eclass_reg;  // Enable parent traversal for later patterns
   }
 
   auto sym_idx = get_symbol_index(sym.sym);
@@ -543,7 +541,6 @@ auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &patte
   if (!sym) {
     if (auto const *var = std::get_if<PatternVar>(&pattern[pattern.root()])) {
       emit_var_binding(*var, eclass_reg, eclass_loop);
-      var_to_reg_[*var] = eclass_reg;
     }
     // Wildcard root: nothing to bind
     return eclass_loop;
@@ -552,7 +549,6 @@ auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &patte
   // Symbol root - bind e-class before e-node iteration
   if (auto binding = pattern.binding_for(pattern.root())) {
     emit_var_binding(*binding, eclass_reg, eclass_loop);
-    var_to_reg_[*binding] = eclass_reg;  // Enable parent traversal for later patterns
   }
 
   // Inner loop: e-nodes in each e-class
@@ -633,7 +629,6 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
   // Bind root if needed
   if (auto binding = pattern.binding_for(pattern.root())) {
     emit_var_binding(*binding, current_eclass_reg, innermost);
-    var_to_reg_[*binding] = current_eclass_reg;  // Enable parent traversal for later patterns
   }
 
   return innermost;
@@ -652,13 +647,11 @@ auto PatternCompiler<Symbol>::emit_joined_child(Pattern<Symbol> const &pattern, 
           // Wildcard matches anything
         } else if constexpr (std::is_same_v<T, PatternVar>) {
           emit_var_binding(n, eclass_reg, backtrack);
-          var_to_reg_[n] = eclass_reg;
         } else if constexpr (std::is_same_v<T, SymbolWithChildren<Symbol>>) {
           // Bind this node BEFORE iteration if it has a binding.
           // The e-class is the same for all e-nodes, so we bind once.
           if (auto binding = pattern.binding_for(node_id)) {
             emit_var_binding(*binding, eclass_reg, backtrack);
-            var_to_reg_[*binding] = eclass_reg;  // Enable parent traversal for later patterns
           }
 
           auto sym_idx = get_symbol_index(n.sym);
