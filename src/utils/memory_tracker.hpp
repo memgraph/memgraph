@@ -151,7 +151,7 @@ class MemoryTracker final {
 // Global memory tracker which tracks every allocation in the application.
 extern constinit MemoryTracker total_memory_tracker;
 extern constinit MemoryTracker graph_memory_tracker;
-extern constinit MemoryTracker embeddings_memory_tracker;
+extern constinit MemoryTracker vector_index_memory_tracker;
 
 // Prevent memory tracker for throwing during the stack unwinding
 inline bool MemoryTrackerCanThrow() {
