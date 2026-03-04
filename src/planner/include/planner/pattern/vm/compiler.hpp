@@ -420,6 +420,7 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
   // to ensure consistency with MatcherIndex's variable ordering.
   // For multi-pattern joins, we need to merge slot maps carefully.
   if (patterns.size() == 1) {
+    // TODO: slot_map_ = patterns[0].var_slots();
     for (auto const &[var, slot] : patterns[0].var_slots()) {
       slot_map_[var] = SlotIdx{slot};
     }
@@ -428,6 +429,7 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
     // internal ordering by iterating in slot order
     for (auto const &pattern : patterns) {
       // Collect vars sorted by their slot index to ensure deterministic order
+      // TODO: sorting isn't needed because we deduplicate afterward
       std::vector<std::pair<PatternVar, uint8_t>> vars(pattern.var_slots().begin(), pattern.var_slots().end());
       std::sort(vars.begin(), vars.end(), [](auto const &a, auto const &b) { return a.second < b.second; });
 

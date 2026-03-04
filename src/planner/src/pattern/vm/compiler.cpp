@@ -26,6 +26,7 @@ void PatternCompilerBase::reset() {
 }
 
 auto PatternCompilerBase::emit_iter_loop(Instruction iter_instr, Instruction next_instr) -> InstrAddr {
+  // TODO: this is confusing code structure
   code_.push_back(iter_instr);
   auto jump_pos = static_cast<uint16_t>(code_.size());
   code_.push_back(Instruction::jmp(InstrAddr{0}));  // placeholder
@@ -38,7 +39,7 @@ auto PatternCompilerBase::emit_iter_loop(Instruction iter_instr, Instruction nex
 void PatternCompilerBase::emit_bind_slot(SlotIdx slot, EClassReg eclass_reg, InstrAddr backtrack) {
   // Track binding order for deduplication
   // Only add if not already in binding_order (handles repeated bindings of same variable)
-  if (std::find(binding_order_.begin(), binding_order_.end(), slot) == binding_order_.end()) {
+  if (std::ranges::find(binding_order_, slot) == binding_order_.end()) {
     binding_order_.push_back(slot);
   }
   code_.push_back(Instruction::bind_slot_dedup(slot, eclass_reg, backtrack));
