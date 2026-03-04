@@ -335,7 +335,7 @@ def test_can_create_edge_when_given_create(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ ON NODES CONTAINING LABELS :create_delete_label_1, :create_delete_label_2, CREATE ON EDGES OF TYPE :new_create_delete_edge_type, READ ON EDGES OF TYPE :new_create_delete_edge_type TO user",
+        "GRANT READ, CREATE EDGE ON NODES CONTAINING LABELS :create_delete_label_1, :create_delete_label_2, CREATE ON EDGES OF TYPE :new_create_delete_edge_type, READ ON EDGES OF TYPE :new_create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -345,6 +345,27 @@ def test_can_create_edge_when_given_create(switch):
     no_of_edges = execute_and_fetch_all(test_cursor, create_edge_query)
 
     assert no_of_edges[0][0] == 2
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_can_not_create_edge_when_missing_create_edge_on_labels(switch):
+    admin_cursor = connect(username="admin", password="test").cursor()
+    create_multi_db(admin_cursor)
+    if switch:
+        switch_db(admin_cursor)
+    reset_create_delete_permissions(admin_cursor)
+
+    execute_and_fetch_all(
+        admin_cursor,
+        "GRANT READ ON NODES CONTAINING LABELS :create_delete_label_1, :create_delete_label_2, CREATE ON EDGES OF TYPE :new_create_delete_edge_type TO user",
+    )
+
+    test_cursor = connect(username="user", password="test").cursor()
+    if switch:
+        switch_db(test_cursor)
+
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
+        execute_and_fetch_all(test_cursor, create_edge_query)
 
 
 @pytest.mark.parametrize("switch", [False, True])
@@ -415,7 +436,7 @@ def test_can_delete_edge_when_given_delete(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT DELETE ON EDGES OF TYPE :create_delete_edge_type TO user",
+        "GRANT DELETE EDGE ON NODES CONTAINING LABELS *, DELETE ON EDGES OF TYPE :create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -425,6 +446,27 @@ def test_can_delete_edge_when_given_delete(switch):
     no_of_edges = execute_and_fetch_all(test_cursor, delete_edge_query)
 
     assert no_of_edges[0][0] == 0
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_can_not_delete_edge_when_missing_delete_edge_on_labels(switch):
+    admin_cursor = connect(username="admin", password="test").cursor()
+    create_multi_db(admin_cursor)
+    if switch:
+        switch_db(admin_cursor)
+    reset_create_delete_permissions(admin_cursor)
+
+    execute_and_fetch_all(
+        admin_cursor,
+        "GRANT READ, DELETE ON EDGES OF TYPE :create_delete_edge_type TO user",
+    )
+
+    test_cursor = connect(username="user", password="test").cursor()
+    if switch:
+        switch_db(test_cursor)
+
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
+        execute_and_fetch_all(test_cursor, delete_edge_query)
 
 
 @pytest.mark.parametrize("switch", [False, True])
