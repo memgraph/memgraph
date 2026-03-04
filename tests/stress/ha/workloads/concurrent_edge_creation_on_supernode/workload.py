@@ -7,7 +7,7 @@ between the supernode and each regular node using parallel workers.
 """
 import sys
 
-from ha_common import Protocol, QueryType, execute_query, run_parallel
+from ha_common import Protocol, QueryType, cleanup, execute_query, run_parallel
 
 COORDINATOR = "coord_1"
 
@@ -86,12 +86,15 @@ def main():
     print(f"Supernode: 1, Regular nodes: {NUM_NODES}, Workers: {NUM_WORKERS}")
     print("-" * 60)
 
-    setup_graph()
-    run_workload()
-    verify_results()
+    try:
+        setup_graph()
+        run_workload()
+        verify_results()
 
-    print("-" * 60)
-    print("Workload completed successfully!")
+        print("-" * 60)
+        print("Workload completed successfully!")
+    finally:
+        cleanup()
 
 
 if __name__ == "__main__":

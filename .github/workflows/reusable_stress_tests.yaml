@@ -187,6 +187,23 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph stress-native-ha
 
+      - name: Copy stress test logs
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --logs-dir /home/mg/memgraph/tests/stress/stress_logs --dest-dir build/stress/logs
+
+      - name: Upload stress test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-logs-native-ha
+          path: build/stress/logs/
+          if-no-files-found: warn
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -268,6 +285,14 @@ jobs:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+
+      - name: Upload stress test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-logs-docker-ha
+          path: tests/stress/stress_logs/
+          if-no-files-found: warn
 
       - name: Clean up Docker
         if: always()

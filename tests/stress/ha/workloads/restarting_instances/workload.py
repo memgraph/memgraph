@@ -14,7 +14,7 @@ import sys
 import time
 
 from cluster_monitor import ClusterMonitor
-from ha_common import Protocol, QueryType, execute_and_fetch, execute_query, get_restart_all_fn, run_parallel
+from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_query, get_restart_all_fn, run_parallel
 
 COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
@@ -290,83 +290,86 @@ def main():
 
     total_start = time.time()
 
-    # Phase 1: Import publications
-    print("\n" + "=" * 60)
-    print("PHASE 1: Publications Import")
-    print("=" * 60)
+    try:
+        # Phase 1: Import publications
+        print("\n" + "=" * 60)
+        print("PHASE 1: Publications Import")
+        print("=" * 60)
 
-    with monitor:
-        create_publications_indices()
-        import_publications(s3_secret)
+        with monitor:
+            create_publications_indices()
+            import_publications(s3_secret)
 
-    print("\nPhase 1 complete.")
+        print("\nPhase 1 complete.")
 
-    # Phase 2: Workload + restart loop
-    print("\n" + "=" * 60)
-    print("PHASE 2: Workload + Restart Loop")
-    print("=" * 60)
+        # Phase 2: Workload + restart loop
+        print("\n" + "=" * 60)
+        print("PHASE 2: Workload + Restart Loop")
+        print("=" * 60)
 
-    node_count = get_node_count()
-    if node_count == 0:
-        print("ERROR: No nodes in the database after publications import!")
-        sys.exit(1)
-    max_node_id = node_count - 1
-    print(f"Node count: {node_count:,} (max internal ID ≈ {max_node_id})")
+        node_count = get_node_count()
+        if node_count == 0:
+            print("ERROR: No nodes in the database after publications import!")
+            sys.exit(1)
+        max_node_id = node_count - 1
+        print(f"Node count: {node_count:,} (max internal ID ≈ {max_node_id})")
 
-    ops_per_worker = EDGES_PER_ITERATION // NUM_WORKERS
-    edge_iterations = 0
-    python_iterations = 0
+        ops_per_worker = EDGES_PER_ITERATION // NUM_WORKERS
+        edge_iterations = 0
+        python_iterations = 0
 
-    for iteration in range(NUM_ITERATIONS):
-        print(f"\n--- Iteration {iteration + 1}/{NUM_ITERATIONS} ---")
+        for iteration in range(NUM_ITERATIONS):
+            print(f"\n--- Iteration {iteration + 1}/{NUM_ITERATIONS} ---")
 
-        if random.choice(["edges", "python"]) == "edges":
-            edge_iterations += 1
-            print(f"[MODE: edges] Creating {EDGES_PER_ITERATION} random edges...")
-            tasks = [(worker_id, ops_per_worker, max_node_id) for worker_id in range(NUM_WORKERS)]
+            if random.choice(["edges", "python"]) == "edges":
+                edge_iterations += 1
+                print(f"[MODE: edges] Creating {EDGES_PER_ITERATION} random edges...")
+                tasks = [(worker_id, ops_per_worker, max_node_id) for worker_id in range(NUM_WORKERS)]
+                t0 = time.time()
+                run_parallel(create_random_edges, tasks, num_workers=NUM_WORKERS)
+                print(f"  Edge creation complete in {time.time() - t0:.1f}s")
+            else:
+                python_iterations += 1
+                print(f"[MODE: python] Creating {EDGES_PER_ITERATION} nodes + Python function calls...")
+                tasks = [(worker_id, ops_per_worker, iteration) for worker_id in range(NUM_WORKERS)]
+                t0 = time.time()
+                run_parallel(run_python_functions, tasks, num_workers=NUM_WORKERS)
+                print(f"  Python functions complete in {time.time() - t0:.1f}s")
+
+            # Restart all instances
+            print("Restarting all instances...")
             t0 = time.time()
-            run_parallel(create_random_edges, tasks, num_workers=NUM_WORKERS)
-            print(f"  Edge creation complete in {time.time() - t0:.1f}s")
-        else:
-            python_iterations += 1
-            print(f"[MODE: python] Creating {EDGES_PER_ITERATION} nodes + Python function calls...")
-            tasks = [(worker_id, ops_per_worker, iteration) for worker_id in range(NUM_WORKERS)]
-            t0 = time.time()
-            run_parallel(run_python_functions, tasks, num_workers=NUM_WORKERS)
-            print(f"  Python functions complete in {time.time() - t0:.1f}s")
+            restart_all_fn()
+            print(f"  Restart triggered in {time.time() - t0:.1f}s")
 
-        # Restart all instances
-        print("Restarting all instances...")
-        t0 = time.time()
-        restart_all_fn()
-        print(f"  Restart triggered in {time.time() - t0:.1f}s")
+            # Wait for healthy cluster
+            print("Waiting for cluster to become healthy...")
+            wait_for_healthy_cluster(monitor)
+            print(f"  Cluster healthy after restart")
 
-        # Wait for healthy cluster
-        print("Waiting for cluster to become healthy...")
-        wait_for_healthy_cluster(monitor)
-        print(f"  Cluster healthy after restart")
+        total_elapsed = time.time() - total_start
 
-    total_elapsed = time.time() - total_start
+        print("\n" + "=" * 60)
+        print(f"Total time: {total_elapsed:.1f}s ({total_elapsed / 60:.1f} minutes)")
+        print(f"Iterations: {edge_iterations} edge, {python_iterations} python")
 
-    print("\n" + "=" * 60)
-    print(f"Total time: {total_elapsed:.1f}s ({total_elapsed / 60:.1f} minutes)")
-    print(f"Iterations: {edge_iterations} edge, {python_iterations} python")
+        result = execute_and_fetch(
+            COORDINATOR,
+            "MATCH ()-[r:STRESS_EDGE]->() RETURN count(r) as cnt",
+            protocol=Protocol.BOLT_ROUTING,
+        )
+        edge_count = result[0]["cnt"] if result else 0
+        print(f"STRESS_EDGE edges created: {edge_count:,} (expected ≈ {EDGES_PER_ITERATION * edge_iterations:,})")
 
-    result = execute_and_fetch(
-        COORDINATOR,
-        "MATCH ()-[r:STRESS_EDGE]->() RETURN count(r) as cnt",
-        protocol=Protocol.BOLT_ROUTING,
-    )
-    edge_count = result[0]["cnt"] if result else 0
-    print(f"STRESS_EDGE edges created: {edge_count:,} (expected ≈ {EDGES_PER_ITERATION * edge_iterations:,})")
+        print("\nFinal verification:")
+        monitor.show_replicas()
 
-    print("\nFinal verification:")
-    monitor.show_replicas()
-
-    ok = monitor.verify_all_ready() and monitor.verify_instances_up()
-    if not ok:
-        sys.exit(1)
-    print("Workload completed successfully!")
+        ok = monitor.verify_all_ready() and monitor.verify_instances_up()
+        if not ok:
+            sys.exit(1)
+        print("Workload completed successfully!")
+    finally:
+        cleanup()
 
 
 if __name__ == "__main__":

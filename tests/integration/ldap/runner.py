@@ -138,7 +138,8 @@ class Memgraph:
             if check:
                 assert False
             return -1
-        time.sleep(1)
+        self._process.wait()
+        self._process = None
         return 0
 
 

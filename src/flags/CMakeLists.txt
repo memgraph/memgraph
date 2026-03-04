@@ -11,7 +11,7 @@ target_sources(mg-flags
         experimental.hpp
         general.hpp
         isolation_level.hpp
-        log_level.hpp
+        logging.hpp
         memory_limit.hpp
         replication.hpp
         run_time_configurable.hpp
@@ -28,7 +28,7 @@ target_sources(mg-flags
         experimental.cpp
         general.cpp
         isolation_level.cpp
-        log_level.cpp
+        logging.cpp
         memory_limit.cpp
         replication.cpp
         run_time_configurable.cpp

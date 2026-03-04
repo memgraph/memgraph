@@ -12,7 +12,7 @@ import sys
 import time
 
 from cluster_monitor import ClusterMonitor
-from ha_common import Protocol, QueryType, execute_and_fetch, execute_query, run_parallel
+from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_query, run_parallel
 
 COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
@@ -449,44 +449,47 @@ def main():
         interval=5,
     )
 
-    # Phase 1: Import
-    print("\n" + "=" * 60)
-    print("PHASE 1: Import data")
-    print("=" * 60)
+    try:
+        # Phase 1: Import
+        print("\n" + "=" * 60)
+        print("PHASE 1: Import data")
+        print("=" * 60)
 
-    phase1_start = time.time()
-    with monitor:
-        create_indices_and_constraints()
-        import_data(s3_secret)
-    phase1_elapsed = time.time() - phase1_start
+        phase1_start = time.time()
+        with monitor:
+            create_indices_and_constraints()
+            import_data(s3_secret)
+        phase1_elapsed = time.time() - phase1_start
 
-    print(f"\nPhase 1 import time: {phase1_elapsed:.1f}s ({phase1_elapsed / 60:.1f} minutes)")
-    print("\nNode counts after import:")
-    counts = get_node_counts()
-    for label, count in counts.items():
-        print(f"  {label}: {count:,}")
+        print(f"\nPhase 1 import time: {phase1_elapsed:.1f}s ({phase1_elapsed / 60:.1f} minutes)")
+        print("\nNode counts after import:")
+        counts = get_node_counts()
+        for label, count in counts.items():
+            print(f"  {label}: {count:,}")
 
-    # Phase 2: Concurrent workload
-    print("\n" + "=" * 60)
-    print("PHASE 2: Concurrent workload")
-    print("=" * 60)
-    print(f"Workers: {NUM_WORKERS}, Total iterations: {ITERATIONS:,}")
-    print("Operations: create_no_edge, create_with_edge, delete, add_edge, remove_edge")
-    print("-" * 60)
+        # Phase 2: Concurrent workload
+        print("\n" + "=" * 60)
+        print("PHASE 2: Concurrent workload")
+        print("=" * 60)
+        print(f"Workers: {NUM_WORKERS}, Total iterations: {ITERATIONS:,}")
+        print("Operations: create_no_edge, create_with_edge, delete, add_edge, remove_edge")
+        print("-" * 60)
 
-    with monitor:
-        run_concurrent_workload()
+        with monitor:
+            run_concurrent_workload()
 
-    print("\nWaiting 30 seconds before final verification...")
-    time.sleep(30)
+        print("\nWaiting 30 seconds before final verification...")
+        time.sleep(30)
 
-    print("\nFinal replica status:")
-    monitor.show_replicas()
+        print("\nFinal replica status:")
+        monitor.show_replicas()
 
-    ok = monitor.verify_all_ready() and monitor.verify_instances_up()
-    if not ok:
-        sys.exit(1)
-    print("Workload completed successfully!")
+        ok = monitor.verify_all_ready() and monitor.verify_instances_up()
+        if not ok:
+            sys.exit(1)
+        print("Workload completed successfully!")
+    finally:
+        cleanup()
 
 
 if __name__ == "__main__":
