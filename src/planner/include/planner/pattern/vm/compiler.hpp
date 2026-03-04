@@ -262,15 +262,11 @@ class PatternCompiler : protected PatternCompilerBase {
   auto emit_joined_cartesian(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym, InstrAddr backtrack)
       -> InstrAddr;
 
-  auto emit_joined_with_parent_traversal(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym,
-                                         PatternVar shared_var, std::size_t shared_idx, EClassReg shared_reg,
-                                         InstrAddr backtrack) -> InstrAddr;
-
-  /// Emit parent chain traversal for deeply nested shared variables.
-  /// For pattern (F (F (F (F ?v0)))), traverses upward from ?v0 through 4 levels of F parents.
-  /// This is O(parents^depth) per match, much better than O(n) Cartesian product.
-  auto emit_joined_with_parent_chain(Pattern<Symbol> const &pattern, PatternPath const &path, EClassReg shared_reg,
-                                     InstrAddr backtrack) -> InstrAddr;
+  /// Emit parent traversal for patterns with shared variables.
+  /// Traverses upward from the shared variable through parent chain.
+  /// O(parents^depth) per match, much better than O(n) Cartesian product.
+  auto emit_joined_via_parents(Pattern<Symbol> const &pattern, PatternPath const &path, EClassReg shared_reg,
+                               InstrAddr backtrack) -> InstrAddr;
 
   auto emit_joined_child(Pattern<Symbol> const &pattern, PatternNodeId node_id, EClassReg eclass_reg,
                          InstrAddr backtrack) -> InstrAddr;
@@ -532,29 +528,17 @@ auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern
 
   if (!sym) {
     // Variable/wildcard root - iterate all e-classes
-    // TODO: this func is only used here
     return emit_joined_variable_root(pattern, anchor_backtrack);
   }
 
-  // Find shared variable child for parent traversal (depth 1)
-  for (std::size_t i = 0; i < sym->children.size(); ++i) {
-    if (auto const *var = std::get_if<PatternVar>(&pattern[sym->children[i]])) {
-      if (auto it = var_to_reg_.find(*var); it != var_to_reg_.end()) {
-        return emit_joined_with_parent_traversal(pattern, *sym, *var, i, it->second, anchor_backtrack);
-      }
-    }
-  }
-
-  // Check for deep shared variable - traverse upward through parent chain
-  // This handles patterns like (F (F (F (F ?v0)))) where ?v0 is nested deep
+  // Try to find a shared variable (any depth) for efficient parent traversal
   if (auto path = find_path_to_shared_var(pattern)) {
-    auto it = var_to_reg_.find(path->shared_var);
-    if (it != var_to_reg_.end()) {
-      return emit_joined_with_parent_chain(pattern, *path, it->second, anchor_backtrack);
+    if (auto it = var_to_reg_.find(path->shared_var); it != var_to_reg_.end()) {
+      return emit_joined_via_parents(pattern, *path, it->second, anchor_backtrack);
     }
   }
 
-  // No shared variable - Cartesian product
+  // No shared variable - Cartesian product (expensive fallback)
   return emit_joined_cartesian(pattern, *sym, anchor_backtrack);
 }
 
@@ -618,50 +602,8 @@ auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &patte
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_joined_with_parent_traversal(Pattern<Symbol> const &pattern,
-                                                                SymbolWithChildren<Symbol> const &sym,
-                                                                PatternVar shared_var, std::size_t shared_idx,
-                                                                EClassReg shared_reg, InstrAddr backtrack)
-    -> InstrAddr {
-  auto parent_reg = alloc_enode_reg();  // IterParents produces e-node
-  auto sym_idx = get_symbol_index(sym.sym);
-
-  // Iterate all parents with lazy symbol checking (avoids buffer allocation)
-  auto loop_pos = emit_iter_loop(Instruction::iter_parents(parent_reg, shared_reg, backtrack),
-                                 Instruction::next_parent(parent_reg, backtrack));
-
-  // Check symbol and arity (backtrack to loop on mismatch)
-  emit(Instruction::check_symbol(parent_reg, sym_idx, loop_pos));
-  emit(Instruction::check_arity(parent_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
-
-  // Bind root BEFORE processing children if needed.
-  // Each parent could be in a different e-class, backtrack to parent loop if duplicate.
-  if (auto binding = pattern.binding_for(pattern.root())) {
-    auto eclass_reg = alloc_eclass_reg();  // GetENodeEClass produces e-class
-    emit(Instruction::get_enode_eclass(eclass_reg, parent_reg));
-    emit_bind_slot(get_slot(*binding), eclass_reg, loop_pos);
-  }
-
-  // Process children
-  InstrAddr innermost = loop_pos;
-  for (std::size_t i = 0; i < sym.children.size(); ++i) {
-    auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
-    emit(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
-
-    if (i == shared_idx) {
-      // Verify shared variable matches
-      emit(Instruction::check_slot(get_slot(shared_var), child_reg, innermost));
-    } else {
-      innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
-    }
-  }
-
-  return innermost;
-}
-
-template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_joined_with_parent_chain(Pattern<Symbol> const &pattern, PatternPath const &path,
-                                                            EClassReg shared_reg, InstrAddr backtrack) -> InstrAddr {
+auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pattern, PatternPath const &path,
+                                                      EClassReg shared_reg, InstrAddr backtrack) -> InstrAddr {
   // Current e-class register starts at the shared variable
   EClassReg current_eclass_reg = shared_reg;
   InstrAddr innermost = backtrack;
@@ -680,10 +622,13 @@ auto PatternCompiler<Symbol>::emit_joined_with_parent_chain(Pattern<Symbol> cons
     emit(Instruction::check_symbol(parent_reg, sym_idx, loop_pos));
     emit(Instruction::check_arity(parent_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
 
-    // Verify the shared variable is at the expected child index
-    auto verify_child_reg = alloc_eclass_reg();
-    emit(Instruction::load_child(verify_child_reg, parent_reg, static_cast<uint8_t>(child_idx)));
-    emit(Instruction::check_eclass_eq(verify_child_reg, current_eclass_reg, loop_pos));
+    // Verify the shared variable is at the expected child index (only needed when arity > 1)
+    // When arity == 1, IterParents + CheckArity guarantees the only child is our e-class
+    if (sym.children.size() > 1) {
+      auto verify_child_reg = alloc_eclass_reg();
+      emit(Instruction::load_child(verify_child_reg, parent_reg, static_cast<uint8_t>(child_idx)));
+      emit(Instruction::check_eclass_eq(verify_child_reg, current_eclass_reg, loop_pos));
+    }
 
     // Process non-shared children (bind new variables, verify structure)
     // sym.children contains the PatternNodeIds for each child position

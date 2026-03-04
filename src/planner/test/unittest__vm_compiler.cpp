@@ -250,9 +250,11 @@ TEST_F(PatternVM_Compiler, MultiPattern_DeepNestedUsesParentChain) {
   // Parent chain traversal should use IterParents (4 levels deep = 4 IterParents)
   EXPECT_EQ(iter_parents_count, 4) << "Expected 4 IterParents for 4-level deep nested pattern\nBytecode:\n" << bytecode;
 
-  // Each parent traversal needs to verify the child matches the expected e-class
-  EXPECT_EQ(check_eclass_eq_count, 4) << "Expected 4 CheckEClassEq to verify parent-child relationships\nBytecode:\n"
-                                      << bytecode;
+  // For unary symbols, CheckEClassEq is skipped - IterParents guarantees we're a child,
+  // and CheckArity(1) means there's only one child slot, so we must be at index 0
+  EXPECT_EQ(check_eclass_eq_count, 0)
+      << "Unary symbols don't need CheckEClassEq (arity check is sufficient)\nBytecode:\n"
+      << bytecode;
 
   // Should NOT use IterAllEClasses (Cartesian product) for the second pattern
   EXPECT_EQ(iter_all_eclasses_count, 0)
@@ -493,22 +495,24 @@ TEST_F(PatternVM_Compiler, JoinOrder_HubPatternsFirst) {
   EXPECT_EQ(permutation_count, 720);
 }
 
-TEST_F(PatternVM_Compiler, JoinOrder_CheckSlotProximity) {
-  // Tests that CheckSlot instructions appear close to their corresponding BindSlotDedup.
+TEST_F(PatternVM_Compiler, JoinOrder_CheckEClassEqProximity) {
+  // Tests that CheckEClassEq instructions appear immediately after LoadChild.
   // Early invalidation is critical for performance: if a variable binding fails the
   // equality check, we should fail fast rather than doing unnecessary work.
   //
-  // Pattern: F(?x, ?y) JOIN G(?x) JOIN H(?y)
+  // Pattern: F(?x, ?y) JOIN G(?x, _) JOIN H(?y, _)
   //
-  // After binding ?x in F, when we join G(?x), the CheckSlot for ?x should appear
-  // immediately after we load the child of G, not after other unrelated work.
+  // When joining G(?x, _), we traverse parents to find a matching symbol, then load the
+  // child and immediately verify with CheckEClassEq that it matches the already-bound ?x.
+  // Note: We use arity-2 patterns because arity-1 patterns skip CheckEClassEq (the arity
+  // check alone is sufficient when there's only one child slot).
 
   constexpr PatternVar kVarX{0};
   constexpr PatternVar kVarY{1};
 
   auto anchor = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}});
-  auto joined1 = TestPattern::build(Op::G, {Var{kVarX}});
-  auto joined2 = TestPattern::build(Op::H, {Var{kVarY}});
+  auto joined1 = TestPattern::build(Op::G, {Var{kVarX}, Wildcard{}});
+  auto joined2 = TestPattern::build(Op::H, {Var{kVarY}, Wildcard{}});
 
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined1, joined2};
@@ -518,54 +522,24 @@ TEST_F(PatternVM_Compiler, JoinOrder_CheckSlotProximity) {
   auto const &code = compiled->code();
   auto bytecode = disassemble(code, compiled->symbols());
 
-  // Find all BindSlotDedup and CheckSlot instructions with their positions
-  // slot is stored in the 'arg' field of the instruction
-  std::map<uint8_t, std::size_t> first_bind_pos;   // slot -> first BindSlotDedup position
-  std::map<uint8_t, std::size_t> first_check_pos;  // slot -> first CheckSlot position
+  // Find LoadChild and CheckEClassEq pairs - check should immediately follow load
+  std::vector<std::size_t> check_eq_positions;
 
   for (std::size_t i = 0; i < code.size(); ++i) {
-    if (code[i].op == VMOp::BindSlotDedup) {
-      auto slot = code[i].arg;
-      if (first_bind_pos.find(slot) == first_bind_pos.end()) {
-        first_bind_pos[slot] = i;
-      }
-    } else if (code[i].op == VMOp::CheckSlot) {
-      auto slot = code[i].arg;
-      if (first_check_pos.find(slot) == first_check_pos.end()) {
-        first_check_pos[slot] = i;
-      }
-    }
-  }
+    if (code[i].op == VMOp::CheckEClassEq) {
+      check_eq_positions.push_back(i);
 
-  // For each slot that has both bind and check, verify check comes after bind
-  // and the gap is reasonable (within same join block)
-  for (auto const &[slot, bind_pos] : first_bind_pos) {
-    if (auto it = first_check_pos.find(slot); it != first_check_pos.end()) {
-      auto check_pos = it->second;
-      EXPECT_GT(check_pos, bind_pos) << "CheckSlot for slot " << static_cast<int>(slot)
-                                     << " should come after BindSlotDedup\nBytecode:\n"
-                                     << bytecode;
-
-      // Count instructions between bind and check.
-      // The gap includes: iterator setup (IterParents, Jump, NextParent),
-      // symbol/arity checks, and LoadChild instructions.
-      // This heuristic catches egregiously bad ordering (e.g., multiple unrelated
-      // joins between bind and check).
-      std::size_t gap = check_pos - bind_pos;
-
-      // For a 3-pattern join, gaps can be ~15-20 instructions due to nested
-      // iterator loops. Flag only very large gaps that suggest suboptimal ordering.
-      constexpr std::size_t kMaxReasonableGap = 25;
-      EXPECT_LT(gap, kMaxReasonableGap)
-          << "Gap between BindSlotDedup and CheckSlot for slot " << static_cast<int>(slot) << " is " << gap
-          << " instructions, which may indicate suboptimal instruction ordering\nBytecode:\n"
+      // CheckEClassEq should immediately follow a LoadChild
+      ASSERT_GT(i, 0) << "CheckEClassEq cannot be first instruction\nBytecode:\n" << bytecode;
+      EXPECT_EQ(code[i - 1].op, VMOp::LoadChild)
+          << "CheckEClassEq at position " << i << " should immediately follow LoadChild\nBytecode:\n"
           << bytecode;
     }
   }
 
-  // Verify we actually have CheckSlot instructions (sanity check)
-  EXPECT_FALSE(first_check_pos.empty())
-      << "Expected CheckSlot instructions for shared variable verification\nBytecode:\n"
+  // Verify we have CheckEClassEq instructions for shared variable verification
+  EXPECT_FALSE(check_eq_positions.empty())
+      << "Expected CheckEClassEq instructions for shared variable verification\nBytecode:\n"
       << bytecode;
 }
 
