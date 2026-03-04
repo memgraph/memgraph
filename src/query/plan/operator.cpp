@@ -331,19 +331,19 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
               "PeriodicCommit warning: At least one SYNC replica has not confirmed the "
               "commit.");
         } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
-          spdlog::warn(
-              "PeriodicCommit warning: At least one STRICT_SYNC replica has not confirmed committing last transaction. "
+          throw PeriodicCommitException(
+              "PeriodicCommit failed: At least one STRICT_SYNC replica has not confirmed committing last transaction. "
               "Transaction will be aborted on all instances.");
         } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
-          throw QueryException(
+          throw PeriodicCommitException(
               "PeriodicCommit failed: Unable to commit due to constraint "
               "violation.");
         } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
-          throw QueryException("PeriodicCommit failed: Unable to commit due to serialization error.");
+          throw PeriodicCommitException("PeriodicCommit failed: Unable to commit due to serialization error.");
         } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
-          throw QueryException("PeriodicCommit failed: Unable to commit due to persistence error.");
+          throw PeriodicCommitException("PeriodicCommit failed: Unable to commit due to persistence error.");
         } else if constexpr (std::is_same_v<ErrorType, storage::ReplicaShouldNotWriteError>) {
-          throw QueryException("PeriodicCommit failed: Queries on replica shouldn't write.");
+          throw PeriodicCommitException("PeriodicCommit failed: Queries on replica shouldn't write.");
         } else {
           static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
         }
