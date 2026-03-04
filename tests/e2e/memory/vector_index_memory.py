@@ -31,7 +31,7 @@ INDEX_VECTOR_COUNT = 1000
 INDEX_CAPACITY = 50_000
 
 INSTANCE_200MB = {
-    "embeddings_test": {
+    "vector_index_test": {
         "args": [
             "--bolt-port",
             str(BOLT_PORT),
@@ -39,7 +39,7 @@ INSTANCE_200MB = {
             "--storage-gc-cycle-sec=180",
             "--log-level=WARNING",
         ],
-        "log_file": "embeddings-memory-e2e.log",
+        "log_file": "vector-index-memory-e2e.log",
         "setup_queries": [],
         "validation_queries": [],
     }
@@ -92,9 +92,9 @@ def setup_index_and_data(cursor):
         execute_and_fetch_all(cursor, "CREATE (:Data {value: $val})", {"val": i})
 
 
-def test_graph_and_embeddings_tracked_sum_to_total():
+def test_graph_and_vector_index_tracked_sum_to_total():
     """
-    embeddings_memory_tracked + graph_memory_tracked must approximately equal
+    vector_index_memory_tracked + graph_memory_tracked must approximately equal
     memory_tracked (the aggregate of both child trackers).
 
     Also checks that the RSS–tracked gap observed at startup does not grow
@@ -117,14 +117,14 @@ def test_graph_and_embeddings_tracked_sum_to_total():
     info = get_storage_info(cursor)
     total = parse_mib(info["memory_tracked"])
     graph = parse_mib(info["graph_memory_tracked"])
-    embeddings = parse_mib(info["embeddings_memory_tracked"])
+    vector_index = parse_mib(info["vector_index_memory_tracked"])
     rss = parse_mib(info["memory_res"])
 
-    assert embeddings > 0, "embeddings_memory_tracked should be non-zero after vector insertions"
+    assert vector_index > 0, "vector_index_memory_tracked should be non-zero after vector insertions"
     assert graph > 0, "graph_memory_tracked should be non-zero"
 
-    assert abs((graph + embeddings) - total) < TOLERANCE_MIB, (
-        f"graph ({graph:.2f} MiB) + embeddings ({embeddings:.2f} MiB) = {graph + embeddings:.2f} MiB "
+    assert abs((graph + vector_index) - total) < TOLERANCE_MIB, (
+        f"graph ({graph:.2f} MiB) + vector_index ({vector_index:.2f} MiB) = {graph + vector_index:.2f} MiB "
         f"but memory_tracked = {total:.2f} MiB (diff > {TOLERANCE_MIB} MiB)"
     )
 
@@ -163,31 +163,31 @@ def test_vector_insert_oom_throws_exception_not_segfault():
     )
 
 
-def test_remove_vector_property_embeddings_unchanged():
+def test_remove_vector_property_vector_index_unchanged():
     """
-    Removing the vector property from vertices does not free embeddings memory
+    Removing the vector property from vertices does not free vector index memory
     because usearch's bump-pointer allocator cannot free individual entries.
     """
     interactive_mg_runner.start_all(INSTANCE_200MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
     setup_index_and_data(cursor)
 
-    embeddings_before = parse_mib(get_storage_info(cursor)["embeddings_memory_tracked"])
-    assert embeddings_before > 0, "embeddings_memory_tracked should be non-zero after setup"
+    vi_before = parse_mib(get_storage_info(cursor)["vector_index_memory_tracked"])
+    assert vi_before > 0, "vector_index_memory_tracked should be non-zero after setup"
 
     execute_and_fetch_all(cursor, "MATCH (n:Embedding) REMOVE n.vec")
 
-    embeddings_after = parse_mib(get_storage_info(cursor)["embeddings_memory_tracked"])
-    assert embeddings_after == embeddings_before, (
-        f"embeddings_memory_tracked changed after removing vec property: "
-        f"before={embeddings_before:.2f} MiB, after={embeddings_after:.2f} MiB"
+    vi_after = parse_mib(get_storage_info(cursor)["vector_index_memory_tracked"])
+    assert vi_after == vi_before, (
+        f"vector_index_memory_tracked changed after removing vec property: "
+        f"before={vi_before:.2f} MiB, after={vi_after:.2f} MiB"
     )
 
 
-def test_delete_vertices_graph_down_embeddings_unchanged():
+def test_delete_vertices_graph_down_vector_index_unchanged():
     """
     Deleting whole vertices frees graph memory (vertex objects) but not
-    embeddings memory (usearch arena stays allocated).
+    vector index memory (usearch arena stays allocated).
     """
     interactive_mg_runner.start_all(INSTANCE_200MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
@@ -195,18 +195,18 @@ def test_delete_vertices_graph_down_embeddings_unchanged():
 
     info_before = get_storage_info(cursor)
     graph_before = parse_mib(info_before["graph_memory_tracked"])
-    embeddings_before = parse_mib(info_before["embeddings_memory_tracked"])
+    vi_before = parse_mib(info_before["vector_index_memory_tracked"])
 
     execute_and_fetch_all(cursor, "MATCH (n:Embedding) DETACH DELETE n")
     execute_and_fetch_all(cursor, "FREE MEMORY")
 
     info_after = get_storage_info(cursor)
     graph_after = parse_mib(info_after["graph_memory_tracked"])
-    embeddings_after = parse_mib(info_after["embeddings_memory_tracked"])
+    vi_after = parse_mib(info_after["vector_index_memory_tracked"])
 
-    assert embeddings_after == embeddings_before, (
-        f"embeddings_memory_tracked changed after deleting vertices: "
-        f"before={embeddings_before:.2f} MiB, after={embeddings_after:.2f} MiB"
+    assert vi_after == vi_before, (
+        f"vector_index_memory_tracked changed after deleting vertices: "
+        f"before={vi_before:.2f} MiB, after={vi_after:.2f} MiB"
     )
     assert graph_after < graph_before, (
         f"graph_memory_tracked should decrease after deleting vertices: "
@@ -214,25 +214,23 @@ def test_delete_vertices_graph_down_embeddings_unchanged():
     )
 
 
-def test_drop_index_embeddings_zero():
+def test_drop_index_vector_index_zero():
     """
     Dropping the vector index destroys the usearch index object, which triggers
-    TrackedVectorAllocator::deallocate() → reset() → embeddings_memory_tracker.Free().
-    Embeddings memory should go to 0.
+    TrackedVectorAllocator::deallocate() → reset() → vector_index_memory_tracker.Free().
+    Vector index memory should go to 0.
     """
     interactive_mg_runner.start_all(INSTANCE_200MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
     setup_index_and_data(cursor)
 
-    embeddings_before = parse_mib(get_storage_info(cursor)["embeddings_memory_tracked"])
-    assert embeddings_before > 0, "embeddings_memory_tracked should be non-zero before drop"
+    vi_before = parse_mib(get_storage_info(cursor)["vector_index_memory_tracked"])
+    assert vi_before > 0, "vector_index_memory_tracked should be non-zero before drop"
 
     execute_and_fetch_all(cursor, "DROP VECTOR INDEX emb_idx")
 
-    embeddings_after = parse_mib(get_storage_info(cursor)["embeddings_memory_tracked"])
-    assert (
-        embeddings_after < 1.0
-    ), f"embeddings_memory_tracked should be ~0 after dropping index, got {embeddings_after:.2f} MiB"
+    vi_after = parse_mib(get_storage_info(cursor)["vector_index_memory_tracked"])
+    assert vi_after < 1.0, f"vector_index_memory_tracked should be ~0 after dropping index, got {vi_after:.2f} MiB"
 
 
 if __name__ == "__main__":

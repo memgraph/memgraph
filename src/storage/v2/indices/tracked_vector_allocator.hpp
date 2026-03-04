@@ -69,7 +69,7 @@ class TrackedVectorAllocator {
 
   pointer allocate(size_type count_bytes) {
     const auto extended = unum::usearch::divide_round_up<alignment_ak>(count_bytes) * alignment_ak;
-    if (!utils::embeddings_memory_tracker.Alloc(static_cast<int64_t>(extended))) {
+    if (!utils::vector_index_memory_tracker.Alloc(static_cast<int64_t>(extended))) {
       auto msg = utils::MemoryErrorStatus().msg();
       DMG_ASSERT(msg, "MemoryErrorStatus should have a message when allocation fails");
       [[maybe_unused]] auto blocker = utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
@@ -78,7 +78,7 @@ class TrackedVectorAllocator {
 
     auto *result = inner_.allocate(count_bytes);
     if (!result) {
-      utils::embeddings_memory_tracker.Free(static_cast<int64_t>(extended));
+      utils::vector_index_memory_tracker.Free(static_cast<int64_t>(extended));
       return nullptr;  // Since this is a drop-in replacement for memory_mapping_allocator_gt, we return nullptr on
                        // allocation failure as usearch expects it
     }
@@ -94,7 +94,7 @@ class TrackedVectorAllocator {
     auto old = tracked_bytes_.exchange(0, std::memory_order_relaxed);
     inner_.reset();
     if (old > 0) {
-      utils::embeddings_memory_tracker.Free(static_cast<int64_t>(old));
+      utils::vector_index_memory_tracker.Free(static_cast<int64_t>(old));
     }
   }
 
