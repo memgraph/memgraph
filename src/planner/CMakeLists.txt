@@ -30,6 +30,7 @@ target_sources(mg-planner
     include/planner/pattern/vm/instruction.hpp
     include/planner/pattern/vm/state.hpp
     include/planner/pattern/vm/tracer.hpp
+    include/planner/pattern/vm/types.hpp
 
     # rewrite/ - Rewriting/saturation engine
     include/planner/rewrite/rewriter.hpp
