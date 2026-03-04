@@ -32,7 +32,7 @@
 #include "flags/coordination.hpp"
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
-#include "flags/log_level.hpp"
+#include "flags/logging.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
