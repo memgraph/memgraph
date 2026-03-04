@@ -247,6 +247,7 @@ def _run_query(
                     return result_handler(session.run(query, params or {}))
         except Exception as e:
             if SYNC_REPLICA_ERROR in str(e):
+                print(f"\nWARN: Sync replica error (instance={instance_name}): {e}")
                 return None
             if isinstance(e, ServiceUnavailable):
                 pid = os.getpid()

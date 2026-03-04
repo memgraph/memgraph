@@ -423,4 +423,5 @@ jobs:
     with:
       deployment: ha/eks
       memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_mage_image_url }}
+      workload: ../workloads/publications/workload.yaml
     secrets: inherit
