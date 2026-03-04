@@ -232,6 +232,6 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["memory/user_limits.py"]
 
-  - name: "Embeddings memory tracking"
+  - name: "Vector index memory tracking"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["memory/embeddings_memory.py"]
+    args: ["memory/vector_index_memory.py"]
