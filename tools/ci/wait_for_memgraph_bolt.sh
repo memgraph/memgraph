@@ -21,3 +21,10 @@ wait_for_memgraph_bolt() {
   echo "Memgraph did not become ready at ${host}:${port} after ${max_retries} attempts."
   return 1
 }
+
+# If executed directly, run with CLI args.
+# If sourced, only define the function for caller use.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  wait_for_memgraph_bolt "$@"
+  exit $?
+fi
