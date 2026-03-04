@@ -356,53 +356,33 @@ auto PatternCompiler<Symbol>::compute_join_order(std::span<Pattern<Symbol> const
 
   // Collect variables per pattern
   std::vector<boost::unordered_flat_set<PatternVar>> pattern_vars(n);
-  for (std::size_t i = 0; i < n; ++i) {
-    for (auto const &[var, _] : patterns[i].var_slots()) {
-      pattern_vars[i].insert(var);
-    }
+  for (auto &&[pattern, vars] : std::views::zip(patterns, pattern_vars)) {
+    auto keys = pattern.var_slots() | std::views::keys;
+    vars.insert(keys.begin(), keys.end());
   }
 
   // Find pattern with most variables (likely best anchor)
-  std::size_t anchor = 0;
-  std::size_t max_vars = pattern_vars[0].size();
-  for (std::size_t i = 1; i < n; ++i) {
-    if (pattern_vars[i].size() > max_vars) {
-      max_vars = pattern_vars[i].size();
-      anchor = i;
-    }
-  }
+  auto max_it = std::ranges::max_element(pattern_vars, {}, &boost::unordered_flat_set<PatternVar>::size);
+  auto anchor = static_cast<std::size_t>(std::distance(pattern_vars.begin(), max_it));
 
   // Greedy join order: pick pattern sharing most vars with already-joined set
-  boost::unordered_flat_set<std::size_t> remaining;
-  for (std::size_t i = 0; i < n; ++i) {
-    if (i != anchor) remaining.insert(i);
-  }
+  auto remaining = std::views::iota(0uz, n) | std::views::filter([anchor](auto i) { return i != anchor; }) |
+                   std::ranges::to<boost::unordered_flat_set<std::size_t>>();
 
-  boost::unordered_flat_set<PatternVar> joined_vars = pattern_vars[anchor];
+  boost::unordered_flat_set<PatternVar> joined_vars = *max_it;
   std::vector<std::size_t> order;
   order.reserve(n);
   order.push_back(anchor);
 
+  auto count_shared = [&](std::size_t idx) {
+    return std::ranges::count_if(pattern_vars[idx], [&](auto const &var) { return joined_vars.contains(var); });
+  };
+
   while (!remaining.empty()) {
-    std::size_t best = *remaining.begin();
-    std::size_t best_shared = 0;
-
-    for (const auto idx : remaining) {
-      std::size_t shared = 0;
-      for (auto const &var : pattern_vars[idx]) {
-        if (joined_vars.contains(var)) ++shared;
-      }
-      if (shared > best_shared) {
-        best_shared = shared;
-        best = idx;
-      }
-    }
-
+    auto best = *std::ranges::max_element(remaining, {}, count_shared);
     order.push_back(best);
     remaining.erase(best);
-    for (auto const &var : pattern_vars[best]) {
-      joined_vars.insert(var);
-    }
+    joined_vars.insert(pattern_vars[best].begin(), pattern_vars[best].end());
   }
 
   return order;
