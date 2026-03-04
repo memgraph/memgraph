@@ -19,19 +19,19 @@ namespace memgraph::planner::core::pattern::vm {
 
 /// Index into the slots array (pattern variable bindings).
 /// Slots hold the e-class IDs matched to pattern variables.
-using SlotIdx = strong::type<uint8_t, struct SlotIdx_, strong::regular, strong::ordered, strong::ostreamable>;
+using SlotIdx = strong::type<uint8_t, struct SlotIdx_, strong::regular>;
 
 /// Index into the e-class register array.
 /// E-class registers hold e-class IDs during pattern matching.
 /// Register 0 is reserved for the input candidate e-class.
-using EClassReg = strong::type<uint8_t, struct EClassReg_, strong::regular, strong::ordered, strong::ostreamable>;
+using EClassReg = strong::type<uint8_t, struct EClassReg_, strong::regular>;
 
 /// Index into the e-node register array.
 /// E-node registers hold e-node IDs and iteration state during pattern matching.
-using ENodeReg = strong::type<uint8_t, struct ENodeReg_, strong::regular, strong::ordered, strong::ostreamable>;
+using ENodeReg = strong::type<uint8_t, struct ENodeReg_, strong::regular>;
 
 /// Instruction address (jump target) in the bytecode.
 /// Used for conditional jumps, backtracking, and loop targets.
-using InstrAddr = strong::type<uint16_t, struct InstrAddr_, strong::regular, strong::ordered, strong::ostreamable>;
+using InstrAddr = strong::type<uint16_t, struct InstrAddr_, strong::regular>;
 
 }  // namespace memgraph::planner::core::pattern::vm
