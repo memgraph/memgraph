@@ -84,12 +84,11 @@ class RewriteRule {
     auto apply(F &&fn) && -> RewriteRule {
       vm::PatternCompiler<Symbol> compiler;
       auto compiled = compiler.compile(patterns_);
-      if (!compiled) throw std::runtime_error("Pattern compilation failed (register limit exceeded?)");
       return RewriteRule{std::move(patterns_),
                          std::move(pattern_names_),
                          detail::make_apply_fn<Symbol, Analysis>(std::forward<F>(fn)),
                          std::move(name_),
-                         std::move(*compiled)};
+                         std::move(compiled)};
     }
 
    private:

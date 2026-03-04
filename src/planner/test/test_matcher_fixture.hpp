@@ -72,9 +72,8 @@ class PatternVM_MatcherIndex : public EGraphTestBase {
     matches.clear();
     TestPatternCompiler compiler;
     auto compiled = compiler.compile(*pattern_);
-    ASSERT_TRUE(compiled.has_value()) << "Pattern compilation failed";
     TestVMExecutor vm_executor(egraph);
-    vm_executor.execute(*compiled, index, ctx.arena(), matches);
+    vm_executor.execute(compiled, index, ctx.arena(), matches);
 
     ASSERT_EQ(matches.size(), expected_matches.size())
         << "Expected " << expected_matches.size() << " matches, got " << matches.size();
@@ -113,10 +112,8 @@ class PatternVM_MatcherIndex : public EGraphTestBase {
     }
     TestPatternCompiler compiler;
     auto compiled = compiler.compile(*pattern_);
-    if (compiled.has_value()) {
-      TestVMExecutor vm_executor(egraph);
-      vm_executor.execute(*compiled, index, ctx.arena(), matches);
-    }
+    TestVMExecutor vm_executor(egraph);
+    vm_executor.execute(compiled, index, ctx.arena(), matches);
     EXPECT_TRUE(matches.empty()) << "Expected no matches, got " << matches.size();
   }
 

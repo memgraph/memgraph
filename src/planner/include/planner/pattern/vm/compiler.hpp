@@ -190,17 +190,14 @@ template <typename Symbol>
 class PatternCompiler : protected PatternCompilerBase {
  public:
   /// Compile a single pattern into bytecode.
-  /// @return Compiled pattern or nullopt if pattern exceeds register limit
-  auto compile(Pattern<Symbol> const &pattern) -> std::optional<CompiledPattern<Symbol>> {
+  auto compile(Pattern<Symbol> const &pattern) -> CompiledPattern<Symbol> {
     return compile_patterns(std::span<Pattern<Symbol> const>(&pattern, 1));
   }
 
   /// Compile multiple patterns into fused bytecode with automatic join order.
   /// Analyzes shared variables to determine optimal anchor and join order.
   /// Empty pattern set returns empty pattern (matches nothing).
-  /// @return Compiled pattern or nullopt if patterns exceed register limit
-  auto compile(std::span<Pattern<Symbol> const> patterns) -> std::optional<CompiledPattern<Symbol>> {
-    if (patterns.empty()) return CompiledPattern<Symbol>{};
+  auto compile(std::span<Pattern<Symbol> const> patterns) -> CompiledPattern<Symbol> {
     return compile_patterns(patterns);
   }
 
@@ -220,7 +217,7 @@ class PatternCompiler : protected PatternCompilerBase {
   // Core compilation
   // ============================================================================
 
-  auto compile_patterns(std::span<Pattern<Symbol> const> patterns) -> std::optional<CompiledPattern<Symbol>>;
+  auto compile_patterns(std::span<Pattern<Symbol> const> patterns) -> CompiledPattern<Symbol>;
 
   void reset();
 
@@ -282,8 +279,8 @@ class PatternCompiler : protected PatternCompilerBase {
 };
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> patterns)
-    -> std::optional<CompiledPattern<Symbol>> {  // TODO: why optional...AFAICT no failure at compile
+auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> patterns) -> CompiledPattern<Symbol> {
+  if (patterns.empty()) return CompiledPattern<Symbol>{};
   reset();
 
   // Compute join order: first element is anchor, rest are join order

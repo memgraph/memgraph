@@ -45,7 +45,7 @@ TEST_F(PatternVM_Compiler, WildcardPattern) {
   auto compiled = compiler.compile(pattern);
 
   // Wildcard at root: no bindings, so just halt (match is implicit)
-  auto code = compiled->code();
+  auto code = compiled.code();
   ASSERT_EQ(code.size(), 1);
   EXPECT_EQ(code[0], Instruction::halt());
 }
@@ -58,7 +58,7 @@ TEST_F(PatternVM_Compiler, VariablePattern) {
   auto compiled = compiler.compile(pattern);
 
   // Variable at root: bind_dedup (backtrack to halt), yield (mark slot 0), jump back (to halt), halt
-  auto code = compiled->code();
+  auto code = compiled.code();
   ASSERT_EQ(code.size(), 4);
   EXPECT_EQ(code[0],
             Instruction::bind_slot_dedup(
@@ -90,8 +90,8 @@ TEST_F(PatternVM_Compiler, SimpleSymbolPattern) {
   // 9:  Jump @loop
   // 10: Halt
 
-  auto code = compiled->code();
-  auto bytecode = disassemble(code, compiled->symbols());
+  auto code = compiled.code();
+  auto bytecode = disassemble(code, compiled.symbols());
 
   ASSERT_GE(code.size(), 9) << "Expected at least 9 instructions\nBytecode:\n" << bytecode;
 
@@ -122,8 +122,8 @@ TEST_F(PatternVM_Compiler, NestedSymbolPattern) {
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  auto code = compiled->code();
-  auto bytecode = disassemble(code, compiled->symbols());
+  auto code = compiled.code();
+  auto bytecode = disassemble(code, compiled.symbols());
 
   // Expected structure:
   // 0: IterENodes r1, r0, @halt
@@ -178,8 +178,8 @@ TEST_F(PatternVM_Compiler, BinarySymbolPattern) {
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  auto code = compiled->code();
-  auto bytecode = disassemble(code, compiled->symbols());
+  auto code = compiled.code();
+  auto bytecode = disassemble(code, compiled.symbols());
 
   // Should have two LoadChild instructions for two children
   int load_child_count = 0;
@@ -221,10 +221,9 @@ TEST_F(PatternVM_Compiler, MultiPattern_DeepNestedUsesParentChain) {
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(patterns);
-  ASSERT_TRUE(compiled.has_value());
 
-  auto code = compiled->code();
-  auto bytecode = disassemble(code, compiled->symbols());
+  auto code = compiled.code();
+  auto bytecode = disassemble(code, compiled.symbols());
 
   // Count key instructions to verify parent chain traversal is used
   int iter_parents_count = 0;
@@ -278,16 +277,15 @@ TEST_F(PatternVM_Compiler, MultiPattern_SharedVarUsesParentTraversal) {
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
   auto compiled = compiler.compile(patterns);
-  ASSERT_TRUE(compiled.has_value()) << "Multi-pattern compilation should succeed";
 
-  auto bytecode = disassemble(compiled->code(), compiled->symbols());
+  auto bytecode = disassemble(compiled.code(), compiled.symbols());
 
   // Verify bytecode has parent traversal instructions
   bool has_iter_parents = false;
   bool has_next_parent = false;
   bool has_get_enode_eclass = false;
 
-  for (auto const &instr : compiled->code()) {
+  for (auto const &instr : compiled.code()) {
     if (instr.op == VMOp::IterParents) has_iter_parents = true;
     if (instr.op == VMOp::NextParent) has_next_parent = true;
     if (instr.op == VMOp::GetENodeEClass) has_get_enode_eclass = true;
@@ -314,15 +312,14 @@ TEST_F(PatternVM_Compiler, MultiPattern_NoSharedVarUsesCartesianProduct) {
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
   auto compiled = compiler.compile(patterns);
-  ASSERT_TRUE(compiled.has_value()) << "Multi-pattern compilation should succeed";
 
-  auto bytecode = disassemble(compiled->code(), compiled->symbols());
+  auto bytecode = disassemble(compiled.code(), compiled.symbols());
 
   // Verify bytecode has IterAllEClasses and NextEClass instructions
   bool has_iter_all_eclasses = false;
   bool has_next_eclass = false;
 
-  for (auto const &instr : compiled->code()) {
+  for (auto const &instr : compiled.code()) {
     if (instr.op == VMOp::IterAllEClasses) has_iter_all_eclasses = true;
     if (instr.op == VMOp::NextEClass) has_next_eclass = true;
   }
@@ -351,14 +348,13 @@ TEST_F(PatternVM_Compiler, MultiPattern_VariableOnlyUsesIterAllEClasses) {
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
   auto compiled = compiler.compile(patterns);
-  ASSERT_TRUE(compiled.has_value()) << "Compilation should succeed for variable-only joined pattern";
 
-  auto bytecode = disassemble(compiled->code(), compiled->symbols());
+  auto bytecode = disassemble(compiled.code(), compiled.symbols());
 
   bool has_iter_all_eclasses = false;
   bool has_next_eclass = false;
 
-  for (auto const &instr : compiled->code()) {
+  for (auto const &instr : compiled.code()) {
     if (instr.op == VMOp::IterAllEClasses) has_iter_all_eclasses = true;
     if (instr.op == VMOp::NextEClass) has_next_eclass = true;
   }
@@ -387,10 +383,9 @@ TEST_F(PatternVM_Compiler, MultiPattern_RootBindingEnablesParentTraversal) {
   TestPatternCompiler compiler;
   std::array patterns = {pattern1, pattern2, pattern3};
   auto compiled = compiler.compile(patterns);
-  ASSERT_TRUE(compiled.has_value()) << "Multi-pattern compilation should succeed";
 
-  auto const &code = compiled->code();
-  auto bytecode = disassemble(code, compiled->symbols());
+  auto const &code = compiled.code();
+  auto bytecode = disassemble(code, compiled.symbols());
 
   // Count IterParents and IterAllEClasses to verify join strategies
   int iter_parents_count = 0;
@@ -430,10 +425,9 @@ TEST_F(PatternVM_Compiler, MultiPattern_MixedJoinStrategies) {
   TestPatternCompiler compiler;
   std::array patterns = {pattern1, pattern2, pattern3};
   auto compiled = compiler.compile(patterns);
-  ASSERT_TRUE(compiled.has_value()) << "Multi-pattern compilation should succeed";
 
-  auto const &code = compiled->code();
-  auto bytecode = disassemble(code, compiled->symbols());
+  auto const &code = compiled.code();
+  auto bytecode = disassemble(code, compiled.symbols());
 
   int iter_parents_count = 0;
   int iter_all_eclasses_count = 0;
@@ -519,13 +513,12 @@ TEST_F(PatternVM_Compiler, JoinOrder_HubPatternsFirst) {
 
   TestPatternCompiler compiler;
   auto canonical_compiled = compiler.compile(canonical_patterns);
-  ASSERT_TRUE(canonical_compiled.has_value()) << "Canonical compilation should succeed";
 
-  auto canonical_bytecode = disassemble(canonical_compiled->code(), canonical_compiled->symbols());
+  auto canonical_bytecode = disassemble(canonical_compiled.code(), canonical_compiled.symbols());
 
   // Verify no Cartesian product in canonical compilation
   bool has_iter_all_eclasses = false;
-  for (auto const &instr : canonical_compiled->code()) {
+  for (auto const &instr : canonical_compiled.code()) {
     if (instr.op == VMOp::IterAllEClasses) {
       has_iter_all_eclasses = true;
       break;
@@ -543,12 +536,11 @@ TEST_F(PatternVM_Compiler, JoinOrder_HubPatternsFirst) {
 
     TestPatternCompiler perm_compiler;
     auto compiled = perm_compiler.compile(perm_patterns);
-    ASSERT_TRUE(compiled.has_value()) << "Permutation " << permutation_count << " compilation should succeed";
 
     // Property 1: No Cartesian product - this is the key invariant
     // When all patterns share variables, we should use parent traversal, not iteration
     bool perm_has_iter_all = false;
-    for (auto const &instr : compiled->code()) {
+    for (auto const &instr : compiled.code()) {
       if (instr.op == VMOp::IterAllEClasses) {
         perm_has_iter_all = true;
         break;
@@ -556,11 +548,11 @@ TEST_F(PatternVM_Compiler, JoinOrder_HubPatternsFirst) {
     }
     EXPECT_FALSE(perm_has_iter_all) << "Permutation " << permutation_count
                                     << " should not use IterAllEClasses\nBytecode:\n"
-                                    << disassemble(compiled->code(), compiled->symbols());
+                                    << disassemble(compiled.code(), compiled.symbols());
 
     // Property 2: Must have parent traversal instructions (the efficient join strategy)
     bool has_iter_parents = false;
-    for (auto const &instr : compiled->code()) {
+    for (auto const &instr : compiled.code()) {
       if (instr.op == VMOp::IterParents) {
         has_iter_parents = true;
         break;
@@ -568,7 +560,7 @@ TEST_F(PatternVM_Compiler, JoinOrder_HubPatternsFirst) {
     }
     EXPECT_TRUE(has_iter_parents) << "Permutation " << permutation_count
                                   << " should use IterParents for joins\nBytecode:\n"
-                                  << disassemble(compiled->code(), compiled->symbols());
+                                  << disassemble(compiled.code(), compiled.symbols());
 
     ++permutation_count;
   } while (std::ranges::next_permutation(perm).found);
@@ -599,10 +591,9 @@ TEST_F(PatternVM_Compiler, JoinOrder_CheckEClassEqProximity) {
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined1, joined2};
   auto compiled = compiler.compile(patterns);
-  ASSERT_TRUE(compiled.has_value()) << "Multi-pattern compilation should succeed";
 
-  auto const &code = compiled->code();
-  auto bytecode = disassemble(code, compiled->symbols());
+  auto const &code = compiled.code();
+  auto bytecode = disassemble(code, compiled.symbols());
 
   // Find LoadChild and CheckEClassEq pairs - check should immediately follow load
   std::vector<std::size_t> check_eq_positions;
@@ -648,9 +639,8 @@ TEST_F(PatternVM_Compiler, JoinOrder_SharedVarBindBeforeCheck) {
 
     TestPatternCompiler compiler;
     auto compiled = compiler.compile(ordered);
-    ASSERT_TRUE(compiled.has_value());
 
-    auto const &code = compiled->code();
+    auto const &code = compiled.code();
 
     // Track first occurrence of bind vs check for each slot
     std::map<uint8_t, std::pair<std::size_t, bool>> slot_first_op;  // slot -> (pos, is_bind)
@@ -677,7 +667,7 @@ TEST_F(PatternVM_Compiler, JoinOrder_SharedVarBindBeforeCheck) {
       auto [pos, is_bind] = info;
       EXPECT_TRUE(is_bind) << "Slot " << static_cast<int>(slot) << " first appears as CheckSlot at position " << pos
                            << ", but should be BindSlotDedup first\nBytecode:\n"
-                           << disassemble(code, compiled->symbols());
+                           << disassemble(code, compiled.symbols());
     }
   }
 }
@@ -700,10 +690,9 @@ TEST_F(PatternVM_Compiler, JoinOrder_NoCartesianWhenPathWalkingPossible) {
   TestPatternCompiler compiler;
   std::array patterns = {pattern1, pattern2};
   auto compiled = compiler.compile(patterns);
-  ASSERT_TRUE(compiled.has_value()) << "Multi-pattern compilation should succeed";
 
-  auto const &code = compiled->code();
-  auto bytecode = disassemble(code, compiled->symbols());
+  auto const &code = compiled.code();
+  auto bytecode = disassemble(code, compiled.symbols());
 
   // Should NOT use IterAllEClasses (Cartesian product)
   bool has_iter_all_eclasses = false;
