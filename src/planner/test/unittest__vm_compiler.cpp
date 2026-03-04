@@ -44,12 +44,10 @@ TEST_F(PatternVM_Compiler, WildcardPattern) {
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  // Wildcard at root: yield (no slots to mark), jump back (to halt), halt
+  // Wildcard at root: no bindings, so just halt (match is implicit)
   auto code = compiled->code();
-  ASSERT_EQ(code.size(), 3);
-  EXPECT_EQ(code[0], Instruction::yield(SlotIdx{0}));  // No bindings, last_slot defaults to 0
-  EXPECT_EQ(code[1].op, VMOp::Jump);
-  EXPECT_EQ(code[2], Instruction::halt());
+  ASSERT_EQ(code.size(), 1);
+  EXPECT_EQ(code[0], Instruction::halt());
 }
 
 TEST_F(PatternVM_Compiler, VariablePattern) {

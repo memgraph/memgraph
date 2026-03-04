@@ -129,10 +129,10 @@ class PatternCompilerBase {
 //
 // ### 6. Code Structure Contract
 //
-//   - Code begins with iteration setup for root pattern
-//   - Code ends with: Yield, Jump(innermost_loop), Halt
+//   - Code begins with iteration setup for root pattern (if any)
+//   - For patterns with bindings: ends with Yield, Jump(innermost_loop), Halt
+//   - For patterns without bindings (e.g., pure wildcard): just Halt
 //   - Halt is always the last instruction
-//   - At least one Yield instruction exists (unless pattern cannot match)
 //
 // ## Join Strategies
 //
@@ -324,11 +324,11 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
     innermost = emit_joined_pattern(patterns[idx], innermost);
   }
 
-  // Emit yield and continue loop
-  // Yield marks the last bound slot as seen (implicit MarkSeen)
-  auto last_slot = binding_order_.empty() ? SlotIdx{0} : binding_order_.back();
-  emit(Instruction::yield(last_slot));
-  emit(Instruction::jmp(innermost));
+  // Emit yield and continue loop (only if there are bindings to report)
+  if (!binding_order_.empty()) {
+    emit(Instruction::yield(binding_order_.back()));
+    emit(Instruction::jmp(innermost));
+  }
 
   // Patch halt placeholders and add halt
   auto halt_pos = current_addr();

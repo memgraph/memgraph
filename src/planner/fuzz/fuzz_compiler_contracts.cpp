@@ -45,8 +45,8 @@
 //
 //   6. Code Structure Contract
 //      - Last instruction is Halt
-//      - At least one Yield exists (for non-trivial patterns)
-//      - Yield is followed by Jump
+//      - For patterns with bindings: Yield exists and is followed by Jump
+//      - For patterns without bindings: may have no Yield (just Halt)
 //
 // Running:
 //   ./build/src/planner/fuzz/fuzz_compiler_contracts -max_total_time=60
@@ -259,9 +259,14 @@ class CompiledPatternVerifier {
       }
     }
 
-    // For non-trivial patterns (more than just Halt), should have at least one Yield
-    if (code.size() > 1 && yield_count == 0) {
-      errors.push_back("No Yield instruction in non-trivial pattern");
+    // Patterns with bindings should have at least one Yield
+    // Patterns without bindings (e.g., pure wildcard) may have no Yield
+    bool const has_bindings = !cp_.binding_order().empty();
+    if (has_bindings && yield_count == 0) {
+      errors.push_back("No Yield instruction in pattern with bindings");
+    }
+    if (!has_bindings && yield_count > 0) {
+      errors.push_back("Yield instruction in pattern without bindings");
     }
 
     // Yield should be followed by Jump
