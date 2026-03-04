@@ -494,5 +494,230 @@ class TestDeleteEdge:
             execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
 
 
+class TestDeleteEdgeExplicit:
+    """Test DELETE EDGE permission explicitly (not via UPDATE)."""
+
+    def test_with_delete_edge_permission(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ", "DELETE EDGE"})
+        grant_edge_permissions(admin, {"READ", "DELETE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
+
+    def test_without_delete_edge_permission_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ", "SET LABEL", "REMOVE LABEL", "SET PROPERTY", "CREATE EDGE"})
+        grant_edge_permissions(admin, {"READ", "DELETE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
+
+
+class TestCreateEdgeEndpoints:
+    """Test CREATE EDGE permission on individual endpoints."""
+
+    def test_missing_create_edge_on_source_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source), (:Dest)")
+        execute_and_fetch_all(admin, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
+        execute_and_fetch_all(admin, "GRANT READ, CREATE EDGE ON NODES CONTAINING LABELS :Dest TO user;")
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (a:Source), (b:Dest) CREATE (a)-[:Target]->(b)")
+
+    def test_missing_create_edge_on_dest_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source), (:Dest)")
+        execute_and_fetch_all(admin, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
+        execute_and_fetch_all(admin, "GRANT READ, CREATE EDGE ON NODES CONTAINING LABELS :Source TO user;")
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (a:Source), (b:Dest) CREATE (a)-[:Target]->(b)")
+
+    def test_create_edge_on_both_endpoints_succeeds(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source), (:Dest)")
+        execute_and_fetch_all(admin, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
+        execute_and_fetch_all(admin, "GRANT CREATE EDGE ON NODES CONTAINING LABELS :Source TO user;")
+        execute_and_fetch_all(admin, "GRANT CREATE EDGE ON NODES CONTAINING LABELS :Dest TO user;")
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (a:Source), (b:Dest) CREATE (a)-[:Target]->(b)")
+
+
+class TestDeleteEdgeEndpoints:
+    """Test DELETE EDGE permission on individual endpoints."""
+
+    def test_missing_delete_edge_on_source_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        execute_and_fetch_all(admin, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
+        execute_and_fetch_all(admin, "GRANT READ, DELETE EDGE ON NODES CONTAINING LABELS :Dest TO user;")
+        grant_edge_permissions(admin, {"READ", "DELETE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
+
+    def test_missing_delete_edge_on_dest_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        execute_and_fetch_all(admin, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
+        execute_and_fetch_all(admin, "GRANT READ, DELETE EDGE ON NODES CONTAINING LABELS :Source TO user;")
+        grant_edge_permissions(admin, {"READ", "DELETE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
+
+    def test_delete_edge_on_both_endpoints_succeeds(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        execute_and_fetch_all(admin, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
+        execute_and_fetch_all(admin, "GRANT DELETE EDGE ON NODES CONTAINING LABELS :Source TO user;")
+        execute_and_fetch_all(admin, "GRANT DELETE EDGE ON NODES CONTAINING LABELS :Dest TO user;")
+        grant_edge_permissions(admin, {"READ", "DELETE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
+
+
+class TestSelfLoopEdge:
+    """Test edge operations on self-loops (same source and destination)."""
+
+    def test_create_self_loop_with_create_edge_succeeds(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Node)")
+        grant_label_permissions(admin, {"READ", "CREATE EDGE"})
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (n:Node) CREATE (n)-[:Self]->(n)")
+
+    def test_create_self_loop_without_create_edge_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Node)")
+        grant_label_permissions(admin, {"READ"})
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (n:Node) CREATE (n)-[:Self]->(n)")
+
+    def test_delete_self_loop_with_delete_edge_succeeds(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (n:Node)-[:Self]->(n)")
+        grant_label_permissions(admin, {"READ", "DELETE EDGE"})
+        grant_edge_permissions(admin, {"READ", "DELETE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (n:Node)-[r:Self]->(n) DELETE r")
+
+    def test_delete_self_loop_without_delete_edge_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (n:Node)-[:Self]->(n)")
+        grant_label_permissions(admin, {"READ"})
+        grant_edge_permissions(admin, {"READ", "DELETE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (n:Node)-[r:Self]->(n) DELETE r")
+
+
+class TestCreateExpand:
+    """Test CREATE (n:A)-[:R]->(m:B) pattern where nodes are created in the same query."""
+
+    def test_create_expand_with_all_permissions_succeeds(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        grant_label_permissions(admin, {"CREATE", "CREATE EDGE"})
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "CREATE (:Source)-[:Target]->(:Dest)")
+
+    def test_create_expand_without_create_edge_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        grant_label_permissions(admin, {"CREATE"})
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "CREATE (:Source)-[:Target]->(:Dest)")
+
+    def test_create_expand_without_label_create_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        grant_label_permissions(admin, {"CREATE EDGE"})
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "CREATE (:Source)-[:Target]->(:Dest)")
+
+    def test_create_expand_without_edge_create_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        grant_label_permissions(admin, {"CREATE", "CREATE EDGE"})
+        grant_edge_permissions(admin, {"READ"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "CREATE (:Source)-[:Target]->(:Dest)")
+
+    def test_create_expand_self_loop_succeeds(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        grant_label_permissions(admin, {"CREATE", "CREATE EDGE"})
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "CREATE (n:Node)-[:Self]->(n)")
+
+    def test_create_expand_to_existing_node_succeeds(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Existing)")
+        grant_label_permissions(admin, {"CREATE", "READ", "CREATE EDGE"})
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (e:Existing) CREATE (:New)-[:Target]->(e)")
+
+    def test_create_expand_to_existing_node_without_create_edge_on_existing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Existing)")
+        execute_and_fetch_all(admin, "GRANT CREATE, CREATE EDGE ON NODES CONTAINING LABELS :New TO user;")
+        execute_and_fetch_all(admin, "GRANT READ ON NODES CONTAINING LABELS :Existing TO user;")
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (e:Existing) CREATE (:New)-[:Target]->(e)")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
