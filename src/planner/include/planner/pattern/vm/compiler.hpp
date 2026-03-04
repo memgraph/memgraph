@@ -311,12 +311,11 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
   emit(Instruction::yield(binding_order_.back()));
   emit(Instruction::jmp(innermost));
 
-  // Patch halt placeholders and add halt
-  auto halt_pos = current_addr();
+  // Emit halt and patch placeholders
+  auto halt_pos = emit(Instruction::halt());
   for (auto &instr : code_) {
     if (instr.target == value_of(kHaltPlaceholder)) instr.target = value_of(halt_pos);
   }
-  emit(Instruction::halt());
 
   // Convert strong types to underlying types for CompiledPattern
   std::vector<uint8_t> binding_order_raw;
@@ -434,9 +433,9 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
   auto sym_idx = get_symbol_index(sym.sym);
   auto enode_reg = alloc_enode_reg();  // IterENodes produces e-node
 
-  // Emit iteration loop
-  auto loop_pos = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, backtrack),
-                                 Instruction::next_enode(enode_reg, backtrack));
+  // Emit iteration loop (IterENodes doesn't need backtrack - e-classes always have nodes)
+  auto loop_pos =
+      emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg), Instruction::next_enode(enode_reg, backtrack));
 
   // Check symbol and arity
   emit(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));

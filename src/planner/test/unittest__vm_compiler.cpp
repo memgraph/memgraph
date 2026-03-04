@@ -108,7 +108,7 @@ TEST_F(PatternVM_Compiler, SimpleSymbolPattern) {
   auto halt_pos = static_cast<uint16_t>(code.size() - 1);
 
   EXPECT_EQ(code[0].target, halt_pos) << "BindSlotDedup should jump to halt on duplicate";
-  EXPECT_EQ(code[1].target, halt_pos) << "IterENodes should jump to halt on empty";
+  // Note: IterENodes (code[1]) has no meaningful target - e-classes always have at least one e-node
   EXPECT_EQ(code[2].target, 4) << "First Jump should skip to CheckSymbol";
   EXPECT_EQ(code[3].target, halt_pos) << "NextENode should jump to halt on exhausted";
   EXPECT_EQ(code[4].target, loop_pos) << "CheckSymbol should backtrack to NextENode";
@@ -145,7 +145,7 @@ TEST_F(PatternVM_Compiler, NestedSymbolPattern) {
   ASSERT_GE(code.size(), 10) << "Expected at least 10 instructions";
 
   // Find key instruction positions
-  int outer_loop = -1, inner_iter = -1, inner_loop = -1;
+  int outer_loop = -1, inner_loop = -1;
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (code[i].op == VMOp::NextENode) {
       if (outer_loop == -1)
@@ -153,19 +153,12 @@ TEST_F(PatternVM_Compiler, NestedSymbolPattern) {
       else
         inner_loop = static_cast<int>(i);
     }
-    if (code[i].op == VMOp::IterENodes && i > 0) {
-      inner_iter = static_cast<int>(i);
-    }
   }
 
   ASSERT_NE(outer_loop, -1) << "Could not find outer loop";
-  ASSERT_NE(inner_iter, -1) << "Could not find inner IterENodes";
   ASSERT_NE(inner_loop, -1) << "Could not find inner loop";
 
-  // Inner IterENodes should backtrack to outer loop
-  EXPECT_EQ(code[inner_iter].target, static_cast<uint16_t>(outer_loop))
-      << "Inner IterENodes should backtrack to outer loop";
-
+  // Note: IterENodes has no meaningful target - e-classes always have at least one e-node
   // Inner NextENode should backtrack to outer loop
   EXPECT_EQ(code[inner_loop].target, static_cast<uint16_t>(outer_loop))
       << "Inner NextENode should backtrack to outer loop";

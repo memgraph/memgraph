@@ -226,8 +226,9 @@ struct Instruction {
     return {.op = GetENodeEClass, .dst = value_of(dst), .src = value_of(src)};
   }
 
-  static constexpr auto iter_enodes(ENodeReg dst, EClassReg src, InstrAddr on_empty) -> Instruction {
-    return {.op = IterENodes, .dst = value_of(dst), .src = value_of(src), .target = value_of(on_empty)};
+  /// Note: No on_empty target because e-classes always have at least one e-node.
+  static constexpr auto iter_enodes(ENodeReg dst, EClassReg src) -> Instruction {
+    return {.op = IterENodes, .dst = value_of(dst), .src = value_of(src)};
   }
 
   static constexpr auto next_enode(ENodeReg dst, InstrAddr on_exhausted) -> Instruction {

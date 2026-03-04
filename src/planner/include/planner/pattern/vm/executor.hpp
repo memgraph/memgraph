@@ -189,7 +189,7 @@ class VMExecutor {
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction instr) -> bool;
+  [[gnu::always_inline]] void exec_iter_enodes(Instruction instr);
 
   /// Common helper for advancing span-based iterators (ENodesIter, AllEClassesIter)
   template <typename Iter, typename IdType>
@@ -333,7 +333,8 @@ op_GetENodeEClass:
   NEXT();
 
 op_IterENodes:
-  NEXT_OR_JUMP(exec_iter_enodes(instr));
+  exec_iter_enodes(instr);
+  NEXT();
 
 op_NextENode:
   NEXT_OR_JUMP(exec_next_enode(instr));
@@ -389,7 +390,7 @@ op_Halt:
 }
 
 template <typename Symbol, typename Analysis, bool DevMode>
-auto VMExecutor<Symbol, Analysis, DevMode>::exec_iter_enodes(Instruction instr) -> bool {
+void VMExecutor<Symbol, Analysis, DevMode>::exec_iter_enodes(Instruction instr) {
   auto eclass_id = state_.eclass_regs[instr.src];
   auto nodes = egraph_->eclass(eclass_id).nodes();
 
@@ -397,13 +398,9 @@ auto VMExecutor<Symbol, Analysis, DevMode>::exec_iter_enodes(Instruction instr) 
     collector_.on_iter_enode_start(state_.pc, nodes.size());
   }
 
-  if (nodes.empty()) {
-    return false;
-  }
-
+  // Note: No empty check - e-classes always have at least one e-node
   state_.start_enode_iter(instr.dst, nodes);
   state_.enode_regs[instr.dst] = nodes[0];
-  return true;
 }
 
 template <typename Symbol, typename Analysis, bool DevMode>
