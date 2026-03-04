@@ -436,7 +436,7 @@ def test_can_delete_edge_when_given_delete(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT DELETE EDGE ON NODES CONTAINING LABELS *, DELETE ON EDGES OF TYPE :create_delete_edge_type TO user",
+        "GRANT DELETE EDGE ON NODES CONTAINING LABELS *, READ, DELETE ON EDGES OF TYPE :create_delete_edge_type TO user",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
