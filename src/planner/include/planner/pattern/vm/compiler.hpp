@@ -257,10 +257,9 @@ class PatternCompiler : protected PatternCompilerBase {
 
   auto emit_joined_pattern(Pattern<Symbol> const &pattern, InstrAddr anchor_backtrack) -> InstrAddr;
 
-  auto emit_joined_variable_root(Pattern<Symbol> const &pattern, InstrAddr backtrack) -> InstrAddr;
-
-  auto emit_joined_cartesian(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym, InstrAddr backtrack)
-      -> InstrAddr;
+  /// Emit Cartesian product join - iterates all e-classes.
+  /// Handles both variable/wildcard roots (just bind) and symbol roots (full iteration).
+  auto emit_joined_cartesian(Pattern<Symbol> const &pattern, InstrAddr backtrack) -> InstrAddr;
 
   /// Emit parent traversal for patterns with shared variables.
   /// Traverses upward from the shared variable through parent chain.
@@ -523,14 +522,6 @@ auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern
     return anchor_backtrack;
   }
 
-  auto const &root_node = pattern[pattern.root()];
-  auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&root_node);
-
-  if (!sym) {
-    // Variable/wildcard root - iterate all e-classes
-    return emit_joined_variable_root(pattern, anchor_backtrack);
-  }
-
   // Try to find a shared variable (any depth) for efficient parent traversal
   if (auto path = find_path_to_shared_var(pattern)) {
     if (auto it = var_to_reg_.find(path->shared_var); it != var_to_reg_.end()) {
@@ -539,63 +530,51 @@ auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern
   }
 
   // No shared variable - Cartesian product (expensive fallback)
-  return emit_joined_cartesian(pattern, *sym, anchor_backtrack);
+  // Handles both variable/wildcard roots and symbol roots
+  return emit_joined_cartesian(pattern, anchor_backtrack);
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_joined_variable_root(Pattern<Symbol> const &pattern, InstrAddr backtrack)
-    -> InstrAddr {
-  // TODO: this is only called from one place which assumes root is either wildcard or patternvar
+auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &pattern, InstrAddr backtrack) -> InstrAddr {
+  auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&pattern[pattern.root()]);
+
   auto eclass_reg = alloc_eclass_reg();  // IterAllEClasses produces e-class
-  auto loop_pos = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
-                                 Instruction::next_eclass(eclass_reg, backtrack));
-
-  // Handle root binding
-  // TODO: why not var_to_reg for both? why special case for root? confusing code structure due to two types of bindings
-  // (symbol vs pattern variable)
-  if (auto const *var = std::get_if<PatternVar>(&pattern[pattern.root()])) {
-    emit_var_binding(*var, eclass_reg, loop_pos);
-    var_to_reg_[*var] = eclass_reg;
-  }
-  if (auto binding = pattern.binding_for(pattern.root())) {
-    emit_var_binding(*binding, eclass_reg, loop_pos);
-  }
-
-  return loop_pos;
-}
-
-template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &pattern,
-                                                    SymbolWithChildren<Symbol> const &sym, InstrAddr backtrack)
-    -> InstrAddr {
-  auto eclass_reg = alloc_eclass_reg();  // IterAllEClasses produces e-class
-  auto enode_reg = alloc_enode_reg();    // IterENodes produces e-node
-
-  // Outer loop: all e-classes
   auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
                                     Instruction::next_eclass(eclass_reg, backtrack));
 
-  // Bind root BEFORE e-node iteration if needed.
-  // Each e-class is different; if duplicate, backtrack to e-class loop.
+  // Variable/wildcard root - just bind and return
+  if (!sym) {
+    if (auto const *var = std::get_if<PatternVar>(&pattern[pattern.root()])) {
+      emit_var_binding(*var, eclass_reg, eclass_loop);
+      var_to_reg_[*var] = eclass_reg;
+    }
+    if (auto binding = pattern.binding_for(pattern.root())) {
+      emit_var_binding(*binding, eclass_reg, eclass_loop);
+    }
+    return eclass_loop;
+  }
+
+  // Symbol root - bind e-class before e-node iteration
   if (auto binding = pattern.binding_for(pattern.root())) {
     emit_bind_slot(get_slot(*binding), eclass_reg, eclass_loop);
   }
 
   // Inner loop: e-nodes in each e-class
+  auto enode_reg = alloc_enode_reg();  // IterENodes produces e-node
   auto enode_loop = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, eclass_loop),
                                    Instruction::next_enode(enode_reg, eclass_loop));
 
   // Check symbol and arity
-  auto sym_idx = get_symbol_index(sym.sym);
+  auto sym_idx = get_symbol_index(sym->sym);
   emit(Instruction::check_symbol(enode_reg, sym_idx, enode_loop));
-  emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), enode_loop));
+  emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym->children.size()), enode_loop));
 
   // Process children
   InstrAddr innermost = enode_loop;
-  for (std::size_t i = 0; i < sym.children.size(); ++i) {
+  for (std::size_t i = 0; i < sym->children.size(); ++i) {
     auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
     emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
-    innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
+    innermost = emit_joined_child(pattern, sym->children[i], child_reg, innermost);
   }
 
   return innermost;
