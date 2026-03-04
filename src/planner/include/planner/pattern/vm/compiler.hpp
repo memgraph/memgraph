@@ -477,51 +477,26 @@ auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &pattern, InstrAddr backtrack) -> InstrAddr {
-  return std::visit(
-      utils::Overloaded{
-          [&](Wildcard) { return backtrack; },  // No structure, no binding - nothing to do
-          [&](PatternVar var) {
-            // Already-bound variable - nothing to do (slot already has the value)
-            if (seen_vars_.contains(var)) {
-              return backtrack;
-            }
-            auto eclass_reg = alloc_eclass_reg();
-            auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
-                                              Instruction::next_eclass(eclass_reg, backtrack));
-            return emit_var_binding(var, eclass_reg, eclass_loop);
-          },
-          [&](SymbolWithChildren<Symbol> const &sym) {
-            auto eclass_reg = alloc_eclass_reg();
-            auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
-                                              Instruction::next_eclass(eclass_reg, backtrack));
-
-            // Bind e-class before e-node iteration
-            if (auto binding = pattern.binding_for(pattern.root())) {
-              emit_var_binding(*binding, eclass_reg, eclass_loop);
-            }
-
-            // Inner loop: e-nodes in each e-class
-            auto enode_reg = alloc_enode_reg();
-            auto enode_loop = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, eclass_loop),
-                                             Instruction::next_enode(enode_reg, eclass_loop));
-
-            // Check symbol and arity
-            auto sym_idx = get_symbol_index(sym.sym);
-            emit(Instruction::check_symbol(enode_reg, sym_idx, enode_loop));
-            emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), enode_loop));
-
-            // Process children
-            InstrAddr innermost = enode_loop;
-            for (std::size_t i = 0; i < sym.children.size(); ++i) {
-              auto child_reg = alloc_eclass_reg();
-              emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
-              innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
-            }
-
-            return innermost;
-          },
-      },
-      pattern[pattern.root()]);
+  return std::visit(utils::Overloaded{
+                        [&](Wildcard) { return backtrack; },  // No structure, no binding - nothing to do
+                        [&](PatternVar var) {
+                          // Already-bound variable - nothing to do (slot already has the value)
+                          if (seen_vars_.contains(var)) {
+                            return backtrack;
+                          }
+                          auto eclass_reg = alloc_eclass_reg();
+                          auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
+                                                            Instruction::next_eclass(eclass_reg, backtrack));
+                          return emit_var_binding(var, eclass_reg, eclass_loop);
+                        },
+                        [&](SymbolWithChildren<Symbol> const &sym) {
+                          auto eclass_reg = alloc_eclass_reg();
+                          auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
+                                                            Instruction::next_eclass(eclass_reg, backtrack));
+                          return emit_symbol_node(pattern, pattern.root(), sym, eclass_reg, eclass_loop);
+                        },
+                    },
+                    pattern[pattern.root()]);
 }
 
 template <typename Symbol>
