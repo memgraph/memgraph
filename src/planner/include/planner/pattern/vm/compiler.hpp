@@ -228,10 +228,9 @@ class PatternCompiler : protected PatternCompilerBase {
   // Join order computation
   // ============================================================================
 
-  /// Compute optimal join order. Returns (anchor_index, ordered_join_indices).
-  /// For single pattern, returns (0, {}).
-  static auto compute_join_order(std::span<Pattern<Symbol> const> patterns)
-      -> std::pair<std::size_t, std::vector<std::size_t>>;
+  /// Compute optimal join order for multi-pattern matching.
+  /// Returns pattern indices as a permutation: first is anchor, rest are join order.
+  static auto compute_join_order(std::span<Pattern<Symbol> const> patterns) -> std::vector<std::size_t>;
 
   void build_slot_map(std::span<Pattern<Symbol> const> patterns);
 
@@ -284,12 +283,12 @@ class PatternCompiler : protected PatternCompilerBase {
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> patterns)
-    -> std::optional<CompiledPattern<Symbol>> {
+    -> std::optional<CompiledPattern<Symbol>> {  // TODO: why optional...AFAICT no failure at compile
   reset();
 
-  // Compute join order (trivial for single pattern)
-  auto [anchor_idx, join_order] = compute_join_order(patterns);
-  auto const &anchor = patterns[anchor_idx];
+  // Compute join order: first element is anchor, rest are join order
+  auto const pattern_order = compute_join_order(patterns);
+  auto const &anchor = patterns[pattern_order[0]];
 
   // Build unified slot map
   build_slot_map(patterns);
@@ -305,7 +304,7 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
 
   // Emit joined patterns
   InstrAddr innermost = anchor_innermost;
-  for (auto idx : join_order) {
+  for (auto idx : pattern_order | std::views::drop(1)) {
     innermost = emit_joined_pattern(patterns[idx], innermost);
   }
 
@@ -351,9 +350,9 @@ void PatternCompiler<Symbol>::reset() {
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::compute_join_order(std::span<Pattern<Symbol> const> patterns)
-    -> std::pair<std::size_t, std::vector<std::size_t>> {
+    -> std::vector<std::size_t> {
   auto const n = patterns.size();
-  if (n == 1) return {0, {}};
+  if (n == 1) return {0};
 
   // Collect variables per pattern
   std::vector<boost::unordered_flat_set<PatternVar>> pattern_vars(n);
@@ -381,7 +380,8 @@ auto PatternCompiler<Symbol>::compute_join_order(std::span<Pattern<Symbol> const
 
   boost::unordered_flat_set<PatternVar> joined_vars = pattern_vars[anchor];
   std::vector<std::size_t> order;
-  order.reserve(n - 1);
+  order.reserve(n);
+  order.push_back(anchor);
 
   while (!remaining.empty()) {
     std::size_t best = *remaining.begin();
@@ -405,7 +405,7 @@ auto PatternCompiler<Symbol>::compute_join_order(std::span<Pattern<Symbol> const
     }
   }
 
-  return {anchor, order};
+  return order;
 }
 
 template <typename Symbol>
