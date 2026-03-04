@@ -536,6 +536,7 @@ auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern
 
   if (!sym) {
     // Variable/wildcard root - iterate all e-classes
+    // TODO: this func is only used here
     return emit_joined_variable_root(pattern, anchor_backtrack);
   }
 
@@ -564,11 +565,14 @@ auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern
 template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_variable_root(Pattern<Symbol> const &pattern, InstrAddr backtrack)
     -> InstrAddr {
+  // TODO: this is only called from one place which assumes root is either wildcard or patternvar
   auto eclass_reg = alloc_eclass_reg();  // IterAllEClasses produces e-class
   auto loop_pos = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
                                  Instruction::next_eclass(eclass_reg, backtrack));
 
   // Handle root binding
+  // TODO: why not var_to_reg for both? why special case for root? confusing code structure due to two types of bindings
+  // (symbol vs pattern variable)
   if (auto const *var = std::get_if<PatternVar>(&pattern[pattern.root()])) {
     emit_var_binding(*var, eclass_reg, loop_pos);
     var_to_reg_[*var] = eclass_reg;
@@ -807,6 +811,8 @@ auto PatternCompiler<Symbol>::find_path_recursive(Pattern<Symbol> const &pattern
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::is_redundant_joined_pattern(Pattern<Symbol> const &pattern) const -> bool {
+  // TODO: can be done with std::visit instead of holds alternative etc
+
   // Only skip if the pattern is just a single variable or wildcard at the root
   // (no symbol structure to verify)
   auto const &root_node = pattern[pattern.root()];
