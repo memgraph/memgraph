@@ -24,6 +24,7 @@ logging.getLogger("neo4j").setLevel(logging.CRITICAL)
 R = TypeVar("R")
 
 SYNC_REPLICA_ERROR = "At least one SYNC replica has not confirmed committing last transaction."
+WRITE_ON_REPLICA_ERROR = "Write queries are forbidden on the replica instance"
 
 COORDINATOR_INSTANCES = {"coord_1", "coord_2", "coord_3"}
 
@@ -249,7 +250,7 @@ def _run_query(
             if SYNC_REPLICA_ERROR in str(e):
                 print(f"\nWARN: Sync replica error (instance={instance_name}): {e}")
                 return None
-            if isinstance(e, ServiceUnavailable):
+            if isinstance(e, ServiceUnavailable) or WRITE_ON_REPLICA_ERROR in str(e):
                 pid = os.getpid()
                 key = (pid, instance_name, protocol.value)
                 _driver_cache.pop(key, None)
