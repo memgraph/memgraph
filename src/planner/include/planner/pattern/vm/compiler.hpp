@@ -24,6 +24,7 @@
 #include "planner/pattern/vm/compiled_pattern.hpp"
 #include "planner/pattern/vm/instruction.hpp"
 #include "planner/pattern/vm/types.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::planner::core::pattern::vm {
 
@@ -435,15 +436,9 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
       slot_map_[var] = SlotIdx{slot};
     }
   } else {
-    // Multi-pattern: assign slots sequentially, but respect each pattern's
-    // internal ordering by iterating in slot order
+    // Multi-pattern: assign slots sequentially, deduplicating shared variables
     for (auto const &pattern : patterns) {
-      // Collect vars sorted by their slot index to ensure deterministic order
-      // TODO: sorting isn't needed because we deduplicate afterward
-      std::vector<std::pair<PatternVar, uint8_t>> vars(pattern.var_slots().begin(), pattern.var_slots().end());
-      std::sort(vars.begin(), vars.end(), [](auto const &a, auto const &b) { return a.second < b.second; });
-
-      for (const auto &var : vars | std::views::keys) {
+      for (auto const &[var, _] : pattern.var_slots()) {
         if (!slot_map_.contains(var)) {
           slot_map_[var] = SlotIdx{static_cast<uint8_t>(slot_map_.size())};
         }
@@ -811,24 +806,14 @@ auto PatternCompiler<Symbol>::find_path_recursive(Pattern<Symbol> const &pattern
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::is_redundant_joined_pattern(Pattern<Symbol> const &pattern) const -> bool {
-  // TODO: can be done with std::visit instead of holds alternative etc
-
   // Only skip if the pattern is just a single variable or wildcard at the root
-  // (no symbol structure to verify)
-  auto const &root_node = pattern[pattern.root()];
-
-  // Check if root is a symbol - if so, we need to verify it exists
-  if (std::holds_alternative<SymbolWithChildren<Symbol>>(root_node)) {
-    return false;  // Has symbol structure, must verify
-  }
-
-  // Root is a variable or wildcard - check if all variables are already bound
-  for (auto const &[var, _] : pattern.var_slots()) {
-    if (!seen_vars_.contains(var)) {
-      return false;  // This variable is new
-    }
-  }
-  return true;  // Pure variable/wildcard with all variables already bound
+  // (no symbol structure to verify) and all variables are already bound
+  return std::visit(utils::Overloaded{
+                        [](SymbolWithChildren<Symbol> const &) { return false; },  // Has structure, must verify
+                        [](Wildcard) { return true; },                             // Always redundant
+                        [&](PatternVar var) { return seen_vars_.contains(var); },  // Redundant if already bound
+                    },
+                    pattern[pattern.root()]);
 }
 
 template <typename Symbol>
