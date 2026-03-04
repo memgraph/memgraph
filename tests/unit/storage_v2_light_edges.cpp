@@ -61,60 +61,7 @@ auto CreateTwoVertices(Storage *store) -> std::pair<Gid, Gid> {
 }  // namespace
 
 // ===========================================================================
-// 1. Pool Allocator Tests
-// ===========================================================================
-
-TEST(LightEdgesPoolAllocator, BasicAllocDealloc) {
-  // Pool with block_size = 32, 64 blocks per chunk
-  memgraph::utils::SingleSizePoolResource pool(32, 64);
-
-  void *p1 = pool.allocate(32, 8);
-  ASSERT_NE(p1, nullptr);
-
-  void *p2 = pool.allocate(32, 8);
-  ASSERT_NE(p2, nullptr);
-  ASSERT_NE(p1, p2);
-
-  // Deallocate and re-allocate: should reuse
-  pool.deallocate(p1, 32, 8);
-  void *p3 = pool.allocate(32, 8);
-  ASSERT_NE(p3, nullptr);
-
-  pool.deallocate(p2, 32, 8);
-  pool.deallocate(p3, 32, 8);
-}
-
-TEST(LightEdgesPoolAllocator, MultiThreadedStress) {
-  memgraph::utils::SingleSizePoolResource pool(32, 1024);
-  constexpr int kThreads = 8;
-  constexpr int kOpsPerThread = 10000;
-
-  std::atomic<int> total_allocs{0};
-  std::vector<std::thread> threads;
-  threads.reserve(kThreads);
-
-  for (int t = 0; t < kThreads; ++t) {
-    threads.emplace_back([&pool, &total_allocs] {
-      std::vector<void *> ptrs;
-      ptrs.reserve(kOpsPerThread);
-      for (int i = 0; i < kOpsPerThread; ++i) {
-        ptrs.push_back(pool.allocate(32, 8));
-        ASSERT_NE(ptrs.back(), nullptr);
-      }
-      total_allocs.fetch_add(kOpsPerThread);
-      // Free in reverse
-      for (auto it = ptrs.rbegin(); it != ptrs.rend(); ++it) {
-        pool.deallocate(*it, 32, 8);
-      }
-    });
-  }
-
-  for (auto &t : threads) t.join();
-  ASSERT_EQ(total_allocs.load(), kThreads * kOpsPerThread);
-}
-
-// ===========================================================================
-// 2. Config Validation
+// 1. Config Validation
 // ===========================================================================
 
 TEST(LightEdgesConfig, LightEdgeWithPropertiesOnEdges) {

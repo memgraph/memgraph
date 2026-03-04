@@ -19,9 +19,7 @@
 #include <cstdlib>
 #include <exception>
 #include <limits>
-#include <optional>
 #include <type_traits>
-#include <vector>
 
 #include "flags/bolt.hpp"
 #include "utils/logging.hpp"
@@ -314,282 +312,115 @@ void Pool::Deallocate(void *p) {
 }
 
 thread_local ThreadSafePool::ThreadLocalState *ThreadSafePool::tls_cache_ = nullptr;
-thread_local uint64_t ThreadSafePool::last_pool_id_ = 0;
-std::atomic<uint64_t> ThreadSafePool::global_pool_counter_{1};
+thread_local uint64_t ThreadSafePool::last_pool_ = 0;
+std::atomic<uint64_t> ThreadSafePool::pool_id_ = 1;
 
-ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunk, MemoryResource *chunk_memory)
-    : block_size_(block_size),
-      blocks_per_chunk_(blocks_per_chunk),
-      id_(global_pool_counter_.fetch_add(1, std::memory_order_relaxed)),
-      chunk_memory_(chunk_memory) {
-  if (pthread_key_create(&key_, OnThreadExit) != 0) {
-    throw std::runtime_error("Failed to create pthread key for ThreadSafePool");
+ThreadSafePool::ThreadLocalState *ThreadSafePool::thread_state() {
+  if (last_pool_ != id_) {
+    last_pool_ = id_;
+    tls_cache_ = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_key_));
   }
-}
-
-ThreadSafePool::~ThreadSafePool() {
-  // Before waiting, check if the current thread has a state
-  void *local_state = pthread_getspecific(key_);
-  if (local_state) {
-    OnThreadExit(local_state);  // Manually trigger handshake for the destroying thread
-  }
-
-  // Delete the key first. This prevents new destructor calls from being scheduled.
-  pthread_key_delete(key_);
-
-  // Handshake: Wait for threads currently inside OnThreadExit to finish.
-  const auto timeout = std::chrono::milliseconds(500);
-  const auto start = std::chrono::steady_clock::now();
-
-  while (active_states_.load(std::memory_order_acquire) > 0) {
-    if (std::chrono::steady_clock::now() - start > timeout) {
-      spdlog::error("ThreadSafePool [ID: {}] shutdown timeout: {} threads leaked.", id_, active_states_.load());
-      break;
-    }
-    std::this_thread::yield();
-  }
-
-  std::lock_guard lock(mtx_);
-
-  // Only delete states that have completed the handshake.
-  for (auto *state : states_) {
-    if (!state->is_active.load(std::memory_order_acquire)) {
-      delete state;
+  ThreadLocalState *state = tls_cache_;
+  if (!state) {
+    // Initialize
+    state = new ThreadLocalState{};
+    pthread_setspecific(thread_local_key_, reinterpret_cast<void *>(state));
+    tls_cache_ = state;
+    {
+      const auto lock = std::lock_guard<std::mutex>(mtx_);
+      states_.push_back(state);
     }
   }
-  states_.clear();
-
-  // Only free chunks if no threads are dangling.
-  // If threads are dangling, we must leak the memory to avoid Use-After-Free crashes.
-  const size_t csz = chunk_size();
-  const size_t calign = chunk_alignment();
-  if (active_states_.load() == 0) {
-    for (auto *chunk : chunks_) {
-      chunk_memory_->deallocate(chunk, csz, calign);
-    }
-    chunks_.clear();
-  }
+  return state;
 }
 
-void ThreadSafePool::OnThreadExit(void *ptr) noexcept {
-  auto *state = static_cast<ThreadLocalState *>(ptr);
-  if (!state) return;
-
-  // Mark state as orphaned for Reclaim() to scavenge.
-  state->is_active.store(false, std::memory_order_release);
-
-  // Atomically signal to the destructor that we are done touching the pool.
-  state->self->active_states_.fetch_sub(1, std::memory_order_release);
-}
-
-ThreadSafePool::ThreadLocalState *ThreadSafePool::get_or_create_state() {
-  // O(1) TLS cache check
-  if (last_pool_id_ != id_) {
-    last_pool_id_ = id_;
-    tls_cache_ = static_cast<ThreadLocalState *>(pthread_getspecific(key_));
-  }
-
-  if (!tls_cache_) {
-    tls_cache_ = new ThreadLocalState();
-    tls_cache_->self = this;
-
-    active_states_.fetch_add(1, std::memory_order_relaxed);
-    pthread_setspecific(key_, tls_cache_);
-
-    std::lock_guard lock(mtx_);
-    states_.push_back(tls_cache_);
-
-    // If the global tank has nodes, take ALL of them.
-    // This thread is now the primary owner of these orphaned blocks.
-    if (global_orphan_list_) {
-      tls_cache_->free_list_head = global_orphan_list_;
-      global_orphan_list_ = nullptr;
-    }
-  }
-  return tls_cache_;
-}
-
-void *ThreadSafePool::carve_new_chunk() {
-  const size_t csz = chunk_size();
-  const size_t calign = chunk_alignment();
-  void *raw = chunk_memory_->allocate(csz, calign);
-  if (!raw) throw std::bad_alloc();
-
+// OPTIMIZED: Just allocate the chunk. Do NOT touch the memory.
+// This prevents the "thundering herd" of page faults and clear_page calls.
+void *ThreadSafePool::carve_block() {
+  // Allocate a new chunk (Virtual Memory only)
+  void *raw = chunk_memory_->allocate(chunk_size(), chunk_alignment());
   {
-    std::lock_guard lock(mtx_);
-    chunks_.push_back(static_cast<char *>(raw));
-    // We do not sort here; we defer sorting to the Reclaim() call.
+    // Push back to the global list for cleanup later
+    const std::unique_lock lock(mtx_);
+    chunks_.emplace_front(raw);
   }
+  // Return the raw pointer immediately
   return raw;
 }
 
-void *ThreadSafePool::Allocate() {
-  ThreadLocalState *state = get_or_create_state();
+ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks, MemoryResource *chunk_memory)
+    : block_size_(block_size),
+      blocks_per_chunk_(blocks_per_chunks),
+      id_{pool_id_.fetch_add(1)},
+      chunk_memory_(chunk_memory) {
+  // Create pthread key with destructor for cleanup when threads exit
+  if (pthread_key_create(&thread_local_key_, nullptr) != 0) {
+    throw BadAlloc("Failed to create pthread key for thread-local storage");
+  }
+  states_.reserve(FLAGS_bolt_num_workers);
+}
 
-  // Hot path: Free list
+ThreadSafePool::~ThreadSafePool() {
+  if (!chunks_.empty()) {
+    for (auto &chunk : chunks_) {
+      chunk_memory_->deallocate(chunk, chunk_size(), chunk_alignment());
+    }
+    chunks_.clear();
+  }
+
+  for (auto *state : states_) {
+    delete state;
+  }
+  states_.clear();
+
+  pthread_key_delete(thread_local_key_);
+  last_pool_ = 0;
+  tls_cache_ = nullptr;
+}
+
+void *ThreadSafePool::Allocate() {
+  ThreadLocalState *state = thread_state();
+
+  // 1. Hot Path: Pop from the free list (recycled nodes)
+  // These pages are likely already physically mapped and hot in cache.
   if (state->free_list_head) {
     Node *node = state->free_list_head;
     state->free_list_head = node->next;
     return node;
   }
 
-  if (!state->cursor || (state->cursor + block_size_ > state->end)) {
-    // Cold path: New chunk
-    void *raw = carve_new_chunk();
-    state->cursor = static_cast<char *>(raw);
-    state->end = state->cursor + chunk_size();
+  // 2. Warm Path: Bump allocation from current chunk
+  // This lazily triggers page faults one by one as we cross 4KB boundaries.
+  if (state->cursor && (state->cursor + block_size_ <= state->end)) {
+    void *p = state->cursor;
+    state->cursor += block_size_;
+    return p;
   }
 
-  // Bump region
+  // 3. Cold Path: Carve a new chunk
+  void *raw = carve_block();
+
+  // Initialize the bump pointers
+  state->cursor = static_cast<char *>(raw);
+  state->end = state->cursor + chunk_size();
+
+  // Return the first block
   void *p = state->cursor;
   state->cursor += block_size_;
   return p;
 }
 
 void ThreadSafePool::Deallocate(void *p) noexcept {
-  if (!p) return;
-  ThreadLocalState *state = get_or_create_state();
-  Node *node = static_cast<Node *>(p);
+  try {
+    ThreadLocalState *state = thread_state();
+    Node *node = static_cast<Node *>(p);
 
-  node->next = state->free_list_head;
-  state->free_list_head = node;
-}
-
-void ThreadSafePool::Reclaim() {
-  std::lock_guard lock(mtx_);
-  if (chunks_.empty()) return;
-
-  // Sort chunks to allow binary search for pointer-to-chunk mapping
-  std::sort(chunks_.begin(), chunks_.end());
-
-  auto find_chunk = [&, csz = chunk_size()](void *ptr) -> std::optional<size_t> {
-    auto *cptr = static_cast<char *>(ptr);
-    auto it = std::upper_bound(chunks_.begin(), chunks_.end(), cptr);
-    if (it == chunks_.begin()) return std::nullopt;
-    --it;
-    if (cptr >= *it + csz) return std::nullopt;
-    return static_cast<size_t>(std::distance(chunks_.begin(), it));
-  };
-
-  std::vector<size_t> free_cnt(chunks_.size(), 0);
-  std::vector<Node *> survivors;
-
-  // 1. Scan all states (Active and Orphaned)
-  for (auto *s : states_) {
-    // Count blocks in free list
-    Node *curr = s->free_list_head;
-    while (curr) {
-      if (auto idx = find_chunk(curr)) free_cnt[*idx]++;
-      curr = curr->next;
-    }
-    // Count blocks in unconsumed bump region
-    if (s->cursor) {
-      if (auto idx = find_chunk(s->cursor)) {
-        free_cnt[*idx] += (s->end - s->cursor) / block_size_;
-      }
-    }
+    // Push onto the free list
+    node->next = state->free_list_head;
+    state->free_list_head = node;
+  } catch (...) {
+    std::terminate();
   }
-  // Also count blocks held in the global reservoir
-  Node *g_curr = global_orphan_list_;
-  while (g_curr) {
-    if (auto idx = find_chunk(g_curr)) free_cnt[*idx]++;
-    g_curr = g_curr->next;
-  }
-
-  // 2. Determine empty chunks
-  std::vector<bool> is_empty(chunks_.size(), false);
-  for (size_t i = 0; i < chunks_.size(); ++i) {
-    if (free_cnt[i] == blocks_per_chunk_) is_empty[i] = true;
-  }
-
-  // 3. Scavenge nodes and Sweep orphaned states
-  for (auto it = states_.begin(); it != states_.end();) {
-    ThreadLocalState *s = *it;
-    bool orphaned = !s->is_active.load(std::memory_order_acquire);
-
-    // Collect surviving blocks from the free list
-    Node *curr = s->free_list_head;
-    s->free_list_head = nullptr;
-    while (curr) {
-      Node *next = curr->next;
-      auto idx = find_chunk(curr);
-      if (idx && !is_empty[*idx]) {
-        survivors.push_back(curr);
-      }
-      curr = next;
-    }
-
-    // If orphaned, "shred" the remaining bump region into survivors
-    if (orphaned && s->cursor) {
-      while (s->cursor + block_size_ <= s->end) {
-        Node *node = reinterpret_cast<Node *>(s->cursor);
-        auto idx = find_chunk(node);
-        if (idx && is_empty[*idx]) break;  // Whole memory will be deleted
-        survivors.push_back(node);
-        s->cursor += block_size_;
-      }
-      s->cursor = s->end = nullptr;
-    }
-
-    // Reset cursor for active threads ONLY if their chunk was reclaimed
-    if (!orphaned && s->cursor) {
-      auto idx = find_chunk(s->cursor);
-      if (idx && is_empty[*idx]) {
-        s->cursor = s->end = nullptr;
-      }
-    }
-
-    if (orphaned) {
-      delete s;
-      it = states_.erase(it);
-    } else {
-      ++it;
-    }
-  }
-
-  // 4. Redistribute survivors
-  if (!states_.empty()) {
-    // Merge survivors AND any previously held global nodes into active threads
-    // Combining them first simplifies the round-robin loop
-    if (global_orphan_list_) {
-      // This is a simple O(1) pointer move if we treat survivors as a linked list,
-      // but since survivors is a std::vector<Node*>, we just add them:
-      Node *g_curr = global_orphan_list_;
-      while (g_curr) {
-        Node *next = g_curr->next;
-        survivors.push_back(g_curr);
-        g_curr = next;
-      }
-      global_orphan_list_ = nullptr;
-    }
-
-    if (!survivors.empty()) {
-      for (size_t i = 0; i < survivors.size(); ++i) {
-        auto *target = states_[i % states_.size()];
-        survivors[i]->next = target->free_list_head;
-        target->free_list_head = survivors[i];
-      }
-    }
-  } else {
-    // NO ACTIVE THREADS: Put all survivors into the holding tank
-    for (Node *n : survivors) {
-      n->next = global_orphan_list_;
-      global_orphan_list_ = n;
-    }
-  }
-
-  // 5. Physical Deallocation of chunks
-  size_t write_idx = 0;
-  const auto csz = chunk_size();
-  const auto calign = chunk_alignment();
-  for (size_t i = 0; i < chunks_.size(); ++i) {
-    if (is_empty[i]) {
-      chunk_memory_->deallocate(chunks_[i], csz, calign);
-    } else {
-      chunks_[write_idx++] = chunks_[i];
-    }
-  }
-  chunks_.resize(write_idx);
 }
 
 }  // namespace impl
@@ -727,27 +558,4 @@ template <typename P>
 bool PoolResource<P>::do_is_equal(const std::pmr::memory_resource &other) const noexcept {
   return this == &other;
 }
-
-SingleSizePoolResource::SingleSizePoolResource(std::size_t block_size, std::size_t blocks_per_chunk,
-                                               std::pmr::memory_resource *chunk_memory)
-    : block_size_(block_size), pool_(block_size, blocks_per_chunk, chunk_memory) {}
-
-SingleSizePoolResource::~SingleSizePoolResource() = default;
-
-void *SingleSizePoolResource::do_allocate(size_t bytes, size_t alignment) {
-  auto const effective = std::max({bytes, alignment, std::size_t{1}});
-  if (effective > block_size_) {
-    throw BadAlloc("SingleSizePoolResource: requested size exceeds block size");
-  }
-  return pool_.Allocate();
-}
-
-void SingleSizePoolResource::do_deallocate(void *p, size_t /*bytes*/, size_t /*alignment*/) { pool_.Deallocate(p); }
-
-void SingleSizePoolResource::Reclaim() { pool_.Reclaim(); }
-
-bool SingleSizePoolResource::do_is_equal(const std::pmr::memory_resource &other) const noexcept {
-  return this == &other;
-}
-
 }  // namespace memgraph::utils
