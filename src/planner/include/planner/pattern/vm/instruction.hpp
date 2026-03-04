@@ -216,71 +216,70 @@ struct Instruction {
   uint16_t target = 0;  // Jump target for conditional/iteration ops (instruction index)
 
   // Factory methods for cleaner construction with strong types
+  using enum VMOp;  // C++20: allows unqualified access to VMOp enumerators
+
   static constexpr auto load_child(EClassReg dst, ENodeReg src, uint8_t child_idx) -> Instruction {
-    return {.op = VMOp::LoadChild, .dst = value_of(dst), .src = value_of(src), .arg = child_idx};
+    return {.op = LoadChild, .dst = value_of(dst), .src = value_of(src), .arg = child_idx};
   }
 
   static constexpr auto get_enode_eclass(EClassReg dst, ENodeReg src) -> Instruction {
-    return {.op = VMOp::GetENodeEClass, .dst = value_of(dst), .src = value_of(src)};
+    return {.op = GetENodeEClass, .dst = value_of(dst), .src = value_of(src)};
   }
 
   static constexpr auto iter_enodes(ENodeReg dst, EClassReg src, InstrAddr on_empty) -> Instruction {
-    return {.op = VMOp::IterENodes, .dst = value_of(dst), .src = value_of(src), .target = value_of(on_empty)};
+    return {.op = IterENodes, .dst = value_of(dst), .src = value_of(src), .target = value_of(on_empty)};
   }
 
   static constexpr auto next_enode(ENodeReg dst, InstrAddr on_exhausted) -> Instruction {
-    return {.op = VMOp::NextENode, .dst = value_of(dst), .target = value_of(on_exhausted)};
+    return {.op = NextENode, .dst = value_of(dst), .target = value_of(on_exhausted)};
   }
 
   static constexpr auto iter_all_eclasses(EClassReg dst, InstrAddr on_empty) -> Instruction {
-    return {.op = VMOp::IterAllEClasses, .dst = value_of(dst), .target = value_of(on_empty)};
+    return {.op = IterAllEClasses, .dst = value_of(dst), .target = value_of(on_empty)};
   }
 
   static constexpr auto next_eclass(EClassReg dst, InstrAddr on_exhausted) -> Instruction {
-    return {.op = VMOp::NextEClass, .dst = value_of(dst), .target = value_of(on_exhausted)};
+    return {.op = NextEClass, .dst = value_of(dst), .target = value_of(on_exhausted)};
   }
 
   static constexpr auto iter_parents(ENodeReg dst, EClassReg src, InstrAddr on_empty) -> Instruction {
-    return {.op = VMOp::IterParents, .dst = value_of(dst), .src = value_of(src), .target = value_of(on_empty)};
+    return {.op = IterParents, .dst = value_of(dst), .src = value_of(src), .target = value_of(on_empty)};
   }
 
   static constexpr auto next_parent(ENodeReg dst, InstrAddr on_exhausted) -> Instruction {
-    return {.op = VMOp::NextParent, .dst = value_of(dst), .target = value_of(on_exhausted)};
+    return {.op = NextParent, .dst = value_of(dst), .target = value_of(on_exhausted)};
   }
 
   static constexpr auto check_symbol(ENodeReg src, uint8_t sym_idx, InstrAddr on_mismatch) -> Instruction {
-    return {.op = VMOp::CheckSymbol, .src = value_of(src), .arg = sym_idx, .target = value_of(on_mismatch)};
+    return {.op = CheckSymbol, .src = value_of(src), .arg = sym_idx, .target = value_of(on_mismatch)};
   }
 
   static constexpr auto check_arity(ENodeReg src, uint8_t arity, InstrAddr on_mismatch) -> Instruction {
-    return {.op = VMOp::CheckArity, .src = value_of(src), .arg = arity, .target = value_of(on_mismatch)};
+    return {.op = CheckArity, .src = value_of(src), .arg = arity, .target = value_of(on_mismatch)};
   }
 
   static constexpr auto bind_slot_dedup(SlotIdx slot_idx, EClassReg src, InstrAddr on_duplicate) -> Instruction {
-    return {
-        .op = VMOp::BindSlotDedup, .src = value_of(src), .arg = value_of(slot_idx), .target = value_of(on_duplicate)};
+    return {.op = BindSlotDedup, .src = value_of(src), .arg = value_of(slot_idx), .target = value_of(on_duplicate)};
   }
 
   static constexpr auto check_slot(SlotIdx slot_idx, EClassReg src, InstrAddr on_mismatch) -> Instruction {
-    return {.op = VMOp::CheckSlot, .src = value_of(src), .arg = value_of(slot_idx), .target = value_of(on_mismatch)};
+    return {.op = CheckSlot, .src = value_of(src), .arg = value_of(slot_idx), .target = value_of(on_mismatch)};
   }
 
   static constexpr auto check_eclass_eq(EClassReg dst, EClassReg src, InstrAddr on_mismatch) -> Instruction {
-    return {.op = VMOp::CheckEClassEq, .dst = value_of(dst), .src = value_of(src), .target = value_of(on_mismatch)};
+    return {.op = CheckEClassEq, .dst = value_of(dst), .src = value_of(src), .target = value_of(on_mismatch)};
   }
 
   static constexpr auto mark_seen(SlotIdx slot_idx) -> Instruction {
-    return {.op = VMOp::MarkSeen, .arg = value_of(slot_idx)};
+    return {.op = MarkSeen, .arg = value_of(slot_idx)};
   }
 
-  static constexpr auto jmp(InstrAddr target) -> Instruction { return {.op = VMOp::Jump, .target = value_of(target)}; }
+  static constexpr auto jmp(InstrAddr target) -> Instruction { return {.op = Jump, .target = value_of(target)}; }
 
   /// Yield is a special MarkSeen: marks the slot as seen, then emits the match
-  static constexpr auto yield(SlotIdx last_slot) -> Instruction {
-    return {.op = VMOp::Yield, .arg = value_of(last_slot)};
-  }
+  static constexpr auto yield(SlotIdx last_slot) -> Instruction { return {.op = Yield, .arg = value_of(last_slot)}; }
 
-  static constexpr auto halt() -> Instruction { return {.op = VMOp::Halt}; }
+  static constexpr auto halt() -> Instruction { return {.op = Halt}; }
 
   /// Equality for testing compiled bytecode
   friend constexpr auto operator==(Instruction const &a, Instruction const &b) -> bool = default;
@@ -291,40 +290,41 @@ static_assert(alignof(Instruction) == 2, "Instruction should be 2 aligned");
 
 /// Get human-readable name for opcode
 [[nodiscard]] constexpr auto op_name(VMOp op) -> std::string_view {
+  using enum VMOp;
   switch (op) {
-    case VMOp::LoadChild:
+    case LoadChild:
       return "LoadChild";
-    case VMOp::GetENodeEClass:
+    case GetENodeEClass:
       return "GetENodeEClass";
-    case VMOp::IterENodes:
+    case IterENodes:
       return "IterENodes";
-    case VMOp::NextENode:
+    case NextENode:
       return "NextENode";
-    case VMOp::IterAllEClasses:
+    case IterAllEClasses:
       return "IterAllEClasses";
-    case VMOp::NextEClass:
+    case NextEClass:
       return "NextEClass";
-    case VMOp::IterParents:
+    case IterParents:
       return "IterParents";
-    case VMOp::NextParent:
+    case NextParent:
       return "NextParent";
-    case VMOp::CheckSymbol:
+    case CheckSymbol:
       return "CheckSymbol";
-    case VMOp::CheckArity:
+    case CheckArity:
       return "CheckArity";
-    case VMOp::BindSlotDedup:
+    case BindSlotDedup:
       return "BindSlotDedup";
-    case VMOp::CheckSlot:
+    case CheckSlot:
       return "CheckSlot";
-    case VMOp::CheckEClassEq:
+    case CheckEClassEq:
       return "CheckEClassEq";
-    case VMOp::MarkSeen:
+    case MarkSeen:
       return "MarkSeen";
-    case VMOp::Jump:
+    case Jump:
       return "Jump";
-    case VMOp::Yield:
+    case Yield:
       return "Yield";
-    case VMOp::Halt:
+    case Halt:
       return "Halt";
   }
   return "Unknown";

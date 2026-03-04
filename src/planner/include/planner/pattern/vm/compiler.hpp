@@ -12,6 +12,7 @@
 #pragma once
 
 #include <optional>
+#include <ranges>
 #include <span>
 #include <variant>
 #include <vector>
@@ -402,7 +403,7 @@ auto PatternCompiler<Symbol>::compute_join_order(std::span<Pattern<Symbol> const
     std::size_t best = *remaining.begin();
     std::size_t best_shared = 0;
 
-    for (auto idx : remaining) {
+    for (const auto idx : remaining) {
       std::size_t shared = 0;
       for (auto const &var : pattern_vars[idx]) {
         if (joined_vars.contains(var)) ++shared;
@@ -442,7 +443,7 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
       std::vector<std::pair<PatternVar, uint8_t>> vars(pattern.var_slots().begin(), pattern.var_slots().end());
       std::sort(vars.begin(), vars.end(), [](auto const &a, auto const &b) { return a.second < b.second; });
 
-      for (auto const &[var, _] : vars) {
+      for (const auto &var : vars | std::views::keys) {
         if (!slot_map_.contains(var)) {
           slot_map_[var] = SlotIdx{static_cast<uint8_t>(slot_map_.size())};
         }
@@ -672,8 +673,7 @@ auto PatternCompiler<Symbol>::emit_joined_with_parent_chain(Pattern<Symbol> cons
 
   // Traverse path in reverse (from shared var up to root)
   // Each step: iterate parents with expected symbol, verify child index
-  for (auto it = path.steps.rbegin(); it != path.steps.rend(); ++it) {
-    auto const &[sym, child_idx] = *it;
+  for (auto const &[sym, child_idx] : path.steps | std::views::reverse) {
     auto parent_reg = alloc_enode_reg();
     auto sym_idx = get_symbol_index(sym.sym);
 
