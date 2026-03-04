@@ -3,9 +3,11 @@ target_sources(mg-memory-utils
                PUBLIC
                query_memory_control.hpp
                global_memory_control.hpp
+               dedicated_arena_resource.hpp
                PRIVATE
                query_memory_control.cpp
-               global_memory_control.cpp)
+               global_memory_control.cpp
+               dedicated_arena_resource.cpp)
 
 add_library(mg-memory STATIC
             malloc_free.cpp

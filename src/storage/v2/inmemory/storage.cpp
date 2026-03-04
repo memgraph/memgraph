@@ -203,7 +203,7 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
 
 void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std::list<Gid> &current_deleted_edges,
                            std::list<Gid> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker,
-                           std::vector<Edge *> *current_deleted_light_edges = nullptr) {
+                           bool light_edge_mode = false) {
   for (auto &delta : deltas) {
     DMG_ASSERT(
         [&delta]() {
@@ -234,15 +234,36 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
         edge.SetDelta(nullptr);
         if (edge.deleted()) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-          if (current_deleted_light_edges) {
-            current_deleted_light_edges->push_back(prev.edge);
-          } else {
+          if (!light_edge_mode) {
             current_deleted_edges.push_back(edge.gid);
           }
+          // light_edge_mode: already pushed to graveyard at commit time
         }
         break;
       }
     }
+  }
+}
+
+// At commit time, scan a transaction's delta list for RECREATE_OBJECT deltas
+// on deleted edges and push those Edge* to the graveyard with commit_timestamp
+// as the mark.  Using commit_timestamp is the tightest correct value: a reader
+// can see the edge as alive only if its start_timestamp < commit_timestamp, so
+// we need to wait until oldest_active_start_timestamp >= commit_timestamp before
+// freeing — exactly the graveyard drain condition with this mark.
+void GraveyardDeletedLightEdges(
+    delta_container const &deltas, uint64_t commit_timestamp,
+    utils::Synchronized<std::list<InMemoryStorage::LightEdgeGraveyardEntry>, utils::SpinLock> &graveyard) {
+  std::vector<Edge *> deleted;
+  for (auto const &delta : deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type == PreviousPtr::Type::EDGE && prev.edge->deleted()) {
+      DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+      deleted.push_back(prev.edge);
+    }
+  }
+  if (!deleted.empty()) {
+    graveyard.WithLock([&](auto &g) { g.push_back({commit_timestamp, std::move(deleted)}); });
   }
 }
 
@@ -352,7 +373,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   }
 
   if (config_.salient.items.storage_light_edge) {
-    light_edge_pool_ = std::make_unique<utils::SingleSizePoolResource>(sizeof(Edge), 8192 /* blocks_per_chunk */);
+    light_edge_pool_ = std::make_unique<memory::DedicatedArenaResource>();
   }
 
   if (config_.durability.recover_on_startup) {
@@ -510,7 +531,9 @@ InMemoryStorage::~InMemoryStorage() {
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 
-  // Free all light edges: live edges in vertex adjacency lists + graveyard
+  // Free all light edges: live edges in vertex adjacency lists + graveyard.
+  // Deleted light edges were pushed to the graveyard at commit time
+  // (FinalizeCommitPhase), so ClearLightEdges finds them there.
   if (config_.salient.items.storage_light_edge) {
     ClearLightEdges();
   }
@@ -1264,6 +1287,16 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     mem_storage->ProcessPendingSchemaUpdates(durability_commit_timestamp);
   }
 
+  // Push deleted light edges to the graveyard with commit_timestamp as mark.
+  // This is the tightest correct timestamp: readers can only see the edge alive
+  // with start_timestamp < commit_timestamp, so we drain once all such readers
+  // finish (oldest_active_start_timestamp >= commit_timestamp).  Done here so
+  // that committed_transactions_ / GCRapidDeltaCleanup never need to handle
+  // light edge graveyard staging — they just unlink the delta chain.
+  if (config_.storage_light_edge) {
+    GraveyardDeletedLightEdges(transaction_.deltas, *commit_timestamp_, mem_storage->light_edge_graveyard_);
+  }
+
   CheckForFastDiscardOfDeltas();
   memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
@@ -1309,8 +1342,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges,
                                                             std::list<Gid> &current_deleted_vertices,
-                                                            IndexPerformanceTracker &impact_tracker,
-                                                            std::vector<Edge *> *current_deleted_light_edges) {
+                                                            IndexPerformanceTracker &impact_tracker) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // STEP 1) ensure everything in GC is gone
@@ -1327,6 +1359,8 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   mem_storage->waiting_gc_deltas_.WithLock(
       [&](auto &waiting_list) { linked_undo_buffers.splice(linked_undo_buffers.end(), waiting_list); });
 
+  bool const light_edge_mode = config_.storage_light_edge;
+
   // 1.b.1) unlink, gathering the removals
   for (auto &gc_deltas : linked_undo_buffers) {
     UnlinkAndRemoveDeltas(gc_deltas.deltas_,
@@ -1334,7 +1368,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
                           current_deleted_edges,
                           current_deleted_vertices,
                           impact_tracker,
-                          current_deleted_light_edges);
+                          light_edge_mode);
   }
 
   // STEP 2) this transaction's deltas
@@ -1343,7 +1377,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
                         current_deleted_edges,
                         current_deleted_vertices,
                         impact_tracker,
-                        current_deleted_light_edges);
+                        light_edge_mode);
 
   // STEP 3) clear all deltas after unlinking is complete
   linked_undo_buffers.clear();
@@ -1355,16 +1389,11 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
 
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
-  std::vector<Edge *> current_deleted_light_edges;
   auto impact_tracker = IndexPerformanceTracker{};
 
-  bool const light_edges = config_.storage_light_edge;
-
   // STEP 1 + STEP 2 - delta cleanup
-  GCRapidDeltaCleanup(current_deleted_edges,
-                      current_deleted_vertices,
-                      impact_tracker,
-                      light_edges ? &current_deleted_light_edges : nullptr);
+  // Light edges were already pushed to graveyard at commit time in FinalizeCommitPhase.
+  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
 
   // STEP 3) hand over the deleted vertices and edges to the GC
   if (!current_deleted_vertices.empty()) {
@@ -1374,16 +1403,6 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
   if (!current_deleted_edges.empty()) {
     mem_storage->deleted_edges_.WithLock(
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), current_deleted_edges); });
-  }
-
-  // LIGHT EDGES: defer freeing to graveyard so index entries referencing Edge* remain
-  // valid until the next GC drains the graveyard (after index cleanup).
-  // NOTE: engine_lock_ is already held by PrepareForCommitPhase (our caller),
-  // so we can read timestamp_ directly without re-acquiring.
-  if (!current_deleted_light_edges.empty()) {
-    uint64_t mark_timestamp = storage_->timestamp_;
-    mem_storage->light_edge_graveyard_.WithLock(
-        [&](auto &graveyard) { graveyard.push_back({mark_timestamp, std::move(current_deleted_light_edges)}); });
   }
 
   // STEP 4) hint to GC that indices need cleanup for performance reasons
@@ -2820,7 +2839,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // vertices that appear in an index also exist in main storage.
   std::list<Gid> current_deleted_edges{};
   std::list<Gid> current_deleted_vertices{};
-  std::vector<Edge *> current_deleted_light_edges{};
   bool const light_edges = config_.salient.items.storage_light_edge;
 
   deleted_vertices_.WithLock([&](auto &deleted_vertices) { current_deleted_vertices.swap(deleted_vertices); });
@@ -2915,11 +2933,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             edge->SetDelta(nullptr);
             if (edge->deleted()) {
               DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-              if (light_edges) {
-                current_deleted_light_edges.push_back(edge);
-              } else {
+              if (!light_edges) {
                 current_deleted_edges.push_back(edge->gid);
               }
+              // light_edges: already pushed to graveyard at commit time
             }
             break;
           }
@@ -3038,7 +3055,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       memgraph::metrics::GCSkiplistCleanupLatency_us,
       std::chrono::duration_cast<std::chrono::microseconds>(skiplist_cleanup_timer.Elapsed()).count());
 
-  // mark_timestamp used for both garbage_undo_buffers and light edge graveyard
+  // mark_timestamp for garbage_undo_buffers deferred cleanup
   uint64_t gc_mark_timestamp = 0;
   {
     auto guard = std::unique_lock{engine_lock_};
@@ -3106,13 +3123,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
-  }
-
-  // LIGHT EDGES: defer freeing to graveyard so Edge* remains valid for any
-  // concurrent index readers. Graveyard entries are drained below.
-  if (!current_deleted_light_edges.empty()) {
-    light_edge_graveyard_.WithLock(
-        [&](auto &graveyard) { graveyard.push_back({gc_mark_timestamp, std::move(current_deleted_light_edges)}); });
   }
 
   // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions

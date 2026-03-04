@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,5 +16,10 @@ namespace memgraph::memory {
 void PurgeUnusedMemory();
 void SetHooks();
 void UnsetHooks();
+
+/// Install Memgraph's custom jemalloc extent hooks (memory tracking) on a
+/// dynamically-created arena.  Must be called after SetHooks().  No-op when
+/// jemalloc is disabled.
+void InstallTrackingHooksOnArena(unsigned arena_id);
 
 }  // namespace memgraph::memory

@@ -32,6 +32,7 @@
 
 /// REPLICATION ///
 
+#include "memory/dedicated_arena_resource.hpp"
 #include "storage/v2/delta_container.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/serialization.hpp"
@@ -712,8 +713,7 @@ class InMemoryStorage final : public Storage {
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
     void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges, std::list<Gid> &current_deleted_vertices,
-                             IndexPerformanceTracker &impact_tracker,
-                             std::vector<Edge *> *current_deleted_light_edges = nullptr);
+                             IndexPerformanceTracker &impact_tracker);
     SalientConfig::Items config_;
 
     uint64_t commit_flag_wal_position_{0};
@@ -778,6 +778,14 @@ class InMemoryStorage final : public Storage {
 
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
+  // Graveyard for light edges: deleted Edge* kept alive until GC determines
+  // no active transaction can see them. Timestamp-based: freed when
+  // mark_timestamp < oldest_active_start_timestamp.
+  struct LightEdgeGraveyardEntry {
+    uint64_t mark_timestamp;
+    std::vector<Edge *> edges;
+  };
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -819,7 +827,7 @@ class InMemoryStorage final : public Storage {
   // Pool allocator for light-edge Edge objects (block_size = sizeof(Edge), 256 KiB chunks).
   // Chunks are large enough for jemalloc to give them dedicated pages, preventing
   // slab-level interleaving with unrelated allocations of the same size class.
-  std::unique_ptr<utils::SingleSizePoolResource> light_edge_pool_;
+  std::unique_ptr<memory::DedicatedArenaResource> light_edge_pool_;
 
   // Durability
   durability::Recovery recovery_;
@@ -889,14 +897,6 @@ class InMemoryStorage final : public Storage {
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
-
-  // Graveyard for light edges: deleted Edge* kept alive until GC determines
-  // no active transaction can see them. Timestamp-based: freed when
-  // mark_timestamp < oldest_active_start_timestamp.
-  struct LightEdgeGraveyardEntry {
-    uint64_t mark_timestamp;
-    std::vector<Edge *> edges;
-  };
 
   utils::Synchronized<std::list<LightEdgeGraveyardEntry>, utils::SpinLock> light_edge_graveyard_;
 
