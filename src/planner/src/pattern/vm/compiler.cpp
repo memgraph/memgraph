@@ -12,6 +12,7 @@
 #include "planner/pattern/vm/compiler.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace memgraph::planner::core::pattern::vm {
 
@@ -21,53 +22,52 @@ void PatternCompilerBase::reset() {
   var_to_reg_.clear();
   slot_map_.clear();
   binding_order_.clear();
-  next_eclass_reg_ = EClassReg{1};  // eclass_regs[0] is reserved for input e-class
-  next_enode_reg_ = ENodeReg{0};
+  next_eclass_reg_ = 1;  // eclass_regs[0] is reserved for input e-class
+  next_enode_reg_ = 0;
+}
+
+auto PatternCompilerBase::emit(Instruction instr) -> InstrAddr {
+  auto const addr = current_addr();
+  code_.push_back(instr);
+  return addr;
+}
+
+auto PatternCompilerBase::current_addr() const -> InstrAddr { return InstrAddr{static_cast<uint16_t>(code_.size())}; }
+
+void PatternCompilerBase::patch_target(InstrAddr addr, InstrAddr target) {
+  code_[value_of(addr)].target = value_of(target);
 }
 
 auto PatternCompilerBase::emit_iter_loop(Instruction iter_instr, Instruction next_instr) -> InstrAddr {
-  // TODO: this is confusing code structure
-  code_.push_back(iter_instr);
-  auto jump_pos = static_cast<uint16_t>(code_.size());
-  code_.push_back(Instruction::jmp(InstrAddr{0}));  // placeholder
-  auto loop_pos = InstrAddr{static_cast<uint16_t>(code_.size())};
-  code_.push_back(next_instr);
-  code_[jump_pos].target = static_cast<uint16_t>(code_.size());
-  return loop_pos;
+  emit(iter_instr);
+  auto const jump_addr = emit(Instruction::jmp(InstrAddr{0}));  // placeholder
+  auto const loop_addr = emit(next_instr);
+  patch_target(jump_addr, current_addr());
+  return loop_addr;
 }
 
 void PatternCompilerBase::emit_bind_slot(SlotIdx slot, EClassReg eclass_reg, InstrAddr backtrack) {
   // Track binding order for deduplication
-  // Only add if not already in binding_order (handles repeated bindings of same variable)
-  if (std::ranges::find(binding_order_, slot) == binding_order_.end()) {
+  if (!std::ranges::contains(binding_order_, slot)) {
     binding_order_.push_back(slot);
   }
-  code_.push_back(Instruction::bind_slot_dedup(slot, eclass_reg, backtrack));
+  emit(Instruction::bind_slot_dedup(slot, eclass_reg, backtrack));
 }
 
 auto PatternCompilerBase::alloc_eclass_reg() -> EClassReg {
-  // Register indices are uint8_t in instructions, so max 256 registers
-  auto reg = next_eclass_reg_;
-  next_eclass_reg_ = EClassReg{static_cast<uint8_t>(value_of(next_eclass_reg_) + 1)};
-  return reg;
+  return EClassReg{std::exchange(next_eclass_reg_, static_cast<uint8_t>(next_eclass_reg_ + 1))};
 }
 
 auto PatternCompilerBase::alloc_enode_reg() -> ENodeReg {
-  // Register indices are uint8_t in instructions, so max 256 registers
-  auto reg = next_enode_reg_;
-  next_enode_reg_ = ENodeReg{static_cast<uint8_t>(value_of(next_enode_reg_) + 1)};
-  return reg;
+  return ENodeReg{std::exchange(next_enode_reg_, static_cast<uint8_t>(next_enode_reg_ + 1))};
 }
 
-auto PatternCompilerBase::get_slot(PatternVar var) const -> SlotIdx {
-  auto it = slot_map_.find(var);
-  return it != slot_map_.end() ? it->second : SlotIdx{0};
-}
+auto PatternCompilerBase::get_slot(PatternVar var) const -> SlotIdx { return slot_map_.at(var); }
 
 void PatternCompilerBase::emit_var_binding(PatternVar var, EClassReg eclass_reg, InstrAddr backtrack) {
-  auto slot = get_slot(var);
+  auto const slot = get_slot(var);
   if (seen_vars_.contains(var)) {
-    code_.push_back(Instruction::check_slot(slot, eclass_reg, backtrack));
+    emit(Instruction::check_slot(slot, eclass_reg, backtrack));
   } else {
     seen_vars_.insert(var);
     emit_bind_slot(slot, eclass_reg, backtrack);

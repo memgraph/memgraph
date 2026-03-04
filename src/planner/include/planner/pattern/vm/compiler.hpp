@@ -57,6 +57,15 @@ class PatternCompilerBase {
   /// Get slot index for a pattern variable
   [[nodiscard]] auto get_slot(PatternVar var) const -> SlotIdx;
 
+  /// Emit an instruction and return its address
+  auto emit(Instruction instr) -> InstrAddr;
+
+  /// Get the address where the next instruction will be emitted
+  [[nodiscard]] auto current_addr() const -> InstrAddr;
+
+  /// Patch a jump target at the given address
+  void patch_target(InstrAddr addr, InstrAddr target);
+
   /// Emit variable binding (check if seen, else bind with dedup)
   void emit_var_binding(PatternVar var, EClassReg eclass_reg, InstrAddr backtrack);
 
@@ -67,8 +76,8 @@ class PatternCompilerBase {
   boost::unordered_flat_map<PatternVar, SlotIdx> slot_map_;
   boost::unordered_flat_map<PatternVar, EClassReg> var_to_reg_;  // Maps vars to eclass registers
   std::vector<SlotIdx> binding_order_;                           // Order in which slots are bound
-  EClassReg next_eclass_reg_{1};                                 // eclass_regs[0] reserved for input
-  ENodeReg next_enode_reg_{0};
+  uint8_t next_eclass_reg_{1};                                   // eclass_regs[0] reserved for input
+  uint8_t next_enode_reg_{0};
 };
 
 // =============================================================================
@@ -318,15 +327,15 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
   // Emit yield and continue loop
   // Yield marks the last bound slot as seen (implicit MarkSeen)
   auto last_slot = binding_order_.empty() ? SlotIdx{0} : binding_order_.back();
-  code_.push_back(Instruction::yield(last_slot));
-  code_.push_back(Instruction::jmp(innermost));
+  emit(Instruction::yield(last_slot));
+  emit(Instruction::jmp(innermost));
 
   // Patch halt placeholders and add halt
-  auto halt_pos = InstrAddr{static_cast<uint16_t>(code_.size())};
+  auto halt_pos = current_addr();
   for (auto &instr : code_) {
     if (instr.target == value_of(kHaltPlaceholder)) instr.target = value_of(halt_pos);
   }
-  code_.push_back(Instruction::halt());
+  emit(Instruction::halt());
 
   // Convert strong types to underlying types for CompiledPattern
   std::vector<uint8_t> binding_order_raw;
@@ -341,8 +350,8 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
   }
 
   return CompiledPattern<Symbol>(std::move(code_),
-                                 value_of(next_eclass_reg_),
-                                 value_of(next_enode_reg_),
+                                 next_eclass_reg_,
+                                 next_enode_reg_,
                                  std::move(symbols_),
                                  entry_symbol,
                                  std::move(binding_order_raw),
@@ -490,8 +499,8 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
                                  Instruction::next_enode(enode_reg, backtrack));
 
   // Check symbol and arity
-  code_.push_back(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
-  code_.push_back(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
+  emit(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
+  emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
 
   // For leaf symbols (no children), existence check is sufficient - after matching
   // one e-node, backtrack to parent instead of trying more e-nodes in this e-class.
@@ -505,7 +514,7 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
   InstrAddr innermost = loop_pos;
   for (std::size_t i = 0; i < sym.children.size(); ++i) {
     auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
-    code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
+    emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
     innermost = emit_node(pattern, sym.children[i], child_reg, innermost);
   }
 
@@ -594,14 +603,14 @@ auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &patte
 
   // Check symbol and arity
   auto sym_idx = get_symbol_index(sym.sym);
-  code_.push_back(Instruction::check_symbol(enode_reg, sym_idx, enode_loop));
-  code_.push_back(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), enode_loop));
+  emit(Instruction::check_symbol(enode_reg, sym_idx, enode_loop));
+  emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), enode_loop));
 
   // Process children
   InstrAddr innermost = enode_loop;
   for (std::size_t i = 0; i < sym.children.size(); ++i) {
     auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
-    code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
+    emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
     innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
   }
 
@@ -622,14 +631,14 @@ auto PatternCompiler<Symbol>::emit_joined_with_parent_traversal(Pattern<Symbol> 
                                  Instruction::next_parent(parent_reg, backtrack));
 
   // Check symbol and arity (backtrack to loop on mismatch)
-  code_.push_back(Instruction::check_symbol(parent_reg, sym_idx, loop_pos));
-  code_.push_back(Instruction::check_arity(parent_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
+  emit(Instruction::check_symbol(parent_reg, sym_idx, loop_pos));
+  emit(Instruction::check_arity(parent_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
 
   // Bind root BEFORE processing children if needed.
   // Each parent could be in a different e-class, backtrack to parent loop if duplicate.
   if (auto binding = pattern.binding_for(pattern.root())) {
     auto eclass_reg = alloc_eclass_reg();  // GetENodeEClass produces e-class
-    code_.push_back(Instruction::get_enode_eclass(eclass_reg, parent_reg));
+    emit(Instruction::get_enode_eclass(eclass_reg, parent_reg));
     emit_bind_slot(get_slot(*binding), eclass_reg, loop_pos);
   }
 
@@ -637,11 +646,11 @@ auto PatternCompiler<Symbol>::emit_joined_with_parent_traversal(Pattern<Symbol> 
   InstrAddr innermost = loop_pos;
   for (std::size_t i = 0; i < sym.children.size(); ++i) {
     auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
-    code_.push_back(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
+    emit(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
 
     if (i == shared_idx) {
       // Verify shared variable matches
-      code_.push_back(Instruction::check_slot(get_slot(shared_var), child_reg, innermost));
+      emit(Instruction::check_slot(get_slot(shared_var), child_reg, innermost));
     } else {
       innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
     }
@@ -669,13 +678,13 @@ auto PatternCompiler<Symbol>::emit_joined_with_parent_chain(Pattern<Symbol> cons
                                    Instruction::next_parent(parent_reg, innermost));
 
     // Check symbol and arity
-    code_.push_back(Instruction::check_symbol(parent_reg, sym_idx, loop_pos));
-    code_.push_back(Instruction::check_arity(parent_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
+    emit(Instruction::check_symbol(parent_reg, sym_idx, loop_pos));
+    emit(Instruction::check_arity(parent_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
 
     // Verify the shared variable is at the expected child index
     auto verify_child_reg = alloc_eclass_reg();
-    code_.push_back(Instruction::load_child(verify_child_reg, parent_reg, static_cast<uint8_t>(child_idx)));
-    code_.push_back(Instruction::check_eclass_eq(verify_child_reg, current_eclass_reg, loop_pos));
+    emit(Instruction::load_child(verify_child_reg, parent_reg, static_cast<uint8_t>(child_idx)));
+    emit(Instruction::check_eclass_eq(verify_child_reg, current_eclass_reg, loop_pos));
 
     // Process non-shared children (bind new variables, verify structure)
     // sym.children contains the PatternNodeIds for each child position
@@ -688,7 +697,7 @@ auto PatternCompiler<Symbol>::emit_joined_with_parent_chain(Pattern<Symbol> cons
       if (i == child_idx) continue;  // Skip the child we're traversing through
 
       auto child_reg = alloc_eclass_reg();
-      code_.push_back(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
+      emit(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
 
       // Verify the sibling child's structure using emit_joined_child
       // This handles variables (checking slot bindings), symbols (verifying structure), etc.
@@ -697,7 +706,7 @@ auto PatternCompiler<Symbol>::emit_joined_with_parent_chain(Pattern<Symbol> cons
 
     // Move up: get the e-class of this parent for next iteration
     auto next_eclass_reg = alloc_eclass_reg();
-    code_.push_back(Instruction::get_enode_eclass(next_eclass_reg, parent_reg));
+    emit(Instruction::get_enode_eclass(next_eclass_reg, parent_reg));
     current_eclass_reg = next_eclass_reg;
     innermost = loop_pos;
   }
@@ -737,8 +746,8 @@ auto PatternCompiler<Symbol>::emit_joined_child(Pattern<Symbol> const &pattern, 
           auto loop_pos = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, backtrack),
                                          Instruction::next_enode(enode_reg, backtrack));
 
-          code_.push_back(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
-          code_.push_back(Instruction::check_arity(enode_reg, static_cast<uint8_t>(n.children.size()), loop_pos));
+          emit(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
+          emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(n.children.size()), loop_pos));
 
           // For leaf symbols, backtrack to parent after match (existence check only)
           if (n.children.empty()) {
@@ -747,7 +756,7 @@ auto PatternCompiler<Symbol>::emit_joined_child(Pattern<Symbol> const &pattern, 
             innermost = loop_pos;
             for (std::size_t i = 0; i < n.children.size(); ++i) {
               auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
-              code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
+              emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
               innermost = emit_joined_child(pattern, n.children[i], child_reg, innermost);
             }
           }
