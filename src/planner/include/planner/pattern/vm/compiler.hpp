@@ -696,6 +696,7 @@ template <typename Symbol>
 auto PatternCompiler<Symbol>::find_path_recursive(Pattern<Symbol> const &pattern, PatternNodeId node_id,
                                                   PatternPath &path) const -> bool {
   auto const &node = pattern[node_id];
+  // TODO: std::visit on node?
 
   // Check if this is a shared variable
   if (auto const *var = std::get_if<PatternVar>(&node)) {
