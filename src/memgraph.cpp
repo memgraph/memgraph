@@ -138,36 +138,33 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
 
 using memgraph::communication::ServerContext;
 
-// Needed to correctly handle memgraph destruction from a signal handler.
-// Without having some sort of a flag, it is possible that a signal is handled
-// when we are exiting main, inside destructors of database::GraphDb and
-// similar. The signal handler may then initiate another shutdown on memgraph
-// which is in half destructed state, causing invalid memory access and crash.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-volatile sig_atomic_t is_shutting_down = 0;
+// Block SIGTERM and SIGINT so they can be synchronously consumed via sigwait()
+// on the main thread. This avoids running shutdown logic (which does logging,
+// memory allocation, mutex acquisition, etc.) inside an async signal handler
+// where those operations are undefined behaviour.
+void BlockShutdownSignals() {
+  sigset_t mask;
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGTERM);
+  sigaddset(&mask, SIGINT);
+  MG_ASSERT(pthread_sigmask(SIG_BLOCK, &mask, nullptr) == 0, "Failed to block shutdown signals!");
+}
 
-void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
-  // Prevent handling shutdown inside a shutdown. For example, SIGINT handler
-  // being interrupted by SIGTERM before is_shutting_down is set, thus causing
-  // double shutdown.
-  sigset_t block_shutdown_signals;
-  sigemptyset(&block_shutdown_signals);
-  sigaddset(&block_shutdown_signals, SIGTERM);
-  sigaddset(&block_shutdown_signals, SIGINT);
+// Wait for SIGTERM or SIGINT on the calling (main) thread, then run the
+// shutdown function in normal thread context — not inside a signal handler.
+void WaitForShutdownSignal(const std::function<void()> &shutdown_fun) {
+  sigset_t mask;
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGTERM);
+  sigaddset(&mask, SIGINT);
 
-  // Wrap the shutdown function in a safe way to prevent recursive shutdown.
-  auto shutdown = [shutdown_fun]() {
-    if (is_shutting_down) return;
-    is_shutting_down = 1;
-    shutdown_fun();
-  };
+  int sig = 0;
+  // sigwait blocks until one of the masked signals is pending.
+  int const rc = sigwait(&mask, &sig);
+  MG_ASSERT(rc == 0, "sigwait failed!");
 
-  MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(
-                memgraph::utils::Signal::Terminate, shutdown, block_shutdown_signals),
-            "Unable to register SIGTERM handler!");
-  MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(
-                memgraph::utils::Signal::Interupt, shutdown, block_shutdown_signals),
-            "Unable to register SIGINT handler!");
+  spdlog::info("Received signal {}, shutting down...", sig);
+  shutdown_fun();
 }
 
 // Cleans all folders and files that aren't necessary anymore
@@ -234,6 +231,11 @@ int main(int argc, char **argv) {
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
   // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
+
+  // Block SIGTERM/SIGINT as early as possible so that every thread we spawn
+  // inherits the blocked mask.  The main thread will consume them
+  // synchronously via sigwait() later.
+  BlockShutdownSignals();
 
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
@@ -889,9 +891,6 @@ int main(int argc, char **argv) {
 #endif
   };
 
-  InitSignalHandlers(shutdown);
-  spdlog::trace("Signal handlers initialized.");
-
   // Release the temporary database access
   db_acc.reset();
 
@@ -922,6 +921,10 @@ int main(int argc, char **argv) {
   }
 
   spdlog::info("Memgraph successfully started!");
+
+  // Block the main thread until SIGTERM/SIGINT, then run shutdown in normal
+  // thread context (not inside a signal handler) — this is async-signal-safe.
+  WaitForShutdownSignal(shutdown);
 
   if (worker_pool_) worker_pool_->AwaitShutdown();
   server.AwaitShutdown();
