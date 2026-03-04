@@ -46,14 +46,6 @@ auto PatternCompilerBase::emit_iter_loop(Instruction iter_instr, Instruction nex
   return loop_addr;
 }
 
-void PatternCompilerBase::emit_bind_slot(SlotIdx slot, EClassReg eclass_reg, InstrAddr backtrack) {
-  // Track binding order for deduplication
-  if (!std::ranges::contains(binding_order_, slot)) {
-    binding_order_.push_back(slot);
-  }
-  emit(Instruction::bind_slot_dedup(slot, eclass_reg, backtrack));
-}
-
 auto PatternCompilerBase::alloc_eclass_reg() -> EClassReg {
   return EClassReg{std::exchange(next_eclass_reg_, static_cast<uint8_t>(next_eclass_reg_ + 1))};
 }
@@ -70,7 +62,8 @@ void PatternCompilerBase::emit_var_binding(PatternVar var, EClassReg eclass_reg,
     emit(Instruction::check_slot(slot, eclass_reg, backtrack));
   } else {
     seen_vars_.insert(var);
-    emit_bind_slot(slot, eclass_reg, backtrack);
+    binding_order_.push_back(slot);
+    emit(Instruction::bind_slot_dedup(slot, eclass_reg, backtrack));
   }
 }
 

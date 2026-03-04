@@ -46,10 +46,6 @@ class PatternCompilerBase {
   /// Returns the loop position (where NextX is).
   auto emit_iter_loop(Instruction iter_instr, Instruction next_instr) -> InstrAddr;
 
-  /// Emit a BindSlotDedup instruction with backtrack target for early duplicate detection.
-  /// All bind_slot emissions should go through this to ensure binding order is tracked.
-  void emit_bind_slot(SlotIdx slot, EClassReg eclass_reg, InstrAddr backtrack);
-
   /// Allocate an e-class register (for LoadChild, GetENodeEClass, IterAllEClasses destinations)
   auto alloc_eclass_reg() -> EClassReg;
 
@@ -480,6 +476,7 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
   // Backtrack goes to outer loop (not the e-node iteration we're about to create).
   if (auto binding = pattern.binding_for(node_id)) {
     emit_var_binding(*binding, eclass_reg, backtrack);
+    var_to_reg_[*binding] = eclass_reg;  // Enable parent traversal for later patterns
   }
 
   auto sym_idx = get_symbol_index(sym.sym);
@@ -548,15 +545,14 @@ auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &patte
       emit_var_binding(*var, eclass_reg, eclass_loop);
       var_to_reg_[*var] = eclass_reg;
     }
-    if (auto binding = pattern.binding_for(pattern.root())) {
-      emit_var_binding(*binding, eclass_reg, eclass_loop);
-    }
+    // Wildcard root: nothing to bind
     return eclass_loop;
   }
 
   // Symbol root - bind e-class before e-node iteration
   if (auto binding = pattern.binding_for(pattern.root())) {
-    emit_bind_slot(get_slot(*binding), eclass_reg, eclass_loop);
+    emit_var_binding(*binding, eclass_reg, eclass_loop);
+    var_to_reg_[*binding] = eclass_reg;  // Enable parent traversal for later patterns
   }
 
   // Inner loop: e-nodes in each e-class
@@ -636,7 +632,8 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
 
   // Bind root if needed
   if (auto binding = pattern.binding_for(pattern.root())) {
-    emit_bind_slot(get_slot(*binding), current_eclass_reg, innermost);
+    emit_var_binding(*binding, current_eclass_reg, innermost);
+    var_to_reg_[*binding] = current_eclass_reg;  // Enable parent traversal for later patterns
   }
 
   return innermost;
@@ -660,7 +657,8 @@ auto PatternCompiler<Symbol>::emit_joined_child(Pattern<Symbol> const &pattern, 
           // Bind this node BEFORE iteration if it has a binding.
           // The e-class is the same for all e-nodes, so we bind once.
           if (auto binding = pattern.binding_for(node_id)) {
-            emit_bind_slot(get_slot(*binding), eclass_reg, backtrack);
+            emit_var_binding(*binding, eclass_reg, backtrack);
+            var_to_reg_[*binding] = eclass_reg;  // Enable parent traversal for later patterns
           }
 
           auto sym_idx = get_symbol_index(n.sym);

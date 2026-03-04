@@ -368,6 +368,88 @@ TEST_F(PatternVM_Compiler, MultiPattern_VariableOnlyUsesIterAllEClasses) {
   EXPECT_TRUE(has_next_eclass) << "Variable-only joined pattern should use NextEClass\nBytecode:\n" << bytecode;
 }
 
+TEST_F(PatternVM_Compiler, MultiPattern_RootBindingEnablesParentTraversal) {
+  // Pattern 1 (anchor): F(?x)
+  // Pattern 2: G(?x) AS ?y - shares ?x, binds root to ?y
+  // Pattern 3: H(?y) - should use parent traversal from ?y
+  //
+  // This tests that root bindings (binding_for) update var_to_reg_ so that
+  // subsequent patterns can use the bound variable for parent traversal.
+  // If var_to_reg_ isn't updated, pattern 3 falls back to Cartesian product.
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+
+  auto pattern1 = TestPattern::build(Op::F, {Var{kVarX}});
+  auto pattern2 = TestPattern::build(Op::G, {Var{kVarX}}, kVarY);  // G(?x) AS ?y
+  auto pattern3 = TestPattern::build(Op::H, {Var{kVarY}});
+
+  TestPatternCompiler compiler;
+  std::array patterns = {pattern1, pattern2, pattern3};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value()) << "Multi-pattern compilation should succeed";
+
+  auto const &code = compiled->code();
+  auto bytecode = disassemble(code, compiled->symbols());
+
+  // Count IterParents and IterAllEClasses to verify join strategies
+  int iter_parents_count = 0;
+  int iter_all_eclasses_count = 0;
+
+  for (auto const &instr : code) {
+    if (instr.op == VMOp::IterParents) ++iter_parents_count;
+    if (instr.op == VMOp::IterAllEClasses) ++iter_all_eclasses_count;
+  }
+
+  // Anchor G(?x) AS ?y uses IterENodes (symbol pattern on input e-class)
+  // Joined F(?x) uses parent traversal from ?x - 1 IterParents
+  // Joined H(?y) uses parent traversal from ?y - 1 IterParents
+  //
+  // If root binding doesn't update var_to_reg_, H(?y) falls back to
+  // Cartesian product, giving 1 IterParents + 1 IterAllEClasses.
+  EXPECT_EQ(iter_parents_count, 2) << "Both joined patterns should use parent traversal\nBytecode:\n" << bytecode;
+  EXPECT_EQ(iter_all_eclasses_count, 0) << "No pattern should use IterAllEClasses (anchor uses IterENodes)\nBytecode:\n"
+                                        << bytecode;
+}
+
+TEST_F(PatternVM_Compiler, MultiPattern_MixedJoinStrategies) {
+  // Pattern 1 (anchor): F(?x, ?y)
+  // Pattern 2: G(?x) - shares ?x, uses parent traversal
+  // Pattern 3: H(?z) - no shared variable, uses Cartesian product
+  //
+  // Verifies both strategies can coexist in one compilation.
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+  constexpr PatternVar kVarZ{2};
+
+  auto pattern1 = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}});
+  auto pattern2 = TestPattern::build(Op::G, {Var{kVarX}});
+  auto pattern3 = TestPattern::build(Op::H, {Var{kVarZ}});
+
+  TestPatternCompiler compiler;
+  std::array patterns = {pattern1, pattern2, pattern3};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value()) << "Multi-pattern compilation should succeed";
+
+  auto const &code = compiled->code();
+  auto bytecode = disassemble(code, compiled->symbols());
+
+  int iter_parents_count = 0;
+  int iter_all_eclasses_count = 0;
+
+  for (auto const &instr : code) {
+    if (instr.op == VMOp::IterParents) ++iter_parents_count;
+    if (instr.op == VMOp::IterAllEClasses) ++iter_all_eclasses_count;
+  }
+
+  // G(?x) joins via parent traversal from ?x
+  // H(?z) has no shared variable, falls back to Cartesian product
+  EXPECT_EQ(iter_parents_count, 1) << "G(?x) should use parent traversal\nBytecode:\n" << bytecode;
+  EXPECT_EQ(iter_all_eclasses_count, 1) << "H(?z) should use Cartesian product (no shared variable)\nBytecode:\n"
+                                        << bytecode;
+}
+
 // ============================================================================
 // VM Join Order Tests
 // ============================================================================
