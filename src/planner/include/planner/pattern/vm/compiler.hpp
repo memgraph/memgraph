@@ -695,29 +695,32 @@ auto PatternCompiler<Symbol>::find_path_to_shared_var(Pattern<Symbol> const &pat
 template <typename Symbol>
 auto PatternCompiler<Symbol>::find_path_recursive(Pattern<Symbol> const &pattern, PatternNodeId node_id,
                                                   PatternPath &path) const -> bool {
-  auto const &node = pattern[node_id];
-  // TODO: std::visit on node?
-
-  // Check if this is a shared variable
-  if (auto const *var = std::get_if<PatternVar>(&node)) {
-    if (var_to_reg_.contains(*var)) {
-      path.shared_var = *var;
-      return true;
-    }
-  }
-
-  // Recurse into symbol children
-  if (auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&node)) {
-    for (std::size_t i = 0; i < sym->children.size(); ++i) {
-      path.steps.emplace_back(*sym, i);
-      if (find_path_recursive(pattern, sym->children[i], path)) {
-        return true;
-      }
-      path.steps.pop_back();
-    }
-  }
-
-  return false;
+  return std::visit(utils::Overloaded{
+                        [&](PatternVar const &var) {
+                          // Check if this is a shared variable (already bound by anchor)
+                          if (var_to_reg_.contains(var)) {
+                            path.shared_var = var;
+                            return true;
+                          }
+                          return false;
+                        },
+                        [&](SymbolWithChildren<Symbol> const &sym) {
+                          // Recurse into symbol children
+                          for (std::size_t i = 0; i < sym.children.size(); ++i) {
+                            path.steps.emplace_back(sym, i);
+                            if (find_path_recursive(pattern, sym.children[i], path)) {
+                              return true;
+                            }
+                            path.steps.pop_back();
+                          }
+                          return false;
+                        },
+                        [](Wildcard) {
+                          // Wildcards can't be shared variables
+                          return false;
+                        },
+                    },
+                    pattern[node_id]);
 }
 
 template <typename Symbol>
