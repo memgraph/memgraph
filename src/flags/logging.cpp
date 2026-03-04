@@ -8,13 +8,15 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#include "flags/log_level.hpp"
+#include "flags/logging.hpp"
 
 #include "flags/run_time_configurable.hpp"
 #include "utils/enum.hpp"
+#include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 
 #include "gflags/gflags.h"
+#include "spdlog/async.h"
 #include "spdlog/common.h"
 #include "spdlog/sinks/daily_file_sink.h"
 #include "spdlog/sinks/dist_sink.h"
@@ -27,6 +29,10 @@
 using namespace std::string_view_literals;
 
 namespace {
+
+constexpr auto kSync = "sync";
+constexpr auto kAsync = "async";
+
 // 5 weeks * 7 days
 inline constexpr auto log_retention_count = 35;
 
@@ -50,12 +56,28 @@ inline constexpr std::array log_level_mappings{std::pair{"TRACE"sv, spdlog::leve
                                                std::pair{"ERROR"sv, spdlog::level::err},
                                                std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
-const std::string &memgraph::flags::GetAllowedLogLevels() {
+namespace memgraph::flags {
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_string(logger_type, "sync",
+                        "Controls whether synchronous or asynchronous logger will be used. Options: sync, async",
+                        {
+                          auto const logger_lower = utils::ToLowerCase(value);
+                          if (logger_lower != kSync && logger_lower != kAsync) {
+                            std::cout << "Expected --" << flagname << " to be 'sync' or 'async' string\n";
+                            return false;
+                          }
+                          return true;
+                        }
+
+);
+
+const std::string &GetAllowedLogLevels() {
   static const std::string allowed_levels = memgraph::utils::GetAllowedEnumValuesString(log_level_mappings);
   return allowed_levels;
 }
 
-bool memgraph::flags::ValidLogLevel(std::string_view value) {
+bool ValidLogLevel(std::string_view value) {
   if (const auto result = memgraph::utils::IsValidEnumValueString(value, log_level_mappings); !result.has_value()) {
     const auto error = result.error();
     switch (error) {
@@ -74,13 +96,13 @@ bool memgraph::flags::ValidLogLevel(std::string_view value) {
   return true;
 }
 
-std::optional<spdlog::level::level_enum> memgraph::flags::LogLevelToEnum(std::string_view value) {
+std::optional<spdlog::level::level_enum> LogLevelToEnum(std::string_view value) {
   return memgraph::utils::StringToEnum<spdlog::level::level_enum>(value, log_level_mappings);
 }
 
 // We use dist_sink which is MT safe together with _st subsinks
 // This allows us MT safe
-void memgraph::flags::InitializeLogger() {
+void InitializeLogger() {
   // stderr subsink
   stderr_sink()->set_level(run_time::GetAlsoLogToStderr() ? spdlog::level::trace : spdlog::level::off);
 
@@ -102,7 +124,19 @@ void memgraph::flags::InitializeLogger() {
 
   auto dist_sink = std::make_shared<spdlog::sinks::dist_sink_mt>(std::move(sub_sinks));
 
-  auto logger = std::make_shared<spdlog::logger>("memgraph_log", std::move(dist_sink));
+  auto logger = std::invoke([dist_sink_local = std::move(dist_sink)]() mutable -> std::shared_ptr<spdlog::logger> {
+    if (FLAGS_logger_type == kAsync) {
+      // 8k size of the buffer
+      spdlog::init_thread_pool(8192, 1);
+      return std::make_shared<spdlog::async_logger>("memgraph_log",
+                                                    std::move(dist_sink_local),
+                                                    spdlog::thread_pool(),
+                                                    spdlog::async_overflow_policy::overrun_oldest);
+    } else {
+      return std::make_shared<spdlog::logger>("memgraph_log", std::move(dist_sink_local));
+    }
+  });
+
   logger->set_level(ParseLogLevel());
   logger->flush_on(spdlog::level::trace);
   spdlog::set_default_logger(std::move(logger));
@@ -110,19 +144,21 @@ void memgraph::flags::InitializeLogger() {
 
 // This is thread-safe now because add_sink takes a lock from base_sink before adding subsink
 // Main thread can execute this while the other thread is logging
-void memgraph::flags::AddLoggerSink(spdlog::sink_ptr new_sink) {
+void AddLoggerSink(spdlog::sink_ptr new_sink) {
   auto default_logger = spdlog::default_logger();
   auto dist_sink = std::dynamic_pointer_cast<spdlog::sinks::dist_sink_mt>(*(default_logger->sinks().begin()));
   dist_sink->add_sink(std::move(new_sink));
 }
 
 // Thread-safe because the level enum is an atomic
-void memgraph::flags::TurnOffStdErr() { stderr_sink()->set_level(spdlog::level::off); }
+void TurnOffStdErr() { stderr_sink()->set_level(spdlog::level::off); }
 
 // Thread-safe because the level enum is an atomic
 // Sets log-level to trace
 // Filtering done on logger's level
-void memgraph::flags::TurnOnStdErr() {
+void TurnOnStdErr() {
   // stderr level allows everything, will be filtered on logger's elvel
   stderr_sink()->set_level(spdlog::level::trace);
 }
+
+}  // namespace memgraph::flags

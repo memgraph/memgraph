@@ -92,6 +92,11 @@ startup_config_dict = {
         "",
         "List of default Kafka brokers as a comma separated list of broker host or host:port.",
     ),
+    "logger_type": (
+        "sync",
+        "sync",
+        "Controls whether synchronous or asynchronous logger will be used. Options: sync, async",
+    ),
     "log_file": ("", "", "Path to where the log should be stored."),
     "nuraft_log_file": ("", "", "Path to the file where NuRaft logs are saved."),
     "log_level": (

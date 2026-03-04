@@ -17,7 +17,7 @@
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/isolation_level.hpp"
-#include "flags/log_level.hpp"
+#include "flags/logging.hpp"
 #include "flags/memory_limit.hpp"
 #include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"

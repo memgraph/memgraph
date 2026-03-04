@@ -33,6 +33,7 @@ fi
 
 DATA_DIR_PREFIX="mg_data"
 COORD_DIR_PREFIX="mg_coord"
+LOG_DIR="${LOG_DIR:-stress_logs}"
 
 # Default flags for Memgraph Data Nodes
 DEFAULT_DATA_FLAGS=(
@@ -112,21 +113,26 @@ _start_processes() {
     export MEMGRAPH_ENTERPRISE_LICENSE
     export MEMGRAPH_ORGANIZATION_NAME
     rm -f memgraph_ha.pid
+    mkdir -p "$LOG_DIR"
 
+    local i=1
     for node in "${DATA_NODES[@]}"; do
         FINAL_FLAGS=$(merge_flags ${#DEFAULT_DATA_FLAGS[@]} "${DEFAULT_DATA_FLAGS[@]}" "$@")
         CMD="$MEMGRAPH_BINARY $node $FINAL_FLAGS"
         echo "Executing: $CMD"
-        $CMD &
+        $CMD > "$LOG_DIR/data_${i}.log" 2>&1 &
         echo $! >> memgraph_ha.pid
+        ((i++))
     done
 
+    local j=1
     for node in "${COORD_NODES[@]}"; do
         FINAL_FLAGS=$(merge_flags ${#DEFAULT_COORD_FLAGS[@]} "${DEFAULT_COORD_FLAGS[@]}" "$@")
         CMD="$MEMGRAPH_BINARY $node $FINAL_FLAGS"
         echo "Executing: $CMD"
-        $CMD &
+        $CMD > "$LOG_DIR/coord_${j}.log" 2>&1 &
         echo $! >> memgraph_ha.pid
+        ((j++))
     done
 
     wait_for_server 7687
@@ -246,7 +252,24 @@ _stop_processes() {
     return 1
 }
 
+collect_logs() {
+    local dest_dir="${1:-$LOG_DIR}"
+    mkdir -p "$dest_dir"
+    echo "Collecting logs to $dest_dir/..."
+
+    if [[ -d "$LOG_DIR" && "$LOG_DIR" != "$dest_dir" ]]; then
+        cp -v "$LOG_DIR"/*.log "$dest_dir/" 2>/dev/null || echo "No log files found in $LOG_DIR"
+    elif [[ ! -d "$LOG_DIR" ]]; then
+        echo "Log directory $LOG_DIR not found."
+    else
+        echo "Logs are already in $dest_dir/"
+    fi
+
+    echo "Logs collected."
+}
+
 stop_memgraph() {
+    collect_logs
     _stop_processes
     clean_data_directories
 }
@@ -276,6 +299,9 @@ case "$1" in
     stop)
         stop_memgraph
         ;;
+    collect-logs)
+        collect_logs "$2"
+        ;;
     restart)
         restart_all
         ;;
@@ -287,6 +313,6 @@ case "$1" in
         fi
         ;;
     *)
-        echo "Usage: $0 {start|stop|restart|status} [memgraph flags...]"
+        echo "Usage: $0 {start|stop|collect-logs [dir]|restart|status} [memgraph flags...]"
         exit 1
 esac
