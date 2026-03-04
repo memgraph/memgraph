@@ -258,9 +258,6 @@ class PatternCompiler : protected PatternCompilerBase {
   auto emit_joined_via_parents(Pattern<Symbol> const &pattern, PatternPath const &path, EClassReg shared_reg,
                                InstrAddr backtrack) -> InstrAddr;
 
-  auto emit_joined_child(Pattern<Symbol> const &pattern, PatternNodeId node_id, EClassReg eclass_reg,
-                         InstrAddr backtrack) -> InstrAddr;
-
   // ============================================================================
   // Helpers
   // ============================================================================
@@ -541,9 +538,8 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
       auto child_reg = alloc_eclass_reg();
       emit(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
 
-      // Verify the sibling child's structure using emit_joined_child
-      // This handles variables (checking slot bindings), symbols (verifying structure), etc.
-      sibling_innermost = emit_joined_child(pattern, sym.children[i], child_reg, sibling_innermost);
+      // Verify the sibling child's structure
+      sibling_innermost = emit_node(pattern, sym.children[i], child_reg, sibling_innermost);
     }
 
     // Move up: get the e-class of this parent for next iteration
@@ -559,46 +555,6 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
   }
 
   return innermost;
-}
-
-template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_joined_child(Pattern<Symbol> const &pattern, PatternNodeId node_id,
-                                                EClassReg eclass_reg, InstrAddr backtrack) -> InstrAddr {
-  return std::visit(
-      utils::Overloaded{
-          [&](Wildcard) { return backtrack; },
-          [&](PatternVar const &var) { return emit_var_binding(var, eclass_reg, backtrack); },
-          [&](SymbolWithChildren<Symbol> const &sym) {
-            // Bind this node BEFORE iteration if it has a binding.
-            // The e-class is the same for all e-nodes, so we bind once.
-            if (auto binding = pattern.binding_for(node_id)) {
-              emit_var_binding(*binding, eclass_reg, backtrack);
-            }
-
-            auto sym_idx = get_symbol_index(sym.sym);
-            auto enode_reg = alloc_enode_reg();  // IterENodes produces e-node
-
-            auto loop_pos = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, backtrack),
-                                           Instruction::next_enode(enode_reg, backtrack));
-
-            emit(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
-            emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
-
-            // For leaf symbols, backtrack to parent after match (existence check only)
-            if (sym.children.empty()) {
-              return backtrack;
-            }
-
-            InstrAddr innermost = loop_pos;
-            for (std::size_t i = 0; i < sym.children.size(); ++i) {
-              auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
-              emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
-              innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
-            }
-            return innermost;
-          },
-      },
-      pattern[node_id]);
 }
 
 template <typename Symbol>
