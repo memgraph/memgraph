@@ -277,14 +277,6 @@ class PatternCompiler : protected PatternCompilerBase {
   [[nodiscard]] auto find_path_recursive(Pattern<Symbol> const &pattern, PatternNodeId node_id, PatternPath &path) const
       -> bool;
 
-  /// Check if a pattern is redundant in a JOIN context.
-  /// Returns true only if the pattern is a pure variable root (no symbol structure)
-  /// AND that variable is already bound.
-  ///
-  /// For example, in "F(?v0) JOIN ?v0", the second pattern is redundant.
-  /// But in "F(?v0) JOIN F2(?v0)", we still need to verify F2 nodes exist.
-  [[nodiscard]] auto is_redundant_joined_pattern(Pattern<Symbol> const &pattern) const -> bool;
-
   auto get_symbol_index(Symbol const &sym) -> uint8_t;
 
   std::vector<Symbol> symbols_;  // Symbol table (Symbol-dependent)
@@ -510,13 +502,6 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
 template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern, InstrAddr anchor_backtrack)
     -> InstrAddr {
-  // Optimization: skip pure variable patterns that introduce no new bindings
-  // e.g., in "?v0 JOIN ?v0", the second ?v0 is redundant
-  // But "F(?v0) JOIN F2(?v0)" still needs to verify F2 exists
-  if (is_redundant_joined_pattern(pattern)) {
-    return anchor_backtrack;
-  }
-
   // Try to find a shared variable (any depth) for efficient parent traversal
   if (auto path = find_path_to_shared_var(pattern)) {
     if (auto it = var_to_reg_.find(path->shared_var); it != var_to_reg_.end()) {
@@ -525,51 +510,58 @@ auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern
   }
 
   // No shared variable - Cartesian product (expensive fallback)
-  // Handles both variable/wildcard roots and symbol roots
+  // Handles variable/wildcard roots (including redundancy checks) and symbol roots
   return emit_joined_cartesian(pattern, anchor_backtrack);
 }
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &pattern, InstrAddr backtrack) -> InstrAddr {
-  auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&pattern[pattern.root()]);
+  return std::visit(
+      utils::Overloaded{
+          [&](Wildcard) { return backtrack; },  // No structure, no binding - nothing to do
+          [&](PatternVar var) {
+            // Already-bound variable - nothing to do (slot already has the value)
+            if (seen_vars_.contains(var)) {
+              return backtrack;
+            }
+            auto eclass_reg = alloc_eclass_reg();
+            auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
+                                              Instruction::next_eclass(eclass_reg, backtrack));
+            emit_var_binding(var, eclass_reg, eclass_loop);
+            return eclass_loop;
+          },
+          [&](SymbolWithChildren<Symbol> const &sym) {
+            auto eclass_reg = alloc_eclass_reg();
+            auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
+                                              Instruction::next_eclass(eclass_reg, backtrack));
 
-  auto eclass_reg = alloc_eclass_reg();  // IterAllEClasses produces e-class
-  auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
-                                    Instruction::next_eclass(eclass_reg, backtrack));
+            // Bind e-class before e-node iteration
+            if (auto binding = pattern.binding_for(pattern.root())) {
+              emit_var_binding(*binding, eclass_reg, eclass_loop);
+            }
 
-  // Variable/wildcard root - just bind and return
-  if (!sym) {
-    if (auto const *var = std::get_if<PatternVar>(&pattern[pattern.root()])) {
-      emit_var_binding(*var, eclass_reg, eclass_loop);
-    }
-    // Wildcard root: nothing to bind
-    return eclass_loop;
-  }
+            // Inner loop: e-nodes in each e-class
+            auto enode_reg = alloc_enode_reg();
+            auto enode_loop = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, eclass_loop),
+                                             Instruction::next_enode(enode_reg, eclass_loop));
 
-  // Symbol root - bind e-class before e-node iteration
-  if (auto binding = pattern.binding_for(pattern.root())) {
-    emit_var_binding(*binding, eclass_reg, eclass_loop);
-  }
+            // Check symbol and arity
+            auto sym_idx = get_symbol_index(sym.sym);
+            emit(Instruction::check_symbol(enode_reg, sym_idx, enode_loop));
+            emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), enode_loop));
 
-  // Inner loop: e-nodes in each e-class
-  auto enode_reg = alloc_enode_reg();  // IterENodes produces e-node
-  auto enode_loop = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, eclass_loop),
-                                   Instruction::next_enode(enode_reg, eclass_loop));
+            // Process children
+            InstrAddr innermost = enode_loop;
+            for (std::size_t i = 0; i < sym.children.size(); ++i) {
+              auto child_reg = alloc_eclass_reg();
+              emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
+              innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
+            }
 
-  // Check symbol and arity
-  auto sym_idx = get_symbol_index(sym->sym);
-  emit(Instruction::check_symbol(enode_reg, sym_idx, enode_loop));
-  emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym->children.size()), enode_loop));
-
-  // Process children
-  InstrAddr innermost = enode_loop;
-  for (std::size_t i = 0; i < sym->children.size(); ++i) {
-    auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
-    emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
-    innermost = emit_joined_child(pattern, sym->children[i], child_reg, innermost);
-  }
-
-  return innermost;
+            return innermost;
+          },
+      },
+      pattern[pattern.root()]);
 }
 
 template <typename Symbol>
@@ -721,18 +713,6 @@ auto PatternCompiler<Symbol>::find_path_recursive(Pattern<Symbol> const &pattern
                         },
                     },
                     pattern[node_id]);
-}
-
-template <typename Symbol>
-auto PatternCompiler<Symbol>::is_redundant_joined_pattern(Pattern<Symbol> const &pattern) const -> bool {
-  // Only skip if the pattern is just a single variable or wildcard at the root
-  // (no symbol structure to verify) and all variables are already bound
-  return std::visit(utils::Overloaded{
-                        [](SymbolWithChildren<Symbol> const &) { return false; },  // Has structure, must verify
-                        [](Wildcard) { return true; },                             // Always redundant
-                        [&](PatternVar var) { return seen_vars_.contains(var); },  // Redundant if already bound
-                    },
-                    pattern[pattern.root()]);
 }
 
 template <typename Symbol>
