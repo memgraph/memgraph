@@ -270,9 +270,9 @@ class PatternCompiler : protected PatternCompilerBase {
   // Helpers
   // ============================================================================
 
-  /// Find the path from root to a shared variable in the pattern tree.
-  /// Returns nullopt if no shared variable is found or pattern has variable/wildcard root.
-  [[nodiscard]] auto find_path_to_shared_var(Pattern<Symbol> const &pattern) const -> std::optional<PatternPath>;
+  /// Find the path from a symbol root to a shared variable in the pattern tree.
+  /// Returns nullopt if root is not a symbol or no shared variable is found.
+  [[nodiscard]] auto find_symbol_path_to_shared_var(Pattern<Symbol> const &pattern) const -> std::optional<PatternPath>;
 
   [[nodiscard]] auto find_path_recursive(Pattern<Symbol> const &pattern, PatternNodeId node_id, PatternPath &path) const
       -> bool;
@@ -503,7 +503,7 @@ template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern, InstrAddr anchor_backtrack)
     -> InstrAddr {
   // Try to find a shared variable (any depth) for efficient parent traversal
-  if (auto path = find_path_to_shared_var(pattern)) {
+  if (auto path = find_symbol_path_to_shared_var(pattern)) {
     if (auto it = var_to_reg_.find(path->shared_var); it != var_to_reg_.end()) {
       return emit_joined_via_parents(pattern, *path, it->second, anchor_backtrack);
     }
@@ -674,7 +674,7 @@ auto PatternCompiler<Symbol>::emit_joined_child(Pattern<Symbol> const &pattern, 
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::find_path_to_shared_var(Pattern<Symbol> const &pattern) const
+auto PatternCompiler<Symbol>::find_symbol_path_to_shared_var(Pattern<Symbol> const &pattern) const
     -> std::optional<PatternPath> {
   auto const &root_node = pattern[pattern.root()];
   auto const *root_sym = std::get_if<SymbolWithChildren<Symbol>>(&root_node);
