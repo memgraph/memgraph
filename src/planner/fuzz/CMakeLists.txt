@@ -16,9 +16,17 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_link_options(fuzz_pattern_vm PRIVATE -fsanitize=fuzzer,address)
     target_compile_definitions(fuzz_pattern_vm PUBLIC ASSERT_FUZZ)
 
+    # Fuzzer for PatternCompiler contract verification (structural invariants)
+    add_executable(fuzz_compiler_contracts fuzz_compiler_contracts.cpp)
+    target_link_libraries(fuzz_compiler_contracts PRIVATE mg::planner fmt::fmt)
+    target_compile_options(fuzz_compiler_contracts PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
+    target_link_options(fuzz_compiler_contracts PRIVATE -fsanitize=fuzzer,address)
+    target_compile_definitions(fuzz_compiler_contracts PUBLIC ASSERT_FUZZ)
+
     # Create corpus directories for each fuzzer
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_egraph)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_pattern_vm)
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_compiler_contracts)
 
     # Corpus profiling: run single corpus file for perf analysis
     add_executable(corpus_profile corpus_profile.cpp)
@@ -43,6 +51,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         COMMENT "Running pattern VM fuzzer..."
     )
 
+    add_custom_target(run_fuzz_compiler_contracts
+        COMMAND $<TARGET_FILE:fuzz_compiler_contracts> ${CMAKE_CURRENT_BINARY_DIR}/corpus_compiler_contracts
+        DEPENDS fuzz_compiler_contracts
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Running compiler contracts fuzzer..."
+    )
+
     # Clear corpus directories
     add_custom_target(clear_corpus_egraph
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/corpus_egraph/*
@@ -54,8 +69,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         COMMENT "Clearing pattern VM corpus..."
     )
 
+    add_custom_target(clear_corpus_compiler_contracts
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/corpus_compiler_contracts/*
+        COMMENT "Clearing compiler contracts corpus..."
+    )
+
     add_custom_target(clear_corpus_all
-        DEPENDS clear_corpus_egraph clear_corpus_pattern_vm
+        DEPENDS clear_corpus_egraph clear_corpus_pattern_vm clear_corpus_compiler_contracts
         COMMENT "Clearing all corpus directories..."
     )
 
