@@ -22,6 +22,7 @@
 #include "planner/pattern/pattern.hpp"
 #include "planner/pattern/vm/compiled_pattern.hpp"
 #include "planner/pattern/vm/instruction.hpp"
+#include "planner/pattern/vm/types.hpp"
 
 namespace memgraph::planner::core::pattern::vm {
 
@@ -41,33 +42,33 @@ class PatternCompilerBase {
 
   /// Emit standard iteration loop: IterX, Jump, NextX, patch-jump.
   /// Returns the loop position (where NextX is).
-  auto emit_iter_loop(Instruction iter_instr, Instruction next_instr) -> uint16_t;
+  auto emit_iter_loop(Instruction iter_instr, Instruction next_instr) -> InstrAddr;
 
   /// Emit a BindSlotDedup instruction with backtrack target for early duplicate detection.
   /// All bind_slot emissions should go through this to ensure binding order is tracked.
-  void emit_bind_slot(uint8_t slot, uint8_t eclass_reg, uint16_t backtrack);
+  void emit_bind_slot(SlotIdx slot, EClassReg eclass_reg, InstrAddr backtrack);
 
   /// Allocate an e-class register (for LoadChild, GetENodeEClass, IterAllEClasses destinations)
-  auto alloc_eclass_reg() -> uint8_t;
+  auto alloc_eclass_reg() -> EClassReg;
 
   /// Allocate an e-node register (for IterENodes, IterParents destinations)
-  auto alloc_enode_reg() -> uint8_t;
+  auto alloc_enode_reg() -> ENodeReg;
 
   /// Get slot index for a pattern variable
-  [[nodiscard]] auto get_slot(PatternVar var) const -> uint8_t;
+  [[nodiscard]] auto get_slot(PatternVar var) const -> SlotIdx;
 
   /// Emit variable binding (check if seen, else bind with dedup)
-  void emit_var_binding(PatternVar var, uint8_t eclass_reg, uint16_t backtrack);
+  void emit_var_binding(PatternVar var, EClassReg eclass_reg, InstrAddr backtrack);
 
-  static constexpr uint16_t kHaltPlaceholder = 0xFFFF;
+  static constexpr InstrAddr kHaltPlaceholder{0xFFFF};
 
   std::vector<Instruction> code_;
   boost::unordered_flat_set<PatternVar> seen_vars_;
-  boost::unordered_flat_map<PatternVar, uint8_t> slot_map_;
-  boost::unordered_flat_map<PatternVar, uint8_t> var_to_reg_;  // Maps vars to eclass registers
-  std::vector<uint8_t> binding_order_;                         // Order in which slots are bound
-  uint8_t next_eclass_reg_{1};                                 // eclass_regs[0] reserved for input
-  uint8_t next_enode_reg_{0};
+  boost::unordered_flat_map<PatternVar, SlotIdx> slot_map_;
+  boost::unordered_flat_map<PatternVar, EClassReg> var_to_reg_;  // Maps vars to eclass registers
+  std::vector<SlotIdx> binding_order_;                           // Order in which slots are bound
+  EClassReg next_eclass_reg_{1};                                 // eclass_regs[0] reserved for input
+  ENodeReg next_enode_reg_{0};
 };
 
 // =============================================================================
@@ -231,37 +232,37 @@ class PatternCompiler : protected PatternCompilerBase {
   // Pattern emission (anchor)
   // ============================================================================
 
-  auto emit_pattern(Pattern<Symbol> const &pattern, uint8_t eclass_reg, uint16_t backtrack) -> uint16_t;
+  auto emit_pattern(Pattern<Symbol> const &pattern, EClassReg eclass_reg, InstrAddr backtrack) -> InstrAddr;
 
-  auto emit_node(Pattern<Symbol> const &pattern, PatternNodeId node_id, uint8_t eclass_reg, uint16_t backtrack)
-      -> uint16_t;
+  auto emit_node(Pattern<Symbol> const &pattern, PatternNodeId node_id, EClassReg eclass_reg, InstrAddr backtrack)
+      -> InstrAddr;
 
   auto emit_symbol_node(Pattern<Symbol> const &pattern, PatternNodeId node_id, SymbolWithChildren<Symbol> const &sym,
-                        uint8_t eclass_reg, uint16_t backtrack) -> uint16_t;
+                        EClassReg eclass_reg, InstrAddr backtrack) -> InstrAddr;
 
   // ============================================================================
   // Joined pattern emission
   // ============================================================================
 
-  auto emit_joined_pattern(Pattern<Symbol> const &pattern, uint16_t anchor_backtrack) -> uint16_t;
+  auto emit_joined_pattern(Pattern<Symbol> const &pattern, InstrAddr anchor_backtrack) -> InstrAddr;
 
-  auto emit_joined_variable_root(Pattern<Symbol> const &pattern, uint16_t backtrack) -> uint16_t;
+  auto emit_joined_variable_root(Pattern<Symbol> const &pattern, InstrAddr backtrack) -> InstrAddr;
 
-  auto emit_joined_cartesian(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym, uint16_t backtrack)
-      -> uint16_t;
+  auto emit_joined_cartesian(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym, InstrAddr backtrack)
+      -> InstrAddr;
 
   auto emit_joined_with_parent_traversal(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym,
-                                         PatternVar shared_var, std::size_t shared_idx, uint8_t shared_reg,
-                                         uint16_t backtrack) -> uint16_t;
+                                         PatternVar shared_var, std::size_t shared_idx, EClassReg shared_reg,
+                                         InstrAddr backtrack) -> InstrAddr;
 
   /// Emit parent chain traversal for deeply nested shared variables.
   /// For pattern (F (F (F (F ?v0)))), traverses upward from ?v0 through 4 levels of F parents.
   /// This is O(parents^depth) per match, much better than O(n) Cartesian product.
-  auto emit_joined_with_parent_chain(Pattern<Symbol> const &pattern, PatternPath const &path, uint8_t shared_reg,
-                                     uint16_t backtrack) -> uint16_t;
+  auto emit_joined_with_parent_chain(Pattern<Symbol> const &pattern, PatternPath const &path, EClassReg shared_reg,
+                                     InstrAddr backtrack) -> InstrAddr;
 
-  auto emit_joined_child(Pattern<Symbol> const &pattern, PatternNodeId node_id, uint8_t eclass_reg, uint16_t backtrack)
-      -> uint16_t;
+  auto emit_joined_child(Pattern<Symbol> const &pattern, PatternNodeId node_id, EClassReg eclass_reg,
+                         InstrAddr backtrack) -> InstrAddr;
 
   // ============================================================================
   // Helpers
@@ -306,34 +307,46 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
   }
 
   // Emit anchor pattern
-  auto anchor_innermost = emit_pattern(anchor, 0, kHaltPlaceholder);
+  auto anchor_innermost = emit_pattern(anchor, EClassReg{0}, kHaltPlaceholder);
 
   // Emit joined patterns
-  uint16_t innermost = anchor_innermost;
+  InstrAddr innermost = anchor_innermost;
   for (auto idx : join_order) {
     innermost = emit_joined_pattern(patterns[idx], innermost);
   }
 
   // Emit yield and continue loop
   // Yield marks the last bound slot as seen (implicit MarkSeen)
-  auto last_slot = binding_order_.empty() ? uint8_t{0} : binding_order_.back();
+  auto last_slot = binding_order_.empty() ? SlotIdx{0} : binding_order_.back();
   code_.push_back(Instruction::yield(last_slot));
   code_.push_back(Instruction::jmp(innermost));
 
   // Patch halt placeholders and add halt
-  auto halt_pos = static_cast<uint16_t>(code_.size());
+  auto halt_pos = InstrAddr{static_cast<uint16_t>(code_.size())};
   for (auto &instr : code_) {
-    if (instr.target == kHaltPlaceholder) instr.target = halt_pos;
+    if (instr.target == value_of(kHaltPlaceholder)) instr.target = value_of(halt_pos);
   }
   code_.push_back(Instruction::halt());
 
+  // Convert strong types to underlying types for CompiledPattern
+  std::vector<uint8_t> binding_order_raw;
+  binding_order_raw.reserve(binding_order_.size());
+  for (auto slot : binding_order_) {
+    binding_order_raw.push_back(value_of(slot));
+  }
+
+  VarSlotMap var_slots_raw;
+  for (auto const &[var, slot] : slot_map_) {
+    var_slots_raw[var] = value_of(slot);
+  }
+
   return CompiledPattern<Symbol>(std::move(code_),
-                                 next_eclass_reg_,
-                                 next_enode_reg_,
+                                 value_of(next_eclass_reg_),
+                                 value_of(next_enode_reg_),
                                  std::move(symbols_),
                                  entry_symbol,
-                                 std::move(binding_order_),
-                                 std::move(slot_map_));
+                                 std::move(binding_order_raw),
+                                 std::move(var_slots_raw));
 }
 
 template <typename Symbol>
@@ -408,7 +421,7 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
   // For multi-pattern joins, we need to merge slot maps carefully.
   if (patterns.size() == 1) {
     for (auto const &[var, slot] : patterns[0].var_slots()) {
-      slot_map_[var] = slot;
+      slot_map_[var] = SlotIdx{slot};
     }
   } else {
     // Multi-pattern: assign slots sequentially, but respect each pattern's
@@ -420,7 +433,7 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
 
       for (auto const &[var, _] : vars) {
         if (!slot_map_.contains(var)) {
-          slot_map_[var] = static_cast<uint8_t>(slot_map_.size());
+          slot_map_[var] = SlotIdx{static_cast<uint8_t>(slot_map_.size())};
         }
       }
     }
@@ -428,16 +441,16 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_pattern(Pattern<Symbol> const &pattern, uint8_t eclass_reg, uint16_t backtrack)
-    -> uint16_t {
+auto PatternCompiler<Symbol>::emit_pattern(Pattern<Symbol> const &pattern, EClassReg eclass_reg, InstrAddr backtrack)
+    -> InstrAddr {
   return emit_node(pattern, pattern.root(), eclass_reg, backtrack);
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_node(Pattern<Symbol> const &pattern, PatternNodeId node_id, uint8_t eclass_reg,
-                                        uint16_t backtrack) -> uint16_t {
+auto PatternCompiler<Symbol>::emit_node(Pattern<Symbol> const &pattern, PatternNodeId node_id, EClassReg eclass_reg,
+                                        InstrAddr backtrack) -> InstrAddr {
   auto const &node = pattern[node_id];
-  uint16_t innermost = backtrack;
+  InstrAddr innermost = backtrack;
 
   std::visit(
       [&](auto const &n) {
@@ -458,8 +471,8 @@ auto PatternCompiler<Symbol>::emit_node(Pattern<Symbol> const &pattern, PatternN
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, PatternNodeId node_id,
-                                               SymbolWithChildren<Symbol> const &sym, uint8_t eclass_reg,
-                                               uint16_t backtrack) -> uint16_t {
+                                               SymbolWithChildren<Symbol> const &sym, EClassReg eclass_reg,
+                                               InstrAddr backtrack) -> InstrAddr {
   // Bind this node BEFORE iteration if it has a binding.
   // The e-class is the same for all e-nodes in the iteration, so we bind once.
   // Backtrack goes to outer loop (not the e-node iteration we're about to create).
@@ -487,7 +500,7 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
 
   // Process children - each child should backtrack to the innermost loop so far
   // (not the parent's loop), so that we try all combinations of nested e-nodes
-  uint16_t innermost = loop_pos;
+  InstrAddr innermost = loop_pos;
   for (std::size_t i = 0; i < sym.children.size(); ++i) {
     auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
     code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
@@ -498,8 +511,8 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern, uint16_t anchor_backtrack)
-    -> uint16_t {
+auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern, InstrAddr anchor_backtrack)
+    -> InstrAddr {
   // Optimization: skip pure variable patterns that introduce no new bindings
   // e.g., in "?v0 JOIN ?v0", the second ?v0 is redundant
   // But "F(?v0) JOIN F2(?v0)" still needs to verify F2 exists
@@ -538,8 +551,8 @@ auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_joined_variable_root(Pattern<Symbol> const &pattern, uint16_t backtrack)
-    -> uint16_t {
+auto PatternCompiler<Symbol>::emit_joined_variable_root(Pattern<Symbol> const &pattern, InstrAddr backtrack)
+    -> InstrAddr {
   auto eclass_reg = alloc_eclass_reg();  // IterAllEClasses produces e-class
   auto loop_pos = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
                                  Instruction::next_eclass(eclass_reg, backtrack));
@@ -558,8 +571,8 @@ auto PatternCompiler<Symbol>::emit_joined_variable_root(Pattern<Symbol> const &p
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &pattern,
-                                                    SymbolWithChildren<Symbol> const &sym, uint16_t backtrack)
-    -> uint16_t {
+                                                    SymbolWithChildren<Symbol> const &sym, InstrAddr backtrack)
+    -> InstrAddr {
   auto eclass_reg = alloc_eclass_reg();  // IterAllEClasses produces e-class
   auto enode_reg = alloc_enode_reg();    // IterENodes produces e-node
 
@@ -583,7 +596,7 @@ auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &patte
   code_.push_back(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), enode_loop));
 
   // Process children
-  uint16_t innermost = enode_loop;
+  InstrAddr innermost = enode_loop;
   for (std::size_t i = 0; i < sym.children.size(); ++i) {
     auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
     code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
@@ -597,7 +610,8 @@ template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_with_parent_traversal(Pattern<Symbol> const &pattern,
                                                                 SymbolWithChildren<Symbol> const &sym,
                                                                 PatternVar shared_var, std::size_t shared_idx,
-                                                                uint8_t shared_reg, uint16_t backtrack) -> uint16_t {
+                                                                EClassReg shared_reg, InstrAddr backtrack)
+    -> InstrAddr {
   auto parent_reg = alloc_enode_reg();  // IterParents produces e-node
   auto sym_idx = get_symbol_index(sym.sym);
 
@@ -618,7 +632,7 @@ auto PatternCompiler<Symbol>::emit_joined_with_parent_traversal(Pattern<Symbol> 
   }
 
   // Process children
-  uint16_t innermost = loop_pos;
+  InstrAddr innermost = loop_pos;
   for (std::size_t i = 0; i < sym.children.size(); ++i) {
     auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
     code_.push_back(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
@@ -636,10 +650,10 @@ auto PatternCompiler<Symbol>::emit_joined_with_parent_traversal(Pattern<Symbol> 
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_with_parent_chain(Pattern<Symbol> const &pattern, PatternPath const &path,
-                                                            uint8_t shared_reg, uint16_t backtrack) -> uint16_t {
+                                                            EClassReg shared_reg, InstrAddr backtrack) -> InstrAddr {
   // Current e-class register starts at the shared variable
-  uint8_t current_eclass_reg = shared_reg;
-  uint16_t innermost = backtrack;
+  EClassReg current_eclass_reg = shared_reg;
+  InstrAddr innermost = backtrack;
 
   // Traverse path in reverse (from shared var up to root)
   // Each step: iterate parents with expected symbol, verify child index
@@ -667,7 +681,7 @@ auto PatternCompiler<Symbol>::emit_joined_with_parent_chain(Pattern<Symbol> cons
     // IMPORTANT: Sibling children at this level should backtrack to THIS level's loop (loop_pos),
     // not the previous level's loop (innermost). When a sibling structure check fails,
     // we want to try the next parent at THIS level, not skip to the parent level above.
-    uint16_t sibling_innermost = loop_pos;
+    InstrAddr sibling_innermost = loop_pos;
     for (std::size_t i = 0; i < sym.children.size(); ++i) {
       if (i == child_idx) continue;  // Skip the child we're traversing through
 
@@ -696,9 +710,9 @@ auto PatternCompiler<Symbol>::emit_joined_with_parent_chain(Pattern<Symbol> cons
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_child(Pattern<Symbol> const &pattern, PatternNodeId node_id,
-                                                uint8_t eclass_reg, uint16_t backtrack) -> uint16_t {
+                                                EClassReg eclass_reg, InstrAddr backtrack) -> InstrAddr {
   auto const &node = pattern[node_id];
-  uint16_t innermost = backtrack;
+  InstrAddr innermost = backtrack;
 
   std::visit(
       [&](auto const &n) {

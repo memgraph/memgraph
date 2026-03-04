@@ -21,21 +21,21 @@ void PatternCompilerBase::reset() {
   var_to_reg_.clear();
   slot_map_.clear();
   binding_order_.clear();
-  next_eclass_reg_ = 1;  // eclass_regs[0] is reserved for input e-class
-  next_enode_reg_ = 0;
+  next_eclass_reg_ = EClassReg{1};  // eclass_regs[0] is reserved for input e-class
+  next_enode_reg_ = ENodeReg{0};
 }
 
-auto PatternCompilerBase::emit_iter_loop(Instruction iter_instr, Instruction next_instr) -> uint16_t {
+auto PatternCompilerBase::emit_iter_loop(Instruction iter_instr, Instruction next_instr) -> InstrAddr {
   code_.push_back(iter_instr);
   auto jump_pos = static_cast<uint16_t>(code_.size());
-  code_.push_back(Instruction::jmp(0));  // placeholder
-  auto loop_pos = static_cast<uint16_t>(code_.size());
+  code_.push_back(Instruction::jmp(InstrAddr{0}));  // placeholder
+  auto loop_pos = InstrAddr{static_cast<uint16_t>(code_.size())};
   code_.push_back(next_instr);
   code_[jump_pos].target = static_cast<uint16_t>(code_.size());
   return loop_pos;
 }
 
-void PatternCompilerBase::emit_bind_slot(uint8_t slot, uint8_t eclass_reg, uint16_t backtrack) {
+void PatternCompilerBase::emit_bind_slot(SlotIdx slot, EClassReg eclass_reg, InstrAddr backtrack) {
   // Track binding order for deduplication
   // Only add if not already in binding_order (handles repeated bindings of same variable)
   if (std::find(binding_order_.begin(), binding_order_.end(), slot) == binding_order_.end()) {
@@ -44,22 +44,26 @@ void PatternCompilerBase::emit_bind_slot(uint8_t slot, uint8_t eclass_reg, uint1
   code_.push_back(Instruction::bind_slot_dedup(slot, eclass_reg, backtrack));
 }
 
-auto PatternCompilerBase::alloc_eclass_reg() -> uint8_t {
+auto PatternCompilerBase::alloc_eclass_reg() -> EClassReg {
   // Register indices are uint8_t in instructions, so max 256 registers
-  return next_eclass_reg_++;
+  auto reg = next_eclass_reg_;
+  next_eclass_reg_ = EClassReg{static_cast<uint8_t>(value_of(next_eclass_reg_) + 1)};
+  return reg;
 }
 
-auto PatternCompilerBase::alloc_enode_reg() -> uint8_t {
+auto PatternCompilerBase::alloc_enode_reg() -> ENodeReg {
   // Register indices are uint8_t in instructions, so max 256 registers
-  return next_enode_reg_++;
+  auto reg = next_enode_reg_;
+  next_enode_reg_ = ENodeReg{static_cast<uint8_t>(value_of(next_enode_reg_) + 1)};
+  return reg;
 }
 
-auto PatternCompilerBase::get_slot(PatternVar var) const -> uint8_t {
+auto PatternCompilerBase::get_slot(PatternVar var) const -> SlotIdx {
   auto it = slot_map_.find(var);
-  return it != slot_map_.end() ? it->second : 0;
+  return it != slot_map_.end() ? it->second : SlotIdx{0};
 }
 
-void PatternCompilerBase::emit_var_binding(PatternVar var, uint8_t eclass_reg, uint16_t backtrack) {
+void PatternCompilerBase::emit_var_binding(PatternVar var, EClassReg eclass_reg, InstrAddr backtrack) {
   auto slot = get_slot(var);
   if (seen_vars_.contains(var)) {
     code_.push_back(Instruction::check_slot(slot, eclass_reg, backtrack));

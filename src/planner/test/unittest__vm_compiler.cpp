@@ -47,7 +47,7 @@ TEST_F(PatternVM_Compiler, WildcardPattern) {
   // Wildcard at root: yield (no slots to mark), jump back (to halt), halt
   auto code = compiled->code();
   ASSERT_EQ(code.size(), 3);
-  EXPECT_EQ(code[0], Instruction::yield(0));  // No bindings, last_slot defaults to 0
+  EXPECT_EQ(code[0], Instruction::yield(SlotIdx{0}));  // No bindings, last_slot defaults to 0
   EXPECT_EQ(code[1].op, VMOp::Jump);
   EXPECT_EQ(code[2], Instruction::halt());
 }
@@ -62,8 +62,10 @@ TEST_F(PatternVM_Compiler, VariablePattern) {
   // Variable at root: bind_dedup (backtrack to halt), yield (mark slot 0), jump back (to halt), halt
   auto code = compiled->code();
   ASSERT_EQ(code.size(), 4);
-  EXPECT_EQ(code[0], Instruction::bind_slot_dedup(0, 0, 3));  // slot 0, src reg 0, on_duplicate=3 (halt)
-  EXPECT_EQ(code[1], Instruction::yield(0));                  // Last slot is 0 (?x)
+  EXPECT_EQ(code[0],
+            Instruction::bind_slot_dedup(
+                SlotIdx{0}, EClassReg{0}, InstrAddr{3}));  // slot 0, src reg 0, on_duplicate=3 (halt)
+  EXPECT_EQ(code[1], Instruction::yield(SlotIdx{0}));      // Last slot is 0 (?x)
   EXPECT_EQ(code[2].op, VMOp::Jump);
   EXPECT_EQ(code[3], Instruction::halt());
 }

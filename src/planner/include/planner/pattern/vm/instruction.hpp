@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <string_view>
 
+#include "planner/pattern/vm/types.hpp"
+
 namespace memgraph::planner::core::pattern::vm {
 
 // =============================================================================
@@ -213,65 +215,70 @@ struct Instruction {
   uint8_t arg = 0;      // Symbol index, slot index, child index, or arity (opcode-specific)
   uint16_t target = 0;  // Jump target for conditional/iteration ops (instruction index)
 
-  // Factory methods for cleaner construction
-  static constexpr auto load_child(uint8_t dst, uint8_t src, uint8_t child_idx) -> Instruction {
-    return {.op = VMOp::LoadChild, .dst = dst, .src = src, .arg = child_idx};
+  // Factory methods for cleaner construction with strong types
+  static constexpr auto load_child(EClassReg dst, ENodeReg src, uint8_t child_idx) -> Instruction {
+    return {.op = VMOp::LoadChild, .dst = value_of(dst), .src = value_of(src), .arg = child_idx};
   }
 
-  static constexpr auto get_enode_eclass(uint8_t dst, uint8_t src) -> Instruction {
-    return {.op = VMOp::GetENodeEClass, .dst = dst, .src = src};
+  static constexpr auto get_enode_eclass(EClassReg dst, ENodeReg src) -> Instruction {
+    return {.op = VMOp::GetENodeEClass, .dst = value_of(dst), .src = value_of(src)};
   }
 
-  static constexpr auto iter_enodes(uint8_t dst, uint8_t src, uint16_t on_empty) -> Instruction {
-    return {.op = VMOp::IterENodes, .dst = dst, .src = src, .target = on_empty};
+  static constexpr auto iter_enodes(ENodeReg dst, EClassReg src, InstrAddr on_empty) -> Instruction {
+    return {.op = VMOp::IterENodes, .dst = value_of(dst), .src = value_of(src), .target = value_of(on_empty)};
   }
 
-  static constexpr auto next_enode(uint8_t dst, uint16_t on_exhausted) -> Instruction {
-    return {.op = VMOp::NextENode, .dst = dst, .target = on_exhausted};
+  static constexpr auto next_enode(ENodeReg dst, InstrAddr on_exhausted) -> Instruction {
+    return {.op = VMOp::NextENode, .dst = value_of(dst), .target = value_of(on_exhausted)};
   }
 
-  static constexpr auto iter_all_eclasses(uint8_t dst, uint16_t on_empty) -> Instruction {
-    return {.op = VMOp::IterAllEClasses, .dst = dst, .target = on_empty};
+  static constexpr auto iter_all_eclasses(EClassReg dst, InstrAddr on_empty) -> Instruction {
+    return {.op = VMOp::IterAllEClasses, .dst = value_of(dst), .target = value_of(on_empty)};
   }
 
-  static constexpr auto next_eclass(uint8_t dst, uint16_t on_exhausted) -> Instruction {
-    return {.op = VMOp::NextEClass, .dst = dst, .target = on_exhausted};
+  static constexpr auto next_eclass(EClassReg dst, InstrAddr on_exhausted) -> Instruction {
+    return {.op = VMOp::NextEClass, .dst = value_of(dst), .target = value_of(on_exhausted)};
   }
 
-  static constexpr auto iter_parents(uint8_t dst, uint8_t src, uint16_t on_empty) -> Instruction {
-    return {.op = VMOp::IterParents, .dst = dst, .src = src, .target = on_empty};
+  static constexpr auto iter_parents(ENodeReg dst, EClassReg src, InstrAddr on_empty) -> Instruction {
+    return {.op = VMOp::IterParents, .dst = value_of(dst), .src = value_of(src), .target = value_of(on_empty)};
   }
 
-  static constexpr auto next_parent(uint8_t dst, uint16_t on_exhausted) -> Instruction {
-    return {.op = VMOp::NextParent, .dst = dst, .target = on_exhausted};
+  static constexpr auto next_parent(ENodeReg dst, InstrAddr on_exhausted) -> Instruction {
+    return {.op = VMOp::NextParent, .dst = value_of(dst), .target = value_of(on_exhausted)};
   }
 
-  static constexpr auto check_symbol(uint8_t src, uint8_t sym_idx, uint16_t on_mismatch) -> Instruction {
-    return {.op = VMOp::CheckSymbol, .src = src, .arg = sym_idx, .target = on_mismatch};
+  static constexpr auto check_symbol(ENodeReg src, uint8_t sym_idx, InstrAddr on_mismatch) -> Instruction {
+    return {.op = VMOp::CheckSymbol, .src = value_of(src), .arg = sym_idx, .target = value_of(on_mismatch)};
   }
 
-  static constexpr auto check_arity(uint8_t src, uint8_t arity, uint16_t on_mismatch) -> Instruction {
-    return {.op = VMOp::CheckArity, .src = src, .arg = arity, .target = on_mismatch};
+  static constexpr auto check_arity(ENodeReg src, uint8_t arity, InstrAddr on_mismatch) -> Instruction {
+    return {.op = VMOp::CheckArity, .src = value_of(src), .arg = arity, .target = value_of(on_mismatch)};
   }
 
-  static constexpr auto bind_slot_dedup(uint8_t slot_idx, uint8_t src, uint16_t on_duplicate) -> Instruction {
-    return {.op = VMOp::BindSlotDedup, .src = src, .arg = slot_idx, .target = on_duplicate};
+  static constexpr auto bind_slot_dedup(SlotIdx slot_idx, EClassReg src, InstrAddr on_duplicate) -> Instruction {
+    return {
+        .op = VMOp::BindSlotDedup, .src = value_of(src), .arg = value_of(slot_idx), .target = value_of(on_duplicate)};
   }
 
-  static constexpr auto check_slot(uint8_t slot_idx, uint8_t src, uint16_t on_mismatch) -> Instruction {
-    return {.op = VMOp::CheckSlot, .src = src, .arg = slot_idx, .target = on_mismatch};
+  static constexpr auto check_slot(SlotIdx slot_idx, EClassReg src, InstrAddr on_mismatch) -> Instruction {
+    return {.op = VMOp::CheckSlot, .src = value_of(src), .arg = value_of(slot_idx), .target = value_of(on_mismatch)};
   }
 
-  static constexpr auto check_eclass_eq(uint8_t dst, uint8_t src, uint16_t on_mismatch) -> Instruction {
-    return {.op = VMOp::CheckEClassEq, .dst = dst, .src = src, .target = on_mismatch};
+  static constexpr auto check_eclass_eq(EClassReg dst, EClassReg src, InstrAddr on_mismatch) -> Instruction {
+    return {.op = VMOp::CheckEClassEq, .dst = value_of(dst), .src = value_of(src), .target = value_of(on_mismatch)};
   }
 
-  static constexpr auto mark_seen(uint8_t slot_idx) -> Instruction { return {.op = VMOp::MarkSeen, .arg = slot_idx}; }
+  static constexpr auto mark_seen(SlotIdx slot_idx) -> Instruction {
+    return {.op = VMOp::MarkSeen, .arg = value_of(slot_idx)};
+  }
 
-  static constexpr auto jmp(uint16_t target) -> Instruction { return {.op = VMOp::Jump, .target = target}; }
+  static constexpr auto jmp(InstrAddr target) -> Instruction { return {.op = VMOp::Jump, .target = value_of(target)}; }
 
   /// Yield is a special MarkSeen: marks the slot as seen, then emits the match
-  static constexpr auto yield(uint8_t last_slot) -> Instruction { return {.op = VMOp::Yield, .arg = last_slot}; }
+  static constexpr auto yield(SlotIdx last_slot) -> Instruction {
+    return {.op = VMOp::Yield, .arg = value_of(last_slot)};
+  }
 
   static constexpr auto halt() -> Instruction { return {.op = VMOp::Halt}; }
 
