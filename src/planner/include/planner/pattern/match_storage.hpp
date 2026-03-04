@@ -18,7 +18,7 @@
 
 import memgraph.planner.core.eids;
 
-namespace memgraph::planner::core {
+namespace memgraph::planner::core::pattern {
 
 /// Slot index for variable binding lookup. Precomputed for O(1) lookup.
 using SlotIndex = uint8_t;
@@ -44,7 +44,7 @@ class PatternMatch {
 class MatchArena {
  public:
   auto intern(std::span<EClassId const> bindings) -> PatternMatch {
-    auto offset = PatternMatch{static_cast<uint32_t>(pool_.size())};
+    auto const offset = PatternMatch{static_cast<uint32_t>(pool_.size())};
     pool_.insert(pool_.end(), bindings.begin(), bindings.end());
     return offset;
   }
@@ -65,4 +65,4 @@ class MatchArena {
   std::vector<EClassId> pool_;
 };
 
-}  // namespace memgraph::planner::core
+}  // namespace memgraph::planner::core::pattern

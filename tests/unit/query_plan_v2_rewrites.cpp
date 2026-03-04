@@ -30,8 +30,7 @@ TEST_F(InlineRewriteTest, SimpleInline) {
   auto once = eg_.MakeOnce();
   auto sym = eg_.MakeSymbol(0, "x");
   auto literal = eg_.MakeLiteral(storage::ExternalPropertyValue{42});
-  auto bind = eg_.MakeBind(once, sym, literal);
-  (void)bind;
+  [[maybe_unused]] auto bind = eg_.MakeBind(once, sym, literal);
 
   // Create: Identifier(sym_0)
   auto ident = eg_.MakeIdentifier(sym);
@@ -61,8 +60,7 @@ TEST_F(InlineRewriteTest, MultipleIdentifiersSameBinding) {
   auto once = eg_.MakeOnce();
   auto sym = eg_.MakeSymbol(0, "x");
   auto literal = eg_.MakeLiteral(storage::ExternalPropertyValue{42});
-  auto bind = eg_.MakeBind(once, sym, literal);
-  (void)bind;
+  [[maybe_unused]] auto bind = eg_.MakeBind(once, sym, literal);
 
   // Create two Identifiers referencing same sym
   auto ident1 = eg_.MakeIdentifier(sym);
@@ -96,8 +94,7 @@ TEST_F(InlineRewriteTest, MultipleIdentifiersSameBinding) {
 TEST_F(InlineRewriteTest, NoBindingNoRewrite) {
   // Create just an Identifier without corresponding Bind
   auto sym = eg_.MakeSymbol(0, "x");
-  auto ident = eg_.MakeIdentifier(sym);
-  (void)ident;
+  [[maybe_unused]] auto ident = eg_.MakeIdentifier(sym);
 
   // Apply rewrite - should do nothing
   auto merges = ApplyInlineRewrite(eg_);
@@ -110,15 +107,13 @@ TEST_F(InlineRewriteTest, DifferentSymbolsIndependent) {
   auto once1 = eg_.MakeOnce();
   auto sym0 = eg_.MakeSymbol(0, "x");
   auto literal1 = eg_.MakeLiteral(storage::ExternalPropertyValue{1});
-  auto bind1 = eg_.MakeBind(once1, sym0, literal1);
-  (void)bind1;
+  [[maybe_unused]] auto bind1 = eg_.MakeBind(once1, sym0, literal1);
 
   // Create: Bind(Once, sym_1, Literal(2))
   auto once2 = eg_.MakeOnce();
   auto sym1 = eg_.MakeSymbol(1, "y");
   auto literal2 = eg_.MakeLiteral(storage::ExternalPropertyValue{2});
-  auto bind2 = eg_.MakeBind(once2, sym1, literal2);
-  (void)bind2;
+  [[maybe_unused]] auto bind2 = eg_.MakeBind(once2, sym1, literal2);
 
   // Create: Identifier(sym_0) and Identifier(sym_1)
   auto ident0 = eg_.MakeIdentifier(sym0);
@@ -161,8 +156,7 @@ TEST_F(InlineRewriteTest, ChainedBindings) {
 
   // Create: Bind(bind_x, sym_y, Identifier(sym_x))
   auto sym_y = eg_.MakeSymbol(1, "y");
-  auto bind_y = eg_.MakeBind(bind_x, sym_y, ident_x);
-  (void)bind_y;
+  [[maybe_unused]] auto bind_y = eg_.MakeBind(bind_x, sym_y, ident_x);
 
   // Create: Identifier(sym_y)
   auto ident_y = eg_.MakeIdentifier(sym_y);
@@ -200,11 +194,9 @@ TEST_F(InlineRewriteTest, IterationLimit) {
 
   auto ident_y = eg_.MakeIdentifier(sym_y);
   auto sym_z = eg_.MakeSymbol(2, "z");
-  auto bind_z = eg_.MakeBind(bind_y, sym_z, ident_y);
-  (void)bind_z;
+  [[maybe_unused]] auto bind_z = eg_.MakeBind(bind_y, sym_z, ident_y);
 
-  auto ident_z = eg_.MakeIdentifier(sym_z);
-  (void)ident_z;
+  [[maybe_unused]] auto ident_z = eg_.MakeIdentifier(sym_z);
 
   // With max_iterations=1, should stop early
   auto result = ApplyAllRewrites(eg_, RewriteConfig{.max_iterations = 1});
@@ -219,10 +211,8 @@ TEST_F(InlineRewriteTest, DefaultConfig) {
   auto once = eg_.MakeOnce();
   auto sym = eg_.MakeSymbol(0, "x");
   auto literal = eg_.MakeLiteral(storage::ExternalPropertyValue{42});
-  auto bind = eg_.MakeBind(once, sym, literal);
-  (void)bind;
-  auto ident = eg_.MakeIdentifier(sym);
-  (void)ident;
+  [[maybe_unused]] auto bind = eg_.MakeBind(once, sym, literal);
+  [[maybe_unused]] auto ident = eg_.MakeIdentifier(sym);
 
   // Default config should saturate
   auto result = ApplyAllRewrites(eg_, RewriteConfig::Default());
@@ -236,10 +226,8 @@ TEST_F(InlineRewriteTest, UnlimitedConfig) {
   auto once = eg_.MakeOnce();
   auto sym = eg_.MakeSymbol(0, "x");
   auto literal = eg_.MakeLiteral(storage::ExternalPropertyValue{42});
-  auto bind = eg_.MakeBind(once, sym, literal);
-  (void)bind;
-  auto ident = eg_.MakeIdentifier(sym);
-  (void)ident;
+  [[maybe_unused]] auto bind = eg_.MakeBind(once, sym, literal);
+  [[maybe_unused]] auto ident = eg_.MakeIdentifier(sym);
 
   // Unlimited config should saturate
   auto result = ApplyAllRewrites(eg_, RewriteConfig::Unlimited());
@@ -253,10 +241,8 @@ TEST_F(InlineRewriteTest, FixedPoint) {
   auto once = eg_.MakeOnce();
   auto sym = eg_.MakeSymbol(0, "x");
   auto literal = eg_.MakeLiteral(storage::ExternalPropertyValue{42});
-  auto bind = eg_.MakeBind(once, sym, literal);
-  (void)bind;
-  auto ident = eg_.MakeIdentifier(sym);
-  (void)ident;
+  [[maybe_unused]] auto bind = eg_.MakeBind(once, sym, literal);
+  [[maybe_unused]] auto ident = eg_.MakeIdentifier(sym);
 
   // First call should do work
   auto result1 = ApplyAllRewrites(eg_);

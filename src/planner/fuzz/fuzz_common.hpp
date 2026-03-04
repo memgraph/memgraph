@@ -41,6 +41,10 @@ import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::fuzz {
 
+using pattern::Pattern;
+using pattern::PatternNodeId;
+using pattern::PatternVar;
+
 // ============================================================================
 // Fuzz Symbols
 // ============================================================================

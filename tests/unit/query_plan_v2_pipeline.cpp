@@ -33,7 +33,7 @@ std::string DescribeExpression(Expression *expr) {
   if (!expr) return "null";
 
   if (auto *lit = utils::Downcast<PrimitiveLiteral>(expr)) {
-    const auto &val = lit->value_;
+    auto const &val = lit->value_;
     if (val.IsInt()) return std::to_string(val.ValueInt());
     if (val.IsDouble()) return std::to_string(val.ValueDouble());
     if (val.IsString()) return "\"" + std::string(val.ValueString()) + "\"";
@@ -165,7 +165,7 @@ class PlannerV2PipelineTest : public ::testing::TestWithParam<PipelineTestCase> 
 };
 
 TEST_P(PlannerV2PipelineTest, Pipeline) {
-  const auto &tc = GetParam();
+  auto const &tc = GetParam();
 
   auto plan = PlanQuery(tc.query);
   ASSERT_NE(plan, nullptr);
@@ -174,7 +174,7 @@ TEST_P(PlannerV2PipelineTest, Pipeline) {
 
   // Print plan for debugging
   std::cout << "Plan for '" << tc.query << "':" << std::endl;
-  for (const auto &detail : details) {
+  for (auto const &detail : details) {
     std::cout << "  " << detail << std::endl;
   }
 

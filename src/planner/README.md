@@ -22,9 +22,15 @@ src/planner/
 ## Components
 
 ### E-Graph (C++20 Modules)
+Core e-graph types as C++20 modules:
 - `egraph.cppm` - E-graph with union-find and congruence closure
 - `eclass.cppm` - E-class (equivalence class of e-nodes)
 - `enode.cppm` - E-node (expression node)
+- `eids.cppm` - Strong type IDs (EClassId, ENodeId)
+- `concepts.cppm` - ENodeSymbol concept
+- `union_find.cppm` - Union-find data structure
+- `constants.cppm` - Shared constants
+- `strong_type.cppm` - Strong type utilities
 - Use: `import memgraph.planner.core.egraph;`
 
 ### Pattern Matching (`pattern/`)
@@ -32,27 +38,31 @@ src/planner/
   - `PatternVar` - Pattern variables (?x, ?y)
   - `Var`, `Wildcard` - Pattern elements
   - `Pattern::build()` - Fluent pattern construction
-- `matcher.hpp` - E-matching engine
+- `match_index.hpp` - E-matching engine
   - `MatcherIndex` - Finds all pattern matches in an e-graph
   - `EMatchContext` - Reusable matching buffers
 - `match.hpp` - Match results
   - `Match` - Variable bindings from successful matches
   - `MatchArena` - Pool for match storage
+- `match_storage.hpp` - Storage utilities for matches
 
 #### VM Executor (`pattern/vm/`)
 Bytecode-based pattern matching for performance:
 - `compiler.hpp` - Compiles patterns to bytecode
+- `compiled_pattern.hpp` - Compiled pattern representation
 - `executor.hpp` - Executes bytecode against e-graph
 - `instruction.hpp` - VM instruction set
-- `state.hpp` - VM execution state with deduplication
-- `parent_index.hpp` - Parent chain traversal optimization
+- `state.hpp` - VM execution state with deduplication and parent iteration
+- `tracer.hpp` - Execution tracing for debugging
 
 ### Rewrite System (`rewrite/`)
 - `rule.hpp` - Rewrite rules
   - `RewriteRule` - Pattern(s) + apply function
-  - `RuleSet` - Immutable collection of rules
-  - `RuleContext` - Safe e-graph modifications in apply functions
   - `RewriteContext` - Combined reusable buffers
+- `rule_set.hpp` - Rule collections
+  - `RuleSet` - Immutable collection of rules
+- `rule_context.hpp` - Rule application context
+  - `RuleContext` - Safe e-graph modifications in apply functions
 - `rewriter.hpp` - Equality saturation engine
   - `Rewriter` - Orchestrates rule application until saturation
   - `RewriteConfig` - Limits (iterations, e-nodes, timeout)
@@ -99,8 +109,10 @@ cmake --build build --preset conan-relwithdebinfo --target memgraph__benchmark__
 ## Usage Example
 
 ```cpp
-#include "planner/egraph/egraph.hpp"
+import memgraph.planner.core.egraph;
 #include "planner/pattern/pattern.hpp"
+#include "planner/rewrite/rule.hpp"
+#include "planner/rewrite/rule_set.hpp"
 #include "planner/rewrite/rewriter.hpp"
 
 using namespace memgraph::planner::core;
@@ -138,4 +150,3 @@ auto result = rewriter.saturate(RewriteConfig::Default());
 
 - `TODO.txt` - Task tracking and known issues
 - `src/query/plan_v2/README.md` - Query integration status
-- `IMPLEMENTATION_PLAN.md` (repo root) - Overall implementation plan

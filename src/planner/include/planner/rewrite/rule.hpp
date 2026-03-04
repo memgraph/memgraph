@@ -25,7 +25,20 @@
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/rewrite/rule_context.hpp"
 
-namespace memgraph::planner::core {
+namespace memgraph::planner::core::rewrite {
+
+// Namespace alias for VM types
+namespace vm = pattern::vm;
+
+// Import specific types from pattern namespace
+using pattern::EMatchContext;
+using pattern::Match;
+using pattern::MatchBindings;
+using pattern::MatcherContext;
+using pattern::MatcherIndex;
+using pattern::Pattern;
+using pattern::PatternMatch;
+using pattern::SymbolWithChildren;
 
 namespace detail {
 
@@ -134,4 +147,4 @@ class RewriteRule {
   vm::CompiledPattern<Symbol> compiled_;
 };
 
-}  // namespace memgraph::planner::core
+}  // namespace memgraph::planner::core::rewrite

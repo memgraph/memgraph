@@ -20,7 +20,7 @@
 #include "planner/pattern/vm/instruction.hpp"
 #include "planner/pattern/vm/state.hpp"
 
-namespace memgraph::planner::core::vm {
+namespace memgraph::planner::core::pattern::vm {
 
 /// Non-templated base class for CompiledPattern.
 ///
@@ -122,4 +122,4 @@ CompiledPattern<Symbol>::CompiledPattern(std::vector<Instruction> code, std::siz
       symbols_(std::move(symbols)),
       entry_symbol_(std::move(entry_symbol)) {}
 
-}  // namespace memgraph::planner::core::vm
+}  // namespace memgraph::planner::core::pattern::vm

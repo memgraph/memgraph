@@ -14,11 +14,12 @@
 #include "planner/pattern/pattern.hpp"
 #include "test_symbols.hpp"
 
-using memgraph::planner::core::dsl::Sym;
-using memgraph::planner::core::dsl::Var;
-using memgraph::planner::core::dsl::Wildcard;
-
 namespace memgraph::planner::core::test {
+
+using pattern::PatternVar;
+using pattern::dsl::Sym;
+using pattern::dsl::Var;
+using pattern::dsl::Wildcard;
 
 // ============================================================================
 // Common Pattern Variables
@@ -70,7 +71,7 @@ inline constexpr PatternVar kTestRoot{100};
 // Type Aliases
 // ============================================================================
 
-using TestPattern = Pattern<Op>;
+using TestPattern = pattern::Pattern<Op>;
 
 // ============================================================================
 // Pattern Helpers

@@ -23,7 +23,7 @@
 #include "planner/pattern/vm/compiled_pattern.hpp"
 #include "planner/pattern/vm/instruction.hpp"
 
-namespace memgraph::planner::core::vm {
+namespace memgraph::planner::core::pattern::vm {
 
 /// Non-templated base class for PatternCompiler.
 ///
@@ -809,4 +809,4 @@ auto PatternCompiler<Symbol>::get_symbol_index(Symbol const &sym) -> uint8_t {
   return static_cast<uint8_t>(symbols_.size() - 1);
 }
 
-}  // namespace memgraph::planner::core::vm
+}  // namespace memgraph::planner::core::pattern::vm

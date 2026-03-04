@@ -17,7 +17,7 @@
 
 namespace memgraph::planner::core {
 
-using namespace vm;
+using namespace pattern::vm;
 
 // ============================================================================
 // VMState Deduplication Tests

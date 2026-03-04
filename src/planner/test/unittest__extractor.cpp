@@ -19,6 +19,7 @@
 import memgraph.planner.core.egraph;
 
 using namespace memgraph::planner::core;
+using namespace memgraph::planner::core::extract;
 
 enum struct symbol : std::uint8_t { A, B, ADD, LITERAL };
 

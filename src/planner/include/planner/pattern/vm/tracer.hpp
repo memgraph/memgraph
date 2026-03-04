@@ -23,7 +23,7 @@ import memgraph.planner.core.eids;
 
 #include "planner/pattern/vm/instruction.hpp"
 
-namespace memgraph::planner::core::vm {
+namespace memgraph::planner::core::pattern::vm {
 
 /// Statistics collected during VM execution (for benchmarking/profiling)
 struct VMStats {
@@ -323,4 +323,4 @@ auto disassemble(std::span<Instruction const> code, std::span<Symbol const> symb
   return result;
 }
 
-}  // namespace memgraph::planner::core::vm
+}  // namespace memgraph::planner::core::pattern::vm

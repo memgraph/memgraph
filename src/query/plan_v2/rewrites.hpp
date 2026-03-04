@@ -16,9 +16,9 @@
 
 namespace memgraph::query::plan::v2 {
 
-// Import generic rewrite types from planner/core
-using planner::core::RewriteConfig;
-using planner::core::RewriteResult;
+// Import generic rewrite types from planner/core/rewrite
+using planner::core::rewrite::RewriteConfig;
+using planner::core::rewrite::RewriteResult;
 
 /**
  * @brief Apply identifier inlining rewrite to the e-graph

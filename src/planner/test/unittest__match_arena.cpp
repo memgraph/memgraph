@@ -16,6 +16,7 @@
 import memgraph.planner.core.eids;
 
 using namespace memgraph::planner::core;
+using namespace memgraph::planner::core::pattern;
 
 // ============================================================================
 // Match_MatchArena Tests

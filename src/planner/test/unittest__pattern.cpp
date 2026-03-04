@@ -17,7 +17,8 @@
 
 namespace memgraph::planner::core {
 
-using namespace test;  // Bring in Op, TestPattern, kVarX, etc.
+using namespace test;     // Bring in Op, TestPattern, kVarX, etc.
+using namespace pattern;  // Bring in PatternVar, etc.
 
 // Helper to verify pattern has exactly the expected variables with unique slots
 void expect_vars(TestPattern const &pattern, std::initializer_list<PatternVar> vars) {

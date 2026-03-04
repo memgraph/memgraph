@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <variant>
 #include <vector>
 
@@ -26,7 +27,7 @@
 import memgraph.planner.core.concepts;
 import rollbear.strong_type;
 
-namespace memgraph::planner::core {
+namespace memgraph::planner::core::pattern {
 
 /**
  * @brief Strong type for pattern node indices within a Pattern
@@ -59,18 +60,18 @@ struct PatternVar {
 // Boost hash support via ADL
 inline std::size_t hash_value(PatternVar const &var) { return std::hash<uint8_t>{}(var.id); }
 
-}  // namespace memgraph::planner::core
+}  // namespace memgraph::planner::core::pattern
 
 namespace std {
 template <>
-struct hash<memgraph::planner::core::PatternVar> {
-  std::size_t operator()(memgraph::planner::core::PatternVar const &var) const noexcept {
+struct hash<memgraph::planner::core::pattern::PatternVar> {
+  std::size_t operator()(memgraph::planner::core::pattern::PatternVar const &var) const noexcept {
     return std::hash<uint8_t>{}(var.id);
   }
 };
 }  // namespace std
 
-namespace memgraph::planner::core {
+namespace memgraph::planner::core::pattern {
 
 /**
  * @brief Wildcard pattern node that matches any e-class without binding
@@ -105,7 +106,7 @@ struct Var {
 template <typename Symbol>
 struct SymNode;
 
-using Wildcard = memgraph::planner::core::Wildcard;
+using Wildcard = memgraph::planner::core::pattern::Wildcard;
 
 /**
  * @brief Child specification for fluent pattern DSL
@@ -565,11 +566,11 @@ auto Pattern<Symbol>::compute_var_slots() const -> boost::unordered_flat_map<Pat
   }
 
   // Collect from symbol node bindings
-  for (auto const &[_, var] : bindings_) {
+  for (auto const &var : bindings_ | std::views::values) {
     assign_slot(var);
   }
 
   return slots;
 }
 
-}  // namespace memgraph::planner::core
+}  // namespace memgraph::planner::core::pattern

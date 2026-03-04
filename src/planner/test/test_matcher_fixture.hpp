@@ -18,6 +18,9 @@
 
 namespace memgraph::planner::core::test {
 
+using pattern::EMatchContext;
+using pattern::PatternVar;
+
 // ============================================================================
 // PatternVM MatcherIndex Test Fixture
 // ============================================================================
@@ -67,10 +70,10 @@ class PatternVM_MatcherIndex : public EGraphTestBase {
     }
 
     matches.clear();
-    vm::PatternCompiler<Op> compiler;
+    TestPatternCompiler compiler;
     auto compiled = compiler.compile(*pattern_);
     ASSERT_TRUE(compiled.has_value()) << "Pattern compilation failed";
-    vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
+    TestVMExecutor vm_executor(egraph);
     vm_executor.execute(*compiled, index, ctx.arena(), matches);
 
     ASSERT_EQ(matches.size(), expected_matches.size())
@@ -108,10 +111,10 @@ class PatternVM_MatcherIndex : public EGraphTestBase {
     if (pattern_->num_vars() == 0) {
       return;
     }
-    vm::PatternCompiler<Op> compiler;
+    TestPatternCompiler compiler;
     auto compiled = compiler.compile(*pattern_);
     if (compiled.has_value()) {
-      vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
+      TestVMExecutor vm_executor(egraph);
       vm_executor.execute(*compiled, index, ctx.arena(), matches);
     }
     EXPECT_TRUE(matches.empty()) << "Expected no matches, got " << matches.size();

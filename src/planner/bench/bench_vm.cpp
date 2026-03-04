@@ -16,7 +16,7 @@
 
 using namespace memgraph::planner::bench;
 using namespace memgraph::planner::bench::sizes;
-using namespace memgraph::planner::core::vm;
+using namespace memgraph::planner::core::pattern::vm;
 
 // ============================================================================
 // Simple Pattern: Add(?x, ?y) - VM Version
@@ -24,7 +24,7 @@ using namespace memgraph::planner::core::vm;
 
 class VMSimplePatternFixture : public VMFixtureBase {
  protected:
-  std::optional<CompiledPattern<Op>> pattern_;
+  std::optional<TestCompiledPattern> pattern_;
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -37,7 +37,7 @@ class VMSimplePatternFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMSimplePatternFixture, Match)(benchmark::State &state) {
-  VMExecutor<Op, NoAnalysis> executor(egraph_);
+  VMExecutor executor(egraph_);
   if (context_mode_ == kReusedCtx) {
     for (auto _ : state) {
       match_context_.clear();
@@ -67,7 +67,7 @@ BENCHMARK_REGISTER_F(VMSimplePatternFixture, Match)
 
 class VMDeepPatternFixture : public VMFixtureBase {
  protected:
-  std::optional<CompiledPattern<Op>> pattern_;
+  std::optional<TestCompiledPattern> pattern_;
   int64_t pattern_depth_ = 0;
   int64_t context_mode_ = 0;
 
@@ -80,7 +80,7 @@ class VMDeepPatternFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMDeepPatternFixture, Match)(benchmark::State &state) {
-  VMExecutor<Op, NoAnalysis> executor(egraph_);
+  VMExecutor executor(egraph_);
   if (context_mode_ == kReusedCtx) {
     for (auto _ : state) {
       match_context_.clear();
@@ -111,7 +111,7 @@ BENCHMARK_REGISTER_F(VMDeepPatternFixture, Match)
 
 class VMSameVariableFixture : public VMFixtureBase {
  protected:
-  std::optional<CompiledPattern<Op>> pattern_;
+  std::optional<TestCompiledPattern> pattern_;
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -124,7 +124,7 @@ class VMSameVariableFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMSameVariableFixture, Match)(benchmark::State &state) {
-  VMExecutor<Op, NoAnalysis> executor(egraph_);
+  VMExecutor executor(egraph_);
   if (context_mode_ == kReusedCtx) {
     for (auto _ : state) {
       match_context_.clear();
@@ -154,7 +154,7 @@ BENCHMARK_REGISTER_F(VMSameVariableFixture, Match)
 
 class VMMergedEGraphFixture : public VMFixtureBase {
  protected:
-  std::optional<CompiledPattern<Op>> pattern_;
+  std::optional<TestCompiledPattern> pattern_;
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -167,7 +167,7 @@ class VMMergedEGraphFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMMergedEGraphFixture, Match)(benchmark::State &state) {
-  VMExecutor<Op, NoAnalysis> executor(egraph_);
+  VMExecutor executor(egraph_);
   if (context_mode_ == kReusedCtx) {
     for (auto _ : state) {
       match_context_.clear();
@@ -197,7 +197,7 @@ BENCHMARK_REGISTER_F(VMMergedEGraphFixture, Match)
 
 class VMSelectivePatternFixture : public VMFixtureBase {
  protected:
-  std::optional<CompiledPattern<Op>> pattern_;
+  std::optional<TestCompiledPattern> pattern_;
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -210,7 +210,7 @@ class VMSelectivePatternFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMSelectivePatternFixture, Match)(benchmark::State &state) {
-  VMExecutor<Op, NoAnalysis> executor(egraph_);
+  VMExecutor executor(egraph_);
   if (context_mode_ == kReusedCtx) {
     for (auto _ : state) {
       match_context_.clear();
@@ -265,7 +265,7 @@ class BindIdentVMFusedFixture : public VMFixtureBase {
  protected:
   int64_t num_binds_ = 0;
   int64_t idents_per_sym_ = 0;
-  std::optional<CompiledPattern<Op>> compiled_;
+  std::optional<TestCompiledPattern> compiled_;
 
   void SetUp(const benchmark::State &state) override {
     num_binds_ = state.range(0);
@@ -279,7 +279,7 @@ class BindIdentVMFusedFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(BindIdentVMFusedFixture, ParentTraversal)(benchmark::State &state) {
-  VMExecutor<Op, NoAnalysis> executor(egraph_);
+  VMExecutor executor(egraph_);
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
@@ -309,7 +309,7 @@ BENCHMARK_REGISTER_F(BindIdentVMFusedFixture, ParentTraversal)
 
 class VMHighParentFixture : public VMFixtureBase {
  protected:
-  std::optional<CompiledPattern<Op>> pattern_;
+  std::optional<TestCompiledPattern> pattern_;
   int64_t parents_f_ = 0;
   int64_t parents_neg_ = 0;
 
@@ -322,7 +322,7 @@ class VMHighParentFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMHighParentFixture, Match)(benchmark::State &state) {
-  VMExecutor<Op, NoAnalysis> executor(egraph_);
+  VMExecutor executor(egraph_);
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
@@ -350,7 +350,7 @@ BENCHMARK_REGISTER_F(VMHighParentFixture, Match)
 
 class VMSelfRefFixture : public VMFixtureBase {
  protected:
-  std::optional<CompiledPattern<Op>> pattern_;
+  std::optional<TestCompiledPattern> pattern_;
 
   void SetUp(const benchmark::State &) override {
     SetupGraph([](TestEGraph &g) { BuildSelfReferential(g, 42); });
@@ -359,7 +359,7 @@ class VMSelfRefFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMSelfRefFixture, Match)(benchmark::State &state) {
-  VMExecutor<Op, NoAnalysis> executor(egraph_);
+  VMExecutor executor(egraph_);
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
@@ -381,7 +381,7 @@ BENCHMARK_REGISTER_F(VMSelfRefFixture, Match)->Unit(benchmark::kNanosecond);
 
 class VMParentDiversityFixture : public VMFixtureBase {
  protected:
-  std::optional<CompiledPattern<Op>> pattern_;
+  std::optional<TestCompiledPattern> pattern_;
   int64_t num_leaves_ = 0;
   int64_t parents_per_leaf_ = 0;
 
@@ -394,7 +394,7 @@ class VMParentDiversityFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMParentDiversityFixture, Match)(benchmark::State &state) {
-  VMExecutor<Op, NoAnalysis> executor(egraph_);
+  VMExecutor executor(egraph_);
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
@@ -423,7 +423,7 @@ BENCHMARK_REGISTER_F(VMParentDiversityFixture, Match)
 
 class VMNestedJoinFixture : public VMFixtureBase {
  protected:
-  std::optional<CompiledPattern<Op>> pattern_;
+  std::optional<TestCompiledPattern> pattern_;
   int64_t num_leaves_ = 0;
 
   void SetUp(const benchmark::State &state) override {
@@ -437,7 +437,7 @@ class VMNestedJoinFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMNestedJoinFixture, Match)(benchmark::State &state) {
-  VMExecutor<Op, NoAnalysis> executor(egraph_);
+  VMExecutor executor(egraph_);
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();

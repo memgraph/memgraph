@@ -38,7 +38,7 @@ auto ENodeBase::canonicalize(UnionFind &uf) const -> ENodeBase {
   auto canonical_children = utils::small_vector<EClassId>{};
   canonical_children.reserve(children_.size());
 
-  for (const auto child : children_) {
+  for (auto const child : children_) {
     // NOTE: UnionFind is mutable, so we are using the path halving optimization here
     canonical_children.emplace_back(EClassId{uf.Find(child.value_of())});
   }

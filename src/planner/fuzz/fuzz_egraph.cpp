@@ -112,7 +112,7 @@ bool ValidateParentChildRelationships(EGraph<Symbol, Analysis> &egraph) {
 
   for (auto const &[class_id, eclass] : egraph.canonical_classes()) {
     for (auto enode_id : eclass.nodes()) {
-      const auto &enode = egraph.get_enode(enode_id);
+      auto const &enode = egraph.get_enode(enode_id);
       for (auto child_id : enode.children()) {
         node_to_children[enode_id].insert(egraph.find(child_id));
       }

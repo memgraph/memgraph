@@ -21,7 +21,7 @@
 
 import memgraph.planner.core.egraph;
 
-namespace memgraph::planner::core {
+namespace memgraph::planner::core::pattern {
 
 /**
  * @brief Symbol index for fast candidate lookup in e-matching
@@ -169,4 +169,4 @@ void MatcherIndex<Symbol, Analysis>::candidates_for_symbol(Symbol sym, std::vect
   }
 }
 
-}  // namespace memgraph::planner::core
+}  // namespace memgraph::planner::core::pattern

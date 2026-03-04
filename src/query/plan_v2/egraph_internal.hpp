@@ -16,7 +16,8 @@
 
 #include <cstdint>
 
-#include "planner/egraph/egraph.hpp"
+import memgraph.planner.core.egraph;
+
 #include "query/plan_v2/egraph.hpp"
 #include "query/plan_v2/private_analysis.hpp"
 #include "query/plan_v2/private_symbol.hpp"

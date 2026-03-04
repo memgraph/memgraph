@@ -39,7 +39,7 @@ module;
 #include <boost/container/flat_set.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
-#include <range/v3/all.hpp>
+#include <ranges>
 #include <strong_type/strong_type.hpp>
 
 export module memgraph.planner.core.egraph;
@@ -309,7 +309,7 @@ struct EGraph : private detail::EGraphBase {
    */
   auto canonical_classes() const {
     return std::views::transform(classes_,
-                                 [](const auto &pair) { return std::make_pair(pair.first, std::cref(*pair.second)); });
+                                 [](auto const &pair) { return std::make_pair(pair.first, std::cref(*pair.second)); });
   }
 
   /**
@@ -530,7 +530,7 @@ void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
         // in the rebuild_worklist_ for the next iteration of todos
         continue;
       }
-      const auto &eclass = *it->second;
+      auto const &eclass = *it->second;
       auto canonical_after_repair = repair_hashcons_eclass(eclass, eclass_id, ctx);
 
       // Re-lookup the class since it might have been merged during repair
@@ -567,7 +567,7 @@ auto EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &ec
   auto &canonical_ids = ctx.canonical_eclass_ids;
   canonical_ids.clear();
 
-  for (const auto &enode_id : eclass.nodes()) {
+  for (auto const &enode_id : eclass.nodes()) {
     if (auto merge_target = repair_hashcons_enode(enode_id, eclass_id)) {
       // repair_hashcons_enode returns canonical e-class IDs
       canonical_ids.push_back(merge_target->value_of());
@@ -627,7 +627,7 @@ void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, P
   auto &canonical_to_parents = ctx.rebuild_enode_to_parents_container();
 
   // Step 1: Group by canonical
-  for (const auto &parent_enode_id : eclass.parents()) {
+  for (auto const &parent_enode_id : eclass.parents()) {
     canonical_to_parents[get_enode(parent_enode_id).canonicalize(union_find_)].push_back(parent_enode_id);
   }
 

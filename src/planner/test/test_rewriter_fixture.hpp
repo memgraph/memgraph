@@ -21,14 +21,17 @@
 
 namespace memgraph::planner::core::test {
 
+using rewrite::RewriteConfig;
+using rewrite::RewriteResult;
+
 // ============================================================================
 // Rewriter Test Types
 // ============================================================================
 
-using TestRewriteRule = RewriteRule<Op, NoAnalysis>;
-using TestRuleSet = RuleSet<Op, NoAnalysis>;
-using TestRewriter = Rewriter<Op, NoAnalysis>;
-using TestRuleContext = RuleContext<Op, NoAnalysis>;
+using TestRewriteRule = rewrite::RewriteRule<Op, NoAnalysis>;
+using TestRuleSet = rewrite::RuleSet<Op, NoAnalysis>;
+using TestRewriter = rewrite::Rewriter<Op, NoAnalysis>;
+using TestRuleContext = rewrite::RuleContext<Op, NoAnalysis>;
 
 // ============================================================================
 // Rewrite Test Fixture

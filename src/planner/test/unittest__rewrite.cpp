@@ -17,6 +17,8 @@
 namespace memgraph::planner::core {
 
 using namespace test;
+using namespace pattern;
+using namespace rewrite;
 
 // --- Saturation ---
 

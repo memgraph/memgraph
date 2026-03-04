@@ -30,17 +30,32 @@ enum class Op : uint8_t { Add, Mul, Neg, Var, Const, F, F2, F3, Bind, Ident, Tes
 
 struct NoAnalysis {};
 
-using namespace memgraph::planner::core;
+// Import specific types from planner namespaces
+namespace core = memgraph::planner::core;
+namespace pattern = core::pattern;
+namespace vm = pattern::vm;
+namespace rewrite = core::rewrite;
+
+using core::EClassId;
+using core::EGraph;
+using core::ProcessingContext;
+using pattern::EMatchContext;
+using pattern::PatternVar;
+using rewrite::Match;
+using rewrite::RewriteConfig;
 
 using TestEGraph = EGraph<Op, NoAnalysis>;
-using TestPattern = Pattern<Op>;
-using TestMatcherIndex = MatcherIndex<Op, NoAnalysis>;
-using TestMatches = std::vector<PatternMatch>;
-using TestRewriteRule = RewriteRule<Op, NoAnalysis>;
-using TestRuleSet = RuleSet<Op, NoAnalysis>;
-using TestRewriter = Rewriter<Op, NoAnalysis>;
-using TestRuleContext = RuleContext<Op, NoAnalysis>;
-using TestRewriteContext = RewriteContext<Op, NoAnalysis>;
+using TestPattern = pattern::Pattern<Op>;
+using TestMatcherIndex = pattern::MatcherIndex<Op, NoAnalysis>;
+using TestMatches = std::vector<pattern::PatternMatch>;
+using TestRewriteRule = rewrite::RewriteRule<Op, NoAnalysis>;
+using TestRuleSet = rewrite::RuleSet<Op, NoAnalysis>;
+using TestRewriter = rewrite::Rewriter<Op, NoAnalysis>;
+using TestRuleContext = rewrite::RuleContext<Op, NoAnalysis>;
+using TestRewriteContext = rewrite::RewriteContext<Op, NoAnalysis>;
+using TestVMExecutor = vm::VMExecutor<Op, NoAnalysis>;
+using TestPatternCompiler = vm::PatternCompiler<Op>;
+using TestCompiledPattern = vm::CompiledPattern<Op>;
 
 // ============================================================================
 // Pattern Variables
@@ -75,9 +90,6 @@ constexpr int64_t kMassive = 50000;
 constexpr int64_t kFreshCtx = 0;
 constexpr int64_t kReusedCtx = 1;
 }  // namespace sizes
-
-// Make size constants available without prefix in bench namespace
-using namespace sizes;
 
 // ============================================================================
 // E-Graph Builders
@@ -357,9 +369,9 @@ inline void BuildBindIdentGraph(TestEGraph &g, int64_t num_binds, int64_t idents
 // Pattern Builders
 // ============================================================================
 
-using memgraph::planner::core::dsl::Sym;
-using memgraph::planner::core::dsl::Var;
-using memgraph::planner::core::dsl::Wildcard;
+using pattern::dsl::Sym;
+using pattern::dsl::Var;
+using pattern::dsl::Wildcard;
 
 inline auto PatternAdd() { return TestPattern::build(Op::Add, {Var{kX}, Var{kY}}); }
 
@@ -499,7 +511,7 @@ class VMFixtureBase : public benchmark::Fixture {
   std::unique_ptr<TestMatcherIndex> matcher_;
   EMatchContext match_context_;
   TestMatches matches_;
-  vm::PatternCompiler<Op> compiler_;
+  TestPatternCompiler compiler_;
 
   void ResetEGraph() {
     egraph_ = TestEGraph{};

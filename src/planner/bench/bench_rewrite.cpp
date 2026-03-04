@@ -239,7 +239,7 @@ class RewriteFixture : public benchmark::Fixture {
  protected:
   TestEGraph egraph_;
   std::unique_ptr<TestMatcherIndex> matcher_;
-  memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis> vm_executor_{egraph_};
+  TestVMExecutor vm_executor_{egraph_};
   TestRewriteContext ctx_{egraph_};
   TestRewriteRule rule_ = RuleDoubleNeg();
   int64_t num_chains_ = 0;
@@ -251,7 +251,7 @@ class RewriteFixture : public benchmark::Fixture {
     egraph_ = TestEGraph{};
     BuildNegChains(egraph_, num_chains_, chain_depth_);
     matcher_ = std::make_unique<TestMatcherIndex>(egraph_);
-    vm_executor_ = memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis>(egraph_);
+    vm_executor_ = TestVMExecutor(egraph_);
   }
 };
 
@@ -280,7 +280,7 @@ class RewriteLargeFixture : public benchmark::Fixture {
  protected:
   TestEGraph egraph_;
   std::unique_ptr<TestMatcherIndex> matcher_;
-  memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis> vm_executor_{egraph_};
+  TestVMExecutor vm_executor_{egraph_};
   TestRewriteContext ctx_{egraph_};
   TestRewriteRule rule_ = RuleDoubleNeg();
   int64_t graph_size_ = 0;
@@ -295,7 +295,7 @@ class RewriteLargeFixture : public benchmark::Fixture {
       egraph_.emplace(Op::Neg, {neg1});
     }
     matcher_ = std::make_unique<TestMatcherIndex>(egraph_);
-    vm_executor_ = memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis>(egraph_);
+    vm_executor_ = TestVMExecutor(egraph_);
   }
 };
 
@@ -327,7 +327,7 @@ class VMRewriteScalingFixture : public benchmark::Fixture {
  protected:
   TestEGraph egraph_;
   std::unique_ptr<TestMatcherIndex> matcher_;
-  memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis> vm_executor_{egraph_};
+  TestVMExecutor vm_executor_{egraph_};
   TestRewriteContext ctx_{egraph_};
   TestRewriteRule rule_ = RuleDoubleNeg();
   int64_t num_chains_ = 0;
@@ -339,7 +339,7 @@ class VMRewriteScalingFixture : public benchmark::Fixture {
     egraph_ = TestEGraph{};
     BuildNegChains(egraph_, num_chains_, chain_depth_);
     matcher_ = std::make_unique<TestMatcherIndex>(egraph_);
-    vm_executor_ = memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis>(egraph_);
+    vm_executor_ = TestVMExecutor(egraph_);
   }
 };
 

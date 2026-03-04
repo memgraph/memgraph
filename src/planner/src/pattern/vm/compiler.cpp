@@ -13,7 +13,7 @@
 
 #include <algorithm>
 
-namespace memgraph::planner::core::vm {
+namespace memgraph::planner::core::pattern::vm {
 
 void PatternCompilerBase::reset() {
   code_.clear();
@@ -69,4 +69,4 @@ void PatternCompilerBase::emit_var_binding(PatternVar var, uint8_t eclass_reg, u
   }
 }
 
-}  // namespace memgraph::planner::core::vm
+}  // namespace memgraph::planner::core::pattern::vm

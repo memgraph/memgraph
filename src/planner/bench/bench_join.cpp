@@ -31,14 +31,14 @@ class HashJoinSharedFixture : public RewriterFixtureBase {
  protected:
   int64_t num_nodes_ = 0;
   TestRewriteRule rule_ = RuleMergeAddMul();
-  memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis> vm_executor_{egraph_};
+  TestVMExecutor vm_executor_{egraph_};
 
   void SetUp(const benchmark::State &state) override {
     num_nodes_ = state.range(0);
     ResetEGraph();
     BuildAddMulPairs(egraph_, num_nodes_);
     CreateMatcher();
-    vm_executor_ = memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis>(egraph_);
+    vm_executor_ = TestVMExecutor(egraph_);
   }
 };
 
@@ -68,7 +68,7 @@ class HashJoinWideFixture : public RewriterFixtureBase {
   int64_t num_nodes_ = 0;
   int64_t num_unique_x_ = 0;
   TestRewriteRule rule_ = RuleWideJoin();
-  memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis> vm_executor_{egraph_};
+  TestVMExecutor vm_executor_{egraph_};
 
   void SetUp(const benchmark::State &state) override {
     num_nodes_ = state.range(0);
@@ -76,7 +76,7 @@ class HashJoinWideFixture : public RewriterFixtureBase {
     ResetEGraph();
     BuildAddMulFewSharedX(egraph_, num_nodes_, num_unique_x_);
     CreateMatcher();
-    vm_executor_ = memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis>(egraph_);
+    vm_executor_ = TestVMExecutor(egraph_);
   }
 };
 
@@ -105,14 +105,14 @@ class CartesianJoinFixture : public RewriterFixtureBase {
  protected:
   int64_t num_nodes_ = 0;
   TestRewriteRule rule_ = RuleCartesian();
-  memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis> vm_executor_{egraph_};
+  TestVMExecutor vm_executor_{egraph_};
 
   void SetUp(const benchmark::State &state) override {
     num_nodes_ = state.range(0);
     ResetEGraph();
     BuildAddNegDisjoint(egraph_, num_nodes_);
     CreateMatcher();
-    vm_executor_ = memgraph::planner::core::vm::VMExecutor<Op, NoAnalysis>(egraph_);
+    vm_executor_ = TestVMExecutor(egraph_);
   }
 };
 

@@ -11,7 +11,7 @@
 
 #include "planner/pattern/vm/compiled_pattern.hpp"
 
-namespace memgraph::planner::core::vm {
+namespace memgraph::planner::core::pattern::vm {
 
 CompiledPatternBase::CompiledPatternBase(std::vector<Instruction> code, std::size_t num_eclass_regs,
                                          std::size_t num_enode_regs, std::vector<uint8_t> binding_order,
@@ -37,4 +37,4 @@ auto CompiledPatternBase::state_config() const -> VMStateConfig {
           .slot_to_order = slot_to_order_};
 }
 
-}  // namespace memgraph::planner::core::vm
+}  // namespace memgraph::planner::core::pattern::vm

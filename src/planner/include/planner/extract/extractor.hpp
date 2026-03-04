@@ -23,7 +23,7 @@
 
 import memgraph.planner.core.egraph;
 
-namespace memgraph::planner::core {
+namespace memgraph::planner::core::extract {
 
 template <typename CostResult>
 struct Selection {
@@ -41,7 +41,7 @@ auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_
 
   assert(!egraph.needs_rebuild() && "to avoid internal cost of getting canonical looking up we should");
 
-  if (const auto it = enode_selection.find(eclass_id); it != enode_selection.end()) {
+  if (auto const it = enode_selection.find(eclass_id); it != enode_selection.end()) {
     // If cost is nullopt, we're currently processing this e-class (cycle
     // detected) If cost is set, we've already computed it
     return it->second.cost_result;
@@ -213,4 +213,4 @@ struct Extractor {
 // Extractor(EGraph<Symbol, Analysis> const &, CostModel) -> Extractor<Symbol,
 // Analysis, CostModel, Func>;
 
-}  // namespace memgraph::planner::core
+}  // namespace memgraph::planner::core::extract

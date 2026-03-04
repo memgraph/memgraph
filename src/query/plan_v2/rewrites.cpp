@@ -16,15 +16,18 @@
 
 namespace memgraph::query::plan::v2 {
 
-using planner::core::Match;
-using planner::core::Pattern;
-using planner::core::PatternVar;
-using planner::core::Rewriter;
-using planner::core::RewriteRule;
-using planner::core::RuleContext;
-using planner::core::RuleSet;
-using planner::core::Var;
-using planner::core::Wildcard;
+// Pattern types
+using planner::core::pattern::Match;
+using planner::core::pattern::Pattern;
+using planner::core::pattern::PatternVar;
+using planner::core::pattern::Wildcard;
+using planner::core::pattern::dsl::Var;
+
+// Rewrite types
+using planner::core::rewrite::Rewriter;
+using planner::core::rewrite::RewriteRule;
+using planner::core::rewrite::RuleContext;
+using planner::core::rewrite::RuleSet;
 
 /// Inline rule: For Bind(_, ?sym, ?expr) and ?ident=Identifier(?sym), merge Identifier with ?expr
 struct InlineRule {

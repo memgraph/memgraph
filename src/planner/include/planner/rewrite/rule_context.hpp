@@ -18,7 +18,7 @@
 
 import memgraph.planner.core.egraph;
 
-namespace memgraph::planner::core {
+namespace memgraph::planner::core::rewrite {
 
 /// Safe context for rule apply functions. Auto-tracks new e-classes and counts rewrites.
 template <typename Symbol, typename Analysis>
@@ -72,4 +72,4 @@ class RuleContext {
   std::size_t rewrites_ = 0;
 };
 
-}  // namespace memgraph::planner::core
+}  // namespace memgraph::planner::core::rewrite

@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace memgraph::planner::core::vm {
+namespace memgraph::planner::core::pattern::vm {
 
 // =============================================================================
 // VM Bytecode Contract Documentation
@@ -323,4 +323,4 @@ static_assert(alignof(Instruction) == 2, "Instruction should be 2 aligned");
   return "Unknown";
 }
 
-}  // namespace memgraph::planner::core::vm
+}  // namespace memgraph::planner::core::pattern::vm

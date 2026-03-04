@@ -21,7 +21,7 @@ import memgraph.planner.core.eids;
 #include <absl/container/flat_hash_set.h>
 #include <cassert>
 
-namespace memgraph::planner::core::vm {
+namespace memgraph::planner::core::pattern::vm {
 
 // === Specialized iteration state types ===
 // Each type uses exhausted state as inactive indicator (no separate discriminator needed).
@@ -217,4 +217,4 @@ inline void VMState::mark_seen(std::size_t slot) {
   }
 }
 
-}  // namespace memgraph::planner::core::vm
+}  // namespace memgraph::planner::core::pattern::vm

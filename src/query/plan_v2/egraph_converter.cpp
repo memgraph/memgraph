@@ -194,7 +194,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
 
   /// STAGE: Extraction from EGraph using CostModel
   auto const true_root = internal::to_core_id(root);
-  auto const selection = planner::core::Extractor{impl.egraph_, CostModel{}}.Extract(true_root);
+  auto const selection = planner::core::extract::Extractor{impl.egraph_, CostModel{}}.Extract(true_root);
 
   /// STAGE: Build selected (LogicalOperator, Expression *, Symbol, NamedExpression *, etc)
   auto builder = Builder{impl.storage<symbol::Literal>().store,

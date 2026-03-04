@@ -24,7 +24,8 @@
 namespace memgraph::planner::core {
 
 using namespace test;
-using namespace vm;
+using namespace pattern;
+using namespace pattern::vm;
 
 // ============================================================================
 // VM Execution with Tracer Tests
@@ -45,10 +46,10 @@ TEST_F(PatternVM_Execution, SimpleMatch) {
   // Pattern: Neg(?x)
   auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
+  auto bytecode = disassemble(compiled->code(), compiled->symbols());
 
   // Execute with tracer
   RecordingTracer tracer;
@@ -78,10 +79,10 @@ TEST_F(PatternVM_Execution, NoMatch) {
   // Pattern: Neg(?x) - should not match
   auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -100,10 +101,10 @@ TEST_F(PatternVM_Execution, MultipleMatches) {
   // Pattern: Neg(?x)
   auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -119,12 +120,12 @@ TEST_F(PatternVM_Execution, NestedPatternMatch) {
   // Pattern: Neg(Neg(?x))
   auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Var{kVarX})}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
+  auto bytecode = disassemble(compiled->code(), compiled->symbols());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -152,10 +153,10 @@ TEST_F(PatternVM_Execution, SelfReferentialEClass) {
   // Pattern: F(F(?x))
   auto pattern = TestPattern::build(Op::F, {Sym(Op::F, Var{kVarX})}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
+  auto bytecode = disassemble(compiled->code(), compiled->symbols());
 
   RecordingTracer tracer;
   VMExecutor<Op, NoAnalysis, true> executor(egraph, &tracer);
@@ -196,14 +197,14 @@ TEST_F(PatternVM_Execution, DeepNestedPattern) {
   rebuild_egraph();
 
   // Pattern: Neg(Neg(Neg(?x))) - depth 3
-  auto pattern = Pattern<Op>::build(Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Var{kVarX}))}, kTestRoot);
+  auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Var{kVarX}))}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
+  auto bytecode = disassemble(compiled->code(), compiled->symbols());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -227,19 +228,19 @@ TEST_F(PatternVM_Execution, VeryDeepNestedPattern) {
 
   // Build a deep pattern dynamically
   constexpr int kPatternDepth = 10;
-  auto b = Pattern<Op>::Builder{};
+  auto b = TestPattern::Builder{};
   auto cur = b.var(kVarX);
   for (int i = 0; i < kPatternDepth; ++i) {
     cur = b.sym(Op::Neg, {cur});
   }
   auto pattern = std::move(b).build();
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
+  auto bytecode = disassemble(compiled->code(), compiled->symbols());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -256,14 +257,14 @@ TEST_F(PatternVM_Execution, DeepPatternCompiles) {
   // Deep patterns need ~2*depth+1 registers, so depth 35 uses ~71 registers
   constexpr int kPatternDepth = 35;
 
-  auto b = Pattern<Op>::Builder{};
+  auto b = TestPattern::Builder{};
   auto cur = b.var(kVarX);
   for (int i = 0; i < kPatternDepth; ++i) {
     cur = b.sym(Op::Neg, {cur});
   }
   auto pattern = std::move(b).build();
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
   // Should compile successfully with dynamic registers
@@ -304,11 +305,11 @@ TEST_F(PatternVM_Execution, SameVariableMergedEClass) {
   // Pattern: Add(?x, Neg(?x))
   auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Sym(Op::Neg, Var{kVarX})}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
   ASSERT_TRUE(compiled.has_value());
 
-  auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
+  auto bytecode = disassemble(compiled->code(), compiled->symbols());
 
   RecordingTracer tracer;
   VMExecutor<Op, NoAnalysis, true> executor(egraph, &tracer);
@@ -377,11 +378,11 @@ TEST_F(PatternVM_Execution, SameVariableInnerLoopMultipleENodes) {
   // Pattern: Add(?x, Neg(?x))
   auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Sym(Op::Neg, Var{kVarX})}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
   ASSERT_TRUE(compiled.has_value());
 
-  auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
+  auto bytecode = disassemble(compiled->code(), compiled->symbols());
 
   RecordingTracer tracer;
   VMExecutor<Op, NoAnalysis, true> executor(egraph, &tracer);
@@ -433,11 +434,11 @@ TEST_F(PatternVM_Execution, SameVariableMultipleMergedENodes) {
   // Pattern: Add(?x, Neg(?x))
   auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Sym(Op::Neg, Var{kVarX})}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   EMatchContext ctx;
   std::vector<PatternMatch> results;
@@ -487,11 +488,11 @@ TEST_F(PatternVM_Execution, DeduplicationSelfReferentialEClass) {
   // Pattern: F(?x)
   auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   // EC1 has 2 e-nodes with different children - F(a) and F(EC1)
   executor.execute(*compiled, matcher, ctx.arena(), results);
@@ -511,11 +512,11 @@ TEST_F(PatternVM_Execution, SingleMatchForSimplePattern) {
   // Pattern: F(?x)
   auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -547,11 +548,11 @@ TEST_F(PatternVM_Execution, DeduplicationMergedDifferentSymbols) {
   // Pattern: F(?x) - should match only the F(a) e-node
   auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -592,11 +593,11 @@ TEST_F(PatternVM_Execution, DeduplicationSlotOrderIndependence) {
   // Pattern: F(?x, ?y)
   auto pattern = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -629,11 +630,11 @@ TEST_F(PatternVM_Execution, DeduplicationMultiplePaths) {
 
   auto pattern = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -669,11 +670,11 @@ TEST_F(PatternVM_Execution, DeduplicationPrefixChange) {
   // Pattern: Add(?x, F(?x, ?y)) - ?x appears twice, ?y once
   auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Sym(Op::F, Var{kVarX}, Var{kVarY})}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -708,11 +709,11 @@ TEST_F(PatternVM_Execution, DeduplicationWideEClass) {
 
   auto pattern = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kTestRoot);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -743,15 +744,15 @@ TEST_F(PatternVM_Execution, MultiPattern_JoinWithParentTraversal) {
   constexpr PatternVar kVarExpr{2};
   constexpr PatternVar kVarId{3};
 
-  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
-  auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
+  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
+  auto joined = TestPattern::build(Op::Ident, {Var{kVarSym}}, kVarId);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
   auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -774,15 +775,15 @@ TEST_F(PatternVM_Execution, MultiPattern_NoMatchingJoin) {
   constexpr PatternVar kVarExpr{2};
   constexpr PatternVar kVarId{3};
 
-  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
-  auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
+  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
+  auto joined = TestPattern::build(Op::Ident, {Var{kVarSym}}, kVarId);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
   auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -804,15 +805,15 @@ TEST_F(PatternVM_Execution, MultiPattern_MultipleJoinMatches) {
   constexpr PatternVar kVarExpr{2};
   constexpr PatternVar kVarId{3};
 
-  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
-  auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
+  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
+  auto joined = TestPattern::build(Op::Ident, {Var{kVarSym}}, kVarId);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
   auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -837,15 +838,15 @@ TEST_F(PatternVM_Execution, MultiPattern_NestedJoinedPattern) {
 
   rebuild_egraph();
 
-  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kBindRoot);
-  auto joined = Pattern<Op>::build(Op::F, {Var{kVarSym}, Sym(Op::Neg, Var{kVarX})});
+  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kBindRoot);
+  auto joined = TestPattern::build(Op::F, {Var{kVarSym}, Sym(Op::Neg, Var{kVarX})});
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
   auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -867,16 +868,16 @@ TEST_F(PatternVM_Execution, MultiPattern_ThreePatternJoin) {
   constexpr PatternVar kVarIdent{2};
   constexpr PatternVar kVarNeg{3};
 
-  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kTestRoot);
-  auto joined_ident = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarIdent);
-  auto joined_neg = Pattern<Op>::build(Op::Neg, {Var{kVarSym}}, kVarNeg);
+  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kTestRoot);
+  auto joined_ident = TestPattern::build(Op::Ident, {Var{kVarSym}}, kVarIdent);
+  auto joined_neg = TestPattern::build(Op::Neg, {Var{kVarSym}}, kVarNeg);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   std::array patterns = {anchor, joined_ident, joined_neg};
   auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -904,16 +905,16 @@ TEST_F(PatternVM_Execution, MultiPattern_ManyParentTraversals) {
   constexpr PatternVar kVarF2{2};
   constexpr PatternVar kVarNeg{3};
 
-  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kTestRoot);
-  auto joined_f2 = Pattern<Op>::build(Op::F2, {Var{kVarSym}, Wildcard{}}, kVarF2);
-  auto joined_neg = Pattern<Op>::build(Op::Neg, {Var{kVarSym}}, kVarNeg);
+  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kTestRoot);
+  auto joined_f2 = TestPattern::build(Op::F2, {Var{kVarSym}, Wildcard{}}, kVarF2);
+  auto joined_neg = TestPattern::build(Op::Neg, {Var{kVarSym}}, kVarNeg);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   std::array patterns = {anchor, joined_f2, joined_neg};
   auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -942,15 +943,15 @@ TEST_F(PatternVM_Execution, MultiPattern_DeduplicationWithPrefixChange) {
   constexpr PatternVar kVarF{3};
   constexpr PatternVar kVarF2{4};
 
-  auto pattern_f = Pattern<Op>::build(Op::F, {Var{kVarA}, Var{kVarB}}, kVarF);
-  auto pattern_f2 = Pattern<Op>::build(Op::F2, {Var{kVarB}, Var{kVarC}}, kVarF2);
+  auto pattern_f = TestPattern::build(Op::F, {Var{kVarA}, Var{kVarB}}, kVarF);
+  auto pattern_f2 = TestPattern::build(Op::F2, {Var{kVarB}, Var{kVarC}}, kVarF2);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   std::array patterns = {pattern_f, pattern_f2};
   auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 
@@ -969,13 +970,13 @@ TEST_F(PatternVM_Execution, MultiPattern_DeduplicationMultiplePaths) {
   constexpr PatternVar kVarA{0};
   constexpr PatternVar kVarF{1};
 
-  auto pattern = Pattern<Op>::build(Op::F, {Var{kVarA}, Var{kVarA}}, kVarF);
+  auto pattern = TestPattern::build(Op::F, {Var{kVarA}, Var{kVarA}}, kVarF);
 
-  PatternCompiler<Op> compiler;
+  TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
   ASSERT_TRUE(compiled.has_value());
 
-  VMExecutor<Op, NoAnalysis> executor(egraph);
+  TestVMExecutor executor(egraph);
 
   executor.execute(*compiled, matcher, ctx.arena(), results);
 

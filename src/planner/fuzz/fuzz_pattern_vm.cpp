@@ -68,6 +68,10 @@ import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
 
+using namespace pattern;      // Pattern types (MatcherIndex, Match, etc.)
+using namespace pattern::vm;  // VM types (VMExecutor, PatternCompiler, etc.)
+using namespace rewrite;      // Rewrite types (RewriteRule, RuleContext, etc.)
+
 // Import fuzz types into this namespace
 using fuzz::dump_egraph;
 using fuzz::FuzzAnalysis;
@@ -482,7 +486,7 @@ class FuzzerState {
     bool vm_compilation_succeeded = false;
     {
       MatcherIndex matcher(egraph_);
-      vm::VMExecutor vm_executor(egraph_);
+      VMExecutor vm_executor(egraph_);
       MatcherContext matcher_ctx;
       std::vector<EClassId> new_eclasses;
 
@@ -680,8 +684,8 @@ class FuzzerState {
     // Collect the first match's variable 0 binding (one representative per match)
     std::vector<EClassId> match_roots;
     {
-      MatcherIndex<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
-      vm::VMExecutor<FuzzSymbol, FuzzAnalysis> vm_executor(egraph_);
+      MatcherIndex matcher(egraph_);
+      VMExecutor vm_executor(egraph_);
       MatcherContext matcher_ctx;
       std::vector<EClassId> new_eclasses;
 
@@ -829,8 +833,8 @@ class FuzzerState {
 
     std::size_t match_count = 0;
     {
-      MatcherIndex<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
-      vm::VMExecutor<FuzzSymbol, FuzzAnalysis> vm_executor(egraph_);
+      MatcherIndex matcher(egraph_);
+      VMExecutor vm_executor(egraph_);
       MatcherContext matcher_ctx;
       std::vector<EClassId> new_eclasses;
 

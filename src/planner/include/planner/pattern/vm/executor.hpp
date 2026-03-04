@@ -23,7 +23,7 @@
 
 import memgraph.planner.core.egraph;
 
-namespace memgraph::planner::core::vm {
+namespace memgraph::planner::core::pattern::vm {
 
 // =============================================================================
 // VMExecutor Contract Documentation
@@ -558,4 +558,4 @@ void VMExecutor<Symbol, Analysis, DevMode>::exec_yield(Instruction instr, MatchA
   results.push_back(arena.intern(state_.slots));
 }
 
-}  // namespace memgraph::planner::core::vm
+}  // namespace memgraph::planner::core::pattern::vm

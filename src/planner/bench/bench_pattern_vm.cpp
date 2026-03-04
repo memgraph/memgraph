@@ -105,8 +105,8 @@ BENCHMARK_REGISTER_F(IncrementalUpdateFixture, Update)
 
 class SimplePatternFixture : public MatcherFixtureBase {
  protected:
-  std::optional<vm::CompiledPattern<Op>> compiled_;
-  vm::VMExecutor<Op, NoAnalysis> vm_executor_{egraph_};
+  std::optional<TestCompiledPattern> compiled_;
+  TestVMExecutor vm_executor_{egraph_};
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -114,8 +114,8 @@ class SimplePatternFixture : public MatcherFixtureBase {
     graph_size_ = state.range(0);
     context_mode_ = state.range(1);
     SetupGraphAndMatcher([this](TestEGraph &g) { BuildIndependentAdds(g, graph_size_); });
-    vm_executor_ = vm::VMExecutor<Op, NoAnalysis>(egraph_);
-    vm::PatternCompiler<Op> compiler;
+    vm_executor_ = TestVMExecutor(egraph_);
+    TestPatternCompiler compiler;
     compiled_ = compiler.compile(PatternAdd());
   }
 };
@@ -145,8 +145,8 @@ BENCHMARK_REGISTER_F(SimplePatternFixture, Match)
 
 class DeepPatternFixture : public MatcherFixtureBase {
  protected:
-  std::optional<vm::CompiledPattern<Op>> compiled_;
-  vm::VMExecutor<Op, NoAnalysis> vm_executor_{egraph_};
+  std::optional<TestCompiledPattern> compiled_;
+  TestVMExecutor vm_executor_{egraph_};
   int64_t pattern_depth_ = 0;
   int64_t context_mode_ = 0;
 
@@ -154,8 +154,8 @@ class DeepPatternFixture : public MatcherFixtureBase {
     pattern_depth_ = state.range(0);
     context_mode_ = state.range(1);
     SetupGraphAndMatcher([this](TestEGraph &g) { BuildNegChain(g, pattern_depth_); });
-    vm_executor_ = vm::VMExecutor<Op, NoAnalysis>(egraph_);
-    vm::PatternCompiler<Op> compiler;
+    vm_executor_ = TestVMExecutor(egraph_);
+    TestPatternCompiler compiler;
     compiled_ = compiler.compile(PatternNestedNeg(static_cast<int>(pattern_depth_)));
   }
 };
@@ -184,8 +184,8 @@ BENCHMARK_REGISTER_F(DeepPatternFixture, Match)
 
 class SameVariableFixture : public MatcherFixtureBase {
  protected:
-  std::optional<vm::CompiledPattern<Op>> compiled_;
-  vm::VMExecutor<Op, NoAnalysis> vm_executor_{egraph_};
+  std::optional<TestCompiledPattern> compiled_;
+  TestVMExecutor vm_executor_{egraph_};
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -193,8 +193,8 @@ class SameVariableFixture : public MatcherFixtureBase {
     graph_size_ = state.range(0);
     context_mode_ = state.range(1);
     SetupGraphAndMatcher([this](TestEGraph &g) { BuildMixedAdds(g, graph_size_); });
-    vm_executor_ = vm::VMExecutor<Op, NoAnalysis>(egraph_);
-    vm::PatternCompiler<Op> compiler;
+    vm_executor_ = TestVMExecutor(egraph_);
+    TestPatternCompiler compiler;
     compiled_ = compiler.compile(PatternAddSameVar());
   }
 };
@@ -224,8 +224,8 @@ BENCHMARK_REGISTER_F(SameVariableFixture, Match)
 
 class MergedEGraphFixture : public MatcherFixtureBase {
  protected:
-  std::optional<vm::CompiledPattern<Op>> compiled_;
-  vm::VMExecutor<Op, NoAnalysis> vm_executor_{egraph_};
+  std::optional<TestCompiledPattern> compiled_;
+  TestVMExecutor vm_executor_{egraph_};
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -233,8 +233,8 @@ class MergedEGraphFixture : public MatcherFixtureBase {
     graph_size_ = state.range(0);
     context_mode_ = state.range(1);
     SetupGraphAndMatcher([this](TestEGraph &g) { BuildMergedAddMul(g, graph_size_); });
-    vm_executor_ = vm::VMExecutor<Op, NoAnalysis>(egraph_);
-    vm::PatternCompiler<Op> compiler;
+    vm_executor_ = TestVMExecutor(egraph_);
+    TestPatternCompiler compiler;
     compiled_ = compiler.compile(PatternAdd());
   }
 };
@@ -264,8 +264,8 @@ BENCHMARK_REGISTER_F(MergedEGraphFixture, Match)
 
 class SelectivePatternFixture : public MatcherFixtureBase {
  protected:
-  std::optional<vm::CompiledPattern<Op>> compiled_;
-  vm::VMExecutor<Op, NoAnalysis> vm_executor_{egraph_};
+  std::optional<TestCompiledPattern> compiled_;
+  TestVMExecutor vm_executor_{egraph_};
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -273,8 +273,8 @@ class SelectivePatternFixture : public MatcherFixtureBase {
     graph_size_ = state.range(0);
     context_mode_ = state.range(1);
     SetupGraphAndMatcher([this](TestEGraph &g) { BuildAddsWithOneNeg(g, graph_size_); });
-    vm_executor_ = vm::VMExecutor<Op, NoAnalysis>(egraph_);
-    vm::PatternCompiler<Op> compiler;
+    vm_executor_ = TestVMExecutor(egraph_);
+    TestPatternCompiler compiler;
     compiled_ = compiler.compile(PatternSelective());
   }
 };

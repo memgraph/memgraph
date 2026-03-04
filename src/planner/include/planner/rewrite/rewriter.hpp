@@ -28,7 +28,11 @@
 
 import memgraph.planner.core.egraph;
 
-namespace memgraph::planner::core {
+namespace memgraph::planner::core::rewrite {
+
+// Import specific types from pattern namespace
+using pattern::MatcherContext;
+using pattern::MatcherIndex;
 
 /**
  * @brief Configuration for the rewrite engine
@@ -318,4 +322,4 @@ class Rewriter {
   RewriteContext<Symbol, Analysis> ctx_;
 };
 
-}  // namespace memgraph::planner::core
+}  // namespace memgraph::planner::core::rewrite

@@ -17,7 +17,7 @@
 
 #include "planner/rewrite/rule.hpp"
 
-namespace memgraph::planner::core {
+namespace memgraph::planner::core::rewrite {
 
 /// Immutable, shareable collection of rewrite rules. Cheap to copy (shared_ptr).
 template <typename Symbol, typename Analysis>
@@ -67,4 +67,4 @@ class RuleSet {
   std::shared_ptr<std::vector<RulePtr> const> rules_;
 };
 
-}  // namespace memgraph::planner::core
+}  // namespace memgraph::planner::core::rewrite

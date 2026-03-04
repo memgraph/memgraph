@@ -18,6 +18,7 @@ import memgraph.planner.core.egraph;
 namespace memgraph::planner::core {
 
 using namespace test;
+using TestProcessingContext = ProcessingContext<Op>;
 
 TEST(EGraph_Basic, EmptyEGraph) {
   auto const egraph = EGraph<Op, NoAnalysis>{};
@@ -109,7 +110,7 @@ TEST(EGraph_Merge, MergeSameEClassIsNoOp) {
 
 TEST(EGraph_Merge, CongruenceAfterMergeAndRebuild) {
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   // Create: f(a), f(b), merge a and b
   auto [a, a_node, a_ins] = egraph.emplace(Op::A);
@@ -140,7 +141,7 @@ TEST(EGraph_Merge, CongruenceAfterMergeAndRebuild) {
 
 TEST(EGraph_Merge, CongruenceAfterMergeAndRebuildSelfReference) {
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto [a, a_node, a_ins] = egraph.emplace(Op::A);
   auto [b, b_node, b_ins] = egraph.emplace(Op::B);
@@ -161,11 +162,11 @@ TEST(EGraph_Basic, GetEClassByID) {
   auto [info, info_node, ins] = egraph.emplace(Op::Test);
   auto id = info;
 
-  const auto &eclass = egraph.eclass(id);
+  auto const &eclass = egraph.eclass(id);
   EXPECT_EQ(eclass.size(), 1);
 
   auto repr_id = *eclass.nodes().begin();
-  const auto &repr = egraph.get_enode(repr_id);
+  auto const &repr = egraph.get_enode(repr_id);
   EXPECT_EQ(repr.symbol(), Op::Test);
 }
 
@@ -186,7 +187,7 @@ TEST(EGraph_Basic, ClearEmptiesTheGraph) {
 
 TEST(EGraph_Rebuild, SingleParentHashconsCheck) {
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   // Create a scenario where an e-class has a single parent
   // This tests the corner case in process_class_parents_for_rebuild
@@ -214,7 +215,7 @@ TEST(EGraph_Rebuild, SingleParentHashconsCheck) {
 
 TEST(EGraph_Rebuild, MultipleParentsAfterMerge) {
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   // Create scenario with multiple parents that become congruent after merge
   auto a = egraph.emplace(Op::A).eclass_id;
@@ -241,7 +242,7 @@ TEST(EGraph_Rebuild, MultipleParentsAfterMerge) {
 
 TEST(EGraph_Rebuild, DeepRebuildSingleParentChain) {
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   // Create a chain: a -> f(a) -> g(f(a)) where each has single parent
   auto a = egraph.emplace(Op::A).eclass_id;
@@ -267,7 +268,7 @@ TEST(EGraph_Rebuild, DeepRebuildSingleParentChain) {
 
 TEST(EGraph_CongruenceClosure, MissingHashconsUpdateForSingleParent) {
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   // Create scenario to trigger single parent hashcons bug:
   // We need a case where after deduplication, a canonical e-node has exactly ONE parent
@@ -299,7 +300,7 @@ TEST(EGraph_CongruenceClosure, MissingHashconsUpdateForSingleParent) {
 
 TEST(EGraph_CongruenceClosure, MissingHashconsUpdateForMultipleParents) {
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A).eclass_id;
   auto b = egraph.emplace(Op::B).eclass_id;
@@ -324,7 +325,7 @@ TEST(EGraph_CongruenceClosure, ComplexFuzzSequenceInvariantViolation) {
   // This case came for a fuzz test and found a complex example where cogruence was broken
   // Fix has been applied but this test remains to ensure we do not redo the bug
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto leaf_0 = egraph.emplace(Op::A, 0).eclass_id;
   auto leaf_1 = egraph.emplace(Op::A, 1).eclass_id;
@@ -357,7 +358,7 @@ TEST(EGraph_CongruenceClosure, ComplexFuzzSequenceInvariantViolation) {
 
 TEST(EGraph_CongruenceClosure, InfiniteSelfReference) {
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto zero_1 = egraph.emplace(Op::A, 0).eclass_id;  // First zero
   auto zero_2 = egraph.emplace(Op::A, 1).eclass_id;  // Second zero
@@ -386,7 +387,7 @@ TEST(EGraph_DuplicateRemoval, CongruenceRemovesDuplicateENodes) {
   //   One is kept, one is removed as duplicate
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
   auto b = egraph.emplace(Op::A, 1).eclass_id;
@@ -414,7 +415,7 @@ TEST(EGraph_DuplicateRemoval, MultipleDuplicatesRemoved) {
   //   Two duplicates removed, one kept
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
   auto b = egraph.emplace(Op::A, 1).eclass_id;
@@ -453,7 +454,7 @@ TEST(EGraph_DuplicateRemoval, CascadingCongruenceRemovesDuplicates) {
   //   Duplicates removed at each level
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
   auto b = egraph.emplace(Op::A, 1).eclass_id;
@@ -486,7 +487,7 @@ TEST(EGraph_DuplicateRemoval, CascadingCongruenceRemovesDuplicates) {
 
 TEST(EGraph_DuplicateRemoval, ClearResetsDuplicateCount) {
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
   auto b = egraph.emplace(Op::A, 1).eclass_id;
@@ -533,7 +534,7 @@ TEST(EGraph_CongruenceClosure, DuplicateDetectionMergesEClasses) {
   // Expected: All F nodes end up in the same e-class.
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   // n0 = A -> class 0
   auto n0 = egraph.emplace(Op::A, 203).eclass_id;
@@ -587,7 +588,7 @@ TEST(EGraph_CongruenceClosure, DuplicateDetectionWithMultipleLayers) {
   //   rebuild -> F(a)≡F(b), then F2(F(a))≡F2(F(b))
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
   auto b = egraph.emplace(Op::A, 1).eclass_id;
@@ -638,7 +639,7 @@ TEST(EGraph_CongruenceClosure, IndirectCongruenceViaChildMerges) {
   // should have been merged but weren't.
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   // Create two separate leaves
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -690,14 +691,14 @@ TEST(EGraph_CongruenceClosure, SelfRefWithIndirectChildCongruence) {
   // because both canonicalize to F2(E_n1, E_n0), but they aren't.
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   // Exact reproduction from unittest__pattern_vm.cpp
   auto n0 = egraph.emplace(Op::A, 0).eclass_id;
   auto n1 = egraph.emplace(Op::A, 1).eclass_id;
-  auto n2 = egraph.emplace(Op::F, {n1, n1}).eclass_id;
+  [[maybe_unused]] auto n2 = egraph.emplace(Op::F, {n1, n1}).eclass_id;
   auto n3 = egraph.emplace(Op::F, {n0, n0}).eclass_id;
-  auto n4 = egraph.emplace(Op::F, {n3, n3}).eclass_id;
+  [[maybe_unused]] auto n4 = egraph.emplace(Op::F, {n3, n3}).eclass_id;
   auto n5 = egraph.emplace(Op::F, {n0, n0}).eclass_id;
   auto n6 = egraph.emplace(Op::F, {n5, n5}).eclass_id;
   auto n7 = egraph.emplace(Op::F, {n1, n1}).eclass_id;
@@ -705,7 +706,7 @@ TEST(EGraph_CongruenceClosure, SelfRefWithIndirectChildCongruence) {
   auto n9 = egraph.emplace(Op::F, {n6, n6}).eclass_id;
   auto n10 = egraph.emplace(Op::F, {n5, n5}).eclass_id;
   auto n11 = egraph.emplace(Op::F, {n8, n0}).eclass_id;
-  auto n12 = egraph.emplace(Op::F, {n10, n5}).eclass_id;
+  [[maybe_unused]] auto n12 = egraph.emplace(Op::F, {n10, n5}).eclass_id;
   auto n13 = egraph.emplace(Op::F, {n7, n10}).eclass_id;
   auto n14 = egraph.emplace(Op::F, {n1, n1}).eclass_id;
   auto n15 = egraph.emplace(Op::F, {n5, n5}).eclass_id;
@@ -765,15 +766,8 @@ TEST(EGraph_CongruenceClosure, SelfRefWithIndirectChildCongruence) {
   egraph.merge(n39, n35);
 
   // Final nodes
-  auto n40 = egraph.emplace(Op::F, {n38, n21}).eclass_id;
-  auto n41 = egraph.emplace(Op::F, {n17, n28}).eclass_id;
-
-  // Suppress unused variable warnings
-  (void)n2;
-  (void)n4;
-  (void)n12;
-  (void)n40;
-  (void)n41;
+  [[maybe_unused]] auto n40 = egraph.emplace(Op::F, {n38, n21}).eclass_id;
+  [[maybe_unused]] auto n41 = egraph.emplace(Op::F, {n17, n28}).eclass_id;
 
   egraph.rebuild(ctx);
 
@@ -802,7 +796,7 @@ TEST(EGraph_CongruenceClosure, DuplicateInSameEClass) {
   //   but no inter-class merge is needed
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
   auto f1 = egraph.emplace(Op::F, {a}).eclass_id;
@@ -855,7 +849,7 @@ TEST(EGraph_CongruenceClosure, DuplicateInDifferentEClass) {
   //   and merge their e-classes
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
   auto b = egraph.emplace(Op::A, 1).eclass_id;
@@ -895,7 +889,7 @@ TEST(EGraph_CongruenceClosure, MultipleParentsFromDifferentClasses) {
   //   rebuild should merge fa, fb, fc because all canonicalize to F(E_abc)
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
   auto b = egraph.emplace(Op::A, 1).eclass_id;
@@ -937,7 +931,7 @@ TEST(EGraph_CongruenceClosure, AlreadyCanonicalNoChange) {
   //   No merges should occur, e-graph structure unchanged
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
   auto f = egraph.emplace(Op::F, {a}).eclass_id;
@@ -968,7 +962,7 @@ TEST(EGraph_CongruenceClosure, ChainedCongruencePropagation) {
   //   rebuild should propagate: a≡b -> fa≡fb -> gfa≡gfb -> hgfa≡hgfb
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
   auto b = egraph.emplace(Op::A, 1).eclass_id;
@@ -1002,7 +996,7 @@ TEST(EGraph_CongruenceClosure, ChainedCongruencePropagation) {
 TEST(EGraph_EdgeCases, NeedsRebuildAndWorklistSize) {
   // Test: needs_rebuild() and worklist_size() utility functions
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   // Initially no rebuild needed
   EXPECT_FALSE(egraph.needs_rebuild());
@@ -1066,7 +1060,7 @@ TEST(EGraph_EdgeCases, RepairHashconsEclassMergesAwayOriginal) {
   // We can influence this by creating fb BEFORE fa (lower ID = more likely root)
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   // Create b first so it gets lower ID
   auto b = egraph.emplace(Op::A, 1).eclass_id;
@@ -1108,7 +1102,7 @@ TEST(EGraph_EdgeCases, RepairHashconsWithHigherRankTarget) {
   // trigger congruence that merges a lower-rank e-class into the higher one.
 
   EGraph<Op, NoAnalysis> egraph;
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
 
   // Create leaf nodes - we'll merge c1, c2, c3 to build rank
   auto c1 = egraph.emplace(Op::A, 1).eclass_id;
@@ -1171,7 +1165,7 @@ TEST(EGraph_EdgeCases, ValidateCongruenceClosureDetectsFailure) {
          "form but are in different e-classes";
 
   // After rebuild, congruence is restored
-  ProcessingContext<Op> ctx;
+  TestProcessingContext ctx;
   egraph.rebuild(ctx);
 
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());

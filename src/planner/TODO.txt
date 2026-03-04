@@ -101,20 +101,14 @@ depth:100 ~169 µs  (1000x)
    Helps: `Add(?x, Const(0))` where `Const(0)` is ground.
    Does NOT help chains with variables at leaves.
 
-2. **Inverted parent index**
+2. **Inverted parent index** (not implemented)
    Maintain: `child_eclass -> Set<(parent_eclass, symbol)>`
    Enables bottom-up matching: O(n) for depth-n chains.
-   See `parent_index.hpp` for existing implementation.
+   Current state: only parent traversal exists (`state.hpp` ParentsIter),
+   which iterates all parents linearly. An indexed structure would enable
+   O(1) lookup by symbol vs O(n) iterate+filter.
+   Profile first to confirm parent traversal is actually a bottleneck.
 
 3. **Generic relational e-matching**
    Treat matching as database join with selectivity-based ordering.
    Most general but significant implementation effort.
-
-### Parent Index Consideration
-
-With equality saturation, shared nodes may accumulate many parents as equivalent
-plans are added. If parent traversal becomes a bottleneck:
-- Add index: `eclass -> symbol -> [parent_enodes]`
-- Enables O(1) lookup vs O(n) iterate+filter
-- See `parent_index.hpp` for implementation
-- Profile first to confirm this is actually a bottleneck

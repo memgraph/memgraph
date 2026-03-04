@@ -16,12 +16,14 @@
 
 namespace memgraph::planner::core::test {
 
+using pattern::Match;
+
 // ============================================================================
 // Rewriter Test Types
 // ============================================================================
 
-using TestRewriteRule = RewriteRule<Op, NoAnalysis>;
-using TestRuleContext = RuleContext<Op, NoAnalysis>;
+using TestRewriteRule = rewrite::RewriteRule<Op, NoAnalysis>;
+using TestRuleContext = rewrite::RuleContext<Op, NoAnalysis>;
 
 // ============================================================================
 // Reusable Test Rules

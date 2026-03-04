@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "planner/pattern/match_index.hpp"
+#include "planner/pattern/vm/executor.hpp"
 #include "test_symbols.hpp"
 
 namespace memgraph::planner::core::test {
@@ -23,7 +24,12 @@ namespace memgraph::planner::core::test {
 // ============================================================================
 
 using TestEGraph = EGraph<Op, NoAnalysis>;
-using TestMatcherIndex = MatcherIndex<Op, NoAnalysis>;
-using TestMatches = std::vector<PatternMatch>;
+using TestMatcherIndex = pattern::MatcherIndex<Op, NoAnalysis>;
+using TestMatches = std::vector<pattern::PatternMatch>;
+using TestVMExecutor = pattern::vm::VMExecutor<Op, NoAnalysis>;
+using TestPatternCompiler = pattern::vm::PatternCompiler<Op>;
+using TestCompiledPattern = pattern::vm::CompiledPattern<Op>;
+using TestProcessingContext = ProcessingContext<Op>;
+using TestPattern = pattern::Pattern<Op>;
 
 }  // namespace memgraph::planner::core::test

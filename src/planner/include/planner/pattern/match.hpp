@@ -21,7 +21,7 @@
 #include "planner/pattern/match_storage.hpp"
 #include "planner/pattern/pattern.hpp"
 
-namespace memgraph::planner::core {
+namespace memgraph::planner::core::pattern {
 
 /// Context for e-matching: arena for storing matches, processed set for deduplication.
 struct EMatchContext {
@@ -61,7 +61,7 @@ class Match {
       : bindings_(bindings), var_slots_(&var_slots) {}
 
   [[nodiscard]] auto operator[](PatternVar var) const -> EClassId {
-    auto it = var_slots_->find(var);
+    auto const it = var_slots_->find(var);
     assert(it != var_slots_->end() && "Match::operator[]: variable not found");
     return bindings_[it->second];
   }
@@ -102,4 +102,4 @@ struct MatcherContext {
   [[nodiscard]] auto arena() const -> MatchArena const & { return match_ctx.arena(); }
 };
 
-}  // namespace memgraph::planner::core
+}  // namespace memgraph::planner::core::pattern

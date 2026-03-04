@@ -31,7 +31,9 @@
 namespace memgraph::planner::core {
 
 using namespace test;
-using namespace vm;
+using namespace pattern;
+using namespace pattern::vm;
+using namespace rewrite;
 
 // ============================================================================
 // Test Result Helpers
@@ -72,7 +74,7 @@ class PatternVM_Correctness : public EGraphTestBase {
     MatcherContext matcher_ctx;
     std::vector<EClassId> new_eclasses;
     RuleContext<Op, NoAnalysis> rule_ctx(egraph, new_eclasses);
-    vm::VMExecutor<Op, NoAnalysis> vm_executor(egraph);
+    TestVMExecutor vm_executor(egraph);
     rule.match(matcher, vm_executor, matcher_ctx);
     rule.apply(rule_ctx, matcher_ctx);
     return {.count = count, .succeeded = true};
