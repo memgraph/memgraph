@@ -470,6 +470,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     if (!scope.symbols.contains(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) {
       throw UnboundVariableError(ident.name_);
     }
+    // TODO: we know the symbol is in scope, so can we avoid searching for it again in GetOrCreateSymbol?
+    //       ConsumePredefinedIdentifier will also put the symbol on top of scope
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
   } else {
     // Everything else references a bound symbol.
