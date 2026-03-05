@@ -394,26 +394,22 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, 
 }
 
 template <template <class...> class TContainer>
-nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
-                                                  const std::function<bool(LabelId)> &node_predicate,
-                                                  const std::function<bool(EdgeTypeId)> &edge_predicate) const {
+nlohmann::json SchemaTracking<TContainer>::ToJson(
+    NameIdMapper &name_id_mapper, const EnumStore &enum_store,
+    const std::function<bool(utils::small_vector<LabelId> const &)> &node_predicate,
+    const std::function<bool(EdgeTypeId)> &edge_predicate) const {
   auto json = nlohmann::json::object();
 
   // Handle NODES
   const auto &[nodes_itr, _] = json.emplace("nodes", nlohmann::json::array());
   auto &nodes = nodes_itr.value();
   for (const auto &[labels, info] : vertex_state_) {
+    if (!node_predicate(labels)) continue;
     auto node = nlohmann::json::object();
     const auto &[labels_itr, _] = node.emplace("labels", nlohmann::json::array_t{});
-    bool has_access = true;
     for (const auto labelId : labels) {
-      if (!node_predicate(labelId)) {
-        has_access = false;
-        break;
-      }
       labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
     }
-    if (!has_access) continue;
     std::sort(labels_itr->begin(), labels_itr->end());
     node.update(info.ToJson(name_id_mapper, enum_store));
     nodes.emplace_back(std::move(node));
@@ -423,29 +419,20 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, 
   const auto &[edges_itr, dummy] = json.emplace("edges", nlohmann::json::array());
   auto &edges = edges_itr.value();
   for (const auto &[edge_type, info] : edge_state_) {
-    auto edge = nlohmann::json::object();
     if (!edge_predicate(edge_type.type)) continue;
+    if (!node_predicate(edge_type.from)) continue;
+    if (edge_type.from != edge_type.to && !node_predicate(edge_type.to)) continue;
+    auto edge = nlohmann::json::object();
     edge.emplace("type", name_id_mapper.IdToName(edge_type.type.AsUint()));
     const auto &[out_labels_itr, _] = edge.emplace("start_node_labels", nlohmann::json::array_t{});
-    bool has_access = true;
     for (const auto labelId : edge_type.from) {
-      if (!node_predicate(labelId)) {
-        has_access = false;
-        break;
-      }
       out_labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
     }
-    if (!has_access) continue;
     std::sort(out_labels_itr->begin(), out_labels_itr->end());
     const auto &[in_labels_itr, _b] = edge.emplace("end_node_labels", nlohmann::json::array_t{});
     for (const auto labelId : edge_type.to) {
-      if (!node_predicate(labelId)) {
-        has_access = false;
-        break;
-      }
       in_labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
     }
-    if (!has_access) continue;
     std::sort(in_labels_itr->begin(), in_labels_itr->end());
     edge.update(info.ToJson(name_id_mapper, enum_store));
     edges.emplace_back(std::move(edge));
