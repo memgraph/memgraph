@@ -189,7 +189,7 @@ bool SymbolGenerator::PreVisit(SingleQuery &) {
 // Union
 
 bool SymbolGenerator::PreVisit(CypherUnion &) {
-  auto &prev_scope = scopes_.back();
+  auto const &prev_scope = scopes_.back();
 
   auto next_scope = Scope();
   next_scope.curr_return_names = prev_scope.curr_return_names;
