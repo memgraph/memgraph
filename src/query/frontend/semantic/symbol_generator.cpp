@@ -466,7 +466,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // here, so that they can be checked after visiting Match.
     scope.identifiers_in_match.emplace_back(&ident);
   } else if (scope.in_call_subquery && !scope.in_with) {
-    // Subqueries require explicit WITH to import outer variables.
+    // Currently only CALL uses WITH to import symbols from outer scope
+    // EXISTS implicitly imports outer scope symbols
     if (!scope.symbols.contains(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) {
       throw UnboundVariableError(ident.name_);
     }
