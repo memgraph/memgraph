@@ -1209,9 +1209,12 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
                                         utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        SharedSchemaTracking *schema_info, SalientConfig::Items items) {
+                                        SharedSchemaTracking *schema_info, SalientConfig::Items items,
+                                        std::pmr::memory_resource *light_edge_pool = nullptr) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
+  // For light-edge mode: pool-allocate edges and track GID→Edge* for the connectivity phase.
+  std::unordered_map<uint64_t, Edge *> light_edge_map;
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -1221,6 +1224,10 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
       vertices->clear();
       edges_metadata->clear();
       epoch_history->clear();
+      if (light_edge_pool) {
+        std::pmr::polymorphic_allocator<Edge> alloc{light_edge_pool};
+        for (auto &[_, ptr] : light_edge_map) alloc.delete_object(ptr);
+      }
     }
   });
 
@@ -1285,20 +1292,28 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
         }
 
         if (items.properties_on_edges) {
-          // Insert edge.
           auto gid = snapshot.ReadUint();
           if (!gid) throw RecoveryFailure("Couldn't read edge gid!");
           if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid edge gid read!");
           last_edge_gid = *gid;
           spdlog::debug("Recovering edge {} with properties.", *gid);
-          auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
-          if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
+
+          Edge *edge_ptr;
+          if (light_edge_pool) {
+            edge_ptr =
+                std::pmr::polymorphic_allocator<Edge>{light_edge_pool}.new_object<Edge>(Gid::FromUint(*gid), nullptr);
+            light_edge_map.emplace(*gid, edge_ptr);
+          } else {
+            auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
+            if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
+            edge_ptr = &*it;
+          }
 
           // Recover properties.
           {
             auto props_size = snapshot.ReadUint();
             if (!props_size) throw RecoveryFailure("Couldn't read the size of properties!");
-            auto &props = it->properties;
+            auto &props = edge_ptr->properties;
             for (uint64_t j = 0; j < *props_size; ++j) {
               auto key = snapshot.ReadUint();
               if (!key) throw RecoveryFailure("Couldn't read edge property id!");
@@ -1480,9 +1495,15 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
           EdgeRef edge_ref(Gid::FromUint(*edge_gid));
           if (items.properties_on_edges) {
             if (snapshot_has_edges) {
-              auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
-              if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
-              edge_ref = EdgeRef(&*edge);
+              if (light_edge_pool) {
+                auto it = light_edge_map.find(*edge_gid);
+                if (it == light_edge_map.end()) throw RecoveryFailure("Invalid edge!");
+                edge_ref = EdgeRef(it->second);
+              } else {
+                auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
+                if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
+                edge_ref = EdgeRef(&*edge);
+              }
             } else {
               auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
               edge_ref = EdgeRef(&*edge);
@@ -1518,9 +1539,15 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
           EdgeRef edge_ref(Gid::FromUint(*edge_gid));
           if (items.properties_on_edges) {
             if (snapshot_has_edges) {
-              auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
-              if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
-              edge_ref = EdgeRef(&*edge);
+              if (light_edge_pool) {
+                auto it = light_edge_map.find(*edge_gid);
+                if (it == light_edge_map.end()) throw RecoveryFailure("Invalid edge!");
+                edge_ref = EdgeRef(it->second);
+              } else {
+                auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
+                if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
+                edge_ref = EdgeRef(&*edge);
+              }
             } else {
               auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
               edge_ref = EdgeRef(&*edge);
@@ -10116,7 +10143,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    name_id_mapper,
                                    edge_count,
                                    schema_info,
-                                   config.salient.items);
+                                   config.salient.items,
+                                   light_edge_pool);
     }
     case 15U: {
       return LoadSnapshotVersion15(snapshot,
@@ -10561,9 +10589,23 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     snapshot.WriteUint(mapping.AsUint());
   };
 
+  // Write a single edge record: marker, gid, prop count, then each (prop_id, value) pair.
+  // write_prop_id is a callable void(PropertyId) that handles name mapping and encoder writes.
+  auto write_edge_record = [name_id_mapper = storage->name_id_mapper_.get()](
+                               auto &encoder, uint64_t gid, const auto &props, auto write_prop_id) {
+    encoder.WriteMarker(Marker::SECTION_EDGE);
+    encoder.WriteUint(gid);
+    encoder.WriteUint(props.size());
+    for (auto const &[pid, val] : props) {
+      write_prop_id(pid);
+      encoder.WriteExternalPropertyValue(ToExternalPropertyValue(val, name_id_mapper));
+    }
+  };
+
   // Store edges.
-  auto partial_edge_handler = [&edges, storage, transaction, &snapshot_aborted, &write_mapping_to, progress](
-                                  int64_t start_gid, int64_t end_gid, auto &edges_snapshot) -> SnapshotPartialRes {
+  auto partial_edge_handler =
+      [&edges, storage, transaction, &snapshot_aborted, &write_mapping_to, &write_edge_record, progress](
+          int64_t start_gid, int64_t end_gid, auto &edges_snapshot) -> SnapshotPartialRes {
     if (start_gid >= end_gid) return {};
 
     auto counter = utils::ResettableCounter{50};  // Counter used to reduce the frequency of checking abort
@@ -10636,17 +10678,9 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
 
       // Store the edge.
-      {
-        edges_snapshot.WriteMarker(Marker::SECTION_EDGE);
-        edges_snapshot.WriteUint(edge.gid.AsUint());
-        const auto &props = maybe_props.value();
-        edges_snapshot.WriteUint(props.size());
-        for (const auto &item : props) {
-          write_mapping_to(edges_snapshot, res.used_ids, item.first);
-          edges_snapshot.WriteExternalPropertyValue(
-              ToExternalPropertyValue(item.second, storage->name_id_mapper_.get()));
-        }
-      }
+      write_edge_record(edges_snapshot, edge.gid.AsUint(), maybe_props.value(), [&](auto pid) {
+        write_mapping_to(edges_snapshot, res.used_ids, pid);
+      });
 
       ++res.count;
       progress_counter.Increment();
@@ -10824,13 +10858,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     for (auto &entry : collected) {
       if (snapshot_aborted()) return;
-      snapshot.WriteMarker(Marker::SECTION_EDGE);
-      snapshot.WriteUint(entry.gid);
-      snapshot.WriteUint(entry.props.size());
-      for (auto const &[pid, val] : entry.props) {
-        write_mapping(pid);
-        snapshot.WriteExternalPropertyValue(ToExternalPropertyValue(val, storage->name_id_mapper_.get()));
-      }
+      write_edge_record(snapshot, entry.gid, entry.props, write_mapping);
       ++edges_count;
       progress_counter.Increment();
       ++items_in_batch;

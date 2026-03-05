@@ -49,7 +49,10 @@ DedicatedArenaResource::~DedicatedArenaResource() {
   // InMemoryStorage satisfies this: ClearLightEdge() drains the graveyard
   // before this destructor runs.
   if (je_mallctl(key.c_str(), nullptr, nullptr, nullptr, 0) != 0) {
-    spdlog::error("DedicatedArenaResource: failed to destroy arena {}", arena_id_);
+    try {
+      spdlog::error("DedicatedArenaResource: failed to destroy arena {}", arena_id_);
+    } catch (...) {  // NOLINT
+    }
   }
 #endif
 }
