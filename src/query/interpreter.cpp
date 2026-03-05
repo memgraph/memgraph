@@ -8877,6 +8877,9 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 
 void Interpreter::Abort() {
 #ifdef MG_ENTERPRISE
+  // Note: if the storage layer already aborted the transaction internally (e.g. PeriodicCommit
+  // constraint violation), CleanupDBTransaction(false) will have been called first, nulling the
+  // accessor. In that case the memory tracking decrement is skipped here.
   if (user_resource_ && current_db_.db_transactional_accessor_) {
     const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker().Amount();
     user_resource_->DecrementTransactionsMemory(leftover);
