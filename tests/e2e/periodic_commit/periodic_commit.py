@@ -107,7 +107,7 @@ def test_periodic_commit_unique_constraint_violation_does_not_crash(memgraph):
 
     # The session must still be usable after the error (no crash, no broken connection).
     result = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN count(n) AS cnt")
-    assert result[0][0] >= 100
+    assert result[0][0] == 100
 
 
 if __name__ == "__main__":
