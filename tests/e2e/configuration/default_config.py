@@ -98,6 +98,7 @@ startup_config_dict = {
         "Controls whether synchronous or asynchronous logger will be used. Options: sync, async",
     ),
     "log_file": ("", "", "Path to where the log should be stored."),
+    "log_retention_days": ("35", "35", "Controls for how many days will daily log files be preserved."),
     "nuraft_log_file": ("", "", "Path to the file where NuRaft logs are saved."),
     "log_level": (
         "WARNING",
