@@ -147,54 +147,47 @@ def test_show_schema_info_with_fine_grained_access_control():
     assert True
 
 
-def test_schema_info_updated_by_security_definer_trigger_with_lbac():
+def test_schema_info_with_matching_any_lbac():
+    """Test that SHOW SCHEMA INFO respects MATCHING ANY semantics for LBAC.
+
+    Regression test for https://github.com/memgraph/memgraph/issues/3809
+
+    When a user has READ permission on a label with MATCHING ANY, they should
+    see nodes in schema info if the node has at least one permitted label,
+    even if the node also has other labels the user doesn't have permission for.
+    """
     admin = get_admin_cursor()
 
     execute_and_fetch_all(admin, "MATCH (n) DETACH DELETE n")
 
-    execute_and_fetch_all(
-        admin,
-        """CREATE TRIGGER add_label_trigger
-           SECURITY DEFINER
-           ON CREATE
-           BEFORE COMMIT
-           EXECUTE
-           UNWIND createdVertices AS newNode
-           WITH newNode
-           SET newNode:TriggerLabel""",
-    )
-
     execute_and_fetch_all(admin, "CREATE USER testuser;")
     execute_and_fetch_all(admin, "CREATE ROLE test_role;")
-    execute_and_fetch_all(
-        admin, "GRANT CREATE, REMOVE, MERGE, MATCH, SET, DELETE, MULTI_DATABASE_USE, MODULE_READ, STATS TO test_role;"
-    )
-    execute_and_fetch_all(admin, "GRANT CREATE ON NODES CONTAINING LABELS * TO test_role;")
-    execute_and_fetch_all(
-        admin, "GRANT READ, UPDATE, DELETE ON NODES CONTAINING LABELS :TriggerLabel MATCHING ANY TO test_role;"
-    )
-    execute_and_fetch_all(admin, "GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO test_role;")
+    execute_and_fetch_all(admin, "GRANT MATCH, STATS TO test_role;")
+    execute_and_fetch_all(admin, "GRANT READ ON NODES CONTAINING LABELS :Visible MATCHING ANY TO test_role;")
     execute_and_fetch_all(admin, "SET ROLE FOR testuser TO test_role;")
 
-    testuser = connect(username="testuser", password="").cursor()
-    execute_and_fetch_all(testuser, "CREATE (:UserLabel {name: 'test node'})")
+    # Create a node with two labels - user only has permission on :Visible
+    execute_and_fetch_all(admin, "CREATE (:Visible:Hidden {name: 'test'})")
 
+    testuser = connect(username="testuser", password="").cursor()
+
+    # User should be able to see the node via MATCH (MATCHING ANY semantics)
     result = execute_and_fetch_all(testuser, "MATCH (n) RETURN labels(n) AS labels")
     assert len(result) == 1, f"Expected 1 node, got {len(result)}"
     labels = result[0][0]
-    assert "UserLabel" in labels, f"Expected 'UserLabel' in labels, got {labels}"
-    assert "TriggerLabel" in labels, f"Expected 'TriggerLabel' in labels (added by trigger), got {labels}"
+    assert "Visible" in labels, f"Expected 'Visible' in labels, got {labels}"
+    assert "Hidden" in labels, f"Expected 'Hidden' in labels, got {labels}"
 
+    # SHOW SCHEMA INFO should also show the node (same MATCHING ANY semantics)
     schema = get_schema_for(testuser)
     nodes = schema["nodes"]
 
     assert len(nodes) == 1, f"Expected 1 node type in schema, got {len(nodes)}: {nodes}"
 
     node_labels = nodes[0]["labels"]
-    assert "UserLabel" in node_labels, f"Expected 'UserLabel' in schema labels, got {node_labels}"
-    assert "TriggerLabel" in node_labels, f"Expected 'TriggerLabel' in schema labels, got {node_labels}"
+    assert "Visible" in node_labels, f"Expected 'Visible' in schema labels, got {node_labels}"
+    assert "Hidden" in node_labels, f"Expected 'Hidden' in schema labels, got {node_labels}"
 
-    execute_and_fetch_all(admin, "DROP TRIGGER add_label_trigger")
     execute_and_fetch_all(admin, "DROP USER testuser")
     execute_and_fetch_all(admin, "DROP ROLE test_role")
 
