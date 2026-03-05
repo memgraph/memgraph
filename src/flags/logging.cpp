@@ -60,7 +60,7 @@ DEFINE_VALIDATED_string(logger_type, "sync",
 // default set to 35 days
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(log_retention_days, 35, "Controls for how many days will daily log files be preserved.",
-                        FLAG_IN_RANGE(1, std::numeric_limits<uint64_t>::max()));
+                        FLAG_IN_RANGE(1, std::numeric_limits<uint16_t>::max()));
 
 inline constexpr std::array log_level_mappings{std::pair{"TRACE"sv, spdlog::level::trace},
                                                std::pair{"DEBUG"sv, spdlog::level::debug},
