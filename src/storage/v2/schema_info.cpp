@@ -390,7 +390,8 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
 template <template <class...> class TContainer>
 nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
-  return ToJson(name_id_mapper, enum_store, [](auto /*value*/) { return true; }, [](auto /*value*/) { return true; });
+  return ToJson(
+      name_id_mapper, enum_store, [](auto const & /*value*/) { return true; }, [](auto /*value*/) { return true; });
 }
 
 template <template <class...> class TContainer>
