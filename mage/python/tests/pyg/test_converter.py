@@ -1,8 +1,10 @@
 # Copyright 2026 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
-# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the
-# Business Source License, and you may not use this file except in compliance with the Business Source License.
+# included in the file licenses/BSL.txt; by using this
+# file, you agree to be bound by the terms of the Business
+# Source License, and you may not use this file except in
+# compliance with the Business Source License.
 #
 # As of the Change Date specified in that file, in accordance with
 # the Business Source License, use of this software will be governed
@@ -213,7 +215,12 @@ class TestMemgraphPyGConverterExport:
         )
 
         assert "labels" in result
-        assert result["labels"] == [["Person"], ["Person"], ["Person", "Admin"]]
+        expected = [
+            ["Person"],
+            ["Person"],
+            ["Person", "Admin"],
+        ]
+        assert result["labels"] == expected
 
     def test_export_with_edge_types(self, simple_graph):
         vertices, edges = simple_graph
@@ -309,7 +316,9 @@ class TestMemgraphPyGConverterImport:
             "labels": [["Person", "User"], ["Person"]],
         }
 
-        nodes_data, _ = MemgraphPyGConverter.prepare_import_data(pyg_dict=pyg_dict)
+        nodes_data, _ = MemgraphPyGConverter.prepare_import_data(
+            pyg_dict=pyg_dict,
+        )
 
         assert nodes_data[0]["labels"] == ["Person", "User"]
         assert nodes_data[1]["labels"] == ["Person"]
@@ -321,7 +330,9 @@ class TestMemgraphPyGConverterImport:
             "edge_types": ["KNOWS", "FOLLOWS"],
         }
 
-        _, edges_data = MemgraphPyGConverter.prepare_import_data(pyg_dict=pyg_dict)
+        _, edges_data = MemgraphPyGConverter.prepare_import_data(
+            pyg_dict=pyg_dict,
+        )
 
         assert edges_data[0]["type"] == "KNOWS"
         assert edges_data[1]["type"] == "FOLLOWS"
@@ -333,7 +344,9 @@ class TestMemgraphPyGConverterImport:
             "y": [0, 1, 1],
         }
 
-        nodes_data, _ = MemgraphPyGConverter.prepare_import_data(pyg_dict=pyg_dict)
+        nodes_data, _ = MemgraphPyGConverter.prepare_import_data(
+            pyg_dict=pyg_dict,
+        )
 
         assert nodes_data[0]["properties"]["y"] == 0
         assert nodes_data[1]["properties"]["y"] == 1
