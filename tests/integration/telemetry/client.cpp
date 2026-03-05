@@ -15,6 +15,7 @@
 #include "glue/auth_checker.hpp"
 #include "glue/auth_global.hpp"
 #include "glue/auth_handler.hpp"
+#include "parameters/parameters.hpp"
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
 #include "telemetry/telemetry.hpp"
@@ -51,14 +52,10 @@ int main(int argc, char **argv) {
       ReplicationStateRootPath(db_config));
 
   memgraph::system::System system_state;
-  memgraph::dbms::DbmsHandler dbms_handler(db_config
-#ifdef MG_ENTERPRISE
-                                           ,
-                                           auth_,
-                                           false
-#endif
-  );
+  memgraph::parameters::Parameters parameters(data_directory / "parameters");
+  memgraph::dbms::DbmsHandler dbms_handler(db_config);
   memgraph::query::InterpreterContext interpreter_context_({},
+                                                           nullptr,
                                                            nullptr,
                                                            &dbms_handler,
                                                            repl_state,
@@ -104,7 +101,7 @@ int main(int argc, char **argv) {
   });
 
   // Memgraph specific collectors
-  telemetry.AddStorageCollector(dbms_handler, auth_);
+  telemetry.AddStorageCollector(dbms_handler, auth_, parameters);
 #ifdef MG_ENTERPRISE
   telemetry.AddDatabaseCollector(dbms_handler);
   telemetry.AddCoordinatorCollector(coord_state);

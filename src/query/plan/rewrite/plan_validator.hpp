@@ -118,9 +118,9 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
 }  // namespace impl
 
 inline bool ValidatePlan(LogicalOperator &root_op, const SymbolTable &symbol_table) {
-  auto rewriter = impl::PlanValidator{symbol_table};
-  root_op.Accept(rewriter);
-  return rewriter.IsValidPlan();
+  auto validator = impl::PlanValidator{symbol_table};
+  root_op.Accept(validator);
+  return validator.IsValidPlan();
 }
 
 }  // namespace memgraph::query::plan

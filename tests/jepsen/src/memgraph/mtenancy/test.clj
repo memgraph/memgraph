@@ -190,6 +190,9 @@
                               (utils/main-unwriteable? e)
                               (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
 
+                              (utils/cannot-get-shared-access? e)
+                              (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
+
                               (or (utils/query-forbidden-on-replica? e)
                                   (utils/query-forbidden-on-main? e))
                               (assoc op :type :info :value (str e))
@@ -220,6 +223,9 @@
                                 (cond
                                   (utils/sync-replica-down? e)
                                   (assoc op :type :ok :value {:str "TTL edges created. SYNC replica is down."})
+
+                                  (utils/cannot-get-shared-access? e)
+                                  (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
 
                                   (utils/main-became-replica? e)
                                   (assoc op :type :info :value {:str "Cannot commit because instance is not main anymore."})
@@ -259,6 +265,9 @@
                                 (cond
                                   (utils/sync-replica-down? e)
                                   (assoc op :type :ok :value {:str "Edges deleted. SYNC replica is down."})
+
+                                  (utils/cannot-get-shared-access? e)
+                                  (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
 
                                   (utils/main-became-replica? e)
                                   (assoc op :type :info :value {:str "Cannot commit because instance is not main anymore."})
@@ -358,6 +367,9 @@
                                   (cond
                                     (utils/sync-replica-down? e)
                                     (assoc op :type :ok :value {:str "SYNC replica is down during import."})
+
+                                    (utils/cannot-get-shared-access? e)
+                                    (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
 
                                     (utils/conflicting-txns? e)
                                     (assoc op :type :info :value {:str "Conflicting txns"})

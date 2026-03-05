@@ -83,6 +83,7 @@ class AuthQuery : public memgraph::query::Query {
     IMPERSONATE_USER,
     PROFILE_RESTRICTION,
     PARALLEL_EXECUTION,
+    SERVER_SIDE_PARAMETERS,
   };
 
   enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE, DELETE, ALL };
@@ -201,6 +202,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::IMPERSONATE_USER,
     AuthQuery::Privilege::PROFILE_RESTRICTION,
     AuthQuery::Privilege::PARALLEL_EXECUTION,
+    AuthQuery::Privilege::SERVER_SIDE_PARAMETERS,
 };
 
 }  // namespace memgraph::query

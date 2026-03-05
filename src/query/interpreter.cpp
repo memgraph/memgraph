@@ -55,6 +55,7 @@
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
+#include "parameters/parameters.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/common.hpp"
 #include "query/config.hpp"
@@ -178,6 +179,20 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
            return std::pair{key_expr.ValueString(), value_expr.ValueString()};
          }) |
          ranges::to<std::map<std::string, std::string, std::less<>>>;
+}
+
+TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expression *> const &config_map,
+                                         ExpressionVisitor<TypedValue> &evaluator,
+                                         memgraph::utils::MemoryResource *memory) {
+  TypedValue::TMap result(memory);
+  for (const auto &[key_expr, value_expr] : config_map) {
+    auto key_tv = key_expr->Accept(evaluator);
+    if (!key_tv.IsString()) {
+      throw memgraph::query::QueryRuntimeException("Parameter config map keys must be strings, got {}.", key_tv.type());
+    }
+    result.emplace(TypedValue::TString(key_tv.ValueString(), memory), value_expr->Accept(evaluator));
+  }
+  return {std::move(result), memory};
 }
 
 }  // namespace
@@ -2301,20 +2316,13 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 }
 #endif
 
-auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
-                               ExpressionVisitor<TypedValue> &evaluator) -> storage::VectorIndexConfigMap {
-  if (config_map.empty()) {
+namespace {
+auto VectorIndexConfigFromTypedMap(std::map<std::string, TypedValue, std::less<>> const &transformed_map)
+    -> storage::VectorIndexConfigMap {
+  if (transformed_map.empty()) {
     throw std::invalid_argument(
         "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
   }
-
-  auto transformed_map = rv::all(config_map) | rv::transform([&evaluator](const auto &pair) {
-                           auto key_expr = pair.first->Accept(evaluator);
-                           auto value_expr = pair.second->Accept(evaluator);
-                           return std::pair{key_expr.ValueString(), value_expr};
-                         }) |
-                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
-
   auto metric_kind_it = transformed_map.find(kMetric);
   auto metric_kind = storage::MetricFromName(
       metric_kind_it != transformed_map.end() ? metric_kind_it->second.ValueString() : kDefaultMetric);
@@ -2338,7 +2346,27 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
   auto scalar_kind_it = transformed_map.find(kScalarKind);
   auto scalar_kind = storage::ScalarFromName(
       scalar_kind_it != transformed_map.end() ? scalar_kind_it->second.ValueString() : kDefaultScalarKind);
-  return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient, scalar_kind};
+  return storage::VectorIndexConfigMap{.metric = metric_kind,
+                                       .dimension = dimension_value,
+                                       .capacity = capacity_value,
+                                       .resize_coefficient = resize_coefficient,
+                                       .scalar_kind = scalar_kind};
+}
+}  // namespace
+
+auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
+                               ExpressionVisitor<TypedValue> &evaluator) -> storage::VectorIndexConfigMap {
+  if (config_map.empty()) {
+    throw std::invalid_argument(
+        "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
+  }
+  auto transformed_map = rv::all(config_map) | rv::transform([&evaluator](const auto &pair) {
+                           auto key_expr = pair.first->Accept(evaluator);
+                           auto value_expr = pair.second->Accept(evaluator);
+                           return std::pair{key_expr.ValueString(), value_expr};
+                         }) |
+                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
+  return VectorIndexConfigFromTypedMap(transformed_map);
 }
 
 stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator) {
@@ -2717,6 +2745,102 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
         }
 
         return results;
+      };
+      return callback;
+    }
+  }
+}
+
+Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters &query_parameters,
+                              InterpreterContext *interpreter_context, Interpreter *interpreter) {
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = query_parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  const auto scope = std::invoke([&]() -> std::string {
+    if (parameter_query->is_global_scope_) return std::string{parameters::kGlobalScope};
+    if (!interpreter->current_db_.db_acc_) {
+      throw QueryRuntimeException("No current database for parameter scope.");
+    }
+    return std::string{interpreter->current_db_.db_acc_->get()->uuid()};
+  });
+  Callback callback;
+  switch (parameter_query->action_) {
+    case ParameterQuery::Action::SET_PARAMETER: {
+      const TypedValue parameter_value = std::visit(
+          [&evaluator, &evaluation_context](auto &&arg) -> TypedValue {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, Expression *>) {
+              return EvaluateOptionalExpression(arg, evaluator);
+            } else {
+              return EvaluateConfigMapToTypedValue(arg, evaluator, evaluation_context.memory);
+            }
+          },
+          parameter_query->parameter_value_);
+      nlohmann::json j;
+      query::to_json(j, parameter_value);
+      auto value_str = j.dump();
+
+      callback.fn = [parameter_name = parameter_query->parameter_name_,
+                     value_str,
+                     parameters = interpreter_context->parameters,
+                     interpreter,
+                     scope]() {
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        auto res = parameters->SetParameter(parameter_name, value_str, scope, &*interpreter->system_transaction_);
+        switch (res) {
+          case parameters::SetParameterResult::Success:
+            break;
+          case parameters::SetParameterResult::StorageError:
+            throw QueryRuntimeException("Failed to set parameter '{}' (storage error).", parameter_name);
+          default:
+            std::unreachable();
+        }
+        spdlog::info("Set parameter '{}' with value '{}' (scope: {})", parameter_name, value_str, scope);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case ParameterQuery::Action::UNSET_PARAMETER: {
+      callback.fn = [parameter_name = parameter_query->parameter_name_,
+                     parameters = interpreter_context->parameters,
+                     interpreter,
+                     scope]() {
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        if (!parameters->UnsetParameter(parameter_name, scope, &*interpreter->system_transaction_)) {
+          throw QueryRuntimeException("Parameter '{}' does not exist", parameter_name);
+        }
+        spdlog::info("Unset parameter '{}' (scope: {})", parameter_name, scope);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case ParameterQuery::Action::SHOW_PARAMETERS: {
+      callback.header = {"name", "value", "scope"};
+      callback.fn = [parameters = interpreter_context->parameters, interpreter]() {
+        std::string db_uuid;
+        if (interpreter->current_db_.db_acc_) db_uuid = std::string{interpreter->current_db_.db_acc_->get()->uuid()};
+        auto all_params = parameters->GetParameters(db_uuid);
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(all_params.size());
+        for (const auto &param : all_params) {
+          results.emplace_back(std::vector<TypedValue>{
+              TypedValue(param.name),
+              TypedValue(param.value),
+              TypedValue(param.scope_context == parameters::kGlobalScope ? "global" : "database")});
+        }
+        return results;
+      };
+      return callback;
+    }
+    case ParameterQuery::Action::DELETE_ALL_PARAMETERS: {
+      callback.fn = [parameters = interpreter_context->parameters, interpreter]() {
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        if (!parameters->DeleteAllParameters(&*interpreter->system_transaction_)) {
+          throw QueryRuntimeException("Failed to delete all parameters");
+        }
+        spdlog::info("Deleted all parameters");
+        return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
     }
@@ -3314,8 +3438,12 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   // wouldn't match up if if we were to reuse the AST (produced by parsing the
   // full query string) when given just the inner query to execute.
   auto inner_query = parsed_query.query_string.substr(kExplainQueryStart.size());
-  ParsedQuery parsed_inner_query = ParseQuery(
-      inner_query, parsed_query.user_parameters, &interpreter_context->ast_cache, interpreter_context->config.query);
+  ParsedQuery parsed_inner_query = ParseQuery(inner_query,
+                                              parsed_query.user_parameters,
+                                              &interpreter_context->ast_cache,
+                                              interpreter_context->config.query,
+                                              std::string{current_db.db_acc_->get()->uuid()},
+                                              interpreter_context->parameters);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
@@ -3407,7 +3535,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   ParsedQuery parsed_inner_query = ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()),
                                               parsed_query.user_parameters,
                                               &interpreter_context->ast_cache,
-                                              interpreter_context->config.query);
+                                              interpreter_context->config.query,
+                                              std::string{current_db.db_acc_->get()->uuid()},
+                                              interpreter_context->parameters);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
 
@@ -4296,13 +4426,26 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   auto index_name = vector_index_query->index_name_;
   auto label_name = vector_index_query->label_.name;
   auto prop_name = vector_index_query->property_.name;
-  auto config = vector_index_query->configs_;
   auto *storage = db_acc->storage();
+  const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context, dba};
   switch (vector_index_query->action_) {
     case VectorIndexQuery::Action::CREATE: {
-      const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
-      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
+      const auto vector_index_config = std::visit(
+          utils::Overloaded{
+              [&evaluator](const ConfigMap &config_map) { return ParseVectorIndexConfigMap(config_map, evaluator); },
+              [&evaluator](Expression *expr) {
+                auto config_tv = expr->Accept(evaluator);
+                if (!config_tv.IsMap()) {
+                  throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
+                }
+                std::map<std::string, TypedValue, std::less<>> transformed_map;
+                for (const auto &[k, v] : config_tv.ValueMap()) {
+                  transformed_map.emplace(std::string(k), v);
+                }
+                return VectorIndexConfigFromTypedMap(transformed_map);
+              }},
+          vector_index_query->config_);
       handler = [dba,
                  storage,
                  vector_index_config,
@@ -4392,12 +4535,25 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
   auto index_name = vector_index_query->index_name_;
   auto edge_type = vector_index_query->edge_type_.name;
   auto prop_name = vector_index_query->property_.name;
-  auto config = vector_index_query->configs_;
   auto *storage = db_acc->storage();
 
   const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
-  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-  auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context, dba};
+  const auto vector_index_config = std::visit(
+      utils::Overloaded{
+          [&evaluator](const ConfigMap &config_map) { return ParseVectorIndexConfigMap(config_map, evaluator); },
+          [&evaluator](Expression *expr) {
+            auto config_tv = expr->Accept(evaluator);
+            if (!config_tv.IsMap()) {
+              throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
+            }
+            std::map<std::string, TypedValue, std::less<>> transformed_map;
+            for (const auto &[k, v] : config_tv.ValueMap()) {
+              transformed_map.emplace(std::string(k), v);
+            }
+            return VectorIndexConfigFromTypedMap(transformed_map);
+          }},
+      vector_index_query->config_);
   handler = [dba,
              storage,
              vector_index_config,
@@ -5082,7 +5238,8 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                                   interpreter_context->config.query,
                                   std::move(owner),
                                   db_name,
-                                  privilege_context);
+                                  privilege_context,
+                                  interpreter_context->parameters);
         memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
         return {};
       }};
@@ -5790,45 +5947,109 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
+
+PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                    InterpreterContext *interpreter_context, Interpreter &interpreter) {
+  if (in_explicit_transaction) {
+    throw SettingConfigInMulticommandTxException{};
+  }
+
+  auto *parameter_query = utils::Downcast<ParameterQuery>(parsed_query.query);
+  MG_ASSERT(parameter_query);
+
+  auto callback = HandleParameterQuery(parameter_query, parsed_query.parameters, interpreter_context, &interpreter);
+
+  return PreparedQuery{
+      .header = std::move(callback.header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (UNLIKELY(!pull_plan)) {
+          pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+        }
+
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+}
 }  // namespace
+
+// NOTE: Strings must match the ones in grammar
+auto TransactionStatusToString(TransactionStatus status) -> char const * {
+  switch (status) {
+    case TransactionStatus::IDLE:
+      return "idle";
+    case TransactionStatus::ACTIVE:
+      return "running";
+    case TransactionStatus::VERIFYING:
+      return "verifying";
+    case TransactionStatus::TERMINATED:
+      return "terminating";
+    case TransactionStatus::STARTED_COMMITTING:
+      return "committing";
+    case TransactionStatus::STARTED_ROLLBACK:
+      return "aborting";
+  }
+  return "unknown";
+}
+
+// Glue: maps the runtime TransactionStatus to the grammar-level filter enum.
+// States that have no user-visible filter keyword (IDLE, VERIFYING, TERMINATED)
+// return nullopt — they are not selectable via SHOW … TRANSACTIONS.
+auto ToStatusFilter(TransactionStatus status) -> std::optional<TransactionQueueQuery::StatusFilter> {
+  using SF = TransactionQueueQuery::StatusFilter;
+  switch (status) {
+    case TransactionStatus::ACTIVE:
+      return SF::RUNNING;
+    case TransactionStatus::STARTED_COMMITTING:
+      return SF::COMMITTING;
+    case TransactionStatus::STARTED_ROLLBACK:
+      return SF::ABORTING;
+    default:
+      return std::nullopt;
+  }
+}
 
 template <typename Func>
 auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
-                      Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
+                      Func &&privilege_checker, const std::vector<TransactionQueueQuery::StatusFilter> &status_filter)
+    -> std::vector<std::vector<TypedValue>> {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    TransactionStatus alive_status = TransactionStatus::ACTIVE;
-    // if it is just checking status, commit and abort should wait for the end of the check
-    // ignore interpreters that already started committing or rollback
-    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+    const auto verifier = interpreter->TryAcquireForVerification();
+    if (!verifier) {
       continue;
     }
-    utils::OnScopeExit clean_status([interpreter]() {
-      interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-    });
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
-
     auto get_interpreter_db_name = [&]() -> std::string {
       return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
     };
-
     auto same_user = [](const auto &lv, const auto &rv) {
       if (lv.get() == rv) return true;
       if (lv && rv) return *lv == *rv;
       return false;
     };
-
     if (transaction_id.has_value() && (same_user(interpreter->user_or_role_, user_or_role) ||
                                        privilege_checker(user_or_role, get_interpreter_db_name()))) {
+      auto const runtime_status = verifier->status();
+      if (!status_filter.empty()) {
+        auto const sf = ToStatusFilter(runtime_status);
+        if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
+      }
       const auto &typed_queries = interpreter->GetQueries();
       results.push_back(
           {TypedValue(interpreter->user_or_role_
                           ? (interpreter->user_or_role_->username() ? *interpreter->user_or_role_->username() : "")
                           : ""),
            TypedValue(std::to_string(transaction_id.value())),
-           TypedValue(typed_queries)});
-      // Handle user-defined metadata
+           TypedValue(typed_queries),
+           TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
+      // metadata_ is safe to read — we hold CAS protection (status is VERIFYING,
+      // cleanup paths spin-wait before modifying fields)
       std::map<std::string, TypedValue> metadata_tv;
       if (interpreter->metadata_) {
         for (const auto &md : *(interpreter->metadata_)) {
@@ -5854,13 +6075,46 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
       auto show_transactions = [user_or_role = std::move(user_or_role),
-                                privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
-        return ShowTransactions(interpreters, user_or_role.get(), privilege_checker);
+                                privilege_checker = std::move(privilege_checker),
+                                status_filter = transaction_query->status_filter_](const auto &interpreters) {
+        return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
       };
-      callback.header = {"username", "transaction_id", "query", "metadata"};
-      callback.fn = [interpreter_context, show_transactions = std::move(show_transactions)] {
-        // Multiple simultaneous SHOW TRANSACTIONS aren't allowed
-        return interpreter_context->interpreters.WithLock(show_transactions);
+      callback.header = {"username", "transaction_id", "query", "status", "metadata"};
+      // Snapshot rows always have status "running"; skip them entirely if the filter
+      // is active and RUNNING is not among the requested statuses.
+      const bool include_snapshots =
+          transaction_query->status_filter_.empty() ||
+          std::ranges::contains(transaction_query->status_filter_, TransactionQueueQuery::StatusFilter::RUNNING);
+      callback.fn = [interpreter_context, show_transactions = std::move(show_transactions), include_snapshots] {
+        auto results = interpreter_context->interpreters.WithLock(show_transactions);
+        // Append synthetic rows for running snapshots (background/periodic/exit)
+        if (include_snapshots && interpreter_context->dbms_handler) {
+          interpreter_context->dbms_handler->ForEach([&results](auto db_acc) {
+            auto *storage = db_acc->storage();
+            if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
+            auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
+            if (!mem_storage->IsSnapshotRunning()) return;
+            auto progress = mem_storage->GetSnapshotProgress();
+            // Build progress metadata
+            std::map<std::string, TypedValue> metadata;
+            metadata["phase"] = TypedValue(storage::SnapshotProgress::PhaseToString(progress.phase));
+            metadata["items_done"] = TypedValue(static_cast<int64_t>(progress.items_done));
+            metadata["items_total"] = TypedValue(static_cast<int64_t>(progress.items_total));
+            if (progress.start_time_us > 0) {
+              auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+              metadata["elapsed_ms"] = TypedValue(static_cast<int64_t>((now_us - progress.start_time_us) / 1000));
+            }
+            metadata["db_name"] = TypedValue(db_acc->name());
+            results.push_back({TypedValue(""),
+                               TypedValue("snapshot"),
+                               TypedValue(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")}),
+                               TypedValue("running"),
+                               TypedValue(metadata)});
+          });
+        }
+        return results;
       };
       break;
     }
@@ -6306,6 +6560,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
             {TypedValue("allocation_limit"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
+            {TypedValue("graph_memory_tracked"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
+            {TypedValue("vector_index_memory_tracked"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::vector_index_memory_tracker.Amount())))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
             {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
             {TypedValue("next_session_isolation_level"),
@@ -7900,8 +8158,14 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     const utils::Timer parsing_timer;
     LogQueryMessage("Query parsing started.");
-    ParsedQuery parsed_query = ParseQuery(
-        query_string, params_getter(nullptr), &interpreter_context_->ast_cache, interpreter_context_->config.query);
+    std::string database_uuid;
+    if (current_db_.db_acc_) database_uuid = std::string{current_db_.db_acc_->get()->uuid()};
+    ParsedQuery parsed_query = ParseQuery(query_string,
+                                          params_getter(nullptr),
+                                          &interpreter_context_->ast_cache,
+                                          interpreter_context_->config.query,
+                                          database_uuid,
+                                          interpreter_context_->parameters);
     auto parsing_time = parsing_timer.Elapsed().count();
     LogQueryMessage("Query parsing ended.");
     return Interpreter::ParseInfo{.parsed_query = std::move(parsed_query), .parsing_time = parsing_time};
@@ -7952,6 +8216,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(ReplicationInfoQuery & /*unused*/) override {}
 
   void Visit(CoordinatorQuery & /*unused*/) override {}
+
+  void Visit(ParameterQuery & /*unused*/) override {}
 
   // No database access required (but need current database)
   void Visit(SystemInfoQuery & /*unused*/) override {}
@@ -8139,8 +8405,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 
     SetupInterpreterTransaction(extras);
-    LogQueryMessage(
-        fmt::format("Query [{}] associated with transaction [{}]", parsed_query.query_string, *current_transaction_));
+    LogQueryMessage(fmt::format(
+        "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0)));
   }
 
   auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -8191,7 +8457,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
     bool system_queries =
         utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
-        utils::Downcast<ReplicationQuery>(parsed_query.query) || utils::Downcast<UserProfileQuery>(parsed_query.query);
+        utils::Downcast<ReplicationQuery>(parsed_query.query) ||
+        utils::Downcast<UserProfileQuery>(parsed_query.query) || utils::Downcast<ParameterQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
     auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
@@ -8223,7 +8490,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (current_db_.db_acc_) {
       // fix parameters, enums requires storage to map to correct enum value
       parsed_query.user_parameters = params_getter(current_db_.db_acc_->get()->storage());
-      parsed_query.parameters = PrepareQueryParameters(parsed_query.stripped_query, parsed_query.user_parameters);
+      parsed_query.parameters = PrepareQueryParameters(parsed_query.stripped_query,
+                                                       parsed_query.user_parameters,
+                                                       interpreter_context_->parameters,
+                                                       std::string{current_db_.db_acc_->get()->uuid()});
     }
 
 #ifdef MG_ENTERPRISE
@@ -8422,6 +8692,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+    } else if (utils::Downcast<ParameterQuery>(parsed_query.query)) {
+      /// SYSTEM PURE
+      prepared_query =
+          PrepareParameterQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, *this);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
@@ -8582,10 +8856,11 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAcc
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
+  auto tx_id = interpreter_context_->id_handler.next();
+  current_transaction_ = tx_id;
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-  current_transaction_ = interpreter_context_->id_handler.next();
   if (query_logger_) {
-    query_logger_->SetTransactionId(std::to_string(*current_transaction_));
+    query_logger_->SetTransactionId(std::to_string(tx_id));
   }
   metadata_ = GenOptional(extras.metadata_pv);
 }
@@ -8602,6 +8877,9 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 
 void Interpreter::Abort() {
 #ifdef MG_ENTERPRISE
+  // Note: if the storage layer already aborted the transaction internally (e.g. PeriodicCommit
+  // constraint violation), CleanupDBTransaction(false) will have been called first, nulling the
+  // accessor. In that case the memory tracking decrement is skipped here.
   if (user_resource_ && current_db_.db_transactional_accessor_) {
     const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker().Amount();
     user_resource_->DecrementTransactionsMemory(leftover);
@@ -8623,25 +8901,44 @@ void Interpreter::Abort() {
   system_transaction_.reset();
 
   // Data tx
+  // CAS ACTIVE → STARTED_ROLLBACK. Also accept TERMINATED and IDLE (already dead/cleaned up).
+  // Use CAS (not unconditional store) for TERMINATED/IDLE to avoid racing with ShowTransactions
+  // which may have CAS'd the status to VERIFYING.
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
     if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
-      transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
       decrement = false;
-      break;
+      // Retry CAS from the current expected value (compare_exchange_weak already updated expected)
+      continue;
     }
+    // VERIFYING or other transient states — wait for ShowTransactions/TerminateTransactions to restore
     expected = TransactionStatus::ACTIVE;
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  // Cleanup: transition to IDLE, then clear fields.
+  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_ROLLBACK
+  // when done reading, allowing us to proceed.
+  const utils::OnScopeExit clean_status([this]() {
+    auto expected = TransactionStatus::STARTED_ROLLBACK;
+    while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+      if (expected == TransactionStatus::VERIFYING) {
+        expected = TransactionStatus::STARTED_ROLLBACK;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
+      // Unexpected state — force IDLE to avoid deadlock
+      transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+      break;
+    }
+    // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
+    current_transaction_.reset();
+    metadata_ = std::nullopt;
+  });
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
-  metadata_ = std::nullopt;
   current_timeout_timer_.reset();
-  current_transaction_.reset();
 
   if (decrement) {
     // Decrement only if the transaction was active when we started to Abort
@@ -8654,6 +8951,23 @@ void Interpreter::Abort() {
     if (qe) qe->CleanRuntimeData();
   }
   frame_change_collector_.reset();
+}
+
+std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() {
+  constexpr std::array valid_statuses = {
+      TransactionStatus::ACTIVE, TransactionStatus::STARTED_COMMITTING, TransactionStatus::STARTED_ROLLBACK};
+  TransactionStatus status = transaction_status_.load(std::memory_order_acquire);
+  if (std::ranges::find(valid_statuses, status) == valid_statuses.end()) {
+    // Transaction is not in a state we can verify
+    return std::nullopt;
+  }
+  // CAS to VERIFYING to own the transaction
+  if (transaction_status_.compare_exchange_strong(
+          status, TransactionStatus::VERIFYING, std::memory_order_acq_rel, std::memory_order_acquire)) {
+    return TxVerifier{status, transaction_status_};
+  }
+  // CAS failed, return to avoid busy loops
+  return std::nullopt;
 }
 
 namespace {
@@ -8802,10 +9116,12 @@ void Interpreter::Commit() {
   // For now, we will not check if there are some unfinished queries.
   // We should document clearly that all results should be pulled to complete
   // a query.
-  current_transaction_.reset();
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
-    if (!system_transaction_) return;
+    if (!system_transaction_) {
+      current_transaction_.reset();
+      return;
+    }
 
     // TODO Distinguish between data and system transaction state
     // Think about updating the status to a struct with bitfield
@@ -8819,6 +9135,7 @@ void Interpreter::Commit() {
       // What we are trying to do is set the transaction back to IDLE
       // We cannot simply put it to IDLE, since the status is used as a synchronization method and we have to follow
       // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
+      // ShowTransactions may also CAS us to VERIFYING — the CAS loop naturally spin-waits on that.
       auto expected = TransactionStatus::ACTIVE;
       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
         if (expected == TransactionStatus::TERMINATED) {
@@ -8827,16 +9144,20 @@ void Interpreter::Commit() {
         expected = TransactionStatus::ACTIVE;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
+      // Status is now IDLE — safe to clear fields
+      current_transaction_.reset();
     });
 
     auto const main_commit = [&](replication::RoleMainData &mainData) {
-    // Only enterprise can do system replication
+    // With valid enterprise license: replicate all. Without license: only parameter-only transactions replicate.
 #ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast()) {
+      if (license::global_license_checker.IsEnterpriseValidFast() || system_transaction_->CanReplicateInCommunity()) {
         return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
       }
-#endif
       return system_transaction_->Commit(memgraph::system::DoNothing{});
+#else
+      return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
+#endif
     };
 
     auto const replica_commit = [&](replication::RoleReplicaData &) {
@@ -8865,9 +9186,24 @@ void Interpreter::Commit() {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
-  // Clean transaction status if something went wrong
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  // Clean transaction status on exit.
+  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_COMMITTING
+  // when done reading, allowing us to proceed.
+  const utils::OnScopeExit clean_status([this]() {
+    auto expected = TransactionStatus::STARTED_COMMITTING;
+    while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+      if (expected == TransactionStatus::VERIFYING) {
+        expected = TransactionStatus::STARTED_COMMITTING;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
+      // Unexpected state — force IDLE to avoid deadlock
+      transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+      break;
+    }
+    // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
+    current_transaction_.reset();
+  });
 
   auto current_storage_mode = db->GetStorageMode();
   auto creation_mode = current_db_.db_transactional_accessor_->GetCreationStorageMode();

@@ -255,7 +255,8 @@ class DeltaCorrectnessTest : public ::testing::TestWithParam<TestCase> {
     auto vertex = acc->FindVertex(GetGid(op.vertex), ms::View::OLD);
     ASSERT_TRUE(vertex.has_value()) << "Vertex not found";
     auto const guard = std::shared_lock{vertex->vertex_->lock};
-    EXPECT_EQ(vertex->vertex_->has_uncommitted_non_sequential_deltas, op.expected_has_uncommitted_non_sequential_deltas)
+    EXPECT_EQ(vertex->vertex_->has_uncommitted_non_sequential_deltas(),
+              op.expected_has_uncommitted_non_sequential_deltas)
         << "Flag check failed for " << (op.vertex == VId::V1 ? "V1" : "V2");
   }
 

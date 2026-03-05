@@ -47,6 +47,7 @@ target_sources(mg-utils
     exponential_backoff.hpp
     fixed_string.hpp
     memory_layout.hpp
+    pointer_pack.hpp
     small_vector.hpp
     static_vector.hpp
     logging.hpp

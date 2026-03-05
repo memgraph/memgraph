@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,9 +15,7 @@
 #include "utils/uuid.hpp"
 
 #include <gtest/gtest.h>
-#include <iostream>
 #include <nlohmann/json.hpp>
-#include <optional>
 #include <string>
 
 using namespace memgraph::replication::durability;
@@ -25,6 +23,42 @@ using namespace memgraph::replication;
 using namespace memgraph::replication_coordination_glue;
 using namespace memgraph::io::network;
 using memgraph::utils::UUID;
+
+TEST(ReplicationDurability, V5MainMissingDeltasBatchProgressSize) {
+  // Simulate JSON written by old code (pre-V6) that lacks the field
+  auto json = nlohmann::json{
+      {"durability_version", DurabilityVersion::V5},
+      {"replication_role", ReplicationRole::MAIN},
+      {"main_uuid", UUID{}},
+  };
+
+  ReplicationRoleEntry deser;
+  from_json(json, deser);
+  ASSERT_EQ(deser.deltas_batch_progress_size, 100'000);
+}
+
+TEST(ReplicationDurability, V6Main) {
+  auto const role_entry = ReplicationRoleEntry{
+      .version = DurabilityVersion::V6, .role = MainRole{.main_uuid = UUID{}}, .deltas_batch_progress_size = 10'000};
+  nlohmann::json json_data;
+  to_json(json_data, role_entry);
+  ReplicationRoleEntry deser;
+  from_json(json_data, deser);
+  ASSERT_EQ(role_entry, deser);
+}
+
+TEST(ReplicationDurability, V6Replica) {
+  auto const role_entry = ReplicationRoleEntry{
+      .version = DurabilityVersion::V6,
+      .role = ReplicaRole{.config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)},
+                          .main_uuid = UUID{}},
+      .deltas_batch_progress_size = 10'000};
+  nlohmann::json j;
+  to_json(j, role_entry);
+  ReplicationRoleEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(role_entry, deser);
+}
 
 TEST(ReplicationDurability, V3Main) {
   auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V3, .role = MainRole{.main_uuid = UUID{}}};

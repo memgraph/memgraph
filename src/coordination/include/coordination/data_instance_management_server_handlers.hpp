@@ -14,7 +14,6 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_rpc.hpp"
 #include "coordination/data_instance_management_server.hpp"
 #include "replication_handler/replication_handler.hpp"
 
@@ -54,6 +53,10 @@ class DataInstanceManagementServerHandlers {
 
   static auto DoRegisterReplica(replication::ReplicationHandler &replication_handler,
                                 coordination::ReplicationClientInfo const &config) -> bool;
+
+  static void UpdateDeltasBatchProgressSizeHandler(replication::ReplicationHandler &replication_handler,
+                                                   uint64_t request_version, slk::Reader *req_reader,
+                                                   slk::Builder *res_builder);
 };
 
 }  // namespace memgraph::dbms

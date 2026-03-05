@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@ struct InstanceStateV1 {
   bool is_writing_enabled;          // on replica it's never enabled. On main depends.
 };
 
-struct InstanceState {
+struct InstanceStateV2 {
   bool is_replica;                                               // MAIN or REPLICA
   std::optional<utils::UUID> uuid;                               // MAIN's UUID or the UUID which REPLICA listens
   bool is_writing_enabled;                                       // on replica it's never enabled. On main depends.
@@ -37,6 +37,15 @@ struct InstanceState {
   InstanceStateV1 Downgrade() const {
     return {.is_replica = is_replica, .uuid = uuid, .is_writing_enabled = is_writing_enabled};
   }
+};
+
+struct InstanceState {
+  InstanceStateV2 inner_state;
+  // Added in version 3
+  uint64_t deltas_batch_progress_size;
+
+  // Follows the logic of other RPC versioning code. For responses, we downgrade newer version to the older version
+  InstanceStateV2 Downgrade() const { return inner_state; }
 };
 
 }  // namespace memgraph::coordination

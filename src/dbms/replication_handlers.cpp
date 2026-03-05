@@ -11,10 +11,9 @@
 
 #include "dbms/replication_handlers.hpp"
 
-#include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/rpc.hpp"
-#include "storage/v2/storage.hpp"
+#include "license/license.hpp"
 #include "system/state.hpp"
 
 #include "rpc/utils.hpp"

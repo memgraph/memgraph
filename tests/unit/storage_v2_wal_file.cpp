@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+#include <unordered_map>
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
@@ -82,6 +83,30 @@ class DeltaGenerator final {
       return &it;
     }
 
+    memgraph::storage::Edge *CreateEdge(memgraph::storage::Vertex *from, memgraph::storage::Vertex *to,
+                                        const std::string &edge_type) {
+      auto gid = memgraph::storage::Gid::FromUint(gen_->edges_count_++);
+      auto edge_type_id = memgraph::storage::EdgeTypeId::FromUint(gen_->mapper().NameToId(edge_type));
+      auto delta = memgraph::storage::CreateDeleteObjectDelta(&transaction_);
+      auto &edge = gen_->edges_.emplace_back(gid, delta);
+      if (delta != nullptr) {
+        delta->prev.Set(&edge);
+      }
+      auto edge_ref = memgraph::storage::EdgeRef(&edge);
+      memgraph::storage::CreateAndLinkDelta(
+          &transaction_, from, memgraph::storage::Delta::RemoveOutEdgeTag(), edge_type_id, to, edge_ref);
+      from->out_edges.emplace_back(edge_type_id, to, edge_ref);
+      memgraph::storage::CreateAndLinkDelta(
+          &transaction_, to, memgraph::storage::Delta::RemoveInEdgeTag(), edge_type_id, from, edge_ref);
+      to->in_edges.emplace_back(edge_type_id, from, edge_ref);
+      gen_->edge_metadata_[gid.AsUint()] = {edge_type_id, from, to};
+      if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return &edge;
+      {
+        data_.emplace_back(memgraph::storage::durability::WalEdgeCreate{gid, edge_type, from->gid, to->gid});
+      }
+      return &edge;
+    }
+
     void DeleteVertex(memgraph::storage::Vertex *vertex) {
       memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::RecreateObjectTag());
       if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
@@ -129,10 +154,28 @@ class DeltaGenerator final {
       }
     }
 
+    void SetEdgeProperty(memgraph::storage::Edge *edge, memgraph::storage::Vertex *from_vertex,
+                         const std::string &property, const memgraph::storage::PropertyValue &value) {
+      auto property_id = memgraph::storage::PropertyId::FromUint(gen_->mapper().NameToId(property));
+      auto old_value = edge->properties.GetProperty(property_id);
+      memgraph::storage::CreateAndLinkDelta(
+          &transaction_, edge, memgraph::storage::Delta::SetPropertyTag(), from_vertex, property_id, old_value);
+      edge->properties.SetProperty(property_id, value);
+      if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
+      {
+        data_.emplace_back(memgraph::storage::durability::WalEdgeSetProperty{edge->gid, property, {}});
+      }
+    }
+
     void Finalize(bool append_transaction_end = true) {
       auto commit_timestamp = gen_->timestamp_++;
       if (transaction_.deltas.empty()) return;
+      uint64_t encoded_deltas = 0;
       for (const auto &delta : transaction_.deltas) {
+        if (delta.action == memgraph::storage::Delta::Action::ADD_IN_EDGE ||
+            delta.action == memgraph::storage::Delta::Action::REMOVE_IN_EDGE) {
+          continue;
+        }
         auto owner = delta.prev.Get();
         while (owner.type == memgraph::storage::PreviousPtr::Type::DELTA) {
           owner = owner.delta->prev.Get();
@@ -140,15 +183,24 @@ class DeltaGenerator final {
         if (owner.type == memgraph::storage::PreviousPtr::Type::VERTEX) {
           gen_->wal_file_.AppendDelta(delta, owner.vertex, commit_timestamp, gen_->storage_.get());
         } else if (owner.type == memgraph::storage::PreviousPtr::Type::EDGE) {
-          gen_->wal_file_.AppendDelta(delta, owner.edge, commit_timestamp, gen_->storage_.get());
+          // Only SET_PROPERTY deltas are encoded for edges; DELETE_OBJECT etc. are not WAL-encoded.
+          if (delta.action != memgraph::storage::Delta::Action::SET_PROPERTY) continue;
+          auto it = gen_->edge_metadata_.find(owner.edge->gid.AsUint());
+          auto in_vertex_gid =
+              (it != gen_->edge_metadata_.end()) ? it->second.to_vertex->gid : memgraph::storage::kInvalidGid;
+          auto edge_type_id =
+              (it != gen_->edge_metadata_.end()) ? it->second.edge_type_id : memgraph::storage::kInvalidEdgeTypeId;
+          gen_->wal_file_.AppendDelta(
+              delta, owner.edge, commit_timestamp, gen_->storage_.get(), in_vertex_gid, edge_type_id);
         } else {
           LOG_FATAL("Invalid delta owner!");
         }
+        ++encoded_deltas;
       }
       if (append_transaction_end) {
         gen_->wal_file_.AppendTransactionEnd(commit_timestamp);
         if (gen_->valid_) {
-          gen_->UpdateStats(commit_timestamp, transaction_.deltas.size() + 1);
+          gen_->UpdateStats(commit_timestamp, encoded_deltas + 1);
           for (auto &data : data_) {
             auto set_property = std::get_if<memgraph::storage::durability::WalVertexSetProperty>(&data.data_);
             if (set_property) {
@@ -160,6 +212,17 @@ class DeltaGenerator final {
                   memgraph::storage::PropertyId::FromUint(gen_->mapper().NameToId(set_property->property));
               set_property->value = memgraph::storage::ToExternalPropertyValue(
                   vertex->properties.GetProperty(property_id), gen_->storage_->name_id_mapper_.get());
+            }
+            auto edge_set_property = std::get_if<memgraph::storage::durability::WalEdgeSetProperty>(&data.data_);
+            if (edge_set_property) {
+              auto edge = std::find_if(gen_->edges_.begin(), gen_->edges_.end(), [&](const auto &e) {
+                return e.gid == edge_set_property->gid;
+              });
+              ASSERT_NE(edge, gen_->edges_.end());
+              auto property_id =
+                  memgraph::storage::PropertyId::FromUint(gen_->mapper().NameToId(edge_set_property->property));
+              edge_set_property->value = memgraph::storage::ToExternalPropertyValue(
+                  edge->properties.GetProperty(property_id), gen_->storage_->name_id_mapper_.get());
             }
             gen_->data_.emplace_back(commit_timestamp, data);
           }
@@ -211,6 +274,8 @@ class DeltaGenerator final {
         storage_mode_(storage_mode) {}
 
   Transaction CreateTransaction() { return Transaction(this); }
+
+  void EraseEdgeMetadata(memgraph::storage::Gid edge_gid) { edge_metadata_.erase(edge_gid.AsUint()); }
 
   void ResetTransactionIds() {
     transaction_id_ = memgraph::storage::kTransactionInitialId;
@@ -573,7 +638,18 @@ class DeltaGenerator final {
   uint64_t transaction_id_{memgraph::storage::kTransactionInitialId};
   uint64_t timestamp_{memgraph::storage::kTimestampInitialId};
   uint64_t vertices_count_{0};
+  uint64_t edges_count_{0};
   std::list<memgraph::storage::Vertex> vertices_;
+  std::list<memgraph::storage::Edge> edges_;
+
+  struct EdgeMeta {
+    memgraph::storage::EdgeTypeId edge_type_id;
+    memgraph::storage::Vertex *from_vertex;
+    memgraph::storage::Vertex *to_vertex;
+  };
+
+  std::unordered_map<uint64_t, EdgeMeta> edge_metadata_;
+
   std::unique_ptr<memgraph::storage::InMemoryStorage> storage_;
   memgraph::storage::EnumStore enum_store_;
 
@@ -635,6 +711,41 @@ void AssertWalDataEqual(const DeltaGenerator::DataT &data, const std::filesystem
   }
   ASSERT_EQ(data.size(), current.size());
   ASSERT_EQ(data, current);
+}
+
+struct ExpectedEdgeSetPropertyFields {
+  memgraph::storage::Gid edge_gid;
+  memgraph::storage::Gid from_gid;
+  memgraph::storage::Gid to_gid;
+  std::string edge_type;
+};
+
+void AssertEdgeSetPropertyFields(const std::filesystem::path &path,
+                                 const std::vector<ExpectedEdgeSetPropertyFields> &expected) {
+  auto info = memgraph::storage::durability::ReadWalInfo(path);
+  memgraph::storage::durability::Decoder wal;
+  wal.Initialize(path, memgraph::storage::durability::kWalMagic);
+  wal.SetPosition(info.offset_deltas);
+
+  std::vector<ExpectedEdgeSetPropertyFields> actual;
+  for (uint64_t i = 0; i < info.num_deltas; ++i) {
+    memgraph::storage::durability::ReadWalDeltaHeader(&wal);
+    auto delta_data = memgraph::storage::durability::ReadWalDeltaData(&wal);
+    if (auto *esp = std::get_if<memgraph::storage::durability::WalEdgeSetProperty>(&delta_data.data_)) {
+      actual.push_back({esp->gid,
+                        esp->from_gid.value_or(memgraph::storage::Gid::FromUint(0)),
+                        esp->to_gid.value_or(memgraph::storage::Gid::FromUint(0)),
+                        esp->edge_type.value_or("")});
+    }
+  }
+
+  ASSERT_EQ(expected.size(), actual.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    EXPECT_EQ(expected[i].edge_gid.AsUint(), actual[i].edge_gid.AsUint()) << "edge_gid mismatch at index " << i;
+    EXPECT_EQ(expected[i].from_gid.AsUint(), actual[i].from_gid.AsUint()) << "from_gid mismatch at index " << i;
+    EXPECT_EQ(expected[i].to_gid.AsUint(), actual[i].to_gid.AsUint()) << "to_gid mismatch at index " << i;
+    EXPECT_EQ(expected[i].edge_type, actual[i].edge_type) << "edge_type mismatch at index " << i;
+  }
 }
 
 class WalFileTest : public ::testing::TestWithParam<bool> {
@@ -838,6 +949,158 @@ GENERATE_SIMPLE_TEST(AllTransactionOperationsWithoutEnd, {
     tx.DeleteVertex(vertex1);
   });
 });
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, EdgeCreateWithEnd) {
+  if (!GetParam()) GTEST_SKIP() << "Edge operations require properties_on_edges";
+
+  memgraph::storage::durability::WalInfo info;
+  DeltaGenerator::DataT data;
+
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, {
+      auto vertex1 = tx.CreateVertex();
+      auto vertex2 = tx.CreateVertex();
+      tx.CreateEdge(vertex1, vertex2, "KNOWS");
+    });
+    info = gen.GetInfo();
+    data = gen.GetData();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  AssertWalInfoEqual(info, memgraph::storage::durability::ReadWalInfo(wal_files.front()));
+  AssertWalDataEqual(data, wal_files.front());
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, EdgeSetPropertyWithEnd) {
+  if (!GetParam()) GTEST_SKIP() << "Edge set property requires properties_on_edges";
+
+  memgraph::storage::durability::WalInfo info;
+  DeltaGenerator::DataT data;
+
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, {
+      auto vertex1 = tx.CreateVertex();
+      auto vertex2 = tx.CreateVertex();
+      auto *edge = tx.CreateEdge(vertex1, vertex2, "KNOWS");
+      tx.SetEdgeProperty(edge, vertex1, "weight", memgraph::storage::PropertyValue(3.14));
+    });
+    info = gen.GetInfo();
+    data = gen.GetData();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  AssertWalInfoEqual(info, memgraph::storage::durability::ReadWalInfo(wal_files.front()));
+  AssertWalDataEqual(data, wal_files.front());
+
+  using Gid = memgraph::storage::Gid;
+  AssertEdgeSetPropertyFields(wal_files.front(), {{Gid::FromUint(0), Gid::FromUint(0), Gid::FromUint(1), "KNOWS"}});
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, EdgeSetPropertyMultiple) {
+  if (!GetParam()) GTEST_SKIP() << "Edge set property requires properties_on_edges";
+
+  memgraph::storage::durability::WalInfo info;
+  DeltaGenerator::DataT data;
+
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, {
+      auto vertex1 = tx.CreateVertex();
+      auto vertex2 = tx.CreateVertex();
+      auto *edge = tx.CreateEdge(vertex1, vertex2, "KNOWS");
+      tx.SetEdgeProperty(edge, vertex1, "weight", memgraph::storage::PropertyValue(1.0));
+      tx.SetEdgeProperty(edge, vertex1, "weight", memgraph::storage::PropertyValue(2.0));
+      tx.SetEdgeProperty(edge, vertex1, "weight", memgraph::storage::PropertyValue());
+      tx.SetEdgeProperty(edge, vertex1, "name", memgraph::storage::PropertyValue("edge1"));
+    });
+    info = gen.GetInfo();
+    data = gen.GetData();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  AssertWalInfoEqual(info, memgraph::storage::durability::ReadWalInfo(wal_files.front()));
+  AssertWalDataEqual(data, wal_files.front());
+
+  using Gid = memgraph::storage::Gid;
+  AssertEdgeSetPropertyFields(wal_files.front(),
+                              {{Gid::FromUint(0), Gid::FromUint(0), Gid::FromUint(1), "KNOWS"},
+                               {Gid::FromUint(0), Gid::FromUint(0), Gid::FromUint(1), "KNOWS"},
+                               {Gid::FromUint(0), Gid::FromUint(0), Gid::FromUint(1), "KNOWS"},
+                               {Gid::FromUint(0), Gid::FromUint(0), Gid::FromUint(1), "KNOWS"}});
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, MixedVertexAndEdgeOperations) {
+  if (!GetParam()) GTEST_SKIP() << "Edge set property requires properties_on_edges";
+
+  memgraph::storage::durability::WalInfo info;
+  DeltaGenerator::DataT data;
+
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, {
+      auto vertex1 = tx.CreateVertex();
+      auto vertex2 = tx.CreateVertex();
+      tx.AddLabel(vertex1, "Person");
+      tx.SetProperty(vertex1, "name", memgraph::storage::PropertyValue("Alice"));
+      auto *edge = tx.CreateEdge(vertex1, vertex2, "KNOWS");
+      tx.SetEdgeProperty(edge, vertex1, "since", memgraph::storage::PropertyValue(2020));
+      tx.AddLabel(vertex2, "Person");
+      tx.SetProperty(vertex2, "name", memgraph::storage::PropertyValue("Bob"));
+    });
+    info = gen.GetInfo();
+    data = gen.GetData();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  AssertWalInfoEqual(info, memgraph::storage::durability::ReadWalInfo(wal_files.front()));
+  AssertWalDataEqual(data, wal_files.front());
+
+  using Gid = memgraph::storage::Gid;
+  AssertEdgeSetPropertyFields(wal_files.front(), {{Gid::FromUint(0), Gid::FromUint(0), Gid::FromUint(1), "KNOWS"}});
+}
+
+// Simulates the case where an edge is created and its property is set in the same
+// transaction. In production, RecordEdgeSetPropertyInfo is not called for edges
+// created in the current transaction, so kInvalidGid and empty edge type are written.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, EdgeSetPropertyCreatedInSameTransaction) {
+  if (!GetParam()) GTEST_SKIP() << "Edge set property requires properties_on_edges";
+
+  memgraph::storage::durability::WalInfo info;
+  DeltaGenerator::DataT data;
+
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    auto tx = gen.CreateTransaction();
+    auto vertex1 = tx.CreateVertex();
+    auto vertex2 = tx.CreateVertex();
+    auto *edge = tx.CreateEdge(vertex1, vertex2, "KNOWS");
+    tx.SetEdgeProperty(edge, vertex1, "weight", memgraph::storage::PropertyValue(42));
+    gen.EraseEdgeMetadata(edge->gid);
+    tx.Finalize(true);
+    info = gen.GetInfo();
+    data = gen.GetData();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  AssertWalInfoEqual(info, memgraph::storage::durability::ReadWalInfo(wal_files.front()));
+  AssertWalDataEqual(data, wal_files.front());
+
+  using Gid = memgraph::storage::Gid;
+  AssertEdgeSetPropertyFields(wal_files.front(),
+                              {{Gid::FromUint(0), Gid::FromUint(0), memgraph::storage::kInvalidGid, ""}});
+}
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(MultiOpTransaction, {

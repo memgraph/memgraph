@@ -15,6 +15,7 @@
 #include "query/exceptions.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/tracked_vector_allocator.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "usearch/index_dense.hpp"
 #include "utils/synchronized.hpp"
@@ -26,7 +27,8 @@ namespace memgraph::storage {
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
 // operations.
-using mg_vector_edge_index_t = unum::usearch::index_dense_gt<VectorEdgeIndex::EdgeIndexEntry, unum::usearch::uint40_t>;
+using mg_vector_edge_index_t = unum::usearch::index_dense_gt<VectorEdgeIndex::EdgeIndexEntry, unum::usearch::uint40_t,
+                                                             TrackedVectorAllocator<64>, TrackedVectorAllocator<8>>;
 
 using SyncVectorEdgeIndex = utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>;
 
@@ -69,7 +71,7 @@ using EdgeIndexEntry = VectorEdgeIndex::EdgeIndexEntry;
 void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec, Vertex &from_vertex,
                         std::optional<SnapshotObserverInfo> const &snapshot_info,
                         std::optional<std::size_t> thread_id = std::nullopt) {
-  if (from_vertex.deleted) {
+  if (from_vertex.deleted()) {
     return;
   }
   for (auto &edge_tuple : from_vertex.out_edges) {
@@ -77,11 +79,11 @@ void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec
       continue;
     }
     auto *to_vertex = std::get<kVertexPos>(edge_tuple);
-    if (to_vertex->deleted) {
+    if (to_vertex->deleted()) {
       continue;
     }
     auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
-    if (edge->deleted) {
+    if (edge->deleted()) {
       continue;
     }
     auto property = edge->properties.GetProperty(spec.property);
@@ -264,7 +266,7 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
   const auto result_keys =
       locked_index->filtered_search(query_vector.data(), result_set_size, [](const EdgeIndexEntry &entry) {
         auto guard = std::shared_lock{entry.edge->lock};
-        return !entry.from_vertex->deleted && !entry.to_vertex->deleted && !entry.edge->deleted;
+        return !entry.from_vertex->deleted() && !entry.to_vertex->deleted() && !entry.edge->deleted();
       });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &entry = static_cast<EdgeIndexEntry>(result_keys[i].member.key);
@@ -300,9 +302,12 @@ void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<EdgeIndexEntry> edges_to_remove(index_size);
     locked_index->export_keys(edges_to_remove.data(), 0, index_size);
 
+    // size() and export_keys() are not atomic — a concurrent add/remove can cause
+    // size() > slot_lookup_.size(), leaving trailing value-initialized entries in the buffer.
     auto deleted = edges_to_remove | rv::filter([](const EdgeIndexEntry &entry) {
+                     if (entry.edge == nullptr) return false;
                      auto guard = std::shared_lock{entry.edge->lock};
-                     return entry.edge->deleted;
+                     return entry.edge->deleted();
                    });
     for (const auto &entry : deleted) {
       locked_index->remove(entry);

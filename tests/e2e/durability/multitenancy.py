@@ -89,5 +89,92 @@ def test_mt_with_hidden_files(test_name):
     execute_and_fetch_all(cursor, "RETURN 0")
 
 
+def test_recovery_on_startup_false_recovers_tenants_but_not_data(test_name):
+    """With data-recovery-on-startup=false, tenant databases exist after restart but their data is not recovered.
+    Snapshots are preserved in .backup directories."""
+    instances = {
+        "with_recovery": {
+            "args": [
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=true",
+                "--storage-wal-enabled=true",
+                "--storage-snapshot-on-exit=false",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/with_recovery.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_1",
+        },
+        "no_recovery": {
+            "args": [
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+                "--storage-wal-enabled=true",
+                "--storage-snapshot-on-exit=false",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/no_recovery.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_1",
+        },
+    }
+
+    # Phase 1: start with recovery, create two tenants, add data, snapshot both, stop
+    interactive_mg_runner.start(instances, "with_recovery")
+    conn = connect(host="localhost", port=7687)
+    cursor = conn.cursor()
+
+    execute_and_fetch_all(cursor, "CREATE DATABASE tenant_db_1;")
+    execute_and_fetch_all(cursor, "CREATE DATABASE tenant_db_2;")
+
+    execute_and_fetch_all(cursor, "USE DATABASE tenant_db_1;")
+    execute_and_fetch_all(cursor, "CREATE (n:Node {id: 1});")
+    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+
+    execute_and_fetch_all(cursor, "USE DATABASE tenant_db_2;")
+    execute_and_fetch_all(cursor, "CREATE (n:Node {id: 2});")
+    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+
+    interactive_mg_runner.kill_all()
+
+    # Phase 2: restart with data-recovery-on-startup=false
+    interactive_mg_runner.start(instances, "no_recovery")
+    conn = connect(host="localhost", port=7687)
+    cursor = conn.cursor()
+
+    # Both tenants are recovered: they should exist
+    databases = execute_and_fetch_all(cursor, "SHOW DATABASES;")
+    db_names = [row[0] for row in databases]
+    assert "tenant_db_1" in db_names, f"Expected tenant_db_1 in SHOW DATABASES, got {db_names}"
+    assert "tenant_db_2" in db_names, f"Expected tenant_db_2 in SHOW DATABASES, got {db_names}"
+
+    # Data is not recovered: both tenants should be empty
+    execute_and_fetch_all(cursor, "USE DATABASE tenant_db_1;")
+    count_result = execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n) AS c;")
+    assert count_result[0][0] == 0, f"Expected 0 nodes in tenant_db_1, got {count_result[0][0]}"
+
+    execute_and_fetch_all(cursor, "USE DATABASE tenant_db_2;")
+    count_result = execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n) AS c;")
+    assert count_result[0][0] == 0, f"Expected 0 nodes in tenant_db_2, got {count_result[0][0]}"
+
+    # Verify .backup directories contain the original snapshots for both tenants
+    build_dir = os.path.join(interactive_mg_runner.PROJECT_DIR, "build", "e2e", "data")
+    data_dir = os.path.join(build_dir, get_data_path(file, test_name), "instance_1")
+    databases_dir = os.path.join(data_dir, "databases")
+
+    tenant_backup_dirs = [
+        os.path.join(databases_dir, d, ".backup", "snapshots")
+        for d in os.listdir(databases_dir)
+        if os.path.isdir(os.path.join(databases_dir, d, ".backup", "snapshots"))
+    ]
+    assert len(tenant_backup_dirs) == 2, f"Expected .backup/snapshots for 2 tenants, found {len(tenant_backup_dirs)}"
+    for backup_dir in tenant_backup_dirs:
+        assert len(os.listdir(backup_dir)) > 0, f"Expected snapshot files in {backup_dir}, found none"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

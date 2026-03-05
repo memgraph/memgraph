@@ -23,6 +23,7 @@
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/snapshot_progress.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
@@ -97,13 +98,11 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
                                   utils::FileRetainer *file_retainer);
 
-std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
-                                                    const std::filesystem::path &snapshot_directory,
-                                                    const std::filesystem::path &wal_directory,
-                                                    utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                                    utils::UUID const &uuid, std::string_view epoch_id,
-                                                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
-                                                    utils::FileRetainer *file_retainer,
-                                                    std::atomic_bool *abort_snapshot = nullptr);
+std::optional<std::filesystem::path> CreateSnapshot(
+    Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
+    const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+    utils::UUID const &uuid, std::string_view epoch_id,
+    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
+    std::atomic_bool *abort_snapshot = nullptr, SnapshotProgress *progress = nullptr);
 
 }  // namespace memgraph::storage::durability

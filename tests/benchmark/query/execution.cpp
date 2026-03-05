@@ -154,7 +154,7 @@ static void Distinct(benchmark::State &state) {
         .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = plan_and_cost.first->MakeCursor(memory.get());
+    auto cursor = plan_and_cost.plan->MakeCursor(memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());

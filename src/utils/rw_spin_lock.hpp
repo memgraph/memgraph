@@ -96,6 +96,15 @@ struct RWSpinLock {
     }
   }
 
+  bool try_lock_shared() {
+    auto const phase = std::atomic_ref{lock_status_}.fetch_add(READER, std::memory_order_acq_rel);
+    if ((phase & UNIQUE_LOCKED) != UNIQUE_LOCKED) [[likely]] {
+      return true;
+    }
+    std::atomic_ref{lock_status_}.fetch_sub(READER, std::memory_order_release);
+    return false;
+  }
+
   void unlock_shared() { std::atomic_ref{lock_status_}.fetch_sub(READER, std::memory_order_release); }
 
   bool is_locked() const { return std::atomic_ref{lock_status_}.load(std::memory_order_acquire) != 0; }

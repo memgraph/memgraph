@@ -331,19 +331,19 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
               "PeriodicCommit warning: At least one SYNC replica has not confirmed the "
               "commit.");
         } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
-          spdlog::warn(
-              "PeriodicCommit warning: At least one STRICT_SYNC replica has not confirmed committing last transaction. "
+          throw PeriodicCommitException(
+              "PeriodicCommit failed: At least one STRICT_SYNC replica has not confirmed committing last transaction. "
               "Transaction will be aborted on all instances.");
         } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
-          throw QueryException(
+          throw PeriodicCommitException(
               "PeriodicCommit failed: Unable to commit due to constraint "
               "violation.");
         } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
-          throw QueryException("PeriodicCommit failed: Unable to commit due to serialization error.");
+          throw PeriodicCommitException("PeriodicCommit failed: Unable to commit due to serialization error.");
         } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
-          throw QueryException("PeriodicCommit failed: Unable to commit due to persistence error.");
+          throw PeriodicCommitException("PeriodicCommit failed: Unable to commit due to persistence error.");
         } else if constexpr (std::is_same_v<ErrorType, storage::ReplicaShouldNotWriteError>) {
-          throw QueryException("PeriodicCommit failed: Queries on replica shouldn't write.");
+          throw PeriodicCommitException("PeriodicCommit failed: Queries on replica shouldn't write.");
         } else {
           static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
         }
@@ -1797,7 +1797,11 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
                bool existing_node, storage::View view)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(std::move(input_symbol)),
-      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
+      common_{.node_symbol = node_symbol,
+              .edge_symbol = edge_symbol,
+              .direction = direction,
+              .edge_types = edge_types,
+              .existing_node = existing_node},
       view_(view) {}
 
 ACCEPT_WITH_INPUT(Expand)
@@ -2061,7 +2065,11 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
                                std::optional<Symbol> total_weight, Expression *limit)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(std::move(input_symbol)),
-      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
+      common_{.node_symbol = node_symbol,
+              .edge_symbol = edge_symbol,
+              .direction = direction,
+              .edge_types = edge_types,
+              .existing_node = existing_node},
       type_(type),
       is_reverse_(is_reverse),
       lower_bound_(lower_bound),
@@ -2075,7 +2083,7 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
                  type_ == EdgeAtom::Type::KSHORTEST,
              "ExpandVariable can only be used with breadth first, depth first, "
              "weighted shortest path, all shortest paths or bfs all paths type");
-  DMG_ASSERT(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse), "Breadth first expansion can't be reversed");
+  // Note: BFS can be reversed - when is_reverse is true, edges are ordered from node_symbol to input_symbol
   DMG_ASSERT(type_ == EdgeAtom::Type::KSHORTEST || limit_ == nullptr,
              "Limit is only supported for KSHORTEST path expansion");
 }
@@ -2688,11 +2696,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         processed_(mem),
         to_visit_next_(mem),
         to_visit_current_(mem) {
-    MG_ASSERT(!self_.common_.existing_node,
-              "Single source shortest path algorithm "
-              "should not be used when `existing_node` "
-              "flag is set, s-t shortest path algorithm "
-              "should be used instead!");
+    DMG_ASSERT(!self_.common_.existing_node,
+               "Single source shortest path algorithm "
+               "should not be used when `existing_node` "
+               "flag is set, s-t shortest path algorithm "
+               "should be used instead!");
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -2867,7 +2875,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       frame_writer.Write(self_.common_.node_symbol, curr_vertex);
 
       // place edges on the frame in the correct order
-      std::reverse(edge_list.begin(), edge_list.end());
+      // If is_reverse_ is false, reverse to get source-to-destination order (input_symbol -> node_symbol)
+      // If is_reverse_ is true, keep as-is to get destination-to-source order (node_symbol -> input_symbol)
+      if (!self_.is_reverse_) {
+        std::ranges::reverse(edge_list);
+      }
       frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
 
       return true;
@@ -4219,24 +4231,29 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ExpandVariableOperator);
 
   switch (type_) {
-    case EdgeAtom::Type::BREADTH_FIRST:
-      if (common_.existing_node) {
-        return MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem);
-      } else {
-        return MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
-      }
-    case EdgeAtom::Type::DEPTH_FIRST:
+    case EdgeAtom::Type::BREADTH_FIRST: {
+      return common_.existing_node ? MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem)
+                                   : MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
+    }
+    case EdgeAtom::Type::DEPTH_FIRST: {
       return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem);
-    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
+    }
+    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH: {
       return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem);
-    case EdgeAtom::Type::ALL_SHORTEST_PATHS:
+    }
+    case EdgeAtom::Type::ALL_SHORTEST_PATHS: {
       return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem);
-    case EdgeAtom::Type::KSHORTEST:
+    }
+    case EdgeAtom::Type::KSHORTEST: {
       return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem);
-    case EdgeAtom::Type::SINGLE:
+    }
+    case EdgeAtom::Type::SINGLE: {
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
+    }
+    default:
+      std::unreachable();
   }
-}
+}  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
 
 std::string ExpandVariable::ToString() const {
   return fmt::format(
@@ -4269,6 +4286,7 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
     object->weight_lambda_ = std::nullopt;
   }
   object->total_weight_ = total_weight_;
+  object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
   return object;
 }
 
@@ -7215,16 +7233,15 @@ class DistinctParallelCursor : public Cursor {
 
     AbortCheck(context);
 
+    // Initialize local cache if not already done
+    // Reuse same memory resource for all pulls
     if (local_cache_.empty()) {
       local_cache_.resize(kLocalCacheBatchSize,
                           Frame(static_cast<int64_t>(frame.elems().size()), shared_state_->GetMemoryResource()));
-      local_seen_.reserve(kLocalCacheBatchSize);
     }
 
     // Return from local cache if available
-    if (unique_count_ > 0) {
-      std::swap(frame, local_cache_[unique_count_ - 1]);
-      unique_count_--;
+    if (PullFromLocalCache(frame)) {
       return true;
     }
     // Refill local cache by pulling a batch from input
@@ -7232,8 +7249,8 @@ class DistinctParallelCursor : public Cursor {
       const auto res = RefillCacheAndPull(frame, context);
       if (res) return true;
       if (pulled_all_) {
-        // NOTE Not safe, because execution memory will be destroyed independent of the worker thread
         // TODO Postpone state destruction to another worker thread
+        // NOTE Not safe, because execution memory will be destroyed independent of the worker thread
         // if (context.worker_pool) {
         //   context.worker_pool->ScheduledAddTask([shared_state = std::move(shared_state_)](auto /* unused */) {},
         //                                         utils::Priority::LOW);
@@ -7252,6 +7269,7 @@ class DistinctParallelCursor : public Cursor {
     }
     local_cache_.clear();
     local_seen_.clear();
+    local_batch_.clear();
   }
 
  private:
@@ -7259,37 +7277,40 @@ class DistinctParallelCursor : public Cursor {
     if (pulled_all_) return false;
     utils::MemoryResource *row_mem = shared_state_->GetMemoryResource();
 
-    // Clear local seen set for next batch
-    local_seen_.clear();
+    // Clear local state for next batch
+    local_batch_.clear();
     unique_count_ = 0;
+    current_index_ = 0;
+    local_batch_.reserve(kLocalCacheBatchSize);
+    local_seen_.reserve(local_seen_.size() + kLocalCacheBatchSize);
 
     // Pull batch of rows from input, deduplicating locally first
-    while (local_seen_.size() < kLocalCacheBatchSize) {
+    while (local_batch_.size() < kLocalCacheBatchSize) {
       if (!input_cursor_->Pull(frame, context)) {
         pulled_all_ = true;
         break;  // Input exhausted
       }
 
-      // Build the distinct key row
       utils::pmr::vector<TypedValue> row(row_mem);
       row.reserve(self_.value_symbols_.size());
       for (const auto &symbol : self_.value_symbols_) {
         row.emplace_back(frame.at(symbol));
       }
 
-      // Local deduplication within batch using local_seen_ set
-      if (local_seen_.insert(std::move(row)).second) {
-        std::swap(local_cache_[local_seen_.size() - 1], frame);
+      // NOTE: Not clearing local seen to speed up deduplication (revisit this later if memory usage is too high)
+      // local_seen_ for O(1) dedup, local_batch_ preserves insertion order
+      if (local_seen_.insert(row).second) {
+        local_batch_.emplace_back(std::move(row));
+        std::swap(local_cache_[local_batch_.size() - 1], frame);
       }
     }
 
-    if (local_seen_.empty()) {
-      // Input exhausted and no cached items
+    if (local_batch_.empty()) {
       return false;
     }
 
-    // Batch check against global shared state
-    auto uniqueness = shared_state_->TryInsertBatch(local_seen_);
+    // Batch check against global shared state using insertion-order vector
+    auto uniqueness = shared_state_->TryInsertBatch(local_batch_);
     for (size_t i = 0; i < uniqueness.size(); ++i) {
       if (uniqueness[i]) {
         if (unique_count_ != i) {
@@ -7299,12 +7320,16 @@ class DistinctParallelCursor : public Cursor {
       }
     }
 
-    if (unique_count_ > 0) {
-      std::swap(frame, local_cache_[unique_count_ - 1]);
-      unique_count_--;
+    return PullFromLocalCache(frame);
+  }
+
+  bool PullFromLocalCache(Frame &frame) {
+    if (current_index_ < unique_count_) {
+      std::swap(frame, local_cache_[current_index_]);
+      current_index_++;
       return true;
     }
-    // All pulled items were duplicates globally, try again
+    // All pulled items were duplicates locally, try again
     return false;
   }
 
@@ -7319,9 +7344,11 @@ class DistinctParallelCursor : public Cursor {
   std::shared_ptr<SharedDistinctState> shared_state_;
   // Local set for deduplication within batches (parallel mode)
   RowSet local_seen_;
-  // Local cache of unique frames for parallel mode (avoids per-row global locking)
+  // Rows in insertion order — used for TryInsertBatch so indices match local_cache_
+  std::vector<utils::pmr::vector<TypedValue>> local_batch_;
   std::vector<Frame> local_cache_;
   size_t unique_count_{0};
+  size_t current_index_{0};
   bool pulled_all_{false};
 };
 #endif
@@ -9685,7 +9712,7 @@ UniqueCursorPtr ScanParallelByLabel::MakeCursor(utils::MemoryResource *mem) cons
 }
 
 std::string ScanParallelByLabel::ToString() const {
-  return fmt::format("ScanParallelByLabel (threads: {}, label: {})", num_threads_, label_.AsUint());
+  return fmt::format("ScanParallelByLabel (threads: {}, :{})", num_threads_, dba_->LabelToName(label_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByLabel::Clone(AstStorage *storage) const {
@@ -9719,7 +9746,7 @@ UniqueCursorPtr ScanParallelByEdgeType::MakeCursor(utils::MemoryResource *mem) c
 }
 
 std::string ScanParallelByEdgeType::ToString() const {
-  return fmt::format("ScanParallelByEdgeType (threads: {}, edge_type: {})", num_threads_, edge_type_.AsUint());
+  return fmt::format("ScanParallelByEdgeType (threads: {}, -[:{}]-)", num_threads_, dba_->EdgeTypeToName(edge_type_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeType::Clone(AstStorage *storage) const {
@@ -9776,7 +9803,15 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
 }
 
 std::string ScanParallelByLabelProperties::ToString() const {
-  return fmt::format("ScanParallelByLabelProperties (threads: {}, label: {})", num_threads_, label_.AsUint());
+  auto const property_names = properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
+                                return storage::ToString(property_path, dba_);
+                              }) |
+                              ranges::to_vector;
+  auto const properties_stringified = utils::Join(property_names, ", ");
+  return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {{{2}}})",
+                     num_threads_,
+                     dba_->LabelToName(label_),
+                     properties_stringified);
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage *storage) const {
@@ -9816,10 +9851,10 @@ UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource
 }
 
 std::string ScanParallelByEdgeTypeProperty::ToString() const {
-  return fmt::format("ScanParallelByEdgeTypeProperty (threads: {}, edge_type: {}, property: {})",
+  return fmt::format("ScanParallelByEdgeTypeProperty (threads: {}, -[:{}]- {{{}}})",
                      num_threads_,
-                     edge_type_.AsUint(),
-                     property_.AsUint());
+                     dba_->EdgeTypeToName(edge_type_),
+                     dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypeProperty::Clone(AstStorage *storage) const {
@@ -9871,10 +9906,10 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
 }
 
 std::string ScanParallelByEdgeTypePropertyRange::ToString() const {
-  return fmt::format("ScanParallelByEdgeTypePropertyRange (threads: {}, edge_type: {}, property: {})",
+  return fmt::format("ScanParallelByEdgeTypePropertyRange (threads: {}, -[:{}]- {{{}}})",
                      num_threads_,
-                     edge_type_.AsUint(),
-                     property_.AsUint());
+                     dba_->EdgeTypeToName(edge_type_),
+                     dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyRange::Clone(AstStorage *storage) const {
@@ -9918,7 +9953,8 @@ UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *me
 }
 
 std::string ScanParallelByEdgeProperty::ToString() const {
-  return fmt::format("ScanParallelByEdgeProperty (threads: {}, property: {})", num_threads_, property_.AsUint());
+  return fmt::format(
+      "ScanParallelByEdgeProperty (threads: {}, -[]- {{{}}})", num_threads_, dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeProperty::Clone(AstStorage *storage) const {
@@ -9955,7 +9991,8 @@ UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResourc
 }
 
 std::string ScanParallelByEdgePropertyValue::ToString() const {
-  return fmt::format("ScanParallelByEdgePropertyValue (threads: {}, property: {})", num_threads_, property_.AsUint());
+  return fmt::format(
+      "ScanParallelByEdgePropertyValue (threads: {}, -[]- {{{}}})", num_threads_, dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyValue::Clone(AstStorage *storage) const {
@@ -10007,7 +10044,8 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
 }
 
 std::string ScanParallelByEdgePropertyRange::ToString() const {
-  return fmt::format("ScanParallelByEdgePropertyRange (threads: {}, property: {})", num_threads_, property_.AsUint());
+  return fmt::format(
+      "ScanParallelByEdgePropertyRange (threads: {}, -[]- {{{}}})", num_threads_, dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyRange::Clone(AstStorage *storage) const {
@@ -10049,7 +10087,13 @@ UniqueCursorPtr ScanParallelByEdge::MakeCursor(utils::MemoryResource * /*mem*/) 
 }
 
 std::string ScanParallelByEdge::ToString() const {
-  return fmt::format("ScanParallelByEdge (threads: {})", num_threads_);
+  return fmt::format("ScanParallelByEdge (threads: {}, ({}){}[{}]{}({}))",
+                     num_threads_,
+                     node1_symbol_.name(),
+                     direction_ == query::EdgeAtom::Direction::IN ? "<-" : "-",
+                     edge_symbol_.name(),
+                     direction_ == query::EdgeAtom::Direction::OUT ? "->" : "-",
+                     node2_symbol_.name());
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdge::Clone(AstStorage *storage) const {
@@ -10099,10 +10143,10 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryRes
 }
 
 std::string ScanParallelByEdgeTypePropertyValue::ToString() const {
-  return fmt::format("ScanParallelByEdgeTypePropertyValue (threads: {}, edge_type: {}, property: {})",
+  return fmt::format("ScanParallelByEdgeTypePropertyValue (threads: {}, -[:{}]- {{{}}})",
                      num_threads_,
-                     edge_type_.AsUint(),
-                     property_.AsUint());
+                     dba_->EdgeTypeToName(edge_type_),
+                     dba_->PropertyToName(property_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyValue::Clone(AstStorage *storage) const {

@@ -7,15 +7,15 @@ Stress test suite for evaluating Memgraph performance and stability under variou
 
 ### Run All Workloads for a Deployment Type
 ```sh
-./continuous_integration --deployment docker_ha
-./continuous_integration --deployment native_standalone
-./continuous_integration --deployment native_ha
-./continuous_integration --deployment eks_ha
+./continuous_integration --deployment ha/docker
+./continuous_integration --deployment standalone/native
+./continuous_integration --deployment ha/native
+./continuous_integration --deployment ha/eks
 ```
 
 ### Run a Specific Workload
 ```sh
-./continuous_integration --workload docker_ha/workloads/rag/workload.yaml
+./continuous_integration --workload ha/native/show_replicas_deadlock.yaml
 ```
 
 ## Workload Registry
@@ -23,7 +23,7 @@ Stress test suite for evaluating Memgraph performance and stability under variou
 Each deployment folder has a `workloads.yaml` file that registers which workloads to run:
 
 ```yaml
-# docker_ha/workloads.yaml
+# ha/docker/workloads.yaml
 workloads:
   - config: workloads/rag/workload.yaml
     enabled: true
@@ -34,9 +34,9 @@ workloads:
 
 ### Adding a New Workload
 
-1. Create folder with workload config: `docker_ha/workloads/my_workload/workload.yaml`
-2. Register in `workloads.yaml`: `- config: workloads/my_workload/workload.yaml`
-3. Run: `./continuous_integration --deployment docker_ha`
+1. Create workload folder: `ha/workloads/my_workload/workload.py` + `ha/workloads/my_workload/workload.yaml`
+2. Register in deployment's `workloads.yaml`: `- config: ../workloads/my_workload/workload.yaml`
+3. Run: `./continuous_integration --deployment ha/docker`
 
 To skip a workload, set `enabled: false` in the registry.
 
@@ -63,7 +63,7 @@ memgraph:
     # If value is empty, the variable will be inherited from the shell environment.
     MEMGRAPH_ENTERPRISE_LICENSE: "<license-key>"
     MEMGRAPH_ORGANIZATION_NAME: "<org-name>"
-    # Enable Prometheus monitoring (for docker_ha deployments)
+    # Enable Prometheus monitoring (for ha/docker deployments)
     ENABLE_MONITORING: "true"  # Starts Prometheus exporter on port 9100
 ```
 
@@ -145,11 +145,11 @@ export MEMGRAPH_ORGANIZATION_NAME="your-org-name"
 Examples:
 ```sh
 # Run by deployment type
-./continuous_integration --deployment docker_ha
-./continuous_integration --deployment native_ha
+./continuous_integration --deployment ha/docker
+./continuous_integration --deployment ha/native
 
 # Run specific workload
-./continuous_integration --workload native_standalone/workloads/config_small.yaml
+./continuous_integration --workload standalone/native/workloads/config_small.yaml
 ```
 
 ## Monitoring with Prometheus & Grafana
@@ -157,7 +157,7 @@ Examples:
 For Docker HA deployments, enable monitoring with `ENABLE_MONITORING=true`:
 
 ```sh
-ENABLE_MONITORING=true ./docker_ha/deployment/deployment.sh start
+ENABLE_MONITORING=true ./ha/docker/deployment/deployment.sh start
 ```
 
 This starts:
@@ -166,7 +166,7 @@ This starts:
 
 ## EKS Deployment
 
-Use `eks_ha/deployment/deployment.sh` to deploy Memgraph HA on AWS EKS.
+Use `ha/eks/deployment/deployment.sh` to deploy Memgraph HA on AWS EKS.
 
 ### Prerequisites
 
@@ -175,7 +175,7 @@ Use `eks_ha/deployment/deployment.sh` to deploy Memgraph HA on AWS EKS.
 ### Quick Start
 
 ```sh
-cd eks_ha/deployment
+cd ha/eks/deployment
 
 # Configure license in values.yaml, then:
 ./deployment.sh start    # Create cluster and deploy

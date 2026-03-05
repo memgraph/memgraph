@@ -3079,6 +3079,16 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::PARALLEL_EXECUTION},
                    {},
                    {});
+  check_auth_query(&ast_generator,
+                   "GRANT SERVER_SIDE_PARAMETERS TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {AuthQuery::Privilege::SERVER_SIDE_PARAMETERS},
+                   {},
+                   {});
 
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges{};
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges{};
@@ -3534,6 +3544,16 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    {AuthQuery::Privilege::PARALLEL_EXECUTION},
                    {},
                    {});
+  check_auth_query(&ast_generator,
+                   "DENY SERVER_SIDE_PARAMETERS TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {AuthQuery::Privilege::SERVER_SIDE_PARAMETERS},
+                   {},
+                   {});
 }
 
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
@@ -3712,6 +3732,16 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
                    "user",
                    {},
                    {AuthQuery::Privilege::PARALLEL_EXECUTION},
+                   {},
+                   {});
+  check_auth_query(&ast_generator,
+                   "REVOKE SERVER_SIDE_PARAMETERS FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {AuthQuery::Privilege::SERVER_SIDE_PARAMETERS},
                    {},
                    {});
 

@@ -52,6 +52,7 @@ RpcCounter(DemoteMainToReplicaRpc)
 RpcCounter(RegisterReplicaOnMainRpc)
 RpcCounter(SwapMainUUIDRpc)
 RpcCounter(GetDatabaseHistoriesRpc)
+RpcCounter(UpdateDataInstanceConfigRpc)
 // clang-format on
 
 }  // namespace memgraph::metrics
@@ -59,7 +60,7 @@ RpcCounter(GetDatabaseHistoriesRpc)
 namespace memgraph::http {
 
 // NOLINTNEXTLINE
-inline const static std::array<metrics::Event, 26> coord_counters_to_reset{metrics::SuccessfulFailovers,
+inline const static std::array<metrics::Event, 28> coord_counters_to_reset{metrics::SuccessfulFailovers,
                                                                            metrics::RaftFailedFailovers,
                                                                            metrics::NoAliveInstanceFailedFailovers,
                                                                            metrics::BecomeLeaderSuccess,
@@ -84,7 +85,9 @@ inline const static std::array<metrics::Event, 26> coord_counters_to_reset{metri
                                                                            metrics::SwapMainUUIDRpcFail,
                                                                            metrics::SwapMainUUIDRpcSuccess,
                                                                            metrics::GetDatabaseHistoriesRpcFail,
-                                                                           metrics::GetDatabaseHistoriesRpcSuccess};
+                                                                           metrics::GetDatabaseHistoriesRpcSuccess,
+                                                                           metrics::UpdateDataInstanceConfigRpcFail,
+                                                                           metrics::UpdateDataInstanceConfigRpcSuccess};
 
 struct MetricsResponse {
   uint64_t vertex_count;

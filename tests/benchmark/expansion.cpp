@@ -47,6 +47,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     interpreter_context.emplace(memgraph::query::InterpreterConfig{},
                                 nullptr,
                                 nullptr,
+                                nullptr,
                                 repl_state.value(),
                                 *system
 #ifdef MG_ENTERPRISE

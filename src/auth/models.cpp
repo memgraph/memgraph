@@ -90,6 +90,7 @@ const std::vector<Permission> kPermissionsAll = {
     Permission::IMPERSONATE_USER,
     Permission::PROFILE_RESTRICTION,
     Permission::PARALLEL_EXECUTION,
+    Permission::SERVER_SIDE_PARAMETERS,
 };
 
 #ifdef MG_ENTERPRISE
@@ -176,6 +177,8 @@ std::string PermissionToString(Permission permission) {
       return "PROFILE_RESTRICTION";
     case Permission::PARALLEL_EXECUTION:
       return "PARALLEL_EXECUTION";
+    case Permission::SERVER_SIDE_PARAMETERS:
+      return "SERVER_SIDE_PARAMETERS";
   }
 }
 
@@ -512,9 +515,6 @@ void FineGrainedAccessPermissions::RevokeAll(const FineGrainedPermission fine_gr
 }
 
 nlohmann::json FineGrainedAccessPermissions::Serialize() const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return {};
-  }
   nlohmann::json data = nlohmann::json::object();
   if (global_permission_) {
     data[kGlobalPermission] = global_permission_.value();
@@ -538,9 +538,6 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
 FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load permissions data!");
-  }
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return FineGrainedAccessPermissions{};
   }
 
   std::optional<uint64_t> global_permission = std::nullopt;
@@ -612,9 +609,6 @@ const FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissi
 FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissions() { return edge_type_permissions_; }
 
 nlohmann::json FineGrainedAccessHandler::Serialize() const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return {};
-  }
   nlohmann::json data = nlohmann::json::object();
   data[kLabelPermissions] = label_permissions_.Serialize();
   data[kEdgeTypePermissions] = edge_type_permissions_.Serialize();
@@ -622,9 +616,6 @@ nlohmann::json FineGrainedAccessHandler::Serialize() const {
 }
 
 FineGrainedAccessHandler FineGrainedAccessHandler::Deserialize(const nlohmann::json &data) {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return FineGrainedAccessHandler{};
-  }
   if (!data.is_object()) {
     throw AuthException("Couldn't load fine grained access data!");
   }
@@ -712,15 +703,9 @@ nlohmann::json Role::Serialize() const {
   data[kRoleName] = rolename_;
   data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
-    data[kDatabases] = db_access_.Serialize();
-    data[kUserImp] = user_impersonation_;
-  } else {
-    data[kFineGrainedPermissions] = {};
-    data[kDatabases] = {};
-    data[kUserImp] = {};
-  }
+  data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
+  data[kDatabases] = db_access_.Serialize();
+  data[kUserImp] = user_impersonation_;
 #endif
   return data;
 }
@@ -739,36 +724,34 @@ Role Role::Deserialize(const nlohmann::json &data) {
   }
   auto permissions = Permissions::Deserialize(*permissions_it);
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    Databases db_access;
-    auto db_access_it = data.find(kDatabases);
-    if (db_access_it != data.end() && db_access_it->is_structured()) {
-      db_access = Databases::Deserialize(*db_access_it);
-    } else {
-      spdlog::warn("Role without specified database access. Given access to the default database.");
-    }
-
-    FineGrainedAccessHandler fine_grained_access_handler{};
-    // We can have an empty fine_grained if the user was created without a valid license
-    auto fine_grainged_access_it = data.find(kFineGrainedPermissions);
-    if (fine_grainged_access_it != data.end() && fine_grainged_access_it->is_object()) {
-      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(*fine_grainged_access_it);
-    } else {
-      spdlog::warn("Role without fine grained access. Defaulting to none.");
-    }
-
-    std::optional<UserImpersonation> usr_imp = std::nullopt;
-    auto imp_data = data.find(kUserImp);
-    if (imp_data != data.end()) {
-      usr_imp = imp_data->get<std::optional<UserImpersonation>>();
-    } else {
-      spdlog::warn("Role without impersonation information; defaulting to no impersonation ability.");
-    }
-    return {
-        *role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access), std::move(usr_imp)};
+  Databases db_access;
+  auto db_access_it = data.find(kDatabases);
+  if (db_access_it != data.end() && db_access_it->is_structured()) {
+    db_access = Databases::Deserialize(*db_access_it);
+  } else {
+    spdlog::warn("Role without specified database access. Given access to the default database.");
   }
-#endif
+
+  FineGrainedAccessHandler fine_grained_access_handler{};
+  // We can have an empty fine_grained if the user was created without a valid license
+  auto fine_grainged_access_it = data.find(kFineGrainedPermissions);
+  if (fine_grainged_access_it != data.end() && fine_grainged_access_it->is_object()) {
+    fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(*fine_grainged_access_it);
+  } else {
+    spdlog::warn("Role without fine grained access. Defaulting to none.");
+  }
+
+  std::optional<UserImpersonation> usr_imp = std::nullopt;
+  auto imp_data = data.find(kUserImp);
+  if (imp_data != data.end()) {
+    usr_imp = imp_data->get<std::optional<UserImpersonation>>();
+  } else {
+    spdlog::warn("Role without impersonation information; defaulting to no impersonation ability.");
+  }
+  return {*role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access), std::move(usr_imp)};
+#else
   return {*role_name_it, permissions};
+#endif
 }
 
 bool operator==(const Role &first, const Role &second) {
@@ -1101,15 +1084,9 @@ nlohmann::json User::Serialize() const {
   }
   data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
-    data[kDatabases] = database_access_.Serialize();
-    data[kUserImp] = user_impersonation_;
-  } else {
-    data[kFineGrainedPermissions] = {};
-    data[kDatabases] = {};
-    data[kUserImp] = {};
-  }
+  data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
+  data[kDatabases] = database_access_.Serialize();
+  data[kUserImp] = user_impersonation_;
 #endif
   // The role shouldn't be serialized here, it is stored as a foreign key.
   return data;
@@ -1146,43 +1123,42 @@ User User::Deserialize(const nlohmann::json &data) {
   auto permissions = Permissions::Deserialize(*permissions_it);
 
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    // Set initially to default database access; overwrite if access present in the json
-    Databases db_access;
-    auto db_access_it = data.find(kDatabases);
-    if (db_access_it != data.end() && db_access_it->is_structured()) {
-      db_access = Databases::Deserialize(*db_access_it);
-    } else {
-      spdlog::warn("User without specified database access. Given access to the default database.");
-    }
-
-    // We can have an empty fine_grained if the user was created without a valid license
-    FineGrainedAccessHandler fine_grained_access_handler{};
-    auto fine_grainged_access_it = data.find(kFineGrainedPermissions);
-    if (fine_grainged_access_it != data.end() && fine_grainged_access_it->is_object()) {
-      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(*fine_grainged_access_it);
-    } else {
-      spdlog::warn("User without fine grained access. Defaulting to none.");
-    }
-
-    std::optional<UserImpersonation> usr_imp = std::nullopt;
-    auto imp_data = data.find(kUserImp);
-    if (imp_data != data.end()) {
-      usr_imp = imp_data->get<std::optional<UserImpersonation>>();
-    } else {
-      spdlog::warn("User without impersonation information; defaulting to no impersonation ability.");
-    }
-
-    return {*username_it,
-            std::move(password_hash),
-            permissions,
-            std::move(fine_grained_access_handler),
-            std::move(db_access),
-            uuid,
-            std::move(usr_imp)};
+  // Set initially to default database access; overwrite if access present in the json
+  Databases db_access;
+  auto db_access_it = data.find(kDatabases);
+  if (db_access_it != data.end() && db_access_it->is_structured()) {
+    db_access = Databases::Deserialize(*db_access_it);
+  } else {
+    spdlog::warn("User without specified database access. Given access to the default database.");
   }
-#endif
+
+  // We can have an empty fine_grained if the user was created without a valid license
+  FineGrainedAccessHandler fine_grained_access_handler{};
+  auto fine_grainged_access_it = data.find(kFineGrainedPermissions);
+  if (fine_grainged_access_it != data.end() && fine_grainged_access_it->is_object()) {
+    fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(*fine_grainged_access_it);
+  } else {
+    spdlog::warn("User without fine grained access. Defaulting to none.");
+  }
+
+  std::optional<UserImpersonation> usr_imp = std::nullopt;
+  auto imp_data = data.find(kUserImp);
+  if (imp_data != data.end()) {
+    usr_imp = imp_data->get<std::optional<UserImpersonation>>();
+  } else {
+    spdlog::warn("User without impersonation information; defaulting to no impersonation ability.");
+  }
+
+  return {*username_it,
+          std::move(password_hash),
+          permissions,
+          std::move(fine_grained_access_handler),
+          std::move(db_access),
+          uuid,
+          std::move(usr_imp)};
+#else
   return {*username_it, std::move(password_hash), permissions, uuid};
+#endif
 }
 
 bool operator==(const User &first, const User &second) {

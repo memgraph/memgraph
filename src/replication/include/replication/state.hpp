@@ -14,6 +14,7 @@
 #include "kvstore/kvstore.hpp"
 #include "replication/config.hpp"
 #include "replication/replication_client.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "replication_server.hpp"
 #include "status.hpp"
@@ -59,6 +60,17 @@ struct RoleReplicaData {
   utils::UUID uuid_;
 };
 
+struct ReplicationData_t {
+  // Common data for both replica and main
+  // The source value is stored in Raft distributed config, this is only a cached value
+  // on the data instance's side. Needs to be accessed in a thread-safe way using ReplState lock because two threads are
+  // using this value:
+  // 1. RPC thread that handles communication with coordinators
+  // 2. RPC thread used for communication with main (if instance is replica)
+  uint64_t deltas_batch_progress_size_{replication_coordination_glue::kDefaultDeltasBatchProgressSize};
+  std::variant<RoleMainData, RoleReplicaData> data_;
+};
+
 // Global (instance) level object
 struct ReplicationState {
   explicit ReplicationState(std::optional<std::filesystem::path> durability_dir, bool ha_cluster = false);
@@ -74,12 +86,12 @@ struct ReplicationState {
     PARSE_ERROR,
   };
 
-  using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData>;
   using FetchReplicationResult_t = std::expected<ReplicationData_t, FetchReplicationError>;
+  using FetchVariantResult_t = std::expected<std::variant<RoleMainData, RoleReplicaData>, FetchReplicationError>;
   auto FetchReplicationData() -> FetchReplicationResult_t;
 
   auto GetRole() const -> replication_coordination_glue::ReplicationRole {
-    return std::holds_alternative<RoleReplicaData>(replication_data_)
+    return std::holds_alternative<RoleReplicaData>(replication_data_.data_)
                ? replication_coordination_glue::ReplicationRole::REPLICA
                : replication_coordination_glue::ReplicationRole::MAIN;
   }
@@ -89,14 +101,14 @@ struct ReplicationState {
   bool IsReplica() const { return GetRole() == replication_coordination_glue::ReplicationRole::REPLICA; }
 
   auto IsMainWriteable() const -> bool {
-    if (auto const *main = std::get_if<RoleMainData>(&replication_data_)) {
+    if (auto const *main = std::get_if<RoleMainData>(&replication_data_.data_)) {
       return !part_of_ha_cluster_ || main->writing_enabled_;
     }
     return false;
   }
 
   auto EnableWritingOnMain() -> bool {
-    if (auto *main = std::get_if<RoleMainData>(&replication_data_)) {
+    if (auto *main = std::get_if<RoleMainData>(&replication_data_.data_)) {
       main->writing_enabled_ = true;
       return true;
     }
@@ -105,22 +117,22 @@ struct ReplicationState {
 
   auto GetMainRole() -> RoleMainData & {
     MG_ASSERT(IsMain(), "Instance is not MAIN");
-    return std::get<RoleMainData>(replication_data_);
+    return std::get<RoleMainData>(replication_data_.data_);
   }
 
   auto GetMainRole() const -> RoleMainData const & {
     MG_ASSERT(IsMain(), "Instance is not MAIN");
-    return std::get<RoleMainData>(replication_data_);
+    return std::get<RoleMainData>(replication_data_.data_);
   }
 
   auto GetReplicaRole() -> RoleReplicaData & {
     MG_ASSERT(!IsMain(), "Instance is MAIN");
-    return std::get<RoleReplicaData>(replication_data_);
+    return std::get<RoleReplicaData>(replication_data_.data_);
   }
 
   auto GetReplicaRole() const -> RoleReplicaData const & {
     MG_ASSERT(!IsMain(), "Instance is MAIN");
-    return std::get<RoleReplicaData>(replication_data_);
+    return std::get<RoleReplicaData>(replication_data_.data_);
   }
 
   bool HasDurability() const { return nullptr != durability_; }
@@ -130,9 +142,11 @@ struct ReplicationState {
   bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid);
 
-  auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
+  auto ReplicationData() -> std::variant<RoleMainData, RoleReplicaData> & { return replication_data_.data_; }
 
-  auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
+  auto ReplicationData() const -> std::variant<RoleMainData, RoleReplicaData> const & {
+    return replication_data_.data_;
+  }
 
   std::expected<ReplicationClient *, RegisterReplicaStatus> RegisterReplica(const ReplicationClientConfig &config);
 
@@ -143,6 +157,9 @@ struct ReplicationState {
   std::optional<nlohmann::json> GetTelemetryJson() const;
 
   void Shutdown();
+
+  auto GetDeltasBatchProgressSize() const -> uint64_t;
+  void UpdateDeltasBatchProgressSize(uint64_t new_value);
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;

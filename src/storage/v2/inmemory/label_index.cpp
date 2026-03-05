@@ -104,7 +104,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&
     snapshot_info->Update(UpdateType::VERTICES);
   }
 
-  if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
+  if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
     return;
   }
 
@@ -126,12 +126,12 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
   bool has_label = false;
   {
     auto guard = std::shared_lock{vertex.lock};
-    deleted = vertex.deleted;
-    delta = vertex.delta;
+    deleted = vertex.deleted();
+    delta = vertex.delta();
     has_label = std::ranges::contains(vertex.labels, label);
 
     // If vertex has non-sequential deltas, hold lock while applying them
-    if (!vertex.has_uncommitted_non_sequential_deltas) {
+    if (!vertex.has_uncommitted_non_sequential_deltas()) {
       guard.unlock();
     }
 

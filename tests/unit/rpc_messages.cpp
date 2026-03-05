@@ -37,6 +37,10 @@ void Load(SumResV1 *res, Reader *reader) { Load(&res->sum, reader); }
 void Save(const EchoMessage &echo, Builder *builder) { Save(echo.data, builder); }
 
 void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
+
+void Save(const TestResSingleVersion & /*self*/, Builder * /*builder*/) {}
+
+void Load(TestResSingleVersion * /*self*/, Reader * /*reader*/) {}
 }  // namespace memgraph::slk
 
 void SumReq::Load(SumReq *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
@@ -58,3 +62,7 @@ void SumResV1::Save(const SumResV1 &obj, memgraph::slk::Builder *builder) { memg
 void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 
 void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
+
+void TestResSingleVersion::Load(TestResSingleVersion * /*self*/, memgraph::slk::Reader * /*reader*/) {}
+
+void TestResSingleVersion::Save(const TestResSingleVersion & /*self*/, memgraph::slk::Builder * /*builder*/) {}

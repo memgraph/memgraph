@@ -283,7 +283,7 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
                            uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder, uint64_t &edges_count,
                            uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
                            std::vector<BatchInfo> &vertex_batch_infos, std::unordered_set<uint64_t> &used_ids,
-                           uint64_t thread_count, auto &&snapshot_aborted) {
+                           uint64_t thread_count, auto &&snapshot_aborted, SnapshotProgress *progress = nullptr) {
   SafeTaskQueue tasks;
 
   // Generate edge tasks
@@ -353,8 +353,12 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
   }
 
   // Wait for tasks to finish and combine results as they come in
-  if (!edge_res.empty()) offset_edges = snapshot_encoder.GetPosition();  // 0 -> edges without properties
-  WaitAndCombine(edge_res, snapshot_encoder, edges_count, edge_batch_infos, used_ids, snapshot_aborted);
+  if (!edge_res.empty()) {
+    if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
+    offset_edges = snapshot_encoder.GetPosition();  // 0 -> edges without properties
+    WaitAndCombine(edge_res, snapshot_encoder, edges_count, edge_batch_infos, used_ids, snapshot_aborted);
+  }
+  if (progress) progress->SetPhase(SnapshotProgress::Phase::VERTICES, vertices->size());
   offset_vertices = snapshot_encoder.GetPosition();
   WaitAndCombine(vertex_res, snapshot_encoder, vertices_count, vertex_batch_infos, used_ids, snapshot_aborted);
 };
@@ -9492,8 +9496,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector index scalar kind!");
 
         VectorIndexSpec spec{.index_name = std::move(*index_name),
-                             .label_id = LabelId::FromUint(*label),
-                             .property = PropertyId::FromUint(*property),
+                             .label_id = get_label_from_id(*label),
+                             .property = get_property_from_id(*property),
                              .metric_kind = MetricFromName(*metric),
                              .dimension = static_cast<uint16_t>(*dimension),
                              .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
@@ -9890,6 +9894,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    config);
     }
     case 18U:
+      [[fallthrough]];
     case 19U: {
       return LoadSnapshotVersion18or19(snapshot,
                                        path,
@@ -9904,6 +9909,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                        enum_store);
     }
     case 20U:
+      [[fallthrough]];
     case 21U: {
       return LoadSnapshotVersion20or21(snapshot,
                                        path,
@@ -9918,6 +9924,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                        enum_store);
     }
     case 22U:
+      [[fallthrough]];
     case 23U: {
       // Version 23 updated the snapshot info (handled via the ReadSnapshotInfo function)
       return LoadSnapshotVersion22or23(snapshot,
@@ -9976,6 +9983,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    snapshot_info);
     }
     case 27U:
+      [[fallthrough]];
     case 28U: {
       return LoadSnapshotVersion27or28(snapshot,
                                        path,
@@ -10034,7 +10042,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    ttl,
                                    snapshot_info);
     }
-    case 32U: {
+    case 32U:
+      [[fallthrough]];
+    case 33U: {
       return LoadCurrentVersionSnapshot(snapshot,
                                         path,
                                         vertices,
@@ -10179,7 +10189,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
                                                     utils::UUID const &uuid, std::string_view const epoch_id,
                                                     const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                                                     utils::FileRetainer *file_retainer,
-                                                    std::atomic_bool *abort_snapshot) {
+                                                    std::atomic_bool *abort_snapshot, SnapshotProgress *progress) {
   utils::Timer timer;
 
   // Ensure that the storage directory exists.
@@ -10259,11 +10269,12 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   };
 
   // Store edges.
-  auto partial_edge_handler = [&edges, storage, transaction, &snapshot_aborted, &write_mapping_to](
+  auto partial_edge_handler = [&edges, storage, transaction, &snapshot_aborted, &write_mapping_to, progress](
                                   int64_t start_gid, int64_t end_gid, auto &edges_snapshot) -> SnapshotPartialRes {
     if (start_gid >= end_gid) return {};
 
     auto counter = utils::ResettableCounter{50};  // Counter used to reduce the frequency of checking abort
+    BatchedProgressCounter progress_counter(progress);
     auto res = SnapshotPartialRes{.snapshot_path = edges_snapshot.GetPath()};
     auto items_in_current_batch{0UL};
     auto batch_start_offset = edges_snapshot.GetPosition();
@@ -10294,8 +10305,8 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       Delta *delta = nullptr;
       {
         auto guard = std::shared_lock{edge.lock};
-        is_visible = !edge.deleted;
-        delta = edge.delta;
+        is_visible = !edge.deleted();
+        delta = edge.delta();
       }
       ApplyDeltasForRead(transaction, delta, View::OLD, [&is_visible](const Delta &delta) {
         switch (delta.action) {
@@ -10345,6 +10356,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
 
       ++res.count;
+      progress_counter.Increment();
       ++items_in_current_batch;
       if (items_in_current_batch == storage->config_.durability.items_per_batch) {
         res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
@@ -10352,6 +10364,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
         items_in_current_batch = 0;
       }
     }
+    progress_counter.Flush();
     res.snapshot_size = edges_snapshot.GetSize();
 
     if (items_in_current_batch > 0) {
@@ -10363,11 +10376,12 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   };
 
   // Store vertices.
-  auto partial_vertex_handler = [&vertices, storage, transaction, &snapshot_aborted, &write_mapping_to](
+  auto partial_vertex_handler = [&vertices, storage, transaction, &snapshot_aborted, &write_mapping_to, progress](
                                     int64_t start_gid, int64_t end_gid, auto &vertex_snapshot) -> SnapshotPartialRes {
     if (start_gid >= end_gid) return {};
 
     auto counter = utils::ResettableCounter{50};  // Counter used to reduce the frequency of checking abort
+    BatchedProgressCounter progress_counter(progress);
     auto res = SnapshotPartialRes{.snapshot_path = vertex_snapshot.GetPath()};
     auto items_in_current_batch = 0UL;
     auto batch_start_offset = vertex_snapshot.GetPosition();
@@ -10458,6 +10472,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
 
       ++res.count;
+      progress_counter.Increment();
       ++items_in_current_batch;
       if (items_in_current_batch == storage->config_.durability.items_per_batch) {
         res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
@@ -10465,6 +10480,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
         items_in_current_batch = 0;
       }
     }
+    progress_counter.Flush();
 
     if (items_in_current_batch > 0) {
       // This needs to be updated
@@ -10494,9 +10510,11 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
                           vertex_batch_infos,
                           used_ids,
                           storage->config_.durability.snapshot_thread_count,
-                          snapshot_aborted);
+                          snapshot_aborted,
+                          progress);
   } else {
     if (storage->config_.salient.items.properties_on_edges) {
+      if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
       offset_edges = snapshot.GetPosition();  // Global edge offset
       // Handle edges
       const auto res = partial_edge_handler(0, kEnd, snapshot);
@@ -10507,6 +10525,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     if (snapshot_aborted()) {
       return std::nullopt;
     }
+    if (progress) progress->SetPhase(SnapshotProgress::Phase::VERTICES, vertices->size());
     {
       offset_vertices = snapshot.GetPosition();  // Global vertex offset
       // Handle vertices
@@ -10521,6 +10540,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   }
 
   // Write indices.
+  if (progress) progress->SetPhase(SnapshotProgress::Phase::INDICES, 0);
   {
     offset_indices = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_INDICES);
@@ -10739,6 +10759,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   }
 
   // Write constraints.
+  if (progress) progress->SetPhase(SnapshotProgress::Phase::CONSTRAINTS, 0);
   {
     offset_constraints = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_CONSTRAINTS);
@@ -10786,7 +10807,8 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     }
   }
 
-  // Write mapper data.
+  // Write mapper data, enums, metadata, batch info, TTL.
+  if (progress) progress->SetPhase(SnapshotProgress::Phase::FINALIZING, 0);
   {
     offset_mapper = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_MAPPER);

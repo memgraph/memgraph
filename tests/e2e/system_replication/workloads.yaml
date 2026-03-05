@@ -5,3 +5,6 @@ workloads:
   - name: "Replicate auth data"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["system_replication/auth.py"]
+  - name: "Replicate parameters"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["system_replication/replicate_parameters.py"]

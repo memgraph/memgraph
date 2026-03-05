@@ -95,6 +95,14 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
                              slk::Builder *res_builder) -> void {
         RegisterReplicaOnMainHandler(replication_handler, request_version, req_reader, res_builder);
       });
+
+  server.Register<coordination::UpdateDataInstanceConfigRpc>(
+      [&replication_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                             uint64_t const request_version,
+                             slk::Reader *req_reader,
+                             slk::Builder *res_builder) -> void {
+        UpdateDeltasBatchProgressSizeHandler(replication_handler, request_version, req_reader, res_builder);
+      });
 }
 
 void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::ReplicationHandler &replication_handler,
@@ -103,22 +111,25 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
   coordination::StateCheckReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  const auto locked_repl_state = replication_handler.GetReplState();
-
-  bool const is_replica = locked_repl_state->IsReplica();
-  auto const uuid = std::invoke([&locked_repl_state, is_replica]() -> std::optional<utils::UUID> {
-    if (is_replica) {
-      return locked_repl_state->GetReplicaRole().uuid_;
-    }
-    return locked_repl_state->GetMainRole().uuid_;
-  });
-
-  auto const writing_enabled = std::invoke([&locked_repl_state, is_replica]() -> bool {
-    if (is_replica) {
-      return false;
-    }
-    return locked_repl_state->IsMainWriteable();
-  });
+  auto const [is_replica, uuid, writing_enabled, deltas_batch_progress_size] =
+      std::invoke([&replication_handler]() -> std::tuple<bool, std::optional<utils::UUID>, bool, uint64_t> {
+        const auto locked_repl_state = replication_handler.GetReplState();
+        bool const is_replica = locked_repl_state->IsReplica();
+        auto const uuid = std::invoke([&locked_repl_state, is_replica]() -> std::optional<utils::UUID> {
+          if (is_replica) {
+            return locked_repl_state->GetReplicaRole().uuid_;
+          }
+          return locked_repl_state->GetMainRole().uuid_;
+        });
+        auto const writing_enabled = std::invoke([&locked_repl_state, is_replica]() -> bool {
+          if (is_replica) {
+            return false;
+          }
+          return locked_repl_state->IsMainWriteable();
+        });
+        auto const deltas_batch_progress_size = locked_repl_state->GetDeltasBatchProgressSize();
+        return std::make_tuple(is_replica, uuid, writing_enabled, deltas_batch_progress_size);
+      });
 
   std::optional<replication::ReplicationHandler::MainResT> main_num_txns;
   std::optional<replication::ReplicationHandler::ReplicasResT> replicas_num_txns;
@@ -129,7 +140,14 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
     replicas_num_txns.emplace(std::move(replicas_res));
   }
 
-  coordination::StateCheckRes const rpc_res{is_replica, uuid, writing_enabled, main_num_txns, replicas_num_txns};
+  coordination::InstanceStateV2 prev_state{.is_replica = is_replica,
+                                           .uuid = uuid,
+                                           .is_writing_enabled = writing_enabled,
+                                           .main_num_txns = std::move(main_num_txns),
+                                           .replicas_num_txns = std::move(replicas_num_txns)};
+  coordination::InstanceState inst_state{.inner_state = std::move(prev_state),
+                                         .deltas_batch_progress_size = deltas_batch_progress_size};
+  coordination::StateCheckRes const rpc_res{std::move(inst_state)};
   rpc::SendFinalResponse(rpc_res,
                          request_version,
                          res_builder,
@@ -355,7 +373,7 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
   coordination::UnregisterReplicaReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  switch (replication_handler.UnregisterReplica(req.instance_name)) {
+  switch (replication_handler.UnregisterReplica(req.arg_)) {
     using enum query::UnregisterReplicaResult;
     case SUCCESS: {
       coordination::UnregisterReplicaRes const rpc_res{true};
@@ -387,7 +405,7 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
       break;
     }
   }
-  spdlog::info("Replica {} successfully unregistered.", req.instance_name);
+  spdlog::info("Replica {} successfully unregistered.", req.arg_);
 }
 
 void DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(
@@ -412,6 +430,21 @@ void DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(
   coordination::EnableWritingOnMainRes const rpc_res{true};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder);
   spdlog::info("Enabled writing on main.");
+}
+
+void DataInstanceManagementServerHandlers::UpdateDeltasBatchProgressSizeHandler(
+    replication::ReplicationHandler &replication_handler, uint64_t request_version, slk::Reader *req_reader,
+    slk::Builder *res_builder) {
+  coordination::UpdateDataInstanceConfigReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  {
+    auto locked_repl_state = replication_handler.GetReplState();
+    locked_repl_state->UpdateDeltasBatchProgressSize(req.arg_);
+  }
+
+  coordination::UpdateDataInstanceConfigRes const res{true};
+  rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
 }  // namespace memgraph::dbms

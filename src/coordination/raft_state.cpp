@@ -589,6 +589,8 @@ auto RaftState::GetMaxFailoverReplicaLag() const -> uint64_t { return state_mach
 
 auto RaftState::GetMaxReplicaReadLag() const -> uint64_t { return state_machine_->GetMaxReplicaReadLag(); }
 
+auto RaftState::GetDeltasBatchProgressSize() const -> uint64_t { return state_machine_->GetDeltasBatchProgressSize(); }
+
 }  // namespace memgraph::coordination
 
 // namespace memgraph::coordination

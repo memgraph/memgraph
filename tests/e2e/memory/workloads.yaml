@@ -231,3 +231,7 @@ workloads:
   - name: "User profile test"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["memory/user_limits.py"]
+
+  - name: "Vector index memory tracking"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/vector_index_memory.py"]

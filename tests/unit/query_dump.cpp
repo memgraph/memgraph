@@ -444,6 +444,7 @@ class DumpTest : public ::testing::Test {
   memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{},
                                               nullptr,
                                               nullptr,
+                                              nullptr,
                                               repl_state,
                                               system_state
 #ifdef MG_ENTERPRISE
@@ -1281,6 +1282,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{},
                                                           nullptr,
                                                           nullptr,
+                                                          nullptr,
                                                           repl_state,
                                                           system_state
 #ifdef MG_ENTERPRISE
@@ -1485,6 +1487,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
 
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{},
+                                                          nullptr,
                                                           nullptr,
                                                           nullptr,
                                                           repl_state,
@@ -1791,7 +1794,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                               query_config,
                               auth_checker.GenQueryUser(std::nullopt, {}),
                               memgraph::dbms::kDefaultDB,
-                              memgraph::query::TriggerPrivilegeContext::INVOKER);
+                              memgraph::query::TriggerPrivilegeContext::INVOKER,
+                              nullptr);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1809,7 +1813,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                               query_config,
                               auth_checker.GenQueryUser(std::nullopt, {}),
                               memgraph::dbms::kDefaultDB,
-                              memgraph::query::TriggerPrivilegeContext::INVOKER);
+                              memgraph::query::TriggerPrivilegeContext::INVOKER,
+                              nullptr);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1827,7 +1832,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                               query_config,
                               auth_checker.GenQueryUser(std::nullopt, {}),
                               memgraph::dbms::kDefaultDB,
-                              memgraph::query::TriggerPrivilegeContext::INVOKER);
+                              memgraph::query::TriggerPrivilegeContext::INVOKER,
+                              nullptr);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1845,7 +1851,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                               query_config,
                               auth_checker.GenQueryUser(std::nullopt, {}),
                               memgraph::dbms::kDefaultDB,
-                              memgraph::query::TriggerPrivilegeContext::INVOKER);
+                              memgraph::query::TriggerPrivilegeContext::INVOKER,
+                              nullptr);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1863,7 +1870,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                               query_config,
                               auth_checker.GenQueryUser(std::nullopt, {}),
                               memgraph::dbms::kDefaultDB,
-                              memgraph::query::TriggerPrivilegeContext::INVOKER);
+                              memgraph::query::TriggerPrivilegeContext::INVOKER,
+                              nullptr);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1881,7 +1889,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                               query_config,
                               auth_checker.GenQueryUser(std::nullopt, {}),
                               memgraph::dbms::kDefaultDB,
-                              memgraph::query::TriggerPrivilegeContext::INVOKER);
+                              memgraph::query::TriggerPrivilegeContext::INVOKER,
+                              nullptr);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1899,7 +1908,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                               query_config,
                               auth_checker.GenQueryUser(std::nullopt, {}),
                               memgraph::dbms::kDefaultDB,
-                              memgraph::query::TriggerPrivilegeContext::INVOKER);
+                              memgraph::query::TriggerPrivilegeContext::INVOKER,
+                              nullptr);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1917,7 +1927,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                               query_config,
                               auth_checker.GenQueryUser(std::nullopt, {}),
                               memgraph::dbms::kDefaultDB,
-                              memgraph::query::TriggerPrivilegeContext::INVOKER);
+                              memgraph::query::TriggerPrivilegeContext::INVOKER,
+                              nullptr);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1935,7 +1946,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                               query_config,
                               auth_checker.GenQueryUser(std::nullopt, {}),
                               memgraph::dbms::kDefaultDB,
-                              memgraph::query::TriggerPrivilegeContext::DEFINER);
+                              memgraph::query::TriggerPrivilegeContext::DEFINER,
+                              nullptr);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1953,7 +1965,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                               query_config,
                               auth_checker.GenQueryUser(std::nullopt, {}),
                               memgraph::dbms::kDefaultDB,
-                              memgraph::query::TriggerPrivilegeContext::DEFINER);
+                              memgraph::query::TriggerPrivilegeContext::DEFINER,
+                              nullptr);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1971,7 +1984,8 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                               query_config,
                               auth_checker.GenQueryUser(std::nullopt, {}),
                               memgraph::dbms::kDefaultDB,
-                              memgraph::query::TriggerPrivilegeContext::DEFINER);
+                              memgraph::query::TriggerPrivilegeContext::DEFINER,
+                              nullptr);
   }
   {
     ResultStreamFaker stream(this->db->storage());

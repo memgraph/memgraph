@@ -12,7 +12,9 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <optional>
 #include <string>
+#include <thread>
 
 #include "disk_test_utils.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
@@ -314,6 +316,115 @@ TYPED_TEST(PyModule, PyObjectToMgpValue) {
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_double, v2), 1);
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(double, mgp_value_get_double, v2), 4.0);
   mgp_value_destroy(value);
+}
+
+namespace {
+void GILCheckCapsuleDestructor(PyObject * /*capsule*/) {}
+}  // namespace
+
+// Regression test: py::Object must acquire the GIL before calling Py_XDECREF,
+// even when destroyed on a thread that doesn't hold the GIL.
+// Uses a PyCapsule with a C-level destructor that checks PyGILState_Check()
+// at the exact moment of deallocation.
+TEST(PyObjectLifecycle, DestructorAcquiresGIL) {
+  std::optional<memgraph::py::Object> py_obj;
+  {
+    auto gil = memgraph::py::EnsureGIL();
+    static int dummy;
+    py_obj.emplace(PyCapsule_New(&dummy, "gil_test", GILCheckCapsuleDestructor));
+    ASSERT_TRUE(*py_obj);
+  }
+  // GIL is released. Destroy on a thread that never held the GIL.
+  {
+    std::jthread t([&py_obj]() { py_obj.reset(); });
+  }
+}
+
+TEST(PyObjectLifecycle, FromBorrowGIL) {
+  std::optional<memgraph::py::Object> py_obj;
+  {
+    auto gil = memgraph::py::EnsureGIL();
+    static int dummy;
+    py_obj.emplace(PyCapsule_New(&dummy, "gil_test", GILCheckCapsuleDestructor));
+    ASSERT_TRUE(*py_obj);
+  }
+  // GIL is released. Destroy on a thread that never held the GIL.
+  {
+    std::jthread t([&py_obj]() { auto b = memgraph::py::Object::FromBorrow(py_obj.value().Ptr()); });
+  }
+}
+
+TEST(PyObjectLifecycle, CopyAssignGIL) {
+  std::optional<memgraph::py::Object> py_obj;
+  {
+    auto gil = memgraph::py::EnsureGIL();
+    static int dummy;
+    py_obj.emplace(PyCapsule_New(&dummy, "gil_test", GILCheckCapsuleDestructor));
+    ASSERT_TRUE(*py_obj);
+  }
+  {
+    std::jthread t([&py_obj]() {
+      memgraph::py::Object b;
+      {
+        auto gil = memgraph::py::EnsureGIL();
+        static int dummy2;
+        b = memgraph::py::Object(PyCapsule_New(&dummy2, "old_capsule", GILCheckCapsuleDestructor));
+      }
+      // b holds a PyCapsule with refcount 1, GIL released
+      b = py_obj.value();  // copy assignment: DECREF on old capsule → refcount 0 → _Py_Dealloc without GIL → crash
+    });
+  }
+}
+
+TEST(PyObjectLifecycle, CopyCtrGIL) {
+  std::optional<memgraph::py::Object> py_obj;
+  {
+    auto gil = memgraph::py::EnsureGIL();
+    static int dummy;
+    py_obj.emplace(PyCapsule_New(&dummy, "gil_test", GILCheckCapsuleDestructor));
+    ASSERT_TRUE(*py_obj);
+  }
+  // GIL is released. Destroy on a thread that never held the GIL.
+  {
+    std::jthread t([&py_obj]() { auto b = py_obj.value(); });
+  }
+}
+
+TEST(PyObjectLifecycle, MoveCtrGIL) {
+  std::optional<memgraph::py::Object> py_obj;
+  {
+    auto gil = memgraph::py::EnsureGIL();
+    static int dummy;
+    py_obj.emplace(PyCapsule_New(&dummy, "gil_test", GILCheckCapsuleDestructor));
+    ASSERT_TRUE(*py_obj);
+  }
+  // GIL is released. Destroy on a thread that never held the GIL.
+  {
+    std::jthread t([&py_obj]() { auto b = std::move(py_obj.value()); });
+  }
+}
+
+TEST(PyObjectLifecycle, MoveAssignGIL) {
+  std::optional<memgraph::py::Object> py_obj;
+  {
+    auto gil = memgraph::py::EnsureGIL();
+    static int dummy;
+    py_obj.emplace(PyCapsule_New(&dummy, "gil_test", GILCheckCapsuleDestructor));
+    ASSERT_TRUE(*py_obj);
+  }
+  {
+    std::jthread t([&py_obj]() {
+      memgraph::py::Object b;
+      {
+        auto gil = memgraph::py::EnsureGIL();
+        static int dummy2;
+        b = memgraph::py::Object(PyCapsule_New(&dummy2, "old_capsule", GILCheckCapsuleDestructor));
+      }
+      // b holds a PyCapsule with refcount 1, GIL released
+      b = std::move(
+          py_obj.value());  // move assignment: DECREF on old capsule → refcount 0 → _Py_Dealloc without GIL → crash
+    });
+  }
 }
 
 int main(int argc, char **argv) {

@@ -52,7 +52,8 @@ class ReplicaStream {
   void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t final_commit_timestamp, Storage *storage);
 
   /// @throw rpc::RpcFailedException
-  void AppendDelta(const Delta &delta, Edge *edge, uint64_t final_commit_timestamp, Storage *storage);
+  void AppendDelta(const Delta &delta, Edge *edge, uint64_t final_commit_timestamp, Storage *storage, Gid in_vertex_gid,
+                   EdgeTypeId edge_type_id);
 
   /// @throw rpc::RpcFailedException
   void AppendTransactionStart(uint64_t final_commit_timestamp, bool commit, StorageAccessType access_type);

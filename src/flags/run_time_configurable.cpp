@@ -18,7 +18,7 @@
 #include "croncpp.h"
 #include "gflags/gflags.h"
 
-#include "flags/log_level.hpp"
+#include "flags/logging.hpp"
 #include "license/license.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"

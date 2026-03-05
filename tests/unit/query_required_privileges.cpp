@@ -288,3 +288,9 @@ TEST_F(TestPrivilegeExtractor, ParallelQueryCreate) {
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::CREATE, AuthQuery::Privilege::PARALLEL_EXECUTION));
 }
+
+TEST_F(TestPrivilegeExtractor, ParameterQuery) {
+  auto *query = storage.Create<ParameterQuery>();
+  query->action_ = ParameterQuery::Action::SHOW_PARAMETERS;
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::SERVER_SIDE_PARAMETERS));
+}

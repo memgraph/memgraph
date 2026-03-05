@@ -96,6 +96,7 @@ class StorageModeMultiTxTest : public ::testing::Test {
   memgraph::query::InterpreterContext interpreter_context{{},
                                                           nullptr,
                                                           nullptr,
+                                                          nullptr,
                                                           repl_state,
                                                           system_state
 #ifdef MG_ENTERPRISE

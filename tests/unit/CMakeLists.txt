@@ -403,6 +403,11 @@ add_unit_test(utils_on_scope_exit
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_pointer_pack
+    SOURCES utils_pointer_pack.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_rwlock
     SOURCES utils_rwlock.cpp
     LINK_TARGETS mg-utils
@@ -827,6 +832,11 @@ add_unit_test(replication_rpc_progress
 add_unit_test(snapshot_rpc_progress
     SOURCES snapshot_rpc_progress.cpp
     LINK_TARGETS mg-rpc rpc_messages
+)
+
+add_unit_test(snapshot_progress
+    SOURCES snapshot_progress.cpp
+    LINK_TARGETS mg::storage
 )
 
 add_unit_test(rpc_versioning

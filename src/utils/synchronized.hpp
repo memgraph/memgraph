@@ -32,6 +32,11 @@ concept SharedMutex = requires(TMutex mutex) {
   mutex.unlock_shared();
 };
 
+template <typename TMutex>
+concept TrySharedLockable = SharedMutex<TMutex> && requires(TMutex &tm) {
+  { tm.try_lock_shared() } -> std::same_as<bool>;
+};
+
 /// A simple utility for easier mutex-based concurrency (influenced by
 /// Facebook's Folly)
 ///
@@ -173,7 +178,8 @@ class Synchronized {
   }
 
   template <typename = void>
-    requires SharedMutex<TMutex>
+    requires TrySharedLockable<TMutex>
+
   ReadLockedPtr TryReadLock() const {
     auto guard = std::shared_lock{mutex_, std::defer_lock};
     if (guard.try_lock()) {

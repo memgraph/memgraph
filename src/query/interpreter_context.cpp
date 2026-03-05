@@ -14,6 +14,7 @@
 
 #include "query/interpreter_context.hpp"
 
+#include "parameters/parameters.hpp"
 #include "query/interpreter.hpp"
 
 #include "system/include/system/system.hpp"
@@ -25,7 +26,8 @@ namespace memgraph::query {
 std::optional<InterpreterContext> InterpreterContextHolder::instance{};
 
 InterpreterContext::InterpreterContext(
-    InterpreterConfig interpreter_config, utils::Settings *settings, dbms::DbmsHandler *dbms_handler,
+    InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
+    memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
     std::optional<std::reference_wrapper<memgraph::coordination::CoordinatorState>> const &coordinator_state,
@@ -34,6 +36,7 @@ InterpreterContext::InterpreterContext(
     AuthQueryHandler *ah, AuthChecker *ac, ReplicationQueryHandler *replication_handler,
     utils::PriorityThreadPool *worker_pool)
     : settings(settings),
+      parameters(parameters),
       dbms_handler(dbms_handler),
       config(std::move(interpreter_config)),
       repl_state(rs),
@@ -118,15 +121,10 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
   std::vector<uint64_t> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    TransactionStatus alive_status = TransactionStatus::ACTIVE;
-    // if it is just checking status, commit and abort should wait for the end of the check
-    // ignore interpreters that already started committing or rollback
-    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+    const auto verifier = interpreter->TryAcquireForVerification();
+    if (!verifier) {
       continue;
     }
-    const utils::OnScopeExit clean_status([interpreter]() {
-      interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-    });
     // Transaction is running, so cannot change the underlying db
     if (interpreter->current_db_.db_acc_ && interpreter->current_db_.db_acc_->get()->name() != db_name) {
       continue;

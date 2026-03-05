@@ -37,6 +37,7 @@ GenerateRpcCounterEvents(UnregisterReplicaRpc)
 GenerateRpcCounterEvents(EnableWritingOnMainRpc)
 GenerateRpcCounterEvents(StateCheckRpc)
 GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
+GenerateRpcCounterEvents(UpdateDataInstanceConfigRpc)
 // clang-format on
 }  // namespace memgraph::metrics
 
@@ -88,7 +89,7 @@ class ReplicationInstanceClient {
     try {
       auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...);
 
-      if (!stream.SendAndWait().success) {
+      if (!stream.SendAndWait().arg_) {
         spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
         metrics::IncrementCounter(RpcInfo<T>::failCounter);
         return false;

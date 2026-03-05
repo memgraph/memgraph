@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <type_traits>
+#include <unordered_map>
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -863,7 +864,8 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
   }
 }
 
-void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp) {
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp,
+                 Gid in_vertex_gid, EdgeTypeId edge_type_id) {
   // When converting a Delta to a WAL delta the logic is inverted. That is
   // because the Delta's represent undo actions and we want to store redo
   // actions.
@@ -884,6 +886,13 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
           ToExternalPropertyValue(edge->properties.GetProperty(delta.property.key), storage->name_id_mapper_.get()));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
       encoder->WriteUint((*delta.property.out_vertex).gid.AsUint());
+      // In-vertex GID for faster replica resolution (need only if edge was not created in this transaction)
+      encoder->WriteUint(in_vertex_gid.AsUint());
+      std::string edge_type_str{};
+      if (edge_type_id != kInvalidEdgeTypeId) {
+        edge_type_str = storage->name_id_mapper_->IdToName(edge_type_id.AsUint());
+      }
+      encoder->WriteString(edge_type_str);
       break;
     }
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -985,6 +994,17 @@ std::optional<RecoveryInfo> LoadWal(
   bool should_commit{true};
   std::optional<TransactionAccessType> access_type;
 
+  // Cache edge_gid -> (EdgeRef, EdgeTypeId, from_vertex, to_vertex) to avoid repeated skip-list lookups
+  // for schema_info resolution on repeated SET_PROPERTY for the same edge.
+  struct EdgeRecoveryCacheEntry {
+    EdgeRef edge_ref;
+    EdgeTypeId edge_type;
+    Vertex *from_vertex;
+    Vertex *to_vertex;
+  };
+
+  std::unordered_map<Gid, EdgeRecoveryCacheEntry> edge_recovery_cache;
+
   auto delta_apply = utils::Overloaded{
       [&](WalVertexCreate const &data) {
         auto [vertex, inserted] = vertex_acc.insert(Vertex{data.gid, nullptr});
@@ -1080,7 +1100,14 @@ std::optional<RecoveryInfo> LoadWal(
         // Increment edge count.
         edge_count->fetch_add(1, std::memory_order_acq_rel);
 
-        if (schema_info) schema_info->CreateEdge(&*from_vertex, &*to_vertex, edge_type_id);
+        if (schema_info) {
+          schema_info->CreateEdge(&*from_vertex, &*to_vertex, edge_type_id);
+          edge_recovery_cache.insert_or_assign(data.gid,
+                                               EdgeRecoveryCacheEntry{.edge_ref = edge_ref,
+                                                                      .edge_type = edge_type_id,
+                                                                      .from_vertex = &*from_vertex,
+                                                                      .to_vertex = &*to_vertex});
+        }
       },
       [&](WalEdgeDelete const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);
@@ -1127,8 +1154,10 @@ std::optional<RecoveryInfo> LoadWal(
         // Decrement edge count.
         edge_count->fetch_add(-1, std::memory_order_acq_rel);
 
-        if (schema_info)
+        if (schema_info) {
           schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
+          edge_recovery_cache.erase(data.gid);
+        }
       },
       [&](WalEdgeSetProperty const &data) {
         if (!items.properties_on_edges)
@@ -1144,36 +1173,75 @@ std::optional<RecoveryInfo> LoadWal(
         const auto property_value = ToPropertyValue(data.value, name_id_mapper);
 
         if (schema_info) {
-          const auto &[edge_ref, edge_type, from_vertex, to_vertex] = std::invoke([&] {
-            if (data.from_gid.has_value()) {
-              const auto from_vertex = vertex_acc.find(data.from_gid);
-              if (from_vertex == vertex_acc.end())
-                throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
-              const auto found_edge = r::find_if(from_vertex->out_edges, [&edge](const auto &edge_info) {
-                const auto &[edge_type, to_vertex, edge_ref] = edge_info;
-                return edge_ref.ptr == &*edge;
-              });
-              if (found_edge == from_vertex->out_edges.end())
+          // Fast path: use cached edge recovery info.
+          auto cache_it = edge_recovery_cache.find(data.gid);
+          if (cache_it != edge_recovery_cache.end()) {
+            const auto &entry = cache_it->second;
+            const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
+            schema_info->SetProperty(entry.edge_type,
+                                     entry.from_vertex,
+                                     entry.to_vertex,
+                                     property_id,
+                                     ExtendedPropertyType{property_value},
+                                     old_type,
+                                     items.properties_on_edges);
+          } else {
+            // Slow path: resolve edge via vertex_acc / FindEdge.
+            const auto &[edge_ref, edge_type, from_vertex, to_vertex] = std::invoke([&] {
+              if (data.from_gid.has_value()) {
+                // Faster path: use to vertex and edge type from WAL delta.
+                // NOTE: WAL edge deltas mix vertex and edge deltas. For efficiency, we don't record the to gid and
+                // edge type in case the edge was created in this transaction. We should either be using the cached
+                // edge accessor (from EdgeCreate - actually a vertex delta) or we should have valid to gid and edge
+                // type.
+                if (data.to_gid.has_value() && data.edge_type.has_value() && *data.to_gid != kInvalidGid &&
+                    !data.edge_type->empty()) {
+                  const auto to_vertex = vertex_acc.find(*data.to_gid);
+                  if (to_vertex == vertex_acc.end())
+                    throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}",
+                                          ret->last_durable_timestamp);
+                  const auto from_vertex = vertex_acc.find(*data.from_gid);
+                  if (from_vertex == vertex_acc.end())
+                    throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}",
+                                          ret->last_durable_timestamp);
+                  const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(*data.edge_type));
+                  return std::tuple{EdgeRef{&*edge}, edge_type_id, &*from_vertex, &*to_vertex};
+                }
+                // Slow path: resolve edge via vertex_acc / FindEdge.
+                const auto from_vertex = vertex_acc.find(data.from_gid);
+                if (from_vertex == vertex_acc.end())
+                  throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}",
+                                        ret->last_durable_timestamp);
+                const auto found_edge = r::find_if(from_vertex->out_edges, [&edge](const auto &edge_info) {
+                  const auto &[edge_type, to_vertex, edge_ref] = edge_info;
+                  return edge_ref.ptr == &*edge;
+                });
+                if (found_edge == from_vertex->out_edges.end())
+                  throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}",
+                                        ret->last_durable_timestamp);
+                const auto &[edge_type, to_vertex, edge_ref] = *found_edge;
+                return std::tuple{edge_ref, edge_type, &*from_vertex, to_vertex};
+              }
+              const auto maybe_edge = find_edge(edge->gid);
+              if (!maybe_edge)
                 throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}",
                                       ret->last_durable_timestamp);
-              const auto &[edge_type, to_vertex, edge_ref] = *found_edge;
-              return std::tuple{edge_ref, edge_type, &*from_vertex, to_vertex};
-            }
-            // Fallback on user defined find edge function
-            const auto maybe_edge = find_edge(edge->gid);
-            if (!maybe_edge)
-              throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}", ret->last_durable_timestamp);
-            return *maybe_edge;
-          });
+              return *maybe_edge;
+            });
 
-          const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
-          schema_info->SetProperty(edge_type,
-                                   from_vertex,
-                                   to_vertex,
-                                   property_id,
-                                   ExtendedPropertyType{property_value},
-                                   old_type,
-                                   items.properties_on_edges);
+            edge_recovery_cache.insert_or_assign(
+                data.gid,
+                EdgeRecoveryCacheEntry{
+                    .edge_ref = edge_ref, .edge_type = edge_type, .from_vertex = from_vertex, .to_vertex = to_vertex});
+            const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
+            schema_info->SetProperty(edge_type,
+                                     from_vertex,
+                                     to_vertex,
+                                     property_id,
+                                     ExtendedPropertyType{property_value},
+                                     old_type,
+                                     items.properties_on_edges);
+          }
         }
 
         edge->properties.SetProperty(property_id, property_value);
@@ -1589,8 +1657,9 @@ void WalFile::AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp
   UpdateStats(timestamp);
 }
 
-void WalFile::AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage) {
-  EncodeDelta(&wal_, storage, delta, edge, timestamp);
+void WalFile::AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage, Gid in_vertex_gid,
+                          EdgeTypeId edge_type_id) {
+  EncodeDelta(&wal_, storage, delta, edge, timestamp, in_vertex_gid, edge_type_id);
   UpdateStats(timestamp);
 }
 

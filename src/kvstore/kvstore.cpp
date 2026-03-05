@@ -15,7 +15,6 @@
 #include "kvstore/kvstore.hpp"
 #include "kvstore/rocksdb_utils.hpp"
 #include "utils/file.hpp"
-#include "utils/logging.hpp"
 
 namespace memgraph::kvstore {
 
@@ -88,12 +87,13 @@ bool KVStore::DeleteMultiple(const std::vector<std::string> &keys) {
 }
 
 bool KVStore::DeletePrefix(const std::string &prefix) {
-  std::unique_ptr<rocksdb::Iterator> iter =
-      std::unique_ptr<rocksdb::Iterator>(pimpl_->db->NewIterator(rocksdb::ReadOptions()));
+  rocksdb::WriteBatch batch;
+  std::unique_ptr<rocksdb::Iterator> iter(pimpl_->db->NewIterator(rocksdb::ReadOptions()));
   for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
-    if (!pimpl_->db->Delete(rocksdb::WriteOptions(), iter->key()).ok()) return false;
+    batch.Delete(iter->key());
   }
-  return true;
+  auto s = pimpl_->db->Write(rocksdb::WriteOptions(), &batch);
+  return s.ok();
 }
 
 bool KVStore::SyncWal() {

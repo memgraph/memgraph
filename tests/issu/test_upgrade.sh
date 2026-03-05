@@ -378,27 +378,53 @@ echo -e "${GREEN}Waiting for pods to become ready...${NC}"
 echo "Current pod status:"
 kubectl get pods -o wide
 
-echo "Waiting up to 5 minutes for pods to be ready..."
-if ! kubectl wait --for=condition=ready pod --all --timeout=300s; then
-  echo -e "${YELLOW}Warning: Some pods may not be ready yet. Checking status...${NC}"
-  kubectl get pods -o wide
-  echo "Pod events:"
-  kubectl get events --sort-by=.metadata.creationTimestamp | tail -20
-  echo "Checking pod logs for any issues..."
-  for pod in $(kubectl get pods --no-headers -o custom-columns=":metadata.name"); do
-    echo "=== Logs for $pod ==="
-    kubectl logs "$pod" --tail=10 || true
+echo "Waiting up to 5 minutes for memgraph pods to be ready..."
+
+MEMGRAPH_PODS=(
+  memgraph-coordinator-1-0
+  memgraph-coordinator-2-0
+  memgraph-coordinator-3-0
+  memgraph-data-0-0
+  memgraph-data-1-0
+)
+
+wait_memgraph_pods_ready() {
+  local timeout="${1:-300s}"
+  for p in "${MEMGRAPH_PODS[@]}"; do
+    kubectl wait --for=condition=ready "pod/$p" --timeout="$timeout"
   done
-  echo -e "${YELLOW}Continuing anyway - some pods might still be starting...${NC}"
-fi
-sleep 10
+}
+
+wait_memgraph_pods_ready 300s
 
 echo "All pods became ready"
+kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
+
+kubectl wait --for=condition=complete job/cluster-setup --timeout=300s 2>/dev/null || true
 
 # --- Pre-upgrade setup ---
-kubectl cp setup.cypherl memgraph-coordinator-1-0:/var/lib/memgraph/setup.cypherl
-kubectl exec memgraph-coordinator-1-0 -- bash -c "mgconsole < /var/lib/memgraph/setup.cypherl"
+kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
 echo "Initialized cluster"
+
+echo "Waiting for cluster to become writable (MAIN elected)..."
+for i in $(seq 1 90); do
+  out="$(kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole" 2>/dev/null || true)"
+
+  if echo "$out" | grep -q '"coordinator_1"' \
+    && echo "$out" | grep -q '"coordinator_2"' \
+    && echo "$out" | grep -q '"coordinator_3"' \
+    && echo "$out" | grep -qi '"main"' \
+    && echo "$out" | grep -qi '"replica"'; then
+      echo "Cluster is initialized and writable."
+      break
+  fi
+
+  echo "Cluster not writable yet (attempt $i/90). Retrying in 2s..."
+  sleep 2
+done
+
+kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
+
 
 kubectl cp $auth_pre_upgrade_file memgraph-data-0-0:/var/lib/memgraph/auth_pre_upgrade.cypherl
 kubectl exec memgraph-data-0-0 -- bash -c "mgconsole < /var/lib/memgraph/auth_pre_upgrade.cypherl"
@@ -415,32 +441,35 @@ echo "Run test queries on old version"
 helm upgrade "$RELEASE" memgraph/memgraph-high-availability -f new_values.yaml
 echo "Updated versions"
 
+
+
+
 # --- Rolling restarts ---
 echo "Deleting pod memgraph-data-1-0 which serves as replica"
 kubectl delete pod memgraph-data-1-0
-kubectl wait --for=condition=ready pod --all --timeout=90s
+wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-data-1-0 passed successfully"
 
 echo "Deleting pod memgraph-data-0-0 which serves as main"
 kubectl scale statefulset memgraph-data-0 --replicas=0
 sleep 5
 kubectl scale statefulset memgraph-data-0 --replicas=1
-kubectl wait --for=condition=ready pod --all --timeout=90s
+wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-data-0-0 passed successfully"
 
 echo "Deleting pod memgraph-coordinator-3-0 which serves as follower"
 kubectl delete pod memgraph-coordinator-3-0
-kubectl wait --for=condition=ready pod --all --timeout=90s
+wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-coordinator-3-0 passed successfully"
 
 echo "Deleting pod memgraph-coordinator-2-0 which serves as follower"
 kubectl delete pod memgraph-coordinator-2-0
-kubectl wait --for=condition=ready pod --all --timeout=90s
+wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-coordinator-2-0 passed successfully"
 
 echo "Deleting pod memgraph-coordinator-1-0 which serves as leader"
 kubectl delete pod memgraph-coordinator-1-0
-kubectl wait --for=condition=ready pod --all --timeout=90s
+wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-coordinator-1-0 passed successfully"
 
 # --- Post-upgrade verification ---

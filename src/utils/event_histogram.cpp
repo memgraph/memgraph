@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,6 +43,7 @@
   GenerateRpcTimer(WalFilesRpc)                                                                                   \
   GenerateRpcTimer(FrequentHeartbeatRpc)                                                                          \
   GenerateRpcTimer(SystemRecoveryRpc)                                                                             \
+  GenerateRpcTimer(UpdateDataInstanceConfigRpc)                                                                   \
   M(GetHistories_us, HighAvailability, "Latency of retrieving instances' history in microseconds", 50, 90, 99)    \
   M(GCLatency_us, Memory, "GC execution latency in microseconds", 50, 90, 99)                                     \
   M(GCSkiplistCleanupLatency_us, Memory, "GC Skiplist cleanup latency in microseconds", 50, 90, 99)

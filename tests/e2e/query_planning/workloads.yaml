@@ -6,7 +6,6 @@ queries_cluster: &queries_cluster
       setup_queries: []
       validation_queries: []
 
-
 workloads:
   - name: "Query planning cartesian"
     binary: "tests/e2e/pytest_runner.sh"
@@ -31,4 +30,9 @@ workloads:
   - name: "Query planning subquery"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["query_planning/query_planning_subquery.py"]
+    <<: *queries_cluster
+
+  - name: "Query planning BFS cost based"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_bfs_cost_based.py"]
     <<: *queries_cluster

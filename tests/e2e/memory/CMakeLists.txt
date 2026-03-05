@@ -59,6 +59,7 @@ add_dependencies(memgraph__e2e__procedure_memory_limit_multi_proc proc_memory_li
 copy_e2e_python_files(memory common.py)
 copy_e2e_python_files(memory conftest.py)
 copy_e2e_python_files(memory user_limits.py)
+copy_e2e_python_files(memory vector_index_memory.py)
 copy_e2e_python_files_from_parent_folder(memory ".." memgraph.py)
 copy_e2e_python_files_from_parent_folder(memory ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(memory ".." mg_utils.py)

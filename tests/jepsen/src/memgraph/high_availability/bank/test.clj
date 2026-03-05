@@ -199,20 +199,20 @@
                 (assoc op :type :info :value (str "One of the nodes [" (:from transfer-info) ", " (:to transfer-info) "] participating in transfer is down")))
               (catch Exception e
                 (cond
-                    (utils/query-forbidden-on-replica? e)
-                    (assoc op :type :info :value "Query forbidden on replica")
+                  (utils/query-forbidden-on-replica? e)
+                  (assoc op :type :info :value "Query forbidden on replica")
 
-                    (utils/query-forbidden-on-main? e)
-                    (assoc op :type :info :value "Query forbidden on main")
+                  (utils/query-forbidden-on-main? e)
+                  (assoc op :type :info :value "Query forbidden on main")
 
-                    (utils/sync-replica-down? e)
-                    (assoc op :type :info :value "SYNC replica is down")
+                  (utils/sync-replica-down? e)
+                  (assoc op :type :info :value "SYNC replica is down")
 
-                    (utils/main-unwriteable? e)
-                    (assoc op :type :info :value {:str "Cannot commit because main is currently non-writeable."})
+                  (utils/cannot-get-shared-access? e)
+                  (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
 
-                )
-                 )))
+                  (utils/main-unwriteable? e)
+                  (assoc op :type :info :value {:str "Cannot commit because main is currently non-writeable."})))))
           (assoc op :type :info :value "Not data instance"))
 
         :setup-cluster
@@ -258,7 +258,8 @@
             (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
               (utils/process-service-unavailable-exc op node))
             (catch Exception e
-              (if (utils/sync-replica-down? e)
+              (if (or (utils/sync-replica-down? e)
+                      (utils/cannot-get-shared-access? e))
                   ; If sync replica is down during initialization, that is fine. Our current SYNC replication will still continue to replicate to this
                   ; replica and transaction will commit on main.
                 (assoc op :type :ok)

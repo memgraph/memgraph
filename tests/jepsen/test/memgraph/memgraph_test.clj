@@ -22,17 +22,6 @@
   (testing "Hamming5"
     (is (= (hacreate/hamming-sim (range 1 11) (range 2 16)) 0)))
 
-  (testing "Jaccard1"
-    (is (= (hacreate/jaccard-sim [1 2 3] [1 2 3]) 1)))
-
-  (testing "Jaccard2"
-    (is (= (hacreate/jaccard-sim [1 2 3] [1 2]) 2/3)))
-
-  (testing "Jaccard3"
-    (is (= (hacreate/jaccard-sim [1 2 3] [2 3]) 2/3)))
-
-  (testing "Jaccard4"
-    (is (= (hacreate/jaccard-sim (range 1 11) (range 1 16)) 2/3)))
 
   (testing "sequence->intervals1"
     (let [my-seq [1 2 3 4 5 8 9 10]]

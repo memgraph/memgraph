@@ -440,8 +440,35 @@ class Interpreter final {
    */
   void Abort();
 
-  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};  // Tie to current_transaction_
-  std::optional<uint64_t> current_transaction_;
+  struct TxVerifier {
+    TxVerifier(TransactionStatus original_status, std::atomic<TransactionStatus> &transaction_status)
+        : original_status_(original_status), transaction_status_(transaction_status) {}
+
+    ~TxVerifier() {
+      TransactionStatus expected = TransactionStatus::VERIFYING;
+      transaction_status_.compare_exchange_strong(
+          expected, original_status_, std::memory_order_release, std::memory_order_relaxed);
+    }
+
+    TransactionStatus status() const { return original_status_; }
+
+   private:
+    TransactionStatus original_status_;
+    std::atomic<TransactionStatus> &transaction_status_;
+  };
+
+  /**
+   * Attempt to CAS the transaction status to VERIFYING so its state can be
+   * safely read by another thread. Returns a TxVerifier RAII guard that
+   * restores the original status on destruction, or nullopt if the CAS failed.
+   */
+  std::optional<TxVerifier> TryAcquireForVerification();
+
+  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
+  // current_transaction_ is protected by the transaction_status_ atomic.
+  // When transaction_status_ is VERIFYING, current_transaction_ is stable.
+  // When transaction_status_ is IDLE, current_transaction_ is nullopt.
+  std::optional<uint64_t> current_transaction_{std::nullopt};
 
   void ResetUser();
 
@@ -629,10 +656,14 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     throw;
   } catch (const utils::BasicException &e) {
     LogQueryMessage(e.what());
-    // Trigger first failed query
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPull);
+    // PeriodicCommitException means the storage layer already aborted the transaction internally.
+    // Null the accessor first so AbortCommand does not call Abort() a second time.
+    if (dynamic_cast<const PeriodicCommitException *>(&e)) {
+      current_db_.CleanupDBTransaction(false);
+    }
     AbortCommand(&query_execution);
     throw;
   }

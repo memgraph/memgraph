@@ -11,6 +11,8 @@
 
 #include "query/cypher_query_interpreter.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include "flags/experimental.hpp"
 #include "frontend/ast/ast.hpp"
 #include "frontend/semantic/required_privileges.hpp"
@@ -26,6 +28,7 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
 
+#include "parameters/parameters.hpp"
 #include "query/plan_v2/ast_converter.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -37,36 +40,46 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
+                            parameters::Parameters const *server_parameters, std::string_view database_uuid)
     -> Parameters {
-  // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
-  // Check that all user-specified parameters are provided.
-  // TODO: parameters should be pre populated with user_parameters, hence positions
+
+  auto try_server_param = [&](int param_index, std::string_view param_key, std::string_view scope) -> bool {
+    if (!server_parameters) return false;
+    auto opt = server_parameters->GetParameter(param_key, scope);
+    if (!opt) return false;
+    TypedValue value;
+    query::from_json(nlohmann::json::parse(*opt), value);
+    parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
+    return true;
+  };
+
   for (const auto &[param_index, param_key] : stripped_query.parameters()) {
     auto it = user_parameters.find(param_key);
-
-    if (it == user_parameters.end()) {
-      throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
+    if (it != user_parameters.end()) {
+      parameters.Add(param_index, it->second);
+      continue;
     }
-
-    parameters.Add(param_index, it->second);
+    if (try_server_param(param_index, param_key, database_uuid)) continue;
+    if (try_server_param(param_index, param_key, parameters::kGlobalScope)) continue;
+    throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
   }
   return parameters;
 }
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
-                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config) {
+                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
+                       std::string_view database_uuid, parameters::Parameters const *server_parameters) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
 
-  // get user-specified parameters
-  // ATM we don't need to correctly materise actual PropertyValues exepct Strings
-  // passing nullptr here means Enums will be returned as NULL, DO NOT USE during pulls
-  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters);
+  // Get parameters (user + database-scoped then global server parameters when database_uuid provided).
+  // Used for visitor resolution of dynamic labels/edge types and for execution.
+  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, server_parameters, database_uuid);
 
   // Cache the query's AST if it isn't already.
   auto hash = stripped_query.stripped_query().hash();
@@ -158,9 +171,8 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
   };
 }
 
-std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             DbAccessor *db_accessor,
-                                             const std::vector<Identifier *> &predefined_identifiers) {
+auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
+                     const std::vector<Identifier *> &predefined_identifiers) -> std::unique_ptr<LogicalPlan> {
   // TODO: we need to make sure we decouple symbol position from frame position
   //       symbols are needed for debugging (a semantic name)
   //       during evaluation frame slots are dumping ground for temporary evaluation results
@@ -224,8 +236,8 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
     }
   }
 
-  auto plan = std::make_shared<PlanWrapper>(
-      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
+  auto logical_plan = MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers);
+  auto plan = std::make_shared<PlanWrapper>(std::move(logical_plan));
 
   if (use_plan_cache) {
     plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.stripped_query(), plan); });

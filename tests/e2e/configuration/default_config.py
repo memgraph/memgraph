@@ -92,7 +92,13 @@ startup_config_dict = {
         "",
         "List of default Kafka brokers as a comma separated list of broker host or host:port.",
     ),
+    "logger_type": (
+        "sync",
+        "sync",
+        "Controls whether synchronous or asynchronous logger will be used. Options: sync, async",
+    ),
     "log_file": ("", "", "Path to where the log should be stored."),
+    "log_retention_days": ("35", "35", "Controls for how many days will daily log files be preserved."),
     "nuraft_log_file": ("", "", "Path to the file where NuRaft logs are saved."),
     "log_level": (
         "WARNING",
@@ -160,6 +166,11 @@ startup_config_dict = {
         "mid",
         "mid",
         "Compression level for storing properties. Allowed values: low, mid, high.",
+    ),
+    "storage_floating_point_resolution_bits": (
+        "64",
+        "64",
+        "Max bits for floating-point property storage (16, 32, or 64). Smaller values save space but reduce precision (32=float, 16=half).",
     ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
