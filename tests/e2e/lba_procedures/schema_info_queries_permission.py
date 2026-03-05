@@ -147,5 +147,57 @@ def test_show_schema_info_with_fine_grained_access_control():
     assert True
 
 
+def test_schema_info_updated_by_security_definer_trigger_with_lbac():
+    admin = get_admin_cursor()
+
+    execute_and_fetch_all(admin, "MATCH (n) DETACH DELETE n")
+
+    execute_and_fetch_all(
+        admin,
+        """CREATE TRIGGER add_label_trigger
+           SECURITY DEFINER
+           ON CREATE
+           BEFORE COMMIT
+           EXECUTE
+           UNWIND createdVertices AS newNode
+           WITH newNode
+           SET newNode:TriggerLabel""",
+    )
+
+    execute_and_fetch_all(admin, "CREATE USER testuser;")
+    execute_and_fetch_all(admin, "CREATE ROLE test_role;")
+    execute_and_fetch_all(
+        admin, "GRANT CREATE, REMOVE, MERGE, MATCH, SET, DELETE, MULTI_DATABASE_USE, MODULE_READ, STATS TO test_role;"
+    )
+    execute_and_fetch_all(admin, "GRANT CREATE ON NODES CONTAINING LABELS * TO test_role;")
+    execute_and_fetch_all(
+        admin, "GRANT READ, UPDATE, DELETE ON NODES CONTAINING LABELS :TriggerLabel MATCHING ANY TO test_role;"
+    )
+    execute_and_fetch_all(admin, "GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO test_role;")
+    execute_and_fetch_all(admin, "SET ROLE FOR testuser TO test_role;")
+
+    testuser = connect(username="testuser", password="").cursor()
+    execute_and_fetch_all(testuser, "CREATE (:UserLabel {name: 'test node'})")
+
+    result = execute_and_fetch_all(testuser, "MATCH (n) RETURN labels(n) AS labels")
+    assert len(result) == 1, f"Expected 1 node, got {len(result)}"
+    labels = result[0][0]
+    assert "UserLabel" in labels, f"Expected 'UserLabel' in labels, got {labels}"
+    assert "TriggerLabel" in labels, f"Expected 'TriggerLabel' in labels (added by trigger), got {labels}"
+
+    schema = get_schema_for(testuser)
+    nodes = schema["nodes"]
+
+    assert len(nodes) == 1, f"Expected 1 node type in schema, got {len(nodes)}: {nodes}"
+
+    node_labels = nodes[0]["labels"]
+    assert "UserLabel" in node_labels, f"Expected 'UserLabel' in schema labels, got {node_labels}"
+    assert "TriggerLabel" in node_labels, f"Expected 'TriggerLabel' in schema labels, got {node_labels}"
+
+    execute_and_fetch_all(admin, "DROP TRIGGER add_label_trigger")
+    execute_and_fetch_all(admin, "DROP USER testuser")
+    execute_and_fetch_all(admin, "DROP ROLE test_role")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
