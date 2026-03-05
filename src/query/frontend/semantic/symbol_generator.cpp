@@ -196,6 +196,7 @@ bool SymbolGenerator::PreVisit(CypherUnion &) {
   // Preserve subquery context flags so that proper scoping is enforced in UNION branches.
   // Without this, subsequent UNION branches incorrectly access outer scope symbols directly
   // instead of requiring explicit WITH imports.
+  // Currently only CALL and EXISTS subqueries can contain complete queries with UNION.
   next_scope.in_call_subquery = prev_scope.in_call_subquery;
   next_scope.in_exists_subquery = prev_scope.in_exists_subquery;
 
@@ -464,7 +465,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // can reference symbols bound later in the same MATCH. We collect them
     // here, so that they can be checked after visiting Match.
     scope.identifiers_in_match.emplace_back(&ident);
-  } else if (scope.in_call_subquery && !scope.in_with) {
+  } else if ((scope.in_call_subquery || scope.in_exists_subquery) && !scope.in_with) {
+    // Subqueries require explicit WITH to import outer variables.
     if (!scope.symbols.contains(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) {
       throw UnboundVariableError(ident.name_);
     }
