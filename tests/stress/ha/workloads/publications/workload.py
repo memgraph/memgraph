@@ -18,7 +18,7 @@ COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 
 S3_BUCKET = "memgraph-stress-tests-bucket"
-S3_DATASET_PATH = "publications-dataset-1-percent"
+S3_DATASET_PATH = "publications-dataset-10-percent"
 S3_REGION = "eu-west-1"
 
 # Concurrent workload settings
