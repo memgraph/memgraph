@@ -206,6 +206,7 @@ class [[nodiscard]] Object final {
   /// @sa FetchError
   Object CallMethod(std::string_view meth_name) const {
     Object name(PyUnicode_FromStringAndSize(meth_name.data(), meth_name.size()));
+    if (!name) return Object(nullptr);
     return Object(PyObject_CallMethodObjArgs(ptr_, name.Ptr(), nullptr));
   }
 
@@ -216,6 +217,7 @@ class [[nodiscard]] Object final {
   template <class... TArgs>
   Object CallMethod(std::string_view meth_name, const TArgs &...args) const {
     Object name(PyUnicode_FromStringAndSize(meth_name.data(), meth_name.size()));
+    if (!name) return Object(nullptr);
     return Object(PyObject_CallMethodObjArgs(ptr_, name.Ptr(), static_cast<PyObject *>(args)..., nullptr));
   }
 };
@@ -223,7 +225,12 @@ class [[nodiscard]] Object final {
 /// Write Object to stream as if `str(o)` was called in Python.
 inline std::ostream &operator<<(std::ostream &os, const Object &py_object) {
   auto py_str = py_object.Str();
-  os << PyUnicode_AsUTF8(py_str.Ptr());
+  if (!py_str) {
+    PyErr_Clear();
+    return os;
+  }
+  const char *utf8 = PyUnicode_AsUTF8(py_str.Ptr());
+  if (utf8) os << utf8;
   return os;
 }
 
@@ -245,21 +252,32 @@ struct [[nodiscard]] ExceptionInfo final {
 [[nodiscard]] inline std::string FormatException(const ExceptionInfo &exc_info, bool skip_first_line = false) {
   if (!exc_info.type) return "";
   Object traceback_mod(PyImport_ImportModule("traceback"));
-  MG_ASSERT(traceback_mod);
+  if (!traceback_mod) {
+    PyErr_Clear();
+    return "(Python exception details unavailable)";
+  }
   Object format_exception_fn(traceback_mod.GetAttr("format_exception"));
-  MG_ASSERT(format_exception_fn);
+  if (!format_exception_fn) {
+    PyErr_Clear();
+    return "(Python exception details unavailable)";
+  }
   Object traceback_root(exc_info.traceback);
   if (skip_first_line && traceback_root) {
     traceback_root = traceback_root.GetAttr("tb_next");
+    if (!traceback_root) PyErr_Clear();
   }
   auto list = format_exception_fn.Call(
       exc_info.type, exc_info.value ? exc_info.value.Ptr() : Py_None, traceback_root ? traceback_root.Ptr() : Py_None);
-  MG_ASSERT(list);
+  if (!list) {
+    PyErr_Clear();
+    return "(Python exception details unavailable)";
+  }
   std::stringstream ss;
   auto len = PyList_GET_SIZE(list.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
     auto *py_str = PyList_GET_ITEM(list.Ptr(), i);
-    ss << PyUnicode_AsUTF8(py_str);
+    const char *utf8 = PyUnicode_AsUTF8(py_str);
+    if (utf8) ss << utf8;
   }
   return ss.str();
 }
