@@ -263,12 +263,13 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_FALSE(auth_object_community_resaved.user_impersonation().has_value());
   }
 
-  // Verify JSON (no license)
+  // Verify JSON (no license) - enterprise data should still be loaded
   {
     // Revoke test license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
 
+    // Full JSON should preserve all enterprise data even without license
     auto auth_object = TypeParam::Deserialize(full_json);
     if constexpr (is_role) ASSERT_EQ(auth_object.rolename(), "a");
     if constexpr (is_user) {
@@ -278,15 +279,21 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     }
     ASSERT_EQ(auth_object.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object.permissions().denies(), 0);
-    ASSERT_FALSE(auth_object.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_EQ(auth_object.db_access().GetMain(), "memgraph");
-    ASSERT_EQ(auth_object.db_access().GetAllowAll(), false);
-    ASSERT_TRUE(auth_object.db_access().GetGrants().size() == 1 &&
-                *auth_object.db_access().GetGrants().begin() == "memgraph");
-    ASSERT_TRUE(auth_object.db_access().GetDenies().empty());
-    ASSERT_FALSE(auth_object.user_impersonation().has_value());
+    const auto &etp = auth_object.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission();
+    ASSERT_TRUE(etp.has_value());
+    ASSERT_EQ(etp.value(), 27);
+    const auto &lp = auth_object.fine_grained_access_handler().label_permissions().GetGlobalPermission();
+    ASSERT_TRUE(lp.has_value());
+    ASSERT_EQ(lp.value(), 27);
+    ASSERT_EQ(auth_object.db_access().GetMain(), "db1");
+    ASSERT_EQ(auth_object.db_access().GetAllowAll(), true);
+    const auto grants = std::set<std::string, std::less<>>({"db1", "memgraph"});
+    ASSERT_EQ(auth_object.db_access().GetGrants(), grants);
+    const auto denies = std::set<std::string, std::less<>>({"db2", "db3"});
+    ASSERT_EQ(auth_object.db_access().GetDenies(), denies);
+    ASSERT_TRUE(auth_object.user_impersonation().has_value());
 
+    // JSON with null enterprise fields should default to safe values
     auto auth_object_no_license = TypeParam::Deserialize(mg_enterprise_no_license_json);
     if constexpr (is_role) ASSERT_EQ(auth_object_no_license.rolename(), "a");
     if constexpr (is_user) {
@@ -307,6 +314,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(auth_object_no_license.db_access().GetDenies().empty());
     ASSERT_FALSE(auth_object_no_license.user_impersonation().has_value());
 
+    // Community JSON (missing enterprise fields) should default to safe values
     auto auth_object_community = TypeParam::Deserialize(community_json);
     if constexpr (is_role) ASSERT_EQ(auth_object_community.rolename(), "a");
     if constexpr (is_user) {
@@ -535,10 +543,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
   // TODO This should throw, the key exists, but the value is broken
   // Missing edge global permissions fine grained access handler ( default to no access )
@@ -555,16 +563,16 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(
         auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
     ASSERT_FALSE(auth_object_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
-    // Without license
+    // Without license - should behave the same as with license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_no_license = TypeParam::Deserialize(json);
     ASSERT_FALSE(
         auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
-    ASSERT_FALSE(
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
+    ASSERT_TRUE(
         auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
   }
 
   // TODO This should throw, the key exists, but the value is broken
@@ -582,16 +590,16 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(
         auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
     ASSERT_FALSE(auth_object_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
-    // Without license
+    // Without license - should behave the same as with license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_no_license = TypeParam::Deserialize(json);
-    ASSERT_FALSE(
+    ASSERT_TRUE(
         auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
     ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
-    ASSERT_FALSE(
+    ASSERT_TRUE(
         auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
   }
 
   // Missing label permissions fine grained access handler (throw)
@@ -602,10 +610,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
 
   // TODO This should throw, the key exists, but the value is broken
@@ -623,16 +631,16 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_FALSE(
         auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
     ASSERT_FALSE(auth_object_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
-    // Without license
+    // Without license - should behave the same as with license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_no_license = TypeParam::Deserialize(json);
-    ASSERT_FALSE(
+    ASSERT_TRUE(
         auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
     ASSERT_FALSE(
         auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
   }
 
   // TODO This should throw, the key exists, but the value is broken
@@ -650,14 +658,14 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(
         auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
     ASSERT_TRUE(auth_object_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
-    // Without license
+    // Without license - should behave the same as with license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_no_license = TypeParam::Deserialize(json);
-    ASSERT_FALSE(
+    ASSERT_TRUE(
         auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
-    ASSERT_FALSE(
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
+    ASSERT_TRUE(
         auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
     ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
   }
@@ -694,10 +702,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
 
   // Missing database access grants (throw)
@@ -708,10 +716,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
 
   // Missing database access denies (throw)
@@ -722,10 +730,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
 
   // Missing database access main (throw)
@@ -736,10 +744,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
 
   // Missing user impersonation ( default to no user impersonation )
@@ -769,11 +777,13 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(auth_object_license.user_impersonation().has_value());
     ASSERT_TRUE(std::holds_alternative<memgraph::auth::UserImpersonation::GrantAllUsers>(
         auth_object_license.user_impersonation()->granted()));
-    // Without license
+    // Without license - should behave the same as with license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_no_license = TypeParam::Deserialize(json);
-    ASSERT_FALSE(auth_object_no_license.user_impersonation().has_value());
+    ASSERT_TRUE(auth_object_no_license.user_impersonation().has_value());
+    ASSERT_TRUE(std::holds_alternative<memgraph::auth::UserImpersonation::GrantAllUsers>(
+        auth_object_no_license.user_impersonation()->granted()));
   }
 
   // Grant no user impersonation
@@ -790,11 +800,16 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(std::get<std::set<memgraph::auth::UserImpersonation::UserId>>(
                     auth_object_license.user_impersonation()->granted())
                     .empty());
-    // Without license
+    // Without license - should behave the same as with license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_no_license = TypeParam::Deserialize(json);
-    ASSERT_FALSE(auth_object_no_license.user_impersonation().has_value());
+    ASSERT_TRUE(auth_object_no_license.user_impersonation().has_value());
+    ASSERT_TRUE(std::holds_alternative<std::set<memgraph::auth::UserImpersonation::UserId>>(
+        auth_object_no_license.user_impersonation()->granted()));
+    ASSERT_TRUE(std::get<std::set<memgraph::auth::UserImpersonation::UserId>>(
+                    auth_object_no_license.user_impersonation()->granted())
+                    .empty());
   }
 
   // Missing user impersonation granted (throw)
@@ -805,10 +820,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
 
   // Missing user impersonation granted uuid (throw)
@@ -819,10 +834,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
 
   // Missing user impersonation granted name (throw)
@@ -833,10 +848,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
 
   // Missing user impersonation denied (throw)
@@ -847,10 +862,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
 
   // Missing user impersonation denied uuid (throw)
@@ -861,10 +876,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
 
   // Missing user impersonation denied name (throw)
@@ -875,11 +890,45 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
-    // Without license
+    // Without license - should still throw since enterprise data is always loaded
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
-    ASSERT_NO_THROW(TypeParam::Deserialize(json));
+    ASSERT_THROW(TypeParam::Deserialize(json), memgraph::auth::AuthException);
   }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(AuthModuleTest, AuthPersistsAcrossLicenceTypeChange) {
+  constexpr bool is_role = std::is_same_v<TypeParam, memgraph::auth::Role>;
+
+  auto full_json = nlohmann::json::parse(full_json_str);
+  if (is_role) {
+    full_json = User2Role(full_json);
+  }
+
+  memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
+  ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
+
+  auto auth_object = TypeParam::Deserialize(full_json);
+  const auto enterprise_baseline = auth_object.Serialize();
+
+  memgraph::license::global_license_checker.DisableTesting();
+  ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
+
+  // Serialize and deserialize without an enterprise licence
+  auto serialized_in_community = auth_object.Serialize();
+  EXPECT_EQ(serialized_in_community, enterprise_baseline);
+  auto community_object = TypeParam::Deserialize(serialized_in_community);
+  auto reserialized_in_community = community_object.Serialize();
+  EXPECT_EQ(reserialized_in_community, enterprise_baseline);
+
+  // Deserialize in enterprise mode
+  memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
+  ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
+
+  auto restored_object = TypeParam::Deserialize(reserialized_in_community);
+  const auto restored_serialized = restored_object.Serialize();
+  EXPECT_EQ(restored_serialized, enterprise_baseline);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -916,22 +965,22 @@ TYPED_TEST(AuthModuleTest, Reserialization) {
     EXPECT_EQ(community_saved_with_license_json, community_object.Serialize());
   }
 
-  // Re-serialize user (without license)
+  // Re-serialize user (without license) - enterprise data should be preserved
   {
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
 
-    // Created with license; enterprise fields should be null
+    // Created with license; enterprise fields should be preserved
     auto full_object = TypeParam::Deserialize(full_json);
-    EXPECT_EQ(mg_enterprise_no_license_json, full_object.Serialize());
+    EXPECT_EQ(full_json, full_object.Serialize());
 
-    // Created without license, missing fields should default to the same null values
+    // Created without license, missing fields should default
     auto no_license_object = TypeParam::Deserialize(mg_enterprise_no_license_json);
-    EXPECT_EQ(mg_enterprise_no_license_json, no_license_object.Serialize());
+    EXPECT_EQ(community_saved_with_license_json, no_license_object.Serialize());
 
-    // Created in community version; missing fields should be inserted back (as in no_license example)
+    // Created in community version; missing fields should be inserted back with defaults
     auto community_object = TypeParam::Deserialize(community_json);
-    EXPECT_EQ(mg_enterprise_no_license_json, community_object.Serialize());
+    EXPECT_EQ(community_saved_with_license_json, community_object.Serialize());
   }
 }
 
