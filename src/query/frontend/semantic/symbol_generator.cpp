@@ -189,8 +189,15 @@ bool SymbolGenerator::PreVisit(SingleQuery &) {
 // Union
 
 bool SymbolGenerator::PreVisit(CypherUnion &) {
+  auto &prev_scope = scopes_.back();
+
   auto next_scope = Scope();
-  next_scope.curr_return_names = scopes_.back().curr_return_names;
+  next_scope.curr_return_names = prev_scope.curr_return_names;
+  // Preserve subquery context flags so that proper scoping is enforced in UNION branches.
+  // Without this, subsequent UNION branches incorrectly access outer scope symbols directly
+  // instead of requiring explicit WITH imports.
+  next_scope.in_call_subquery = prev_scope.in_call_subquery;
+  next_scope.in_exists_subquery = prev_scope.in_exists_subquery;
 
   scopes_.pop_back();
   scopes_.push_back(next_scope);
