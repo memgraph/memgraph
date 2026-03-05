@@ -465,7 +465,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // can reference symbols bound later in the same MATCH. We collect them
     // here, so that they can be checked after visiting Match.
     scope.identifiers_in_match.emplace_back(&ident);
-  } else if ((scope.in_call_subquery || scope.in_exists_subquery) && !scope.in_with) {
+  } else if (scope.in_call_subquery && !scope.in_with) {
     // Subqueries require explicit WITH to import outer variables.
     if (!scope.symbols.contains(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) {
       throw UnboundVariableError(ident.name_);
