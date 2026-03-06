@@ -217,6 +217,9 @@ wait_for_healthy_cluster() {
 
 _stop_processes() {
     # Stops all Memgraph processes without cleaning data directories.
+    local graceful_timeout_sec=60
+    local force_kill_settle_sec=20
+
     if [[ ! -f "memgraph_ha.pid" ]]; then
         echo "No running Memgraph processes found."
         return 0
@@ -229,10 +232,10 @@ _stop_processes() {
         kill "$pid" 2>/dev/null || true
     done < memgraph_ha.pid
 
-    for i in {1..10}; do
+    for ((i=1; i<=graceful_timeout_sec; i++)); do
         all_stopped=true
         while read -r pid; do
-            if kill -0 $pid 2>/dev/null; then
+            if kill -0 "$pid" 2>/dev/null; then
                 all_stopped=false
                 break
             fi
@@ -266,7 +269,8 @@ _stop_processes() {
         kill -9 "$pid" 2>/dev/null || true
     done
 
-    sleep 1
+    echo "Waiting ${force_kill_settle_sec} seconds before final stop check..."
+    sleep "$force_kill_settle_sec"
 
     local still_running=()
     for pid in "${remaining_pids[@]}"; do
