@@ -271,7 +271,8 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
         }
         return old_vertex_property_value;
       });
-      locked_index->remove(vertex);
+      auto remove_result = locked_index->remove(vertex);
+      MG_ASSERT(remove_result.completed, "Vertex not found in vector index during label removal");
       vertex->properties.SetProperty(property_id, property_value_to_set);
     }
   }
@@ -372,17 +373,18 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
     using Entry = std::pair<uint64_t, std::vector<float>>;
     auto const entries = std::invoke([&]() -> std::vector<Entry> {
       auto locked_index = mg_index.Lock();  // NOLINT(clang-analyzer-core.CallAndMessage)
-      auto const size = locked_index->size();
-      if (size == 0) return {};
+      // Use capacity() instead of size() — size() is racy in usearch even under
+      // exclusive outer lock (reads two unsynchronized internal data structures).
+      auto const cap = locked_index->capacity();
+      if (cap == 0) return {};
 
-      std::vector<Vertex *> keys(size);
-      locked_index->export_keys(keys.data(), 0, size);
+      std::vector<Vertex *> keys(cap, nullptr);
+      locked_index->export_keys(keys.data(), 0, cap);
 
       std::vector<Entry> result;
-      result.reserve(size);
       std::vector<float> buffer(locked_index->dimensions());
       for (auto *vertex : keys) {
-        if (vertex->deleted()) continue;
+        if (vertex == nullptr || vertex->deleted()) continue;
         if (!locked_index->get(vertex, buffer.data())) continue;
         result.emplace_back(vertex->gid.AsUint(), buffer);
       }
@@ -425,7 +427,7 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   VectorSearchNodeResults result;
   result.reserve(result_set_size);
 
-  auto locked_index = index_item.mg_index.ReadLock();
+  auto locked_index = index_item.mg_index.Lock();
   const auto result_keys =
       locked_index->filtered_search(query_vector.data(), result_set_size, [](const Vertex *vertex) {
         auto guard = std::shared_lock{vertex->lock};
@@ -442,24 +444,18 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   return result;
 }
 
-void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
-  auto maybe_stop = utils::ResettableCounter(2048);
-  for (auto &[_, index_item] : pimpl->index_by_id_) {
-    if (maybe_stop() && token.stop_requested()) {
-      return;
-    }
-    auto &[mg_index, spec] = index_item;
-    auto locked_index = mg_index.MutableSharedLock();
-    const auto index_size = locked_index->size();
-    std::vector<Vertex *> vertices_to_remove(index_size);
-    locked_index->export_keys(vertices_to_remove.data(), 0, index_size);
+void VectorIndex::RemoveObsoleteEntries(std::stop_token /*token*/) const {
+  // Deleted vertex removal is handled by targeted RemoveVertex() calls from GC
+  // before skip list removal. This avoids scanning usearch and dereferencing
+  // arbitrary Vertex* pointers which may be dangling (USearch #697).
+}
 
-    // size() and export_keys() are not atomic — a concurrent add/remove can cause
-    // size() > slot_lookup_.size(), leaving trailing nullptr entries in the buffer.
-    for (const auto &vertex : vertices_to_remove) {
-      if (vertex != nullptr && vertex->deleted()) {
-        locked_index->remove(vertex);
-      }
+void VectorIndex::RemoveVertex(Vertex *vertex) const {
+  for (auto &[_, index_item] : pimpl->index_by_id_) {
+    auto &[mg_index, spec] = index_item;
+    auto locked_index = mg_index.Lock();
+    if (locked_index->contains(vertex)) {
+      locked_index->remove(vertex);
     }
   }
 }

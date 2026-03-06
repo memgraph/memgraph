@@ -49,6 +49,10 @@ struct Indices {
 
   void DropGraphClearIndices();
 
+  /// Removes a specific vertex from all vector indices. Must be called before
+  /// the vertex is removed from the skip list (while the pointer is still valid).
+  void RemoveVertexFromVectorIndices(Vertex *vertex) const;
+
   struct AbortProcessor {
     LabelIndex::AbortProcessor label_;
     LabelPropertyIndex::AbortProcessor label_properties_;

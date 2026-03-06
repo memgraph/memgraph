@@ -2935,6 +2935,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // VERTICES (has ptr to Edges, must be before removing edges)
   if (!current_deleted_vertices.empty()) {
     auto vertex_acc = vertices_.access();
+    // Remove from vector indices BEFORE skip list removal while Vertex* is still valid.
+    for (auto gid : current_deleted_vertices) {
+      auto it = vertex_acc.find(gid);
+      MG_ASSERT(it != vertex_acc.end(), "Invalid database state!");
+      indices_.RemoveVertexFromVectorIndices(&*it);
+    }
     for (auto vertex : current_deleted_vertices) {
       MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
     }
