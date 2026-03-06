@@ -136,15 +136,12 @@ class PatternCompilerBase {
 //
 // ## Join Strategies
 //
-//   1. Parent Traversal (depth 1): When patterns share a variable at root's child
-//      - IterParents from bound variable, CheckSymbol, verify child
-//      - O(parents) per candidate
+//   1. Parent Traversal: When patterns share a variable
+//      - Finds the DEEPEST shared variable (deeper = fewer parent traversals)
+//      - Walk upward through parent chain via IterParents
+//      - O(parents^depth) per candidate, minimized by choosing deepest
 //
-//   2. Parent Chain (depth N): When shared variable is deeply nested
-//      - Walk upward through N levels of IterParents
-//      - O(parents^N) per candidate
-//
-//   3. Cartesian Product: When no shared variable
+//   2. Cartesian Product: When no shared variable
 //      - IterAllEClasses × IterENodes
 //      - O(eclasses × enodes) - expensive, used as last resort
 //
@@ -168,13 +165,13 @@ class PatternCompilerBase {
 ///
 /// Single pattern `Neg(Neg(?x))` compiles to:
 /// ```
-/// 0:  IterENodes r1, r0, @halt     ; iterate e-nodes in input e-class
+/// 0:  IterENodes r1, r0            ; iterate e-nodes in input e-class (no backtrack - always ≥1)
 /// 1:  Jump @3
 /// 2:  NextENode r1, @halt          ; advance, or jump to halt
 /// 3:  CheckSymbol r1, Neg, @2      ; wrong symbol -> try next
 /// 4:  CheckArity r1, 1, @2         ; wrong arity -> try next
 /// 5:  LoadChild r2, r1, 0          ; load child e-class
-/// 6:  IterENodes r3, r2, @2        ; iterate inner Neg
+/// 6:  IterENodes r3, r2            ; iterate inner Neg (no backtrack)
 /// ...
 /// N:  Yield
 /// N+1: Jump @innermost             ; try more combinations
