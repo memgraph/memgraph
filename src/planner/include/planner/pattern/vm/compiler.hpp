@@ -207,11 +207,12 @@ class PatternCompiler : protected PatternCompilerBase {
   // Types
   // ============================================================================
 
-  /// Represents a path from root to a node in a pattern tree.
+  /// Represents a path from root to a shared variable in a pattern tree.
   /// Each entry is (symbol, child_index) describing how to descend.
   struct PatternPath {
     std::vector<std::pair<SymbolWithChildren<Symbol>, std::size_t>> steps;
     PatternVar shared_var;
+    EClassReg shared_reg;  // Register holding the shared variable's e-class
   };
 
   // ============================================================================
@@ -255,8 +256,8 @@ class PatternCompiler : protected PatternCompilerBase {
   /// Emit parent traversal for patterns with shared variables.
   /// Traverses upward from the shared variable through parent chain.
   /// O(parents^depth) per match, much better than O(n) Cartesian product.
-  auto emit_joined_via_parents(Pattern<Symbol> const &pattern, PatternPath const &path, EClassReg shared_reg,
-                               InstrAddr backtrack) -> InstrAddr;
+  auto emit_joined_via_parents(Pattern<Symbol> const &pattern, PatternPath const &path, InstrAddr backtrack)
+      -> InstrAddr;
 
   // ============================================================================
   // Helpers
@@ -451,9 +452,8 @@ template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern, InstrAddr anchor_backtrack)
     -> InstrAddr {
   // Try to find a shared variable (any depth) for efficient parent traversal.
-  // find_symbol_path_to_shared_var only returns a path when path->shared_var exists in var_to_reg_.
   if (auto path = find_symbol_path_to_shared_var(pattern)) {
-    return emit_joined_via_parents(pattern, *path, var_to_reg_.at(path->shared_var), anchor_backtrack);
+    return emit_joined_via_parents(pattern, *path, anchor_backtrack);
   }
 
   // No shared variable - Cartesian product (expensive fallback)
@@ -489,10 +489,13 @@ auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &patte
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pattern, PatternPath const &path,
-                                                      EClassReg shared_reg, InstrAddr backtrack) -> InstrAddr {
+                                                      InstrAddr backtrack) -> InstrAddr {
   // Current e-class register starts at the shared variable
-  EClassReg current_eclass_reg = shared_reg;
+  EClassReg current_eclass_reg = path.shared_reg;
   InstrAddr innermost = backtrack;
+
+  // TODO: even if we know shared is bound already we should check that we have the correct symbol + arity
+  //       previous bind could have just been PatternVar
 
   // Traverse path in reverse (from shared var up to root)
   // Each step: iterate parents with expected symbol, verify child index
@@ -511,7 +514,7 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
     // Verify the shared variable is at the expected child index (only needed when arity > 1)
     // When arity == 1, IterParents + CheckArity guarantees the only child is our e-class
     if (sym.children.size() > 1) {
-      auto verify_child_reg = alloc_eclass_reg();
+      auto verify_child_reg = alloc_eclass_reg();  // TODO: this is short lived, can we share verify register
       emit(Instruction::load_child(verify_child_reg, parent_reg, static_cast<uint8_t>(child_idx)));
       emit(Instruction::check_eclass_eq(verify_child_reg, current_eclass_reg, loop_pos));
     }
@@ -565,8 +568,9 @@ auto PatternCompiler<Symbol>::find_path_recursive(Pattern<Symbol> const &pattern
   return std::visit(utils::Overloaded{
                         [&](PatternVar const &var) {
                           // Check if this is a shared variable (already bound by anchor)
-                          if (var_to_reg_.contains(var)) {
+                          if (auto it = var_to_reg_.find(var); it != var_to_reg_.end()) {
                             path.shared_var = var;
+                            path.shared_reg = it->second;
                             return true;
                           }
                           return false;
@@ -574,6 +578,8 @@ auto PatternCompiler<Symbol>::find_path_recursive(Pattern<Symbol> const &pattern
                         [&](SymbolWithChildren<Symbol> const &sym) {
                           // TODO: we recurse until we see PatternVar but we do not consider
                           //       if pattern.binding_for(node_id) is bound
+                          //       if we fix this we also need to fix emit_joined_via_parents becasue we need to visit
+                          //       ALL children of this sym
 
                           // Recurse into symbol children
                           for (std::size_t i = 0; i < sym.children.size(); ++i) {
