@@ -52,7 +52,7 @@ inline auto make_double_neg_rule() -> TestRewriteRule {
  */
 inline auto make_idempotent_f_rule() -> TestRewriteRule {
   return TestRewriteRule::Builder{"idempotent_f"}
-      .pattern(TestPattern::build(Op::F, {Var{kVarX}, Var{kVarX}}, kVarRoot))
+      .pattern(TestPattern::build(kVarRoot, Op::F, {Var{kVarX}, Var{kVarX}}))
       .apply([](TestRuleContext &ctx, Match const &match) { ctx.merge(match[kVarRoot], match[kVarX]); });
 }
 
@@ -64,9 +64,9 @@ inline auto make_idempotent_f_rule() -> TestRewriteRule {
  */
 inline auto make_chain_join_rule() -> TestRewriteRule {
   return TestRewriteRule::Builder{"chain_join"}
-      .pattern(TestPattern::build(Op::F, {Var{kVarX}}, kVarRootP1), "f_x")
+      .pattern(TestPattern::build(kVarRootP1, Op::F, {Var{kVarX}}), "f_x")
       .pattern(TestPattern::build(Op::F2, {Var{kVarX}, Var{kVarY}}), "f2_xy")
-      .pattern(TestPattern::build(Op::F, {Var{kVarY}}, kVarRootP3), "f_y")
+      .pattern(TestPattern::build(kVarRootP3, Op::F, {Var{kVarY}}), "f_y")
       .apply([](TestRuleContext &ctx, Match const &match) { ctx.merge(match[kVarRootP1], match[kVarRootP3]); });
 }
 
@@ -77,8 +77,8 @@ inline auto make_chain_join_rule() -> TestRewriteRule {
  */
 inline auto make_merge_vars_rule() -> TestRewriteRule {
   return TestRewriteRule::Builder{"merge_vars"}
-      .pattern(TestPattern::build(Op::Var, kVarX))
-      .pattern(TestPattern::build(Op::Var, kVarY))
+      .pattern(TestPattern::build(kVarX, Op::Var))
+      .pattern(TestPattern::build(kVarY, Op::Var))
       .apply([](TestRuleContext &ctx, Match const &match) { ctx.merge(match[kVarX], match[kVarY]); });
 }
 

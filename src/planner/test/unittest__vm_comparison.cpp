@@ -113,7 +113,7 @@ TEST_F(PatternVM_Correctness, SimplePattern_Neg) {
   }
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Var{kVarX}});
   verify_vm(pattern, kNumNodes);
 }
 
@@ -128,7 +128,7 @@ TEST_F(PatternVM_Correctness, NestedPattern_NegNeg) {
   }
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Var{kVarX})}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Sym(Op::Neg, Var{kVarX})});
   verify_vm(pattern, kNumChains);
 }
 
@@ -145,7 +145,7 @@ TEST_F(PatternVM_Correctness, DeepPattern_Chain4) {
   }
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Sym(Op::Neg, Var{kVarX})))}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Sym(Op::Neg, Var{kVarX})))});
   verify_vm(pattern, kNumChains);
 }
 
@@ -174,7 +174,7 @@ TEST_F(PatternVM_Correctness, SameVariablePattern_AddXX) {
   }
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarX}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Var{kVarX}});
   verify_vm(pattern, kNumLeaves);
 }
 
@@ -195,7 +195,7 @@ TEST_F(PatternVM_Correctness, WideEClass_ManyENodes) {
   }
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Var{kVarX}});
   verify_vm(pattern, kNumMerges);
 }
 
@@ -230,7 +230,7 @@ TEST_F(PatternVM_Correctness, SelfReferentialEClass_DeepPattern) {
   merge(n1, n2);
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::F, {Sym(Op::F, Sym(Op::F, Var{kVarX}))}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Sym(Op::F, Sym(Op::F, Var{kVarX}))});
 
   // MatcherIndex bug was fixed - both implementations now correct
   verify_vm(pattern, /*expected=*/2);
@@ -265,7 +265,7 @@ TEST_F(PatternVM_Correctness, TernaryPatternWithLeafSymbol) {
   merge(a0, a1);
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::F, {Var{kVarX}, Sym(Op::A), Var{kVarY}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Var{kVarX}, Sym(Op::A), Var{kVarY}});
 
   // MatcherIndex bug was fixed - both implementations now correct
   verify_vm(pattern, /*expected=*/1);
@@ -296,7 +296,7 @@ TEST_F(PatternVM_Correctness, MixedPattern_Complex) {
   }
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::F, {Sym(Op::Add, Var{kVarX}, Var{kVarY}), Sym(Op::Neg, Var{kVarZ})}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Sym(Op::Add, Var{kVarX}, Var{kVarY}), Sym(Op::Neg, Var{kVarZ})});
 
   // Note: Due to hash-consing, duplicate structures are merged, so actual
   // count may be less than kNumNodes. We verify the VM finds at least one match.
@@ -321,7 +321,7 @@ TEST_F(PatternVM_Correctness, BinaryPattern_RandomStructure) {
   }
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Var{kVarY}});
 
   auto vm_result = run_vm(std::array{pattern});
 
@@ -358,7 +358,7 @@ TEST_F(PatternVM_Correctness, SelfReferentialWithRewritePattern) {
   node(Op::Mul, neg_a, f_a);
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::Mul, {Sym(Op::Neg, Var{kVarX}), Sym(Op::F, Var{kVarX})}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Mul, {Sym(Op::Neg, Var{kVarX}), Sym(Op::F, Var{kVarX})});
 
   // Single-pattern matching works correctly for self-referential e-classes
   verify_vm(pattern, /*expected=*/1);
@@ -432,8 +432,8 @@ TEST_F(PatternVM_Correctness, ParentChainSiblingVerification_FuzzerCrashE6dbe1d)
   // Multi-pattern: (F ?v0) and (Plus (F ?v0) (H ?v0))
   // Note: NO H nodes have been created, so pattern 1 should never match
   std::array<TestPattern, 2> patterns = {
-      TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt),
-      TestPattern::build(Op::Plus, {Sym(Op::F, Var{kVarX}), Sym(Op::H, Var{kVarX})}, std::nullopt),
+      TestPattern::build(Op::F, {Var{kVarX}}),
+      TestPattern::build(Op::Plus, {Sym(Op::F, Var{kVarX}), Sym(Op::H, Var{kVarX})}),
   };
 
   // Ground truth: 0 matches (no H nodes exist)
@@ -505,9 +505,9 @@ TEST_F(PatternVM_Correctness, SelfReferentialMultiPattern_FuzzerCrash076d8fd2) {
   // Step 8: Multi-pattern matching
   // Patterns: (F ?v0), ?v0, (Mul (H ?v0) (F ?v0))
   std::array<TestPattern, 3> patterns = {
-      TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt),
+      TestPattern::build(Op::F, {Var{kVarX}}),
       make_var_pattern(kVarX),
-      TestPattern::build(Op::Mul, {Sym(Op::H, Var{kVarX}), Sym(Op::F, Var{kVarX})}, std::nullopt),
+      TestPattern::build(Op::Mul, {Sym(Op::H, Var{kVarX}), Sym(Op::F, Var{kVarX})}),
   };
 
   // Ground truth: 0 matches
@@ -592,8 +592,8 @@ TEST_F(PatternVM_Correctness, IdenticalMultiPattern_FuzzerCrashE082976a) {
 
   // Two identical patterns: (Mul (G ?v0) (G ?v0))
   std::array<TestPattern, 2> patterns = {
-      TestPattern::build(Op::Mul, {Sym(Op::G, Var{kVarX}), Sym(Op::G, Var{kVarX})}, std::nullopt),
-      TestPattern::build(Op::Mul, {Sym(Op::G, Var{kVarX}), Sym(Op::G, Var{kVarX})}, std::nullopt),
+      TestPattern::build(Op::Mul, {Sym(Op::G, Var{kVarX}), Sym(Op::G, Var{kVarX})}),
+      TestPattern::build(Op::Mul, {Sym(Op::G, Var{kVarX}), Sym(Op::G, Var{kVarX})}),
   };
 
   // Ground truth: 2 matches (?v0 = B's e-class and ?v0 = A's e-class)
@@ -671,7 +671,7 @@ TEST_F(PatternVM_Correctness, MultiPattern_VariableRootJoin) {
   rebuild_egraph();
 
   std::array<TestPattern, 2> patterns = {
-      TestPattern::build(Op::Neg, {Var{kVarX}}, std::nullopt),
+      TestPattern::build(Op::Neg, {Var{kVarX}}),
       make_var_pattern(kVarX),
   };
 
@@ -708,8 +708,8 @@ TEST_F(PatternVM_Correctness, MultiPattern_CartesianProduct) {
   rebuild_egraph();
 
   std::array<TestPattern, 2> patterns = {
-      TestPattern::build(Op::Neg, {Var{kVarX}}, std::nullopt),
-      TestPattern::build(Op::Add, {Var{kVarY}, Var{kVarZ}}, std::nullopt),
+      TestPattern::build(Op::Neg, {Var{kVarX}}),
+      TestPattern::build(Op::Add, {Var{kVarY}, Var{kVarZ}}),
   };
 
   // Cartesian product: kNumNegs * kNumAdds matches
@@ -745,7 +745,7 @@ TEST_F(PatternVM_Correctness, MarkSeen_DeduplicatesSameBinding) {
   node(Op::Neg, a0);
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, std::nullopt);
+  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}});
 
   // Should match exactly once (the merged e-class), not 3 times
   verify_vm(pattern, 1);
@@ -774,7 +774,7 @@ TEST_F(PatternVM_Correctness, MarkSeen_MultipleNegNodes) {
   merge(neg_a, neg_c);
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, std::nullopt);
+  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}});
 
   // Should match 3 times: ?x=A, ?x=B, ?x=C (each is a distinct e-class)
   verify_vm(pattern, 3);
@@ -797,7 +797,7 @@ TEST_F(PatternVM_Correctness, MarkSeen_SelfReferentialDedup) {
   merge(f_a, a);  // Creates self-referential: e-class contains A(0) and F(self)
   rebuild_egraph();
 
-  auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt);
+  auto pattern = TestPattern::build(Op::F, {Var{kVarX}});
 
   // Should match exactly once (?x = the self-referential e-class)
   verify_vm(pattern, 1);

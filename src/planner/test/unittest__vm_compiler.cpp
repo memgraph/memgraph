@@ -70,7 +70,7 @@ TEST_F(PatternVM_Compiler, VariablePattern) {
 
 TEST_F(PatternVM_Compiler, SimpleSymbolPattern) {
   // Pattern: Neg(?x)
-  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Var{kVarX}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -117,7 +117,7 @@ TEST_F(PatternVM_Compiler, SimpleSymbolPattern) {
 
 TEST_F(PatternVM_Compiler, NestedSymbolPattern) {
   // Pattern: Neg(Neg(?x))
-  auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Var{kVarX})}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Sym(Op::Neg, Var{kVarX})});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -166,7 +166,7 @@ TEST_F(PatternVM_Compiler, NestedSymbolPattern) {
 
 TEST_F(PatternVM_Compiler, BinarySymbolPattern) {
   // Pattern: Add(?x, ?y)
-  auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Var{kVarY}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -264,8 +264,8 @@ TEST_F(PatternVM_Compiler, MultiPattern_SharedVarUsesParentTraversal) {
   constexpr PatternVar kVarExpr{2};
   constexpr PatternVar kVarId{3};
 
-  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
-  auto joined = TestPattern::build(Op::Ident, {Var{kVarSym}}, kVarId);
+  auto anchor = TestPattern::build(kTestRoot, Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}});
+  auto joined = TestPattern::build(kVarId, Op::Ident, {Var{kVarSym}});
 
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
@@ -370,7 +370,7 @@ TEST_F(PatternVM_Compiler, MultiPattern_RootBindingEnablesParentTraversal) {
   constexpr PatternVar kVarY{1};
 
   auto pattern1 = TestPattern::build(Op::F, {Var{kVarX}});
-  auto pattern2 = TestPattern::build(Op::G, {Var{kVarX}}, kVarY);  // G(?x) AS ?y
+  auto pattern2 = TestPattern::build(kVarY, Op::G, {Var{kVarX}});  // G(?x) AS ?y
   auto pattern3 = TestPattern::build(Op::H, {Var{kVarY}});
 
   TestPatternCompiler compiler;
@@ -724,7 +724,7 @@ TEST_F(PatternVM_Compiler, MultiPattern_SymbolBindingSharedVar_AtRoot) {
 
   auto anchor = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}});
   // Neg[?x](?z) - ?x binds to the Neg node (root), ?z is a child
-  auto joined = TestPattern::build(Op::Neg, {Var{kVarZ}}, kVarX);
+  auto joined = TestPattern::build(kVarX, Op::Neg, {Var{kVarZ}});
 
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
@@ -840,7 +840,7 @@ TEST_F(PatternVM_Compiler, Validation_DuplicateSymbolBindingInSinglePattern) {
   constexpr PatternVar kVarX{0};
 
   // ?x=A(?x=B()) - duplicate binding on ?x should throw
-  EXPECT_THROW(TestPattern::build(Op::Add, {BoundSym(kVarX, Op::Neg)}, kVarX), std::invalid_argument);
+  EXPECT_THROW(TestPattern::build(kVarX, Op::Add, {BoundSym(kVarX, Op::Neg)}), std::invalid_argument);
 }
 
 TEST_F(PatternVM_Compiler, Validation_DuplicateSymbolBindingAcrossPatterns) {
@@ -852,8 +852,8 @@ TEST_F(PatternVM_Compiler, Validation_DuplicateSymbolBindingAcrossPatterns) {
   constexpr PatternVar kVarY{1};
   constexpr PatternVar kVarZ{2};
 
-  auto pattern1 = TestPattern::build(Op::Add, {Var{kVarY}}, kVarX);  // ?x=A(?y)
-  auto pattern2 = TestPattern::build(Op::Neg, {Var{kVarZ}}, kVarX);  // ?x=B(?z)
+  auto pattern1 = TestPattern::build(kVarX, Op::Add, {Var{kVarY}});  // ?x=A(?y)
+  auto pattern2 = TestPattern::build(kVarX, Op::Neg, {Var{kVarZ}});  // ?x=B(?z)
 
   TestPatternCompiler compiler;
   std::array patterns = {pattern1, pattern2};
@@ -867,7 +867,7 @@ TEST_F(PatternVM_Compiler, Validation_SymbolBindingAndVarNodeIsValid) {
   constexpr PatternVar kVarX{0};
 
   // This should NOT throw - ?x as a var node is different from ?x as a symbol binding
-  EXPECT_NO_THROW(TestPattern::build(Op::Add, {Var{kVarX}}, kVarX));  // ?x=A(?x)
+  EXPECT_NO_THROW(TestPattern::build(kVarX, Op::Add, {Var{kVarX}}));  // ?x=A(?x)
 }
 
 TEST_F(PatternVM_Compiler, Validation_SymbolBindingInOnePatternVarInAnother) {
@@ -879,7 +879,7 @@ TEST_F(PatternVM_Compiler, Validation_SymbolBindingInOnePatternVarInAnother) {
   constexpr PatternVar kVarY{1};
   constexpr PatternVar kVarZ{2};
 
-  auto pattern1 = TestPattern::build(Op::Add, {Var{kVarY}}, kVarX);       // ?x=A(?y)
+  auto pattern1 = TestPattern::build(kVarX, Op::Add, {Var{kVarY}});       // ?x=A(?y)
   auto pattern2 = TestPattern::build(Op::Mul, {Var{kVarX}, Var{kVarZ}});  // B(?x, ?z)
 
   TestPatternCompiler compiler;

@@ -144,7 +144,7 @@ TEST_F(PatternVM_MatcherIndex, RepeatedVariableEnforcesEquality) {
   //   E-graph:          Pattern:
   //   Add(a, a)  ─────>  Add(?x, ?x)  ✓ matches, ?x=a
   //   Add(a, b)  ─────>  Add(?x, ?x)  ✗ no match (a ≠ b)
-  use_pattern(TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarX}}, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Var{kVarX}}));
 
   auto a = leaf(Op::Var, 1);
   auto b = leaf(Op::Var, 2);
@@ -174,7 +174,7 @@ TEST_F(PatternVM_MatcherIndex, DeepPatternCollectsAllBindings) {
   //      Neg    ?y
   //       |
   //      ?x
-  use_pattern(TestPattern::build(Op::Add, {Sym(Op::Mul, Sym(Op::Neg, Var{kVarX}), Var{kVarY}), Var{kVarZ}}, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::Add, {Sym(Op::Mul, Sym(Op::Neg, Var{kVarX}), Var{kVarY}), Var{kVarZ}}));
 
   auto x = leaf(Op::Var, 1);
   auto y = leaf(Op::Var, 2);
@@ -197,7 +197,7 @@ TEST_F(PatternVM_MatcherIndex, WidePatternCollectsFromAllBranches) {
   //       / \    / \
   //     ?w  ?x  ?y  ?z
   use_pattern(TestPattern::build(
-      Op::F, {Sym(Op::Add, Var{kVarW}, Var{kVarX}), Sym(Op::Mul, Var{kVarY}, Var{kVarZ})}, kTestRoot));
+      kTestRoot, Op::F, {Sym(Op::Add, Var{kVarW}, Var{kVarX}), Sym(Op::Mul, Var{kVarY}, Var{kVarZ})}));
 
   auto w = leaf(Op::Var, 1);
   auto x = leaf(Op::Var, 2);
@@ -284,7 +284,7 @@ TEST_F(PatternVM_MatcherIndex, MergeEnablesRepeatedVariableMatch) {
   //    a     b   (a ≠ b)     [a,b] [a,b]  (a ≡ b)
   //
   //   No match               ?x = [a,b] ✓
-  use_pattern(TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarX}}, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Var{kVarX}}));
 
   auto a = leaf(Op::Var, 1);
   auto b = leaf(Op::Var, 2);
@@ -343,7 +343,7 @@ TEST_F(PatternVM_MatcherIndex, SelfReferentialEClassMatchesMultipleTimes) {
   ASSERT_EQ(egraph.find(n2), ec1) << "n1 and n2 should be in same e-class";
 
   // Pattern: F(F(F(?v0)))
-  use_pattern(TestPattern::build(Op::F, {Sym(Op::F, Sym(Op::F, Var{kVarX}))}, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::F, {Sym(Op::F, Sym(Op::F, Var{kVarX}))}));
 
   // Should find 2 matches: ?v0 = EC0 and ?v0 = EC1
   expect_matches({
@@ -536,7 +536,7 @@ TEST_F(PatternVM_MatcherIndex, LeafSymbolChildWithMergedENodesConsistency) {
   rebuild_index();
 
   // Pattern: F(?x, A) - leaf symbol A as child
-  use_pattern(TestPattern::build(Op::F, {Var{kVarX}, Sym(Op::A)}, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::F, {Var{kVarX}, Sym(Op::A)}));
 
   // VM results
   matches.clear();
@@ -581,7 +581,7 @@ TEST_F(PatternVM_MatcherIndex, TernaryPatternWithLeafSymbolChildConsistency) {
   rebuild_index();
 
   // Pattern: F(?x, A, ?y) - leaf symbol A in the middle
-  use_pattern(TestPattern::build(Op::F, {Var{kVarX}, Sym(Op::A), Var{kVarY}}, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::F, {Var{kVarX}, Sym(Op::A), Var{kVarY}}));
 
   // VM results
   matches.clear();
@@ -625,8 +625,8 @@ TEST_F(PatternVM_MatcherIndex, MultiPatternVMFiltersBySymbolInVerifyMode) {
   // VM-based multi-pattern matching
   {
     auto rule = RewriteRule<Op, NoAnalysis>::Builder("test_vm")
-                    .pattern(TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt))
-                    .pattern(TestPattern::build(Op::F2, {Var{kVarX}}, std::nullopt))
+                    .pattern(TestPattern::build(Op::F, {Var{kVarX}}))
+                    .pattern(TestPattern::build(Op::F2, {Var{kVarX}}))
                     .apply([&vm_count](RuleContext<Op, NoAnalysis> &, Match const &) { ++vm_count; });
 
     MatcherContext matcher_ctx;
@@ -663,8 +663,8 @@ TEST_F(PatternVM_MatcherIndex, MultiPatternMatchWithSharedVariable) {
   // VM-based multi-pattern matching
   {
     auto rule = RewriteRule<Op, NoAnalysis>::Builder("test_vm")
-                    .pattern(TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt))
-                    .pattern(TestPattern::build(Op::F2, {Var{kVarX}}, std::nullopt))
+                    .pattern(TestPattern::build(Op::F, {Var{kVarX}}))
+                    .pattern(TestPattern::build(Op::F2, {Var{kVarX}}))
                     .apply([&vm_count](RuleContext<Op, NoAnalysis> &, Match const &) { ++vm_count; });
 
     MatcherContext matcher_ctx;
@@ -708,7 +708,7 @@ TEST_F(PatternVM_MatcherIndex, DuplicateBindingsFromDifferentENodes) {
   rebuild_index();
 
   // Pattern: F(A, ?x, ?y) - leaf symbol A as first child
-  use_pattern(TestPattern::build(Op::F, {Sym(Op::A), Var{kVarX}, Var{kVarY}}, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::F, {Sym(Op::A), Var{kVarX}, Var{kVarY}}));
 
   // Get raw matches via VM
   matches.clear();
@@ -765,11 +765,11 @@ TEST_F(PatternVM_MatcherIndex, DeepNestedTernaryPatternNoMatches) {
 
   // Pattern: F(F(?x, ?y, ?z), Neg(Neg(?w)), Neg(?a))
   // Uses Neg as unary operator for nesting depth
-  use_pattern(TestPattern::build(Op::F,
+  use_pattern(TestPattern::build(kTestRoot,
+                                 Op::F,
                                  {Sym(Op::F, Var{kVarX}, Var{kVarY}, Var{kVarZ}),
                                   Sym(Op::Neg, Sym(Op::Neg, Var{kVarW})),
-                                  Sym(Op::Neg, Var{kVarA})},
-                                 kTestRoot));
+                                  Sym(Op::Neg, Var{kVarA})}));
 
   // VM should find 0 matches
   matches.clear();
@@ -804,7 +804,7 @@ TEST_F(PatternVM_MatcherIndex, DeepNestedTernaryPatternWithMatches) {
 
   // Pattern: F(Neg(?x), Neg(?y), Neg(?z))
   use_pattern(TestPattern::build(
-      Op::F, {Sym(Op::Neg, Var{kVarX}), Sym(Op::Neg, Var{kVarY}), Sym(Op::Neg, Var{kVarZ})}, kTestRoot));
+      kTestRoot, Op::F, {Sym(Op::Neg, Var{kVarX}), Sym(Op::Neg, Var{kVarY}), Sym(Op::Neg, Var{kVarZ})}));
 
   // VM results
   matches.clear();

@@ -168,7 +168,7 @@ TEST_F(Rewrite, ENodeLimitReached_StopsRewriting) {
   leaf(Op::Var, 1);
 
   auto explosive_rule = TestRewriteRule::Builder{"explosive"}
-                            .pattern(TestPattern::build(Op::Var, kVarRoot))
+                            .pattern(TestPattern::build(kVarRoot, Op::Var))
                             .apply([counter = 2](TestRuleContext &ctx, Match const &match) mutable {
                               for (int i = 0; i < 10; ++i) {
                                 auto n = ctx.emplace(Op::Var, counter++);
@@ -204,8 +204,8 @@ TEST_F(Rewrite, TwoPatterns_JoinOnSharedVariables) {
   // Risk: Join logic broken; patterns matched independently (Cartesian).
   auto merge_rule =
       TestRewriteRule::Builder{"merge_f_f2"}
-          .pattern(TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kVarRootA), "f")
-          .pattern(TestPattern::build(Op::F2, {Var{kVarX}, Var{kVarY}}, kVarRootB), "f2")
+          .pattern(TestPattern::build(kVarRootA, Op::F, {Var{kVarX}, Var{kVarY}}), "f")
+          .pattern(TestPattern::build(kVarRootB, Op::F2, {Var{kVarX}, Var{kVarY}}), "f2")
           .apply([](TestRuleContext &ctx, Match const &match) { ctx.merge(match[kVarRootA], match[kVarRootB]); });
   use_rules(merge_rule);
 
@@ -319,7 +319,7 @@ TEST_F(Rewrite, Emplace_CreatesNewNodes) {
   //   └─────┘          └─────────────────┘
 
   auto create_f_rule = TestRewriteRule::Builder{"create_f"}
-                           .pattern(TestPattern::build(Op::Var, kVarRoot))
+                           .pattern(TestPattern::build(kVarRoot, Op::Var))
                            .apply([](TestRuleContext &ctx, Match const &match) {
                              auto var_eclass = match[kVarRoot];
                              auto new_f = ctx.emplace(Op::F, utils::small_vector{var_eclass, var_eclass});
@@ -340,8 +340,8 @@ TEST_F(Rewrite, Emplace_CreatesNewNodes) {
 TEST_F(Rewrite, EmplacedNodes_Matchable) {
   // Nodes created in iteration N must be matchable in iteration N+1.
   auto create_f = TestRewriteRule::Builder{"create_f"}
-                      .pattern(TestPattern::build(Op::Var, kVarX))
-                      .pattern(TestPattern::build(Op::Var, kVarY))
+                      .pattern(TestPattern::build(kVarX, Op::Var))
+                      .pattern(TestPattern::build(kVarY, Op::Var))
                       .apply([](TestRuleContext &ctx, Match const &match) {
                         auto vx = match[kVarX];
                         auto vy = match[kVarY];
@@ -351,7 +351,7 @@ TEST_F(Rewrite, EmplacedNodes_Matchable) {
                       });
 
   auto wrap_f2 = TestRewriteRule::Builder{"wrap_f2"}
-                     .pattern(TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kVarRootA))
+                     .pattern(TestPattern::build(kVarRootA, Op::F, {Var{kVarX}, Var{kVarY}}))
                      .apply([](TestRuleContext &ctx, Match const &match) {
                        ctx.emplace(Op::F2, utils::small_vector{match[kVarRootA]});
                      });
@@ -443,7 +443,7 @@ TEST_F(Rewrite, EmplaceExisting_ReturnsSameEClass) {
   bool saw_existing = false;
 
   auto try_duplicate = TestRewriteRule::Builder{"try_duplicate"}
-                           .pattern(TestPattern::build(Op::Var, kVarX))
+                           .pattern(TestPattern::build(kVarX, Op::Var))
                            .apply([&](TestRuleContext &ctx, Match const &match) {
                              // Try to create F(x) which already exists
                              auto [eclass_id, _, did_insert] = ctx.emplace(Op::F, utils::small_vector{match[kVarX]});
@@ -575,8 +575,8 @@ TEST_F(Rewrite, VM_FallbackForMultiPatternRules) {
   // This test verifies the fallback works correctly.
   auto join_rule =
       TestRewriteRule::Builder{"join_rule"}
-          .pattern(TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kVarRootA), "f")
-          .pattern(TestPattern::build(Op::F2, {Var{kVarX}, Var{kVarY}}, kVarRootB), "f2")
+          .pattern(TestPattern::build(kVarRootA, Op::F, {Var{kVarX}, Var{kVarY}}), "f")
+          .pattern(TestPattern::build(kVarRootB, Op::F2, {Var{kVarX}, Var{kVarY}}), "f2")
           .apply([](TestRuleContext &ctx, Match const &match) { ctx.merge(match[kVarRootA], match[kVarRootB]); });
   use_rules(join_rule);
 
@@ -598,7 +598,7 @@ TEST_F(Rewrite, VM_VariablePatternRoot_FallbackToAllCandidates) {
   // When pattern root is a variable (not a symbol), we can't use
   // symbol index and must iterate all e-classes.
   auto var_root_rule = TestRewriteRule::Builder{"var_root"}
-                           .pattern(TestPattern::build(Op::Var, kVarRoot))
+                           .pattern(TestPattern::build(kVarRoot, Op::Var))
                            .apply([](TestRuleContext &ctx, Match const &match) {
                              // Just mark this as matched by creating a node
                              ctx.emplace(Op::F, utils::small_vector{match[kVarRoot]});

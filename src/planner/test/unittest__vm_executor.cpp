@@ -44,7 +44,7 @@ TEST_F(PatternVM_Execution, SimpleMatch) {
   rebuild_egraph();
 
   // Pattern: Neg(?x)
-  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Var{kVarX}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -77,7 +77,7 @@ TEST_F(PatternVM_Execution, NoMatch) {
   rebuild_egraph();
 
   // Pattern: Neg(?x) - should not match
-  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Var{kVarX}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -99,7 +99,7 @@ TEST_F(PatternVM_Execution, MultipleMatches) {
   rebuild_egraph();
 
   // Pattern: Neg(?x)
-  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Var{kVarX}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -118,7 +118,7 @@ TEST_F(PatternVM_Execution, NestedPatternMatch) {
   rebuild_egraph();
 
   // Pattern: Neg(Neg(?x))
-  auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Var{kVarX})}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Sym(Op::Neg, Var{kVarX})});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -151,7 +151,7 @@ TEST_F(PatternVM_Execution, SelfReferentialEClass) {
   rebuild_egraph();
 
   // Pattern: F(F(?x))
-  auto pattern = TestPattern::build(Op::F, {Sym(Op::F, Var{kVarX})}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Sym(Op::F, Var{kVarX})});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -197,7 +197,7 @@ TEST_F(PatternVM_Execution, DeepNestedPattern) {
   rebuild_egraph();
 
   // Pattern: Neg(Neg(Neg(?x))) - depth 3
-  auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Var{kVarX}))}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Var{kVarX}))});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -302,7 +302,7 @@ TEST_F(PatternVM_Execution, SameVariableMergedEClass) {
   ASSERT_EQ(egraph.find(n0), egraph.find(n1)) << "Both Add nodes should be in same e-class after merge";
 
   // Pattern: Add(?x, Neg(?x))
-  auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Sym(Op::Neg, Var{kVarX})}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Sym(Op::Neg, Var{kVarX})});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -374,7 +374,7 @@ TEST_F(PatternVM_Execution, SameVariableInnerLoopMultipleENodes) {
   ASSERT_EQ(neg_eclass.nodes().size(), 2) << "Neg e-class should have 2 e-nodes";
 
   // Pattern: Add(?x, Neg(?x))
-  auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Sym(Op::Neg, Var{kVarX})}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Sym(Op::Neg, Var{kVarX})});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -429,7 +429,7 @@ TEST_F(PatternVM_Execution, SameVariableMultipleMergedENodes) {
   rebuild_egraph();
 
   // Pattern: Add(?x, Neg(?x))
-  auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Sym(Op::Neg, Var{kVarX})}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Sym(Op::Neg, Var{kVarX})});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -482,7 +482,7 @@ TEST_F(PatternVM_Execution, DeduplicationSelfReferentialEClass) {
   [[maybe_unused]] auto ec1 = egraph.find(n0);
 
   // Pattern: F(?x)
-  auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Var{kVarX}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -505,7 +505,7 @@ TEST_F(PatternVM_Execution, SingleMatchForSimplePattern) {
   rebuild_egraph();
 
   // Pattern: F(?x)
-  auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Var{kVarX}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -540,7 +540,7 @@ TEST_F(PatternVM_Execution, DeduplicationMergedDifferentSymbols) {
   ASSERT_EQ(eclass.nodes().size(), 2) << "Merged e-class should have F(a) and F2(a)";
 
   // Pattern: F(?x) - should match only the F(a) e-node
-  auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Var{kVarX}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -584,7 +584,7 @@ TEST_F(PatternVM_Execution, DeduplicationSlotOrderIndependence) {
   rebuild_egraph();
 
   // Pattern: F(?x, ?y)
-  auto pattern = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Var{kVarX}, Var{kVarY}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -620,7 +620,7 @@ TEST_F(PatternVM_Execution, DeduplicationMultiplePaths) {
   // After rebuild, f1 and f2 should be same e-class
   ASSERT_EQ(egraph.find(f1), egraph.find(f2)) << "Identical F(a,b) nodes should merge";
 
-  auto pattern = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Var{kVarX}, Var{kVarY}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -659,7 +659,7 @@ TEST_F(PatternVM_Execution, DeduplicationPrefixChange) {
   rebuild_egraph();
 
   // Pattern: Add(?x, F(?x, ?y)) - ?x appears twice, ?y once
-  auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Sym(Op::F, Var{kVarX}, Var{kVarY})}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Sym(Op::F, Var{kVarX}, Var{kVarY})});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -697,7 +697,7 @@ TEST_F(PatternVM_Execution, DeduplicationWideEClass) {
   auto const &eclass = egraph.eclass(f_class);
   ASSERT_EQ(eclass.nodes().size(), kNumVariants) << "All F nodes should be in same e-class";
 
-  auto pattern = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kTestRoot);
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Var{kVarX}, Var{kVarY}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
@@ -733,8 +733,8 @@ TEST_F(PatternVM_Execution, MultiPattern_JoinWithParentTraversal) {
   constexpr PatternVar kVarExpr{2};
   constexpr PatternVar kVarId{3};
 
-  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
-  auto joined = TestPattern::build(Op::Ident, {Var{kVarSym}}, kVarId);
+  auto anchor = TestPattern::build(kTestRoot, Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}});
+  auto joined = TestPattern::build(kVarId, Op::Ident, {Var{kVarSym}});
 
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
@@ -763,8 +763,8 @@ TEST_F(PatternVM_Execution, MultiPattern_NoMatchingJoin) {
   constexpr PatternVar kVarExpr{2};
   constexpr PatternVar kVarId{3};
 
-  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
-  auto joined = TestPattern::build(Op::Ident, {Var{kVarSym}}, kVarId);
+  auto anchor = TestPattern::build(kTestRoot, Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}});
+  auto joined = TestPattern::build(kVarId, Op::Ident, {Var{kVarSym}});
 
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
@@ -792,8 +792,8 @@ TEST_F(PatternVM_Execution, MultiPattern_MultipleJoinMatches) {
   constexpr PatternVar kVarExpr{2};
   constexpr PatternVar kVarId{3};
 
-  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
-  auto joined = TestPattern::build(Op::Ident, {Var{kVarSym}}, kVarId);
+  auto anchor = TestPattern::build(kTestRoot, Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}});
+  auto joined = TestPattern::build(kVarId, Op::Ident, {Var{kVarSym}});
 
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
@@ -824,7 +824,7 @@ TEST_F(PatternVM_Execution, MultiPattern_NestedJoinedPattern) {
 
   rebuild_egraph();
 
-  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kBindRoot);
+  auto anchor = TestPattern::build(kBindRoot, Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}});
   auto joined = TestPattern::build(Op::F, {Var{kVarSym}, Sym(Op::Neg, Var{kVarX})});
 
   TestPatternCompiler compiler;
@@ -853,9 +853,9 @@ TEST_F(PatternVM_Execution, MultiPattern_ThreePatternJoin) {
   constexpr PatternVar kVarIdent{2};
   constexpr PatternVar kVarNeg{3};
 
-  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kTestRoot);
-  auto joined_ident = TestPattern::build(Op::Ident, {Var{kVarSym}}, kVarIdent);
-  auto joined_neg = TestPattern::build(Op::Neg, {Var{kVarSym}}, kVarNeg);
+  auto anchor = TestPattern::build(kTestRoot, Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}});
+  auto joined_ident = TestPattern::build(kVarIdent, Op::Ident, {Var{kVarSym}});
+  auto joined_neg = TestPattern::build(kVarNeg, Op::Neg, {Var{kVarSym}});
 
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined_ident, joined_neg};
@@ -889,9 +889,9 @@ TEST_F(PatternVM_Execution, MultiPattern_ManyParentTraversals) {
   constexpr PatternVar kVarF2{2};
   constexpr PatternVar kVarNeg{3};
 
-  auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kTestRoot);
-  auto joined_f2 = TestPattern::build(Op::F2, {Var{kVarSym}, Wildcard{}}, kVarF2);
-  auto joined_neg = TestPattern::build(Op::Neg, {Var{kVarSym}}, kVarNeg);
+  auto anchor = TestPattern::build(kTestRoot, Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}});
+  auto joined_f2 = TestPattern::build(kVarF2, Op::F2, {Var{kVarSym}, Wildcard{}});
+  auto joined_neg = TestPattern::build(kVarNeg, Op::Neg, {Var{kVarSym}});
 
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined_f2, joined_neg};
@@ -926,8 +926,8 @@ TEST_F(PatternVM_Execution, MultiPattern_DeduplicationWithPrefixChange) {
   constexpr PatternVar kVarF{3};
   constexpr PatternVar kVarF2{4};
 
-  auto pattern_f = TestPattern::build(Op::F, {Var{kVarA}, Var{kVarB}}, kVarF);
-  auto pattern_f2 = TestPattern::build(Op::F2, {Var{kVarB}, Var{kVarC}}, kVarF2);
+  auto pattern_f = TestPattern::build(kVarF, Op::F, {Var{kVarA}, Var{kVarB}});
+  auto pattern_f2 = TestPattern::build(kVarF2, Op::F2, {Var{kVarB}, Var{kVarC}});
 
   TestPatternCompiler compiler;
   std::array patterns = {pattern_f, pattern_f2};
@@ -952,7 +952,7 @@ TEST_F(PatternVM_Execution, MultiPattern_DeduplicationMultiplePaths) {
   constexpr PatternVar kVarA{0};
   constexpr PatternVar kVarF{1};
 
-  auto pattern = TestPattern::build(Op::F, {Var{kVarA}, Var{kVarA}}, kVarF);
+  auto pattern = TestPattern::build(kVarF, Op::F, {Var{kVarA}, Var{kVarA}});
 
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);

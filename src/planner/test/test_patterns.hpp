@@ -97,7 +97,10 @@ inline auto make_var_pattern(PatternVar var) -> TestPattern {
  * @param root_binding Optional variable to bind the matched e-class
  */
 inline auto make_leaf_pattern(Op op, std::optional<PatternVar> root_binding = std::nullopt) -> TestPattern {
-  return TestPattern::build(op, root_binding);
+  if (root_binding) {
+    return TestPattern::build(*root_binding, op);
+  }
+  return TestPattern::build(op);
 }
 
 /**
@@ -105,7 +108,10 @@ inline auto make_leaf_pattern(Op op, std::optional<PatternVar> root_binding = st
  */
 inline auto make_unary_pattern(Op op, PatternVar var, std::optional<PatternVar> root_binding = std::nullopt)
     -> TestPattern {
-  return TestPattern::build(op, {Var{var}}, root_binding);
+  if (root_binding) {
+    return TestPattern::build(*root_binding, op, {Var{var}});
+  }
+  return TestPattern::build(op, {Var{var}});
 }
 
 /**
@@ -113,7 +119,10 @@ inline auto make_unary_pattern(Op op, PatternVar var, std::optional<PatternVar> 
  */
 inline auto make_binary_pattern(Op op, PatternVar var_x, PatternVar var_y,
                                 std::optional<PatternVar> root_binding = std::nullopt) -> TestPattern {
-  return TestPattern::build(op, {Var{var_x}, Var{var_y}}, root_binding);
+  if (root_binding) {
+    return TestPattern::build(*root_binding, op, {Var{var_x}, Var{var_y}});
+  }
+  return TestPattern::build(op, {Var{var_x}, Var{var_y}});
 }
 
 /**
@@ -123,7 +132,7 @@ inline auto make_binary_pattern(Op op, PatternVar var_x, PatternVar var_y,
  * Used for double negation elimination: Neg(Neg(?x)) -> ?x
  */
 inline auto make_double_neg_pattern() -> TestPattern {
-  return TestPattern::build(Op::Neg, {Sym(Op::Neg, Var{kVarX})}, kVarDoubleNegRoot);
+  return TestPattern::build(kVarDoubleNegRoot, Op::Neg, {Sym(Op::Neg, Var{kVarX})});
 }
 
 }  // namespace memgraph::planner::core::test

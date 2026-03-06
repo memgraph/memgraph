@@ -356,8 +356,20 @@ class Pattern {
    *       Sym(Op::Neg, Var{kVarZ})
    *   });
    */
-  static auto build(Symbol symbol, std::initializer_list<dsl::ChildSpec<Symbol>> children,
-                    std::optional<PatternVar> binding = std::nullopt) -> Pattern {
+  static auto build(Symbol symbol, std::initializer_list<dsl::ChildSpec<Symbol>> children) -> Pattern {
+    Builder builder;
+    builder.sym(symbol, children);
+    return std::move(builder).build();
+  }
+
+  /**
+   * @brief Fluent DSL: build a pattern with binding and nested children
+   *
+   * Example:
+   *   auto pattern = Pattern<Op>::build(kVarX, Op::Add, {Var{kVarY}, Var{kVarZ}});  // ?x=Add(?y, ?z)
+   */
+  static auto build(PatternVar binding, Symbol symbol, std::initializer_list<dsl::ChildSpec<Symbol>> children)
+      -> Pattern {
     Builder builder;
     builder.sym(symbol, children, binding);
     return std::move(builder).build();
@@ -366,7 +378,19 @@ class Pattern {
   /**
    * @brief Fluent DSL: build a leaf pattern (symbol with no children)
    */
-  static auto build(Symbol symbol, std::optional<PatternVar> binding = std::nullopt) -> Pattern {
+  static auto build(Symbol symbol) -> Pattern {
+    Builder builder;
+    builder.sym(symbol);
+    return std::move(builder).build();
+  }
+
+  /**
+   * @brief Fluent DSL: build a leaf pattern with binding
+   *
+   * Example:
+   *   auto pattern = Pattern<Op>::build(kVarX, Op::Const);  // ?x=Const
+   */
+  static auto build(PatternVar binding, Symbol symbol) -> Pattern {
     Builder builder;
     builder.sym(symbol, binding);
     return std::move(builder).build();

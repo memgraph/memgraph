@@ -135,7 +135,7 @@ TEST(Pattern_Variables, RootBinding) {
   //      /   \
   //     ?x   ?y        (depth 1)
 
-  auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}, kVarRoot);
+  auto pattern = TestPattern::build(kVarRoot, Op::Add, {Var{kVarX}, Var{kVarY}});
 
   EXPECT_EQ(pattern.size(), 3);  // Add + 2 vars
   EXPECT_EQ(pattern.depth(), 1);
