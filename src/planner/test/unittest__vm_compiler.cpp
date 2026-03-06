@@ -435,6 +435,71 @@ TEST_F(PatternVM_Compiler, MultiPattern_MixedJoinStrategies) {
                                         << bytecode;
 }
 
+TEST_F(PatternVM_Compiler, MultiPattern_IntermediateBindingEmitsBindSlot) {
+  // Pattern 1 (anchor): F(?z, ?w)
+  // Pattern 2: A(?y=B(?z)) - shares ?z, ?y is an intermediate binding on B
+  //
+  // Verifies that intermediate bindings along the parent traversal path
+  // emit BindSlotDedup instructions.
+
+  constexpr PatternVar kVarZ{0};
+  constexpr PatternVar kVarW{1};
+  constexpr PatternVar kVarY{2};
+
+  auto pattern1 = TestPattern::build(Op::F, {Var{kVarZ}, Var{kVarW}});
+  auto pattern2 = TestPattern::build(Op::A, {BoundSym(kVarY, Op::B, Var{kVarZ})});
+
+  TestPatternCompiler compiler;
+  std::array patterns = {pattern1, pattern2};
+  auto compiled = compiler.compile(patterns);
+
+  auto const &code = compiled.code();
+  auto bytecode = disassemble(code, compiled.symbols());
+
+  // Count BindSlotDedup instructions - should have one for each variable
+  // ?z, ?w from anchor, plus ?y from intermediate binding
+  int bind_slot_count = 0;
+  for (auto const &instr : code) {
+    if (instr.op == VMOp::BindSlotDedup) ++bind_slot_count;
+  }
+
+  // 3 variables: ?z, ?w, ?y - each should have BindSlotDedup
+  EXPECT_EQ(bind_slot_count, 3) << "Should emit BindSlotDedup for ?z, ?w, and intermediate ?y\nBytecode:\n" << bytecode;
+}
+
+TEST_F(PatternVM_Compiler, MultiPattern_RootBindingInParentTraversalEmitsBindSlot) {
+  // Pattern 1 (anchor): F(?x, ?w)
+  // Pattern 2: ?y=G(?x) - shares ?x, ?y is a root binding
+  //
+  // Verifies that root bindings during parent traversal emit BindSlotDedup.
+  // (Root is now handled in the main loop, not a special case.)
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarW{1};
+  constexpr PatternVar kVarY{2};
+
+  auto pattern1 = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarW}});
+  auto pattern2 = TestPattern::build(kVarY, Op::G, {Var{kVarX}});
+
+  TestPatternCompiler compiler;
+  std::array patterns = {pattern1, pattern2};
+  auto compiled = compiler.compile(patterns);
+
+  auto const &code = compiled.code();
+  auto bytecode = disassemble(code, compiled.symbols());
+
+  // Count BindSlotDedup for ?y (root binding on joined pattern)
+  int bind_slot_for_y = 0;
+  auto y_slot = compiled.var_slots().at(kVarY);
+  for (auto const &instr : code) {
+    if (instr.op == VMOp::BindSlotDedup && instr.arg == value_of(y_slot)) {
+      ++bind_slot_for_y;
+    }
+  }
+
+  EXPECT_EQ(bind_slot_for_y, 1) << "Should emit BindSlotDedup for root binding ?y\nBytecode:\n" << bytecode;
+}
+
 // ============================================================================
 // VM Join Order Tests
 // ============================================================================

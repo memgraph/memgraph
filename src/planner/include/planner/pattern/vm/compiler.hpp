@@ -205,10 +205,15 @@ class PatternCompiler : protected PatternCompilerBase {
   // Types
   // ============================================================================
 
+  /// Represents a single step in the path from root to shared variable.
+  struct PathStep {
+    PatternNodeId node_id;  // Node ID for looking up symbol and bindings from pattern
+    std::size_t child_idx;  // Which child leads to shared var
+  };
+
   /// Represents a path from root to a shared variable in a pattern tree.
-  /// Each entry is (symbol, child_index) describing how to descend.
   struct PatternPath {
-    std::vector<std::pair<SymbolWithChildren<Symbol>, std::size_t>> steps;
+    std::vector<PathStep> steps;
     PatternVar shared_var;
     EClassReg shared_reg;  // Register holding the shared variable's e-class
 
@@ -271,7 +276,7 @@ class PatternCompiler : protected PatternCompilerBase {
   [[nodiscard]] auto find_symbol_path_to_shared_var(Pattern<Symbol> const &pattern) const -> std::optional<PatternPath>;
 
   /// Recursively find the deepest shared variable, updating best_path if a deeper one is found.
-  using PathSteps = std::vector<std::pair<SymbolWithChildren<Symbol>, std::size_t>>;
+  using PathSteps = std::vector<PathStep>;
   void find_deepest_shared_var(Pattern<Symbol> const &pattern, PatternNodeId node_id, PathSteps &steps,
                                std::optional<PatternPath> &best_path) const;
 
@@ -535,8 +540,9 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
   }
 
   // Traverse path in reverse (from shared var up to root)
-  // Each step: iterate parents with expected symbol, verify child index
-  for (auto const &[sym, child_idx] : path.steps | std::views::reverse) {
+  // Each step: iterate parents with expected symbol, verify child index, emit binding if present
+  for (auto const &step : path.steps | std::views::reverse) {
+    auto const &sym = std::get<SymbolWithChildren<Symbol>>(pattern[step.node_id]);
     auto parent_reg = alloc_enode_reg();
     auto sym_idx = get_symbol_index(sym.sym);
 
@@ -554,7 +560,7 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
       if (!verify_child_reg) {
         verify_child_reg = alloc_eclass_reg();
       }
-      emit(Instruction::load_child(*verify_child_reg, parent_reg, static_cast<uint8_t>(child_idx)));
+      emit(Instruction::load_child(*verify_child_reg, parent_reg, static_cast<uint8_t>(step.child_idx)));
       emit(Instruction::check_eclass_eq(*verify_child_reg, current_eclass_reg, loop_pos));
     }
 
@@ -566,7 +572,7 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
     // we want to try the next parent at THIS level, not skip to the parent level above.
     InstrAddr sibling_innermost = loop_pos;
     for (std::size_t i = 0; i < sym.children.size(); ++i) {
-      if (i == child_idx) continue;  // Skip the child we're traversing through
+      if (i == step.child_idx) continue;  // Skip the child we're traversing through
 
       auto child_reg = alloc_eclass_reg();
       emit(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
@@ -579,12 +585,13 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
     auto next_eclass_reg = alloc_eclass_reg();
     emit(Instruction::get_enode_eclass(next_eclass_reg, parent_reg));
     current_eclass_reg = next_eclass_reg;
-    innermost = loop_pos;
-  }
 
-  // Bind root if needed
-  if (auto binding = pattern.binding_for(pattern.root())) {
-    emit_var_binding(*binding, current_eclass_reg, innermost);
+    // Bind this node if it has a binding (handles both intermediate and root bindings)
+    if (auto binding = pattern.binding_for(step.node_id)) {
+      emit_var_binding(*binding, current_eclass_reg, loop_pos);
+    }
+
+    innermost = loop_pos;
   }
 
   return innermost;
@@ -622,7 +629,7 @@ void PatternCompiler<Symbol>::find_deepest_shared_var(Pattern<Symbol> const &pat
                    }
                    // Always recurse into children to find potentially deeper shared variables
                    for (std::size_t i = 0; i < sym.children.size(); ++i) {
-                     steps.emplace_back(sym, i);
+                     steps.emplace_back(node_id, i);
                      find_deepest_shared_var(pattern, sym.children[i], steps, best_path);
                      steps.pop_back();
                    }
