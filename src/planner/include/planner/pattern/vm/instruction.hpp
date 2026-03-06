@@ -185,7 +185,7 @@ enum class VMOp : uint8_t {
 /// |-----------------|------------------|------------------|---------------|------------------|
 /// | LoadChild       | eclass_reg out   | enode_reg in     | child index   | -                |
 /// | GetENodeEClass  | eclass_reg out   | enode_reg in     | -             | -                |
-/// | IterENodes      | enode_reg out    | eclass_reg in    | -             | on_empty         |
+/// | IterENodes      | enode_reg out    | eclass_reg in    | -             | - (always ≥1)   |
 /// | NextENode       | enode_reg out    | -                | -             | on_exhausted     |
 /// | IterAllEClasses | eclass_reg out   | -                | -             | on_empty         |
 /// | NextEClass      | eclass_reg out   | -                | -             | on_exhausted     |
