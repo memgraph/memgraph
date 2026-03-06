@@ -7,7 +7,7 @@ between the supernode and each regular node using parallel workers.
 """
 import sys
 
-from ha_common import Protocol, QueryType, cleanup, execute_query, run_parallel
+from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_query, run_parallel
 
 COORDINATOR = "coord_1"
 
@@ -72,13 +72,16 @@ def run_workload() -> None:
 
 def verify_results() -> None:
     print("\nVerifying results...")
-    execute_query(
+    results = execute_and_fetch(
         COORDINATOR,
         "MATCH (:SuperNode)-[r:CONNECTED_TO]->(:Node) RETURN count(r) AS edge_count",
         protocol=Protocol.BOLT_ROUTING,
         query_type=QueryType.READ,
     )
-    print(f"Verification query executed. Check edge count matches {NUM_NODES}.")
+    edge_count = results[0]["edge_count"]
+    if edge_count != NUM_NODES:
+        raise RuntimeError(f"Edge count mismatch: expected {NUM_NODES}, got {edge_count}")
+    print(f"Verified edge count: {edge_count}")
 
 
 def main():
