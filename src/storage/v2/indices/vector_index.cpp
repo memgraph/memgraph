@@ -372,19 +372,20 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
 
     using Entry = std::pair<uint64_t, std::vector<float>>;
     auto const entries = std::invoke([&]() -> std::vector<Entry> {
+      // Exclusive lock ensures no concurrent add/remove, making usearch's size()
+      // consistent (it reads typed_->size() and free_keys_.size() from separate
+      // data structures which are only safe when no concurrent mutations occur).
       auto locked_index = mg_index.Lock();  // NOLINT(clang-analyzer-core.CallAndMessage)
-      // Use capacity() instead of size() — size() is racy in usearch even under
-      // exclusive outer lock (reads two unsynchronized internal data structures).
-      auto const cap = locked_index->capacity();
-      if (cap == 0) return {};
+      auto const size = locked_index->size();
+      if (size == 0) return {};
 
-      std::vector<Vertex *> keys(cap, nullptr);
-      locked_index->export_keys(keys.data(), 0, cap);
+      std::vector<Vertex *> keys(size);
+      locked_index->export_keys(keys.data(), 0, size);
 
       std::vector<Entry> result;
       std::vector<float> buffer(locked_index->dimensions());
       for (auto *vertex : keys) {
-        if (vertex == nullptr || vertex->deleted()) continue;
+        if (vertex->deleted()) continue;
         if (!locked_index->get(vertex, buffer.data())) continue;
         result.emplace_back(vertex->gid.AsUint(), buffer);
       }

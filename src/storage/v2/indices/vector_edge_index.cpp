@@ -297,12 +297,13 @@ void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
       return;
     }
     auto &[mg_index, spec] = index_item;
+    // Exclusive lock ensures no concurrent add/remove, making usearch's size()
+    // consistent (it reads typed_->size() and free_keys_.size() from separate
+    // data structures which are only safe when no concurrent mutations occur).
     auto locked_index = mg_index.Lock();
-    // Use capacity() as upper bound instead of size(), which is racy in usearch
-    // (reads typed_->size() and free_keys_.size() from unsynchronized data structures).
-    const auto index_capacity = locked_index->capacity();
-    std::vector<EdgeIndexEntry> edges(index_capacity);
-    locked_index->export_keys(edges.data(), 0, index_capacity);
+    const auto index_size = locked_index->size();
+    std::vector<EdgeIndexEntry> edges(index_size);
+    locked_index->export_keys(edges.data(), 0, index_size);
 
     auto deleted = edges | rv::filter([](const EdgeIndexEntry &entry) {
                      if (entry.edge == nullptr) return false;
