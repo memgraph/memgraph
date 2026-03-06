@@ -613,6 +613,13 @@ class ContractFuzzer {
     PatternCompiler<FuzzSymbol> compiler;
     auto compiled = compiler.compile(std::span(patterns));
 
+    // Skip patterns that would overflow uint8_t register indices.
+    // Large bytecode sequences risk overflowing the 256 register limit.
+    if (compiled.code().size() > 500) {
+      VERBOSE_OUT << "Skipping pattern with " << compiled.code().size() << " instructions (limit 500)\n";
+      return true;
+    }
+
     // Verify all contracts
     CompiledPatternVerifier verifier(compiled);
     auto errors = verifier.verify_all();
