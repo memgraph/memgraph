@@ -740,8 +740,8 @@ TEST_F(PatternVM_MatcherIndex, DuplicateBindingsFromDifferentENodes) {
     auto bindings = ctx.arena().bindings(m, pattern().num_vars());
     std::vector<EClassId> tuple;
     // Only include non-root variables: kVarX and kVarY
-    tuple.push_back(egraph.find(bindings[pattern().var_slot(kVarX)]));
-    tuple.push_back(egraph.find(bindings[pattern().var_slot(kVarY)]));
+    tuple.push_back(egraph.find(bindings[value_of(pattern().var_slot(kVarX))]));
+    tuple.push_back(egraph.find(bindings[value_of(pattern().var_slot(kVarY))]));
     non_root_bindings.insert(tuple);
   }
   EXPECT_EQ(non_root_bindings.size(), 1u)

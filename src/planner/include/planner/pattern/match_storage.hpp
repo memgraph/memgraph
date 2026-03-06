@@ -18,10 +18,12 @@
 
 import memgraph.planner.core.eids;
 
+#include "planner/pattern/vm/types.hpp"
+
 namespace memgraph::planner::core::pattern {
 
-/// Slot index for variable binding lookup. Precomputed for O(1) lookup.
-using SlotIndex = uint8_t;
+// Import SlotIdx from vm namespace for use in pattern matching
+using vm::SlotIdx;
 
 /// A complete match of a single pattern - offset into MatchArena where bindings are stored.
 class PatternMatch {

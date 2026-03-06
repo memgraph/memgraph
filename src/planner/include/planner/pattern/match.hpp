@@ -48,7 +48,7 @@ struct EMatchContext {
 };
 
 /// Variable to slot index mapping for O(1) binding lookup.
-using VarSlotMap = boost::unordered_flat_map<PatternVar, SlotIndex>;
+using VarSlotMap = boost::unordered_flat_map<PatternVar, SlotIdx>;
 
 /// A complete match from a rewrite rule - O(1) variable binding lookup via operator[].
 ///
@@ -63,7 +63,7 @@ class Match {
   [[nodiscard]] auto operator[](PatternVar var) const -> EClassId {
     auto const it = var_slots_->find(var);
     assert(it != var_slots_->end() && "Match::operator[]: variable not found");
-    return bindings_[it->second];
+    return bindings_[value_of(it->second)];
   }
 
  private:

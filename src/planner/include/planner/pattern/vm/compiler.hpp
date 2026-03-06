@@ -317,19 +317,13 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
     if (instr.target == value_of(kHaltPlaceholder)) instr.target = value_of(halt_pos);
   }
 
-  // Convert strong types to underlying types for VarSlotMap
-  VarSlotMap var_slots_raw;
-  for (auto const &[var, slot] : slot_map_) {
-    var_slots_raw[var] = value_of(slot);
-  }
-
   return CompiledPattern<Symbol>(std::move(code_),
                                  next_eclass_reg_,
                                  next_enode_reg_,
                                  std::move(symbols_),
                                  entry_symbol,
                                  std::move(binding_order_),
-                                 std::move(var_slots_raw));
+                                 std::move(slot_map_));
 }
 
 template <typename Symbol>
@@ -384,10 +378,7 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
   // to ensure consistency with MatcherIndex's variable ordering.
   // For multi-pattern joins, we need to merge slot maps carefully.
   if (patterns.size() == 1) {
-    // Copy with type conversion: var_slots() uses uint8_t, slot_map_ uses SlotIdx
-    for (auto const &[var, slot] : patterns[0].var_slots()) {
-      slot_map_[var] = SlotIdx{slot};
-    }
+    slot_map_ = patterns[0].var_slots();
   } else {
     // Multi-pattern: assign slots sequentially, deduplicating shared variables
     for (auto const &pattern : patterns) {
@@ -438,6 +429,8 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
   // For leaf symbols (no children), existence check is sufficient - after matching
   // one e-node, backtrack to parent instead of trying more e-nodes in this e-class.
   // This prevents duplicate matches when an e-class has multiple e-nodes with same symbol.
+  // Even though those e-nodes can be disambiguated and hence are different, we only bind the
+  // e-class, so we only need to do this once.
   if (sym.children.empty()) {
     return backtrack;
   }

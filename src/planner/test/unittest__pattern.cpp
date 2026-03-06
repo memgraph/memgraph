@@ -27,8 +27,8 @@ void expect_vars(TestPattern const &pattern, std::initializer_list<PatternVar> v
   for (auto var : vars) {
     EXPECT_TRUE(pattern.has_var(var)) << "Pattern missing expected variable";
     auto slot = pattern.var_slot(var);
-    EXPECT_LT(slot, vars.size()) << "Slot out of range";
-    slots.insert(slot);
+    EXPECT_LT(value_of(slot), vars.size()) << "Slot out of range";
+    slots.insert(value_of(slot));
   }
   EXPECT_EQ(slots.size(), vars.size()) << "Slots not unique";
 }

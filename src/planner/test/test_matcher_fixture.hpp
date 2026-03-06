@@ -120,7 +120,7 @@ class PatternVM_MatcherIndex : public EGraphTestBase {
  private:
   auto binding(std::size_t match_idx, PatternVar var) -> EClassId {
     auto bindings = ctx.arena().bindings(matches.at(match_idx), pattern_->num_vars());
-    return bindings[pattern_->var_slot(var)];
+    return bindings[value_of(pattern_->var_slot(var))];
   }
 };
 

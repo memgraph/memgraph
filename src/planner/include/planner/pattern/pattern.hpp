@@ -22,6 +22,7 @@
 #include <boost/functional/hash.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 
+#include "planner/pattern/vm/types.hpp"
 #include "utils/small_vector.hpp"
 
 import memgraph.planner.core.concepts;
@@ -465,7 +466,7 @@ class Pattern {
    * @return Slot index in the binding buffer
    * @pre var must exist in this pattern
    */
-  [[nodiscard]] auto var_slot(PatternVar var) const -> uint8_t {
+  [[nodiscard]] auto var_slot(PatternVar var) const -> vm::SlotIdx {
     auto it = var_slots_.find(var);
     assert(it != var_slots_.end() && "var_slot: variable not found in pattern");
     return it->second;
@@ -479,7 +480,9 @@ class Pattern {
   /**
    * @brief Get all variable slot mappings
    */
-  [[nodiscard]] auto var_slots() const -> boost::unordered_flat_map<PatternVar, uint8_t> const & { return var_slots_; }
+  [[nodiscard]] auto var_slots() const -> boost::unordered_flat_map<PatternVar, vm::SlotIdx> const & {
+    return var_slots_;
+  }
 
   friend auto operator==(Pattern const &, Pattern const &) -> bool = default;
 
@@ -509,13 +512,13 @@ class Pattern {
    *
    * Called once at construction time.
    */
-  [[nodiscard]] auto compute_var_slots() const -> boost::unordered_flat_map<PatternVar, uint8_t>;
+  [[nodiscard]] auto compute_var_slots() const -> boost::unordered_flat_map<PatternVar, vm::SlotIdx>;
 
   std::vector<PatternNode<Symbol>> nodes_;
   PatternNodeId root_{0};
   boost::unordered_flat_map<PatternNodeId, PatternVar> bindings_;  ///< Node-to-variable bindings
   std::size_t depth_{0};                                           ///< Cached maximum depth (root to deepest leaf)
-  boost::unordered_flat_map<PatternVar, uint8_t> var_slots_;       ///< Variable to slot index mapping
+  boost::unordered_flat_map<PatternVar, vm::SlotIdx> var_slots_;   ///< Variable to slot index mapping
 };
 
 template <typename Symbol>
@@ -548,13 +551,13 @@ auto Pattern<Symbol>::compute_depth() const -> std::size_t {
 
 template <typename Symbol>
   requires ENodeSymbol<Symbol>
-auto Pattern<Symbol>::compute_var_slots() const -> boost::unordered_flat_map<PatternVar, uint8_t> {
-  boost::unordered_flat_map<PatternVar, uint8_t> slots;
+auto Pattern<Symbol>::compute_var_slots() const -> boost::unordered_flat_map<PatternVar, vm::SlotIdx> {
+  boost::unordered_flat_map<PatternVar, vm::SlotIdx> slots;
   uint8_t next_slot = 0;
 
   auto assign_slot = [&](PatternVar var) {
     if (!slots.contains(var)) {
-      slots[var] = next_slot++;
+      slots[var] = vm::SlotIdx{next_slot++};
     }
   };
 
