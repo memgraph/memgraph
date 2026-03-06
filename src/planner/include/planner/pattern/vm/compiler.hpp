@@ -281,16 +281,16 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
   }
   reset();
 
-  // Compute join order: first element is anchor, rest are join order
-  auto const pattern_order = compute_join_order(patterns);
-  auto const &anchor = patterns[pattern_order[0]];
-
   // Build unified slot map
   build_slot_map(patterns);
 
   if (slot_map_.empty()) {
     return CompiledPattern<Symbol>{};
   }
+
+  // Compute join order: first element is anchor, rest are join order
+  auto const pattern_order = compute_join_order(patterns);
+  auto const &anchor = patterns[pattern_order[0]];
 
   // Get entry symbol for index lookup
   std::optional<Symbol> entry_symbol;
@@ -317,13 +317,7 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
     if (instr.target == value_of(kHaltPlaceholder)) instr.target = value_of(halt_pos);
   }
 
-  // Convert strong types to underlying types for CompiledPattern
-  std::vector<uint8_t> binding_order_raw;
-  binding_order_raw.reserve(binding_order_.size());
-  for (auto slot : binding_order_) {
-    binding_order_raw.push_back(value_of(slot));
-  }
-
+  // Convert strong types to underlying types for VarSlotMap
   VarSlotMap var_slots_raw;
   for (auto const &[var, slot] : slot_map_) {
     var_slots_raw[var] = value_of(slot);
@@ -334,7 +328,7 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
                                  next_enode_reg_,
                                  std::move(symbols_),
                                  entry_symbol,
-                                 std::move(binding_order_raw),
+                                 std::move(binding_order_),
                                  std::move(var_slots_raw));
 }
 
@@ -606,6 +600,9 @@ auto PatternCompiler<Symbol>::find_path_recursive(Pattern<Symbol> const &pattern
 
 template <typename Symbol>
 auto PatternCompiler<Symbol>::get_symbol_index(Symbol const &sym) -> uint8_t {
+  // TODO: maybe a strong type (so we know uint8_t is in relation to symbols_)
+  //       better name than `get_symbol_index`
+  //       Not a linear search
   for (std::size_t i = 0; i < symbols_.size(); ++i) {
     if (symbols_[i] == sym) return static_cast<uint8_t>(i);
   }

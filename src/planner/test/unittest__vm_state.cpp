@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 
 #include "planner/pattern/vm/state.hpp"
+#include "planner/pattern/vm/types.hpp"
 
 namespace memgraph::planner::core {
 
@@ -24,13 +25,16 @@ using namespace pattern::vm;
 // ============================================================================
 
 // Identity binding order for simple 2-slot tests
-constexpr std::array<uint8_t, 2> kIdentityOrder2 = {0, 1};
+const std::array<SlotIdx, 2> kIdentityOrder2 = {SlotIdx{0}, SlotIdx{1}};
+constexpr std::array<uint8_t, 2> kIdentitySlotToOrder2 = {0, 1};
 
 // Test: Global deduplication across candidates via bind-time dedup.
 TEST(PatternVM_State, GlobalDeduplicationAcrossCandidates) {
   VMState state;
-  state.reset(
-      {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = kIdentityOrder2, .slot_to_order = kIdentityOrder2});
+  state.reset({.num_eclass_regs = 1,
+               .num_enode_regs = 1,
+               .binding_order = kIdentityOrder2,
+               .slot_to_order = kIdentitySlotToOrder2});
 
   // Simulate first "candidate" execution:
   EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
@@ -51,8 +55,10 @@ TEST(PatternVM_State, GlobalDeduplicationAcrossCandidates) {
 // Test: Verify correct behavior when slot value changes
 TEST(PatternVM_State, BindSlotValueChange) {
   VMState state;
-  state.reset(
-      {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = kIdentityOrder2, .slot_to_order = kIdentityOrder2});
+  state.reset({.num_eclass_regs = 1,
+               .num_enode_regs = 1,
+               .binding_order = kIdentityOrder2,
+               .slot_to_order = kIdentitySlotToOrder2});
 
   // First candidate: (100, 200)
   EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
@@ -69,8 +75,10 @@ TEST(PatternVM_State, BindSlotValueChange) {
 // Test: Deduplication within same candidate
 TEST(PatternVM_State, DeduplicationWithinCandidate) {
   VMState state;
-  state.reset(
-      {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = kIdentityOrder2, .slot_to_order = kIdentityOrder2});
+  state.reset({.num_eclass_regs = 1,
+               .num_enode_regs = 1,
+               .binding_order = kIdentityOrder2,
+               .slot_to_order = kIdentitySlotToOrder2});
 
   EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
   EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "First bind of slot 1 should succeed";
@@ -87,7 +95,7 @@ TEST(PatternVM_State, BindingOrderClearsSlotsCorrectly) {
   // When slot 1 changes (pos 0), clear slots at positions 1, 2 = slots 0, 2
   // When slot 0 changes (pos 1), clear slots at positions 2 = slot 2
   // When slot 2 changes (pos 2), clear nothing (last in order)
-  std::vector<uint8_t> binding_order = {1, 0, 2};
+  std::vector<SlotIdx> binding_order = {SlotIdx{1}, SlotIdx{0}, SlotIdx{2}};
   std::vector<uint8_t> slot_to_order = {1, 0, 2};  // slot 0 at pos 1, slot 1 at pos 0, slot 2 at pos 2
 
   VMState state;
@@ -130,8 +138,8 @@ TEST(PatternVM_State, BindingOrderClearsSlotsCorrectly) {
 //   When ?w (slot 0, pos 2) changes: clear ?z (slot 3)
 //   When ?z (slot 3, pos 3) changes: clear nothing
 TEST(PatternVM_State, FourSlotComplexPermutation) {
-  std::vector<uint8_t> binding_order = {1, 2, 0, 3};  // pos -> slot
-  std::vector<uint8_t> slot_to_order = {2, 0, 1, 3};  // slot -> pos
+  std::vector<SlotIdx> binding_order = {SlotIdx{1}, SlotIdx{2}, SlotIdx{0}, SlotIdx{3}};  // pos -> slot
+  std::vector<uint8_t> slot_to_order = {2, 0, 1, 3};                                      // slot -> pos
 
   VMState state;
   state.reset(

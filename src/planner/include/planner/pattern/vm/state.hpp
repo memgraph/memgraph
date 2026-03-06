@@ -21,6 +21,8 @@ import memgraph.planner.core.eids;
 #include <absl/container/flat_hash_set.h>
 #include <cassert>
 
+#include "planner/pattern/vm/types.hpp"
+
 namespace memgraph::planner::core::pattern::vm {
 
 // === Specialized iteration state types ===
@@ -71,7 +73,7 @@ using FastEClassSet = absl::flat_hash_set<EClassId>;
 struct VMStateConfig {
   std::size_t num_eclass_regs;
   std::size_t num_enode_regs;
-  std::span<uint8_t const> binding_order;  // size == num_slots
+  std::span<SlotIdx const> binding_order;  // size == num_slots
   std::span<uint8_t const> slot_to_order;  // size == num_slots
 };
 
@@ -107,7 +109,7 @@ struct VMState {
   // Binding order information (set during reset, from CompiledPattern)
   // binding_order_[i] = slot at position i in binding order
   // slot_to_order_[slot] = position of slot in binding order
-  std::span<uint8_t const> binding_order_;
+  std::span<SlotIdx const> binding_order_;
   std::span<uint8_t const> slot_to_order_;
 
   // High watermark: highest position in binding_order that has seen data.
@@ -201,7 +203,7 @@ inline auto VMState::try_bind_dedup(std::size_t slot, EClassId eclass) -> bool {
   // Uses watermark to avoid clearing already-empty sets.
   auto my_order = static_cast<int>(slot_to_order_[slot]);
   while (seen_watermark_ > my_order) {
-    seen_per_slot[binding_order_[seen_watermark_]].clear();
+    seen_per_slot[value_of(binding_order_[seen_watermark_])].clear();
     --seen_watermark_;
   }
   slots[slot] = eclass;

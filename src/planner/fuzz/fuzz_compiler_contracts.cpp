@@ -360,16 +360,16 @@ class CompiledPatternVerifier {
 
     // binding_order should contain valid slot indices
     for (std::size_t i = 0; i < binding_order.size(); ++i) {
-      if (binding_order[i] >= num_slots) {
-        errors.push_back(fmt::format("binding_order[{}]={} >= num_slots={}", i, binding_order[i], num_slots));
+      if (value_of(binding_order[i]) >= num_slots) {
+        errors.push_back(fmt::format("binding_order[{}]={} >= num_slots={}", i, value_of(binding_order[i]), num_slots));
       }
     }
 
     // No duplicates in binding_order
-    std::set<uint8_t> seen;
+    std::set<SlotIdx> seen;
     for (auto slot : binding_order) {
       if (seen.contains(slot)) {
-        errors.push_back(fmt::format("Duplicate slot in binding_order: {}", slot));
+        errors.push_back(fmt::format("Duplicate slot in binding_order: {}", value_of(slot)));
       }
       seen.insert(slot);
     }
@@ -378,10 +378,13 @@ class CompiledPatternVerifier {
     auto const &slot_to_order = cp_.slot_to_order();
     for (std::size_t i = 0; i < binding_order.size(); ++i) {
       auto slot = binding_order[i];
-      if (slot < slot_to_order.size()) {
-        if (slot_to_order[slot] != i) {
-          errors.push_back(
-              fmt::format("slot_to_order[{}]={} but binding_order[{}]={}", slot, slot_to_order[slot], i, slot));
+      if (value_of(slot) < slot_to_order.size()) {
+        if (slot_to_order[value_of(slot)] != i) {
+          errors.push_back(fmt::format("slot_to_order[{}]={} but binding_order[{}]={}",
+                                       value_of(slot),
+                                       slot_to_order[value_of(slot)],
+                                       i,
+                                       value_of(slot)));
         }
       }
     }
@@ -495,7 +498,7 @@ class ContractFuzzer {
       std::cerr << "  binding_order: [";
       for (std::size_t i = 0; i < compiled->binding_order().size(); ++i) {
         if (i > 0) std::cerr << ", ";
-        std::cerr << static_cast<int>(compiled->binding_order()[i]);
+        std::cerr << static_cast<int>(value_of(compiled->binding_order()[i]));
       }
       std::cerr << "]\n";
 

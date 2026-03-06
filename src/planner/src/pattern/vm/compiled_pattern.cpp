@@ -14,7 +14,7 @@
 namespace memgraph::planner::core::pattern::vm {
 
 CompiledPatternBase::CompiledPatternBase(std::vector<Instruction> code, std::size_t num_eclass_regs,
-                                         std::size_t num_enode_regs, std::vector<uint8_t> binding_order,
+                                         std::size_t num_enode_regs, std::vector<SlotIdx> binding_order,
                                          VarSlotMap var_slots)
     : code_(std::move(code)),
       num_eclass_regs_(num_eclass_regs),
@@ -26,7 +26,7 @@ CompiledPatternBase::CompiledPatternBase(std::vector<Instruction> code, std::siz
   // meaning slot 0 is bound at position 2, slot 1 at position 0, slot 2 at position 1
   slot_to_order_.resize(var_slots_.size());
   for (std::size_t order_idx = 0; order_idx < binding_order_.size(); ++order_idx) {
-    slot_to_order_[binding_order_[order_idx]] = static_cast<uint8_t>(order_idx);
+    slot_to_order_[value_of(binding_order_[order_idx])] = static_cast<uint8_t>(order_idx);
   }
 }
 

@@ -19,6 +19,7 @@
 #include "planner/pattern/match.hpp"
 #include "planner/pattern/vm/instruction.hpp"
 #include "planner/pattern/vm/state.hpp"
+#include "planner/pattern/vm/types.hpp"
 
 namespace memgraph::planner::core::pattern::vm {
 
@@ -34,7 +35,7 @@ class CompiledPatternBase {
   CompiledPatternBase() = default;
 
   CompiledPatternBase(std::vector<Instruction> code, std::size_t num_eclass_regs, std::size_t num_enode_regs,
-                      std::vector<uint8_t> binding_order, VarSlotMap var_slots);
+                      std::vector<SlotIdx> binding_order, VarSlotMap var_slots);
 
   [[nodiscard]] auto code() const -> std::span<Instruction const> { return code_; }
 
@@ -47,7 +48,7 @@ class CompiledPatternBase {
   /// The order in which slots are bound during pattern matching.
   /// For pattern A(?x, B(?y, ?z)) compiled as B-first, this might be [1, 2, 0]
   /// meaning ?y (slot 1) is bound first, then ?z (slot 2), then ?x (slot 0).
-  [[nodiscard]] auto binding_order() const -> std::span<uint8_t const> { return binding_order_; }
+  [[nodiscard]] auto binding_order() const -> std::span<SlotIdx const> { return binding_order_; }
 
   /// Inverse mapping: slot index -> order position.
   /// For binding_order [1, 2, 0], slot_to_order returns [2, 0, 1].
@@ -65,7 +66,7 @@ class CompiledPatternBase {
   std::vector<Instruction> code_{Instruction::halt()};
   std::size_t num_eclass_regs_ = 0;     // Registers holding e-class IDs
   std::size_t num_enode_regs_ = 0;      // Registers holding e-node IDs (and iteration state)
-  std::vector<uint8_t> binding_order_;  // Order in which slots are bound during matching
+  std::vector<SlotIdx> binding_order_;  // Order in which slots are bound during matching
   std::vector<uint8_t> slot_to_order_;  // Inverse: slot index -> order position (O(n) vs O(n²))
   VarSlotMap var_slots_;                // Variable to slot index mapping
 };
@@ -100,7 +101,7 @@ class CompiledPattern : public CompiledPatternBase {
   CompiledPattern() = default;
 
   CompiledPattern(std::vector<Instruction> code, std::size_t num_eclass_regs, std::size_t num_enode_regs,
-                  std::vector<Symbol> symbols, std::optional<Symbol> entry_symbol, std::vector<uint8_t> binding_order,
+                  std::vector<Symbol> symbols, std::optional<Symbol> entry_symbol, std::vector<SlotIdx> binding_order,
                   VarSlotMap var_slots);
 
   [[nodiscard]] auto symbols() const -> std::span<Symbol const> { return symbols_; }
@@ -115,7 +116,7 @@ class CompiledPattern : public CompiledPatternBase {
 template <typename Symbol>
 CompiledPattern<Symbol>::CompiledPattern(std::vector<Instruction> code, std::size_t num_eclass_regs,
                                          std::size_t num_enode_regs, std::vector<Symbol> symbols,
-                                         std::optional<Symbol> entry_symbol, std::vector<uint8_t> binding_order,
+                                         std::optional<Symbol> entry_symbol, std::vector<SlotIdx> binding_order,
                                          VarSlotMap var_slots)
     : CompiledPatternBase(std::move(code), num_eclass_regs, num_enode_regs, std::move(binding_order),
                           std::move(var_slots)),
