@@ -14,7 +14,7 @@ COORDINATOR = "coord_1"
 DATA_INSTANCES = sorted(instance for instance in get_instance_names() if instance.startswith("data_"))
 
 NUM_NODES = 100000
-NUM_WORKERS = 20
+NUM_WORKERS = 8
 REPLICA_SYNC_TIMEOUT_SEC = 120
 
 
