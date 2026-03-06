@@ -44,7 +44,7 @@ DedicatedArenaResource::DedicatedArenaResource() {
 
 DedicatedArenaResource::~DedicatedArenaResource() {
 #if USE_JEMALLOC
-  std::string key = "arena." + std::to_string(arena_id_) + ".destroy";
+  const std::string key = "arena." + std::to_string(arena_id_) + ".destroy";
   // Precondition: all allocations from this arena must already be freed.
   // InMemoryStorage satisfies this: ClearLightEdge() drains the graveyard
   // before this destructor runs.
@@ -57,9 +57,9 @@ DedicatedArenaResource::~DedicatedArenaResource() {
 #endif
 }
 
-void DedicatedArenaResource::Reclaim() {
+void DedicatedArenaResource::Reclaim() const {
 #if USE_JEMALLOC
-  std::string key = "arena." + std::to_string(arena_id_) + ".purge";
+  const std::string key = "arena." + std::to_string(arena_id_) + ".purge";
   je_mallctl(key.c_str(), nullptr, nullptr, nullptr, 0);
 #endif
 }
@@ -75,7 +75,7 @@ void *DedicatedArenaResource::do_allocate(size_t bytes, size_t alignment) {
 #endif
 }
 
-void DedicatedArenaResource::do_deallocate(void *p, size_t bytes, size_t alignment) {
+void DedicatedArenaResource::do_deallocate(void *p, [[maybe_unused]] size_t bytes, [[maybe_unused]] size_t alignment) {
   if (!p) return;
 #if USE_JEMALLOC
   je_dallocx(p, MALLOCX_TCACHE_NONE);
