@@ -37,7 +37,7 @@ struct InlineRule {
 
   static auto Make() -> RewriteRule<symbol, analysis> {
     auto bind_pattern = Pattern<symbol>::build(symbol::Bind, {Wildcard{}, Var{kSym}, Var{kExpr}});
-    auto ident_pattern = Pattern<symbol>::build(symbol::Identifier, {Var{kSym}}, kIdent);
+    auto ident_pattern = Pattern<symbol>::build(kIdent, symbol::Identifier, {Var{kSym}});
 
     return RewriteRule<symbol, analysis>::Builder{"inline"}
         .pattern(std::move(bind_pattern), "Bind")
