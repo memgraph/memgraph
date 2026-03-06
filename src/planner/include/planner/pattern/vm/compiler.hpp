@@ -450,11 +450,10 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
 template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_joined_pattern(Pattern<Symbol> const &pattern, InstrAddr anchor_backtrack)
     -> InstrAddr {
-  // Try to find a shared variable (any depth) for efficient parent traversal
+  // Try to find a shared variable (any depth) for efficient parent traversal.
+  // find_symbol_path_to_shared_var only returns a path when path->shared_var exists in var_to_reg_.
   if (auto path = find_symbol_path_to_shared_var(pattern)) {
-    if (auto it = var_to_reg_.find(path->shared_var); it != var_to_reg_.end()) {
-      return emit_joined_via_parents(pattern, *path, it->second, anchor_backtrack);
-    }
+    return emit_joined_via_parents(pattern, *path, var_to_reg_.at(path->shared_var), anchor_backtrack);
   }
 
   // No shared variable - Cartesian product (expensive fallback)
@@ -573,6 +572,9 @@ auto PatternCompiler<Symbol>::find_path_recursive(Pattern<Symbol> const &pattern
                           return false;
                         },
                         [&](SymbolWithChildren<Symbol> const &sym) {
+                          // TODO: we recurse until we see PatternVar but we do not consider
+                          //       if pattern.binding_for(node_id) is bound
+
                           // Recurse into symbol children
                           for (std::size_t i = 0; i < sym.children.size(); ++i) {
                             path.steps.emplace_back(sym, i);
