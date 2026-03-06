@@ -232,6 +232,7 @@ _stop_processes() {
         kill "$pid" 2>/dev/null || true
     done < memgraph_ha.pid
 
+    echo "Waiting for all Memgraph processes to stop..."
     for ((i=1; i<=graceful_timeout_sec; i++)); do
         all_stopped=true
         while read -r pid; do
@@ -247,11 +248,10 @@ _stop_processes() {
             return 0
         fi
 
-        echo "Waiting for all Memgraph processes to stop..."
         sleep 1
     done
 
-    echo "Warning: Some Memgraph processes are still running after 10 seconds. Force killing..."
+    echo "Warning: Some Memgraph processes are still running after ${graceful_timeout_sec} seconds. Force killing..."
     local remaining_pids=()
     while read -r pid; do
         if kill -0 "$pid" 2>/dev/null; then

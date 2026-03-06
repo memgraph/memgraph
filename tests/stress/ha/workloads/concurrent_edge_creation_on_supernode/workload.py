@@ -2,7 +2,7 @@
 """
 Concurrent write workload for stress testing edge creation on a supernode.
 
-Creates a supernode and 1000 regular nodes, then concurrently creates edges
+Creates a supernode and many regular nodes, then concurrently creates edges
 between the supernode and each regular node using parallel workers.
 """
 import sys
