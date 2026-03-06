@@ -42,39 +42,6 @@ using PatternNodeId = strong::type<uint32_t, struct PatternNodeId_, strong::regu
 inline std::size_t hash_value(PatternNodeId const &id) { return std::hash<uint32_t>{}(id.value_of()); }
 
 /**
- * @brief Pattern variable for binding during e-matching
- *
- * Variables represent wildcard positions in patterns that can match any e-class.
- * Each variable has a unique ID within a pattern; multiple occurrences of the same ID
- * must bind to the same e-class during matching.
- *
- * Example: In pattern Add(?x, ?x), both ?x refer to the same variable ID and
- * will only match when both children are in the same e-class.
- */
-struct PatternVar {
-  uint8_t id;
-
-  friend auto operator==(PatternVar, PatternVar) -> bool = default;
-  friend auto operator<=>(PatternVar, PatternVar) = default;
-};
-
-// Boost hash support via ADL
-inline std::size_t hash_value(PatternVar const &var) { return std::hash<uint8_t>{}(var.id); }
-
-}  // namespace memgraph::planner::core::pattern
-
-namespace std {
-template <>
-struct hash<memgraph::planner::core::pattern::PatternVar> {
-  std::size_t operator()(memgraph::planner::core::pattern::PatternVar const &var) const noexcept {
-    return std::hash<uint8_t>{}(var.id);
-  }
-};
-}  // namespace std
-
-namespace memgraph::planner::core::pattern {
-
-/**
  * @brief Wildcard pattern node that matches any e-class without binding
  *
  * Use in patterns where you need a placeholder for arity but don't need to
@@ -480,7 +447,7 @@ class Pattern {
   /**
    * @brief Get all variable slot mappings
    */
-  [[nodiscard]] auto var_slots() const -> boost::unordered_flat_map<PatternVar, SlotIdx> const & { return var_slots_; }
+  [[nodiscard]] auto var_slots() const -> VarSlotMap const & { return var_slots_; }
 
   friend auto operator==(Pattern const &, Pattern const &) -> bool = default;
 
@@ -510,13 +477,13 @@ class Pattern {
    *
    * Called once at construction time.
    */
-  [[nodiscard]] auto compute_var_slots() const -> boost::unordered_flat_map<PatternVar, SlotIdx>;
+  [[nodiscard]] auto compute_var_slots() const -> VarSlotMap;
 
   std::vector<PatternNode<Symbol>> nodes_;
   PatternNodeId root_{0};
   boost::unordered_flat_map<PatternNodeId, PatternVar> bindings_;  ///< Node-to-variable bindings
   std::size_t depth_{0};                                           ///< Cached maximum depth (root to deepest leaf)
-  boost::unordered_flat_map<PatternVar, SlotIdx> var_slots_;       ///< Variable to slot index mapping
+  VarSlotMap var_slots_;                                           ///< Variable to slot index mapping
 };
 
 template <typename Symbol>
@@ -549,8 +516,8 @@ auto Pattern<Symbol>::compute_depth() const -> std::size_t {
 
 template <typename Symbol>
   requires ENodeSymbol<Symbol>
-auto Pattern<Symbol>::compute_var_slots() const -> boost::unordered_flat_map<PatternVar, SlotIdx> {
-  boost::unordered_flat_map<PatternVar, SlotIdx> slots;
+auto Pattern<Symbol>::compute_var_slots() const -> VarSlotMap {
+  VarSlotMap slots;
   uint8_t next_slot = 0;
 
   auto assign_slot = [&](PatternVar var) {

@@ -72,7 +72,7 @@ class PatternCompilerBase {
 
   std::vector<Instruction> code_;
   boost::unordered_flat_set<PatternVar> seen_vars_;
-  boost::unordered_flat_map<PatternVar, SlotIdx> slot_map_;
+  VarSlotMap slot_map_;
   boost::unordered_flat_map<PatternVar, EClassReg> var_to_reg_;  // Maps vars to eclass registers
   std::vector<SlotIdx> binding_order_;                           // Order in which slots are bound
   uint8_t next_eclass_reg_{1};                                   // eclass_regs[0] reserved for input

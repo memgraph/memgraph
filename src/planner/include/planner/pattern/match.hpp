@@ -15,7 +15,6 @@
 #include <cstddef>
 #include <vector>
 
-#include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
 #include "planner/pattern/match_storage.hpp"
@@ -46,9 +45,6 @@ struct EMatchContext {
   MatchArena arena_;
   boost::unordered_flat_set<EClassId> processed_;
 };
-
-/// Variable to slot index mapping for O(1) binding lookup.
-using VarSlotMap = boost::unordered_flat_map<PatternVar, SlotIdx>;
 
 /// A complete match from a rewrite rule - O(1) variable binding lookup via operator[].
 ///
