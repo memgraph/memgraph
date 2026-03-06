@@ -964,4 +964,147 @@ TEST_F(PatternVM_Execution, MultiPattern_DeduplicationMultiplePaths) {
   EXPECT_EQ(results.size(), 1) << "Should find exactly 1 match for F(?a, ?a)";
 }
 
+// ============================================================================
+// Concurrent Symbol-Filtered Iteration Tests
+// ============================================================================
+//
+// These tests verify that IterSymbolEClasses works correctly when multiple
+// symbol-filtered iterations are active concurrently (e.g., Cartesian joins).
+
+TEST_F(PatternVM_Execution, ConcurrentSymbolIterations_DifferentSymbols) {
+  // Test: F(?x), G(?y) where F and G are different symbols with multiple e-classes each.
+  //
+  // Setup: E-graph with F(A), F(B), G(C), G(D)
+  // Expected: 4 matches (Cartesian product)
+  //   {?x: f_a, ?y: g_c}, {?x: f_a, ?y: g_d}
+  //   {?x: f_b, ?y: g_c}, {?x: f_b, ?y: g_d}
+  //
+  // Why risky: Both F(?x) and G(?y) use IterSymbolEClasses with different registers.
+  // If iterator state is shared, backtracking would fail.
+
+  auto a = leaf(Op::A);
+  auto b = leaf(Op::B);
+  auto c = leaf(Op::C);
+  auto d = leaf(Op::D);
+  [[maybe_unused]] auto f_a = node(Op::F, a);
+  [[maybe_unused]] auto f_b = node(Op::F, b);
+  [[maybe_unused]] auto g_c = node(Op::G, c);
+  [[maybe_unused]] auto g_d = node(Op::G, d);
+  rebuild_egraph();
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+
+  auto pattern_f = TestPattern::build(Op::F, {Var{kVarX}});
+  auto pattern_g = TestPattern::build(Op::G, {Var{kVarY}});
+
+  TestPatternCompiler compiler;
+  std::array patterns = {pattern_f, pattern_g};
+  auto compiled = compiler.compile(patterns);
+
+  auto bytecode = disassemble(compiled.code(), compiled.symbols());
+
+  TestVMExecutor executor(egraph);
+
+  executor.execute(compiled, matcher, ctx.arena(), results);
+
+  // 2 F e-classes * 2 G e-classes = 4 matches
+  EXPECT_EQ(results.size(), 4) << "Expected 4 matches (2 F * 2 G Cartesian product)\nBytecode:\n" << bytecode;
+}
+
+TEST_F(PatternVM_Execution, ConcurrentSymbolIterations_SameSymbol) {
+  // Test: F(?x), F(?y) where ?x != ?y conceptually (both iterate F e-classes).
+  //
+  // Setup: E-graph with F(A), F(B)
+  // Expected: 4 matches (full Cartesian product, including self-pairs)
+  //   {?x: f_a, ?y: f_a}, {?x: f_a, ?y: f_b}
+  //   {?x: f_b, ?y: f_a}, {?x: f_b, ?y: f_b}
+  //
+  // Why risky: Same symbol F used twice, both need independent iteration over same index set.
+
+  auto a = leaf(Op::A);
+  auto b = leaf(Op::B);
+  [[maybe_unused]] auto f_a = node(Op::F, a);
+  [[maybe_unused]] auto f_b = node(Op::F, b);
+  rebuild_egraph();
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+
+  auto pattern1 = TestPattern::build(Op::F, {Var{kVarX}});
+  auto pattern2 = TestPattern::build(Op::F, {Var{kVarY}});
+
+  TestPatternCompiler compiler;
+  std::array patterns = {pattern1, pattern2};
+  auto compiled = compiler.compile(patterns);
+
+  auto bytecode = disassemble(compiled.code(), compiled.symbols());
+
+  TestVMExecutor executor(egraph);
+
+  executor.execute(compiled, matcher, ctx.arena(), results);
+
+  // 2 F e-classes * 2 F e-classes = 4 matches
+  EXPECT_EQ(results.size(), 4) << "Expected 4 matches (2 * 2 Cartesian product with same symbol)\nBytecode:\n"
+                               << bytecode;
+}
+
+TEST_F(PatternVM_Execution, SymbolFilteredIteration_VerifySymbolFiltering) {
+  // Test that IterSymbolEClasses only visits e-classes containing the specified symbol,
+  // not all e-classes in the e-graph.
+  //
+  // Setup: E-graph with F(A), G(B), H(C) - three different symbols
+  // Pattern: F(?x)
+  // Expected: 1 match (only the F e-class, not G or H)
+
+  auto a = leaf(Op::A);
+  auto b = leaf(Op::B);
+  auto c = leaf(Op::C);
+  [[maybe_unused]] auto f_a = node(Op::F, a);
+  [[maybe_unused]] auto g_b = node(Op::G, b);
+  [[maybe_unused]] auto h_c = node(Op::H, c);
+  rebuild_egraph();
+
+  constexpr PatternVar kVarX{0};
+
+  auto pattern = TestPattern::build(Op::F, {Var{kVarX}});
+
+  TestPatternCompiler compiler;
+  auto compiled = compiler.compile(pattern);
+
+  TestVMExecutor executor(egraph);
+
+  executor.execute(compiled, matcher, ctx.arena(), results);
+
+  // Should only match F, not G or H
+  EXPECT_EQ(results.size(), 1) << "Should only match F(?x), not G or H";
+}
+
+TEST_F(PatternVM_Execution, SymbolFilteredIteration_NoMatchingSymbol) {
+  // Test that IterSymbolEClasses correctly handles when no e-classes have the symbol.
+  //
+  // Setup: E-graph with G(A), H(B) - no F symbol
+  // Pattern: F(?x)
+  // Expected: 0 matches
+
+  auto a = leaf(Op::A);
+  auto b = leaf(Op::B);
+  [[maybe_unused]] auto g_a = node(Op::G, a);
+  [[maybe_unused]] auto h_b = node(Op::H, b);
+  rebuild_egraph();
+
+  constexpr PatternVar kVarX{0};
+
+  auto pattern = TestPattern::build(Op::F, {Var{kVarX}});
+
+  TestPatternCompiler compiler;
+  auto compiled = compiler.compile(pattern);
+
+  TestVMExecutor executor(egraph);
+
+  executor.execute(compiled, matcher, ctx.arena(), results);
+
+  EXPECT_EQ(results.size(), 0) << "Should have no matches when symbol not in e-graph";
+}
+
 }  // namespace memgraph::planner::core

@@ -17,6 +17,7 @@ import memgraph.planner.core.eids;
 #include <vector>
 
 #include <boost/container/small_vector.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 #include <absl/container/flat_hash_set.h>
 #include <cassert>
@@ -66,6 +67,24 @@ struct ParentsIter {
   void advance() { ++idx; }
 };
 
+/// Iterating e-classes by symbol (set-based, can't use span)
+/// Uses iterator into boost::unordered_flat_set for efficient iteration
+struct SymbolEClassesIter {
+  boost::unordered_flat_set<EClassId> const *set{nullptr};
+  boost::unordered_flat_set<EClassId>::const_iterator it;
+
+  [[nodiscard]] auto exhausted() const -> bool { return !set || it == set->end(); }
+
+  [[nodiscard]] auto remaining() const -> std::size_t {
+    if (!set) return 0;
+    return static_cast<std::size_t>(std::distance(it, set->end()));
+  }
+
+  [[nodiscard]] auto current() const -> EClassId { return *it; }
+
+  void advance() { ++it; }
+};
+
 /// Open-addressing hash set for deduplication (much better cache locality than std::unordered_set)
 using FastEClassSet = absl::flat_hash_set<EClassId>;
 
@@ -102,9 +121,10 @@ struct VMState {
   // Each type uses exhausted state as inactive indicator (no explicit deactivation needed)
   // The compiler statically determines which type each register uses
   // When an iteration exhausts, its state is naturally inert; fresh iterations overwrite
-  std::vector<ENodesIter> enodes_iters;         // E-node iterations (span-based)
-  std::vector<ParentsIter> parents_iters;       // Parent iterations (index-based)
-  std::vector<AllEClassesIter> eclasses_iters;  // All e-classes iterations (span-based)
+  std::vector<ENodesIter> enodes_iters;                   // E-node iterations (span-based)
+  std::vector<ParentsIter> parents_iters;                 // Parent iterations (index-based)
+  std::vector<AllEClassesIter> eclasses_iters;            // All e-classes iterations (span-based)
+  std::vector<SymbolEClassesIter> symbol_eclasses_iters;  // Symbol-filtered e-class iterations (set-based)
 
   // Binding order information (set during reset, from CompiledPattern)
   // binding_order_[i] = slot at position i in binding order
@@ -147,6 +167,24 @@ struct VMState {
 
   [[nodiscard]] auto get_eclasses_iter(uint8_t reg) const -> AllEClassesIter const & { return eclasses_iters[reg]; }
 
+  /// Start a symbol-filtered e-classes iteration on a register
+  void start_symbol_eclasses_iter(uint8_t reg, boost::unordered_flat_set<EClassId> const *set) {
+    if (set && !set->empty()) {
+      symbol_eclasses_iters[reg] = SymbolEClassesIter{set, set->begin()};
+    } else {
+      symbol_eclasses_iters[reg] = SymbolEClassesIter{};  // exhausted state
+    }
+  }
+
+  /// Get symbol-filtered e-classes iterator for a register
+  [[nodiscard]] auto get_symbol_eclasses_iter(uint8_t reg) -> SymbolEClassesIter & {
+    return symbol_eclasses_iters[reg];
+  }
+
+  [[nodiscard]] auto get_symbol_eclasses_iter(uint8_t reg) const -> SymbolEClassesIter const & {
+    return symbol_eclasses_iters[reg];
+  }
+
   /// Try to bind a slot with deduplication check.
   /// Returns false if this value has already been fully explored at this slot (backtrack).
   /// Returns true if this is a value to explore.
@@ -178,6 +216,7 @@ inline void VMState::reset(VMStateConfig const &cfg) {
   if (eclass_regs.size() < cfg.num_eclass_regs) {
     eclass_regs.resize(cfg.num_eclass_regs);
     eclasses_iters.resize(cfg.num_eclass_regs);
+    symbol_eclasses_iters.resize(cfg.num_eclass_regs);
   }
   if (enode_regs.size() < cfg.num_enode_regs) {
     enode_regs.resize(cfg.num_enode_regs);

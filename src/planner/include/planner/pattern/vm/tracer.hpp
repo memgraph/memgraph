@@ -277,6 +277,18 @@ auto disassemble(std::span<Instruction const> code, std::span<Symbol const> symb
         std::format_to(out, " r{}, @{}", instr.dst, instr.target);
         break;
 
+      case VMOp::IterSymbolEClasses:
+        if (instr.arg < symbols.size()) {
+          std::format_to(out, " r{}, {} (sym[{}]), @{}", instr.dst, symbols[instr.arg], instr.arg, instr.target);
+        } else {
+          std::format_to(out, " r{}, sym[{}], @{}", instr.dst, instr.arg, instr.target);
+        }
+        break;
+
+      case VMOp::NextSymbolEClass:
+        std::format_to(out, " r{}, @{}", instr.dst, instr.target);
+        break;
+
       case VMOp::CheckSymbol:
         if (instr.arg < symbols.size()) {
           std::format_to(out, " r{}, {} (sym[{}]), @{}", instr.src, symbols[instr.arg], instr.arg, instr.target);

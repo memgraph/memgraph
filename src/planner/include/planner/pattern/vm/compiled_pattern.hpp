@@ -84,8 +84,7 @@ class CompiledPatternBase {
 /// - num_slots(): Number of result slots (variables)
 /// - num_eclass_regs(): E-class registers needed (≥1, reg 0 is input)
 /// - num_enode_regs(): E-node registers needed
-/// - symbols(): Symbol table for CheckSymbol instructions
-/// - entry_symbol(): Root symbol for candidate lookup (nullopt if variable root)
+/// - symbols(): Symbol table for CheckSymbol/IterSymbolEClasses instructions
 /// - binding_order(): Order slots are bound (for deduplication)
 /// - slot_to_order(): Inverse mapping for efficient clearing
 ///
@@ -101,26 +100,20 @@ class CompiledPattern : public CompiledPatternBase {
   CompiledPattern() = default;
 
   CompiledPattern(std::vector<Instruction> code, std::size_t num_eclass_regs, std::size_t num_enode_regs,
-                  std::vector<Symbol> symbols, std::optional<Symbol> entry_symbol, std::vector<SlotIdx> binding_order,
-                  VarSlotMap var_slots);
+                  std::vector<Symbol> symbols, std::vector<SlotIdx> binding_order, VarSlotMap var_slots);
 
   [[nodiscard]] auto symbols() const -> std::span<Symbol const> { return symbols_; }
 
-  [[nodiscard]] auto entry_symbol() const -> std::optional<Symbol> const & { return entry_symbol_; }
-
  private:
-  std::vector<Symbol> symbols_;         // Symbol table for CheckSymbol (deduplicated by compiler)
-  std::optional<Symbol> entry_symbol_;  // For index-based candidate lookup
+  std::vector<Symbol> symbols_;  // Symbol table for CheckSymbol/IterSymbolEClasses (deduplicated by compiler)
 };
 
 template <typename Symbol>
 CompiledPattern<Symbol>::CompiledPattern(std::vector<Instruction> code, std::size_t num_eclass_regs,
                                          std::size_t num_enode_regs, std::vector<Symbol> symbols,
-                                         std::optional<Symbol> entry_symbol, std::vector<SlotIdx> binding_order,
-                                         VarSlotMap var_slots)
+                                         std::vector<SlotIdx> binding_order, VarSlotMap var_slots)
     : CompiledPatternBase(std::move(code), num_eclass_regs, num_enode_regs, std::move(binding_order),
                           std::move(var_slots)),
-      symbols_(std::move(symbols)),
-      entry_symbol_(std::move(entry_symbol)) {}
+      symbols_(std::move(symbols)) {}
 
 }  // namespace memgraph::planner::core::pattern::vm

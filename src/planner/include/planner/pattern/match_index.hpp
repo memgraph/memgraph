@@ -112,6 +112,26 @@ class MatcherIndex {
     candidates.assign(ids.begin(), ids.end());
   }
 
+  /**
+   * @brief Get the internal set of e-classes for a symbol (zero-copy access)
+   *
+   * Returns a pointer to the internal set of e-classes containing the given symbol,
+   * or nullptr if no e-classes have this symbol. The returned pointer is valid
+   * until the next index modification (rebuild or incremental update).
+   *
+   * Used by VMExecutor for IterSymbolEClasses - allows zero-copy iteration.
+   *
+   * @pre E-graph must be in canonical state (rebuild() called after merges)
+   * @param sym The symbol to look up
+   * @return Pointer to internal e-class set, or nullptr if symbol not in index
+   */
+  [[nodiscard]] auto eclasses_set_for_symbol(Symbol sym) const -> boost::unordered_flat_set<EClassId> const * {
+    if (auto it = index_.find(sym); it != index_.end()) {
+      return &it->second;
+    }
+    return nullptr;
+  }
+
  private:
   void rebuild_index_full();
 

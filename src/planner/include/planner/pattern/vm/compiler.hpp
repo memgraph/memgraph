@@ -205,21 +205,18 @@ class PatternCompiler : protected PatternCompilerBase {
   // Types
   // ============================================================================
 
-  /// Represents a single step in the path from root to shared variable.
+  /// Represents a step in the path from root toward the shared variable.
   struct PathStep {
-    PatternNodeId node_id;  // Node ID for looking up symbol and bindings from pattern
-    std::size_t child_idx;  // Which child leads to shared var
+    PatternNodeId node_id;  // Symbol node ID
+    std::size_t child_idx;  // Which child leads to next step (or to shared node)
   };
 
   /// Represents a path from root to a shared variable in a pattern tree.
   struct PatternPath {
-    std::vector<PathStep> steps;
+    std::vector<PathStep> steps;  // Path from root to parent of shared node (may be empty)
+    PatternNodeId shared_node;    // The terminal shared node
     PatternVar shared_var;
     EClassReg shared_reg;  // Register holding the shared variable's e-class
-
-    // When shared_symbol has a value, the shared variable is a binding on a symbol node.
-    // In this case, we need to verify the symbol and process ALL its children.
-    std::optional<SymbolWithChildren<Symbol>> shared_symbol;
   };
 
   // ============================================================================
@@ -312,20 +309,10 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
 
   // Compute join order: first element is anchor, rest are join order
   auto const pattern_order = compute_join_order(patterns);
-  auto const &anchor = patterns[pattern_order[0]];
 
-  // Get entry symbol for index lookup
-  std::optional<Symbol> entry_symbol;
-  if (auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&anchor[anchor.root()])) {
-    entry_symbol = sym->sym;
-  }
-
-  // Emit anchor pattern
-  auto anchor_innermost = emit_node(anchor, anchor.root(), EClassReg{0}, kHaltPlaceholder);
-
-  // Emit joined patterns
-  InstrAddr innermost = anchor_innermost;
-  for (auto idx : pattern_order | std::views::drop(1)) {
+  // Emit all patterns - first has no shared vars, rest may use parent traversal
+  InstrAddr innermost = kHaltPlaceholder;
+  for (auto idx : pattern_order) {
     innermost = emit_joined_pattern(patterns[idx], innermost);
   }
 
@@ -343,7 +330,6 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
                                  next_eclass_reg_,
                                  next_enode_reg_,
                                  std::move(symbols_),
-                                 entry_symbol,
                                  std::move(binding_order_),
                                  std::move(slot_map_));
 }
@@ -511,11 +497,12 @@ auto PatternCompiler<Symbol>::emit_joined_cartesian(Pattern<Symbol> const &patte
                           return emit_var_binding(var, eclass_reg, eclass_loop);
                         },
                         [&](SymbolWithChildren<Symbol> const &sym) {
-                          // TODO: we should provide the VMExecutor with an index (by symbol) so we search fewer
-                          // eclasses
+                          // Use IterSymbolEClasses for index-based lookup instead of IterAllEClasses
+                          auto sym_idx = get_symbol_index(sym.sym);
                           auto eclass_reg = alloc_eclass_reg();
-                          auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
-                                                            Instruction::next_eclass(eclass_reg, backtrack));
+                          auto eclass_loop =
+                              emit_iter_loop(Instruction::iter_symbol_eclasses(eclass_reg, sym_idx, backtrack),
+                                             Instruction::next_symbol_eclass(eclass_reg, backtrack));
                           return emit_symbol_node(pattern, pattern.root(), sym, eclass_reg, eclass_loop);
                         },
                     },
@@ -533,16 +520,16 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
   // its lifetime doesn't extend past check_eclass_eq (which backtracks within the same iteration)
   std::optional<EClassReg> verify_child_reg;
 
-  // If the shared variable is a binding on a symbol node, we need to verify
-  // the symbol structure and process ALL its children before traversing up.
-  if (path.shared_symbol) {
-    innermost = emit_symbol_structure(pattern, *path.shared_symbol, current_eclass_reg, backtrack).parent_traversal;
+  // If the shared node is a symbol, verify its structure and process all its children.
+  if (auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&pattern[path.shared_node])) {
+    innermost = emit_symbol_structure(pattern, *sym, current_eclass_reg, backtrack).parent_traversal;
   }
 
-  // Traverse path in reverse (from shared var up to root)
-  // Each step: iterate parents with expected symbol, verify child index, emit binding if present
+  // Traverse path in reverse (from parent of shared node up to root).
+  // Each step: iterate parents with expected symbol, verify child index, emit binding if present.
   for (auto const &step : path.steps | std::views::reverse) {
     auto const &sym = std::get<SymbolWithChildren<Symbol>>(pattern[step.node_id]);
+    auto child_idx = step.child_idx;
     auto parent_reg = alloc_enode_reg();
     auto sym_idx = get_symbol_index(sym.sym);
 
@@ -560,7 +547,7 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
       if (!verify_child_reg) {
         verify_child_reg = alloc_eclass_reg();
       }
-      emit(Instruction::load_child(*verify_child_reg, parent_reg, static_cast<uint8_t>(step.child_idx)));
+      emit(Instruction::load_child(*verify_child_reg, parent_reg, static_cast<uint8_t>(child_idx)));
       emit(Instruction::check_eclass_eq(*verify_child_reg, current_eclass_reg, loop_pos));
     }
 
@@ -572,7 +559,7 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
     // we want to try the next parent at THIS level, not skip to the parent level above.
     InstrAddr sibling_innermost = loop_pos;
     for (std::size_t i = 0; i < sym.children.size(); ++i) {
-      if (i == step.child_idx) continue;  // Skip the child we're traversing through
+      if (i == child_idx) continue;  // Skip the child we're traversing through
 
       auto child_reg = alloc_eclass_reg();
       emit(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
@@ -600,24 +587,29 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
 template <typename Symbol>
 auto PatternCompiler<Symbol>::find_symbol_path_to_shared_var(Pattern<Symbol> const &pattern) const
     -> std::optional<PatternPath> {
-  auto const &root_node = pattern[pattern.root()];
-  auto const *root_sym = std::get_if<SymbolWithChildren<Symbol>>(&root_node);
-  if (!root_sym) return std::nullopt;
+  if (var_to_reg_.empty()) return std::nullopt;
 
   PathSteps steps;
   std::optional<PatternPath> best_path;
   find_deepest_shared_var(pattern, pattern.root(), steps, best_path);
+
+  // Only return path if there's work to do: parent traversal or symbol verification.
+  // Pure shared variable with no path can be handled by emit_joined_cartesian.
+  if (best_path && best_path->steps.empty() &&
+      !std::holds_alternative<SymbolWithChildren<Symbol>>(pattern[best_path->shared_node])) {
+    return std::nullopt;
+  }
   return best_path;
 }
 
 template <typename Symbol>
 void PatternCompiler<Symbol>::find_deepest_shared_var(Pattern<Symbol> const &pattern, PatternNodeId node_id,
                                                       PathSteps &steps, std::optional<PatternPath> &best_path) const {
-  // Update best_path if var is shared and steps is deeper
-  auto try_update = [&](PatternVar var, SymbolWithChildren<Symbol> const *sym = nullptr) {
+  // Update best_path if var is shared and this path is deeper
+  auto try_update = [&](PatternVar var) {
     auto it = var_to_reg_.find(var);
     if (it != var_to_reg_.end() && (!best_path || steps.size() > best_path->steps.size())) {
-      best_path = PatternPath{steps, var, it->second, sym ? std::optional{*sym} : std::nullopt};
+      best_path = PatternPath{steps, node_id, var, it->second};
     }
   };
 
@@ -625,16 +617,16 @@ void PatternCompiler<Symbol>::find_deepest_shared_var(Pattern<Symbol> const &pat
                  [&](PatternVar const &var) { try_update(var); },
                  [&](SymbolWithChildren<Symbol> const &sym) {
                    if (auto binding = pattern.binding_for(node_id)) {
-                     try_update(*binding, &sym);
+                     try_update(*binding);
                    }
-                   // Always recurse into children to find potentially deeper shared variables
+                   // Recurse into children to find potentially deeper shared variables
                    for (std::size_t i = 0; i < sym.children.size(); ++i) {
                      steps.emplace_back(node_id, i);
                      find_deepest_shared_var(pattern, sym.children[i], steps, best_path);
                      steps.pop_back();
                    }
                  },
-                 [](Wildcard) {},
+                 [](Wildcard) {},  // Wildcards don't participate in paths
              },
              pattern[node_id]);
 }

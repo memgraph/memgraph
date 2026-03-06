@@ -57,15 +57,28 @@ TEST_F(PatternVM_Compiler, VariablePattern) {
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  // Variable at root: bind_dedup (backtrack to halt), yield (mark slot 0), jump back (to halt), halt
+  // Variable at root now emits outer iteration:
+  // IterAllEClasses r0, @halt
+  // Jump @check
+  // NextEClass r0, @halt
+  // check:
+  // BindSlot slot[0], r0, @loop
+  // Yield slot[0]
+  // Jump @loop
+  // halt:
+  // Halt
   auto code = compiled.code();
-  ASSERT_EQ(code.size(), 4);
-  EXPECT_EQ(
-      code[0],
-      Instruction::bind_slot(SlotIdx{0}, EClassReg{0}, InstrAddr{3}));  // slot 0, src reg 0, on_duplicate=3 (halt)
-  EXPECT_EQ(code[1], Instruction::yield(SlotIdx{0}));                   // Last slot is 0 (?x)
-  EXPECT_EQ(code[2].op, VMOp::Jump);
-  EXPECT_EQ(code[3], Instruction::halt());
+  auto bytecode = disassemble(code, compiled.symbols());
+  ASSERT_EQ(code.size(), 7) << "Expected 7 instructions\nBytecode:\n" << bytecode;
+
+  // Verify the outer loop structure
+  EXPECT_EQ(code[0].op, VMOp::IterAllEClasses) << "Should start with IterAllEClasses\nBytecode:\n" << bytecode;
+  EXPECT_EQ(code[1].op, VMOp::Jump);
+  EXPECT_EQ(code[2].op, VMOp::NextEClass) << "Should have NextEClass\nBytecode:\n" << bytecode;
+  EXPECT_EQ(code[3].op, VMOp::BindSlot);
+  EXPECT_EQ(code[4].op, VMOp::Yield);
+  EXPECT_EQ(code[5].op, VMOp::Jump);
+  EXPECT_EQ(code[6].op, VMOp::Halt);
 }
 
 TEST_F(PatternVM_Compiler, SimpleSymbolPattern) {
@@ -75,44 +88,43 @@ TEST_F(PatternVM_Compiler, SimpleSymbolPattern) {
   TestPatternCompiler compiler;
   auto compiled = compiler.compile(pattern);
 
-  // Expected bytecode structure (root binding BEFORE iteration):
-  // 0:  BindSlot slot[root], r0, @halt  ; bind root once per candidate
-  // 1:  IterENodes r1, r0, @halt     ; load first e-node
-  // 2:  Jump @check                  ; skip NextENode first time
-  // loop:
-  // 3:  NextENode r1, @halt          ; advance to next
-  // check:
-  // 4:  CheckSymbol r1, Neg, @loop
-  // 5:  CheckArity r1, 1, @loop
-  // 6:  LoadChild r2, r1, 0
-  // 7:  BindSlot slot[0], r2, @loop  ; bind ?x
-  // 8:  Yield
-  // 9:  Jump @loop
-  // 10: Halt
+  // Expected bytecode structure with outer iteration:
+  // 0:  IterSymbolEClasses r0, Neg, @halt  ; outer loop - iterate e-classes with Neg symbol
+  // 1:  Jump @3                            ; skip NextSymbolEClass first time
+  // 2:  NextSymbolEClass r0, @halt         ; advance outer loop
+  // 3:  BindSlot slot[root], r0, @2        ; bind root once per candidate
+  // 4:  IterENodes r1, r0, @2              ; load first e-node
+  // 5:  Jump @7                            ; skip NextENode first time
+  // 6:  NextENode r1, @2                   ; advance inner loop
+  // 7:  CheckSymbol r1, Neg, @6
+  // 8:  CheckArity r1, 1, @6
+  // 9:  LoadChild r2, r1, 0
+  // 10: BindSlot slot[0], r2, @6           ; bind ?x
+  // 11: Yield
+  // 12: Jump @6                            ; continue inner loop
+  // 13: Halt
 
   auto code = compiled.code();
   auto bytecode = disassemble(code, compiled.symbols());
 
-  ASSERT_GE(code.size(), 9) << "Expected at least 9 instructions\nBytecode:\n" << bytecode;
+  ASSERT_GE(code.size(), 10) << "Expected at least 10 instructions\nBytecode:\n" << bytecode;
 
-  // Check instruction sequence - root binding comes first
-  EXPECT_EQ(code[0].op, VMOp::BindSlot) << "Root binding should come first";
-  EXPECT_EQ(code[1].op, VMOp::IterENodes);
-  EXPECT_EQ(code[2].op, VMOp::Jump) << "Should have jump to skip NextENode";
-  EXPECT_EQ(code[3].op, VMOp::NextENode);
-  EXPECT_EQ(code[4].op, VMOp::CheckSymbol);
-  EXPECT_EQ(code[5].op, VMOp::CheckArity);
+  // Check instruction sequence - outer loop comes first
+  EXPECT_EQ(code[0].op, VMOp::IterSymbolEClasses) << "Should start with IterSymbolEClasses\nBytecode:\n" << bytecode;
+  EXPECT_EQ(code[1].op, VMOp::Jump) << "Should have jump to skip NextSymbolEClass";
+  EXPECT_EQ(code[2].op, VMOp::NextSymbolEClass) << "Should have NextSymbolEClass";
+  EXPECT_EQ(code[3].op, VMOp::BindSlot) << "Root binding should follow outer loop\nBytecode:\n" << bytecode;
+  EXPECT_EQ(code[4].op, VMOp::IterENodes);
+  EXPECT_EQ(code[5].op, VMOp::Jump) << "Should have jump to skip NextENode";
+  EXPECT_EQ(code[6].op, VMOp::NextENode);
+  EXPECT_EQ(code[7].op, VMOp::CheckSymbol);
+  EXPECT_EQ(code[8].op, VMOp::CheckArity);
 
-  // Check backtrack targets
-  auto loop_pos = static_cast<uint16_t>(3);  // NextENode position
   auto halt_pos = static_cast<uint16_t>(code.size() - 1);
 
-  EXPECT_EQ(code[0].target, halt_pos) << "BindSlot should jump to halt on duplicate";
-  // Note: IterENodes (code[1]) has no meaningful target - e-classes always have at least one e-node
-  EXPECT_EQ(code[2].target, 4) << "First Jump should skip to CheckSymbol";
-  EXPECT_EQ(code[3].target, halt_pos) << "NextENode should jump to halt on exhausted";
-  EXPECT_EQ(code[4].target, loop_pos) << "CheckSymbol should backtrack to NextENode";
-  EXPECT_EQ(code[5].target, loop_pos) << "CheckArity should backtrack to NextENode";
+  // Check backtrack targets for outer loop
+  EXPECT_EQ(code[0].target, halt_pos) << "IterSymbolEClasses should jump to halt on empty";
+  EXPECT_EQ(code[2].target, halt_pos) << "NextSymbolEClass should jump to halt on exhausted";
 }
 
 TEST_F(PatternVM_Compiler, NestedSymbolPattern) {
@@ -293,7 +305,8 @@ TEST_F(PatternVM_Compiler, MultiPattern_NoSharedVarUsesCartesianProduct) {
   // Anchor: Add(?x, ?y)
   // Joined: Neg(?z) - no shared variable with anchor
   //
-  // Verifies Cartesian product bytecode (IterAllEClasses) is generated.
+  // Verifies Cartesian product bytecode is generated.
+  // With symbol-filtered iteration, this uses IterSymbolEClasses instead of IterAllEClasses.
 
   constexpr PatternVar kVarX{0};
   constexpr PatternVar kVarY{1};
@@ -308,18 +321,22 @@ TEST_F(PatternVM_Compiler, MultiPattern_NoSharedVarUsesCartesianProduct) {
 
   auto bytecode = disassemble(compiled.code(), compiled.symbols());
 
-  // Verify bytecode has IterAllEClasses and NextEClass instructions
-  bool has_iter_all_eclasses = false;
-  bool has_next_eclass = false;
+  // Symbol-rooted Cartesian product now uses IterSymbolEClasses (index-based lookup)
+  // instead of IterAllEClasses (full iteration). This is an optimization.
+  bool has_iter_symbol_eclasses = false;
+  bool has_next_symbol_eclass = false;
 
   for (auto const &instr : compiled.code()) {
-    if (instr.op == VMOp::IterAllEClasses) has_iter_all_eclasses = true;
-    if (instr.op == VMOp::NextEClass) has_next_eclass = true;
+    if (instr.op == VMOp::IterSymbolEClasses) has_iter_symbol_eclasses = true;
+    if (instr.op == VMOp::NextSymbolEClass) has_next_symbol_eclass = true;
   }
 
-  EXPECT_TRUE(has_iter_all_eclasses) << "Cartesian product should use IterAllEClasses instruction\nBytecode:\n"
-                                     << bytecode;
-  EXPECT_TRUE(has_next_eclass) << "Cartesian product should use NextEClass instruction\nBytecode:\n" << bytecode;
+  EXPECT_TRUE(has_iter_symbol_eclasses)
+      << "Symbol-rooted Cartesian product should use IterSymbolEClasses instruction\nBytecode:\n"
+      << bytecode;
+  EXPECT_TRUE(has_next_symbol_eclass)
+      << "Symbol-rooted Cartesian product should use NextSymbolEClass instruction\nBytecode:\n"
+      << bytecode;
 }
 
 TEST_F(PatternVM_Compiler, MultiPattern_VariableOnlyUsesIterAllEClasses) {
@@ -401,7 +418,7 @@ TEST_F(PatternVM_Compiler, MultiPattern_RootBindingEnablesParentTraversal) {
 TEST_F(PatternVM_Compiler, MultiPattern_MixedJoinStrategies) {
   // Pattern 1 (anchor): F(?x, ?y)
   // Pattern 2: G(?x) - shares ?x, uses parent traversal
-  // Pattern 3: H(?z) - no shared variable, uses Cartesian product
+  // Pattern 3: H(?z) - no shared variable, uses Cartesian product (symbol-filtered)
   //
   // Verifies both strategies can coexist in one compilation.
 
@@ -421,18 +438,19 @@ TEST_F(PatternVM_Compiler, MultiPattern_MixedJoinStrategies) {
   auto bytecode = disassemble(code, compiled.symbols());
 
   int iter_parents_count = 0;
-  int iter_all_eclasses_count = 0;
+  int iter_symbol_eclasses_count = 0;
 
   for (auto const &instr : code) {
     if (instr.op == VMOp::IterParents) ++iter_parents_count;
-    if (instr.op == VMOp::IterAllEClasses) ++iter_all_eclasses_count;
+    if (instr.op == VMOp::IterSymbolEClasses) ++iter_symbol_eclasses_count;
   }
 
   // G(?x) joins via parent traversal from ?x
-  // H(?z) has no shared variable, falls back to Cartesian product
+  // H(?z) has no shared variable, uses symbol-filtered Cartesian product
+  // Anchor F(?x, ?y) also uses IterSymbolEClasses for outer loop
   EXPECT_EQ(iter_parents_count, 1) << "G(?x) should use parent traversal\nBytecode:\n" << bytecode;
-  EXPECT_EQ(iter_all_eclasses_count, 1) << "H(?z) should use Cartesian product (no shared variable)\nBytecode:\n"
-                                        << bytecode;
+  EXPECT_EQ(iter_symbol_eclasses_count, 2) << "Should have 2 IterSymbolEClasses: anchor F and Cartesian H\nBytecode:\n"
+                                           << bytecode;
 }
 
 TEST_F(PatternVM_Compiler, MultiPattern_IntermediateBindingEmitsBindSlot) {

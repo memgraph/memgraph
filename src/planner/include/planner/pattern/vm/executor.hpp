@@ -134,9 +134,9 @@ class VMExecutor {
 
   /// Execute compiled pattern with automatic candidate lookup via MatcherIndex.
   ///
-  /// Uses the pattern's entry_symbol() to look up candidates from the matcher's
-  /// symbol index. If the pattern has a variable/wildcard root, falls back to
-  /// iterating all e-classes.
+  /// The iteration strategy is encoded in the bytecode: symbol-rooted patterns
+  /// use IterSymbolEClasses for index-based lookup, while variable/wildcard
+  /// roots use IterAllEClasses.
   ///
   /// ## Contract
   ///
@@ -169,12 +169,6 @@ class VMExecutor {
   }
 
  private:
-  /// Execute compiled pattern with explicit candidate list (internal implementation).
-  ///
-  /// @pre candidates contains ONLY canonical e-class IDs (egraph.find(id) == id)
-  void execute_impl(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, MatchArena &arena,
-                    std::vector<PatternMatch> &results);
-
   void run_until_halt(MatchArena &arena, std::vector<PatternMatch> &results);
 
   // Instruction is 6 bytes - pass by value for efficiency (fits in register)
@@ -205,6 +199,10 @@ class VMExecutor {
     return advance_span_iter(state_.get_eclasses_iter(instr.dst), state_.eclass_regs[instr.dst]);
   }
 
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_symbol_eclasses(Instruction instr) -> bool;
+
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_symbol_eclass(Instruction instr) -> bool;
+
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_parents(Instruction instr) -> bool;
 
   /// Advance index-based parent iteration (for IterParents)
@@ -225,11 +223,11 @@ class VMExecutor {
   [[gnu::always_inline]] void exec_mark_seen(Instruction instr) { state_.mark_seen(instr.arg); }
 
   EGraphType const *egraph_;
+  MatcherIndex<Symbol, Analysis> const *matcher_index_{nullptr};  // For IterSymbolEClasses
   std::span<Instruction const> code_;
   std::span<Symbol const> symbols_;
   VMState state_;
-  std::span<EClassId const> all_eclasses_;   // Span into e-graph's canonical e-class list (for IterAllEClasses)
-  std::vector<EClassId> candidates_buffer_;  // Buffer for automatic candidate lookup
+  std::span<EClassId const> all_eclasses_;  // Span into e-graph's canonical e-class list (for IterAllEClasses)
 
   // Dev mode only: combined stats and tracing (zero overhead when DevMode=false)
   struct NoDevState {};
@@ -241,24 +239,11 @@ template <typename Symbol, typename Analysis, bool DevMode>
 void VMExecutor<Symbol, Analysis, DevMode>::execute(CompiledPattern<Symbol> const &pattern,
                                                     MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
                                                     std::vector<PatternMatch> &results) {
-  // Get candidates based on pattern's entry symbol
-  candidates_buffer_.clear();
-  if (auto entry_sym = pattern.entry_symbol()) {
-    index.candidates_for_symbol(*entry_sym, candidates_buffer_);
-  } else {
-    // Root is variable/wildcard - get all canonical e-classes
-    index.all_candidates(candidates_buffer_);
-  }
-
-  execute_impl(pattern, candidates_buffer_, arena, results);
-}
-
-template <typename Symbol, typename Analysis, bool DevMode>
-void VMExecutor<Symbol, Analysis, DevMode>::execute_impl(CompiledPattern<Symbol> const &pattern,
-                                                         std::span<EClassId const> candidates, MatchArena &arena,
-                                                         std::vector<PatternMatch> &results) {
   // Pattern with no slots has nothing to bind - skip execution
   if (pattern.num_slots() == 0) return;
+
+  // Store index for IterSymbolEClasses
+  matcher_index_ = &index;
 
   state_.reset(pattern.state_config());
   if constexpr (DevMode) {
@@ -270,13 +255,11 @@ void VMExecutor<Symbol, Analysis, DevMode>::execute_impl(CompiledPattern<Symbol>
   // E-graph maintains canonical e-class list directly - used by IterAllEClasses
   all_eclasses_ = egraph_->canonical_eclass_ids();
 
-  for (auto candidate : candidates) {
-    assert(egraph_->find(candidate) == candidate && "candidates must be canonical");
-    state_.eclass_regs[0] = candidate;
-    state_.pc = 0;
-
-    run_until_halt(arena, results);
-  }
+  // Iteration is encoded in bytecode:
+  // - Symbol roots emit IterSymbolEClasses as outer loop
+  // - Variable/wildcard roots emit IterAllEClasses as outer loop
+  state_.pc = 0;
+  run_until_halt(arena, results);
 }
 
 template <typename Symbol, typename Analysis, bool DevMode>
@@ -289,6 +272,8 @@ void VMExecutor<Symbol, Analysis, DevMode>::run_until_halt(MatchArena &arena, st
       &&op_NextENode,
       &&op_IterAllEClasses,
       &&op_NextEClass,
+      &&op_IterSymbolEClasses,
+      &&op_NextSymbolEClass,
       &&op_IterParents,
       &&op_NextParent,
       &&op_CheckSymbol,
@@ -344,6 +329,12 @@ op_IterAllEClasses:
 
 op_NextEClass:
   NEXT_OR_JUMP(exec_next_eclass(instr));
+
+op_IterSymbolEClasses:
+  NEXT_OR_JUMP(exec_iter_symbol_eclasses(instr));
+
+op_NextSymbolEClass:
+  NEXT_OR_JUMP(exec_next_symbol_eclass(instr));
 
 op_IterParents:
   NEXT_OR_JUMP(exec_iter_parents(instr));
@@ -471,6 +462,43 @@ auto VMExecutor<Symbol, Analysis, DevMode>::exec_next_parent(Instruction instr) 
   auto pit = egraph_->eclass(iter.eclass).parents().begin();
   std::advance(pit, static_cast<std::ptrdiff_t>(iter.index()));
   state_.enode_regs[instr.dst] = *pit;
+  return true;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_iter_symbol_eclasses(Instruction instr) -> bool {
+  assert(matcher_index_ && "MatcherIndex must be set for IterSymbolEClasses");
+  auto *set = matcher_index_->eclasses_set_for_symbol(symbols_[instr.arg]);
+
+  if constexpr (DevMode) {
+    collector_.on_iter_all_eclasses_start(state_.pc, set ? set->size() : 0);
+  }
+
+  if (!set || set->empty()) [[unlikely]] {
+    return false;
+  }
+
+  state_.start_symbol_eclasses_iter(instr.dst, set);
+  // Canonicalize on-the-fly (index may have stale entries from merged e-classes)
+  state_.eclass_regs[instr.dst] = egraph_->find(state_.get_symbol_eclasses_iter(instr.dst).current());
+  return true;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_next_symbol_eclass(Instruction instr) -> bool {
+  auto &iter = state_.get_symbol_eclasses_iter(instr.dst);
+  iter.advance();
+  if (iter.exhausted()) {
+    if constexpr (DevMode) {
+      collector_.on_iter_advance(state_.pc, 0);
+    }
+    return false;
+  }
+  if constexpr (DevMode) {
+    collector_.on_iter_advance(state_.pc, iter.remaining());
+  }
+  // Canonicalize on-the-fly (index may have stale entries from merged e-classes)
+  state_.eclass_regs[instr.dst] = egraph_->find(iter.current());
   return true;
 }
 

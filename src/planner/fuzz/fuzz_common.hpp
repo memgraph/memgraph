@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <memory>
 #include <ostream>
@@ -108,6 +109,18 @@ inline auto symbol_name(FuzzSymbol sym) -> std::string_view {
 }
 
 inline auto is_leaf_symbol(FuzzSymbol sym) -> bool { return static_cast<uint8_t>(sym) < 10; }
+
+}  // namespace memgraph::planner::core::fuzz
+
+/// std::formatter for FuzzSymbol (required by tracer disassembly)
+template <>
+struct std::formatter<memgraph::planner::core::fuzz::FuzzSymbol> : std::formatter<std::string_view> {
+  auto format(memgraph::planner::core::fuzz::FuzzSymbol sym, std::format_context &ctx) const {
+    return std::formatter<std::string_view>::format(memgraph::planner::core::fuzz::symbol_name(sym), ctx);
+  }
+};
+
+namespace memgraph::planner::core::fuzz {
 
 /// Dump e-graph structure showing e-nodes per e-class
 template <typename Analysis>

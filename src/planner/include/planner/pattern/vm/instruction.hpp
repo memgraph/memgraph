@@ -142,6 +142,15 @@ enum class VMOp : uint8_t {
   /// If exhausted, pops state and jumps to target.
   NextEClass,
 
+  // ===== Symbol-Filtered E-Class Iteration =====
+  /// Begin iterating e-classes containing a specific symbol (from MatcherIndex)
+  /// arg = symbol index in symbols table. Stores first e-class ID in dst.
+  /// If no e-classes have this symbol, jumps to target.
+  IterSymbolEClasses,
+  /// Advance symbol-filtered e-class iteration, store in dst
+  /// If exhausted, jumps to target.
+  NextSymbolEClass,
+
   // ===== Parent Traversal =====
   /// Begin iterating ALL parents of e-class[src] (index-based)
   /// Pushes iteration state. If empty, jumps to target.
@@ -189,6 +198,8 @@ enum class VMOp : uint8_t {
 /// | NextENode       | enode_reg out    | -                | -             | on_exhausted     |
 /// | IterAllEClasses | eclass_reg out   | -                | -             | on_empty         |
 /// | NextEClass      | eclass_reg out   | -                | -             | on_exhausted     |
+/// | IterSymbolEClasses| eclass_reg out | -                | symbol_idx    | on_empty         |
+/// | NextSymbolEClass| eclass_reg out   | -                | -             | on_exhausted     |
 /// | IterParents     | enode_reg out    | eclass_reg in    | -             | on_empty         |
 /// | NextParent      | enode_reg out    | -                | -             | on_exhausted     |
 /// | CheckSymbol     | -                | enode_reg in     | symbol_idx    | on_mismatch      |
@@ -241,6 +252,14 @@ struct Instruction {
 
   static constexpr auto next_eclass(EClassReg dst, InstrAddr on_exhausted) -> Instruction {
     return {.op = NextEClass, .dst = value_of(dst), .target = value_of(on_exhausted)};
+  }
+
+  static constexpr auto iter_symbol_eclasses(EClassReg dst, uint8_t sym_idx, InstrAddr on_empty) -> Instruction {
+    return {.op = IterSymbolEClasses, .dst = value_of(dst), .arg = sym_idx, .target = value_of(on_empty)};
+  }
+
+  static constexpr auto next_symbol_eclass(EClassReg dst, InstrAddr on_exhausted) -> Instruction {
+    return {.op = NextSymbolEClass, .dst = value_of(dst), .target = value_of(on_exhausted)};
   }
 
   static constexpr auto iter_parents(ENodeReg dst, EClassReg src, InstrAddr on_empty) -> Instruction {
@@ -305,6 +324,10 @@ static_assert(alignof(Instruction) == 2, "Instruction should be 2 aligned");
       return "IterAllEClasses";
     case NextEClass:
       return "NextEClass";
+    case IterSymbolEClasses:
+      return "IterSymbolEClasses";
+    case NextSymbolEClass:
+      return "NextSymbolEClass";
     case IterParents:
       return "IterParents";
     case NextParent:

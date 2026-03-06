@@ -563,11 +563,15 @@ TEST_F(Rewrite, VM_SinglePatternRule_ProducesSameResults) {
 
 TEST_F(Rewrite, VM_CompiledPatternsAreAvailable) {
   // Verify that patterns are compiled at rule construction time
+  // Pattern: ?root = Neg(Neg(?x))
   auto rule = make_double_neg_rule();
   auto const &compiled = rule.compiled();
 
-  // Single pattern rule should have compiled bytecode with entry symbol
-  EXPECT_TRUE(compiled.entry_symbol().has_value()) << "Pattern should have entry symbol";
+  // 2 slots: kVarDoubleNegRoot and kVarX
+  EXPECT_EQ(compiled.num_slots(), 2);
+  // 1 symbol: Neg (deduplicated, even though used twice)
+  EXPECT_EQ(compiled.symbols().size(), 1);
+  EXPECT_EQ(compiled.symbols()[0], Op::Neg);
 }
 
 TEST_F(Rewrite, VM_FallbackForMultiPatternRules) {
