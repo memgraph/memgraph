@@ -82,6 +82,14 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
   return true;
 }
 
+void Settings::SetValueForce(const std::string &setting_name, const std::string &new_value) {
+  std::lock_guard settings_guard{settings_lock_};
+  if (!storage_) return;
+  MG_ASSERT(
+      storage_->Get(setting_name).has_value(), "SetValueForce called for unregistered setting '{}'", setting_name);
+  MG_ASSERT(storage_->Put(setting_name, new_value), "Failed to force-set setting '{}'", setting_name);
+}
+
 std::vector<std::pair<std::string, std::string>> Settings::AllSettings() const {
   std::shared_lock settings_guard{settings_lock_};
   if (!storage_) return {};
