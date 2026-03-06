@@ -10644,11 +10644,19 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           case Aggregation::Op::COLLECT_LIST: {
             auto &main_list = main_value.ValueList();
             auto &other_list = other_value.ValueList();
-            // After merge(), items still in other_unique_values are duplicates (already in main) — skip them.
-            // Items no longer in other_unique_values were moved to main (unique) — add them to main_list.
-            for (auto &item : other_list) {
-              if (!other_unique_values.contains(item)) {
-                main_list.push_back(std::move(item));
+            if (other_unique_values.empty()) {
+              // Common case for parallel scan: threads process disjoint vertex sets,
+              // so no cross-branch duplicates exist. Bulk-append without any hash lookups.
+              main_list.insert(main_list.end(),
+                               std::make_move_iterator(other_list.begin()),
+                               std::make_move_iterator(other_list.end()));
+            } else {
+              // After merge(), items still in other_unique_values are duplicates — skip them.
+              // Items no longer in other_unique_values were moved to main (unique) — add them.
+              for (auto &item : other_list) {
+                if (!other_unique_values.contains(item)) {
+                  main_list.push_back(std::move(item));
+                }
               }
             }
             break;
@@ -10656,11 +10664,17 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           case Aggregation::Op::COLLECT_MAP: {
             auto &main_map = main_value.ValueMap();
             auto &other_map = other_value.ValueMap();
-            // After merge(), values still in other_unique_values are duplicates — skip them.
-            // Values no longer in other_unique_values were moved to main (unique) — add them.
-            for (auto &[key, val] : other_map) {
-              if (!other_unique_values.contains(val)) {
+            if (other_unique_values.empty()) {
+              // No cross-branch duplicates — merge all entries directly.
+              for (auto &[key, val] : other_map) {
                 main_map.insert_or_assign(key, std::move(val));
+              }
+            } else {
+              // After merge(), values still in other_unique_values are duplicates — skip them.
+              for (auto &[key, val] : other_map) {
+                if (!other_unique_values.contains(val)) {
+                  main_map.insert_or_assign(key, std::move(val));
+                }
               }
             }
             break;
