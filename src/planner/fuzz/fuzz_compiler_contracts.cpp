@@ -13,16 +13,29 @@
 // Contract Verification Fuzzer for PatternCompiler
 // ============================================================================
 //
-// This fuzzer verifies that PatternCompiler upholds all documented contracts
-// from instruction.hpp and compiler.hpp. Unlike fuzz_pattern_vm.cpp which
-// checks semantic correctness (match counts), this fuzzer checks structural
-// invariants of the compiled bytecode.
+// KEY INSIGHT: This fuzzer checks STRUCTURAL correctness of compiled bytecode,
+// not SEMANTIC correctness. It answers: "Is this bytecode well-formed?" not
+// "Does this bytecode match the right things?"
+//
+// - Structural correctness: register indices in bounds, jump targets valid,
+//   iteration instructions paired, slots bound before use, etc.
+//
+// - Semantic correctness: pattern `Neg(Neg(?x))` actually matches double
+//   negations and binds ?x correctly. (See fuzz_pattern_vm.cpp for this.)
+//
+// Why both matter: A compiler bug might produce bytecode that "works" but
+// violates invariants (e.g., writes to reserved register 0). The VM might
+// not crash today, but such bugs indicate deeper problems. This fuzzer
+// catches those structural violations that semantic testing might miss.
+//
+// Flow:
+//   Fuzz input → generate Pattern ASTs → compile → verify contracts → abort if violated
 //
 // Contracts verified:
+//
 //   1. Register Allocation Contract
 //      - eclass_regs[0] is never written by compiled code
 //      - All register indices < reported num_eclass_regs/num_enode_regs
-//      - Register indices fit in uint8_t
 //
 //   2. Jump Target Contract
 //      - All jump targets are valid instruction indices in [0, code.size())
@@ -32,11 +45,9 @@
 //      - All CheckSymbol.arg < symbols.size()
 //
 //   4. Slot Binding Contract
-//      - All BindSlotDedup.arg < num_slots()
-//      - All CheckSlot.arg < num_slots()
-//      - All MarkSeen.arg < num_slots()
-//      - All Yield.arg < num_slots() (when num_slots > 0)
+//      - All BindSlotDedup/CheckSlot/MarkSeen/Yield.arg < num_slots()
 //      - binding_order contains valid slot indices without duplicates
+//      - slot_to_order is consistent inverse of binding_order
 //
 //   5. Iteration Pairing Contract
 //      - Every IterENodes(dst) has matching NextENode(dst)
@@ -45,8 +56,18 @@
 //
 //   6. Code Structure Contract
 //      - Last instruction is Halt
-//      - For patterns with bindings: Yield exists and is followed by Jump
-//      - For patterns without bindings: may have no Yield (just Halt)
+//      - Patterns with bindings have Yield followed by Jump
+//      - Patterns without bindings have no Yield
+//
+//   7. Register Liveness Contract
+//      - Registers are defined before being read (in linear program order)
+//      - eclass_regs[0] is pre-defined as the input candidate
+//
+//   8. MarkSeen Ordering Contract
+//      - MarkSeen/Yield only reference slots already bound via BindSlotDedup
+//
+//   9. binding_order Consistency Contract
+//      - binding_order matches BindSlotDedup instructions in emission order
 //
 // Running:
 //   ./build/src/planner/fuzz/fuzz_compiler_contracts -max_total_time=60
