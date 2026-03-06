@@ -1217,9 +1217,9 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
           break;
         case PreviousPtr::Type::VERTEX: {
           auto &vertex = *prev.vertex;
-          vertex.delta = nullptr;
-          vertex.has_uncommitted_non_sequential_deltas = false;
-          if (vertex.deleted) {
+          vertex.SetDelta(nullptr);
+          vertex.set_has_uncommitted_non_sequential_deltas(false);
+          if (vertex.deleted()) {
             DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
             current_deleted_vertices.push_back(vertex.gid);
           }
@@ -1227,8 +1227,8 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
         }
         case PreviousPtr::Type::EDGE: {
           auto &edge = *prev.edge;
-          edge.delta = nullptr;
-          if (edge.deleted) {
+          edge.SetDelta(nullptr);
+          if (edge.deleted()) {
             DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
             current_deleted_edges.push_back(edge.gid);
           }
@@ -3283,7 +3283,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     }
   }
   // A single transaction will always be fully-contained in a single WAL file.
-  auto current_commit_timestamp = transaction_.commit_info->timestamp.load(std::memory_order_acquire);
   DeltaVertexCache vertex_cache(transaction_.commit_info.get());
 
   auto append_deltas = [&](auto callback) {
