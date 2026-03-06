@@ -1347,7 +1347,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           {
             bool is_visible = true;
             storage::MvccRead reader{&*edge, &transaction->GetTransaction(), View::NEW, [&](storage::Edge const &e) {
-                                       is_visible = !e.deleted;
+                                       is_visible = !e.deleted();
                                      }};
             reader.ApplyDeltasForRead([&is_visible](Delta const &delta) {
               switch (delta.action) {

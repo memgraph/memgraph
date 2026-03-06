@@ -218,7 +218,7 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
   bool deleted = false;
   bool current_value_equal_to_value = value.IsNull();
   MvccRead reader{&edge, transaction, view, [&](Edge const &e) {
-                    deleted = e.deleted;
+                    deleted = e.deleted();
                     current_value_equal_to_value = e.properties.IsPropertyEqual(key, value);
                   }};
 

@@ -63,7 +63,7 @@ namespace detail {
 std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transaction, View view) {
   bool exists = true;
   bool deleted = false;
-  MvccRead reader{vertex, transaction, view, [&](Vertex const &v) { deleted = v.deleted; }};
+  MvccRead reader{vertex, transaction, view, [&](Vertex const &v) { deleted = v.deleted(); }};
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
@@ -259,7 +259,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   bool deleted = false;
   bool has_label = false;
   MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
-                    deleted = v.deleted;
+                    deleted = v.deleted();
                     has_label = std::ranges::contains(v.labels, label);
                   }};
 
@@ -303,7 +303,7 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   bool deleted = false;
   utils::small_vector<LabelId> labels;
   MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
-                    deleted = v.deleted;
+                    deleted = v.deleted();
                     labels = v.labels;
                   }};
 
@@ -616,7 +616,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 
   MvccRead reader{
       vertex_, transaction_, view, [&](Vertex const &v) {
-        deleted = v.deleted;
+        deleted = v.deleted();
         value = v.properties.GetProperty(
             property,
             IndexedPropertyDecoder<Vertex>{
@@ -684,7 +684,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   std::map<PropertyId, PropertyValue> properties;
   MvccRead reader{
       vertex_, transaction_, view, [&](Vertex const &v) {
-        deleted = v.deleted;
+        deleted = v.deleted();
         properties = v.properties.Properties(IndexedPropertyDecoder<Vertex>{
             .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
       }};
@@ -731,7 +731,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
   std::vector<PropertyValue> property_values;
   property_values.reserve(properties.size());
   MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
-                    deleted = v.deleted;
+                    deleted = v.deleted();
                     auto property_paths =
                         properties |
                         rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
@@ -857,7 +857,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   auto in_edges = edge_store{};
   int64_t expanded_count = 0;
   MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
-                    deleted = v.deleted;
+                    deleted = v.deleted();
                     if (edge_types.empty() && !destination) {
                       expanded_count = HandleExpansionsWithoutEdgeTypes(in_edges, hops_limit, EdgeDirection::IN);
                     } else {
@@ -940,7 +940,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   auto out_edges = edge_store{};
   int64_t expanded_count = 0;
   MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
-                    deleted = v.deleted;
+                    deleted = v.deleted();
                     if (edge_types.empty() && !destination) {
                       expanded_count = HandleExpansionsWithoutEdgeTypes(out_edges, hops_limit, EdgeDirection::OUT);
                     } else {
@@ -1008,7 +1008,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   bool deleted = false;
   size_t degree = 0;
   MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
-                    deleted = v.deleted;
+                    deleted = v.deleted();
                     degree = v.in_edges.size();
                   }};
 
@@ -1060,7 +1060,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   bool deleted = false;
   size_t degree = 0;
   MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
-                    deleted = v.deleted;
+                    deleted = v.deleted();
                     degree = v.out_edges.size();
                   }};
 

@@ -59,7 +59,7 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
   auto matches_edge_type = [edge_type](auto const &each) { return std::get<EdgeTypeId>(each) == edge_type; };
 
   MvccRead vertex_reader{&from_vertex, &tx, View::OLD, [&](Vertex const &v) {
-                           deleted = v.deleted;
+                           deleted = v.deleted();
                            edges = v.out_edges | rv::filter(matches_edge_type) |
                                    r::to<utils::small_vector<Vertex::EdgeTriple>>;
                          }};

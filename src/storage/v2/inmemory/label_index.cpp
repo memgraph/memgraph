@@ -125,7 +125,7 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
   bool has_label = false;
 
   MvccRead reader{&vertex, &tx, View::OLD, [&](Vertex const &v) {
-                    deleted = v.deleted;
+                    deleted = v.deleted();
                     has_label = std::ranges::contains(v.labels, label);
                   }};
 

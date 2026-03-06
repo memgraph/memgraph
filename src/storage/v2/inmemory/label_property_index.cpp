@@ -72,10 +72,10 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   std::vector<bool> current_values_equal_to_value;
 
   MvccRead reader{&vertex, transaction, view, [&](Vertex const &v) {
-                    deleted = v.deleted;
-                    if (!v.delta && deleted) return;
+                    deleted = v.deleted();
+                    if (!v.delta() && deleted) return;
                     has_label = std::ranges::contains(v.labels, label);
-                    if (!v.delta && !has_label) return;
+                    if (!v.delta() && !has_label) return;
                     current_values_equal_to_value = helper.MatchesValues(v.properties, values);
                   }};
 
@@ -381,7 +381,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   std::vector<PropertyValue> properties;
 
   MvccRead reader{&vertex, &tx, View::OLD, [&](Vertex const &v) {
-                    deleted = v.deleted;
+                    deleted = v.deleted();
                     has_label = std::ranges::contains(v.labels, label);
                     properties = props.Extract(v.properties);
                   }};

@@ -107,7 +107,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
   };
   auto check_presence_of_edge = [&view, this]() -> bool {
     bool deleted = true;
-    MvccRead reader{edge_.ptr, transaction_, view, [&](Edge const &e) { deleted = e.deleted; }};
+    MvccRead reader{edge_.ptr, transaction_, view, [&](Edge const &e) { deleted = e.deleted(); }};
 
     reader.ApplyDeltasForRead([&](Delta const &delta) {
       switch (delta.action) {
@@ -354,7 +354,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   bool deleted = false;
   std::optional<PropertyValue> value;
   MvccRead reader{edge_.ptr, transaction_, view, [&](Edge const &e) {
-                    deleted = e.deleted;
+                    deleted = e.deleted();
                     value.emplace(e.properties.GetProperty(property));
                   }};
 
@@ -416,7 +416,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
   MvccRead reader{edge_.ptr, transaction_, view, [&](Edge const &e) {
-                    deleted = e.deleted;
+                    deleted = e.deleted();
                     properties = e.properties.Properties();
                   }};
 
@@ -467,7 +467,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   std::vector<PropertyValue> property_values;
   property_values.reserve(properties.size());
   MvccRead reader{edge_.ptr, transaction_, view, [&](Edge const &e) {
-                    deleted = e.deleted;
+                    deleted = e.deleted();
                     auto property_paths =
                         properties |
                         rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |

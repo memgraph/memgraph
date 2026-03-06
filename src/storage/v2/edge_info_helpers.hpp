@@ -22,7 +22,7 @@ namespace memgraph::storage {
 inline bool IsEdgeVisible(Edge *edge, const Transaction *transaction, View view) {
   bool exists = true;
   bool deleted = true;
-  MvccRead reader{edge, transaction, view, [&](Edge const &e) { deleted = e.deleted; }};
+  MvccRead reader{edge, transaction, view, [&](Edge const &e) { deleted = e.deleted(); }};
 
   reader.ApplyDeltasForRead([&](Delta const &delta) {
     switch (delta.action) {

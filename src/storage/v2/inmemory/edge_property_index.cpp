@@ -67,7 +67,7 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
   bool deleted = false;
   utils::small_vector<Vertex::EdgeTriple> edges;
   MvccRead vertex_reader{&from_vertex, &tx, View::OLD, [&](Vertex const &v) {
-                           deleted = v.deleted;
+                           deleted = v.deleted();
                            edges = v.out_edges;
                          }};
 

@@ -123,9 +123,9 @@ class MvccRead {
   MvccRead(TObject const *object, Transaction const *transaction, View view, TWithLock &&with_lock)
       : transaction_{transaction}, view_{view}, lock_{object->lock} {
     std::forward<TWithLock>(with_lock)(*object);
-    delta_ = object->delta;
-    if constexpr (requires { object->has_uncommitted_non_sequential_deltas; }) {
-      if (!object->has_uncommitted_non_sequential_deltas) {
+    delta_ = object->delta();
+    if constexpr (requires { object->has_uncommitted_non_sequential_deltas(); }) {
+      if (!object->has_uncommitted_non_sequential_deltas()) {
         lock_.unlock();
       }
     } else {
