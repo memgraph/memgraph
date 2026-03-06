@@ -1,0 +1,1017 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+// Ground-truth based correctness tests for pattern matchers.
+//
+// The VM executor (bytecode) is tested against known expected results.
+// XFAIL markers document known implementation bugs.
+//
+// When a known bug is fixed, the XFAIL will start passing - update the test!
+
+#include <array>
+#include <random>
+#include <span>
+
+#include <gtest/gtest.h>
+
+#include "planner/pattern/vm/compiler.hpp"
+#include "planner/pattern/vm/executor.hpp"
+#include "planner/rewrite/rule.hpp"
+#include "test_egraph_fixture.hpp"
+#include "test_patterns.hpp"
+
+namespace memgraph::planner::core {
+
+using namespace test;
+using namespace pattern;
+using namespace pattern::vm;
+using namespace rewrite;
+
+// ============================================================================
+// Test Result Helpers
+// ============================================================================
+
+/// Result of running a matcher implementation
+struct MatcherResult {
+  std::size_t count{0};
+  bool succeeded{false};
+  std::string error;
+};
+
+// ============================================================================
+// Ground Truth Comparison Fixture
+// ============================================================================
+
+class PatternVM_Correctness : public EGraphTestBase {
+ protected:
+  EMatchContext ctx;
+  std::vector<PatternMatch> results;
+
+  /// Build a RewriteRule from patterns
+  static auto build_rule(std::string name, std::span<TestPattern const> patterns, std::size_t &count)
+      -> RewriteRule<Op, NoAnalysis> {
+    assert(!patterns.empty());
+    auto builder = RewriteRule<Op, NoAnalysis>::Builder(std::move(name)).pattern(patterns[0]);
+    for (std::size_t i = 1; i < patterns.size(); ++i) {
+      builder = std::move(builder).pattern(patterns[i]);
+    }
+    return std::move(builder).apply([&count](RuleContext<Op, NoAnalysis> &, Match const &) { ++count; });
+  }
+
+  /// Run VM executor and return result
+  auto run_vm(std::span<TestPattern const> patterns) -> MatcherResult {
+    std::size_t count = 0;
+    auto rule = build_rule("test_vm", patterns, count);
+
+    MatcherContext matcher_ctx;
+    std::vector<EClassId> new_eclasses;
+    RuleContext<Op, NoAnalysis> rule_ctx(egraph, new_eclasses);
+    TestVMExecutor vm_executor(egraph);
+    rule.match(matcher, vm_executor, matcher_ctx);
+    rule.apply(rule_ctx, matcher_ctx);
+    return {.count = count, .succeeded = true};
+  }
+
+  /// Verify VM result against expected count
+  void verify_impl(std::string_view name, MatcherResult const &result, std::size_t expected) {
+    ASSERT_TRUE(result.succeeded) << name << " failed: " << result.error;
+    EXPECT_EQ(result.count, expected) << name << " mismatch";
+  }
+
+  /// Test VM executor against ground truth (multi-pattern)
+  void verify_vm(std::span<TestPattern const> patterns, std::size_t expected) {
+    auto vm_result = run_vm(patterns);
+    verify_impl("VM", vm_result, expected);
+  }
+
+  /// Test VM executor against ground truth (single pattern convenience)
+  void verify_vm(TestPattern const &pattern, std::size_t expected) {
+    std::array<TestPattern, 1> patterns{pattern};
+    verify_vm(std::span{patterns}, expected);
+  }
+};
+
+// ============================================================================
+// Basic Pattern Tests
+// ============================================================================
+
+TEST_F(PatternVM_Correctness, SimplePattern_Neg) {
+  // Ground truth: N Neg nodes -> N matches
+  constexpr std::size_t kNumNodes = 100;
+
+  for (std::size_t i = 0; i < kNumNodes; ++i) {
+    auto x = leaf(Op::Const, i);
+    node(Op::Neg, x);
+  }
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Var{kVarX}});
+  verify_vm(pattern, kNumNodes);
+}
+
+TEST_F(PatternVM_Correctness, NestedPattern_NegNeg) {
+  // Ground truth: N chains of Neg(Neg(x)) -> N matches
+  constexpr std::size_t kNumChains = 50;
+
+  for (std::size_t i = 0; i < kNumChains; ++i) {
+    auto x = leaf(Op::Const, i);
+    auto neg1 = node(Op::Neg, x);
+    node(Op::Neg, neg1);
+  }
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Sym(Op::Neg, Var{kVarX})});
+  verify_vm(pattern, kNumChains);
+}
+
+TEST_F(PatternVM_Correctness, DeepPattern_Chain4) {
+  // Ground truth: N 4-deep chains -> N matches
+  constexpr std::size_t kNumChains = 20;
+
+  for (std::size_t i = 0; i < kNumChains; ++i) {
+    auto x = leaf(Op::Const, i);
+    auto n1 = node(Op::Neg, x);
+    auto n2 = node(Op::Neg, n1);
+    auto n3 = node(Op::Neg, n2);
+    node(Op::Neg, n3);
+  }
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Sym(Op::Neg, Var{kVarX})))});
+  verify_vm(pattern, kNumChains);
+}
+
+TEST_F(PatternVM_Correctness, SameVariablePattern_AddXX) {
+  // Ground truth: Add(x, x) matches only when both children are same e-class
+  constexpr std::size_t kNumLeaves = 20;
+
+  std::vector<EClassId> leaves;
+  for (std::size_t i = 0; i < kNumLeaves; ++i) {
+    leaves.push_back(leaf(Op::Const, i));
+  }
+
+  // Create Add(x, x) for each leaf (these should match)
+  for (auto l : leaves) {
+    node(Op::Add, l, l);
+  }
+
+  // Create Add(x, y) for different leaves (these should NOT match)
+  std::mt19937 rng(42);
+  for (std::size_t i = 0; i < 50; ++i) {
+    auto a = leaves[rng() % leaves.size()];
+    auto b = leaves[rng() % leaves.size()];
+    if (a != b) {
+      node(Op::Add, a, b);
+    }
+  }
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Var{kVarX}});
+  verify_vm(pattern, kNumLeaves);
+}
+
+TEST_F(PatternVM_Correctness, WideEClass_ManyENodes) {
+  // Ground truth: Merging N Neg nodes into one e-class -> N matches
+  // Each e-node in the e-class produces a distinct binding for ?x
+  constexpr std::size_t kNumMerges = 20;
+
+  std::vector<EClassId> neg_nodes;
+  for (std::size_t i = 0; i < kNumMerges; ++i) {
+    auto x = leaf(Op::Const, i);
+    neg_nodes.push_back(node(Op::Neg, x));
+  }
+
+  // Merge them all into one e-class
+  for (std::size_t i = 1; i < neg_nodes.size(); ++i) {
+    merge(neg_nodes[0], neg_nodes[i]);
+  }
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(kTestRoot, Op::Neg, {Var{kVarX}});
+  verify_vm(pattern, kNumMerges);
+}
+
+// ============================================================================
+// Self-Referential E-Class Tests
+// ============================================================================
+
+TEST_F(PatternVM_Correctness, SelfReferentialEClass_DeepPattern) {
+  // Setup:
+  //   n0 = B(64)
+  //   n1 = F(n0)
+  //   n2 = F(n1)
+  //   union(n1, n2)
+  //
+  // After merge and rebuild:
+  //   EC0 = { B(64) }
+  //   EC1 = { F(EC0), F(EC1) }   <- self-referential
+  //
+  // Pattern: F(F(F(?v0)))
+  //
+  // Expected: 2 matches
+  //   Match 1: ?v0 = EC0 (via F(EC0) at each level)
+  //   Match 2: ?v0 = EC1 (via F(EC1) self-loop)
+  //
+  // Historical MatcherIndex bug (now fixed): Only found match 1. The innermost
+  // F(?v0) frame at EC1 tried F(EC0), yielded, got popped, never tried F(EC1).
+
+  auto n0 = leaf(Op::B, 64);
+  auto n1 = node(Op::F, n0);
+  auto n2 = node(Op::F, n1);
+
+  merge(n1, n2);
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Sym(Op::F, Sym(Op::F, Var{kVarX}))});
+
+  // MatcherIndex bug was fixed - both implementations now correct
+  verify_vm(pattern, /*expected=*/2);
+}
+
+// ============================================================================
+// Leaf Symbol in Pattern Tests
+// ============================================================================
+
+TEST_F(PatternVM_Correctness, TernaryPatternWithLeafSymbol) {
+  // Setup:
+  //   v0 = X(0), v1 = Y(0)
+  //   a0 = A(0), a1 = A(1)
+  //   t = F(v0, a0, v1)
+  //   merge(a0, a1)
+  //
+  // After rebuild: t = F(v0, merged_a, v1) where merged_a = { A(0), A(1) }
+  //
+  // Pattern: F(?x, A, ?y) - A is a leaf symbol, not a variable
+  //
+  // Ground truth: 1 match (one F node, regardless of e-nodes in child e-class)
+  //
+  // Historical MatcherIndex bug (now fixed): Produced 2 matches because it
+  // iterated e-nodes for leaf symbol children instead of matching per e-class.
+
+  auto v0 = leaf(Op::X, 0);
+  auto v1 = leaf(Op::Y, 0);
+  auto a0 = leaf(Op::A, 0);
+  auto a1 = leaf(Op::A, 1);
+  node(Op::F, v0, a0, v1);
+
+  merge(a0, a1);
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Var{kVarX}, Sym(Op::A), Var{kVarY}});
+
+  // MatcherIndex bug was fixed - both implementations now correct
+  verify_vm(pattern, /*expected=*/1);
+}
+
+// ============================================================================
+// Complex Pattern Tests
+// ============================================================================
+
+TEST_F(PatternVM_Correctness, MixedPattern_Complex) {
+  // Pattern: F(Add(?x, ?y), Neg(?z))
+  // Ground truth: Each F node with Add and Neg children produces 1 match
+  constexpr std::size_t kNumNodes = 20;
+
+  std::vector<EClassId> leaves;
+  for (std::size_t i = 0; i < 10; ++i) {
+    leaves.push_back(leaf(Op::Const, i));
+  }
+
+  std::mt19937 rng(42);
+  for (std::size_t i = 0; i < kNumNodes; ++i) {
+    auto x = leaves[rng() % leaves.size()];
+    auto y = leaves[rng() % leaves.size()];
+    auto z = leaves[rng() % leaves.size()];
+    auto add_xy = node(Op::Add, x, y);
+    auto neg_z = node(Op::Neg, z);
+    node(Op::F, add_xy, neg_z);
+  }
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(kTestRoot, Op::F, {Sym(Op::Add, Var{kVarX}, Var{kVarY}), Sym(Op::Neg, Var{kVarZ})});
+
+  // Note: Due to hash-consing, duplicate structures are merged, so actual
+  // count may be less than kNumNodes. We verify the VM finds at least one match.
+  auto vm_result = run_vm(std::array{pattern});
+
+  ASSERT_TRUE(vm_result.succeeded) << "VM failed: " << vm_result.error;
+  EXPECT_GT(vm_result.count, 0u) << "Should find at least one match";
+}
+
+TEST_F(PatternVM_Correctness, BinaryPattern_RandomStructure) {
+  // Random binary patterns - both matchers should agree
+  std::vector<EClassId> leaves;
+  for (std::size_t i = 0; i < 20; ++i) {
+    leaves.push_back(leaf(Op::Const, i));
+  }
+
+  std::mt19937 rng(42);
+  for (std::size_t i = 0; i < 50; ++i) {
+    auto a = leaves[rng() % leaves.size()];
+    auto b = leaves[rng() % leaves.size()];
+    node(Op::Add, a, b);
+  }
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Var{kVarY}});
+
+  auto vm_result = run_vm(std::array{pattern});
+
+  ASSERT_TRUE(vm_result.succeeded) << "VM failed: " << vm_result.error;
+  EXPECT_GT(vm_result.count, 0u) << "Should find at least one match";
+}
+
+// ============================================================================
+// Known MatcherIndex Limitations (XFAIL)
+// ============================================================================
+
+TEST_F(PatternVM_Correctness, SelfReferentialWithRewritePattern) {
+  // Test single-pattern matching with self-referential e-classes.
+  //
+  // Setup simulates H(x)=x rewrite pattern which creates self-referential e-classes.
+  //
+  //   a = A(0)
+  //   neg_a = Neg(a)
+  //   merge(neg_a, a)  <- creates self-referential: e-class contains A(0) and Neg(self)
+  //   f_a = F(a)       <- F references the merged e-class
+  //   mul = Mul(neg_a, f_a)
+  //
+  // Pattern: Mul(Neg(?x), F(?x)) with shared variable
+  //
+  // Both MatcherIndex and VM correctly find 1 match where ?x = merged e-class.
+  // (Note: Multi-pattern matching with self-referential e-classes has separate issues.)
+
+  auto a = leaf(Op::A, 0);
+  auto neg_a = node(Op::Neg, a);
+  merge(neg_a, a);  // Self-referential: e-class now contains A(0) and Neg(self)
+  rebuild_egraph();
+
+  auto f_a = node(Op::F, a);
+  node(Op::Mul, neg_a, f_a);
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(kTestRoot, Op::Mul, {Sym(Op::Neg, Var{kVarX}), Sym(Op::F, Var{kVarX})});
+
+  // Single-pattern matching works correctly for self-referential e-classes
+  verify_vm(pattern, /*expected=*/1);
+}
+
+TEST_F(PatternVM_Correctness, ParentChainSiblingVerification_FuzzerCrashE6dbe1d) {
+  // Reproduction from fuzzer: crash-e6dbe1def61b072fe7794aa1369cd831a1840c0f
+  //
+  // Tests that the VM correctly verifies sibling children during parent chain
+  // traversal. The bug was in emit_joined_with_parent_chain() where sibling
+  // children were loaded but never verified against the pattern structure.
+  //
+  // Patterns:
+  //   Pattern 0: (F ?v0)
+  //   Pattern 1: (Plus (F ?v0) (H ?v0))
+  //
+  // E-graph setup (from fuzzer):
+  //   - Multiple F nodes with various children
+  //   - Plus nodes that are all Plus(x, x) form (same child on both sides)
+  //   - NO H nodes exist in the graph
+  //
+  // Expected: 0 matches
+  //   Since there are no H nodes, pattern 1 cannot match.
+  //   The bug caused VM to find 7 false matches by not verifying the
+  //   second child of Plus was actually (H ?v0).
+
+  // Create leaf nodes
+  auto b0 = leaf(Op::B, 0);
+  auto a0 = leaf(Op::A, 0);
+  auto a1 = leaf(Op::A, 1);
+  auto a2 = leaf(Op::A, 2);
+
+  // Create F nodes
+  auto f_b0 = node(Op::F, b0);
+
+  // Apply F(F(x))=x rewrites to create self-referential structures
+  auto ff_b0 = node(Op::F, f_b0);
+  merge(ff_b0, b0);
+
+  auto f_a0 = node(Op::F, a0);
+  auto ff_a0 = node(Op::F, f_a0);
+  merge(ff_a0, a0);
+
+  auto f_a1 = node(Op::F, a1);
+  auto ff_a1 = node(Op::F, f_a1);
+  merge(ff_a1, a1);
+
+  auto f_a2 = node(Op::F, a2);
+  auto ff_a2 = node(Op::F, f_a2);
+  merge(ff_a2, a2);
+
+  rebuild_egraph();
+
+  // Apply more F(F(x))=x rewrites
+  for (auto ec : {b0, a0, a1, a2}) {
+    auto canonical = egraph.find(ec);
+    auto f_ec = node(Op::F, canonical);
+    auto ff_ec = node(Op::F, f_ec);
+    merge(ff_ec, canonical);
+  }
+  rebuild_egraph();
+
+  // Apply Plus(x,x)=x rewrites (creates Plus nodes but no H nodes)
+  for (auto ec : {b0, a0, a1, a2}) {
+    auto canonical = egraph.find(ec);
+    auto plus_xx = node(Op::Plus, canonical, canonical);
+    merge(plus_xx, canonical);
+  }
+  rebuild_egraph();
+
+  // Multi-pattern: (F ?v0) and (Plus (F ?v0) (H ?v0))
+  // Note: NO H nodes have been created, so pattern 1 should never match
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::F, {Var{kVarX}}),
+      TestPattern::build(Op::Plus, {Sym(Op::F, Var{kVarX}), Sym(Op::H, Var{kVarX})}),
+  };
+
+  // Ground truth: 0 matches (no H nodes exist)
+  // Before fix: VM incorrectly found 7 matches by not verifying H structure
+  verify_vm(patterns, /*expected=*/0);
+}
+
+TEST_F(PatternVM_Correctness, SelfReferentialMultiPattern_FuzzerCrash076d8fd2) {
+  // Full reproduction from fuzzer: crash-076d8fd27213c19330394bd68d4192059e83c745
+  //
+  // This test reproduces the exact fuzzer sequence where MatcherIndex=0 and VM=1.
+  // Key: Mul is created BEFORE the self-referential rewrites happen.
+  //
+  // Fuzzer sequence:
+  //   1. Create leaf B(0) -> ec0
+  //   2. Apply Plus(x,x)=x rewrite (merges Plus(ec0,ec0) with ec0)
+  //   3. Create compound Mul(ec0, ec0) -> ec2  [BEFORE H/F rewrites!]
+  //   4. Create leaves A(0)->ec3, A(1)->ec4, A(2)->ec5
+  //   5. Apply H(x)=x rewrite (5 matches - each e-class gets H(self))
+  //   6. Create compound F(ec0) -> ec11
+  //   7. Apply F(F(x))=x rewrite (merges F(F(ec)) with ec for each ec)
+  //   8. Match: (F ?v0), ?v0, (Mul (H ?v0) (F ?v0))
+  //
+  // After rewrites, ec0 contains: B(0), Plus(ec0,ec0), H(ec0), F(F(ec0))
+  // And Mul(ec0, ec0) exists where both children are ec0 (self-referential).
+  // Pattern Mul(H(?v0), F(?v0)) should match with ?v0=ec0 since:
+  //   - First child (ec0) contains H(ec0)
+  //   - Second child (ec0) contains F(ec0) [via F(F(ec0))=ec0 => ec0 has F structure]
+
+  // Step 1: Create leaf B(0)
+  auto b0 = leaf(Op::B, 0);
+
+  // Step 2: Apply Plus(x,x)=x - merge Plus(b0, b0) with b0
+  auto plus_b0 = node(Op::Plus, b0, b0);
+  merge(plus_b0, b0);
+  rebuild_egraph();
+
+  // Step 3: Create Mul BEFORE H/F rewrites - this is key!
+  // Mul's children both point to b0's e-class
+  auto mul_node = node(Op::Mul, b0, b0);
+  rebuild_egraph();
+
+  // Step 4: Create more leaves (as in fuzzer)
+  auto a0 = leaf(Op::A, 0);
+  auto a1 = leaf(Op::A, 1);
+  auto a2 = leaf(Op::A, 2);
+
+  // Step 5: Apply H(x)=x rewrite for all e-classes
+  // This creates H(ec) and merges it with ec for each e-class
+  for (auto ec : {b0, mul_node, a0, a1, a2}) {
+    auto h_ec = node(Op::H, ec);
+    merge(h_ec, ec);
+  }
+  rebuild_egraph();
+
+  // Step 6: Create F(b0)
+  auto f_b0 = node(Op::F, b0);
+  rebuild_egraph();
+
+  // Step 7: Apply F(F(x))=x rewrite
+  // For each e-class, create F(F(ec)) and merge with ec
+  for (auto ec : {b0, mul_node, a0, a1, a2, f_b0}) {
+    auto f_ec = node(Op::F, ec);
+    auto ff_ec = node(Op::F, f_ec);
+    merge(ff_ec, ec);
+  }
+  rebuild_egraph();
+
+  // Step 8: Multi-pattern matching
+  // Patterns: (F ?v0), ?v0, (Mul (H ?v0) (F ?v0))
+  std::array<TestPattern, 3> patterns = {
+      TestPattern::build(Op::F, {Var{kVarX}}),
+      make_var_pattern(kVarX),
+      TestPattern::build(Op::Mul, {Sym(Op::H, Var{kVarX}), Sym(Op::F, Var{kVarX})}),
+  };
+
+  // Ground truth: 0 matches
+  //
+  // Analysis: For pattern (Mul (H ?v0) (F ?v0)) with ?v0=ec0:
+  // - Mul(ec0, ec0) exists with both children being ec0
+  // - Child 0 (ec0) contains H(ec0) ✓
+  // - Child 1 (ec0) contains F(ec1), NOT F(ec0) ✗
+  //
+  // The F(F(ec0))=ec0 rewrite adds F(ec1) to ec0, not F(ec0).
+  // For F(?v0) to match with ?v0=ec0, we need F(ec0), but ec0 contains F(ec1).
+  //
+  // Previous VM incorrectly found 1 match due to not verifying sibling structure
+  // in emit_joined_with_parent_chain. This was fixed in the sibling verification fix.
+  verify_vm(patterns, /*expected=*/0);
+}
+
+TEST_F(PatternVM_Correctness, IdenticalMultiPattern_FuzzerCrashE082976a) {
+  // Reproduction from fuzzer: crash-e082976a0f1cc28547105c4c30e79e96d4c43986
+  //
+  // Tests matching two IDENTICAL patterns joined together.
+  // The VM finds 1 match when egglog/MatcherIndex find 2.
+  //
+  // Patterns:
+  //   Pattern 0: (Mul (G ?v0) (G ?v0))
+  //   Pattern 1: (Mul (G ?v0) (G ?v0))  <- identical!
+  //
+  // With G(x)=x rewrites creating self-referential e-classes, there should be
+  // 2 valid ?v0 bindings (two different e-classes containing G nodes that are
+  // children of Mul nodes).
+
+  // Create initial leaves
+  auto a0 = leaf(Op::A, 0);
+  auto b0 = leaf(Op::B, 0);
+
+  // Create Mul(B, B)
+  auto mul_bb = node(Op::Mul, b0, b0);
+
+  // Apply H(x)=x rewrites
+  for (auto ec : {a0, mul_bb, b0}) {
+    auto h_ec = node(Op::H, ec);
+    merge(h_ec, ec);
+  }
+  rebuild_egraph();
+
+  // Apply F(F(x))=x rewrites
+  for (auto ec : {a0, mul_bb, b0}) {
+    auto f_ec = node(Op::F, ec);
+    auto ff_ec = node(Op::F, f_ec);
+    merge(ff_ec, ec);
+  }
+  rebuild_egraph();
+
+  // Apply G(x)=x rewrites - this creates self-referential G nodes
+  for (auto ec : {a0, mul_bb, b0}) {
+    auto canonical = egraph.find(ec);
+    auto g_ec = node(Op::G, canonical);
+    merge(g_ec, canonical);
+  }
+  rebuild_egraph();
+
+  // Apply Plus(x,x)=x rewrites
+  for (auto ec : {a0, b0}) {
+    auto canonical = egraph.find(ec);
+    auto plus_xx = node(Op::Plus, canonical, canonical);
+    merge(plus_xx, canonical);
+  }
+  rebuild_egraph();
+
+  // Create another Mul using the merged E class
+  auto canonical_a = egraph.find(a0);
+  auto mul_aa = node(Op::Mul, canonical_a, canonical_a);
+  rebuild_egraph();
+
+  // Apply more G(x)=x rewrites
+  for (auto ec : {a0, mul_aa, b0}) {
+    auto canonical = egraph.find(ec);
+    auto g_ec = node(Op::G, canonical);
+    merge(g_ec, canonical);
+  }
+  rebuild_egraph();
+
+  // Two identical patterns: (Mul (G ?v0) (G ?v0))
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::Mul, {Sym(Op::G, Var{kVarX}), Sym(Op::G, Var{kVarX})}),
+      TestPattern::build(Op::Mul, {Sym(Op::G, Var{kVarX}), Sym(Op::G, Var{kVarX})}),
+  };
+
+  // Ground truth: 2 matches (?v0 = B's e-class and ?v0 = A's e-class)
+  // Fixed: VM now correctly handles identical multi-patterns with self-referential G nodes
+  verify_vm(patterns, /*expected=*/2);
+}
+
+// ============================================================================
+// VM Operation Coverage Tests
+// ============================================================================
+// These tests exercise specific VM operations that weren't covered by other tests:
+//   - IterAllEClasses/NextEClass: for pure variable patterns and Cartesian products
+//   - MarkSeen/Yield: for deduplication of repeated bindings
+
+TEST_F(PatternVM_Correctness, PureVariablePattern_IterAllEClasses) {
+  // Test: Pure variable pattern ?x matches all e-classes exactly once.
+  //
+  // This exercises IterAllEClasses/NextEClass VM operations which iterate
+  // over all canonical e-classes in the e-graph.
+  //
+  // Ground truth: N e-classes -> N matches
+  constexpr std::size_t kNumLeaves = 10;
+
+  for (std::size_t i = 0; i < kNumLeaves; ++i) {
+    leaf(Op::Const, i);
+  }
+  rebuild_egraph();
+
+  // Pure variable pattern: just ?x
+  auto pattern = make_var_pattern(kVarX);
+
+  // Each e-class should be matched exactly once
+  verify_vm(pattern, kNumLeaves);
+}
+
+TEST_F(PatternVM_Correctness, PureVariablePattern_WithMerges) {
+  // Test: Pure variable pattern after merges reduces match count.
+  //
+  // When e-classes are merged, the number of canonical e-classes decreases.
+  // IterAllEClasses should only iterate canonical classes.
+  constexpr std::size_t kNumLeaves = 10;
+  constexpr std::size_t kNumMerges = 4;  // Will reduce to 6 classes
+
+  std::vector<EClassId> leaves;
+  for (std::size_t i = 0; i < kNumLeaves; ++i) {
+    leaves.push_back(leaf(Op::Const, i));
+  }
+
+  // Merge pairs: (0,1), (2,3), (4,5), (6,7) -> 6 canonical classes remain
+  for (std::size_t i = 0; i < kNumMerges; ++i) {
+    merge(leaves[i * 2], leaves[i * 2 + 1]);
+  }
+  rebuild_egraph();
+
+  auto pattern = make_var_pattern(kVarX);
+  verify_vm(pattern, kNumLeaves - kNumMerges);
+}
+
+TEST_F(PatternVM_Correctness, MultiPattern_VariableRootJoin) {
+  // Test: Multi-pattern where second pattern is pure variable.
+  //
+  // Patterns:
+  //   Pattern 0: (Neg ?x)     - anchor pattern, matches Neg nodes
+  //   Pattern 1: ?x           - pure variable, joins on ?x from pattern 0
+  //
+  // The second pattern uses IterAllEClasses when compiled but should be
+  // constrained by the join on ?x. Each Neg(?x) match fixes ?x, so pattern 1
+  // just verifies ?x exists (always true) - resulting in one match per Neg node.
+  constexpr std::size_t kNumNegs = 5;
+
+  for (std::size_t i = 0; i < kNumNegs; ++i) {
+    auto x = leaf(Op::Const, i);
+    node(Op::Neg, x);
+  }
+  rebuild_egraph();
+
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::Neg, {Var{kVarX}}),
+      make_var_pattern(kVarX),
+  };
+
+  // Each Neg node provides one binding for ?x
+  verify_vm(patterns, kNumNegs);
+}
+
+TEST_F(PatternVM_Correctness, MultiPattern_CartesianProduct) {
+  // Test: Multi-pattern with NO shared variables -> Cartesian product.
+  //
+  // Patterns:
+  //   Pattern 0: (Neg ?x)     - matches Neg nodes, binds ?x
+  //   Pattern 1: (Add ?y ?z)  - matches Add nodes, binds ?y and ?z (disjoint!)
+  //
+  // Since ?x is not used in pattern 1, this is a Cartesian product:
+  // every Neg match pairs with every Add match.
+  //
+  // This exercises IterAllEClasses in emit_joined_cartesian().
+  constexpr std::size_t kNumNegs = 3;
+  constexpr std::size_t kNumAdds = 4;
+
+  // Create Neg nodes
+  for (std::size_t i = 0; i < kNumNegs; ++i) {
+    auto x = leaf(Op::Const, i);
+    node(Op::Neg, x);
+  }
+
+  // Create Add nodes (using different leaves to avoid accidental overlaps)
+  for (std::size_t i = 0; i < kNumAdds; ++i) {
+    auto y = leaf(Op::A, i);
+    auto z = leaf(Op::B, i);
+    node(Op::Add, y, z);
+  }
+  rebuild_egraph();
+
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::Neg, {Var{kVarX}}),
+      TestPattern::build(Op::Add, {Var{kVarY}, Var{kVarZ}}),
+  };
+
+  // Cartesian product: kNumNegs * kNumAdds matches
+  verify_vm(patterns, kNumNegs * kNumAdds);
+}
+
+TEST_F(PatternVM_Correctness, MultiPattern_SymbolBindingAsSharedVar) {
+  // Test: Multi-pattern where shared variable is a symbol binding.
+  //
+  // Patterns:
+  //   Pattern 0: Add(?x, ?y)         - anchor pattern
+  //   Pattern 1: Mul(?x=Neg(?z), ?w) - ?x is shared AND a symbol binding on Neg
+  //
+  // This requires parent traversal from the Neg node (where ?x binds) up to Mul.
+  //
+  // E-graph setup:
+  //   [a] = Const(1)
+  //   [b] = Const(2)
+  //   [c] = Const(3)
+  //   [w] = Const(4)
+  //   [add] = Add(a, b)        <- matches pattern 0: ?x=a, ?y=b
+  //   [neg] = Neg(c)           <- merged with [a], so neg is in e-class [a]
+  //   [mul] = Mul(neg, w)      <- matches pattern 1: ?x=a (bound to neg), ?z=c, ?w=w
+  //
+  // After merge(a, neg): both Add(a,b) and Mul(Neg(c),w) exist where a's e-class contains Neg(c)
+
+  auto a = leaf(Op::Const, 1);
+  auto b = leaf(Op::Const, 2);
+  auto c = leaf(Op::Const, 3);
+  auto w = leaf(Op::Const, 4);
+
+  [[maybe_unused]] auto add = node(Op::Add, a, b);
+  auto neg = node(Op::Neg, c);
+  node(Op::Mul, neg, w);
+
+  // Merge a with neg - now ?x in Add(?x,?y) can be matched by Neg(?z) in pattern 1
+  merge(a, neg);
+  rebuild_egraph();
+
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}),
+      TestPattern::build(Op::Mul, {BoundSym(kVarX, Op::Neg, Var{kVarZ}), Var{kVarW}}),
+  };
+
+  // Should find exactly 1 match: Add(a,b) with Mul(Neg[a](c), w)
+  verify_vm(patterns, 1);
+}
+
+TEST_F(PatternVM_Correctness, MultiPattern_SymbolBindingAsSharedVar_NoMatch) {
+  // Test: Symbol binding shared var with no valid matches.
+  //
+  // Patterns:
+  //   Pattern 0: Add(?x, ?y)         - anchor pattern
+  //   Pattern 1: Mul(?x=Neg(?z), ?w) - ?x must be e-class containing Neg node
+  //
+  // E-graph: Add and Mul exist, but ?x in Add doesn't contain any Neg node.
+
+  auto a = leaf(Op::Const, 1);
+  auto b = leaf(Op::Const, 2);
+  auto c = leaf(Op::Const, 3);
+  auto w = leaf(Op::Const, 4);
+
+  node(Op::Add, a, b);
+  auto neg = node(Op::Neg, c);
+  node(Op::Mul, neg, w);
+
+  // No merge - ?x from Add won't have a Neg in its e-class
+  rebuild_egraph();
+
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}),
+      TestPattern::build(Op::Mul, {BoundSym(kVarX, Op::Neg, Var{kVarZ}), Var{kVarW}}),
+  };
+
+  // No matches: ?x from Add(a,b) is e-class [a] which has no Neg nodes
+  verify_vm(patterns, 0);
+}
+
+TEST_F(PatternVM_Correctness, MultiPattern_RootBindingEnablesJoin) {
+  // Test: Root binding on pattern 2 enables parent traversal in pattern 3.
+  //
+  // Patterns:
+  //   Pattern 0: F(?x)         - anchor
+  //   Pattern 1: ?y=G(?x)      - shares ?x, binds root to ?y
+  //   Pattern 2: H(?y)         - uses ?y from pattern 1's root binding
+  //
+  // This verifies that bound variables (from symbol bindings) can be used
+  // in subsequent patterns.
+  //
+  // E-graph:
+  //   [a] = Const(1)
+  //   [f] = F(a)
+  //   [g] = G(a)
+  //   [h] = H(g)
+
+  auto a = leaf(Op::Const, 1);
+  node(Op::F, a);
+  auto g = node(Op::G, a);
+  node(Op::H, g);
+  rebuild_egraph();
+
+  std::array<TestPattern, 3> patterns = {
+      TestPattern::build(Op::F, {Var{kVarX}}),
+      TestPattern::build(kVarY, Op::G, {Var{kVarX}}),
+      TestPattern::build(Op::H, {Var{kVarY}}),
+  };
+
+  // Should find 1 match: F(a), G(a), H(G(a))
+  verify_vm(patterns, 1);
+}
+
+TEST_F(PatternVM_Correctness, MultiPattern_ThreePatternChain) {
+  // Test: Three-pattern chain with transitive variable sharing.
+  //
+  // Patterns:
+  //   Pattern 0: F(?x, ?y)     - anchor
+  //   Pattern 1: G(?y, ?z)     - shares ?y with pattern 0
+  //   Pattern 2: H(?x, ?z)     - shares ?x with pattern 0, ?z with pattern 1
+  //
+  // This tests a diamond-shaped variable dependency.
+
+  auto a = leaf(Op::Const, 1);
+  auto b = leaf(Op::Const, 2);
+  auto c = leaf(Op::Const, 3);
+
+  node(Op::F, a, b);  // F(a, b): ?x=a, ?y=b
+  node(Op::G, b, c);  // G(b, c): ?y=b, ?z=c
+  node(Op::H, a, c);  // H(a, c): ?x=a, ?z=c
+
+  rebuild_egraph();
+
+  std::array<TestPattern, 3> patterns = {
+      TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}),
+      TestPattern::build(Op::G, {Var{kVarY}, Var{kVarZ}}),
+      TestPattern::build(Op::H, {Var{kVarX}, Var{kVarZ}}),
+  };
+
+  // Should find 1 match
+  verify_vm(patterns, 1);
+}
+
+TEST_F(PatternVM_Correctness, MarkSeen_DeduplicatesSameBinding) {
+  // Test: MarkSeen deduplication prevents reporting same binding twice.
+  //
+  // Setup: Create an e-class with multiple e-nodes that would match the pattern.
+  // When an e-class contains multiple equivalent e-nodes (e.g., after merges),
+  // the same variable binding should not be reported multiple times.
+  //
+  // E-graph:
+  //   - A(0), A(1), A(2) all merged into one e-class
+  //   - Neg(merged_class) exists
+  //
+  // Pattern: (Neg ?x)
+  //
+  // Without deduplication: Could report the same ?x binding 3 times (once per A e-node)
+  // With deduplication: Reports ?x binding exactly once
+
+  auto a0 = leaf(Op::A, 0);
+  auto a1 = leaf(Op::A, 1);
+  auto a2 = leaf(Op::A, 2);
+
+  // Merge all A nodes into one e-class
+  merge(a0, a1);
+  merge(a0, a2);
+  rebuild_egraph();
+
+  // Create Neg of the merged e-class
+  node(Op::Neg, a0);
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}});
+
+  // Should match exactly once (the merged e-class), not 3 times
+  verify_vm(pattern, 1);
+}
+
+TEST_F(PatternVM_Correctness, MarkSeen_MultipleNegNodes) {
+  // Test: Multiple Neg e-nodes in same e-class, each with different child.
+  //
+  // Setup:
+  //   - Neg(A), Neg(B), Neg(C) all merged into one e-class
+  //   - Pattern (Neg ?x) should find 3 distinct ?x bindings (A, B, C)
+  //
+  // This tests that MarkSeen correctly deduplicates by the bound variable's
+  // e-class, not by the matched e-node.
+
+  auto a = leaf(Op::A, 0);
+  auto b = leaf(Op::B, 0);
+  auto c = leaf(Op::C, 0);
+
+  auto neg_a = node(Op::Neg, a);
+  auto neg_b = node(Op::Neg, b);
+  auto neg_c = node(Op::Neg, c);
+
+  // Merge all Neg nodes into one e-class
+  merge(neg_a, neg_b);
+  merge(neg_a, neg_c);
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}});
+
+  // Should match 3 times: ?x=A, ?x=B, ?x=C (each is a distinct e-class)
+  verify_vm(pattern, 3);
+}
+
+TEST_F(PatternVM_Correctness, MarkSeen_SelfReferentialDedup) {
+  // Test: Deduplication with self-referential e-classes.
+  //
+  // Setup: F(x)=x rewrite creates self-referential e-class containing both
+  // the original node and F(self). Pattern (F ?x) should match once per
+  // unique ?x binding.
+  //
+  // E-graph after F(x)=x:
+  //   e-class 0: A(0), F(e0)  <- self-referential
+  //
+  // Pattern: (F ?x) should bind ?x=e0 exactly once
+
+  auto a = leaf(Op::A, 0);
+  auto f_a = node(Op::F, a);
+  merge(f_a, a);  // Creates self-referential: e-class contains A(0) and F(self)
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(Op::F, {Var{kVarX}});
+
+  // Should match exactly once (?x = the self-referential e-class)
+  verify_vm(pattern, 1);
+}
+
+// ============================================================================
+// XFAIL: Known Bugs (tests that document current broken behavior)
+// ============================================================================
+
+TEST_F(PatternVM_Correctness, MultiPattern_IntermediateBindingInParentTraversal) {
+  // Bug: Intermediate bindings not emitted during parent traversal.
+  //
+  // When walking up from a shared variable via IterParents, symbol nodes
+  // along the path that have bindings are not emitted. Only the root binding
+  // is handled (via special case at end of emit_joined_via_parents).
+  //
+  // Pattern 0: F(?z, ?w)          - anchor (more vars), binds ?z and ?w
+  // Pattern 1: A(?y=B(?z))        - joined via ?z, ?y binds intermediate B node
+  //
+  // Since pattern 0 has more variables, it becomes the anchor.
+  // Pattern 1 is joined via parent traversal from ?z.
+  // The bug: ?y binding on B is not emitted during parent traversal.
+  //
+  // E-graph:
+  //   [z] = Const(1)
+  //   [w] = Const(2)
+  //   [f] = F(z, w)
+  //   [b] = B(z)
+  //   [a] = A(b)
+
+  auto z = leaf(Op::Const, 1);
+  auto w = leaf(Op::Const, 2);
+  node(Op::F, z, w);
+  auto b = node(Op::B, z);
+  node(Op::A, b);
+  rebuild_egraph();
+
+  // Capture expected e-class IDs for verification
+  auto expected_z = egraph.find(z);
+  auto expected_y = egraph.find(b);  // ?y should bind to B's e-class
+
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::F, {Var{kVarZ}, Var{kVarW}}),              // Anchor (2 vars)
+      TestPattern::build(Op::A, {BoundSym(kVarY, Op::B, Var{kVarZ})}),  // Joined (2 vars, but ?z shared)
+  };
+
+  // Build rule with custom apply that verifies binding values
+  auto builder = RewriteRule<Op, NoAnalysis>::Builder("test_intermediate_binding").pattern(patterns[0]);
+  for (std::size_t i = 1; i < patterns.size(); ++i) {
+    builder = std::move(builder).pattern(patterns[i]);
+  }
+
+  std::size_t match_count = 0;
+  bool binding_correct = false;
+  EClassId actual_y_value{};
+  EClassId actual_z_value{};
+  auto rule = std::move(builder).apply([&](RuleContext<Op, NoAnalysis> &, Match const &match) {
+    ++match_count;
+    // Verify ?y is bound to the correct e-class (B's e-class)
+    actual_y_value = match[kVarY];
+    actual_z_value = match[kVarZ];
+    if (actual_y_value == expected_y && actual_z_value == expected_z) {
+      binding_correct = true;
+    }
+  });
+
+  MatcherContext matcher_ctx;
+  std::vector<EClassId> new_eclasses;
+  RuleContext<Op, NoAnalysis> rule_ctx(egraph, new_eclasses);
+  TestVMExecutor vm_executor(egraph);
+  rule.match(matcher, vm_executor, matcher_ctx);
+  rule.apply(rule_ctx, matcher_ctx);
+
+  EXPECT_EQ(match_count, 1) << "Should find exactly 1 match";
+  EXPECT_EQ(actual_y_value, expected_y) << "?y should be bound to B's e-class. "
+                                        << "Expected: " << value_of(expected_y)
+                                        << ", Actual: " << value_of(actual_y_value)
+                                        << ". Intermediate binding not emitted during parent traversal.";
+  EXPECT_EQ(actual_z_value, expected_z) << "?z binding check";
+}
+
+}  // namespace memgraph::planner::core

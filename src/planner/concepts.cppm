@@ -22,7 +22,6 @@ template <typename T>
 concept ENodeSymbol = requires(T a, T b) {
   { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
   { a == b } -> std::convertible_to<bool>;
-}
-&&std::is_trivially_copyable_v<T>;
+} && std::is_trivially_copyable_v<T>;
 
 }  // namespace memgraph::planner::core
