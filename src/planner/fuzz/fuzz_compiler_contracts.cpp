@@ -107,6 +107,9 @@ class CompiledPatternVerifier {
     verify_register_bounds(errors);
     verify_eclass_reg_zero_reserved(errors);
     verify_binding_order(errors);
+    verify_register_liveness(errors);
+    verify_mark_seen_ordering(errors);
+    verify_binding_order_matches_code(errors);
     return errors;
   }
 
@@ -383,6 +386,128 @@ class CompiledPatternVerifier {
           errors.push_back(fmt::format(
               "slot_to_order[{}]={} but binding_order[{}]={}", slot, slot_to_order[value_of(slot)], i, slot));
         }
+      }
+    }
+  }
+
+  // ===========================================================================
+  // Contract 7: Register Liveness Contract
+  // ===========================================================================
+
+  /// Verify that registers are defined before being read (in linear program order).
+  /// Note: eclass_regs[0] is pre-defined as the input candidate.
+  void verify_register_liveness(std::vector<std::string> &errors) {
+    auto const &code = cp_.code();
+    std::set<uint8_t> defined_eclass_regs;
+    std::set<uint8_t> defined_enode_regs;
+
+    // eclass_regs[0] is always defined (input candidate)
+    defined_eclass_regs.insert(0);
+
+    for (std::size_t i = 0; i < code.size(); ++i) {
+      auto const &instr = code[i];
+
+      // Check reads before marking writes (read-before-write in same instruction is still an error)
+
+      // Check eclass src reads
+      if (is_eclass_src(instr.op)) {
+        if (!defined_eclass_regs.contains(instr.src)) {
+          errors.push_back(
+              fmt::format("Read of undefined eclass_reg: instr[{}] {} reads src={}", i, op_name(instr.op), instr.src));
+        }
+      }
+
+      // Check eclass dst reads (CheckEClassEq reads both dst and src)
+      if (reads_eclass_dst(instr.op)) {
+        if (!defined_eclass_regs.contains(instr.dst)) {
+          errors.push_back(
+              fmt::format("Read of undefined eclass_reg: instr[{}] {} reads dst={}", i, op_name(instr.op), instr.dst));
+        }
+      }
+
+      // Check enode src reads
+      if (is_enode_src(instr.op)) {
+        if (!defined_enode_regs.contains(instr.src)) {
+          errors.push_back(
+              fmt::format("Read of undefined enode_reg: instr[{}] {} reads src={}", i, op_name(instr.op), instr.src));
+        }
+      }
+
+      // Mark writes
+      if (is_eclass_dst(instr.op)) {
+        defined_eclass_regs.insert(instr.dst);
+      }
+      if (is_enode_dst(instr.op)) {
+        defined_enode_regs.insert(instr.dst);
+      }
+    }
+  }
+
+  // ===========================================================================
+  // Contract 8: MarkSeen Ordering Contract
+  // ===========================================================================
+
+  /// Verify that MarkSeen/Yield only reference slots that have been bound via BindSlotDedup.
+  void verify_mark_seen_ordering(std::vector<std::string> &errors) {
+    auto const &code = cp_.code();
+    std::set<uint8_t> bound_slots;
+
+    for (std::size_t i = 0; i < code.size(); ++i) {
+      auto const &instr = code[i];
+
+      if (instr.op == VMOp::BindSlotDedup) {
+        bound_slots.insert(instr.arg);
+      } else if (instr.op == VMOp::MarkSeen) {
+        if (!bound_slots.contains(instr.arg)) {
+          errors.push_back(fmt::format("MarkSeen references slot {} before BindSlotDedup: instr[{}]", instr.arg, i));
+        }
+      } else if (instr.op == VMOp::Yield) {
+        // Yield also marks a slot as seen (the last bound slot)
+        if (!bound_slots.contains(instr.arg)) {
+          errors.push_back(fmt::format("Yield references slot {} before BindSlotDedup: instr[{}]", instr.arg, i));
+        }
+      }
+    }
+  }
+
+  // ===========================================================================
+  // Contract 9: binding_order Matches Code Contract
+  // ===========================================================================
+
+  /// Verify that binding_order matches the BindSlotDedup instructions in emission order.
+  void verify_binding_order_matches_code(std::vector<std::string> &errors) {
+    auto const &code = cp_.code();
+    auto const &binding_order = cp_.binding_order();
+
+    // Extract slots from BindSlotDedup in order (first occurrence only)
+    std::vector<SlotIdx> code_binding_order;
+    std::set<uint8_t> seen_slots;
+
+    for (auto const &instr : code) {
+      if (instr.op == VMOp::BindSlotDedup) {
+        if (!seen_slots.contains(instr.arg)) {
+          code_binding_order.push_back(SlotIdx{instr.arg});
+          seen_slots.insert(instr.arg);
+        }
+      }
+    }
+
+    // Compare with reported binding_order
+    if (code_binding_order.size() != binding_order.size()) {
+      errors.push_back(
+          fmt::format("binding_order size mismatch: code has {} unique BindSlotDedup slots, "
+                      "binding_order has {} entries",
+                      code_binding_order.size(),
+                      binding_order.size()));
+      return;
+    }
+
+    for (std::size_t i = 0; i < binding_order.size(); ++i) {
+      if (code_binding_order[i] != binding_order[i]) {
+        errors.push_back(fmt::format("binding_order mismatch at index {}: code has slot {}, binding_order has slot {}",
+                                     i,
+                                     code_binding_order[i],
+                                     binding_order[i]));
       }
     }
   }
