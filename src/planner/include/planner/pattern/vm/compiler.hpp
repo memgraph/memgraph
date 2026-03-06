@@ -269,12 +269,14 @@ class PatternCompiler : protected PatternCompilerBase {
   // Helpers
   // ============================================================================
 
-  /// Find the path from a symbol root to a shared variable in the pattern tree.
+  /// Find the path from a symbol root to the deepest shared variable in the pattern tree.
+  /// Deeper is better: parent traversal is O(parents), so shorter paths to root are cheaper.
   /// Returns nullopt if root is not a symbol or no shared variable is found.
   [[nodiscard]] auto find_symbol_path_to_shared_var(Pattern<Symbol> const &pattern) const -> std::optional<PatternPath>;
 
-  [[nodiscard]] auto find_path_recursive(Pattern<Symbol> const &pattern, PatternNodeId node_id, PatternPath &path) const
-      -> bool;
+  /// Recursively find the deepest shared variable, updating best_path if a deeper one is found.
+  void find_deepest_shared_var(Pattern<Symbol> const &pattern, PatternNodeId node_id, PatternPath &current_path,
+                               std::optional<PatternPath> &best_path) const;
 
   auto get_symbol_index(Symbol const &sym) -> uint8_t;
 
@@ -598,51 +600,56 @@ auto PatternCompiler<Symbol>::find_symbol_path_to_shared_var(Pattern<Symbol> con
   auto const *root_sym = std::get_if<SymbolWithChildren<Symbol>>(&root_node);
   if (!root_sym) return std::nullopt;
 
-  PatternPath path;
-  return find_path_recursive(pattern, pattern.root(), path) ? std::optional{path} : std::nullopt;
+  PatternPath current_path;
+  std::optional<PatternPath> best_path;
+  find_deepest_shared_var(pattern, pattern.root(), current_path, best_path);
+  return best_path;
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::find_path_recursive(Pattern<Symbol> const &pattern, PatternNodeId node_id,
-                                                  PatternPath &path) const -> bool {
-  return std::visit(utils::Overloaded{
-                        [&](PatternVar const &var) {
-                          // Check if this is a shared variable (already bound by anchor)
-                          if (auto it = var_to_reg_.find(var); it != var_to_reg_.end()) {
-                            path.shared_var = var;
-                            path.shared_reg = it->second;
-                            return true;
-                          }
-                          return false;
-                        },
-                        [&](SymbolWithChildren<Symbol> const &sym) {
-                          // Check if this symbol node has a binding that's already bound by anchor
-                          if (auto binding = pattern.binding_for(node_id)) {
-                            if (auto it = var_to_reg_.find(*binding); it != var_to_reg_.end()) {
-                              path.shared_var = *binding;
-                              path.shared_reg = it->second;
-                              path.shared_is_symbol = true;  // Need to process all children
-                              path.shared_symbol = sym;
-                              return true;
-                            }
-                          }
+void PatternCompiler<Symbol>::find_deepest_shared_var(Pattern<Symbol> const &pattern, PatternNodeId node_id,
+                                                      PatternPath &current_path,
+                                                      std::optional<PatternPath> &best_path) const {
+  std::visit(utils::Overloaded{
+                 [&](PatternVar const &var) {
+                   // Check if this is a shared variable (already bound by anchor)
+                   if (auto it = var_to_reg_.find(var); it != var_to_reg_.end()) {
+                     // Update best_path if this is deeper (more steps = deeper in tree)
+                     if (!best_path || current_path.steps.size() > best_path->steps.size()) {
+                       best_path = current_path;
+                       best_path->shared_var = var;
+                       best_path->shared_reg = it->second;
+                       best_path->shared_is_symbol = false;
+                     }
+                   }
+                 },
+                 [&](SymbolWithChildren<Symbol> const &sym) {
+                   // Check if this symbol node has a binding that's already bound by anchor
+                   if (auto binding = pattern.binding_for(node_id)) {
+                     if (auto it = var_to_reg_.find(*binding); it != var_to_reg_.end()) {
+                       // Update best_path if this is deeper
+                       if (!best_path || current_path.steps.size() > best_path->steps.size()) {
+                         best_path = current_path;
+                         best_path->shared_var = *binding;
+                         best_path->shared_reg = it->second;
+                         best_path->shared_is_symbol = true;
+                         best_path->shared_symbol = sym;
+                       }
+                     }
+                   }
 
-                          // Recurse into symbol children
-                          for (std::size_t i = 0; i < sym.children.size(); ++i) {
-                            path.steps.emplace_back(sym, i);
-                            if (find_path_recursive(pattern, sym.children[i], path)) {
-                              return true;
-                            }
-                            path.steps.pop_back();
-                          }
-                          return false;
-                        },
-                        [](Wildcard) {
-                          // Wildcards can't be shared variables
-                          return false;
-                        },
-                    },
-                    pattern[node_id]);
+                   // Always recurse into children to find potentially deeper shared variables
+                   for (std::size_t i = 0; i < sym.children.size(); ++i) {
+                     current_path.steps.emplace_back(sym, i);
+                     find_deepest_shared_var(pattern, sym.children[i], current_path, best_path);
+                     current_path.steps.pop_back();
+                   }
+                 },
+                 [](Wildcard) {
+                   // Wildcards can't be shared variables
+                 },
+             },
+             pattern[node_id]);
 }
 
 template <typename Symbol>

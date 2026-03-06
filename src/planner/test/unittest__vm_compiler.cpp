@@ -827,6 +827,41 @@ TEST_F(PatternVM_Compiler, MultiPattern_SharedVarInMiddleOfBoth) {
   EXPECT_TRUE(has_check_slot) << "Should have CheckSlot for verifying shared ?y\nBytecode:\n" << bytecode;
 }
 
+TEST_F(PatternVM_Compiler, MultiPattern_DeepestSharedVarOptimization) {
+  // Test: When multiple shared variables exist at different depths, use the deepest.
+  //
+  // Anchor: F(?x, ?y)
+  // Joined: G(?x, H(?y))  - ?x at depth 1, ?y at depth 2
+  //
+  // Optimal: start parent traversal from ?y (depth 2) - only 2 IterParents levels
+  // Suboptimal: start from ?x (depth 1) - would need 1 IterParents + child verification
+  //
+  // By counting IterParents, we verify the deeper ?y is used.
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+
+  auto anchor = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}});
+  auto joined = TestPattern::build(Op::G, {Var{kVarX}, Sym(Op::H, Var{kVarY})});
+
+  TestPatternCompiler compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
+
+  auto bytecode = disassemble(compiled.code(), compiled.symbols());
+
+  // Count IterParents to verify we traverse from deepest shared var
+  // From ?y at depth 2: IterParents (H→G), IterParents (→root) = traversal starts
+  // If we started from ?x at depth 1: fewer IterParents but more child checks
+  int iter_parents_count = 0;
+  for (auto const &instr : compiled.code()) {
+    if (instr.op == VMOp::IterParents) ++iter_parents_count;
+  }
+
+  // 2 IterParents: from ?y up through H to G
+  EXPECT_EQ(iter_parents_count, 2) << "Should use deepest shared var ?y for parent traversal\nBytecode:\n" << bytecode;
+}
+
 // ============================================================================
 // Validation Tests
 // ============================================================================
