@@ -788,6 +788,69 @@ TEST_F(PatternVM_Correctness, MultiPattern_SymbolBindingAsSharedVar_NoMatch) {
   verify_vm(patterns, 0);
 }
 
+TEST_F(PatternVM_Correctness, MultiPattern_RootBindingEnablesJoin) {
+  // Test: Root binding on pattern 2 enables parent traversal in pattern 3.
+  //
+  // Patterns:
+  //   Pattern 0: F(?x)         - anchor
+  //   Pattern 1: ?y=G(?x)      - shares ?x, binds root to ?y
+  //   Pattern 2: H(?y)         - uses ?y from pattern 1's root binding
+  //
+  // This verifies that bound variables (from symbol bindings) can be used
+  // in subsequent patterns.
+  //
+  // E-graph:
+  //   [a] = Const(1)
+  //   [f] = F(a)
+  //   [g] = G(a)
+  //   [h] = H(g)
+
+  auto a = leaf(Op::Const, 1);
+  node(Op::F, a);
+  auto g = node(Op::G, a);
+  node(Op::H, g);
+  rebuild_egraph();
+
+  std::array<TestPattern, 3> patterns = {
+      TestPattern::build(Op::F, {Var{kVarX}}),
+      TestPattern::build(kVarY, Op::G, {Var{kVarX}}),
+      TestPattern::build(Op::H, {Var{kVarY}}),
+  };
+
+  // Should find 1 match: F(a), G(a), H(G(a))
+  verify_vm(patterns, 1);
+}
+
+TEST_F(PatternVM_Correctness, MultiPattern_ThreePatternChain) {
+  // Test: Three-pattern chain with transitive variable sharing.
+  //
+  // Patterns:
+  //   Pattern 0: F(?x, ?y)     - anchor
+  //   Pattern 1: G(?y, ?z)     - shares ?y with pattern 0
+  //   Pattern 2: H(?x, ?z)     - shares ?x with pattern 0, ?z with pattern 1
+  //
+  // This tests a diamond-shaped variable dependency.
+
+  auto a = leaf(Op::Const, 1);
+  auto b = leaf(Op::Const, 2);
+  auto c = leaf(Op::Const, 3);
+
+  node(Op::F, a, b);  // F(a, b): ?x=a, ?y=b
+  node(Op::G, b, c);  // G(b, c): ?y=b, ?z=c
+  node(Op::H, a, c);  // H(a, c): ?x=a, ?z=c
+
+  rebuild_egraph();
+
+  std::array<TestPattern, 3> patterns = {
+      TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}),
+      TestPattern::build(Op::G, {Var{kVarY}, Var{kVarZ}}),
+      TestPattern::build(Op::H, {Var{kVarX}, Var{kVarZ}}),
+  };
+
+  // Should find 1 match
+  verify_vm(patterns, 1);
+}
+
 TEST_F(PatternVM_Correctness, MarkSeen_DeduplicatesSameBinding) {
   // Test: MarkSeen deduplication prevents reporting same binding twice.
   //
