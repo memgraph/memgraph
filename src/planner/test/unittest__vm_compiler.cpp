@@ -334,9 +334,7 @@ TEST_F(PatternVM_Compiler, MultiPattern_VariableOnlyUsesIterAllEClasses) {
 
   auto anchor = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}});
 
-  auto joined_builder = TestPattern::Builder{};
-  joined_builder.var(kVarZ);
-  auto joined = std::move(joined_builder).build();
+  auto joined = make_var_pattern(kVarZ);
 
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};

@@ -377,7 +377,7 @@ inline auto PatternAdd() { return TestPattern::build(Op::Add, {Var{kX}, Var{kY}}
 
 inline auto PatternAddSameVar() { return TestPattern::build(Op::Add, {Var{kX}, Var{kX}}); }
 
-inline auto PatternDoubleNeg() { return TestPattern::build(Op::Neg, {Sym(Op::Neg, Var{kX})}, kRootDoubleNeg); }
+inline auto PatternDoubleNeg() { return TestPattern::build(kRootDoubleNeg, Op::Neg, {Sym(Op::Neg, Var{kX})}); }
 
 inline auto PatternSelective() { return TestPattern::build(Op::Add, {Sym(Op::Neg, Var{kX}), Var{kY}}); }
 
@@ -415,9 +415,9 @@ inline auto PatternEgglogF2FMul() {
 inline auto PatternEgglogTest() { return TestPattern::build(Op::Test, {Var{kX}}); }
 
 // Bind/Ident patterns for multi-pattern join benchmarks
-inline auto PatternBind() { return TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kBindRoot); }
+inline auto PatternBind() { return TestPattern::build(kBindRoot, Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}); }
 
-inline auto PatternIdent() { return TestPattern::build(Op::Ident, {Var{kVarSym}}, kIdentRoot); }
+inline auto PatternIdent() { return TestPattern::build(kIdentRoot, Op::Ident, {Var{kVarSym}}); }
 
 // ============================================================================
 // Rule Builders
@@ -435,30 +435,30 @@ inline auto RuleNoOp() {
 
 inline auto RuleMergeAddMul() {
   return TestRewriteRule::Builder{"merge_add_mul"}
-      .pattern(TestPattern::build(Op::Add, {Var{kX}, Var{kY}}, kRootAdd), "add")
-      .pattern(TestPattern::build(Op::Mul, {Var{kX}, Var{kY}}, kRootMul), "mul")
+      .pattern(TestPattern::build(kRootAdd, Op::Add, {Var{kX}, Var{kY}}), "add")
+      .pattern(TestPattern::build(kRootMul, Op::Mul, {Var{kX}, Var{kY}}), "mul")
       .apply([](TestRuleContext &ctx, Match const &m) { ctx.merge(m[kRootAdd], m[kRootMul]); });
 }
 
 inline auto RuleThreePattern() {
   return TestRewriteRule::Builder{"three"}
-      .pattern(TestPattern::build(Op::Add, {Var{kX}, Var{kY}}, kRootAdd), "add")
-      .pattern(TestPattern::build(Op::Mul, {Var{kX}, Var{kZ}}, kRootMul), "mul")
-      .pattern(TestPattern::build(Op::Neg, {Var{kX}}, kRootNeg), "neg")
+      .pattern(TestPattern::build(kRootAdd, Op::Add, {Var{kX}, Var{kY}}), "add")
+      .pattern(TestPattern::build(kRootMul, Op::Mul, {Var{kX}, Var{kZ}}), "mul")
+      .pattern(TestPattern::build(kRootNeg, Op::Neg, {Var{kX}}), "neg")
       .apply([](TestRuleContext &, Match const &) {});
 }
 
 inline auto RuleCartesian() {
   return TestRewriteRule::Builder{"cartesian"}
-      .pattern(TestPattern::build(Op::Add, {Var{kX}, Var{kY}}, kRootAdd), "add")
+      .pattern(TestPattern::build(kRootAdd, Op::Add, {Var{kX}, Var{kY}}), "add")
       .pattern(TestPattern::build(Op::Neg, {Var{kZ}}), "neg")
       .apply([](TestRuleContext &, Match const &) {});
 }
 
 inline auto RuleWideJoin() {
   return TestRewriteRule::Builder{"wide"}
-      .pattern(TestPattern::build(Op::Add, {Var{kX}, Var{kY}}, kRootAdd), "add")
-      .pattern(TestPattern::build(Op::Mul, {Var{kX}, Var{kZ}}, kRootMul), "mul")
+      .pattern(TestPattern::build(kRootAdd, Op::Add, {Var{kX}, Var{kY}}), "add")
+      .pattern(TestPattern::build(kRootMul, Op::Mul, {Var{kX}, Var{kZ}}), "mul")
       .apply([](TestRuleContext &, Match const &) {});
 }
 

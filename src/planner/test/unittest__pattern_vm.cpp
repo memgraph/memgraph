@@ -62,7 +62,7 @@ TEST_F(PatternVM_MatcherIndex, SymbolFiltersAndArityMustMatch) {
   //   [F(a,b)]     - YES: symbol+arity match
   //   [F(a,b,c)]   - NO: wrong symbol
   //   [F(a)]       - NO: arity mismatch (if it existed)
-  use_pattern(make_binary_pattern(Op::F, kVarX, kVarY, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::F, {Var{kVarX}, Var{kVarY}}));
 
   auto a = leaf(Op::Const, 1);
   auto b = leaf(Op::Const, 2);
@@ -80,7 +80,7 @@ TEST_F(PatternVM_MatcherIndex, SymbolMismatchReturnsNoMatches) {
   //   Pattern: Add(?x, ?y)
   //   E-graph: [a: Var(1)], [b: Var(2)], [Mul(a,b)], [Neg(a)]  ← no Add nodes
   //   Result: no matches
-  use_pattern(make_binary_pattern(Op::Add, kVarX, kVarY, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Var{kVarY}}));
 
   auto a = leaf(Op::Var, 1);
   auto b = leaf(Op::Var, 2);
@@ -219,7 +219,7 @@ TEST_F(PatternVM_MatcherIndex, PatternMatchesMultipleLocations) {
   //      a    Add  <── matches here (inner)
   //          /   \
   //         b     c
-  use_pattern(make_binary_pattern(Op::Add, kVarX, kVarY, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Var{kVarY}}));
 
   auto a = leaf(Op::Var, 1);
   auto b = leaf(Op::Var, 2);
@@ -265,10 +265,10 @@ TEST_F(PatternVM_MatcherIndex, MergedEClassMatchesBothRepresentations) {
   rebuild_egraph();
   rebuild_index();
 
-  use_pattern(make_binary_pattern(Op::Add, kVarX, kVarY, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Var{kVarY}}));
   expect_matches({{{kTestRoot, merged}, {kVarX, x}, {kVarY, y}}});
 
-  use_pattern(make_binary_pattern(Op::Mul, kVarX, kVarY, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::Mul, {Var{kVarX}, Var{kVarY}}));
   expect_matches({{{kTestRoot, merged}, {kVarX, x}, {kVarY, y}}});
 }
 
@@ -392,7 +392,7 @@ TEST_F(PatternVM_MatcherIndex, UnionNodeWithChildCreatesSimpleSelfReferentialECl
   rebuild_index();
 
   // Pattern: F(?v0)
-  use_pattern(make_unary_pattern(Op::F, kVarX, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::F, {Var{kVarX}}));
 
   auto ec = egraph.find(n0);  // canonical ID for EC_merged
   ASSERT_EQ(egraph.find(n1), ec) << "n0 and n1 should be in the same e-class after union";
@@ -417,7 +417,7 @@ TEST_F(PatternVM_MatcherIndex, IncrementalIndexFindsNewNodes) {
   // 3. rebuild_index({new_node}) updates index incrementally
   // 4. New node is now matchable
 
-  use_pattern(make_leaf_pattern(Op::Const, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::Const));
 
   // No Const nodes initially
   rebuild_index();
@@ -484,7 +484,7 @@ TEST_F(PatternVM_MatcherIndex, VMExecutorMatchesSameAsMatcherIndex) {
   //   E-graph: Add(a, b)
   //
   //   Both MatcherIndex and VM should find exactly 1 match.
-  use_pattern(make_binary_pattern(Op::Add, kVarX, kVarY, kTestRoot));
+  use_pattern(TestPattern::build(kTestRoot, Op::Add, {Var{kVarX}, Var{kVarY}}));
 
   auto a = leaf(Op::Var, 1);
   auto b = leaf(Op::Var, 2);

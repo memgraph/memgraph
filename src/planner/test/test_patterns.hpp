@@ -91,41 +91,6 @@ inline auto make_var_pattern(PatternVar var) -> TestPattern {
 }
 
 /**
- * @brief Create a leaf symbol pattern: Op()
- *
- * @param op The operation symbol
- * @param root_binding Optional variable to bind the matched e-class
- */
-inline auto make_leaf_pattern(Op op, std::optional<PatternVar> root_binding = std::nullopt) -> TestPattern {
-  if (root_binding) {
-    return TestPattern::build(*root_binding, op);
-  }
-  return TestPattern::build(op);
-}
-
-/**
- * @brief Create a unary pattern: Op(?var)
- */
-inline auto make_unary_pattern(Op op, PatternVar var, std::optional<PatternVar> root_binding = std::nullopt)
-    -> TestPattern {
-  if (root_binding) {
-    return TestPattern::build(*root_binding, op, {Var{var}});
-  }
-  return TestPattern::build(op, {Var{var}});
-}
-
-/**
- * @brief Create a binary pattern: Op(?var_x, ?var_y)
- */
-inline auto make_binary_pattern(Op op, PatternVar var_x, PatternVar var_y,
-                                std::optional<PatternVar> root_binding = std::nullopt) -> TestPattern {
-  if (root_binding) {
-    return TestPattern::build(*root_binding, op, {Var{var_x}, Var{var_y}});
-  }
-  return TestPattern::build(op, {Var{var_x}, Var{var_y}});
-}
-
-/**
  * @brief Create a double negation pattern: Neg(Neg(?x))
  *
  * Binds the outer Neg to kVarDoubleNegRoot and the inner variable to kVarX.
