@@ -88,6 +88,8 @@ std::string Schema::TypeOf(const mgp::Type &type) {
       return "LocalDateTime";
     case mgp::Type::Duration:
       return "Duration";
+    case mgp::Type::ZonedDateTime:
+      return "ZonedDateTime";
     default:
       throw mgp::ValueException("Unsupported type");
   }
