@@ -32,10 +32,12 @@
 
 /// REPLICATION ///
 
+#include "memory/dedicated_arena_resource.hpp"
 #include "storage/v2/delta_container.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/memory.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -775,6 +777,14 @@ class InMemoryStorage final : public Storage {
 
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
+  // Graveyard for light edges: deleted Edge* kept alive until GC determines
+  // no active transaction can see them. Timestamp-based: freed when
+  // mark_timestamp < oldest_active_start_timestamp.
+  struct LightEdgeGraveyardEntry {
+    uint64_t mark_timestamp;
+    std::vector<Edge *> edges;
+  };
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -798,12 +808,25 @@ class InMemoryStorage final : public Storage {
 
   EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
+  void DeleteLightEdge(Edge *p);
+
+  // Free all pool-allocated Edge objects: walk out_edges of every vertex (each
+  // edge appears exactly once) and drain the graveyard.  Must be called before
+  // vertices_.clear() so the adjacency lists are still intact.
+  // Requires gc_lock_ to be held by the caller.
+  void ClearLightEdges();
+
   void Clear();
 
   // Main object storage
   utils::SkipList<Vertex> vertices_;
   utils::SkipList<Edge> edges_;
   utils::SkipList<EdgeMetadata> edges_metadata_;
+
+  // Pool allocator for light-edge Edge objects (block_size = sizeof(Edge), 256 KiB chunks).
+  // Chunks are large enough for jemalloc to give them dedicated pages, preventing
+  // slab-level interleaving with unrelated allocations of the same size class.
+  std::unique_ptr<memory::DedicatedArenaResource> light_edge_pool_;
 
   // Durability
   durability::Recovery recovery_;
@@ -873,6 +896,8 @@ class InMemoryStorage final : public Storage {
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
+
+  utils::Synchronized<std::list<LightEdgeGraveyardEntry>, utils::SpinLock> light_edge_graveyard_;
 
   std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
   std::atomic<bool> gc_index_cleanup_edge_performance_ = false;

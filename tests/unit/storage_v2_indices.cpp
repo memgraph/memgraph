@@ -71,6 +71,9 @@ auto MakeMap(Ts &&...values) -> PropertyValue
        std::forward<std::tuple_element_t<1, std::decay_t<Ts>>>(std::get<1>(std::forward<Ts>(values)))}...}};
 };
 
+/// Tag type: run IndexTest with InMemoryStorage + storage_light_edge=true.
+struct InMemoryStorageLightEdge {};
+
 template <typename StorageType>
 class IndexTest : public testing::Test {
  protected:
@@ -78,7 +81,12 @@ class IndexTest : public testing::Test {
     FLAGS_storage_properties_on_edges = true;
     config_.salient.items.properties_on_edges = true;
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
-    this->storage = std::make_unique<StorageType>(config_);
+    if constexpr (std::is_same_v<StorageType, InMemoryStorageLightEdge>) {
+      config_.salient.items.storage_light_edge = true;
+      this->storage = std::make_unique<memgraph::storage::InMemoryStorage>(config_);
+    } else {
+      this->storage = std::make_unique<StorageType>(config_);
+    }
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     this->prop_id = acc->NameToProperty("id");
     this->prop_val = acc->NameToProperty("val");
@@ -96,14 +104,15 @@ class IndexTest : public testing::Test {
   }
 
   void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
     this->storage.reset(nullptr);
   }
 
   auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage> ||
+                  std::is_same_v<StorageType, InMemoryStorageLightEdge>) {
       return this->storage->ReadOnlyAccess();
     } else {
       return this->storage->UniqueAccess();
@@ -111,7 +120,8 @@ class IndexTest : public testing::Test {
   }
 
   auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage> ||
+                  std::is_same_v<StorageType, InMemoryStorageLightEdge>) {
       return this->storage->Access(memgraph::storage::StorageAccessType::READ);
     } else {
       return this->storage->UniqueAccess();
@@ -165,11 +175,10 @@ class IndexTest : public testing::Test {
   int vertex_id;
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes =
+    ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage, InMemoryStorageLightEdge>;
 
 TYPED_TEST_SUITE(IndexTest, StorageTypes);
-
-// TYPED_TEST_SUITE(IndexTest, InMemoryStorageType);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelIndexCreate) {

@@ -66,9 +66,14 @@ def dump_database(output_file):
         f.write("\n".join(row[0] for row in rows) + "\n")
 
 
-def execute_test(memgraph_binary: Path, test_directory, test_type, write_expected):
+def execute_test(memgraph_binary: Path, test_directory, test_type, write_expected, light_edge: bool = False):
     assert test_type in ["SNAPSHOT", "WAL"], "Test type should be either 'SNAPSHOT' or 'WAL'."
-    print("\033[1;36m~~ Executing test {} ({}) ~~\033[0m".format(os.path.relpath(test_directory, TESTS_DIR), test_type))
+    mode_tag = " [light-edge]" if light_edge else ""
+    print(
+        "\033[1;36m~~ Executing test {}{} ({}) ~~\033[0m".format(
+            os.path.relpath(test_directory, TESTS_DIR), mode_tag, test_type
+        )
+    )
 
     working_data_directory = tempfile.TemporaryDirectory()
     if test_type == "SNAPSHOT":
@@ -81,6 +86,8 @@ def execute_test(memgraph_binary: Path, test_directory, test_type, write_expecte
         shutil.copy(os.path.join(test_directory, WAL_FILE_NAME), wal_dir)
 
     extra_args = ["--data-recovery-on-startup"]
+    if light_edge:
+        extra_args.append("--storage-light-edge")
     with memgraph_server(memgraph_binary, Path(working_data_directory.name), 7687, logger, extra_args):
         # Execute `database dump`
         dump_output_file = tempfile.NamedTemporaryFile()
@@ -145,6 +152,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--write-expected", action="store_true", help="Overwrite the expected cypher with results from current run"
     )
+    parser.add_argument(
+        "--light-edge",
+        action="store_true",
+        help=(
+            "Run all recovery tests with --storage-light-edge enabled. "
+            "The existing snapshot/WAL binaries (written without light edges) are recovered "
+            "into a light-edge storage instance; the expected cypher output is unchanged."
+        ),
+    )
     args = parser.parse_args()
 
     test_directories = find_test_directories(TESTS_DIR, args.write_expected)
@@ -154,7 +170,7 @@ if __name__ == "__main__":
     test_directories.sort()
 
     for test_directory in test_directories:
-        execute_test(Path(args.memgraph), test_directory, "SNAPSHOT", args.write_expected)
-        execute_test(Path(args.memgraph), test_directory, "WAL", args.write_expected)
+        execute_test(Path(args.memgraph), test_directory, "SNAPSHOT", args.write_expected, light_edge=args.light_edge)
+        execute_test(Path(args.memgraph), test_directory, "WAL", args.write_expected, light_edge=args.light_edge)
 
     sys.exit(0)
