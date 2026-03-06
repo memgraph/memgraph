@@ -41,7 +41,7 @@ class DedicatedArenaResource final : public std::pmr::memory_resource {
 
   /// Hint the OS to reclaim unused pages.  Safe to call from any thread while
   /// no allocations are in flight (same precondition as the old Reclaim()).
-  void Reclaim();
+  void Reclaim() const;
 
  protected:
   void *do_allocate(size_t bytes, size_t alignment) override;
