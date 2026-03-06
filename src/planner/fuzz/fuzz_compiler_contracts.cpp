@@ -71,7 +71,7 @@
 #include "planner/pattern/vm/instruction.hpp"
 #include "planner/pattern/vm/tracer.hpp"
 
-namespace memgraph::planner::core::vm {
+namespace memgraph::planner::core::pattern::vm {
 
 using fuzz::FuzzSymbol;
 using fuzz::MultiPatternGenerator;
@@ -467,14 +467,8 @@ class ContractFuzzer {
     PatternCompiler<FuzzSymbol> compiler;
     auto compiled = compiler.compile(std::span(patterns));
 
-    if (!compiled) {
-      // Compilation can fail for valid reasons (register overflow)
-      VERBOSE_OUT << "Compilation failed (valid)\n";
-      return true;
-    }
-
     // Verify all contracts
-    CompiledPatternVerifier verifier(*compiled);
+    CompiledPatternVerifier verifier(compiled);
     auto errors = verifier.verify_all();
 
     if (!errors.empty()) {
@@ -485,17 +479,17 @@ class ContractFuzzer {
       }
 
       std::cerr << "\nBytecode:\n";
-      std::cerr << disassemble<FuzzSymbol>(compiled->code(), compiled->symbols()) << "\n";
+      std::cerr << disassemble<FuzzSymbol>(compiled.code(), compiled.symbols()) << "\n";
 
       std::cerr << "\nMetadata:\n";
-      std::cerr << "  num_eclass_regs: " << compiled->num_eclass_regs() << "\n";
-      std::cerr << "  num_enode_regs: " << compiled->num_enode_regs() << "\n";
-      std::cerr << "  num_slots: " << compiled->num_slots() << "\n";
-      std::cerr << "  symbols: " << compiled->symbols().size() << "\n";
+      std::cerr << "  num_eclass_regs: " << compiled.num_eclass_regs() << "\n";
+      std::cerr << "  num_enode_regs: " << compiled.num_enode_regs() << "\n";
+      std::cerr << "  num_slots: " << compiled.num_slots() << "\n";
+      std::cerr << "  symbols: " << compiled.symbols().size() << "\n";
       std::cerr << "  binding_order: [";
-      for (std::size_t i = 0; i < compiled->binding_order().size(); ++i) {
+      for (std::size_t i = 0; i < compiled.binding_order().size(); ++i) {
         if (i > 0) std::cerr << ", ";
-        std::cerr << compiled->binding_order()[i];
+        std::cerr << compiled.binding_order()[i];
       }
       std::cerr << "]\n";
 
@@ -507,7 +501,7 @@ class ContractFuzzer {
       abort();
     }
 
-    VERBOSE_OUT << "Verified " << result.patterns.size() << " pattern(s), " << compiled->code().size()
+    VERBOSE_OUT << "Verified " << result.patterns.size() << " pattern(s), " << compiled.code().size()
                 << " instructions\n";
     return true;
   }
@@ -535,4 +529,4 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *data, std::size_t size) {
   return 0;
 }
 
-}  // namespace memgraph::planner::core::vm
+}  // namespace memgraph::planner::core::pattern::vm

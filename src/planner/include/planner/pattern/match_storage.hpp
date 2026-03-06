@@ -18,12 +18,9 @@
 
 import memgraph.planner.core.eids;
 
-#include "planner/pattern/vm/types.hpp"
+#include "planner/pattern/types.hpp"
 
 namespace memgraph::planner::core::pattern {
-
-// Import SlotIdx from vm namespace for use in pattern matching
-using vm::SlotIdx;
 
 /// A complete match of a single pattern - offset into MatchArena where bindings are stored.
 class PatternMatch {

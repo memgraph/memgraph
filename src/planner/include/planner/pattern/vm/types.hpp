@@ -13,13 +13,14 @@
 
 #include <cstdint>
 
+#include "planner/pattern/types.hpp"
 #include "strong_type/strong_type.hpp"
 
 namespace memgraph::planner::core::pattern::vm {
 
-/// Index into the slots array (pattern variable bindings).
-/// Slots hold the e-class IDs matched to pattern variables.
-using SlotIdx = strong::type<uint8_t, struct SlotIdx_, strong::regular, strong::formattable, strong::ostreamable>;
+// SlotIdx is available from the enclosing pattern namespace via unqualified lookup.
+// Re-export it so that vm::SlotIdx also works for callers.
+using ::memgraph::planner::core::pattern::SlotIdx;
 
 /// Index into the e-class register array.
 /// E-class registers hold e-class IDs during pattern matching.
