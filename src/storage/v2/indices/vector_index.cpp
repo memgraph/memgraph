@@ -71,7 +71,7 @@ bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Ac
     });
     return true;
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, vertices, indices, name_id_mapper);
+    DropIndex(spec.index_name, vertices, name_id_mapper);
     throw;
   }
 }
@@ -145,7 +145,7 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
       PopulateVectorIndexSingleThreaded(vertices, process_vertex_for_recovery);
     }
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, vertices, indices, name_id_mapper);
+    DropIndex(spec.index_name, vertices, name_id_mapper);
     throw;
   }
 }
@@ -176,7 +176,7 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
   UpdateVectorIndex(index_item.mg_index, spec, &vertex, property.ValueVectorIndexList(), thread_id);
 }
 
-bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
+bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,
                             NameIdMapper *name_id_mapper) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
@@ -196,9 +196,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
   std::vector<double> vector(dimension);
   for (auto &vertex : vertices) {
     if (locked_index->contains(&vertex)) {
-      auto vector_property = vertex.properties.GetProperty(
-          spec.property,
-          IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex});
+      auto vector_property = vertex.properties.GetProperty(spec.property);
       if (ShouldUnregisterFromIndex(vector_property, index_id)) {
         locked_index->get(&vertex, vector.data());
         vertex.properties.SetProperty(spec.property, PropertyValue(vector));
@@ -262,18 +260,19 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
       ids.erase(ranges::remove(ids, index_id), ids.end());
       auto &index_item = pimpl->index_by_id_.at(index_id);
 
-      auto locked_index = index_item.mg_index.MutableSharedLock();
+      auto locked_index = index_item.mg_index.Lock();
       // If the list of index ids is empty, we restore the vector from the index. Otherwise, we keep the property value
       // as is.
       const auto property_value_to_set = std::invoke([&]() {
         if (ids.empty()) {
           std::vector<double> vector(locked_index->dimensions());
-          locked_index->get(vertex, vector.data());
+          if (!locked_index->get(vertex, vector.data())) return PropertyValue();
           return PropertyValue(std::move(vector));
         }
         return old_vertex_property_value;
       });
-      locked_index->remove(vertex);
+      auto remove_result = locked_index->remove(vertex);
+      MG_ASSERT(remove_result.completed, "Vertex not found in vector index during label removal");
       vertex->properties.SetProperty(property_id, property_value_to_set);
     }
   }
@@ -319,7 +318,7 @@ utils::small_vector<float> VectorIndex::GetVectorPropertyFromIndex(Vertex *verte
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto &index_item = it->second;
-  auto locked_index = index_item.mg_index.ReadLock();
+  auto locked_index = index_item.mg_index.Lock();
   utils::small_vector<float> vector(locked_index->dimensions());
   if (!locked_index->get(vertex, vector.data())) return {};
   return vector;
@@ -358,9 +357,10 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
     mapped_ids.insert(mapping.AsUint());
     encoder->WriteUint(mapping.AsUint());
   };
+
   encoder->WriteUint(pimpl->index_by_id_.size());
-  for (const auto &[_, index_item] : pimpl->index_by_id_) {
-    const auto &[mg_index, spec] = index_item;
+  for (auto &[_, index_item] : pimpl->index_by_id_) {
+    auto &[mg_index, spec] = index_item;
     encoder->WriteString(spec.index_name);
     write_mapping(spec.label_id);
     write_mapping(spec.property);
@@ -370,26 +370,32 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
     encoder->WriteUint(spec.capacity);
     encoder->WriteUint(static_cast<uint64_t>(spec.scalar_kind));
 
-    auto locked_index = mg_index.ReadLock();
-    const auto index_size = locked_index->size();
-    const auto dimension = locked_index->dimensions();
+    using Entry = std::pair<uint64_t, std::vector<float>>;
+    auto const entries = std::invoke([&]() -> std::vector<Entry> {
+      // Exclusive lock ensures no concurrent add/remove, making usearch's size()
+      // consistent (it reads typed_->size() and free_keys_.size() from separate
+      // data structures which are only safe when no concurrent mutations occur).
+      auto locked_index = mg_index.Lock();  // NOLINT(clang-analyzer-core.CallAndMessage)
+      auto const size = locked_index->size();
+      if (size == 0) return {};
 
-    if (index_size == 0) {
-      encoder->WriteUint(0);
-      continue;
-    }
+      std::vector<Vertex *> keys(size);
+      locked_index->export_keys(keys.data(), 0, size);
 
-    std::vector<Vertex *> vertices(index_size);
-    locked_index->export_keys(vertices.data(), 0, index_size);
+      std::vector<Entry> result;
+      std::vector<float> buffer(locked_index->dimensions());
+      for (auto *vertex : keys) {
+        if (vertex->deleted()) continue;
+        if (!locked_index->get(vertex, buffer.data())) continue;
+        result.emplace_back(vertex->gid.AsUint(), buffer);
+      }
+      return result;
+    });
 
-    auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) { return !vertex->deleted(); });
-    encoder->WriteUint(valid_count);
-
-    std::vector<float> buffer(dimension);
-    for (auto *vertex : vertices) {
-      encoder->WriteUint(vertex->gid.AsUint());
-      locked_index->get(vertex, buffer.data());
-      std::ranges::for_each(buffer, [&](auto value) { encoder->WriteDouble(value); });
+    encoder->WriteUint(entries.size());
+    for (const auto &[gid, vector] : entries) {
+      encoder->WriteUint(gid);
+      for (auto value : vector) encoder->WriteDouble(value);
     }
   }
 }
@@ -422,7 +428,7 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   VectorSearchNodeResults result;
   result.reserve(result_set_size);
 
-  auto locked_index = index_item.mg_index.ReadLock();
+  auto locked_index = index_item.mg_index.Lock();
   const auto result_keys =
       locked_index->filtered_search(query_vector.data(), result_set_size, [](const Vertex *vertex) {
         auto guard = std::shared_lock{vertex->lock};
@@ -439,23 +445,17 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   return result;
 }
 
-void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
-  auto maybe_stop = utils::ResettableCounter(2048);
-  for (auto &[_, index_item] : pimpl->index_by_id_) {
-    if (maybe_stop() && token.stop_requested()) {
-      return;
-    }
-    auto &[mg_index, spec] = index_item;
-    auto locked_index = mg_index.MutableSharedLock();
-    const auto index_size = locked_index->size();
-    std::vector<Vertex *> vertices_to_remove(index_size);
-    locked_index->export_keys(vertices_to_remove.data(), 0, index_size);
+void VectorIndex::RemoveObsoleteEntries(std::stop_token /*token*/) const {
+  // Deleted vertex removal is handled by targeted RemoveVertex() calls from GC
+  // before skip list removal. This avoids scanning usearch and dereferencing
+  // arbitrary Vertex* pointers which may be dangling (USearch #697).
+}
 
-    // size() and export_keys() are not atomic — a concurrent add/remove can cause
-    // size() > slot_lookup_.size(), leaving trailing nullptr entries in the buffer.
-    auto deleted =
-        vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex != nullptr && vertex->deleted(); });
-    for (const auto &vertex : deleted) {
+void VectorIndex::RemoveVertex(Vertex *vertex) const {
+  for (auto &[_, index_item] : pimpl->index_by_id_) {
+    auto &[mg_index, spec] = index_item;
+    auto locked_index = mg_index.Lock();
+    if (locked_index->contains(vertex)) {
       locked_index->remove(vertex);
     }
   }

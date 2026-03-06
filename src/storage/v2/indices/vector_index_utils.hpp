@@ -335,32 +335,31 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
   }
 
   auto thread_id_for_adding = thread_id.value_or(Index::any_thread());
-  {
-    auto locked_index = mg_index.MutableSharedLock();
-    if (locked_index->contains(key)) {
-      locked_index->remove(key);
-    }
-    if (vector.empty()) return;
+  // Single exclusive lock for the entire operation. USearch has internal concurrency
+  // bugs (see USearch #697) that make shared-lock concurrent add/remove unsafe.
+  auto locked_index = mg_index.Lock();
 
-    auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
-    if (!result.error) return;
-    if (locked_index->size() >= locked_index->capacity()) {
-      // Error is due to capacity, release the error because we will resize the index.
-      result.error.release();
-    }
+  if (locked_index->contains(key)) {
+    locked_index->remove(key);
   }
-  {
-    // In order to resize the index, we need to acquire an exclusive lock.
-    auto exclusively_locked_index = mg_index.Lock();
-    if (exclusively_locked_index->size() >= exclusively_locked_index->capacity()) {
-      const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * exclusively_locked_index->capacity());
-      const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
-      if (!exclusively_locked_index->try_reserve(new_limits)) {
-        throw query::VectorSearchException("Failed to resize vector index.");
-      }
-      spec.capacity = exclusively_locked_index->capacity();
-    }
-    auto result = exclusively_locked_index->add(key, vector.data(), thread_id_for_adding);
+  if (vector.empty()) return;
+
+  auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
+  if (!result.error) return;
+
+  // add() failed — resize and retry.
+  result.error.release();
+  const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * locked_index->capacity());
+  const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
+  if (!locked_index->try_reserve(new_limits)) {
+    throw query::VectorSearchException("Failed to resize vector index.");
+  }
+  spec.capacity = locked_index->capacity();
+
+  result = locked_index->add(key, vector.data(), thread_id_for_adding);
+  if (result.error) {
+    result.error.release();
+    throw query::VectorSearchException("Failed to add entry to vector index.");
   }
 }
 
