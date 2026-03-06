@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #include <gflags/gflags.h>
 
 #include "communication/bolt/client.hpp"
+#include "communication/init.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/utils.hpp"
 
@@ -31,7 +32,8 @@ int ProcessException(const std::string &exception_message) {
       LOG_FATAL(
           "The query should have failed with an error message of '{}'' but "
           "instead it failed with '{}'",
-          FLAGS_failure_message, exception_message);
+          FLAGS_failure_message,
+          exception_message);
     }
     return 0;
   } else {
@@ -42,6 +44,7 @@ int ProcessException(const std::string &exception_message) {
     return 1;
   }
 }
+
 /**
  * Executes queries passed as positional arguments and verifies whether they
  * succeeded, failed, failed with a specific error message or executed without a

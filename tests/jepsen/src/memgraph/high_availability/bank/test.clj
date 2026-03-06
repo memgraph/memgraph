@@ -211,6 +211,9 @@
                   (utils/cannot-get-shared-access? e)
                   (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
 
+                  (utils/replica-timeout? e)
+                  (assoc op :type :info :value "Replica timeout")
+
                   (utils/main-unwriteable? e)
                   (assoc op :type :info :value {:str "Cannot commit because main is currently non-writeable."})))))
           (assoc op :type :info :value "Not data instance"))

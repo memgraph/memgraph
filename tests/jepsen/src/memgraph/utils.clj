@@ -133,6 +133,12 @@
   [e]
   (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction."))
 
+(defn replica-timeout?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "At least one replica reached an RPC timeout."))
+
+
 (defn main-became-replica?
   "Accepts exception e as argument."
   [e]

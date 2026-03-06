@@ -17,10 +17,7 @@
 #include "coordination/coordinator_rpc.hpp"
 
 #include "dbms/dbms_handler.hpp"
-#include "flags/experimental.hpp"
-#include "parameters/replication_handlers.hpp"
 #include "replication/include/replication/state.hpp"
-#include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/handler.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_handler/system_rpc.hpp"
@@ -93,32 +90,12 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     // No license -> send only default config
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
   });
-  try {
-    utils::MetricsTimer const timer{metrics::SystemRecoveryRpc_us};
-    auto const params_snapshot = parameters.GetSnapshotForRecovery();
-    auto stream = std::invoke([&]() {
+
+  utils::MetricsTimer const timer{metrics::SystemRecoveryRpc_us};
+  auto const params_snapshot = parameters.GetSnapshotForRecovery();
+  auto stream = std::invoke([&]() {
 #ifdef MG_ENTERPRISE
-      if (!is_enterprise) {
-        return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
-                                                            db_info.last_committed_timestamp,
-                                                            std::move(db_info.configs),
-                                                            auth::Auth::Config{},
-                                                            std::vector<auth::User>{},
-                                                            std::vector<auth::Role>{},
-                                                            std::vector<auth::UserProfiles::Profile>{},
-                                                            params_snapshot);
-      }
-      return auth.WithLock([&](auto &locked_auth) {
-        return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
-                                                            db_info.last_committed_timestamp,
-                                                            std::move(db_info.configs),
-                                                            locked_auth.GetConfig(),
-                                                            locked_auth.AllUsers(),
-                                                            locked_auth.AllRoles(),
-                                                            locked_auth.AllProfiles(),
-                                                            params_snapshot);
-      });
-#else
+    if (!is_enterprise) {
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
                                                           db_info.last_committed_timestamp,
                                                           std::move(db_info.configs),
@@ -127,13 +104,36 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                           std::vector<auth::Role>{},
                                                           std::vector<auth::UserProfiles::Profile>{},
                                                           params_snapshot);
-#endif
-    });
-    if (const auto response = stream.SendAndWait(); response.result == SystemRecoveryRes::Result::FAILURE) {
-      client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
-      return;
     }
-  } catch (rpc::GenericRpcFailedException const &) {
+    return auth.WithLock([&](auto &locked_auth) {
+      return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
+                                                          db_info.last_committed_timestamp,
+                                                          std::move(db_info.configs),
+                                                          locked_auth.GetConfig(),
+                                                          locked_auth.AllUsers(),
+                                                          locked_auth.AllRoles(),
+                                                          locked_auth.AllProfiles(),
+                                                          params_snapshot);
+    });
+#else
+    return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
+                                                        db_info.last_committed_timestamp,
+                                                        std::move(db_info.configs),
+                                                        auth::Auth::Config{},
+                                                        std::vector<auth::User>{},
+                                                        std::vector<auth::Role>{},
+                                                        std::vector<auth::UserProfiles::Profile>{},
+                                                        params_snapshot);
+#endif
+  });
+
+  if (!stream.has_value()) {
+    client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+    return;
+  }
+
+  if (const auto response = stream.value().SendAndWait();
+      !response.has_value() || response.value().result == SystemRecoveryRes::Result::FAILURE) {
     client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
     return;
   }
