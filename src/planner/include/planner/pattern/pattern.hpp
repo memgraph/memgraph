@@ -16,11 +16,13 @@
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <stdexcept>
 #include <variant>
 #include <vector>
 
 #include <boost/functional/hash.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 #include "planner/pattern/types.hpp"
 #include "utils/small_vector.hpp"
@@ -115,6 +117,7 @@ struct SymNode {
  *   Sym(Op::Add, Sym(Op::Neg, Var{kVarX}), Var{kVarY})   // nested: Add(Neg(?x), ?y)
  *
  * For binding at the root, use Pattern::build(..., binding) instead.
+ * For bindings on nested symbols, use BoundSym(...) instead.
  * Symbol is deduced from the first argument, children can be any ChildSpec-convertible type.
  */
 template <typename Symbol, typename... Children>
@@ -122,6 +125,22 @@ template <typename Symbol, typename... Children>
 auto Sym(Symbol symbol, Children &&...children) -> ChildSpec<Symbol> {
   return std::make_shared<SymNode<Symbol>>(
       symbol, std::vector<ChildSpec<Symbol>>{ChildSpec<Symbol>(std::forward<Children>(children))...}, std::nullopt);
+}
+
+/**
+ * @brief Helper to create a nested symbol spec with a binding for fluent DSL
+ *
+ * Example usage:
+ *   BoundSym(kVarX, Op::Neg, Var{kVarY})                 // ?x=Neg(?y)
+ *   Sym(Op::Add, BoundSym(kVarX, Op::Neg, Var{kVarY}), Var{kVarZ})  // Add(?x=Neg(?y), ?z)
+ *
+ * The binding variable is the first argument, followed by symbol and children.
+ */
+template <typename Symbol, typename... Children>
+  requires(std::convertible_to<Children, ChildSpec<Symbol>> && ...)
+auto BoundSym(PatternVar binding, Symbol symbol, Children &&...children) -> ChildSpec<Symbol> {
+  return std::make_shared<SymNode<Symbol>>(
+      symbol, std::vector<ChildSpec<Symbol>>{ChildSpec<Symbol>(std::forward<Children>(children))...}, binding);
 }
 
 }  // namespace dsl
@@ -458,7 +477,27 @@ class Pattern {
         root_(root),
         bindings_(std::move(bindings)),
         depth_(compute_depth()),
-        var_slots_(compute_var_slots()) {}
+        var_slots_(compute_var_slots()) {
+    validate_bindings();
+  }
+
+  /**
+   * @brief Validate that no PatternVar binds to multiple symbol nodes
+   *
+   * A pattern like ?x=A(?x=B()) is invalid because a single variable
+   * cannot bind to multiple symbol nodes within the same pattern.
+   *
+   * @throws std::invalid_argument if a variable binds to multiple symbol nodes
+   */
+  void validate_bindings() const {
+    boost::unordered_flat_set<PatternVar> seen_vars;
+    for (auto const &[_, var] : bindings_) {
+      if (seen_vars.contains(var)) {
+        throw std::invalid_argument("PatternVar cannot bind to multiple symbol nodes in a pattern");
+      }
+      seen_vars.insert(var);
+    }
+  }
 
   /**
    * @brief Compute maximum depth from root to any leaf

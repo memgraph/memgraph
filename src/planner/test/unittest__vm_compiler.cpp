@@ -758,19 +758,8 @@ TEST_F(PatternVM_Compiler, MultiPattern_SymbolBindingSharedVar_Nested) {
   constexpr PatternVar kVarW{3};
 
   auto anchor = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}});
-  // Mul(Neg[?x](?z), ?w) - ?x binds to nested Neg node
-  auto neg_with_binding = TestPattern::Builder{};
-  auto z = neg_with_binding.var(kVarZ);
-  neg_with_binding.sym(Op::Neg, {z}, kVarX);  // Neg[?x](?z)
-  auto neg_pattern = std::move(neg_with_binding).build();
-
-  // Build Mul(Neg[?x](?z), ?w) using builder
-  auto joined_builder = TestPattern::Builder{};
-  auto z2 = joined_builder.var(kVarZ);
-  auto neg_node = joined_builder.sym(Op::Neg, {z2}, kVarX);
-  auto w = joined_builder.var(kVarW);
-  joined_builder.sym(Op::Mul, {neg_node, w});
-  auto joined = std::move(joined_builder).build();
+  // Mul(?x=Neg(?z), ?w) using BoundSym for nested binding
+  auto joined = TestPattern::build(Op::Mul, {BoundSym(kVarX, Op::Neg, Var{kVarZ}), Var{kVarW}});
 
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
@@ -809,15 +798,8 @@ TEST_F(PatternVM_Compiler, MultiPattern_SharedVarInMiddleOfBoth) {
   constexpr PatternVar kVarZ{2};
 
   auto anchor = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}});
-
-  // Build Mul(Neg[?x](_, ?y), ?z)
-  auto joined_builder = TestPattern::Builder{};
-  auto wildcard = joined_builder.wildcard();
-  auto y = joined_builder.var(kVarY);
-  auto neg_node = joined_builder.sym(Op::Neg, {wildcard, y}, kVarX);  // Neg[?x](_, ?y)
-  auto z = joined_builder.var(kVarZ);
-  joined_builder.sym(Op::Mul, {neg_node, z});
-  auto joined = std::move(joined_builder).build();
+  // Mul(?x=Neg(_, ?y), ?z) using BoundSym for nested binding
+  auto joined = TestPattern::build(Op::Mul, {BoundSym(kVarX, Op::Neg, Wildcard{}, Var{kVarY}), Var{kVarZ}});
 
   TestPatternCompiler compiler;
   std::array patterns = {anchor, joined};
@@ -845,6 +827,64 @@ TEST_F(PatternVM_Compiler, MultiPattern_SharedVarInMiddleOfBoth) {
 
   // Should verify ?y matches (already bound by anchor)
   EXPECT_TRUE(has_check_slot) << "Should have CheckSlot for verifying shared ?y\nBytecode:\n" << bytecode;
+}
+
+// ============================================================================
+// Validation Tests
+// ============================================================================
+
+TEST_F(PatternVM_Compiler, Validation_DuplicateSymbolBindingInSinglePattern) {
+  // Pattern: ?x=A(?x=B()) - same var binding on nested symbol nodes
+  // This should throw because a PatternVar cannot bind to multiple symbol nodes
+
+  constexpr PatternVar kVarX{0};
+
+  // ?x=A(?x=B()) - duplicate binding on ?x should throw
+  EXPECT_THROW(TestPattern::build(Op::Add, {BoundSym(kVarX, Op::Neg)}, kVarX), std::invalid_argument);
+}
+
+TEST_F(PatternVM_Compiler, Validation_DuplicateSymbolBindingAcrossPatterns) {
+  // Pattern 1: ?x=A(?y)
+  // Pattern 2: ?x=B(?z)
+  // This should throw because ?x has symbol bindings in multiple patterns
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+  constexpr PatternVar kVarZ{2};
+
+  auto pattern1 = TestPattern::build(Op::Add, {Var{kVarY}}, kVarX);  // ?x=A(?y)
+  auto pattern2 = TestPattern::build(Op::Neg, {Var{kVarZ}}, kVarX);  // ?x=B(?z)
+
+  TestPatternCompiler compiler;
+  std::array patterns = {pattern1, pattern2};
+  EXPECT_THROW(compiler.compile(patterns), std::invalid_argument);
+}
+
+TEST_F(PatternVM_Compiler, Validation_SymbolBindingAndVarNodeIsValid) {
+  // Pattern: ?x=A(?x) - ?x binds to A and also appears as child
+  // This is valid: the e-class bound to A contains A(child) where child == A's e-class
+
+  constexpr PatternVar kVarX{0};
+
+  // This should NOT throw - ?x as a var node is different from ?x as a symbol binding
+  EXPECT_NO_THROW(TestPattern::build(Op::Add, {Var{kVarX}}, kVarX));  // ?x=A(?x)
+}
+
+TEST_F(PatternVM_Compiler, Validation_SymbolBindingInOnePatternVarInAnother) {
+  // Pattern 1: ?x=A(?y)
+  // Pattern 2: B(?x, ?z)
+  // This is valid: ?x has symbol binding in pattern 1, appears as var in pattern 2
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+  constexpr PatternVar kVarZ{2};
+
+  auto pattern1 = TestPattern::build(Op::Add, {Var{kVarY}}, kVarX);       // ?x=A(?y)
+  auto pattern2 = TestPattern::build(Op::Mul, {Var{kVarX}, Var{kVarZ}});  // B(?x, ?z)
+
+  TestPatternCompiler compiler;
+  std::array patterns = {pattern1, pattern2};
+  EXPECT_NO_THROW(compiler.compile(patterns));
 }
 
 }  // namespace memgraph::planner::core

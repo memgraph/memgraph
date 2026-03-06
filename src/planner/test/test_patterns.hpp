@@ -17,6 +17,7 @@
 namespace memgraph::planner::core::test {
 
 using pattern::PatternVar;
+using pattern::dsl::BoundSym;
 using pattern::dsl::Sym;
 using pattern::dsl::Var;
 using pattern::dsl::Wildcard;

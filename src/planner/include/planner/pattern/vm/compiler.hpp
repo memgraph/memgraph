@@ -14,6 +14,7 @@
 #include <optional>
 #include <ranges>
 #include <span>
+#include <stdexcept>
 #include <variant>
 #include <vector>
 
@@ -397,6 +398,18 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
   if (patterns.size() == 1) {
     slot_map_ = patterns[0].var_slots();
   } else {
+    // Validate: no PatternVar can have symbol bindings in multiple patterns
+    // e.g., pattern1: ?x=A(), pattern2: ?x=B() is invalid
+    boost::unordered_flat_set<PatternVar> vars_with_symbol_bindings;
+    for (auto const &pattern : patterns) {
+      for (auto const &[_, var] : pattern.bindings()) {
+        if (vars_with_symbol_bindings.contains(var)) {
+          throw std::invalid_argument("PatternVar cannot have symbol bindings in multiple patterns");
+        }
+        vars_with_symbol_bindings.insert(var);
+      }
+    }
+
     // Multi-pattern: assign slots sequentially, deduplicating shared variables
     for (auto const &pattern : patterns) {
       for (auto const &[var, _] : pattern.var_slots()) {
