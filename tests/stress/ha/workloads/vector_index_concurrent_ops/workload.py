@@ -94,8 +94,7 @@ def seed_initial_nodes() -> None:
 # ---------------------------------------------------------------------------
 
 _SEARCH_QUERY = (
-    f"CALL vector_search.search('{VECTOR_INDEX_NAME}', 10, $query_vector) "
-    "YIELD node, similarity RETURN node.id, similarity"
+    f"CALL vector_search.search('{VECTOR_INDEX_NAME}', 10, $query_vector) " "YIELD similarity RETURN similarity"
 )
 
 _CREATE_QUERY = f"""
@@ -204,7 +203,7 @@ def worker_free_memory(worker_id: int) -> dict:
                 _FREE_MEMORY_QUERY,
                 protocol=Protocol.BOLT_ROUTING,
                 query_type=QueryType.WRITE,
-                apply_retry_mechanism=True,
+                apply_retry_mechanism=False,
                 database=DATABASE,
             )
             count += 1
