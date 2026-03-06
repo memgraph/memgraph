@@ -245,8 +245,8 @@ void InstallTrackingHooksOnArena(unsigned arena_id) {
   // Dynamically-created arenas are already initialized; a single write suffices.
   // (The two-step read+write in SetHooks() is needed only for pre-existing arenas
   // at startup to force their lazy initialization.)
-  std::string func_name = "arena." + std::to_string(arena_id) + ".extent_hooks";
-  int err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&new_hooks, sizeof(extent_hooks_t *));
+  const std::string func_name = "arena." + std::to_string(arena_id) + ".extent_hooks";
+  const int err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&new_hooks, sizeof(extent_hooks_t *));
   if (err) {
     spdlog::error("InstallTrackingHooksOnArena: failed to set hooks for arena {}", arena_id);
   }
