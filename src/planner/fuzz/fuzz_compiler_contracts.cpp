@@ -393,7 +393,7 @@ class CompiledPatternVerifier {
 
   static auto uses_target(VMOp op) -> bool {
     switch (op) {
-      case VMOp::IterENodes:
+      // Note: IterENodes has no target - e-classes always have at least one e-node
       case VMOp::NextENode:
       case VMOp::IterAllEClasses:
       case VMOp::NextEClass:
