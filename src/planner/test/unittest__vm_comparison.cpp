@@ -938,4 +938,80 @@ TEST_F(PatternVM_Correctness, MarkSeen_SelfReferentialDedup) {
   verify_vm(pattern, 1);
 }
 
+// ============================================================================
+// XFAIL: Known Bugs (tests that document current broken behavior)
+// ============================================================================
+
+TEST_F(PatternVM_Correctness, MultiPattern_IntermediateBindingInParentTraversal) {
+  // Bug: Intermediate bindings not emitted during parent traversal.
+  //
+  // When walking up from a shared variable via IterParents, symbol nodes
+  // along the path that have bindings are not emitted. Only the root binding
+  // is handled (via special case at end of emit_joined_via_parents).
+  //
+  // Pattern 0: F(?z, ?w)          - anchor (more vars), binds ?z and ?w
+  // Pattern 1: A(?y=B(?z))        - joined via ?z, ?y binds intermediate B node
+  //
+  // Since pattern 0 has more variables, it becomes the anchor.
+  // Pattern 1 is joined via parent traversal from ?z.
+  // The bug: ?y binding on B is not emitted during parent traversal.
+  //
+  // E-graph:
+  //   [z] = Const(1)
+  //   [w] = Const(2)
+  //   [f] = F(z, w)
+  //   [b] = B(z)
+  //   [a] = A(b)
+
+  auto z = leaf(Op::Const, 1);
+  auto w = leaf(Op::Const, 2);
+  node(Op::F, z, w);
+  auto b = node(Op::B, z);
+  node(Op::A, b);
+  rebuild_egraph();
+
+  // Capture expected e-class IDs for verification
+  auto expected_z = egraph.find(z);
+  auto expected_y = egraph.find(b);  // ?y should bind to B's e-class
+
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::F, {Var{kVarZ}, Var{kVarW}}),              // Anchor (2 vars)
+      TestPattern::build(Op::A, {BoundSym(kVarY, Op::B, Var{kVarZ})}),  // Joined (2 vars, but ?z shared)
+  };
+
+  // Build rule with custom apply that verifies binding values
+  auto builder = RewriteRule<Op, NoAnalysis>::Builder("test_intermediate_binding").pattern(patterns[0]);
+  for (std::size_t i = 1; i < patterns.size(); ++i) {
+    builder = std::move(builder).pattern(patterns[i]);
+  }
+
+  std::size_t match_count = 0;
+  bool binding_correct = false;
+  EClassId actual_y_value{};
+  EClassId actual_z_value{};
+  auto rule = std::move(builder).apply([&](RuleContext<Op, NoAnalysis> &, Match const &match) {
+    ++match_count;
+    // Verify ?y is bound to the correct e-class (B's e-class)
+    actual_y_value = match[kVarY];
+    actual_z_value = match[kVarZ];
+    if (actual_y_value == expected_y && actual_z_value == expected_z) {
+      binding_correct = true;
+    }
+  });
+
+  MatcherContext matcher_ctx;
+  std::vector<EClassId> new_eclasses;
+  RuleContext<Op, NoAnalysis> rule_ctx(egraph, new_eclasses);
+  TestVMExecutor vm_executor(egraph);
+  rule.match(matcher, vm_executor, matcher_ctx);
+  rule.apply(rule_ctx, matcher_ctx);
+
+  EXPECT_EQ(match_count, 1) << "Should find exactly 1 match";
+  EXPECT_EQ(actual_y_value, expected_y) << "?y should be bound to B's e-class. "
+                                        << "Expected: " << value_of(expected_y)
+                                        << ", Actual: " << value_of(actual_y_value)
+                                        << ". Intermediate binding not emitted during parent traversal.";
+  EXPECT_EQ(actual_z_value, expected_z) << "?z binding check";
+}
+
 }  // namespace memgraph::planner::core
