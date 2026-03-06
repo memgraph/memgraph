@@ -217,22 +217,26 @@ wait_for_healthy_cluster() {
 
 _stop_processes() {
     # Stops all Memgraph processes without cleaning data directories.
+    local graceful_timeout_sec=60
+    local force_kill_settle_sec=20
+
     if [[ ! -f "memgraph_ha.pid" ]]; then
         echo "No running Memgraph processes found."
-        return 1
+        return 0
     fi
 
     echo "Stopping Memgraph HA processes..."
 
     while read -r pid; do
         echo "Stopping Memgraph process (PID: $pid)..."
-        kill $pid
+        kill "$pid" 2>/dev/null || true
     done < memgraph_ha.pid
 
-    for i in {1..10}; do
+    echo "Waiting for all Memgraph processes to stop..."
+    for ((i=1; i<=graceful_timeout_sec; i++)); do
         all_stopped=true
         while read -r pid; do
-            if kill -0 $pid 2>/dev/null; then
+            if kill -0 "$pid" 2>/dev/null; then
                 all_stopped=false
                 break
             fi
@@ -244,12 +248,45 @@ _stop_processes() {
             return 0
         fi
 
-        echo "Waiting for all Memgraph processes to stop..."
         sleep 1
     done
 
-    echo "Warning: Some Memgraph processes are still running after 10 seconds."
-    return 1
+    echo "Warning: Some Memgraph processes are still running after ${graceful_timeout_sec} seconds. Force killing..."
+    local remaining_pids=()
+    while read -r pid; do
+        if kill -0 "$pid" 2>/dev/null; then
+            remaining_pids+=("$pid")
+        fi
+    done < memgraph_ha.pid
+
+    if [[ ${#remaining_pids[@]} -eq 0 ]]; then
+        rm -f memgraph_ha.pid
+        return 0
+    fi
+
+    for pid in "${remaining_pids[@]}"; do
+        echo "Force killing Memgraph process (PID: $pid)..."
+        kill -9 "$pid" 2>/dev/null || true
+    done
+
+    echo "Waiting ${force_kill_settle_sec} seconds before final stop check..."
+    sleep "$force_kill_settle_sec"
+
+    local still_running=()
+    for pid in "${remaining_pids[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            still_running+=("$pid")
+        fi
+    done
+
+    if [[ ${#still_running[@]} -gt 0 ]]; then
+        echo "ERROR: Failed to stop all Memgraph processes: ${still_running[*]}"
+        return 1
+    fi
+
+    echo "All Memgraph processes have stopped after force kill."
+    rm -f memgraph_ha.pid
+    return 0
 }
 
 collect_logs() {

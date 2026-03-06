@@ -130,8 +130,8 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
       // clang-format on
     });
 
-    // If vertex has non-sequential deltas, we have now processed the delta and can unlock now
-    if (vertex.has_uncommitted_non_sequential_deltas()) {
+    // Unlock if we still hold the lock (i.e., vertex had non-sequential deltas)
+    if (guard.owns_lock()) {
       guard.unlock();
     }
 
