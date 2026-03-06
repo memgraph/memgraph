@@ -54,11 +54,13 @@ void HandleResourceFailure(TSession &session) {
 
 template <typename TSession>
 std::optional<State> BasicAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
-  if (!data.contains("principal")) {  // Special case principal = ""
+  auto principal_it = data.find("principal");
+  if (principal_it == data.end() || !principal_it->second.IsString()) {  // Special case principal = ""
     spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
     data["principal"] = "";
   }
-  if (!data.contains("credentials")) {  // Special case credentials = ""
+  auto credentials_it = data.find("credentials");
+  if (credentials_it == data.end() || !credentials_it->second.IsString()) {  // Special case credentials = ""
     spdlog::warn("The client didn't supply the credentials field! Trying with \"\"...");
     data["credentials"] = "";
   }
@@ -82,17 +84,19 @@ std::optional<State> BasicAuthentication(TSession &session, memgraph::communicat
 
 template <typename TSession>
 std::optional<State> SSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
-  if (!data.contains("credentials") || !data["credentials"].IsString()) {
+  auto cred_it = data.find("credentials");
+  if (cred_it == data.end() || !cred_it->second.IsString()) {
     spdlog::warn("The client didn’t supply the SSO token!");
     return State::Close;
   }
-  if (!data.contains("scheme") || !data["scheme"].IsString()) {
+  auto scheme_it = data.find("scheme");
+  if (scheme_it == data.end() || !scheme_it->second.IsString()) {
     spdlog::warn("The client didn't supply a valid SSO scheme!");
     return State::Close;
   }
 
-  auto scheme = data["scheme"].ValueString();
-  auto identity_provider_response = data["credentials"].ValueString();
+  auto scheme = scheme_it->second.ValueString();
+  auto identity_provider_response = cred_it->second.ValueString();
   const auto auth_res = session.SSOAuthenticate(scheme, identity_provider_response);
   if (!auth_res) {
     switch (auth_res.error()) {
@@ -120,7 +124,8 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
 #endif
 
   auto &data = metadata.ValueMap();
-  if (data.empty()) {  // Special case auth=None
+  auto scheme_it = data.find("scheme");
+  if (scheme_it == data.end() || !scheme_it->second.IsString()) {  // Special case auth=None
     spdlog::warn("The client didn't supply the authentication scheme! Trying with \"none\"...");
     data["scheme"] = "none";
   }
@@ -137,17 +142,18 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
     return false;
   };
 
-  if (data["scheme"].ValueString() == "basic" || data["scheme"].ValueString() == "none") {
+  const auto &schema = data["scheme"].ValueString();
+  if (schema == "basic" || schema == "none") {
     return BasicAuthentication(session, data);
   }
-  if (scheme_in_module_mappings(data["scheme"].ValueString())) {
+  if (scheme_in_module_mappings(schema)) {
     return SSOAuthentication(session, data);
   }
 
   spdlog::warn(
       "The \"{}\" authentication scheme doesn’t have an associated single sign-on module in the auth-module-mappings "
       "flag or isn’t otherwise supported",
-      data["scheme"].ValueString());
+      schema);
   HandleAuthFailure(session);
 
   return State::Close;
@@ -201,12 +207,13 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
   }
 
   auto &data = metadata.ValueMap();
-  if (!data.contains("user_agent")) {
+  auto user_agent_it = data.find("user_agent");
+  if (user_agent_it == data.end() || !user_agent_it->second.IsString()) {
     spdlog::warn("The client didn't supply the user agent!");
     return std::nullopt;
   }
 
-  spdlog::info("Client connected '{}'", data.at("user_agent").ValueString());
+  spdlog::info("Client connected '{}'", user_agent_it->second.ValueString());
 
   return metadata;
 }
@@ -225,12 +232,13 @@ std::optional<Value> GetInitDataV5(TSession &session, const Marker marker) {
   }
 
   const auto &data = metadata.ValueMap();
-  if (!data.contains("user_agent")) {
+  auto user_agent_it = data.find("user_agent");
+  if (user_agent_it == data.end() || !user_agent_it->second.IsString()) {
     spdlog::warn("The client didn't supply the user agent!");
     return std::nullopt;
   }
 
-  spdlog::info("Client connected '{}'", data.at("user_agent").ValueString());
+  spdlog::info("Client connected '{}'", user_agent_it->second.ValueString());
 
   return metadata;
 }
