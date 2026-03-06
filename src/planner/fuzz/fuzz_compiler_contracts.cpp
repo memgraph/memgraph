@@ -361,7 +361,7 @@ class CompiledPatternVerifier {
     // binding_order should contain valid slot indices
     for (std::size_t i = 0; i < binding_order.size(); ++i) {
       if (value_of(binding_order[i]) >= num_slots) {
-        errors.push_back(fmt::format("binding_order[{}]={} >= num_slots={}", i, value_of(binding_order[i]), num_slots));
+        errors.push_back(fmt::format("binding_order[{}]={} >= num_slots={}", i, binding_order[i], num_slots));
       }
     }
 
@@ -369,7 +369,7 @@ class CompiledPatternVerifier {
     std::set<SlotIdx> seen;
     for (auto slot : binding_order) {
       if (seen.contains(slot)) {
-        errors.push_back(fmt::format("Duplicate slot in binding_order: {}", value_of(slot)));
+        errors.push_back(fmt::format("Duplicate slot in binding_order: {}", slot));
       }
       seen.insert(slot);
     }
@@ -380,11 +380,8 @@ class CompiledPatternVerifier {
       auto slot = binding_order[i];
       if (value_of(slot) < slot_to_order.size()) {
         if (slot_to_order[value_of(slot)] != i) {
-          errors.push_back(fmt::format("slot_to_order[{}]={} but binding_order[{}]={}",
-                                       value_of(slot),
-                                       slot_to_order[value_of(slot)],
-                                       i,
-                                       value_of(slot)));
+          errors.push_back(fmt::format(
+              "slot_to_order[{}]={} but binding_order[{}]={}", slot, slot_to_order[value_of(slot)], i, slot));
         }
       }
     }
@@ -498,7 +495,7 @@ class ContractFuzzer {
       std::cerr << "  binding_order: [";
       for (std::size_t i = 0; i < compiled->binding_order().size(); ++i) {
         if (i > 0) std::cerr << ", ";
-        std::cerr << static_cast<int>(value_of(compiled->binding_order()[i]));
+        std::cerr << compiled->binding_order()[i];
       }
       std::cerr << "]\n";
 

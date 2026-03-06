@@ -19,7 +19,7 @@ namespace memgraph::planner::core::pattern::vm {
 
 /// Index into the slots array (pattern variable bindings).
 /// Slots hold the e-class IDs matched to pattern variables.
-using SlotIdx = strong::type<uint8_t, struct SlotIdx_, strong::regular>;
+using SlotIdx = strong::type<uint8_t, struct SlotIdx_, strong::regular, strong::formattable, strong::ostreamable>;
 
 /// Index into the e-class register array.
 /// E-class registers hold e-class IDs during pattern matching.
