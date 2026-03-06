@@ -7301,7 +7301,12 @@ class DistinctParallelCursor : public Cursor {
       // local_seen_ for O(1) dedup, local_batch_ preserves insertion order
       if (local_seen_.insert(row).second) {
         local_batch_.emplace_back(std::move(row));
-        std::swap(local_cache_[local_batch_.size() - 1], frame);
+        // Copy, not swap: sub-cursors (e.g. Expand) are stateful and may not
+        // re-set all frame slots on subsequent Pulls if they still have pending
+        // work. Swapping in a Null-initialized cache frame would leave symbols
+        // like the scan edge (tc) as Null, causing TypedValueException in
+        // EdgeUniquenessFilter on the next Pull.
+        local_cache_[local_batch_.size() - 1] = frame;
       }
     }
 
@@ -10639,11 +10644,19 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           case Aggregation::Op::COLLECT_LIST: {
             auto &main_list = main_value.ValueList();
             auto &other_list = other_value.ValueList();
-            // If the item is found in 'other_unique_values', it means it was a duplicate (rejected by merge). We skip
-            // it. If it is NOT found, it means it was moved to 'main', so we add it.
-            for (auto &item : other_list) {
-              if (other_unique_values.contains(item)) {
-                main_list.push_back(std::move(item));
+            if (other_unique_values.empty()) {
+              // Common case for parallel scan: threads process disjoint vertex sets,
+              // so no cross-branch duplicates exist. Bulk-append without any hash lookups.
+              main_list.insert(main_list.end(),
+                               std::make_move_iterator(other_list.begin()),
+                               std::make_move_iterator(other_list.end()));
+            } else {
+              // After merge(), items still in other_unique_values are duplicates — skip them.
+              // Items no longer in other_unique_values were moved to main (unique) — add them.
+              for (auto &item : other_list) {
+                if (!other_unique_values.contains(item)) {
+                  main_list.push_back(std::move(item));
+                }
               }
             }
             break;
@@ -10651,10 +10664,17 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           case Aggregation::Op::COLLECT_MAP: {
             auto &main_map = main_value.ValueMap();
             auto &other_map = other_value.ValueMap();
-            // Check if the VALUE (which is what distinct tracks)  was left behind.
-            for (auto &[key, val] : other_map) {
-              if (other_unique_values.contains(val)) {
+            if (other_unique_values.empty()) {
+              // No cross-branch duplicates — merge all entries directly.
+              for (auto &[key, val] : other_map) {
                 main_map.insert_or_assign(key, std::move(val));
+              }
+            } else {
+              // After merge(), values still in other_unique_values are duplicates — skip them.
+              for (auto &[key, val] : other_map) {
+                if (!other_unique_values.contains(val)) {
+                  main_map.insert_or_assign(key, std::move(val));
+                }
               }
             }
             break;
