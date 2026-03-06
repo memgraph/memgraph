@@ -60,10 +60,10 @@ TEST_F(PatternVM_Compiler, VariablePattern) {
   // Variable at root: bind_dedup (backtrack to halt), yield (mark slot 0), jump back (to halt), halt
   auto code = compiled.code();
   ASSERT_EQ(code.size(), 4);
-  EXPECT_EQ(code[0],
-            Instruction::bind_slot_dedup(
-                SlotIdx{0}, EClassReg{0}, InstrAddr{3}));  // slot 0, src reg 0, on_duplicate=3 (halt)
-  EXPECT_EQ(code[1], Instruction::yield(SlotIdx{0}));      // Last slot is 0 (?x)
+  EXPECT_EQ(
+      code[0],
+      Instruction::bind_slot(SlotIdx{0}, EClassReg{0}, InstrAddr{3}));  // slot 0, src reg 0, on_duplicate=3 (halt)
+  EXPECT_EQ(code[1], Instruction::yield(SlotIdx{0}));                   // Last slot is 0 (?x)
   EXPECT_EQ(code[2].op, VMOp::Jump);
   EXPECT_EQ(code[3], Instruction::halt());
 }
@@ -76,7 +76,7 @@ TEST_F(PatternVM_Compiler, SimpleSymbolPattern) {
   auto compiled = compiler.compile(pattern);
 
   // Expected bytecode structure (root binding BEFORE iteration):
-  // 0:  BindSlotDedup slot[root], r0, @halt  ; bind root once per candidate
+  // 0:  BindSlot slot[root], r0, @halt  ; bind root once per candidate
   // 1:  IterENodes r1, r0, @halt     ; load first e-node
   // 2:  Jump @check                  ; skip NextENode first time
   // loop:
@@ -85,7 +85,7 @@ TEST_F(PatternVM_Compiler, SimpleSymbolPattern) {
   // 4:  CheckSymbol r1, Neg, @loop
   // 5:  CheckArity r1, 1, @loop
   // 6:  LoadChild r2, r1, 0
-  // 7:  BindSlotDedup slot[0], r2, @loop  ; bind ?x
+  // 7:  BindSlot slot[0], r2, @loop  ; bind ?x
   // 8:  Yield
   // 9:  Jump @loop
   // 10: Halt
@@ -96,7 +96,7 @@ TEST_F(PatternVM_Compiler, SimpleSymbolPattern) {
   ASSERT_GE(code.size(), 9) << "Expected at least 9 instructions\nBytecode:\n" << bytecode;
 
   // Check instruction sequence - root binding comes first
-  EXPECT_EQ(code[0].op, VMOp::BindSlotDedup) << "Root binding should come first";
+  EXPECT_EQ(code[0].op, VMOp::BindSlot) << "Root binding should come first";
   EXPECT_EQ(code[1].op, VMOp::IterENodes);
   EXPECT_EQ(code[2].op, VMOp::Jump) << "Should have jump to skip NextENode";
   EXPECT_EQ(code[3].op, VMOp::NextENode);
@@ -107,7 +107,7 @@ TEST_F(PatternVM_Compiler, SimpleSymbolPattern) {
   auto loop_pos = static_cast<uint16_t>(3);  // NextENode position
   auto halt_pos = static_cast<uint16_t>(code.size() - 1);
 
-  EXPECT_EQ(code[0].target, halt_pos) << "BindSlotDedup should jump to halt on duplicate";
+  EXPECT_EQ(code[0].target, halt_pos) << "BindSlot should jump to halt on duplicate";
   // Note: IterENodes (code[1]) has no meaningful target - e-classes always have at least one e-node
   EXPECT_EQ(code[2].target, 4) << "First Jump should skip to CheckSymbol";
   EXPECT_EQ(code[3].target, halt_pos) << "NextENode should jump to halt on exhausted";
@@ -136,7 +136,7 @@ TEST_F(PatternVM_Compiler, NestedSymbolPattern) {
   // 7: CheckSymbol r3, Neg, @6       ; check inner Neg (backtrack to inner loop)
   // 8: CheckArity r3, 1, @6
   // 9: LoadChild r4, r3, 0
-  // 10: BindSlotDedup slot[0], r4, @6 ; bind ?x with dedup
+  // 10: BindSlot slot[0], r4, @6 ; bind ?x with dedup
   // 11: Yield
   // 12: Jump @6                       ; continue inner loop
   // 13: Jump @1                       ; continue outer loop
@@ -183,17 +183,17 @@ TEST_F(PatternVM_Compiler, BinarySymbolPattern) {
   }
   EXPECT_EQ(load_child_count, 2) << "Expected 2 LoadChild instructions for binary pattern";
 
-  // Should have two BindSlotDedup for ?x and ?y (both first occurrences)
+  // Should have two BindSlot for ?x and ?y (both first occurrences)
   int bind_slot_count = 0;
   for (auto const &instr : code) {
-    if (instr.op == VMOp::BindSlotDedup) {
+    if (instr.op == VMOp::BindSlot) {
       ++bind_slot_count;
     }
   }
-  // Note: There are 3 BindSlotDedups: one for root binding, and two for ?x and ?y
+  // Note: There are 3 BindSlots: one for root binding, and two for ?x and ?y
   // Actually there should be 2 for variables + 1 for root = 3 if root has binding
   // Let's check what we actually get - should be at least 2 for variables
-  EXPECT_GE(bind_slot_count, 2) << "Expected at least 2 BindSlotDedup instructions for two variables";
+  EXPECT_GE(bind_slot_count, 2) << "Expected at least 2 BindSlot instructions for two variables";
 }
 
 // ============================================================================
@@ -440,7 +440,7 @@ TEST_F(PatternVM_Compiler, MultiPattern_IntermediateBindingEmitsBindSlot) {
   // Pattern 2: A(?y=B(?z)) - shares ?z, ?y is an intermediate binding on B
   //
   // Verifies that intermediate bindings along the parent traversal path
-  // emit BindSlotDedup instructions.
+  // emit BindSlot instructions.
 
   constexpr PatternVar kVarZ{0};
   constexpr PatternVar kVarW{1};
@@ -456,22 +456,22 @@ TEST_F(PatternVM_Compiler, MultiPattern_IntermediateBindingEmitsBindSlot) {
   auto const &code = compiled.code();
   auto bytecode = disassemble(code, compiled.symbols());
 
-  // Count BindSlotDedup instructions - should have one for each variable
+  // Count BindSlot instructions - should have one for each variable
   // ?z, ?w from anchor, plus ?y from intermediate binding
   int bind_slot_count = 0;
   for (auto const &instr : code) {
-    if (instr.op == VMOp::BindSlotDedup) ++bind_slot_count;
+    if (instr.op == VMOp::BindSlot) ++bind_slot_count;
   }
 
-  // 3 variables: ?z, ?w, ?y - each should have BindSlotDedup
-  EXPECT_EQ(bind_slot_count, 3) << "Should emit BindSlotDedup for ?z, ?w, and intermediate ?y\nBytecode:\n" << bytecode;
+  // 3 variables: ?z, ?w, ?y - each should have BindSlot
+  EXPECT_EQ(bind_slot_count, 3) << "Should emit BindSlot for ?z, ?w, and intermediate ?y\nBytecode:\n" << bytecode;
 }
 
 TEST_F(PatternVM_Compiler, MultiPattern_RootBindingInParentTraversalEmitsBindSlot) {
   // Pattern 1 (anchor): F(?x, ?w)
   // Pattern 2: ?y=G(?x) - shares ?x, ?y is a root binding
   //
-  // Verifies that root bindings during parent traversal emit BindSlotDedup.
+  // Verifies that root bindings during parent traversal emit BindSlot.
   // (Root is now handled in the main loop, not a special case.)
 
   constexpr PatternVar kVarX{0};
@@ -488,16 +488,16 @@ TEST_F(PatternVM_Compiler, MultiPattern_RootBindingInParentTraversalEmitsBindSlo
   auto const &code = compiled.code();
   auto bytecode = disassemble(code, compiled.symbols());
 
-  // Count BindSlotDedup for ?y (root binding on joined pattern)
+  // Count BindSlot for ?y (root binding on joined pattern)
   int bind_slot_for_y = 0;
   auto y_slot = compiled.var_slots().at(kVarY);
   for (auto const &instr : code) {
-    if (instr.op == VMOp::BindSlotDedup && instr.arg == value_of(y_slot)) {
+    if (instr.op == VMOp::BindSlot && instr.arg == value_of(y_slot)) {
       ++bind_slot_for_y;
     }
   }
 
-  EXPECT_EQ(bind_slot_for_y, 1) << "Should emit BindSlotDedup for root binding ?y\nBytecode:\n" << bytecode;
+  EXPECT_EQ(bind_slot_for_y, 1) << "Should emit BindSlot for root binding ?y\nBytecode:\n" << bytecode;
 }
 
 // ============================================================================
@@ -705,7 +705,7 @@ TEST_F(PatternVM_Compiler, JoinOrder_SharedVarBindBeforeCheck) {
       uint8_t slot = 255;
       bool is_bind = false;
 
-      if (code[i].op == VMOp::BindSlotDedup) {
+      if (code[i].op == VMOp::BindSlot) {
         slot = code[i].arg;
         is_bind = true;
       } else if (code[i].op == VMOp::CheckSlot) {
@@ -722,7 +722,7 @@ TEST_F(PatternVM_Compiler, JoinOrder_SharedVarBindBeforeCheck) {
     for (auto const &[slot, info] : slot_first_op) {
       auto [pos, is_bind] = info;
       EXPECT_TRUE(is_bind) << "Slot " << static_cast<int>(slot) << " first appears as CheckSlot at position " << pos
-                           << ", but should be BindSlotDedup first\nBytecode:\n"
+                           << ", but should be BindSlot first\nBytecode:\n"
                            << disassemble(code, compiled.symbols());
     }
   }

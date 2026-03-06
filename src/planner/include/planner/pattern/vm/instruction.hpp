@@ -89,7 +89,7 @@ namespace memgraph::planner::core::pattern::vm {
 //      - Iterators are stored in VMState indexed by dst register
 //
 //   5. Deduplication:
-//      - BindSlotDedup checks seen_per_slot[arg] before binding
+//      - BindSlot checks seen_per_slot[arg] before binding
 //      - If value already seen, jumps to target (backtrack)
 //      - MarkSeen/Yield add current slot value to seen set
 //      - When slot i changes, seen_per_slot cleared for slots later in binding_order
@@ -109,7 +109,7 @@ namespace memgraph::planner::core::pattern::vm {
 //   Navigation:   LoadChild, GetENodeEClass
 //   Iteration:    IterENodes/NextENode, IterAllEClasses/NextEClass, IterParents/NextParent
 //   Filtering:    CheckSymbol, CheckArity
-//   Binding:      BindSlotDedup, CheckSlot, CheckEClassEq, MarkSeen
+//   Binding:      BindSlot, CheckSlot, CheckEClassEq, MarkSeen
 //   Control:      Jump, Yield, Halt
 //
 // =============================================================================
@@ -157,9 +157,9 @@ enum class VMOp : uint8_t {
   CheckArity,
 
   // ===== Binding =====
-  /// Bind with dedup: slots[arg] = regs[src], check seen set, jump to target if duplicate
+  /// Bind: slots[arg] = regs[src], check seen set, jump to target if duplicate
   /// Used for all bindings to enable early backtracking on duplicates.
-  BindSlotDedup,
+  BindSlot,
   /// Check consistency: if find(slots[arg]) != find(regs[src]), jump to target
   CheckSlot,
   /// Check two e-class registers are equal: if regs[dst] != regs[src], jump to target
@@ -193,7 +193,7 @@ enum class VMOp : uint8_t {
 /// | NextParent      | enode_reg out    | -                | -             | on_exhausted     |
 /// | CheckSymbol     | -                | enode_reg in     | symbol_idx    | on_mismatch      |
 /// | CheckArity      | -                | enode_reg in     | arity         | on_mismatch      |
-/// | BindSlotDedup   | -                | eclass_reg in    | slot_idx      | on_duplicate     |
+/// | BindSlot        | -                | eclass_reg in    | slot_idx      | on_duplicate     |
 /// | CheckSlot       | -                | eclass_reg in    | slot_idx      | on_mismatch      |
 /// | CheckEClassEq   | eclass_reg in    | eclass_reg in    | -             | on_mismatch      |
 /// | MarkSeen        | -                | -                | slot_idx      | -                |
@@ -259,8 +259,8 @@ struct Instruction {
     return {.op = CheckArity, .src = value_of(src), .arg = arity, .target = value_of(on_mismatch)};
   }
 
-  static constexpr auto bind_slot_dedup(SlotIdx slot_idx, EClassReg src, InstrAddr on_duplicate) -> Instruction {
-    return {.op = BindSlotDedup, .src = value_of(src), .arg = value_of(slot_idx), .target = value_of(on_duplicate)};
+  static constexpr auto bind_slot(SlotIdx slot_idx, EClassReg src, InstrAddr on_duplicate) -> Instruction {
+    return {.op = BindSlot, .src = value_of(src), .arg = value_of(slot_idx), .target = value_of(on_duplicate)};
   }
 
   static constexpr auto check_slot(SlotIdx slot_idx, EClassReg src, InstrAddr on_mismatch) -> Instruction {
@@ -313,8 +313,8 @@ static_assert(alignof(Instruction) == 2, "Instruction should be 2 aligned");
       return "CheckSymbol";
     case CheckArity:
       return "CheckArity";
-    case BindSlotDedup:
-      return "BindSlotDedup";
+    case BindSlot:
+      return "BindSlot";
     case CheckSlot:
       return "CheckSlot";
     case CheckEClassEq:

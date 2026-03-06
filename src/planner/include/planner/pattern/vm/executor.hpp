@@ -51,7 +51,7 @@ namespace memgraph::planner::core::pattern::vm {
 //
 //   - Input candidates MUST be canonical (egraph.find(id) == id)
 //   - VMExecutor canonicalizes via LoadChild and GetENodeEClass
-//   - slots[] always contain canonical IDs after BindSlotDedup
+//   - slots[] always contain canonical IDs after BindSlot
 //
 // ## Execution Model
 //
@@ -66,7 +66,7 @@ namespace memgraph::planner::core::pattern::vm {
 //
 // Prevents duplicate match tuples via seen_per_slot sets:
 //
-//   1. BindSlotDedup checks if value is in seen_per_slot[slot]
+//   1. BindSlot checks if value is in seen_per_slot[slot]
 //   2. If seen, backtrack (don't explore same value twice)
 //   3. Yield/MarkSeen adds value to seen_per_slot[slot]
 //   4. When slot i changes, clear seen_per_slot for slots bound after i in binding_order
@@ -214,7 +214,7 @@ class VMExecutor {
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_check_arity(Instruction instr) -> bool;
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_bind_slot_dedup(Instruction instr) -> bool;
+  [[nodiscard]] [[gnu::always_inline]] auto exec_bind_slot(Instruction instr) -> bool;
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_check_slot(Instruction instr) -> bool;
 
@@ -293,7 +293,7 @@ void VMExecutor<Symbol, Analysis, DevMode>::run_until_halt(MatchArena &arena, st
       &&op_NextParent,
       &&op_CheckSymbol,
       &&op_CheckArity,
-      &&op_BindSlotDedup,
+      &&op_BindSlot,
       &&op_CheckSlot,
       &&op_CheckEClassEq,
       &&op_MarkSeen,
@@ -357,8 +357,8 @@ op_CheckSymbol:
 op_CheckArity:
   NEXT_OR_JUMP(exec_check_arity(instr));
 
-op_BindSlotDedup:
-  NEXT_OR_JUMP(exec_bind_slot_dedup(instr));
+op_BindSlot:
+  NEXT_OR_JUMP(exec_bind_slot(instr));
 
 op_CheckSlot:
   NEXT_OR_JUMP(exec_check_slot(instr));
@@ -502,9 +502,9 @@ auto VMExecutor<Symbol, Analysis, DevMode>::exec_check_arity(Instruction instr) 
 }
 
 template <typename Symbol, typename Analysis, bool DevMode>
-auto VMExecutor<Symbol, Analysis, DevMode>::exec_bind_slot_dedup(Instruction instr) -> bool {
+auto VMExecutor<Symbol, Analysis, DevMode>::exec_bind_slot(Instruction instr) -> bool {
   auto eclass = state_.eclass_regs[instr.src];
-  bool is_new = state_.try_bind_dedup(instr.arg, eclass);
+  bool is_new = state_.try_bind(instr.arg, eclass);
   if constexpr (DevMode) {
     collector_.on_bind(instr.arg, eclass);
     if (!is_new) {
@@ -517,7 +517,7 @@ auto VMExecutor<Symbol, Analysis, DevMode>::exec_bind_slot_dedup(Instruction ins
 template <typename Symbol, typename Analysis, bool DevMode>
 auto VMExecutor<Symbol, Analysis, DevMode>::exec_check_slot(Instruction instr) -> bool {
   // Both values are already canonical:
-  // - slots[] was set by BindSlotDedup from canonical eclass_regs
+  // - slots[] was set by BindSlot from canonical eclass_regs
   // - eclass_regs[] was set by LoadChild which canonicalizes
   if (state_.slots[instr.arg] != state_.eclass_regs[instr.src]) {
     if constexpr (DevMode) {

@@ -118,7 +118,7 @@ class PatternCompilerBase {
 //   - num_slots() equals the number of distinct variables across all patterns
 //   - binding_order() returns the order slots are bound during execution
 //   - slot_to_order() maps slot index to its position in binding_order (for clearing)
-//   - BindSlotDedup always uses slot indices in [0, num_slots())
+//   - BindSlot always uses slot indices in [0, num_slots())
 //
 // ### 5. Iteration Pairing Contract
 //

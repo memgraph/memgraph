@@ -45,7 +45,7 @@
 //      - All CheckSymbol.arg < symbols.size()
 //
 //   4. Slot Binding Contract
-//      - All BindSlotDedup/CheckSlot/MarkSeen/Yield.arg < num_slots()
+//      - All BindSlot/CheckSlot/MarkSeen/Yield.arg < num_slots()
 //      - binding_order contains valid slot indices without duplicates
 //      - slot_to_order is consistent inverse of binding_order
 //
@@ -186,8 +186,8 @@ class CompiledPatternVerifier {
     auto num_slots = cp_.num_slots();
     for (std::size_t i = 0; i < code.size(); ++i) {
       auto const &instr = code[i];
-      bool uses_slot_arg = (instr.op == VMOp::BindSlotDedup || instr.op == VMOp::CheckSlot ||
-                            instr.op == VMOp::MarkSeen || instr.op == VMOp::Yield);
+      bool uses_slot_arg = (instr.op == VMOp::BindSlot || instr.op == VMOp::CheckSlot || instr.op == VMOp::MarkSeen ||
+                            instr.op == VMOp::Yield);
       if (uses_slot_arg && num_slots > 0) {
         if (instr.arg >= num_slots) {
           errors.push_back(fmt::format("Slot index out of bounds: instr[{}] {} arg={} >= num_slots={}",
@@ -547,7 +547,7 @@ class CompiledPatternVerifier {
       case VMOp::NextParent:
       case VMOp::CheckSymbol:
       case VMOp::CheckArity:
-      case VMOp::BindSlotDedup:
+      case VMOp::BindSlot:
       case VMOp::CheckSlot:
       case VMOp::CheckEClassEq:
       case VMOp::Jump:
@@ -566,7 +566,7 @@ class CompiledPatternVerifier {
   }
 
   static auto is_eclass_src(VMOp op) -> bool {
-    return op == VMOp::IterENodes || op == VMOp::IterParents || op == VMOp::BindSlotDedup || op == VMOp::CheckSlot ||
+    return op == VMOp::IterENodes || op == VMOp::IterParents || op == VMOp::BindSlot || op == VMOp::CheckSlot ||
            op == VMOp::CheckEClassEq;
   }
 

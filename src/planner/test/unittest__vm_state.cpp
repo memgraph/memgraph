@@ -37,8 +37,8 @@ TEST(PatternVM_State, GlobalDeduplicationAcrossCandidates) {
                .slot_to_order = kIdentitySlotToOrder2});
 
   // Simulate first "candidate" execution:
-  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
-  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "First bind of slot 1 should succeed";
+  EXPECT_TRUE(state.try_bind(0, EClassId{100})) << "First bind of slot 0 should succeed";
+  EXPECT_TRUE(state.try_bind(1, EClassId{200})) << "First bind of slot 1 should succeed";
 
   // Mark slots as seen
   state.mark_seen(1);
@@ -48,7 +48,7 @@ TEST(PatternVM_State, GlobalDeduplicationAcrossCandidates) {
   state.pc = 0;
 
   // Same value should be deduplicated (global dedup)
-  bool bind0_result = state.try_bind_dedup(0, EClassId{100});
+  bool bind0_result = state.try_bind(0, EClassId{100});
   EXPECT_FALSE(bind0_result) << "Second bind of slot 0 with same value should be deduplicated";
 }
 
@@ -61,15 +61,15 @@ TEST(PatternVM_State, BindSlotValueChange) {
                .slot_to_order = kIdentitySlotToOrder2});
 
   // First candidate: (100, 200)
-  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
-  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "First bind of slot 1 should succeed";
+  EXPECT_TRUE(state.try_bind(0, EClassId{100})) << "First bind of slot 0 should succeed";
+  EXPECT_TRUE(state.try_bind(1, EClassId{200})) << "First bind of slot 1 should succeed";
 
   state.pc = 0;
 
   // Different value for slot 0 - should clear seen_per_slot[1]
-  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{101})) << "New value for slot 0 should succeed";
+  EXPECT_TRUE(state.try_bind(0, EClassId{101})) << "New value for slot 0 should succeed";
   // Same value 200 for slot 1, but prefix changed
-  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "Same slot 1 value with different prefix should succeed";
+  EXPECT_TRUE(state.try_bind(1, EClassId{200})) << "Same slot 1 value with different prefix should succeed";
 }
 
 // Test: Deduplication within same candidate
@@ -80,13 +80,13 @@ TEST(PatternVM_State, DeduplicationWithinCandidate) {
                .binding_order = kIdentityOrder2,
                .slot_to_order = kIdentitySlotToOrder2});
 
-  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
-  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "First bind of slot 1 should succeed";
+  EXPECT_TRUE(state.try_bind(0, EClassId{100})) << "First bind of slot 0 should succeed";
+  EXPECT_TRUE(state.try_bind(1, EClassId{200})) << "First bind of slot 1 should succeed";
 
   state.mark_seen(0);
 
   // Same value should be deduplicated after mark_seen
-  EXPECT_FALSE(state.try_bind_dedup(0, EClassId{100})) << "Second bind of slot 0 (same value) should be deduplicated";
+  EXPECT_FALSE(state.try_bind(0, EClassId{100})) << "Second bind of slot 0 (same value) should be deduplicated";
 }
 
 // Test: Binding order clears correct seen sets
@@ -103,29 +103,29 @@ TEST(PatternVM_State, BindingOrderClearsSlotsCorrectly) {
       {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = binding_order, .slot_to_order = slot_to_order});
 
   // Bind in order: slot 1, slot 0, slot 2
-  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{100})) << "First bind of slot 1 should succeed";
-  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{200})) << "First bind of slot 0 should succeed";
-  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{300})) << "First bind of slot 2 should succeed";
+  EXPECT_TRUE(state.try_bind(1, EClassId{100})) << "First bind of slot 1 should succeed";
+  EXPECT_TRUE(state.try_bind(0, EClassId{200})) << "First bind of slot 0 should succeed";
+  EXPECT_TRUE(state.try_bind(2, EClassId{300})) << "First bind of slot 2 should succeed";
 
   state.mark_seen(2);
 
   // Same slot 2 value should be deduplicated
-  EXPECT_FALSE(state.try_bind_dedup(2, EClassId{300})) << "Same slot 2 value should be deduplicated";
+  EXPECT_FALSE(state.try_bind(2, EClassId{300})) << "Same slot 2 value should be deduplicated";
 
   // Change slot 0 - should clear seen_per_slot[2]
-  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{201})) << "New value for slot 0 should succeed";
+  EXPECT_TRUE(state.try_bind(0, EClassId{201})) << "New value for slot 0 should succeed";
 
   // Re-bind slot 2 with same value - should now succeed
-  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{300})) << "After prefix change, same slot[2] value should be new";
+  EXPECT_TRUE(state.try_bind(2, EClassId{300})) << "After prefix change, same slot[2] value should be new";
 
   state.mark_seen(2);
 
   // Change slot 1 - should clear seen_per_slot[0] and seen_per_slot[2]
-  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{101})) << "New value for slot 1 should succeed";
+  EXPECT_TRUE(state.try_bind(1, EClassId{101})) << "New value for slot 1 should succeed";
 
   // Original values should be new again
-  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{200})) << "Original slot 0 value should be new after slot 1 changed";
-  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{300})) << "After root prefix change, tuple should be new";
+  EXPECT_TRUE(state.try_bind(0, EClassId{200})) << "Original slot 0 value should be new after slot 1 changed";
+  EXPECT_TRUE(state.try_bind(2, EClassId{300})) << "After root prefix change, tuple should be new";
 }
 
 // Test: Complex 4-slot permutation where binding order differs significantly from slot indices
@@ -146,10 +146,10 @@ TEST(PatternVM_State, FourSlotComplexPermutation) {
       {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = binding_order, .slot_to_order = slot_to_order});
 
   // Bind all slots in binding order: ?x, ?y, ?w, ?z
-  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{10}));  // ?x
-  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{20}));  // ?y
-  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{30}));  // ?w
-  EXPECT_TRUE(state.try_bind_dedup(3, EClassId{40}));  // ?z
+  EXPECT_TRUE(state.try_bind(1, EClassId{10}));  // ?x
+  EXPECT_TRUE(state.try_bind(2, EClassId{20}));  // ?y
+  EXPECT_TRUE(state.try_bind(0, EClassId{30}));  // ?w
+  EXPECT_TRUE(state.try_bind(3, EClassId{40}));  // ?z
 
   // Mark all as seen
   state.mark_seen(3);
@@ -158,43 +158,43 @@ TEST(PatternVM_State, FourSlotComplexPermutation) {
   state.mark_seen(1);
 
   // All should now be deduplicated
-  EXPECT_FALSE(state.try_bind_dedup(1, EClassId{10}));
-  EXPECT_FALSE(state.try_bind_dedup(2, EClassId{20}));
-  EXPECT_FALSE(state.try_bind_dedup(0, EClassId{30}));
-  EXPECT_FALSE(state.try_bind_dedup(3, EClassId{40}));
+  EXPECT_FALSE(state.try_bind(1, EClassId{10}));
+  EXPECT_FALSE(state.try_bind(2, EClassId{20}));
+  EXPECT_FALSE(state.try_bind(0, EClassId{30}));
+  EXPECT_FALSE(state.try_bind(3, EClassId{40}));
 
   // Change ?w (slot 0, pos 2) - should only clear ?z (slot 3)
-  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{31}));
+  EXPECT_TRUE(state.try_bind(0, EClassId{31}));
 
   // ?x and ?y should still be deduplicated (bound before ?w)
-  EXPECT_FALSE(state.try_bind_dedup(1, EClassId{10}));
-  EXPECT_FALSE(state.try_bind_dedup(2, EClassId{20}));
+  EXPECT_FALSE(state.try_bind(1, EClassId{10}));
+  EXPECT_FALSE(state.try_bind(2, EClassId{20}));
   // ?z should now be fresh (bound after ?w)
-  EXPECT_TRUE(state.try_bind_dedup(3, EClassId{40}));
+  EXPECT_TRUE(state.try_bind(3, EClassId{40}));
 
   state.mark_seen(3);
   state.mark_seen(0);
 
   // Change ?y (slot 2, pos 1) - should clear ?w (slot 0) and ?z (slot 3)
-  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{21}));
+  EXPECT_TRUE(state.try_bind(2, EClassId{21}));
 
   // ?x should still be deduplicated
-  EXPECT_FALSE(state.try_bind_dedup(1, EClassId{10}));
+  EXPECT_FALSE(state.try_bind(1, EClassId{10}));
   // ?w and ?z should be fresh
-  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{30}));
-  EXPECT_TRUE(state.try_bind_dedup(3, EClassId{40}));
+  EXPECT_TRUE(state.try_bind(0, EClassId{30}));
+  EXPECT_TRUE(state.try_bind(3, EClassId{40}));
 
   state.mark_seen(3);
   state.mark_seen(0);
   state.mark_seen(2);
 
   // Change ?x (slot 1, pos 0) - should clear ?y, ?w, ?z (all others)
-  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{11}));
+  EXPECT_TRUE(state.try_bind(1, EClassId{11}));
 
   // All should be fresh
-  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{20}));
-  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{30}));
-  EXPECT_TRUE(state.try_bind_dedup(3, EClassId{40}));
+  EXPECT_TRUE(state.try_bind(2, EClassId{20}));
+  EXPECT_TRUE(state.try_bind(0, EClassId{30}));
+  EXPECT_TRUE(state.try_bind(3, EClassId{40}));
 }
 
 }  // namespace memgraph::planner::core

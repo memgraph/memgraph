@@ -154,7 +154,7 @@ struct VMState {
   /// The seen set tracks values that have been marked as exhausted (via mark_seen).
   /// A value is exhausted when we've finished exploring all paths with that binding
   /// (either yielded or exhausted all downstream iterations).
-  [[nodiscard]] auto try_bind_dedup(std::size_t slot, EClassId eclass) -> bool;
+  [[nodiscard]] auto try_bind(std::size_t slot, EClassId eclass) -> bool;
 
   /// Mark a slot's current value as seen (exhausted) for deduplication.
   /// Called when an iteration exhausts (for earlier slots) or at yield time (for last slot).
@@ -193,7 +193,7 @@ inline void VMState::reset(VMStateConfig const &cfg) {
   seen_per_slot.resize(num_slots);
 }
 
-inline auto VMState::try_bind_dedup(std::size_t slot, EClassId eclass) -> bool {
+inline auto VMState::try_bind(std::size_t slot, EClassId eclass) -> bool {
   // Check if we've already exhausted this value at this slot
   if (seen_per_slot[slot].contains(eclass)) {
     return false;  // Already exhausted - backtrack

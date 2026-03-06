@@ -289,7 +289,7 @@ auto disassemble(std::span<Instruction const> code, std::span<Symbol const> symb
         std::format_to(out, " r{}, {}, @{}", instr.src, instr.arg, instr.target);
         break;
 
-      case VMOp::BindSlotDedup:
+      case VMOp::BindSlot:
         std::format_to(out, " slot[{}], r{}, @{}", instr.arg, instr.src, instr.target);
         break;
 
