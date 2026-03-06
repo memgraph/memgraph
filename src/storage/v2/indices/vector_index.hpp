@@ -248,6 +248,10 @@ class VectorIndex {
   /// @param token A stop token to allow for cancellation of the operation.
   void RemoveObsoleteEntries(std::stop_token token) const;
 
+  /// @brief Removes a specific vertex from all vector indices.
+  /// Called by GC before skip list removal, while the vertex pointer is still valid.
+  void RemoveVertex(Vertex *vertex) const;
+
   /// @brief Returns an abort processor snapshot used during transaction abort.
   /// @return AbortProcessor containing label/property mappings for vector indices.
   AbortProcessor GetAbortProcessor() const;
