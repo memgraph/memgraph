@@ -710,4 +710,141 @@ TEST_F(PatternVM_Compiler, JoinOrder_NoCartesianWhenPathWalkingPossible) {
   EXPECT_TRUE(has_iter_parents) << "Should use IterParents for parent traversal\nBytecode:\n" << bytecode;
 }
 
+TEST_F(PatternVM_Compiler, MultiPattern_SymbolBindingSharedVar_AtRoot) {
+  // Anchor: Add(?x, ?y) - binds ?x and ?y
+  // Joined: Neg[?x](?z) - ?x is bound to the Neg symbol node itself, ?z is new
+  //
+  // This tests the case where a shared variable is a binding on a symbol node
+  // at the ROOT of the joined pattern. Since the shared binding is at root,
+  // we don't need parent traversal - just verify the symbol structure directly.
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+  constexpr PatternVar kVarZ{2};
+
+  auto anchor = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}});
+  // Neg[?x](?z) - ?x binds to the Neg node (root), ?z is a child
+  auto joined = TestPattern::build(Op::Neg, {Var{kVarZ}}, kVarX);
+
+  TestPatternCompiler compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
+
+  auto bytecode = disassemble(compiled.code(), compiled.symbols());
+
+  // Count Cartesian product instructions
+  int iter_all_eclasses_count = 0;
+
+  for (auto const &instr : compiled.code()) {
+    if (instr.op == VMOp::IterAllEClasses) iter_all_eclasses_count++;
+  }
+
+  // Should NOT use Cartesian product - ?x is shared
+  EXPECT_EQ(iter_all_eclasses_count, 0)
+      << "Should not use Cartesian product when symbol has shared binding\nBytecode:\n"
+      << bytecode;
+}
+
+TEST_F(PatternVM_Compiler, MultiPattern_SymbolBindingSharedVar_Nested) {
+  // Anchor: Add(?x, ?y) - binds ?x and ?y
+  // Joined: Mul(Neg[?x](?z), ?w) - ?x is bound to nested Neg node, ?z and ?w are new
+  //
+  // This tests the case where a shared variable is a binding on a NESTED symbol
+  // node. Should use parent traversal to go from Neg up to Mul.
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+  constexpr PatternVar kVarZ{2};
+  constexpr PatternVar kVarW{3};
+
+  auto anchor = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}});
+  // Mul(Neg[?x](?z), ?w) - ?x binds to nested Neg node
+  auto neg_with_binding = TestPattern::Builder{};
+  auto z = neg_with_binding.var(kVarZ);
+  neg_with_binding.sym(Op::Neg, {z}, kVarX);  // Neg[?x](?z)
+  auto neg_pattern = std::move(neg_with_binding).build();
+
+  // Build Mul(Neg[?x](?z), ?w) using builder
+  auto joined_builder = TestPattern::Builder{};
+  auto z2 = joined_builder.var(kVarZ);
+  auto neg_node = joined_builder.sym(Op::Neg, {z2}, kVarX);
+  auto w = joined_builder.var(kVarW);
+  joined_builder.sym(Op::Mul, {neg_node, w});
+  auto joined = std::move(joined_builder).build();
+
+  TestPatternCompiler compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
+
+  auto bytecode = disassemble(compiled.code(), compiled.symbols());
+
+  // Count instructions
+  int iter_all_eclasses_count = 0;
+  bool has_iter_parents = false;
+
+  for (auto const &instr : compiled.code()) {
+    if (instr.op == VMOp::IterAllEClasses) iter_all_eclasses_count++;
+    if (instr.op == VMOp::IterParents) has_iter_parents = true;
+  }
+
+  // Should NOT use Cartesian product - ?x is shared
+  EXPECT_EQ(iter_all_eclasses_count, 0)
+      << "Should not use Cartesian product when symbol has shared binding\nBytecode:\n"
+      << bytecode;
+
+  // Should use parent traversal to go from Neg up to Mul
+  EXPECT_TRUE(has_iter_parents) << "Should use IterParents for nested shared symbol binding\nBytecode:\n" << bytecode;
+}
+
+TEST_F(PatternVM_Compiler, MultiPattern_SharedVarInMiddleOfBoth) {
+  // Anchor: Add(?x, ?y) - ?x and ?y are children (not at root)
+  // Joined: Mul(Neg[?x](_, ?y), ?z) - ?x is binding on nested Neg, ?y also shared
+  //
+  // This tests the case where the shared variable (?x) is NOT at the root of
+  // either pattern. The shared binding on Neg should be detected, and ?y should
+  // be verified as matching (already bound by anchor).
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+  constexpr PatternVar kVarZ{2};
+
+  auto anchor = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}});
+
+  // Build Mul(Neg[?x](_, ?y), ?z)
+  auto joined_builder = TestPattern::Builder{};
+  auto wildcard = joined_builder.wildcard();
+  auto y = joined_builder.var(kVarY);
+  auto neg_node = joined_builder.sym(Op::Neg, {wildcard, y}, kVarX);  // Neg[?x](_, ?y)
+  auto z = joined_builder.var(kVarZ);
+  joined_builder.sym(Op::Mul, {neg_node, z});
+  auto joined = std::move(joined_builder).build();
+
+  TestPatternCompiler compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
+
+  auto bytecode = disassemble(compiled.code(), compiled.symbols());
+
+  // Count instructions
+  int iter_all_eclasses_count = 0;
+  bool has_iter_parents = false;
+  bool has_check_slot = false;  // For verifying ?y
+
+  for (auto const &instr : compiled.code()) {
+    if (instr.op == VMOp::IterAllEClasses) iter_all_eclasses_count++;
+    if (instr.op == VMOp::IterParents) has_iter_parents = true;
+    if (instr.op == VMOp::CheckSlot) has_check_slot = true;
+  }
+
+  // Should NOT use Cartesian product - ?x is shared
+  EXPECT_EQ(iter_all_eclasses_count, 0) << "Should not use Cartesian product when shared var is in middle\nBytecode:\n"
+                                        << bytecode;
+
+  // Should use parent traversal to go from Neg up to Mul
+  EXPECT_TRUE(has_iter_parents) << "Should use IterParents when shared var not at root\nBytecode:\n" << bytecode;
+
+  // Should verify ?y matches (already bound by anchor)
+  EXPECT_TRUE(has_check_slot) << "Should have CheckSlot for verifying shared ?y\nBytecode:\n" << bytecode;
+}
+
 }  // namespace memgraph::planner::core

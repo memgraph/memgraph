@@ -213,6 +213,11 @@ class PatternCompiler : protected PatternCompilerBase {
     std::vector<std::pair<SymbolWithChildren<Symbol>, std::size_t>> steps;
     PatternVar shared_var;
     EClassReg shared_reg;  // Register holding the shared variable's e-class
+
+    // When shared_is_symbol is true, the shared variable is a binding on a symbol node.
+    // In this case, we need to verify the symbol and process ALL its children.
+    bool shared_is_symbol = false;
+    std::optional<SymbolWithChildren<Symbol>> shared_symbol;
   };
 
   // ============================================================================
@@ -271,6 +276,17 @@ class PatternCompiler : protected PatternCompilerBase {
       -> bool;
 
   auto get_symbol_index(Symbol const &sym) -> uint8_t;
+
+  /// Result of emitting symbol structure (iteration, checks, children).
+  struct SymbolStructure {
+    InstrAddr innermost;         // Deepest child backtrack (for exhaustive enum), or backtrack for leaf
+    InstrAddr parent_traversal;  // Backtrack for joined parent traversal: loop_pos for non-leaf, backtrack for leaf
+  };
+
+  /// Emit e-node iteration, symbol/arity checks, and child processing.
+  /// Returns both loop_pos (for parent traversal) and innermost (for exhaustive enumeration).
+  auto emit_symbol_structure(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym,
+                             EClassReg eclass_reg, InstrAddr backtrack) -> SymbolStructure;
 
   std::vector<Symbol> symbols_;  // Symbol table (Symbol-dependent)
 };
@@ -406,6 +422,37 @@ auto PatternCompiler<Symbol>::emit_node(Pattern<Symbol> const &pattern, PatternN
 }
 
 template <typename Symbol>
+auto PatternCompiler<Symbol>::emit_symbol_structure(Pattern<Symbol> const &pattern,
+                                                    SymbolWithChildren<Symbol> const &sym, EClassReg eclass_reg,
+                                                    InstrAddr backtrack) -> SymbolStructure {
+  auto sym_idx = get_symbol_index(sym.sym);
+  auto enode_reg = alloc_enode_reg();
+
+  auto loop_pos =
+      emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg), Instruction::next_enode(enode_reg, backtrack));
+
+  emit(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
+  emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
+
+  // For leaf symbols (no children), existence check is sufficient - after matching
+  // one e-node, backtrack to parent instead of trying more e-nodes in this e-class.
+  // This prevents duplicate matches when an e-class has multiple e-nodes with same symbol.
+  if (sym.children.empty()) {
+    return {backtrack, backtrack};
+  }
+
+  // Process children - each child should backtrack to the innermost loop so far
+  InstrAddr innermost = loop_pos;
+  for (std::size_t i = 0; i < sym.children.size(); ++i) {
+    auto child_reg = alloc_eclass_reg();
+    emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
+    innermost = emit_node(pattern, sym.children[i], child_reg, innermost);
+  }
+
+  return {innermost, loop_pos};
+}
+
+template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, PatternNodeId node_id,
                                                SymbolWithChildren<Symbol> const &sym, EClassReg eclass_reg,
                                                InstrAddr backtrack) -> InstrAddr {
@@ -416,36 +463,7 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
     emit_var_binding(*binding, eclass_reg, backtrack);
   }
 
-  auto sym_idx = get_symbol_index(sym.sym);
-  auto enode_reg = alloc_enode_reg();  // IterENodes produces e-node
-
-  // Emit iteration loop (IterENodes doesn't need backtrack - e-classes always have nodes)
-  auto loop_pos =
-      emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg), Instruction::next_enode(enode_reg, backtrack));
-
-  // Check symbol and arity
-  emit(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
-  emit(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
-
-  // For leaf symbols (no children), existence check is sufficient - after matching
-  // one e-node, backtrack to parent instead of trying more e-nodes in this e-class.
-  // This prevents duplicate matches when an e-class has multiple e-nodes with same symbol.
-  // Even though those e-nodes can be disambiguated and hence are different, we only bind the
-  // e-class, so we only need to do this once.
-  if (sym.children.empty()) {
-    return backtrack;
-  }
-
-  // Process children - each child should backtrack to the innermost loop so far
-  // (not the parent's loop), so that we try all combinations of nested e-nodes
-  InstrAddr innermost = loop_pos;
-  for (std::size_t i = 0; i < sym.children.size(); ++i) {
-    auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
-    emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
-    innermost = emit_node(pattern, sym.children[i], child_reg, innermost);
-  }
-
-  return innermost;
+  return emit_symbol_structure(pattern, sym, eclass_reg, backtrack).innermost;
 }
 
 template <typename Symbol>
@@ -494,12 +512,15 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
   EClassReg current_eclass_reg = path.shared_reg;
   InstrAddr innermost = backtrack;
 
-  // TODO: even if we know shared is bound already we should check that we have the correct symbol + arity
-  //       previous bind could have just been PatternVar
-
   // Scratch register for child index verification - reused across loop iterations since
   // its lifetime doesn't extend past check_eclass_eq (which backtracks within the same iteration)
   std::optional<EClassReg> verify_child_reg;
+
+  // If the shared variable is a binding on a symbol node, we need to verify
+  // the symbol structure and process ALL its children before traversing up.
+  if (path.shared_is_symbol && path.shared_symbol) {
+    innermost = emit_symbol_structure(pattern, *path.shared_symbol, current_eclass_reg, backtrack).parent_traversal;
+  }
 
   // Traverse path in reverse (from shared var up to root)
   // Each step: iterate parents with expected symbol, verify child index
@@ -582,10 +603,16 @@ auto PatternCompiler<Symbol>::find_path_recursive(Pattern<Symbol> const &pattern
                           return false;
                         },
                         [&](SymbolWithChildren<Symbol> const &sym) {
-                          // TODO: we recurse until we see PatternVar but we do not consider
-                          //       if pattern.binding_for(node_id) is bound
-                          //       if we fix this we also need to fix emit_joined_via_parents becasue we need to visit
-                          //       ALL children of this sym
+                          // Check if this symbol node has a binding that's already bound by anchor
+                          if (auto binding = pattern.binding_for(node_id)) {
+                            if (auto it = var_to_reg_.find(*binding); it != var_to_reg_.end()) {
+                              path.shared_var = *binding;
+                              path.shared_reg = it->second;
+                              path.shared_is_symbol = true;  // Need to process all children
+                              path.shared_symbol = sym;
+                              return true;
+                            }
+                          }
 
                           // Recurse into symbol children
                           for (std::size_t i = 0; i < sym.children.size(); ++i) {
