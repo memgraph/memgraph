@@ -716,6 +716,78 @@ TEST_F(PatternVM_Correctness, MultiPattern_CartesianProduct) {
   verify_vm(patterns, kNumNegs * kNumAdds);
 }
 
+TEST_F(PatternVM_Correctness, MultiPattern_SymbolBindingAsSharedVar) {
+  // Test: Multi-pattern where shared variable is a symbol binding.
+  //
+  // Patterns:
+  //   Pattern 0: Add(?x, ?y)         - anchor pattern
+  //   Pattern 1: Mul(?x=Neg(?z), ?w) - ?x is shared AND a symbol binding on Neg
+  //
+  // This requires parent traversal from the Neg node (where ?x binds) up to Mul.
+  //
+  // E-graph setup:
+  //   [a] = Const(1)
+  //   [b] = Const(2)
+  //   [c] = Const(3)
+  //   [w] = Const(4)
+  //   [add] = Add(a, b)        <- matches pattern 0: ?x=a, ?y=b
+  //   [neg] = Neg(c)           <- merged with [a], so neg is in e-class [a]
+  //   [mul] = Mul(neg, w)      <- matches pattern 1: ?x=a (bound to neg), ?z=c, ?w=w
+  //
+  // After merge(a, neg): both Add(a,b) and Mul(Neg(c),w) exist where a's e-class contains Neg(c)
+
+  auto a = leaf(Op::Const, 1);
+  auto b = leaf(Op::Const, 2);
+  auto c = leaf(Op::Const, 3);
+  auto w = leaf(Op::Const, 4);
+
+  [[maybe_unused]] auto add = node(Op::Add, a, b);
+  auto neg = node(Op::Neg, c);
+  node(Op::Mul, neg, w);
+
+  // Merge a with neg - now ?x in Add(?x,?y) can be matched by Neg(?z) in pattern 1
+  merge(a, neg);
+  rebuild_egraph();
+
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}),
+      TestPattern::build(Op::Mul, {BoundSym(kVarX, Op::Neg, Var{kVarZ}), Var{kVarW}}),
+  };
+
+  // Should find exactly 1 match: Add(a,b) with Mul(Neg[a](c), w)
+  verify_vm(patterns, 1);
+}
+
+TEST_F(PatternVM_Correctness, MultiPattern_SymbolBindingAsSharedVar_NoMatch) {
+  // Test: Symbol binding shared var with no valid matches.
+  //
+  // Patterns:
+  //   Pattern 0: Add(?x, ?y)         - anchor pattern
+  //   Pattern 1: Mul(?x=Neg(?z), ?w) - ?x must be e-class containing Neg node
+  //
+  // E-graph: Add and Mul exist, but ?x in Add doesn't contain any Neg node.
+
+  auto a = leaf(Op::Const, 1);
+  auto b = leaf(Op::Const, 2);
+  auto c = leaf(Op::Const, 3);
+  auto w = leaf(Op::Const, 4);
+
+  node(Op::Add, a, b);
+  auto neg = node(Op::Neg, c);
+  node(Op::Mul, neg, w);
+
+  // No merge - ?x from Add won't have a Neg in its e-class
+  rebuild_egraph();
+
+  std::array<TestPattern, 2> patterns = {
+      TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}),
+      TestPattern::build(Op::Mul, {BoundSym(kVarX, Op::Neg, Var{kVarZ}), Var{kVarW}}),
+  };
+
+  // No matches: ?x from Add(a,b) is e-class [a] which has no Neg nodes
+  verify_vm(patterns, 0);
+}
+
 TEST_F(PatternVM_Correctness, MarkSeen_DeduplicatesSameBinding) {
   // Test: MarkSeen deduplication prevents reporting same binding twice.
   //
