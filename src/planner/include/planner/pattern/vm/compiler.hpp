@@ -497,6 +497,10 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
   // TODO: even if we know shared is bound already we should check that we have the correct symbol + arity
   //       previous bind could have just been PatternVar
 
+  // Scratch register for child index verification - reused across loop iterations since
+  // its lifetime doesn't extend past check_eclass_eq (which backtracks within the same iteration)
+  std::optional<EClassReg> verify_child_reg;
+
   // Traverse path in reverse (from shared var up to root)
   // Each step: iterate parents with expected symbol, verify child index
   for (auto const &[sym, child_idx] : path.steps | std::views::reverse) {
@@ -514,9 +518,11 @@ auto PatternCompiler<Symbol>::emit_joined_via_parents(Pattern<Symbol> const &pat
     // Verify the shared variable is at the expected child index (only needed when arity > 1)
     // When arity == 1, IterParents + CheckArity guarantees the only child is our e-class
     if (sym.children.size() > 1) {
-      auto verify_child_reg = alloc_eclass_reg();  // TODO: this is short lived, can we share verify register
-      emit(Instruction::load_child(verify_child_reg, parent_reg, static_cast<uint8_t>(child_idx)));
-      emit(Instruction::check_eclass_eq(verify_child_reg, current_eclass_reg, loop_pos));
+      if (!verify_child_reg) {
+        verify_child_reg = alloc_eclass_reg();
+      }
+      emit(Instruction::load_child(*verify_child_reg, parent_reg, static_cast<uint8_t>(child_idx)));
+      emit(Instruction::check_eclass_eq(*verify_child_reg, current_eclass_reg, loop_pos));
     }
 
     // Process non-shared children (bind new variables, verify structure)
