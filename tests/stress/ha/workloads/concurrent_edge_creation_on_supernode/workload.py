@@ -11,8 +11,8 @@ from ha_common import Protocol, QueryType, cleanup, execute_query, run_parallel
 
 COORDINATOR = "coord_1"
 
-NUM_NODES = 1000
-NUM_WORKERS = 4
+NUM_NODES = 1000000
+NUM_WORKERS = 20
 
 
 def setup_graph() -> None:

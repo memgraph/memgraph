@@ -6,6 +6,7 @@ continuous_integration, or can be configured manually via configure().
 """
 import atexit
 import importlib
+import logging
 import multiprocessing
 import os
 import sys
@@ -16,9 +17,14 @@ from typing import Any, Callable, Iterable, TypeVar
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 
+# Suppress neo4j driver noise (connection pool chatter, retry warnings, etc.)
+# so they don't drown out workload and monitor output.
+logging.getLogger("neo4j").setLevel(logging.CRITICAL)
+
 R = TypeVar("R")
 
 SYNC_REPLICA_ERROR = "At least one SYNC replica has not confirmed committing last transaction."
+WRITE_ON_REPLICA_ERROR = "Write queries are forbidden on the replica instance"
 
 COORDINATOR_INSTANCES = {"coord_1", "coord_2", "coord_3"}
 
@@ -219,6 +225,7 @@ def _run_query(
     query_type: QueryType,
     apply_retry_mechanism: bool,
     result_handler: Callable,
+    database: str | None = None,
 ) -> Any:
     """
     Internal query runner. Returns None if SYNC replica error occurs
@@ -231,7 +238,7 @@ def _run_query(
     for attempt in range(1, max_retries + 1):
         driver = _get_or_create_driver(instance_name, protocol)
         try:
-            with driver.session() as session:
+            with driver.session(database=database) as session:
                 if apply_retry_mechanism:
                     if query_type == QueryType.WRITE:
                         return session.execute_write(lambda tx: result_handler(tx.run(query, params or {})))
@@ -241,8 +248,9 @@ def _run_query(
                     return result_handler(session.run(query, params or {}))
         except Exception as e:
             if SYNC_REPLICA_ERROR in str(e):
+                print(f"\nWARN: Sync replica error (instance={instance_name}): {e}")
                 return None
-            if isinstance(e, ServiceUnavailable):
+            if isinstance(e, ServiceUnavailable) or WRITE_ON_REPLICA_ERROR in str(e):
                 pid = os.getpid()
                 key = (pid, instance_name, protocol.value)
                 _driver_cache.pop(key, None)
@@ -264,6 +272,7 @@ def execute_query(
     protocol: Protocol = Protocol.BOLT,
     query_type: QueryType = QueryType.READ,
     apply_retry_mechanism: bool = False,
+    database: str | None = None,
 ) -> None:
     """Execute a query on a specific instance. Discards results."""
     _run_query(
@@ -274,6 +283,7 @@ def execute_query(
         query_type,
         apply_retry_mechanism,
         result_handler=lambda result: result.consume(),
+        database=database,
     )
 
 
@@ -284,6 +294,7 @@ def execute_and_fetch(
     protocol: Protocol = Protocol.BOLT,
     query_type: QueryType = QueryType.READ,
     apply_retry_mechanism: bool = False,
+    database: str | None = None,
 ) -> list[dict[str, Any]]:
     """Execute a query and return all results as a list of dicts."""
     result = _run_query(
@@ -294,6 +305,7 @@ def execute_and_fetch(
         query_type,
         apply_retry_mechanism,
         result_handler=lambda result: [record.data() for record in result],
+        database=database,
     )
     return result if result is not None else []
 
