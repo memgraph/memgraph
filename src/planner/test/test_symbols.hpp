@@ -12,6 +12,8 @@
 #pragma once
 
 #include <cstdint>
+#include <format>
+#include <string_view>
 
 namespace memgraph::planner::core::test {
 
@@ -66,4 +68,58 @@ enum class Op : uint8_t {
 /// Empty analysis type for tests that don't need e-class analysis
 struct NoAnalysis {};
 
+/// Convert Op to string for debugging
+constexpr auto op_to_string(Op op) -> std::string_view {
+  switch (op) {
+    case Op::Add:
+      return "Add";
+    case Op::Mul:
+      return "Mul";
+    case Op::Neg:
+      return "Neg";
+    case Op::Var:
+      return "Var";
+    case Op::Const:
+      return "Const";
+    case Op::A:
+      return "A";
+    case Op::B:
+      return "B";
+    case Op::C:
+      return "C";
+    case Op::D:
+      return "D";
+    case Op::X:
+      return "X";
+    case Op::Y:
+      return "Y";
+    case Op::F:
+      return "F";
+    case Op::F2:
+      return "F2";
+    case Op::F3:
+      return "F3";
+    case Op::G:
+      return "G";
+    case Op::H:
+      return "H";
+    case Op::Plus:
+      return "Plus";
+    case Op::Bind:
+      return "Bind";
+    case Op::Ident:
+      return "Ident";
+    case Op::Test:
+      return "Test";
+  }
+  return "Unknown";
+}
+
 }  // namespace memgraph::planner::core::test
+
+template <>
+struct std::formatter<memgraph::planner::core::test::Op> : std::formatter<std::string_view> {
+  auto format(memgraph::planner::core::test::Op op, std::format_context &ctx) const {
+    return std::formatter<std::string_view>::format(memgraph::planner::core::test::op_to_string(op), ctx);
+  }
+};

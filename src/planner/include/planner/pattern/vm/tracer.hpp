@@ -279,9 +279,9 @@ auto disassemble(std::span<Instruction const> code, std::span<Symbol const> symb
 
       case VMOp::CheckSymbol:
         if (instr.arg < symbols.size()) {
-          std::format_to(out, " r{}, sym[{}], @{}", instr.src, instr.arg, instr.target);
+          std::format_to(out, " r{}, {} (sym[{}]), @{}", instr.src, symbols[instr.arg], instr.arg, instr.target);
         } else {
-          std::format_to(out, " r{}, @{}", instr.src, instr.target);
+          std::format_to(out, " r{}, sym[{}], @{}", instr.src, instr.arg, instr.target);
         }
         break;
 
