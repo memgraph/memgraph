@@ -39,3 +39,6 @@ workloads:
 
   - config: ../workloads/restarting_instances/workload.yaml
     enabled: true
+
+  - config: ../workloads/responsive_reads/workload.yaml
+    enabled: true

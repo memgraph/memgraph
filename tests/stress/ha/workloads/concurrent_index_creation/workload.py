@@ -149,21 +149,26 @@ def verify_indices(run_index: int) -> None:
         "SHOW INDEX INFO;",
         protocol=Protocol.BOLT_ROUTING,
     )
-    present = {(row["label"], row["property"]) for row in rows if row.get("property") is not None}
+    present = set()
+    for row in rows:
+        prop = row.get("property")
+        if prop is None:
+            continue
+        if isinstance(prop, list):
+            for p in prop:
+                present.add((row["label"], p))
+        else:
+            present.add((row["label"], prop))
     expected = {(label, prop) for label in LABELS for prop in PROPERTIES}
     missing = expected - present
     extra = present - expected
 
     if missing:
-        print(f"ERROR: {len(missing)} indices missing after run {run_index}:")
-        for label, prop in sorted(missing):
-            print(f"  :{label}({prop})")
+        print(f"ERROR: {len(missing)} indices missing after run {run_index}")
         sys.exit(1)
 
     if extra:
-        print(f"WARN: {len(extra)} unexpected indices found after run {run_index}:")
-        for label, prop in sorted(extra):
-            print(f"  :{label}({prop})")
+        print(f"WARN: {len(extra)} unexpected indices found after run {run_index}")
 
     print(f"Index check OK — all {len(expected)} expected indices present.")
 
