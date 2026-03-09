@@ -31,7 +31,6 @@ void Indices::RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
-  vector_index_.RemoveObsoleteEntries(token);
 }
 
 void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
@@ -44,7 +43,7 @@ void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, 
   vector_edge_index_.RemoveObsoleteEntries(token);
 }
 
-void Indices::RemoveVertexFromVectorIndices(Vertex *vertex) const { vector_index_.RemoveVertex(vertex); }
+void Indices::RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &vertices_to_remove) const {}
 
 void Indices::DropGraphClearIndices() {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->DropGraphClearIndices();

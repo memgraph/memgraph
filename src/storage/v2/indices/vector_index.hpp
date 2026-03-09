@@ -244,13 +244,9 @@ class VectorIndex {
   VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
                                       const std::vector<float> &query_vector, NameIdMapper *name_id_mapper) const;
 
-  /// @brief Removes obsolete entries from the index.
-  /// @param token A stop token to allow for cancellation of the operation.
-  void RemoveObsoleteEntries(std::stop_token token) const;
-
-  /// @brief Removes a specific vertex from all vector indices.
+  /// @brief Removes vertices from all vector indices.
   /// Called by GC before skip list removal, while the vertex pointer is still valid.
-  void RemoveVertex(Vertex *vertex) const;
+  void RemoveVertices(std::vector<Vertex *> const &vertices_to_remove) const;
 
   /// @brief Returns an abort processor snapshot used during transaction abort.
   /// @return AbortProcessor containing label/property mappings for vector indices.

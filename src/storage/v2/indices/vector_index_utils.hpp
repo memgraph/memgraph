@@ -17,10 +17,14 @@
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "range/v3/algorithm/remove.hpp"
+#include "storage/v2/indices/tracked_vector_allocator.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+
+#include "usearch/index_dense.hpp"
 
 // Suppress usearch library warnings
 #if defined(__clang__)
@@ -35,6 +39,14 @@
 #endif
 
 namespace memgraph::storage {
+
+using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t, TrackedVectorAllocator<64>,
+                                                        TrackedVectorAllocator<8>>;
+
+struct synchronized_mg_vector_index_t {
+  mg_vector_index_t index;
+  utils::ResourceLock mutex;
+};
 
 /// @enum VectorIndexType
 /// @brief Represents the type of vector index.
@@ -317,7 +329,6 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @brief Updates an entry in the vector index: removes existing entry if present, then adds new vector.
 /// If vector is empty, only removes the entry (if it exists) and returns.
 /// Automatically resizes the index if full during add.
-/// @tparam Index The usearch index type (e.g., index_dense_gt<Key, ...>).
 /// @tparam Key The key type used in the index (e.g., Vertex*, EdgeIndexEntry).
 /// @tparam Spec The index specification type.
 /// @param mg_index The synchronized index wrapper.
@@ -326,6 +337,44 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @param vector The vector to insert into the index.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
 /// @throws query::VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
+template <typename Key, typename Spec>
+void UpdateVectorIndex(synchronized_mg_vector_index_t &mg_index, Spec &spec, const Key &key,
+                       const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
+  if (!vector.empty() && vector.size() != spec.dimension) {
+    throw query::VectorSearchException(
+        "Vector index property must have the same number of dimensions as specified in the index.");
+  }
+
+  auto thread_id_for_adding = thread_id.value_or(mg_vector_index_t::any_thread());
+  // Single exclusive lock for the entire operation. USearch has internal concurrency
+  // bugs (see USearch issue #697) that make shared-lock concurrent add/remove unsafe.
+  auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::WRITE);
+
+  if (mg_index.index.contains(key)) {
+    mg_index.index.remove(key);
+  }
+  if (vector.empty()) return;
+
+  auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
+  if (!result.error) return;
+
+  // add() failed — resize and retry.
+  result.error.release();
+  const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * mg_index.index.capacity());
+  const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
+  if (!mg_index.index.try_reserve(new_limits)) {
+    throw query::VectorSearchException("Failed to resize vector index.");
+  }
+  spec.capacity = mg_index.index.capacity();
+
+  result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
+  if (result.error) {
+    result.error.release();
+    throw query::VectorSearchException("Failed to add entry to vector index.");
+  }
+}
+
+/// @brief Overload for edge vector indices that still use utils::Synchronized<Index, std::shared_mutex>.
 template <typename Index, typename Key, typename Spec>
 void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
                        const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
@@ -335,8 +384,6 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
   }
 
   auto thread_id_for_adding = thread_id.value_or(Index::any_thread());
-  // Single exclusive lock for the entire operation. USearch has internal concurrency
-  // bugs (see USearch #697) that make shared-lock concurrent add/remove unsafe.
   auto locked_index = mg_index.Lock();
 
   if (locked_index->contains(key)) {
@@ -347,7 +394,6 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
   auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
   if (!result.error) return;
 
-  // add() failed — resize and retry.
   result.error.release();
   const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * locked_index->capacity());
   const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());

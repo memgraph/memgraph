@@ -162,7 +162,7 @@ TEST_F(VectorIndexTest, DeleteVertexTest) {
 
   // Vertex is deleted after gc runs
   auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-  mem_storage->indices_.vector_index_.RemoveVertex(vertex.vertex_);
+  mem_storage->indices_.vector_index_.RemoveVertices({vertex.vertex_});
   EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
 }
 
@@ -302,47 +302,13 @@ TEST_F(VectorIndexTest, RemoveVertexTest) {
     EXPECT_EQ(maybe_deleted_vertex.has_value(), true);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    mem_storage->indices_.vector_index_.RemoveVertex(vertex.vertex_);
+    mem_storage->indices_.vector_index_.RemoveVertices({vertex.vertex_});
   }
 
   // Expect the index to have 1 entry, as gc hasn't run yet
   {
     auto acc = this->storage->Access(memgraph::storage::READ);
     EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
-  }
-}
-
-TEST_F(VectorIndexTest, RemoveObsoleteEntriesConcurrentAddRaceTest) {
-  // Regression: RemoveObsoleteEntries calls size() then export_keys() without
-  // holding the same internal lock. A concurrent add() increments
-  // nodes_count_ (used by size()) before inserting into slot_lookup_
-  // (iterated by export_keys()). This leaves nullptr entries in the exported
-  // buffer; without a null guard the filter dereferences nullptr.
-  static constexpr int kVerticesPerThread = 100;
-  static constexpr int kNumWriterThreads = 4;
-  static constexpr int kCapacity = kVerticesPerThread * kNumWriterThreads * 2;
-
-  this->CreateIndex(2, kCapacity);
-  auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-
-  std::jthread gc_thread([&](std::stop_token stoken) {
-    while (!stoken.stop_requested()) {
-      mem_storage->indices_.vector_index_.RemoveObsoleteEntries(std::stop_token());
-    }
-  });
-
-  std::vector<std::jthread> writer_threads;
-  writer_threads.reserve(kNumWriterThreads);
-  for (int t = 0; t < kNumWriterThreads; t++) {
-    writer_threads.emplace_back([this, t]() {
-      for (int i = 0; i < kVerticesPerThread; i++) {
-        auto acc = this->storage->Access(memgraph::storage::WRITE);
-        auto val = static_cast<float>((t * kVerticesPerThread) + i);
-        auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{val, val + 1.0F});
-        [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
-        ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-      }
-    });
   }
 }
 
