@@ -669,13 +669,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           &storage->enum_store_,
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
           &storage->ttl_,
-<<<<<<< HEAD
           &storage->description_store_,
-          snapshot_observer_info);
-=======
           snapshot_observer_info,
           storage->light_edge_pool_.get());
->>>>>>> e6a19f0cc (feat: Handle replication, schema info, and TTL with light edges)
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
       storage->uuid().set(snapshot_info.uuid);

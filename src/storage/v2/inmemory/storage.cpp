@@ -252,7 +252,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
 // we need to wait until oldest_active_start_timestamp >= commit_timestamp before
 // freeing — exactly the graveyard drain condition with this mark.
 void GraveyardDeletedLightEdges(
-    delta_container const &deltas, uint64_t commit_timestamp,
+    delta_container const &deltas, uint64_t commit_timestamp, uint64_t guard_epoch,
     utils::Synchronized<std::list<InMemoryStorage::LightEdgeGraveyardEntry>, utils::SpinLock> &graveyard) {
   std::vector<Edge *> deleted;
   for (auto const &delta : deltas) {
@@ -263,7 +263,7 @@ void GraveyardDeletedLightEdges(
     }
   }
   if (!deleted.empty()) {
-    graveyard.WithLock([&](auto &g) { g.push_back({commit_timestamp, std::move(deleted)}); });
+    graveyard.WithLock([&](auto &g) { g.push_back({commit_timestamp, guard_epoch, std::move(deleted)}); });
   }
 }
 
@@ -692,8 +692,10 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
           auto engine_guard = std::unique_lock{mem_storage->engine_lock_};
           mark_timestamp = mem_storage->timestamp_;
         }
-        mem_storage->light_edge_graveyard_.WithLock(
-            [&](auto &graveyard) { graveyard.push_back({mark_timestamp, std::move(deleted_light_edges)}); });
+        auto guard_epoch = mem_storage->light_edge_iterable_tracker_.CurrentEpoch();
+        mem_storage->light_edge_graveyard_.WithLock([&](auto &graveyard) {
+          graveyard.push_back({mark_timestamp, guard_epoch, std::move(deleted_light_edges)});
+        });
       }
     }
   }};
@@ -1294,7 +1296,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // that committed_transactions_ / GCRapidDeltaCleanup never need to handle
   // light edge graveyard staging — they just unlink the delta chain.
   if (config_.storage_light_edge) {
-    GraveyardDeletedLightEdges(transaction_.deltas, *commit_timestamp_, mem_storage->light_edge_graveyard_);
+    auto guard_epoch = mem_storage->light_edge_iterable_tracker_.CurrentEpoch();
+    GraveyardDeletedLightEdges(
+        transaction_.deltas, *commit_timestamp_, guard_epoch, mem_storage->light_edge_graveyard_);
   }
 
   CheckForFastDiscardOfDeltas();
@@ -1816,8 +1820,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // (abort_mark_timestamp <= oldest_active_start_timestamp) ensures all such readers
     // have finished before the pool memory is reclaimed.
     if (!my_deleted_light_edges.empty()) {
-      mem_storage->light_edge_graveyard_.WithLock(
-          [&](auto &graveyard) { graveyard.push_back({abort_mark_timestamp, std::move(my_deleted_light_edges)}); });
+      auto guard_epoch = mem_storage->light_edge_iterable_tracker_.CurrentEpoch();
+      mem_storage->light_edge_graveyard_.WithLock([&](auto &graveyard) {
+        graveyard.push_back({abort_mark_timestamp, guard_epoch, std::move(my_deleted_light_edges)});
+      });
     }
   }
 
@@ -2482,23 +2488,20 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property,
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, View view,
                                                                      size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_->edge_type_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(
-      edge_type, std::move(vertices_acc), std::move(edges_acc), view, storage_, &transaction_, num_chunks));
+  return EdgesChunkedIterable(
+      active_indices->ChunkedEdges(edge_type, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
                                                                      View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
                                                            property,
                                                            std::move(vertices_acc),
-                                                           std::move(edges_acc),
                                                            std::nullopt,
                                                            std::nullopt,
                                                            view,
@@ -2511,13 +2514,11 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
     EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
                                                            property,
                                                            std::move(vertices_acc),
-                                                           std::move(edges_acc),
                                                            lower_bound,
                                                            upper_bound,
                                                            view,
@@ -2529,29 +2530,19 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property, View view,
                                                                      size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
-                                                           std::move(vertices_acc),
-                                                           std::move(edges_acc),
-                                                           std::nullopt,
-                                                           std::nullopt,
-                                                           view,
-                                                           storage_,
-                                                           &transaction_,
-                                                           num_chunks));
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(
+      property, std::move(vertices_acc), std::nullopt, std::nullopt, view, storage_, &transaction_, num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property, const PropertyValue &value,
                                                                      View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
                                                            std::move(vertices_acc),
-                                                           std::move(edges_acc),
                                                            utils::MakeBoundInclusive(value),
                                                            utils::MakeBoundInclusive(value),
                                                            view,
@@ -2564,18 +2555,10 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
     PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
-                                                           std::move(vertices_acc),
-                                                           std::move(edges_acc),
-                                                           lower_bound,
-                                                           upper_bound,
-                                                           view,
-                                                           storage_,
-                                                           &transaction_,
-                                                           num_chunks));
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(
+      property, std::move(vertices_acc), lower_bound, upper_bound, view, storage_, &transaction_, num_chunks));
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
@@ -3184,7 +3167,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // hold an Edge* from these entries (all readers started after mark_timestamp).
   if (light_edges) {
     light_edge_graveyard_.WithLock([&](auto &graveyard) {
-      while (!graveyard.empty() && graveyard.front().mark_timestamp <= oldest_active_start_timestamp) {
+      while (!graveyard.empty() && graveyard.front().mark_timestamp <= oldest_active_start_timestamp &&
+             light_edge_iterable_tracker_.IsSafeToFree(graveyard.front().guard_epoch)) {
         for (auto *edge : graveyard.front().edges) {
           DeleteLightEdge(edge);
         }
@@ -4688,8 +4672,11 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   std::vector<std::tuple<EdgeAccessor, double, double>> result;
 
-  // we have to take edges accessor to be sure no edge is deleted while we are searching
-  auto acc = mem_storage->edges_.access();
+  // Pin edge memory for the duration of the search: in normal-edge mode this is a SkipList
+  // ConstAccessor that prevents GC from freeing edges_ nodes; in light-edge mode it acquires
+  // an epoch ID from light_edge_iterable_tracker_ so the graveyard drain cannot free
+  // pool-allocated Edge* while filtered_search dereferences entry.edge.
+  auto edge_pin = mem_storage->MakeEdgePin();
   auto edge_type_id = mem_storage->indices_.vector_edge_index_.GetEdgeTypeId(index_name);
   const auto search_results = storage_->indices_.vector_edge_index_.SearchEdges(index_name, number_of_results, vector);
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {

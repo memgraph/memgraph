@@ -17,6 +17,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
@@ -422,12 +423,11 @@ void InMemoryEdgeTypePropertyIndex::DropGraphClearIndices() {
 
 InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
                                                   utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-                                                  utils::SkipList<Edge>::ConstAccessor edge_accessor,
-                                                  EdgeTypeId edge_type, PropertyId property,
+                                                  EdgePin edge_pin, EdgeTypeId edge_type, PropertyId property,
                                                   const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                   const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                   View view, Storage *storage, Transaction *transaction)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
@@ -489,10 +489,10 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
             edge_type.AsUint(),
             property.AsUint());
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   return {it->second->skiplist.access(),
           std::move(vertex_acc),
-          std::move(edge_acc),
+          std::move(edge_pin),
           edge_type,
           property,
           lower_bound,
@@ -504,7 +504,7 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
 
 InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::ActiveIndices::ChunkedEdges(
     EdgeTypeId edge_type, PropertyId property, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
   auto it = index_container_->find({edge_type, property});
@@ -512,9 +512,10 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::Ac
             "Index for edge type {} and property {} doesn't exist",
             edge_type.AsUint(),
             property.AsUint());
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   return {it->second->skiplist.access(),
           std::move(vertex_accessor),
-          std::move(edge_accessor),
+          std::move(edge_pin),
           edge_type,
           property,
           lower_bound,
@@ -567,11 +568,11 @@ void InMemoryEdgeTypePropertyIndex::CleanupAllIndices() {
 
 InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, PropertyId property,
+    EdgePin edge_pin, EdgeTypeId edge_type, PropertyId property,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
