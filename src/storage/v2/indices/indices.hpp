@@ -53,6 +53,10 @@ struct Indices {
   /// the vertex is removed from the skip list (while the pointer is still valid).
   void RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &vertices_to_remove) const;
 
+  /// Removes edges from all vector edge indices. Must be called before
+  /// the edge is removed from the skip list (while the pointer is still valid).
+  void RemoveEdgesFromVectorEdgeIndices(std::list<Gid> const &deleted_edge_gids) const;
+
   struct AbortProcessor {
     LabelIndex::AbortProcessor label_;
     LabelPropertyIndex::AbortProcessor label_properties_;

@@ -339,9 +339,9 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @param vector The vector to insert into the index.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
 /// @throws query::VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
-template <typename Key, typename Spec>
-void UpdateVectorIndex(synchronized_mg_vector_index_t &mg_index, Spec &spec, const Key &key,
-                       const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
+template <typename SyncIndex, typename Key, typename Spec>
+void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const utils::small_vector<float> &vector,
+                       std::optional<std::size_t> thread_id = std::nullopt) {
   if (vector.empty()) {
     // Setting empty vector on Abort
     auto guard = std::lock_guard{mg_index.mutex};
@@ -356,7 +356,7 @@ void UpdateVectorIndex(synchronized_mg_vector_index_t &mg_index, Spec &spec, con
         "Vector index property must have the same number of dimensions as specified in the index.");
   }
 
-  auto thread_id_for_adding = thread_id.value_or(mg_vector_index_t::any_thread());
+  auto thread_id_for_adding = thread_id.value_or(std::remove_reference_t<decltype(mg_index.index)>::any_thread());
 
   // Happy path. Take WRITE lock to allow multiple concurrent writes
   {
@@ -400,41 +400,6 @@ void UpdateVectorIndex(synchronized_mg_vector_index_t &mg_index, Spec &spec, con
   }
   result.error.release();
   throw query::VectorSearchException("Failed to add entry to vector index.");
-}
-
-/// @brief Overload for edge vector indices that still use utils::Synchronized<Index, std::shared_mutex>.
-template <typename Index, typename Key, typename Spec>
-void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
-                       const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
-  if (!vector.empty() && vector.size() != spec.dimension) {
-    throw query::VectorSearchException(
-        "Vector index property must have the same number of dimensions as specified in the index.");
-  }
-
-  auto thread_id_for_adding = thread_id.value_or(Index::any_thread());
-  auto locked_index = mg_index.Lock();
-
-  if (locked_index->contains(key)) {
-    locked_index->remove(key);
-  }
-  if (vector.empty()) return;
-
-  auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
-  if (!result.error) return;
-
-  result.error.release();
-  const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * locked_index->capacity());
-  const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
-  if (!locked_index->try_reserve(new_limits)) {
-    throw query::VectorSearchException("Failed to resize vector index.");
-  }
-  spec.capacity = locked_index->capacity();
-
-  result = locked_index->add(key, vector.data(), thread_id_for_adding);
-  if (result.error) {
-    result.error.release();
-    throw query::VectorSearchException("Failed to add entry to vector index.");
-  }
 }
 
 /// @brief Populates a vector index by iterating over vertices on a single thread.
