@@ -94,8 +94,10 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
     deleted = false;
     PropertyValue property_value;
 
-    MvccRead edge_reader{
-        edge_ref.ptr, &tx, View::OLD, [&](Edge const &e) { property_value = e.properties.GetProperty(property); }};
+    MvccRead edge_reader{edge_ref.ptr, &tx, View::OLD, [&](Edge const &e) {
+                           deleted = e.deleted();
+                           property_value = e.properties.GetProperty(property);
+                         }};
 
     edge_reader.ApplyDeltasForRead([&](Delta const &delta) {
       // clang-format off
