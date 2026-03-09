@@ -309,6 +309,7 @@ class FineGrainedAccessPermissions final {
   std::optional<uint64_t> const &GetGlobalGrants() const;
   std::optional<uint64_t> const &GetGlobalDenies() const;
   std::vector<FineGrainedAccessRule> const &GetRules() const;
+  bool HasAnyRuleDenies() const;
 
  private:
   std::optional<uint64_t> global_grants_;
