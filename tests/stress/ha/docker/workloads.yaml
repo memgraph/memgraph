@@ -6,7 +6,7 @@ defaults:
   memgraph:
     deployment:
       externally_managed: false
-    args: []
+    args: ["--log-level=TRACE", "--logger-type=async"]
     env: {}
   cluster:
     coordinators:
@@ -34,4 +34,7 @@ workloads:
     enabled: true
 
   - config: ../workloads/restarting_instances/workload.yaml
+    enabled: true
+
+  - config: ../workloads/vector_index_recovery/workload.yaml
     enabled: true

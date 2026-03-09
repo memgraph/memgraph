@@ -13,8 +13,8 @@ from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_q
 COORDINATOR = "coord_1"
 DATA_INSTANCES = sorted(instance for instance in get_instance_names() if instance.startswith("data_"))
 
-NUM_NODES = 100000
-NUM_WORKERS = 8
+NUM_NODES = 1000000
+NUM_WORKERS = 20
 REPLICA_SYNC_TIMEOUT_SEC = 120
 
 
