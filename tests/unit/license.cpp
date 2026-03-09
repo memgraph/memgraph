@@ -130,11 +130,8 @@ TEST_F(LicenseTest, CliLicense) {
   memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
   const std::string license_key = memgraph::license::Encode(license);
 
-  {
-    SCOPED_TRACE("Checker should use CLI info instead of info from the settings");
-    license_checker->SetCliLicense(license_key, organization_name, *settings);
-    CheckLicenseValidity(true);
-  }
+  license_checker->SetCliLicense(license_key, organization_name, *settings);
+  CheckLicenseValidity(true);
 }
 
 TEST_F(LicenseTest, LicenseType) {
@@ -145,12 +142,6 @@ TEST_F(LicenseTest, LicenseType) {
     const std::string license_key = memgraph::license::Encode(license_entr);
     license_checker->SetCliLicense(license_key, organization_name, *settings);
     CheckLicenseValidity(true);
-  }
-  {
-    memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM};
-    const std::string license_key = memgraph::license::Encode(license_oem);
-    license_checker->SetCliLicense(license_key, organization_name, *settings);
-    CheckLicenseValidity(false);
   }
   {
     memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM};
@@ -238,19 +229,25 @@ TEST_F(LicenseTest, MultiSource_DbOnly) {
   CheckLicenseValidity(true);
 }
 
-// CLI and DB carry the same key (same expiry) → CLI wins on source priority.
+// CLI and DB have same expiry but different keys → CLI wins on source priority.
+// We use different memory_limit values to distinguish the keys.
 TEST_F(LicenseTest, MultiSource_CliWinsTiebreak) {
   const std::string org{"Memgraph"};
-  memgraph::license::License lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  const std::string key = memgraph::license::Encode(lic);
+  // DB key: memory_limit=100
+  memgraph::license::License db_lic{org, 0, 100, memgraph::license::LicenseType::ENTERPRISE};
+  const std::string db_key = memgraph::license::Encode(db_lic);
+  // CLI key: memory_limit=200, same expiry (0 = forever)
+  memgraph::license::License cli_lic{org, 0, 200, memgraph::license::LicenseType::ENTERPRISE};
+  const std::string cli_key = memgraph::license::Encode(cli_lic);
+
   // Seed DB first.
-  settings->SetValue("enterprise.license", key);
+  settings->SetValue("enterprise.license", db_key);
   settings->SetValue("organization.name", org);
-  // Set CLI with the identical key; CLI should win (priority 2 > 0).
-  license_checker->SetCliLicense(key, org, *settings);
+  // Set CLI; same expiry so CLI wins on priority (2 > 0).
+  license_checker->SetCliLicense(cli_key, org, *settings);
   CheckLicenseValidity(true);
-  // Settings must reflect the CLI winner written back by SetValueForce.
-  ASSERT_EQ(settings->GetValue("enterprise.license").value(), key);
+  // Settings must reflect the CLI winner (cli_key, not db_key).
+  ASSERT_EQ(settings->GetValue("enterprise.license").value(), cli_key);
 }
 
 // DB has later expiry (forever) than CLI (finite) → DB wins despite lower source priority.
@@ -423,8 +420,9 @@ TEST_F(LicenseTest, LiveUpdate_CliLongerExpiry) {
 // Community mode transitions
 // ===========================================================================
 
+// Transition: valid license → org name changed to mismatch → community mode.
 // All sources fail → is_valid_ goes false, license info cleared.
-TEST_F(LicenseTest, CommunityMode_AllSourcesFail) {
+TEST_F(LicenseTest, CommunityMode_OrgNameMismatch) {
   const std::string org{"Memgraph"};
   memgraph::license::License lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
   settings->SetValue("enterprise.license", memgraph::license::Encode(lic));
@@ -432,21 +430,9 @@ TEST_F(LicenseTest, CommunityMode_AllSourcesFail) {
   CheckLicenseValidity(true);
 
   // Break the only source: org name mismatch → no valid candidate.
-  settings->SetValue("organization.name", fmt::format("{}wrong", org));
-  CheckLicenseValidity(false);
-  auto info = license_checker->GetDetailedLicenseInfo();
-  ASSERT_FALSE(info.is_valid);
-}
-
-// Transition: valid license → org name changed to mismatch → community mode.
-TEST_F(LicenseTest, CommunityMode_OrgNameChangedToMismatch) {
-  const std::string org{"Memgraph"};
-  memgraph::license::License lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  settings->SetValue("enterprise.license", memgraph::license::Encode(lic));
-  settings->SetValue("organization.name", org);
-  CheckLicenseValidity(true);
-
   settings->SetValue("organization.name", "SomeOtherOrg");
   ASSERT_FALSE(license_checker->IsEnterpriseValid(*settings).has_value());
   ASSERT_FALSE(license_checker->IsEnterpriseValidFast());
+  auto info = license_checker->GetDetailedLicenseInfo();
+  ASSERT_FALSE(info.is_valid);
 }
