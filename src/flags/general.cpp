@@ -133,7 +133,7 @@ DEFINE_bool(storage_enable_edges_metadata, false,
             "certain queries.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_light_edge, false,
+DEFINE_bool(storage_light_edge, true,
             "Controls whether edges are stored as lightweight objects in order to reduce memory footprint; implies "
             "--storage-properties-on-edges.");
 
