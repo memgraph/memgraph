@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,7 @@
 #include <gflags/gflags.h>
 #include <nlohmann/json.hpp>
 
+#include "communication/init.hpp"
 #include "io/network/utils.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
@@ -64,14 +65,16 @@ class BfsPokecClient : public TestClient {
           "MATCH (n:User {id: $start}), (m:User {id: $end}), "
           "p = (n)-[*bfs..15]->(m) "
           "RETURN extract(n in nodes(p) | n.id) AS path",
-          {{"start", start}, {"end", end}}, "Bfs");
+          {{"start", start}, {"end", end}},
+          "Bfs");
       MG_ASSERT(result, "Read-only query should not fail!");
     } else if (FLAGS_db == "neo4j") {
       auto result = Execute(
           "MATCH p = shortestPath("
           "(n:User {id: $start})-[*..15]->(m:User {id: $end}))"
           "RETURN [x in nodes(p) | x.id] AS path;",
-          {{"start", start}, {"end", end}}, "Bfs");
+          {{"start", start}, {"end", end}},
+          "Bfs");
       MG_ASSERT(result, "Read-only query should not fail!");
     }
   }
@@ -82,14 +85,16 @@ class BfsPokecClient : public TestClient {
       auto result = Execute(
           "MATCH p = (n:User {id: $start})-[*bfs..15]->(m:User) WHERE m != n "
           "RETURN extract(n in nodes(p) | n.id) AS path",
-          {{"start", start}}, "Bfs");
+          {{"start", start}},
+          "Bfs");
       MG_ASSERT(result, "Read-only query should not fail!");
     } else {
       auto result = Execute(
           "MATCH p = shortestPath("
           "(n:User {id: $start})-[*..15]->(m:User)) WHERE m <> n "
           "RETURN [x in nodes(p) | x.id] AS path;",
-          {{"start", start}}, "Bfs");
+          {{"start", start}},
+          "Bfs");
       MG_ASSERT(result, "Read-only query should not fail!");
     }
   }
