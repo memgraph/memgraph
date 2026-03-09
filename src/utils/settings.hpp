@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,6 +31,9 @@ struct Settings {
       Validation validation = [](auto) -> ValidatorResult { return {}; });
   std::optional<std::string> GetValue(const std::string &setting_name) const;
   bool SetValue(const std::string &setting_name, const std::string &new_value);
+  // Write directly to KVStore, bypassing validation and the on-change callback.
+  // Use only for internal system writes (e.g. persisting the winning license back to storage).
+  void SetValueForce(const std::string &setting_name, const std::string &new_value);
   std::vector<std::pair<std::string, std::string>> AllSettings() const;
 
  private:

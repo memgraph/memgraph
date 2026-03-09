@@ -11,13 +11,16 @@
 
 #include "license/license.hpp"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <type_traits>
+#include <vector>
 
 #include "slk/serialization.hpp"
 #include "utils/base64.hpp"
@@ -81,8 +84,27 @@ std::string LicenseTypeToString(const LicenseType license_type) {
 }
 
 void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings) {
+  // Validate that the license key is well-formed and not already expired.
+  // Org name mismatch is caught later in RevalidateLicense; the user gets a warning there.
+  auto validate_license_key = [](std::string_view new_value) -> utils::Settings::ValidatorResult {
+    if (new_value.empty()) return {};
+    const auto maybe_license = Decode(new_value);
+    if (!maybe_license) {
+      return std::unexpected<std::string>{"Invalid license key: could not be decoded."};
+    }
+    const auto now =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    if (maybe_license->valid_until != 0 && now > maybe_license->valid_until) {
+      return std::unexpected<std::string>{"Invalid license key: the license has already expired."};
+    }
+    return {};
+  };
+
   settings.RegisterSetting(
-      std::string{kEnterpriseLicenseSettingKey}, "", [&] { license_checker.RevalidateLicense(settings); });
+      std::string{kEnterpriseLicenseSettingKey},
+      "",
+      [&] { license_checker.RevalidateLicense(settings); },
+      validate_license_key);
   settings.RegisterSetting(
       std::string{kOrganizationNameSettingKey}, "", [&] { license_checker.RevalidateLicense(settings); });
 }
@@ -92,97 +114,110 @@ LicenseChecker global_license_checker;
 
 LicenseChecker::~LicenseChecker() { Finalize(); }
 
-std::pair<std::string, std::string> LicenseChecker::ExtractLicenseInfo(const utils::Settings &settings) const {
-  if (license_info_override_) {
-    spdlog::warn("Ignoring license info stored in the settings because a different source was specified.");
-    return *license_info_override_;
-  }
-
-  auto license_key = settings.GetValue(std::string{kEnterpriseLicenseSettingKey});
-  MG_ASSERT(license_key, "License key is missing from the settings");
-
-  auto organization_name = settings.GetValue(std::string{kOrganizationNameSettingKey});
-  MG_ASSERT(organization_name, "Organization name is missing from the settings");
-  return std::make_pair(std::move(*license_key), std::move(*organization_name));
-}
-
-void LicenseChecker::RevalidateLicense(const utils::Settings &settings) {
-  const auto license_info = ExtractLicenseInfo(settings);
-  RevalidateLicense(license_info.first, license_info.second);
-}
-
-void LicenseChecker::RevalidateLicense(const std::string &license_key, const std::string &organization_name) {
+void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   spdlog::trace("License revalidation started");
+
   static utils::Synchronized<std::optional<int64_t>, utils::SpinLock> previous_memory_limit;
-  const auto set_memory_limit = [](const auto memory_limit) {
-    auto locked_previous_memory_limit_ptr = previous_memory_limit.Lock();
-    auto &locked_previous_memory_limit = *locked_previous_memory_limit_ptr;
-    if (!locked_previous_memory_limit || *locked_previous_memory_limit != memory_limit) {
+  const auto set_memory_limit = [](const int64_t memory_limit) {
+    auto locked = previous_memory_limit.Lock();
+    if (!*locked || **locked != memory_limit) {
       utils::total_memory_tracker.SetHardLimit(memory_limit);
-      locked_previous_memory_limit = memory_limit;
+      *locked = memory_limit;
     }
   };
 
   if (enterprise_enabled_) [[unlikely]] {
-    is_valid_.store(true, std::memory_order_relaxed);
+    is_valid_.store(true, std::memory_order_release);
     set_memory_limit(0);
     return;
   }
 
-  auto locked_previous_license_info_ptr = previous_license_info_.Lock();
-  auto &locked_previous_license_info = *locked_previous_license_info_ptr;
-  const bool same_license_info = locked_previous_license_info &&
-                                 locked_previous_license_info->license_key == license_key &&
-                                 locked_previous_license_info->organization_name == organization_name;
-  if (!same_license_info) {
-    // New license, reset the previous license info
-    locked_previous_license_info.emplace(license_key, organization_name);
-  } else if (!locked_previous_license_info->is_valid) {
-    // If we already know it's invalid skip the check
-    return;
-  }
+  // Collect candidates from all three sources: DB (priority 0), ENV (1), CLI (2).
+  struct Candidate {
+    License license;
+    std::string key;
+    std::string org;
+    int priority;
+  };
 
-  auto maybe_license = GetLicense(locked_previous_license_info->license_key);
-  if (!maybe_license) {
-    spdlog::warn(LicenseCheckErrorToString(LicenseCheckError::INVALID_LICENSE_KEY_STRING, "Enterprise features"));
-    is_valid_.store(false, std::memory_order_relaxed);
-    locked_previous_license_info->is_valid = false;
-    set_memory_limit(0);
-    return;
-  }
+  std::vector<Candidate> valid_candidates;
 
-  const auto license_check_result =
-      IsValidLicenseInternal(*maybe_license, locked_previous_license_info->organization_name);
-
-  if (!license_check_result) {
-    spdlog::warn(LicenseCheckErrorToString(license_check_result.error(), "Enterprise features"));
-    is_valid_.store(false, std::memory_order_relaxed);
-    locked_previous_license_info->is_valid = false;
-    license_type_ = maybe_license->type;
-    set_memory_limit(0);
-    return;
-  }
-
-  // If we got here, the license is valid; update if the license changed (same but invalid license would already have
-  // returned)
-  if (!same_license_info) {
-    license_type_ = maybe_license->type;
-    if (license_type_ == LicenseType::ENTERPRISE) {
-      spdlog::info("Enterprise license is active.");
-    } else {
-      spdlog::info("OEM license is active.");
+  auto try_add = [&](std::string_view key, std::string_view org, int priority, std::string_view source_name) {
+    if (key.empty() && org.empty()) return;
+    if (key.empty() || org.empty()) {
+      spdlog::warn("[{}] Both license key and organization name are required.", source_name);
+      return;
     }
-    is_valid_.store(true, std::memory_order_relaxed);
-    locked_previous_license_info->is_valid = true;
-    set_memory_limit(maybe_license->memory_limit);
-    locked_previous_license_info->license = std::move(*maybe_license);
+    const auto maybe_license = GetLicense(key);
+    if (!maybe_license) {
+      spdlog::warn("[{}] {}",
+                   source_name,
+                   LicenseCheckErrorToString(LicenseCheckError::INVALID_LICENSE_KEY_STRING, "Enterprise features"));
+      return;
+    }
+    const auto check = IsValidLicenseInternal(*maybe_license, org);
+    if (!check) {
+      spdlog::warn("[{}] {}", source_name, LicenseCheckErrorToString(check.error(), "Enterprise features"));
+      return;
+    }
+    valid_candidates.push_back({*maybe_license, std::string{key}, std::string{org}, priority});
+  };
+
+  auto db_key = settings.GetValue(std::string{kEnterpriseLicenseSettingKey}).value_or("");
+  auto db_org = settings.GetValue(std::string{kOrganizationNameSettingKey}).value_or("");
+  try_add(db_key, db_org, 0, "DB");
+
+  if (env_license_info_) try_add(env_license_info_->first, env_license_info_->second, 1, "ENV");
+  if (cli_license_info_) try_add(cli_license_info_->first, cli_license_info_->second, 2, "CLI");
+
+  if (valid_candidates.empty()) {
+    auto locked = previous_license_info_.Lock();
+    if (*locked) {
+      spdlog::warn("No valid license found. Running in community mode.");
+      locked->reset();
+    }
+    is_valid_.store(false, std::memory_order_relaxed);
+    set_memory_limit(0);
+    return;
   }
+
+  // Select the winner: furthest expiry wins; source priority (CLI > ENV > DB) breaks ties.
+  // valid_until == 0 means the license never expires, treated as INT64_MAX.
+  const auto expiry_of = [](const Candidate &c) -> int64_t {
+    return c.license.valid_until == 0 ? std::numeric_limits<int64_t>::max() : c.license.valid_until;
+  };
+  const auto &winner = *std::ranges::max_element(valid_candidates, [&](const Candidate &a, const Candidate &b) {
+    if (expiry_of(a) != expiry_of(b)) return expiry_of(a) < expiry_of(b);
+    return a.priority < b.priority;
+  });
+
+  // Persist winner to Settings so it survives restarts where CLI/ENV are absent.
+  settings.SetValueForce(std::string{kEnterpriseLicenseSettingKey}, winner.key);
+  settings.SetValueForce(std::string{kOrganizationNameSettingKey}, winner.org);
+
+  // Log and update stored state only when the winner changes.
+  {
+    auto locked = previous_license_info_.Lock();
+    const bool changed = !*locked || (*locked)->license_key != winner.key || (*locked)->organization_name != winner.org;
+    if (changed) {
+      spdlog::info("{} license is active.", LicenseTypeToString(winner.license.type));
+      locked->emplace(winner.key, winner.org);
+      (*locked)->is_valid = true;
+      (*locked)->license = winner.license;
+      set_memory_limit(winner.license.memory_limit);
+    }
+  }
+
+  // Write license_type_ before the release store so the acquire load in IsEnterpriseValidFast()
+  // establishes a happens-before and reads the correct type.
+  license_type_ = winner.license.type;
+  is_valid_.store(true, std::memory_order_release);
 }
 
 void LicenseChecker::EnableTesting(const LicenseType license_type) {
   enterprise_enabled_ = true;
-  is_valid_.store(true, std::memory_order_relaxed);
   license_type_ = license_type;
+  is_valid_.store(true, std::memory_order_release);
   spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
 }
 
@@ -194,29 +229,19 @@ void LicenseChecker::DisableTesting() {
 
 void LicenseChecker::CheckEnvLicense(utils::Settings &settings) {
   const char *license_key = std::getenv("MEMGRAPH_ENTERPRISE_LICENSE");
-  if (!license_key) {
-    return;
-  }
-
   const char *organization_name = std::getenv("MEMGRAPH_ORGANIZATION_NAME");
-  if (!organization_name) {
+  if (!license_key || !organization_name) {
     return;
   }
-
-  spdlog::warn("Using license info from environment variables");
-  SetLicenseInfoOverride(license_key, organization_name, settings);
+  spdlog::warn("License info found in environment variables.");
+  env_license_info_.emplace(license_key, organization_name);
+  RevalidateLicense(settings);
 }
 
-void LicenseChecker::SetLicenseInfoOverride(std::string license_key, std::string organization_name,
-                                            utils::Settings &settings) {
-  license_info_override_.emplace(std::move(license_key), std::move(organization_name));
-  if (!settings.SetValue(std::string{kEnterpriseLicenseSettingKey}, license_info_override_->first)) {
-    throw utils::BasicException("Failed to update enterprise license key in SetLicenseInfoOverride");
-  }
-  if (!settings.SetValue(std::string{kOrganizationNameSettingKey}, license_info_override_->second)) {
-    throw utils::BasicException("Failed to update organization name in SetLicenseInfoOverride");
-  }
-  RevalidateLicense(license_info_override_->first, license_info_override_->second);
+void LicenseChecker::SetCliLicense(std::string license_key, std::string organization_name, utils::Settings &settings) {
+  spdlog::warn("License info found in command-line flags.");
+  cli_license_info_.emplace(std::move(license_key), std::move(organization_name));
+  RevalidateLicense(settings);
 }
 
 std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string_view feature) {
@@ -246,8 +271,9 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
 }
 
 LicenseCheckResult LicenseChecker::IsEnterpriseValid(const utils::Settings &settings) const {
-  const auto license_info = ExtractLicenseInfo(settings);
-  return IsEnterpriseValid(license_info.first, license_info.second);
+  auto license_key = settings.GetValue(std::string{kEnterpriseLicenseSettingKey}).value_or("");
+  auto organization_name = settings.GetValue(std::string{kOrganizationNameSettingKey}).value_or("");
+  return IsEnterpriseValid(license_key, organization_name);
 }
 
 LicenseCheckResult LicenseChecker::IsEnterpriseValid(std::string_view license_key,
@@ -300,10 +326,14 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   auto locked_previous_license_info_ptr = previous_license_info_.Lock();
   auto &locked_previous_license_info = *locked_previous_license_info_ptr;
 
+  if (!locked_previous_license_info) {
+    info.is_valid = false;
+    info.status = "You have not provided any license!";
+    return info;
+  }
+
   info.license_key = locked_previous_license_info->license_key;
   info.organization_name = locked_previous_license_info->organization_name;
-  info.is_valid = true;
-  info.status = "You are running a valid Memgraph Enterprise License.";
 
   const auto maybe_license = GetLicense(locked_previous_license_info->license_key);
   if (!maybe_license) {
@@ -330,22 +360,30 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
     } else {
       info.valid_until = "error";
     }
-
-    auto now = std::chrono::system_clock::now();
-    const int64_t currentEpoch = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
-    if (currentEpoch > valid_until) {
-      info.is_valid = false;
-      info.status = "You are running an expired license!";
-    }
   } else {
     info.valid_until = "FOREVER";
   }
 
+  // Use the same validation logic as enterprise feature checks to ensure is_valid is consistent.
+  // IsEnterpriseValid(key, org) validates: decodeable key + ENTERPRISE type + org name match + not expired.
+  // NOTE: this overload does not re-acquire previous_license_info_ lock, so no deadlock.
+  const auto license_check_result = IsEnterpriseValid(info.license_key, info.organization_name);
+  if (!license_check_result) {
+    info.is_valid = false;
+    info.status = LicenseCheckErrorToString(license_check_result.error(), "Memgraph Enterprise");
+    return info;
+  }
+
+  info.is_valid = true;
+  info.status = "You are running a valid Memgraph Enterprise License.";
   return info;
 }
 
 bool LicenseChecker::IsEnterpriseValidFast() const {
-  return license_type_ == LicenseType::ENTERPRISE && is_valid_.load(std::memory_order_relaxed);
+  // Acquire synchronizes with release stores in RevalidateLicense/EnableTesting.
+  // This ensures we see the license_type_ write that precedes those release stores,
+  // avoiding a data race on the non-atomic license_type_.
+  return is_valid_.load(std::memory_order_acquire) && license_type_ == LicenseType::ENTERPRISE;
 }
 
 std::string Encode(const License &license) {
