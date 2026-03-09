@@ -351,12 +351,21 @@ def execute_and_fetch(
 
 def cleanup(coordinator: str = "coord_1") -> None:
     """
-    Full wipe of the cluster: drops all indexes, constraints, and graph data.
+    Full wipe of the cluster: drops all tenant databases, then wipes indexes,
+    constraints, and graph data from the default database.
 
     Runs via bolt+routing on the given coordinator so changes propagate to
     all data instances. Safe to call between workloads when the cluster
     stays running.
     """
+    rows = execute_and_fetch(coordinator, "SHOW DATABASES;", protocol=Protocol.BOLT_ROUTING)
+    tenant_dbs = [next(iter(row.values())) for row in rows if next(iter(row.values())) != "memgraph"]
+    if tenant_dbs:
+        print(f"Cleanup: dropping tenant databases {tenant_dbs}...")
+        for db_name in tenant_dbs:
+            _execute_cleanup_write_with_retries(coordinator, f"DROP DATABASE {db_name}")
+        print("Cleanup: tenant databases dropped.")
+
     print("Cleanup: deleting all nodes and edges...")
     _execute_cleanup_write_with_retries(coordinator, "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n")
 

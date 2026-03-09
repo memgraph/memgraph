@@ -19,7 +19,7 @@ import sys
 import time
 
 from cluster_monitor import ClusterMonitor
-from ha_common import Protocol, QueryType, execute_and_fetch, execute_query, get_restart_all_fn, run_parallel
+from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_query, get_restart_all_fn, run_parallel
 
 COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
@@ -140,6 +140,24 @@ _FETCH_RANDOM_ID_QUERY = "MATCH (n:VectorNodeAlpha) RETURN n.id AS node_id ORDER
 _DELETE_BY_ID_QUERY = "MATCH (n:VectorNodeAlpha {id: $node_id}) DETACH DELETE n"
 
 
+def _create_random_node(db_name: str) -> None:
+    """Create a new node with random embeddings."""
+    execute_query(
+        COORDINATOR,
+        _CREATE_QUERY,
+        params={
+            "id": random.randint(0, 10_000_000),
+            "embedding_alpha": generate_vector(VECTOR_DIMENSIONS),
+            "embedding_beta": generate_vector(VECTOR_DIMENSIONS),
+            "embedding_gamma": generate_vector(VECTOR_DIMENSIONS),
+        },
+        protocol=Protocol.BOLT_ROUTING,
+        query_type=QueryType.WRITE,
+        apply_retry_mechanism=True,
+        database=db_name,
+    )
+
+
 def _delete_random_node(db_name: str) -> bool:
     """Fetch a real existing node id, then delete it. Returns True if a node was deleted."""
     rows = execute_and_fetch(COORDINATOR, _FETCH_RANDOM_ID_QUERY, protocol=Protocol.BOLT_ROUTING, database=db_name)
@@ -164,20 +182,7 @@ def run_iterations(worker_id: int, num_iterations: int, db_name: str) -> dict:
     deleted = 0
     for _ in range(num_iterations):
         if random.random() < 0.5:
-            execute_query(
-                COORDINATOR,
-                _CREATE_QUERY,
-                params={
-                    "id": random.randint(0, 10_000_000),
-                    "embedding_alpha": generate_vector(VECTOR_DIMENSIONS),
-                    "embedding_beta": generate_vector(VECTOR_DIMENSIONS),
-                    "embedding_gamma": generate_vector(VECTOR_DIMENSIONS),
-                },
-                protocol=Protocol.BOLT_ROUTING,
-                query_type=QueryType.WRITE,
-                apply_retry_mechanism=True,
-                database=db_name,
-            )
+            _create_random_node(db_name)
             created += 1
         else:
             if _delete_random_node(db_name):
@@ -242,16 +247,14 @@ def get_node_count_from_instance(instance_name: str, db_name: str) -> int:
 
 def verify_counts_match() -> bool:
     print("\nComparing node counts between MAIN and REPLICA...")
-    all_ok = True
     for db_name in DATABASES:
         count_main = get_node_count_from_instance(MAIN, db_name)
         count_replica = get_node_count_from_instance(REPLICA, db_name)
         if count_main != count_replica:
             print(f"  ERROR [{db_name}]: {MAIN}={count_main}, {REPLICA}={count_replica}")
-            all_ok = False
-        else:
-            print(f"  OK [{db_name}]: both have {count_main} nodes")
-    return all_ok
+            return False
+        print(f"  OK [{db_name}]: both have {count_main} nodes")
+    return True
 
 
 def get_vector_index_names(db_name: str) -> set[str]:
@@ -262,16 +265,14 @@ def get_vector_index_names(db_name: str) -> set[str]:
 def verify_vector_indices() -> bool:
     print("\nVerifying vector indices in all databases...")
     expected = {idx["name"] for idx in VECTOR_INDICES}
-    all_ok = True
     for db_name in DATABASES:
         existing = get_vector_index_names(db_name)
         missing = expected - existing
         if missing:
             print(f"  ERROR [{db_name}]: missing indices {missing}")
-            all_ok = False
-        else:
-            print(f"  OK [{db_name}]: {existing}")
-    return all_ok
+            return False
+        print(f"  OK [{db_name}]: {existing}")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -352,4 +353,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        cleanup()
