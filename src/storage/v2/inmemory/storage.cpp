@@ -2935,17 +2935,19 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // VERTICES (has ptr to Edges, must be before removing edges)
   if (!current_deleted_vertices.empty()) {
     auto vertex_acc = vertices_.access();
-    // Remove from vector indices BEFORE skip list removal while Vertex* is still valid.
 
-    auto const vertices_to_remove = current_deleted_vertices |
-                                    std::ranges::views::transform([&vertex_acc](auto const gid) {
-                                      auto it = vertex_acc.find(gid);
-                                      MG_ASSERT(it != vertex_acc.end(), "Invalid database state!");
-                                      return &*it;
-                                    }) |
-                                    std::ranges::to<std::vector>();
+    if (!indices_.vector_index_.Empty()) {
+      // Remove from vector indices BEFORE skip list removal while Vertex* is still valid.
+      auto const vertices_to_remove = current_deleted_vertices |
+                                      std::ranges::views::transform([&vertex_acc](auto const gid) {
+                                        auto it = vertex_acc.find(gid);
+                                        DMG_ASSERT(it != vertex_acc.end(), "Invalid database state!");
+                                        return &*it;
+                                      }) |
+                                      std::ranges::to<std::vector>();
 
-    indices_.RemoveVerticesFromVectorIndices(vertices_to_remove);
+      indices_.RemoveVerticesFromVectorIndices(vertices_to_remove);
+    }
 
     for (auto vertex : current_deleted_vertices) {
       MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");

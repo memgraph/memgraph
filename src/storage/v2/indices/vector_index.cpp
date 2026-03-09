@@ -454,7 +454,10 @@ void VectorIndex::RemoveVertices(std::vector<Vertex *> const &vertices_to_remove
         vertices_to_remove |
         std::ranges::views::filter([&mg_index](Vertex *vertex) { return mg_index.index.contains(vertex); }) |
         std::ranges::to<std::vector>();
-    index_to_vertices.emplace(index_id, std::move(index_vertices));
+    if (!index_vertices.empty()) {
+      // Avoid UNIQUE LOCK on indices which won't be used
+      index_to_vertices.emplace(index_id, std::move(index_vertices));
+    }
   }
 
   for (auto &[index_id, loc_vertices_to_remove] : index_to_vertices) {
@@ -463,9 +466,7 @@ void VectorIndex::RemoveVertices(std::vector<Vertex *> const &vertices_to_remove
     // Take unique lock for removing
     auto guard = std::lock_guard{index_it->second.mg_index.mutex};
     auto &index = index_it->second.mg_index.index;
-    for (Vertex *vertex : loc_vertices_to_remove) {
-      index.remove(vertex);
-    }
+    index.remove(loc_vertices_to_remove.begin(), loc_vertices_to_remove.end());
   }
 }
 
