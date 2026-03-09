@@ -156,8 +156,8 @@ startup_config_dict = {
         "Controls whether additional metadata should be stored about the edges in order to do faster traversals on certain queries.",
     ),
     "storage_light_edge": (
-        "false",
-        "false",
+        "true",
+        "true",
         "Controls whether edges are stored as lightweight objects in order to reduce memory footprint; implies --storage-properties-on-edges.",
     ),
     "storage_property_store_compression_enabled": (
