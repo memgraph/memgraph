@@ -2,9 +2,10 @@
 """
 Concurrent index creation workload.
 
-20 ingestion workers each insert 1,000,000 nodes (in batches of 10) while
+Setup: 10M nodes (L0..L9, id property only) are pre-created before each run.
+Concurrent phase: 20 workers each SET properties on 100 batches of 10 nodes
+from their modulus partition (id % NUM_INGESTION_WORKERS == worker_id), while
 1 index worker concurrently creates 100 label×property index combinations.
-Each node carries 10 labels (L0..L9) and 10 integer properties (p0..p9).
 
 The full workload is repeated 10 times with a cleanup between each run.
 """
@@ -19,61 +20,78 @@ COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 
 NUM_RUNS = 10
 NUM_INGESTION_WORKERS = 20
-NODES_PER_WORKER = 500_000 // NUM_INGESTION_WORKERS  # 25_000
+TOTAL_NODES = 10_000_000
 BATCH_SIZE = 10
+NUM_BATCHES_PER_WORKER = 100  # 100 batches × 10 nodes = 1000 nodes per worker
 LABELS = [f"L{i}" for i in range(10)]
 PROPERTIES = [f"p{i}" for i in range(10)]
 
-NUM_BATCHES_PER_WORKER = NODES_PER_WORKER // BATCH_SIZE  # 100,000
+SETUP_CHUNK = 10_000  # nodes per CREATE batch during setup
 
 # Sentinel value identifying the index creation worker inside worker_dispatcher
 INDEX_WORKER_ID = -1
 
-# Cypher query for batch node insertion — labels and properties are hardcoded for performance
-_INSERT_QUERY = """
-UNWIND $nodes AS n
-CREATE (:L0:L1:L2:L3:L4:L5:L6:L7:L8:L9 {
-    p0: n.p0, p1: n.p1, p2: n.p2, p3: n.p3, p4: n.p4,
-    p5: n.p5, p6: n.p6, p7: n.p7, p8: n.p8, p9: n.p9
-})
+_SET_QUERY = """
+UNWIND $ids AS node_id
+MATCH (n:L0 {id: node_id})
+SET n.p0 = node_id,
+    n.p1 = node_id % 1_000_000,
+    n.p2 = node_id % 10_000,
+    n.p3 = node_id % 1_000,
+    n.p4 = node_id % 10,
+    n.p5 = 'node_' + toString(node_id),
+    n.p6 = 'mod_' + toString(node_id % 1_000_000),
+    n.p7 = 'label_' + toString(node_id % 10),
+    n.p8 = 'prop_' + toString(node_id % 100),
+    n.p9 = 'val_' + toString(node_id % 1_000_000)
 """
 
 
-def ingest_worker(worker_id: int) -> dict:
-    """Insert NODES_PER_WORKER nodes in BATCH_SIZE-sized batches."""
-    base_uid = worker_id * NODES_PER_WORKER
+def setup_nodes() -> None:
+    """Create TOTAL_NODES nodes with labels and id property only, in chunks."""
+    print(f"Creating {TOTAL_NODES:,} nodes (chunk size: {SETUP_CHUNK:,})...")
+    execute_query(
+        COORDINATOR,
+        "CREATE INDEX ON :L0(id);",
+        protocol=Protocol.BOLT_ROUTING,
+        query_type=QueryType.WRITE,
+    )
     t0 = time.time()
-
-    for batch in range(NUM_BATCHES_PER_WORKER):
-        batch_base = base_uid + batch * BATCH_SIZE
-        nodes = [
-            {
-                "p0": batch_base + i,
-                "p1": (batch_base + i) % 1_000_000,
-                "p2": (batch_base + i) % 10_000,
-                "p3": worker_id,
-                "p4": i,
-                "p5": f"node_{batch_base + i}",
-                "p6": f"worker_{worker_id}_batch_{batch % 1_000}",
-                "p7": f"label_{(batch_base + i) % 10}",
-                "p8": f"prop_{(batch_base + i) % 100}",
-                "p9": f"val_{(batch_base + i) % 1_000_000}",
-            }
-            for i in range(BATCH_SIZE)
-        ]
+    for start in range(0, TOTAL_NODES, SETUP_CHUNK):
+        end = min(start + SETUP_CHUNK, TOTAL_NODES)
         execute_query(
             COORDINATOR,
-            _INSERT_QUERY,
-            params={"nodes": nodes},
+            "UNWIND range($start, $end - 1) AS id CREATE (:L0:L1:L2:L3:L4:L5:L6:L7:L8:L9 {id: id})",
+            params={"start": start, "end": end},
             protocol=Protocol.BOLT_ROUTING,
             query_type=QueryType.WRITE,
         )
-        if (batch + 1) % 10_000 == 0:
+        if (start // SETUP_CHUNK + 1) % 100 == 0:
             elapsed = time.time() - t0
-            print(f"  [Worker {worker_id:>2}] {batch + 1:>7,}/{NUM_BATCHES_PER_WORKER:,} batches  ({elapsed:.0f}s)")
+            print(f"  Setup: {end:>10,}/{TOTAL_NODES:,} nodes  ({elapsed:.0f}s)")
+    elapsed = time.time() - t0
+    print(f"  Setup done: {TOTAL_NODES:,} nodes in {elapsed:.1f}s")
+
+
+def ingest_worker(worker_id: int) -> dict:
+    """SET properties on 100 batches of 10 nodes from this worker's modulus partition."""
+    t0 = time.time()
+
+    for batch in range(NUM_BATCHES_PER_WORKER):
+        # Worker w owns nodes where id % NUM_INGESTION_WORKERS == worker_id.
+        # Batch b covers the b-th group of BATCH_SIZE consecutive ids in that partition.
+        ids = [worker_id + (batch * BATCH_SIZE + i) * NUM_INGESTION_WORKERS for i in range(BATCH_SIZE)]
+        execute_query(
+            COORDINATOR,
+            _SET_QUERY,
+            params={"ids": ids},
+            protocol=Protocol.BOLT_ROUTING,
+            query_type=QueryType.WRITE,
+            apply_retry_mechanism=True,
+        )
 
     elapsed = time.time() - t0
-    print(f"  [Worker {worker_id:>2}] Done — {NODES_PER_WORKER:,} nodes in {elapsed:.1f}s")
+    print(f"  [Worker {worker_id:>2}] Done — {NUM_BATCHES_PER_WORKER * BATCH_SIZE} nodes updated in {elapsed:.1f}s")
     return {"worker_id": worker_id, "elapsed": elapsed}
 
 
@@ -92,6 +110,7 @@ def index_creation_worker(worker_id: int) -> dict:
                     query,
                     protocol=Protocol.BOLT_ROUTING,
                     query_type=QueryType.WRITE,
+                    apply_retry_mechanism=True,
                 )
                 created += 1
                 print(f"  [Index Worker] Created index ON :{label}({prop})")
@@ -150,10 +169,11 @@ def verify_indices(run_index: int) -> None:
 
 
 def run_one(monitor: ClusterMonitor, run_index: int) -> None:
-    total_nodes = NUM_INGESTION_WORKERS * NODES_PER_WORKER
     print(f"\n{'=' * 60}")
     print(f"Run {run_index}/{NUM_RUNS}")
     print(f"{'=' * 60}")
+
+    setup_nodes()
 
     run_start = time.time()
     run_concurrent_workload()
@@ -167,7 +187,7 @@ def run_one(monitor: ClusterMonitor, run_index: int) -> None:
         protocol=Protocol.BOLT_ROUTING,
     )
     node_count = result[0]["cnt"] if result else 0
-    print(f"Node count (via :L0): {node_count:,}  (expected: {total_nodes:,})")
+    print(f"Node count (via :L0): {node_count:,}  (expected: {TOTAL_NODES:,})")
 
     monitor.show_replicas()
 
@@ -176,8 +196,8 @@ def run_one(monitor: ClusterMonitor, run_index: int) -> None:
         print(f"ERROR: Cluster is not healthy after run {run_index}!")
         sys.exit(1)
 
-    if node_count != total_nodes:
-        print(f"ERROR: Node count mismatch after run {run_index} — got {node_count:,}, expected {total_nodes:,}")
+    if node_count != TOTAL_NODES:
+        print(f"ERROR: Node count mismatch after run {run_index} — got {node_count:,}, expected {TOTAL_NODES:,}")
         sys.exit(1)
 
     verify_indices(run_index)
@@ -187,13 +207,13 @@ def run_one(monitor: ClusterMonitor, run_index: int) -> None:
 
 
 def main():
-    total_nodes = NUM_INGESTION_WORKERS * NODES_PER_WORKER
     print("=" * 60)
     print("Concurrent Index Creation Workload")
     print("=" * 60)
     print(f"Runs              : {NUM_RUNS}")
+    print(f"Total nodes       : {TOTAL_NODES:,}")
     print(f"Ingestion workers : {NUM_INGESTION_WORKERS}")
-    print(f"Nodes per worker  : {NODES_PER_WORKER:,}  (total per run: {total_nodes:,})")
+    print(f"Batches per worker: {NUM_BATCHES_PER_WORKER}  ({NUM_BATCHES_PER_WORKER * BATCH_SIZE} nodes per worker)")
     print(f"Batch size        : {BATCH_SIZE}")
     print(f"Labels per node   : {len(LABELS)}  ({', '.join(LABELS)})")
     print(f"Props per node    : {len(PROPERTIES)}  ({', '.join(PROPERTIES)})")
