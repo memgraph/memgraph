@@ -70,6 +70,10 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool HasAllGlobalPrivilegesOnEdges() const = 0;
 
+  [[nodiscard]] virtual bool HasUnrestrictedAccessToVertices() const = 0;
+
+  [[nodiscard]] virtual bool HasUnrestrictedAccessToEdges() const = 0;
+
   // Used to make the auth checker thread safe
   // throw if not possible
   virtual void MakeThreadSafe() const = 0;
@@ -109,6 +113,10 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
   bool HasAllGlobalPrivilegesOnVertices() const override { return true; }
 
   bool HasAllGlobalPrivilegesOnEdges() const override { return true; }
+
+  bool HasUnrestrictedAccessToVertices() const override { return true; }
+
+  bool HasUnrestrictedAccessToEdges() const override { return true; }
 
   void MakeThreadSafe() const override {
     // No-op
