@@ -372,6 +372,7 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
 
     using Entry = std::pair<uint64_t, std::vector<float>>;
     auto const entries = std::invoke([&]() -> std::vector<Entry> {
+      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
       auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
       auto const size = mg_index.index.size();
       if (size == 0) return {};
