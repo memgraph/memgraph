@@ -287,6 +287,40 @@ def execute_query(
     )
 
 
+def _execute_cleanup_write_with_retries(
+    coordinator: str,
+    query: str,
+    max_retries: int = 5,
+    retry_delay_sec: int = 2,
+) -> None:
+    """Execute cleanup write and retry SYNC replica commit errors."""
+    for attempt in range(1, max_retries + 1):
+        result = _run_query(
+            coordinator,
+            query,
+            params=None,
+            protocol=Protocol.BOLT_ROUTING,
+            query_type=QueryType.WRITE,
+            apply_retry_mechanism=False,
+            result_handler=lambda run_result: run_result.consume(),
+        )
+        if result is not None:
+            return
+
+        if attempt < max_retries:
+            print(
+                f"WARN: Cleanup write not confirmed on all SYNC replicas "
+                f"(attempt {attempt}/{max_retries}), retrying in {retry_delay_sec}s..."
+            )
+            time.sleep(retry_delay_sec)
+            continue
+
+        raise RuntimeError(
+            "Cleanup failed: at least one SYNC replica did not confirm commit "
+            f"after {max_retries} attempts. Query: {query}"
+        )
+
+
 def execute_and_fetch(
     instance_name: str,
     query: str,
@@ -324,17 +358,12 @@ def cleanup(coordinator: str = "coord_1") -> None:
     stays running.
     """
     print("Cleanup: deleting all nodes and edges...")
-    execute_query(
-        coordinator,
-        "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n",
-        protocol=Protocol.BOLT_ROUTING,
-        query_type=QueryType.WRITE,
-    )
+    _execute_cleanup_write_with_retries(coordinator, "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n")
 
     print("Cleanup: dropping all indexes...")
-    execute_query(coordinator, "DROP ALL INDEXES", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
+    _execute_cleanup_write_with_retries(coordinator, "DROP ALL INDEXES")
 
     print("Cleanup: dropping all constraints...")
-    execute_query(coordinator, "DROP ALL CONSTRAINTS", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
+    _execute_cleanup_write_with_retries(coordinator, "DROP ALL CONSTRAINTS")
 
     print("Cleanup complete.")

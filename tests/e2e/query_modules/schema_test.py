@@ -618,5 +618,21 @@ def test_rel_type_properties_multiple_property_types():
     assert (result.__len__()) == 1
 
 
+def test_node_type_properties_zoned_datetime():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (n:Event {name: 'Meeting', scheduled: datetime('2024-01-15T10:30:00+01:00')})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 2
+    assert list(result[0]) == [":`Event`", ["Event"], "name", ["String"], True]
+    assert list(result[1]) == [":`Event`", ["Event"], "scheduled", ["ZonedDateTime"], True]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

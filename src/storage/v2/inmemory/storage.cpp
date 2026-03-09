@@ -1210,7 +1210,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
                        return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
                      },
                      result.error());
-  if (fatal_error) {  // TODO: this is suspicious, why return like this
+
+  if (fatal_error) {
+    // PrepareForCommitPhase aborted the transaction internally (e.g. constraint/serialization error).
+    // The caller's cleanup path will call Abort() which handles is_transaction_active_=false gracefully.
     return result;
   }
 

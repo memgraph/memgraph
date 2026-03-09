@@ -6562,8 +6562,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("graph_memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
-            {TypedValue("embeddings_memory_tracked"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(utils::embeddings_memory_tracker.Amount())))},
+            {TypedValue("vector_index_memory_tracked"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::vector_index_memory_tracker.Amount())))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
             {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
             {TypedValue("next_session_isolation_level"),
@@ -8877,6 +8877,9 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 
 void Interpreter::Abort() {
 #ifdef MG_ENTERPRISE
+  // Note: if the storage layer already aborted the transaction internally (e.g. PeriodicCommit
+  // constraint violation), CleanupDBTransaction(false) will have been called first, nulling the
+  // accessor. In that case the memory tracking decrement is skipped here.
   if (user_resource_ && current_db_.db_transactional_accessor_) {
     const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker().Amount();
     user_resource_->DecrementTransactionsMemory(leftover);
