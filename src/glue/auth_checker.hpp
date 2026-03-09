@@ -85,6 +85,10 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
 
   bool HasAllGlobalPrivilegesOnEdges() const override;
 
+  bool HasUnrestrictedAccessToVertices() const override;
+
+  bool HasUnrestrictedAccessToEdges() const override;
+
   void MakeThreadSafe() const override;
   bool IsThreadSafe() const override;
 
