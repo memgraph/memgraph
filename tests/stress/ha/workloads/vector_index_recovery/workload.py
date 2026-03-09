@@ -346,7 +346,14 @@ def main():
     monitor.show_replicas()
 
     cluster_ok = monitor.verify_all_ready() and monitor.verify_instances_up()
-    if not indices_ok or not counts_ok or not cluster_ok:
+    if not indices_ok:
+        print("ERROR: Vector index verification failed after recovery!")
+        sys.exit(1)
+    if not counts_ok:
+        print("ERROR: Node count mismatch between MAIN and REPLICA after recovery!")
+        sys.exit(1)
+    if not cluster_ok:
+        print("ERROR: Cluster is not healthy after recovery!")
         sys.exit(1)
 
     print("\nWorkload completed successfully!")
