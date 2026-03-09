@@ -299,11 +299,8 @@ void VectorEdgeIndex::RestoreEntries(
 bool VectorEdgeIndex::Empty() const { return pimpl->edge_index_.empty(); }
 
 void VectorEdgeIndex::RemoveEdges(std::list<Gid> const &deleted_edge_gids) const {
-  std::unordered_set<uint64_t> gids_to_remove;
-  gids_to_remove.reserve(deleted_edge_gids.size());
-  for (auto const &gid : deleted_edge_gids) {
-    gids_to_remove.insert(gid.AsUint());
-  }
+  auto as_uint = deleted_edge_gids | std::views::transform([](auto const &g) { return g.AsUint(); });
+  std::unordered_set<uint64_t> gids_to_remove(as_uint.begin(), as_uint.end());
 
   for (auto &[_, index_item] : pimpl->edge_index_) {
     auto &[mg_index, spec] = index_item;
@@ -327,9 +324,7 @@ void VectorEdgeIndex::RemoveEdges(std::list<Gid> const &deleted_edge_gids) const
 
     // Phase 2: UNIQUE — remove matched entries
     auto guard = std::lock_guard{mg_index.mutex};
-    for (auto const &entry : entries_to_remove) {
-      mg_index.index.remove(entry);
-    }
+    mg_index.index.remove(entries_to_remove.begin(), entries_to_remove.end());
   }
 }
 

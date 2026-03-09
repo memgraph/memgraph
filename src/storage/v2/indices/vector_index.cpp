@@ -270,8 +270,7 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
         }
         return old_vertex_property_value;
       });
-      auto remove_result = index_item.mg_index.index.remove(vertex);
-      MG_ASSERT(remove_result.completed, "Vertex not found in vector index during label removal");
+      index_item.mg_index.index.remove(vertex);
       vertex->properties.SetProperty(property_id, property_value_to_set);
     }
   }
@@ -383,7 +382,7 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
       std::vector<Entry> result;
       std::vector<float> buffer(mg_index.index.dimensions());
       for (auto *vertex : keys) {
-        if (vertex->deleted()) continue;
+        if (vertex == nullptr || vertex->deleted()) continue;
         if (!mg_index.index.get(vertex, buffer.data())) continue;
         result.emplace_back(vertex->gid.AsUint(), buffer);
       }
@@ -444,28 +443,28 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
 }
 
 void VectorIndex::RemoveVertices(std::vector<Vertex *> const &vertices_to_remove) const {
-  std::unordered_map<uint64_t, std::vector<Vertex *>> index_to_vertices;
   for (auto &[index_id, index_item] : pimpl->index_by_id_) {
     auto &[mg_index, spec] = index_item;
-    // read only to check which vertices should be removed in that index
-    auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
 
-    auto index_vertices =
-        vertices_to_remove |
-        std::ranges::views::filter([&mg_index](Vertex *vertex) { return mg_index.index.contains(vertex); }) |
-        std::ranges::to<std::vector>();
-    if (!index_vertices.empty()) {
-      // Avoid UNIQUE LOCK on indices which won't be used
-      index_to_vertices.emplace(index_id, std::move(index_vertices));
+    std::vector<Vertex *> loc_vertices_to_remove;
+    {
+      // read only to check which vertices should be removed in that index
+      auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+
+      loc_vertices_to_remove =
+          vertices_to_remove |
+          std::ranges::views::filter([&mg_index](Vertex *vertex) { return mg_index.index.contains(vertex); }) |
+          std::ranges::to<std::vector>();
     }
-  }
 
-  for (auto &[index_id, loc_vertices_to_remove] : index_to_vertices) {
-    auto index_it = pimpl->index_by_id_.find(index_id);
-    DMG_ASSERT(index_it != pimpl->index_by_id_.end());
-    // Take unique lock for removing
-    auto guard = std::lock_guard{index_it->second.mg_index.mutex};
-    auto &index = index_it->second.mg_index.index;
+    if (loc_vertices_to_remove.empty()) {
+      // Avoid UNIQUE LOCK on indices which won't be used
+      continue;
+    }
+
+    // take unique lock for removing
+    auto guard = std::lock_guard{index_item.mg_index.mutex};
+    auto &index = index_item.mg_index.index;
     index.remove(loc_vertices_to_remove.begin(), loc_vertices_to_remove.end());
   }
 }

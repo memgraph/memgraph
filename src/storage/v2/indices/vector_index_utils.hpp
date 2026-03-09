@@ -375,10 +375,7 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
   auto guard = std::lock_guard{mg_index.mutex};
   if (mg_index.index.contains(key)) {  // check again freshly if index contains key
     mg_index.index.remove(key);
-  }
 
-  // Try to add without resizing
-  {
     auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
     if (!result.error) {
       return;
