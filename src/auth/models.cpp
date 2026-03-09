@@ -648,6 +648,10 @@ std::optional<uint64_t> const &FineGrainedAccessPermissions::GetGlobalDenies() c
 
 std::vector<FineGrainedAccessRule> const &FineGrainedAccessPermissions::GetRules() const { return rules_; }
 
+bool FineGrainedAccessPermissions::HasAnyRuleDenies() const {
+  return std::ranges::any_of(rules_, [](auto const &rule) { return rule.denies != FineGrainedPermission::NONE; });
+}
+
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
   return first.GetGlobalGrants() == second.GetGlobalGrants() && first.GetGlobalDenies() == second.GetGlobalDenies() &&
          first.GetRules() == second.GetRules();

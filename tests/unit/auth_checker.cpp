@@ -223,6 +223,32 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GrantAndDenySpecificEdgeTypes) {
   ASSERT_FALSE(auth_checker.Has(this->r4, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
 }
 
+TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificLabelDenyRequiresAuthChecker) {
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().label_permissions().Deny({"l3"}, memgraph::auth::FineGrainedPermission::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  ASSERT_FALSE(
+      auth_checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  ASSERT_TRUE(auth_checker.HasAllGlobalPrivilegesOnVertices());
+  ASSERT_FALSE(auth_checker.HasUnrestrictedAccessToVertices());
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificEdgeTypeDenyRequiresAuthChecker) {
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
+  user.fine_grained_access_handler().edge_type_permissions().Deny({"edge_type_2"},
+                                                                  memgraph::auth::FineGrainedPermission::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  ASSERT_FALSE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  ASSERT_TRUE(auth_checker.HasAllGlobalPrivilegesOnEdges());
+  ASSERT_FALSE(auth_checker.HasUnrestrictedAccessToEdges());
+}
+
 TEST(AuthChecker, Generate) {
   std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker"};
   memgraph::utils::OnScopeExit clean([&]() {
