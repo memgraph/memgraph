@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import time
 import typing
 
 import mgclient
@@ -18,6 +19,19 @@ import pytest
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
     cursor.execute(query, params)
     return cursor.fetchall()
+
+
+def wait_for_results(
+    cursor: mgclient.Cursor, query: str, timeout_sec: float = 2.0, poll_interval: float = 0.1
+) -> typing.List[tuple]:
+    """Poll query until non-empty results (for async AFTER COMMIT triggers)."""
+    start_time = time.time()
+    while time.time() - start_time < timeout_sec:
+        results = execute_and_fetch_all(cursor, query)
+        if len(results) > 0:
+            return results
+        time.sleep(poll_interval)
+    return []
 
 
 @pytest.fixture
