@@ -35,15 +35,15 @@ _SET_QUERY = """
 UNWIND $ids AS node_id
 MATCH (n:L0 {id: node_id})
 SET n.p0 = node_id,
-    n.p1 = node_id % 1_000_000,
-    n.p2 = node_id % 10_000,
-    n.p3 = node_id % 1_000,
+    n.p1 = node_id % 1000000,
+    n.p2 = node_id % 10000,
+    n.p3 = node_id % 1000,
     n.p4 = node_id % 10,
     n.p5 = 'node_' + toString(node_id),
-    n.p6 = 'mod_' + toString(node_id % 1_000_000),
+    n.p6 = 'mod_' + toString(node_id % 1000000),
     n.p7 = 'label_' + toString(node_id % 10),
     n.p8 = 'prop_' + toString(node_id % 100),
-    n.p9 = 'val_' + toString(node_id % 1_000_000)
+    n.p9 = 'val_' + toString(node_id % 1000000)
 """
 
 
