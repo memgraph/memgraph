@@ -139,6 +139,10 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
     // clang-format on
   });
 
+  if (reader.OwnsLock()) {
+    reader.Unlock();
+  }
+
   if (!exists || deleted || !has_label) {
     return;
   }
