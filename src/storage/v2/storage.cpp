@@ -400,8 +400,9 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     storage_->indices_.text_index_.RemoveNode(node, transaction_);
   }
   if (FLAGS_storage_properties_on_edges) {
-    for (auto *edge : edges) {
-      storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, transaction_);
+    for (const auto &edge : deleted_edges) {
+      storage_->indices_.text_edge_index_.RemoveEdge(
+          edge.edge_.ptr, edge.from_vertex_, edge.to_vertex_, edge.edge_type_, transaction_);
     }
   }
 
