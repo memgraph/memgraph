@@ -379,6 +379,9 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
 }
 
 bool LicenseChecker::IsEnterpriseValidFast() const {
+  // Acquire synchronizes with release stores in RevalidateLicense/EnableTesting.
+  // This ensures we see the license_type_ write that precedes those release stores,
+  // avoiding a data race on the non-atomic license_type_.
   return is_valid_.load(std::memory_order_acquire) && license_type_ == LicenseType::ENTERPRISE;
 }
 
