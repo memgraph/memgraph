@@ -83,7 +83,7 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
 }
 
 void Settings::SetValueForce(const std::string &setting_name, const std::string &new_value) {
-  std::lock_guard settings_guard{settings_lock_};
+  const std::lock_guard settings_guard{settings_lock_};
   if (!storage_) return;
   MG_ASSERT(
       storage_->Get(setting_name).has_value(), "SetValueForce called for unregistered setting '{}'", setting_name);
