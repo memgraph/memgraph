@@ -315,7 +315,7 @@ restart_all() {
     echo "Restarting all Memgraph HA instances (preserving data)..."
     _stop_processes
     sleep 2
-    _start_processes
+    _start_processes "$@"
     echo "All Memgraph HA instances restarted (data preserved)"
 }
 
@@ -340,7 +340,8 @@ case "$1" in
         collect_logs "$2"
         ;;
     restart)
-        restart_all
+        shift
+        restart_all "$@"
         ;;
     status)
         if nc -z 127.0.0.1 7687; then

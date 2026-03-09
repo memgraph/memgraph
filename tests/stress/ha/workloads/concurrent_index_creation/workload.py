@@ -26,7 +26,7 @@ NUM_BATCHES_PER_WORKER = 100  # 100 batches × 10 nodes = 1000 nodes per worker
 LABELS = [f"L{i}" for i in range(10)]
 PROPERTIES = [f"p{i}" for i in range(10)]
 
-SETUP_CHUNK = 10_000  # nodes per CREATE batch during setup
+SETUP_CHUNK = 1_000_000  # nodes per CREATE batch during setup
 
 # Sentinel value identifying the index creation worker inside worker_dispatcher
 INDEX_WORKER_ID = -1
