@@ -283,7 +283,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_EQ(etp.value(), 27);
     const auto &lp = auth_object.fine_grained_access_handler().label_permissions().GetGlobalGrants();
     ASSERT_TRUE(lp.has_value());
-    ASSERT_EQ(lp.value(), 27);
+    ASSERT_EQ(lp.value(), 507);
     ASSERT_EQ(auth_object.db_access().GetMain(), "db1");
     ASSERT_EQ(auth_object.db_access().GetAllowAll(), true);
     const auto grants = std::set<std::string, std::less<>>({"db1", "memgraph"});
@@ -565,8 +565,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_FALSE(
         auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
     ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetRules().empty());
-    ASSERT_TRUE(
-        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
+    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
     ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetRules().empty());
   }
 
@@ -591,8 +590,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(
         auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
     ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetRules().empty());
-    ASSERT_TRUE(
-        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
+    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
     ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetRules().empty());
   }
 
@@ -658,8 +656,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(
         auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
     ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetRules().empty());
-    ASSERT_TRUE(
-        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
+    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
     ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetRules().empty());
   }
 
