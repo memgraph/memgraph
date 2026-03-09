@@ -203,8 +203,8 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
 
 void LicenseChecker::EnableTesting(const LicenseType license_type) {
   enterprise_enabled_ = true;
-  is_valid_.store(true, std::memory_order_relaxed);
   license_type_ = license_type;
+  is_valid_.store(true, std::memory_order_release);
   spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
 }
 
@@ -369,7 +369,7 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   const auto license_check_result = IsEnterpriseValid(info.license_key, info.organization_name);
   if (!license_check_result) {
     info.is_valid = false;
-    info.status = "You are running an expired license!";
+    info.status = LicenseCheckErrorToString(license_check_result.error(), "Memgraph Enterprise");
     return info;
   }
 
@@ -379,7 +379,7 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
 }
 
 bool LicenseChecker::IsEnterpriseValidFast() const {
-  return license_type_ == LicenseType::ENTERPRISE && is_valid_.load(std::memory_order_relaxed);
+  return is_valid_.load(std::memory_order_acquire) && license_type_ == LicenseType::ENTERPRISE;
 }
 
 std::string Encode(const License &license) {
