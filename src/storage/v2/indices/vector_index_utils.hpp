@@ -45,7 +45,9 @@ using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch:
 
 struct synchronized_mg_vector_index_t {
   mg_vector_index_t index;
-  utils::ResourceLock mutex;
+  utils::ResourceLock mutex{};
+
+  explicit synchronized_mg_vector_index_t(mg_vector_index_t &&idx) : index(std::move(idx)) {}
 };
 
 /// @enum VectorIndexType

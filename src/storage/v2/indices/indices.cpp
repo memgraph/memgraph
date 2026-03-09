@@ -43,7 +43,9 @@ void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, 
   vector_edge_index_.RemoveObsoleteEntries(token);
 }
 
-void Indices::RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &vertices_to_remove) const {}
+void Indices::RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &vertices_to_remove) const {
+  vector_index_.RemoveVertices(vertices_to_remove);
+}
 
 void Indices::DropGraphClearIndices() {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->DropGraphClearIndices();
