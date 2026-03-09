@@ -44,6 +44,7 @@ class ClusterMonitor:
         show_instances: bool = False,
         verify_up: bool = False,
         storage_info: list[str] | None = None,
+        metrics_info: list[str] | None = None,
         interval: float = 5.0,
     ):
         if isinstance(coordinators, str):
@@ -53,6 +54,7 @@ class ClusterMonitor:
         self._show_instances = show_instances
         self._verify_up = verify_up
         self._storage_fields = storage_info or []
+        self._metrics_fields = metrics_info or []
         self._interval = interval
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
@@ -98,6 +100,14 @@ class ClusterMonitor:
             self._threads.append(t)
             print(
                 f"[ClusterMonitor] STORAGE INFO worker started (fields: {self._storage_fields}, interval: {self._interval}s)"
+            )
+
+        if self._metrics_fields:
+            t = threading.Thread(target=self._metrics_info_loop, daemon=True)
+            t.start()
+            self._threads.append(t)
+            print(
+                f"[ClusterMonitor] METRICS worker started (fields: {self._metrics_fields}, interval: {self._interval}s)"
             )
 
         print(f"[ClusterMonitor] Using coordinators: {self._coordinators}")
@@ -169,6 +179,17 @@ class ClusterMonitor:
                 print(f"\n[STORAGE INFO @ {time.strftime('%H:%M:%S')} via {coord}] {' '.join(parts)}")
             except Exception as e:
                 print(f"\n[STORAGE INFO ERROR] {e}")
+            self._stop_event.wait(self._interval)
+
+    def _metrics_info_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                coord, rows = self._query("SHOW METRICS;")
+                info = {row["name"]: row["value"] for row in rows if "name" in row}
+                parts = [f"{f}={info.get(f, '?')}" for f in self._metrics_fields]
+                print(f"\n[METRICS @ {time.strftime('%H:%M:%S')} via {coord}] {' '.join(parts)}")
+            except Exception as e:
+                print(f"\n[METRICS ERROR] {e}")
             self._stop_event.wait(self._interval)
 
     # -- One-shot verification (call after workload) --------------------------

@@ -27,3 +27,6 @@ workloads:
 
   - config: ../workloads/concurrent_edge_write/workload.yaml
     enabled: true
+
+  - config: ../workloads/concurrent_index_creation/workload.yaml
+    enabled: true
