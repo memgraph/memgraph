@@ -240,8 +240,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
                       storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
-                      const int64_t *hops_counter = nullptr, std::shared_ptr<QueryUserOrRole> user_or_role = nullptr,
-                      std::shared_ptr<QueryUserOrRole> triggering_user = nullptr)
+                      const int64_t *hops_counter = nullptr,
+		      const std::shared_ptr<QueryUserOrRole> &user_or_role = {},
+                      const std::shared_ptr<QueryUserOrRole> &triggering_user = {})
       : frame_(frame),
         symbol_table_(&symbol_table),
         ctx_(&ctx),
@@ -249,8 +250,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         view_(view),
         frame_change_collector_(frame_change_collector),
         hops_counter_(hops_counter),
-        user_or_role_(std::move(user_or_role)),
-        triggering_user_(std::move(triggering_user)) {}
+        user_or_role_(user_or_role.get()),
+        triggering_user_(triggering_user.get()) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -1151,8 +1152,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
   // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;
-  std::shared_ptr<QueryUserOrRole> user_or_role_;
-  std::shared_ptr<QueryUserOrRole> triggering_user_;
+  const QueryUserOrRole *user_or_role_;
+  const QueryUserOrRole *triggering_user_;
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.
