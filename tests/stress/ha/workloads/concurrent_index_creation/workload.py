@@ -225,7 +225,7 @@ def main():
         show_replicas=True,
         verify_up=True,
         storage_info=["vertex_count", "memory_res", "allocation_limit"],
-        metrics_info=["FailedQuery"],
+        metrics_info=["FailedQuery", "TransientErrors"],
         interval=2,
     )
 
