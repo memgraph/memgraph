@@ -785,6 +785,7 @@ class User final {
 // Multi-tenant role support
 #ifdef MG_ENTERPRISE
   void AddMultiTenantRole(Role role, const std::string &db_name);
+  void RemoveMultiTenantRole(const std::string &rolename, const std::string &db_name);
   void ClearMultiTenantRoles(const std::string &db_name);
 #endif
 
