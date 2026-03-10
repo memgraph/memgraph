@@ -18,7 +18,6 @@ from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_q
 COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 
-NUM_RUNS = 10
 NUM_INGESTION_WORKERS = 20
 TOTAL_NODES = 10_000_000
 BATCH_SIZE = 10
@@ -173,18 +172,14 @@ def verify_indices(run_index: int) -> None:
     print(f"Index check OK — all {len(expected)} expected indices present.")
 
 
-def run_one(monitor: ClusterMonitor, run_index: int) -> None:
-    print(f"\n{'=' * 60}")
-    print(f"Run {run_index}/{NUM_RUNS}")
-    print(f"{'=' * 60}")
-
+def run_workload(monitor: ClusterMonitor) -> None:
     setup_nodes()
 
     run_start = time.time()
     run_concurrent_workload()
     run_elapsed = time.time() - run_start
 
-    print(f"\nRun {run_index} wall time: {run_elapsed:.1f}s ({run_elapsed / 60:.1f} min)")
+    print(f"\nWall time: {run_elapsed:.1f}s ({run_elapsed / 60:.1f} min)")
 
     result = execute_and_fetch(
         COORDINATOR,
@@ -198,24 +193,20 @@ def run_one(monitor: ClusterMonitor, run_index: int) -> None:
 
     ok = monitor.verify_all_ready() and monitor.verify_instances_up()
     if not ok:
-        print(f"ERROR: Cluster is not healthy after run {run_index}!")
+        print("ERROR: Cluster is not healthy!")
         sys.exit(1)
 
     if node_count != TOTAL_NODES:
-        print(f"ERROR: Node count mismatch after run {run_index} — got {node_count:,}, expected {TOTAL_NODES:,}")
+        print(f"ERROR: Node count mismatch — got {node_count:,}, expected {TOTAL_NODES:,}")
         sys.exit(1)
 
-    verify_indices(run_index)
-
-    print(f"Run {run_index} OK — cleaning up...")
-    cleanup()
+    verify_indices(1)
 
 
 def main():
     print("=" * 60)
     print("Concurrent Index Creation Workload")
     print("=" * 60)
-    print(f"Runs              : {NUM_RUNS}")
     print(f"Total nodes       : {TOTAL_NODES:,}")
     print(f"Ingestion workers : {NUM_INGESTION_WORKERS}")
     print(f"Batches per worker: {NUM_BATCHES_PER_WORKER}  ({NUM_BATCHES_PER_WORKER * BATCH_SIZE} nodes per worker)")
@@ -237,12 +228,11 @@ def main():
     total_start = time.time()
     try:
         with monitor:
-            for run_index in range(1, NUM_RUNS + 1):
-                run_one(monitor, run_index)
+            run_workload(monitor)
 
         total_elapsed = time.time() - total_start
         print("=" * 60)
-        print(f"All {NUM_RUNS} runs completed in {total_elapsed:.1f}s ({total_elapsed / 60:.1f} min)")
+        print(f"Completed in {total_elapsed:.1f}s ({total_elapsed / 60:.1f} min)")
         print("Workload completed successfully!")
     except SystemExit:
         raise
