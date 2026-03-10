@@ -28,7 +28,7 @@ TEST(PriorityThreadPool, Basic) {
   utils::Synchronized<std::vector<int>> output;
   constexpr size_t n_tasks = 100;
   for (size_t i = 0; i < n_tasks; ++i) {
-    pool.ScheduledAddTask([&, i](auto) { output->push_back(i); }, utils::Priority::LOW);
+    pool.ScheduledAddTask([&, i]() { output->push_back(i); }, utils::Priority::LOW);
   }
 
   while (output->size() != n_tasks) {
@@ -48,7 +48,7 @@ TEST(PriorityThreadPool, Basic2) {
   // Figure out which thread is the low/high
   std::atomic<std::thread::id> low_th = std::thread::id{0};
   pool.ScheduledAddTask(
-      [&](auto) {
+      [&]() {
         low_th = std::this_thread::get_id();
         low_th.notify_one();
       },
@@ -60,7 +60,7 @@ TEST(PriorityThreadPool, Basic2) {
   constexpr size_t n_tasks = 100;
   for (size_t i = 0; i < n_tasks / 2; ++i) {
     pool.ScheduledAddTask(
-        [&, i](auto) {
+        [&, i]() {
           if (std::this_thread::get_id() == low_th) {
             low_out->push_back(i);
           } else {
@@ -73,7 +73,7 @@ TEST(PriorityThreadPool, Basic2) {
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
   for (size_t i = n_tasks / 2; i < n_tasks; ++i) {
     pool.ScheduledAddTask(
-        [&, i](auto) {
+        [&, i]() {
           ASSERT_EQ(std::this_thread::get_id(), low_th);
           low_out->push_back(i);
         },
@@ -112,14 +112,13 @@ TEST(PriorityThreadPool, LowHigh) {
     LoopTask(std::atomic_bool *b, std::atomic<bool> *s, utils::PriorityThreadPool *p)
         : block(b), lp_saw_yield(s), pool(p) {}
 
-    void operator()(utils::Priority) {
+    void operator()() {
       while (*block) {
         auto *sig = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
         if (sig && sig->load(std::memory_order_acquire)) {
           *lp_saw_yield = true;
           if (auto wid = utils::WorkerYieldRegistry::GetCurrentWorkerId()) {
-            pool->RescheduleTaskOnWorker(
-                *wid, [self = shared_from_this()](utils::Priority p) { (*self)(p); }, utils::Priority::LOW);
+            pool->RescheduleTaskOnWorker(*wid, [self = shared_from_this()]() { (*self)(); });
           }
           return;
         }
@@ -129,7 +128,7 @@ TEST(PriorityThreadPool, LowHigh) {
   };
 
   auto loop_task = std::make_shared<LoopTask>(&block, &lp_saw_yield, &pool);
-  pool.ScheduledAddTask([loop_task](auto p) { (*loop_task)(p); }, utils::Priority::LOW);
+  pool.ScheduledAddTask([loop_task]() { (*loop_task)(); }, utils::Priority::LOW);
 
   // Wait for the task to be scheduled
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -137,10 +136,10 @@ TEST(PriorityThreadPool, LowHigh) {
   utils::Synchronized<std::vector<int>> output;
   constexpr size_t n_tasks = 100;
   for (size_t i = 0; i < n_tasks / 2; ++i) {
-    pool.ScheduledAddTask([&, i](auto) { output->push_back(i); }, utils::Priority::LOW);
+    pool.ScheduledAddTask([&, i]() { output->push_back(i); }, utils::Priority::LOW);
   }
   for (size_t i = n_tasks / 2; i < n_tasks; ++i) {
-    pool.ScheduledAddTask([&, i](auto) { output->push_back(i); }, utils::Priority::HIGH);
+    pool.ScheduledAddTask([&, i]() { output->push_back(i); }, utils::Priority::HIGH);
   }
 
   // Wait for the HIGH priority tasks to finish (LP task yields when yield is set on HP add)
@@ -173,20 +172,14 @@ TEST(PriorityThreadPool, ScheduledAddTaskOnWorker_PinnedRunsOnDesignatedWorker) 
   std::atomic<bool> worker1_seen{false};
 
   // Identify which thread is worker 0 and which is worker 1 by scheduling pinned tasks
-  pool.RescheduleTaskOnWorker(
-      0,
-      [&](auto) {
-        worker0_thread_id = std::this_thread::get_id();
-        worker0_seen = true;
-      },
-      utils::Priority::LOW);
-  pool.RescheduleTaskOnWorker(
-      1,
-      [&](auto) {
-        worker1_thread_id = std::this_thread::get_id();
-        worker1_seen = true;
-      },
-      utils::Priority::LOW);
+  pool.RescheduleTaskOnWorker(0, [&]() {
+    worker0_thread_id = std::this_thread::get_id();
+    worker0_seen = true;
+  });
+  pool.RescheduleTaskOnWorker(1, [&]() {
+    worker1_thread_id = std::this_thread::get_id();
+    worker1_seen = true;
+  });
 
   while (!worker0_seen || !worker1_seen) std::this_thread::sleep_for(1ms);
 
@@ -195,9 +188,7 @@ TEST(PriorityThreadPool, ScheduledAddTaskOnWorker_PinnedRunsOnDesignatedWorker) 
   // Schedule another pinned task on worker 0 and verify it runs on worker 0's thread
   std::atomic<bool> pinned_ran_on_worker0{false};
   pool.RescheduleTaskOnWorker(
-      0,
-      [&](auto) { pinned_ran_on_worker0 = (std::this_thread::get_id() == worker0_thread_id.load()); },
-      utils::Priority::LOW);
+      0, [&]() { pinned_ran_on_worker0 = (std::this_thread::get_id() == worker0_thread_id.load()); });
 
   while (!pinned_ran_on_worker0) std::this_thread::sleep_for(1ms);
   ASSERT_TRUE(pinned_ran_on_worker0);
@@ -217,21 +208,15 @@ TEST(PriorityThreadPool, ScheduledAddTaskOnWorker_ReschedulingRunsOnSameWorker) 
   std::atomic<bool> continuation_done{false};
 
   // Schedule on worker 0 a task that reschedules a continuation on worker 0 (simulating yield resume)
-  pool.RescheduleTaskOnWorker(
-      0,
-      [&, &pool = pool](auto) {
-        first_task_thread_id = std::this_thread::get_id();
-        first_done = true;
-        // Reschedule continuation on same worker (pinned, same task id semantics)
-        pool.RescheduleTaskOnWorker(
-            0,
-            [&](auto) {
-              continuation_thread_id = std::this_thread::get_id();
-              continuation_done = true;
-            },
-            utils::Priority::HIGH);
-      },
-      utils::Priority::LOW);
+  pool.RescheduleTaskOnWorker(0, [&, &pool = pool]() {
+    first_task_thread_id = std::this_thread::get_id();
+    first_done = true;
+    // Reschedule continuation on same worker (pinned, same task id semantics)
+    pool.RescheduleTaskOnWorker(0, [&]() {
+      continuation_thread_id = std::this_thread::get_id();
+      continuation_done = true;
+    });
+  });
 
   while (!continuation_done) std::this_thread::sleep_for(1ms);
 
@@ -252,26 +237,18 @@ TEST(PriorityThreadPool, ScheduledAddTaskOnWorker_PinnedNotStolen) {
   std::atomic<bool> pinned_ran_on_worker0{false};
 
   // Keep worker 1 busy so it would otherwise try to steal from worker 0
-  pool.RescheduleTaskOnWorker(
-      1,
-      [&](auto) {
-        while (worker1_busy) worker1_busy.wait(true);
-      },
-      utils::Priority::LOW);
+  pool.RescheduleTaskOnWorker(1, [&]() {
+    while (worker1_busy) worker1_busy.wait(true);
+  });
 
   std::this_thread::sleep_for(10ms);
 
   // Worker 0 runs this task, then schedules a pinned continuation on worker 0
-  pool.RescheduleTaskOnWorker(
-      0,
-      [&, &pool = pool](auto) {
-        worker0_thread_id = std::this_thread::get_id();
-        pool.RescheduleTaskOnWorker(
-            0,
-            [&](auto) { pinned_ran_on_worker0 = (std::this_thread::get_id() == worker0_thread_id.load()); },
-            utils::Priority::HIGH);
-      },
-      utils::Priority::LOW);
+  pool.RescheduleTaskOnWorker(0, [&, &pool = pool]() {
+    worker0_thread_id = std::this_thread::get_id();
+    pool.RescheduleTaskOnWorker(
+        0, [&]() { pinned_ran_on_worker0 = (std::this_thread::get_id() == worker0_thread_id.load()); });
+  });
 
   while (!pinned_ran_on_worker0) std::this_thread::sleep_for(1ms);
   ASSERT_TRUE(pinned_ran_on_worker0) << "Pinned continuation must run on same worker, not be stolen";
@@ -297,7 +274,7 @@ TEST(PriorityThreadPool, YieldFlag_NotSetWhenOnlyLowPriority) {
 
   for (int i = 0; i < n_tasks; ++i) {
     pool.ScheduledAddTask(
-        [&](auto) {
+        [&]() {
           for (int j = 0; j < 100; ++j) {
             auto *sig = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
             if (sig && sig->load(std::memory_order_acquire)) saw_yield_requested.fetch_add(1);
@@ -323,20 +300,17 @@ TEST(PriorityThreadPool, YieldFlag_NoYieldWhenHighPriorityAddedToOtherWorker) {
   std::atomic<bool> worker0_done{false};
   std::atomic<bool> worker0_saw_yield{false};
 
-  pool.RescheduleTaskOnWorker(
-      0,
-      [&](auto) {
-        for (int i = 0; i < 2'000'000; ++i) {
-          auto *sig = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
-          if (sig && sig->load(std::memory_order_acquire)) worker0_saw_yield = true;
-        }
-        worker0_done = true;
-      },
-      utils::Priority::LOW);
+  pool.RescheduleTaskOnWorker(0, [&]() {
+    for (int i = 0; i < 2'000'000; ++i) {
+      auto *sig = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+      if (sig && sig->load(std::memory_order_acquire)) worker0_saw_yield = true;
+    }
+    worker0_done = true;
+  });
 
   std::this_thread::sleep_for(1ms);
   // Add HP only to worker 1; worker 0's yield signal must not be set
-  pool.RescheduleTaskOnWorker(1, [](auto) {}, utils::Priority::HIGH);
+  pool.RescheduleTaskOnWorker(1, []() {});
 
   while (!worker0_done) std::this_thread::sleep_for(1ms);
   ASSERT_FALSE(worker0_saw_yield.load()) << "Yield must not be set on worker 0 when HP is added only to worker 1";
@@ -355,13 +329,13 @@ TEST(PriorityThreadPool, YieldFlag_Stress) {
   int requested_yields_seen = 0;
 
   for (int iter = 0; iter < kIterations; ++iter) {
-    const uint16_t worker = static_cast<uint16_t>(iter % kWorkers);
+    [[maybe_unused]] const uint16_t worker = static_cast<uint16_t>(iter % kWorkers);
     std::atomic<bool> lp_running{false};
     std::atomic<bool> lp_saw_yield{false};
     std::atomic<bool> hp_ran{false};
 
     pool.ScheduledAddTask(
-        [&](auto) {
+        [&]() {
           lp_running = true;
           for (int i = 0; i < 5'000'000; ++i) {
             auto *sig = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
@@ -376,7 +350,7 @@ TEST(PriorityThreadPool, YieldFlag_Stress) {
     while (!lp_running) std::this_thread::sleep_for(0ms);
     std::this_thread::sleep_for(0ms);
 
-    pool.ScheduledAddTask([&](auto) { hp_ran = true; }, utils::Priority::HIGH);
+    pool.ScheduledAddTask([&]() { hp_ran = true; }, utils::Priority::HIGH);
 
     while (!hp_ran) std::this_thread::sleep_for(1ms);
     if (lp_saw_yield) ++requested_yields_seen;
@@ -395,11 +369,11 @@ TEST(TaskCollection, BasicAddAndSize) {
 
   ASSERT_EQ(collection.Size(), 0);
 
-  collection.AddTask([](auto) {});
+  collection.AddTask([]() {});
   ASSERT_EQ(collection.Size(), 1);
 
-  collection.AddTask([](auto) {});
-  collection.AddTask([](auto) {});
+  collection.AddTask([]() {});
+  collection.AddTask([]() {});
   ASSERT_EQ(collection.Size(), 3);
 }
 
@@ -411,7 +385,7 @@ TEST(TaskCollection, BasicWait) {
   constexpr int num_tasks = 5;
 
   for (int i = 0; i < num_tasks; ++i) {
-    collection.AddTask([&counter](auto) {
+    collection.AddTask([&counter]() {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
       counter.fetch_add(1);
     });
@@ -420,7 +394,7 @@ TEST(TaskCollection, BasicWait) {
   // Execute tasks manually to test Wait()
   for (size_t i = 0; i < collection.Size(); ++i) {
     auto wrapped_task = collection.WrapTask(i);
-    wrapped_task(utils::Priority::LOW);
+    wrapped_task();
   }
 
   // Everything should be already scheduled, so it should wait for all tasks to finish
@@ -436,7 +410,7 @@ TEST(TaskCollection, WaitOrSteal) {
   constexpr int num_tasks = 10;
 
   for (int i = 0; i < num_tasks; ++i) {
-    collection.AddTask([&counter](auto) {
+    collection.AddTask([&counter]() {
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
       counter.fetch_add(1);
     });
@@ -445,7 +419,7 @@ TEST(TaskCollection, WaitOrSteal) {
   // Execute some tasks manually to test WaitOrSteal()
   for (size_t i = 0; i < collection.Size(); i += 3) {
     auto wrapped_task = collection.WrapTask(i);
-    wrapped_task(utils::Priority::LOW);
+    wrapped_task();
   }
 
   // WaitOrSteal should execute all tasks and wait for completion
@@ -462,7 +436,7 @@ TEST(TaskCollection, ThreadPoolIntegration) {
   constexpr int num_tasks = 20;
 
   for (int i = 0; i < num_tasks; ++i) {
-    collection.AddTask([&counter](auto) {
+    collection.AddTask([&counter]() {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
       counter.fetch_add(1);
     });
@@ -488,7 +462,7 @@ TEST(TaskCollection, ConcurrentExecution) {
   constexpr int num_tasks = 50;
 
   for (int i = 0; i < num_tasks; ++i) {
-    collection.AddTask([&counter](auto) {
+    collection.AddTask([&counter]() {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
       counter.fetch_add(1);
     });
@@ -517,7 +491,7 @@ TEST(TaskCollection, MixedWaitAndSteal) {
   std::map<std::thread::id, int> thread_counter;
 
   for (int i = 0; i < num_tasks; ++i) {
-    collection.AddTask([&counter, &thread_counter_mutex, &thread_counter](auto) {
+    collection.AddTask([&counter, &thread_counter_mutex, &thread_counter]() {
       // Tack which thread is executing the task
       auto thread_id = std::this_thread::get_id();
       {
@@ -555,12 +529,12 @@ TEST(TaskCollection, ExceptionHandling) {
   for (int i = 0; i < num_tasks; ++i) {
     if (i % 3 == 0) {
       // Every third task throws an exception
-      collection.AddTask([&exception_count](auto) {
+      collection.AddTask([&exception_count]() {
         exception_count.fetch_add(1);
         throw std::runtime_error("Test exception");
       });
     } else {
-      collection.AddTask([&success_count](auto) { success_count.fetch_add(1); });
+      collection.AddTask([&success_count]() { success_count.fetch_add(1); });
     }
   }
 
@@ -593,12 +567,12 @@ TEST(TaskCollection, ExceptionHandlingIndividual) {
   for (int i = 0; i < num_tasks; ++i) {
     if (i % 3 == 0) {
       // Every third task throws an exception
-      collection.AddTask([&exception_count](auto) {
+      collection.AddTask([&exception_count]() {
         exception_count.fetch_add(1);
         throw std::runtime_error("Test exception");
       });
     } else {
-      collection.AddTask([&success_count](auto) { success_count.fetch_add(1); });
+      collection.AddTask([&success_count]() { success_count.fetch_add(1); });
     }
   }
 
@@ -606,7 +580,7 @@ TEST(TaskCollection, ExceptionHandlingIndividual) {
   for (size_t i = 0; i < collection.Size(); ++i) {
     try {
       auto wrapped_task = collection.WrapTask(i);
-      wrapped_task(utils::Priority::LOW);
+      wrapped_task();
     } catch (const std::runtime_error &e) {
       // Expected exception - continue with next task
     }
@@ -623,7 +597,7 @@ TEST(TaskCollection, TaskStateTransitions) {
   memgraph::utils::TaskCollection collection;
 
   std::atomic<int> execution_count{0};
-  collection.AddTask([&execution_count](auto) { execution_count.fetch_add(1); });
+  collection.AddTask([&execution_count]() { execution_count.fetch_add(1); });
 
   // Test that task starts in IDLE state
   auto &task = collection[0];
@@ -631,7 +605,7 @@ TEST(TaskCollection, TaskStateTransitions) {
 
   // Wrap and execute task
   auto wrapped_task = collection.WrapTask(0);
-  wrapped_task(utils::Priority::LOW);
+  wrapped_task();
 
   // Task should be in FINISHED state
   ASSERT_EQ(task.state_->load(), memgraph::utils::TaskCollection::Task::State::FINISHED);
@@ -643,14 +617,14 @@ TEST(TaskCollection, MultipleExecutionsPrevented) {
   memgraph::utils::TaskCollection collection;
 
   std::atomic<int> execution_count{0};
-  collection.AddTask([&execution_count](auto) { execution_count.fetch_add(1); });
+  collection.AddTask([&execution_count]() { execution_count.fetch_add(1); });
 
   auto wrapped_task = collection.WrapTask(0);
 
   // Execute task multiple times - should only execute once
-  wrapped_task(utils::Priority::LOW);
-  wrapped_task(utils::Priority::LOW);
-  wrapped_task(utils::Priority::LOW);
+  wrapped_task();
+  wrapped_task();
+  wrapped_task();
 
   ASSERT_EQ(execution_count.load(), 1);
 
@@ -668,7 +642,7 @@ TEST(TaskCollection, LargeTaskSet) {
   constexpr int num_tasks = 1000;
 
   for (int i = 0; i < num_tasks; ++i) {
-    collection.AddTask([&counter](auto) { counter.fetch_add(1); });
+    collection.AddTask([&counter]() { counter.fetch_add(1); });
   }
 
   // Schedule collection to thread pool

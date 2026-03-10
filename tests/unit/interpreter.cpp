@@ -182,8 +182,8 @@ TYPED_TEST(InterpreterTest, YieldFlowPoolInterpreterPull) {
   std::barrier barrier(2);
 
   std::atomic<bool> done{false};
-  auto run = std::make_shared<std::function<void(memgraph::utils::Priority)>>();
-  *run = [this, &stream, qid, &pool, &done, run, &barrier](memgraph::utils::Priority p) {
+  auto run = std::make_shared<std::function<void()>>();
+  *run = [this, &stream, qid, &pool, &done, run, &barrier]() {
     static bool once = false;
     if (!once) {
       once = true;
@@ -193,7 +193,7 @@ TYPED_TEST(InterpreterTest, YieldFlowPoolInterpreterPull) {
     stream.Summary(summary);
     if (summary.count("has_more") && summary.at("has_more").ValueBool()) {
       std::cout << "Yielding and rescheduling" << std::endl;
-      pool.ScheduledAddTask([run, p](memgraph::utils::Priority) { (*run)(p); }, memgraph::utils::Priority::LOW);
+      pool.ScheduledAddTask([run]() { (*run)(); }, memgraph::utils::Priority::LOW);
     } else {
       done = true;
       std::cout << "Query completed" << std::endl;
@@ -206,7 +206,7 @@ TYPED_TEST(InterpreterTest, YieldFlowPoolInterpreterPull) {
     registry.RequestYieldForWorker(0);
   });
 
-  pool.ScheduledAddTask([run](memgraph::utils::Priority prio) { (*run)(prio); }, memgraph::utils::Priority::LOW);
+  pool.ScheduledAddTask([run]() { (*run)(); }, memgraph::utils::Priority::LOW);
 
   while (!done.load(std::memory_order_acquire)) {
     std::this_thread::yield();
