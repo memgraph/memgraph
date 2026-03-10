@@ -305,7 +305,7 @@ def _execute_cleanup_write_with_retries(
             params=None,
             protocol=Protocol.BOLT_ROUTING,
             query_type=QueryType.WRITE,
-            apply_retry_mechanism=False,
+            apply_retry_mechanism=True,
             result_handler=lambda run_result: run_result.consume(),
             auth=auth,
         )
@@ -377,7 +377,45 @@ def cleanup(coordinator: str = "coord_1", auth: tuple[str, str] = ("", "")) -> N
     _execute_cleanup_write_with_retries(coordinator, "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n", auth=auth)
 
     print("Cleanup: dropping all indexes...")
-    _execute_cleanup_write_with_retries(coordinator, "DROP ALL INDEXES", auth=auth)
+    indexes = execute_and_fetch(coordinator, "SHOW INDEX INFO;", protocol=Protocol.BOLT_ROUTING, auth=auth)
+    for idx in indexes:
+        itype = idx["index type"]
+        label = idx["label"]
+        prop = idx["property"]
+
+        if isinstance(prop, list):
+            prop_str = ", ".join(prop)
+        else:
+            prop_str = prop
+
+        if itype == "label":
+            query = f"DROP INDEX ON :{label};"
+        elif itype == "label+property":
+            query = f"DROP INDEX ON :{label}({prop_str});"
+        elif itype == "edge-type":
+            query = f"DROP EDGE INDEX ON :{label};"
+        elif itype == "edge-type+property":
+            query = f"DROP EDGE INDEX ON :{label}({prop_str});"
+        elif itype == "edge-property":
+            query = f"DROP GLOBAL EDGE INDEX ON :({prop_str});"
+        elif itype == "point":
+            query = f"DROP POINT INDEX ON :{label}({prop_str});"
+        elif itype.startswith("label_text") or itype.startswith("edge-type_text"):
+            # type field contains the index name: e.g. "label_text (name: myIndex)"
+            index_name = itype.split("name:")[-1].strip().rstrip(")")
+            query = f"DROP TEXT INDEX {index_name};"
+        elif itype.startswith("label+property_vector"):
+            index_name = itype.split("name:")[-1].strip().rstrip(")")
+            query = f"DROP VECTOR INDEX {index_name};"
+        elif itype.startswith("edge-type+property_vector"):
+            index_name = itype.split("name:")[-1].strip().rstrip(")")
+            query = f"DROP VECTOR EDGE INDEX {index_name};"
+        else:
+            print(f"Cleanup: unknown index type '{itype}', skipping.")
+            continue
+
+        _execute_cleanup_write_with_retries(coordinator, query, auth=auth)
+    print(f"Cleanup: dropped {len(indexes)} indexes.")
 
     print("Cleanup: dropping all constraints...")
     _execute_cleanup_write_with_retries(coordinator, "DROP ALL CONSTRAINTS", auth=auth)
