@@ -167,8 +167,9 @@ def main():
         print("Workload completed successfully!")
     except SystemExit:
         raise
-    finally:
-        cleanup()
+    # finally:
+    # TODO: Inspect why this is failing to replicate
+    #     cleanup()
 
 
 if __name__ == "__main__":
