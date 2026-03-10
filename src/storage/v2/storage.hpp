@@ -417,7 +417,7 @@ class Storage {
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> {
-      return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+      return transaction_.active_indices_->label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
     virtual bool EdgeTypeIndexReady(EdgeTypeId edge_type) const = 0;
@@ -670,7 +670,7 @@ class Storage {
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
 
     bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
-      return transaction_.active_indices_.CheckIndicesAreReady(required_indices);
+      return transaction_.active_indices_->CheckIndicesAreReady(required_indices);
     }
 
     bool TransactionHasSerializationError() const { return transaction_.has_serialization_error; }
@@ -794,14 +794,19 @@ class Storage {
     return repl_storage_state_.GetReplicaState(name);
   }
 
-  auto GetActiveIndices() const -> ActiveIndices {
-    return ActiveIndices{
-        indices_.label_index_->GetActiveIndices(),
-        indices_.label_property_index_->GetActiveIndices(),
-        indices_.edge_type_index_->GetActiveIndices(),
-        indices_.edge_type_property_index_->GetActiveIndices(),
-        indices_.edge_property_index_->GetActiveIndices(),
-    };
+  /// Returns the current snapshot of active indices
+  /// Thread-safe: uses atomic load
+  auto GetActiveIndices() const -> ActiveIndicesPtr { return active_indices_cache_.load(std::memory_order_acquire); }
+
+  /// Rebuilds and atomically updates the active indices snapshot
+  /// Should be called after index create/drop operations complete
+  void RefreshActiveIndicesCache() {
+    auto new_indices = std::make_shared<ActiveIndices>(indices_.label_index_->GetActiveIndices(),
+                                                       indices_.label_property_index_->GetActiveIndices(),
+                                                       indices_.edge_type_index_->GetActiveIndices(),
+                                                       indices_.edge_type_property_index_->GetActiveIndices(),
+                                                       indices_.edge_property_index_->GetActiveIndices());
+    active_indices_cache_.store(std::move(new_indices), std::memory_order_release);
   }
 
   auto GetActiveConstraints() const -> ActiveConstraints {
@@ -856,6 +861,10 @@ class Storage {
   Indices indices_;
   Constraints constraints_;
   PlanInvalidatorPtr invalidator_;
+
+  /// Cached snapshot of active indices for concurrent access
+  /// Updated atomically after index create/drop operations
+  AtomicActiveIndicesPtr active_indices_cache_;
 
   // Datastructures to provide fast retrieval of node-label and
   // edge-type related metadata.

@@ -113,6 +113,7 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
         };
         return std::make_unique<DefaultDatabaseProtector>();
       }} {
+  RefreshActiveIndicesCache();
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 
