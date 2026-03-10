@@ -31,8 +31,9 @@ workloads:
   - config: ../workloads/concurrent_index_creation/workload.yaml
     enabled: true
 
+  # Native deployment does not have Memgraph MAGE included so we will not run this one
   - config: ../workloads/publications/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/vector_index_recovery/workload.yaml
     enabled: true
