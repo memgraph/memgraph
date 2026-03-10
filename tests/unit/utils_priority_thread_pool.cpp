@@ -362,6 +362,301 @@ TEST(PriorityThreadPool, YieldFlag_Stress) {
   ASSERT_GT(requested_yields_seen, 0) << "At least one requested yield must be observed (no ignored yields)";
 }
 
+// Both workers blocked → submit tasks (round-robined to both queues) → release one worker.
+// The released worker must execute all tasks: its own + stolen from the still-blocked worker.
+TEST(PriorityThreadPool, WorkStealing) {
+  using namespace memgraph;
+  constexpr uint16_t kWorkers = 2;
+  memgraph::utils::PriorityThreadPool pool{kWorkers};
+
+  // Identify each worker's thread ID via pinned tasks.
+  std::array<std::atomic<std::thread::id>, kWorkers> worker_tids;
+  std::atomic<int> ids_ready{0};
+  for (uint16_t i = 0; i < kWorkers; ++i) {
+    pool.RescheduleTaskOnWorker(i, [&, i]() {
+      worker_tids[i] = std::this_thread::get_id();
+      ids_ready.fetch_add(1);
+    });
+  }
+  while (ids_ready.load() != kWorkers) std::this_thread::sleep_for(1ms);
+  ASSERT_NE(worker_tids[0].load(), worker_tids[1].load());
+
+  // Block both workers so hot_threads_ is empty and ScheduledAddTask round-robins.
+  std::atomic<bool> w0_running{false};
+  std::atomic<bool> w1_running{false};
+  std::atomic<bool> release_w0{false};
+  std::atomic<bool> release_w1{false};
+  pool.RescheduleTaskOnWorker(0, [&]() {
+    w0_running = true;
+    while (!release_w0) release_w0.wait(false);
+  });
+  pool.RescheduleTaskOnWorker(1, [&]() {
+    w1_running = true;
+    while (!release_w1) release_w1.wait(false);
+  });
+  while (!w0_running || !w1_running) std::this_thread::sleep_for(1ms);
+
+  // Submit tasks while both workers are busy: round-robin puts ~half on each worker's queue.
+  constexpr int n_tasks = 40;
+  utils::Synchronized<std::set<std::thread::id>> executors;
+  std::atomic<int> completed{0};
+  for (int i = 0; i < n_tasks; ++i) {
+    pool.ScheduledAddTask(
+        [&]() {
+          executors->insert(std::this_thread::get_id());
+          completed.fetch_add(1);
+        },
+        utils::Priority::LOW);
+  }
+
+  // Release only worker 1. It runs its own queued tasks and steals from worker 0.
+  release_w1 = true;
+  release_w1.notify_all();
+
+  while (completed.load() < n_tasks) std::this_thread::sleep_for(1ms);
+
+  release_w0 = true;
+  release_w0.notify_all();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  // All tasks completed on worker 1's thread (worker 0 was blocked the entire time).
+  executors.WithLock([&](const auto &ids) {
+    ASSERT_EQ(ids.size(), 1U) << "All tasks must complete on worker 1";
+    ASSERT_EQ(*ids.begin(), worker_tids[1].load())
+        << "Worker 1 must have executed all tasks (own queue + stolen from worker 0)";
+  });
+}
+
+// Yield signal set by task N must be cleared before task N+1 starts.
+TEST(PriorityThreadPool, YieldSignalNotInheritedByNextTask) {
+  using namespace memgraph;
+  memgraph::utils::WorkerYieldRegistry registry(1);
+  memgraph::utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+  std::atomic<bool> second_saw_signal{false};
+  std::atomic<bool> done{false};
+
+  // Task 1: sets yield signal for worker 0, then completes normally.
+  pool.ScheduledAddTask([&]() { registry.RequestYieldForWorker(0); }, utils::Priority::LOW);
+
+  // Task 2: runs after task 1; signal must be cleared before it starts.
+  pool.ScheduledAddTask(
+      [&]() {
+        auto *sig = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+        second_saw_signal = sig && sig->load(std::memory_order_acquire);
+        done = true;
+      },
+      utils::Priority::LOW);
+
+  while (!done) std::this_thread::sleep_for(1ms);
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_FALSE(second_saw_signal.load()) << "Yield signal must be cleared before each new task starts";
+}
+
+// ShutDown + AwaitShutdown must complete without hanging on an empty pool
+// and on a pool that has tasks queued or in flight.
+TEST(PriorityThreadPool, ShutdownNoHang) {
+  using namespace memgraph;
+
+  // Empty pool shutdown.
+  {
+    memgraph::utils::PriorityThreadPool pool{4};
+    pool.ShutDown();
+    pool.AwaitShutdown();
+  }
+
+  // Shutdown with tasks already executing.
+  {
+    memgraph::utils::PriorityThreadPool pool{2};
+    std::atomic<int> started{0};
+    constexpr int n = 10;
+    for (int i = 0; i < n; ++i) {
+      pool.ScheduledAddTask(
+          [&]() {
+            started.fetch_add(1);
+            std::this_thread::sleep_for(2ms);
+          },
+          utils::Priority::LOW);
+    }
+    // Let some tasks start before shutting down.
+    while (started.load() == 0) std::this_thread::sleep_for(1ms);
+    pool.ShutDown();
+    pool.AwaitShutdown();
+    // Reaching here without timeout is the assertion.
+  }
+}
+
+// ScheduleResumableTask Tests
+
+// Task returns false immediately — must execute exactly once.
+TEST(PriorityThreadPool, ResumableTask_CompletesImmediately) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1};
+
+  std::atomic<int> call_count{0};
+  std::atomic<bool> done{false};
+
+  pool.ScheduleResumableTask(
+      [&]() -> bool {
+        call_count.fetch_add(1);
+        done = true;
+        return false;
+      },
+      utils::Priority::LOW);
+
+  while (!done.load(std::memory_order_acquire)) std::this_thread::sleep_for(1ms);
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_EQ(call_count.load(), 1) << "Task must run exactly once when it never yields";
+}
+
+// Task yields once (sets signal, returns true), then completes. Both runs must land on the same worker.
+TEST(PriorityThreadPool, ResumableTask_YieldsOnceThenCompletes) {
+  using namespace memgraph;
+  memgraph::utils::WorkerYieldRegistry registry(1);
+  memgraph::utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+  std::atomic<int> call_count{0};
+  std::atomic<std::thread::id> first_thread_id;
+  std::atomic<std::thread::id> second_thread_id;
+  std::atomic<bool> done{false};
+
+  pool.ScheduleResumableTask(
+      [&]() -> bool {
+        int call = call_count.fetch_add(1) + 1;
+        if (call == 1) {
+          first_thread_id = std::this_thread::get_id();
+          // Simulate a high-priority task arriving: set yield signal so pool pins continuation.
+          registry.RequestYieldForWorker(0);
+          return true;
+        }
+        second_thread_id = std::this_thread::get_id();
+        done = true;
+        return false;
+      },
+      utils::Priority::LOW);
+
+  while (!done.load(std::memory_order_acquire)) std::this_thread::sleep_for(1ms);
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_EQ(call_count.load(), 2) << "Task must run exactly twice";
+  ASSERT_EQ(first_thread_id.load(), second_thread_id.load())
+      << "Both runs must execute on the same worker thread (pinned reschedule)";
+}
+
+// Task yields multiple times, each time setting the signal so the pool keeps it pinned.
+TEST(PriorityThreadPool, ResumableTask_YieldsMultipleTimes) {
+  using namespace memgraph;
+  constexpr int kYields = 5;
+  memgraph::utils::WorkerYieldRegistry registry(1);
+  memgraph::utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+  std::atomic<int> call_count{0};
+  std::atomic<bool> done{false};
+
+  pool.ScheduleResumableTask(
+      [&]() -> bool {
+        int call = call_count.fetch_add(1) + 1;
+        if (call <= kYields) {
+          registry.RequestYieldForWorker(0);
+          return true;
+        }
+        done = true;
+        return false;
+      },
+      utils::Priority::LOW);
+
+  while (!done.load(std::memory_order_acquire)) std::this_thread::sleep_for(1ms);
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_EQ(call_count.load(), kYields + 1) << "Task must run kYields+1 times total";
+}
+
+// Task returns true but no yield signal is set (no registry) — pool falls back to ScheduledAddTask.
+// Task must still complete even without worker pinning.
+TEST(PriorityThreadPool, ResumableTask_FallbackWhenSignalNotSet) {
+  using namespace memgraph;
+  // No WorkerYieldRegistry: GetCurrentYieldSignal() returns nullptr inside the pool wrapper.
+  memgraph::utils::PriorityThreadPool pool{1};
+
+  std::atomic<int> call_count{0};
+  std::atomic<bool> done{false};
+
+  pool.ScheduleResumableTask(
+      [&]() -> bool {
+        int call = call_count.fetch_add(1) + 1;
+        if (call < 3) return true;  // yield intent, but no signal set → fallback reschedule
+        done = true;
+        return false;
+      },
+      utils::Priority::LOW);
+
+  while (!done.load(std::memory_order_acquire)) std::this_thread::sleep_for(1ms);
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_EQ(call_count.load(), 3) << "Task must run 3 times via fallback scheduling";
+}
+
+// Resumable task scheduled with HIGH priority yields and completes correctly.
+TEST(PriorityThreadPool, ResumableTask_HighPriority) {
+  using namespace memgraph;
+  memgraph::utils::WorkerYieldRegistry registry(1);
+  memgraph::utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+  std::atomic<int> call_count{0};
+  std::atomic<bool> done{false};
+
+  pool.ScheduleResumableTask(
+      [&]() -> bool {
+        int call = call_count.fetch_add(1) + 1;
+        if (call == 1) {
+          registry.RequestYieldForWorker(0);
+          return true;
+        }
+        done = true;
+        return false;
+      },
+      utils::Priority::HIGH);
+
+  while (!done) std::this_thread::sleep_for(1ms);
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_EQ(call_count.load(), 2) << "HP resumable task must yield once then complete";
+}
+
+// Pool shutdown while a resumable task keeps returning true must not hang.
+// After stop_requested, RescheduleTaskOnWorker and ScheduledAddTask become no-ops.
+TEST(PriorityThreadPool, ResumableTask_ShutdownMidFlight) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1};
+
+  std::atomic<int> call_count{0};
+  std::atomic<bool> first_run{false};
+
+  pool.ScheduleResumableTask(
+      [&]() -> bool {
+        call_count.fetch_add(1);
+        first_run = true;
+        return true;  // always yield — would loop forever without shutdown
+      },
+      utils::Priority::LOW);
+
+  // Wait until the task has run at least once, then shut down mid-flight.
+  while (!first_run) std::this_thread::sleep_for(1ms);
+  pool.ShutDown();
+  pool.AwaitShutdown();
+  // Reaching here without hanging is the assertion.
+  ASSERT_GE(call_count.load(), 1);
+}
+
 // TaskCollection Tests
 TEST(TaskCollection, BasicAddAndSize) {
   using namespace memgraph;

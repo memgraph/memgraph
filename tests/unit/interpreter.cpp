@@ -180,33 +180,30 @@ TYPED_TEST(InterpreterTest, YieldFlowPoolInterpreterPull) {
   memgraph::utils::PriorityThreadPool pool(1, nullptr, &registry);
 
   std::barrier barrier(2);
-
   std::atomic<bool> done{false};
-  auto run = std::make_shared<std::function<void()>>();
-  *run = [this, &stream, qid, &pool, &done, run, &barrier]() {
-    static bool once = false;
-    if (!once) {
-      once = true;
-      barrier.arrive_and_wait();
-    }
-    auto summary = this->default_interpreter.interpreter.Pull(&stream, {}, qid);
-    stream.Summary(summary);
-    if (summary.count("has_more") && summary.at("has_more").ValueBool()) {
-      std::cout << "Yielding and rescheduling" << std::endl;
-      pool.ScheduledAddTask([run]() { (*run)(); }, memgraph::utils::Priority::LOW);
-    } else {
-      done = true;
-      std::cout << "Query completed" << std::endl;
-    }
-  };
+
+  // ScheduleResumableTask: pool handles yield detection and same-worker pinning.
+  pool.ScheduleResumableTask(
+      [this, &stream, qid, &done, &barrier, first = true]() mutable -> bool {
+        if (first) {
+          first = false;
+          barrier.arrive_and_wait();
+        }
+        auto summary = this->default_interpreter.interpreter.Pull(&stream, {}, qid);
+        stream.Summary(summary);
+        if (summary.count("has_more") && summary.at("has_more").ValueBool()) {
+          return true;  // pool reschedules on same worker if yield signal is set
+        }
+        done = true;
+        return false;
+      },
+      memgraph::utils::Priority::LOW);
 
   std::jthread external([&registry, &barrier]() {
     barrier.arrive_and_wait();
     std::this_thread::sleep_for(std::chrono::microseconds(1));
     registry.RequestYieldForWorker(0);
   });
-
-  pool.ScheduledAddTask([run]() { (*run)(); }, memgraph::utils::Priority::LOW);
 
   while (!done.load(std::memory_order_acquire)) {
     std::this_thread::yield();

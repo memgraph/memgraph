@@ -74,6 +74,10 @@ class HotMask {
 
 using TaskSignature = std::move_only_function<void()>;
 
+// Resumable task: returns true if it yielded and wants to be rescheduled on the
+// same worker, false if it completed.
+using ResumableTaskSignature = std::move_only_function<bool()>;
+
 // Collection of tasks that can be executed by the thread pool
 // The idea is to batch tasks and have the ability to wait on them
 // Also execute non scheduler tasks in the local thread
@@ -139,6 +143,11 @@ class PriorityThreadPool {
   void ShutDown();
 
   void ScheduledAddTask(TaskSignature new_task, Priority priority);
+
+  // Schedule a resumable task. The task returns true if it yielded and wants to
+  // be rescheduled on the same worker, false when it is done. The pool handles
+  // all yield detection and worker-pinned rescheduling internally.
+  void ScheduleResumableTask(ResumableTaskSignature task, Priority priority);
 
   /**
    * Schedules a task on a specific worker. Use when the task must run on that

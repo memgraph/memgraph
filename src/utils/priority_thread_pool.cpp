@@ -179,6 +179,31 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   // HP threads are going to steal this work if not executed in time
 }
 
+void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Priority priority) {
+  struct ResumableWrapper {
+    std::shared_ptr<ResumableTaskSignature> task;
+    PriorityThreadPool *pool;
+    Priority priority;
+
+    void Run() {
+      bool yielded = (*task)();
+      if (!yielded) return;
+      auto *sig = WorkerYieldRegistry::GetCurrentYieldSignal();
+      if (sig && sig->load(std::memory_order_acquire)) {
+        if (auto wid = WorkerYieldRegistry::GetCurrentWorkerId()) {
+          pool->RescheduleTaskOnWorker(*wid, [w = *this]() mutable { w.Run(); });
+          return;
+        }
+      }
+      // Fallback: signal was cleared or no worker id — re-add as a normal scheduled task.
+      pool->ScheduledAddTask([w = *this]() mutable { w.Run(); }, priority);
+    }
+  };
+
+  ResumableWrapper w{std::make_shared<ResumableTaskSignature>(std::move(task)), this, priority};
+  ScheduledAddTask([w]() mutable { w.Run(); }, priority);
+}
+
 // Reschedule a continuation on a specific worker, preserving its original task ID.
 // last_task_ holds the ID of the task currently executing on that worker. Reusing it
 // ensures the continuation sits at exactly the same position in the priority queue as

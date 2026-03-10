@@ -398,45 +398,36 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoWork() {
-    session_context_->AddTask([shared_this = shared_from_this()]() { shared_this->DoWorkLoop(false); },
-                              session_.ApproximateQueryPriority());
+    session_context_->AddResumableTask([shared_this = shared_from_this()]() { return shared_this->DoWorkLoop(); },
+                                       session_.ApproximateQueryPriority());
   }
 
-  // NOTE This is done outside the worker pool, so we can just call it directly.
-  void DoWorkLoop(bool continue_after_yield = false) {
+  // Runs the session execute loop. Returns true if the task yielded and wants
+  // to be rescheduled on the same worker; false when done (DoRead queued or
+  // exception). The pool calls this again automatically on yield.
+  bool DoWorkLoop() {
     try {
       while (true) {
-        if (session_.Execute(continue_after_yield)) {
-          // Next iteration is normal (read from buffer if needed), not a yield resume.
-          continue_after_yield = false;
-          // Returned true: either we yielded (signal was set) or we're done with this chunk.
+        if (session_.Execute(continue_after_yield_)) {
+          continue_after_yield_ = true;
           auto *yield_signal = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
           if (yield_signal && yield_signal->load(std::memory_order_acquire)) {
-            // We yielded; reschedule on the same worker so continuation runs on same thread.
-            if (auto wid = utils::WorkerYieldRegistry::GetCurrentWorkerId()) {
-              // Continuation is pinned to the same worker and reuses the original LP task ID
-              // (RescheduleTaskOnWorker reads last_task_). LP IDs (≤ INT64_MAX) are naturally
-              // lower than HP IDs (> INT64_MAX), so pending HP tasks still run first.
-              session_context_->AddTaskOnWorker(
-                  *wid, [shared_this = shared_from_this()]() { shared_this->DoWorkLoop(true); });
-              return;
-            }
-            DoWork();
-            return;
+            return true;  // yield to pool; reschedule on same worker
           }
-          // More work (e.g. state Yielded) but yield_signal was cleared (e.g. we're the continuation task).
-          // Loop with continue_after_yield=true so next Execute() calls ContinuePull().
-          continue_after_yield = true;
+          // Yield signal cleared — we're the continuation. Loop and call ContinuePull().
         } else {
           // Handled all data, async wait for new incoming data
+          continue_after_yield_ = false;
           DoRead();
-          return;
+          return false;
         }
       }
     } catch (const std::exception &) {
+      continue_after_yield_ = false;
       boost::asio::post(strand_, [shared_this = shared_from_this(), eptr = std::current_exception()]() {
         shared_this->HandleException(eptr);
       });
+      return false;
     }
   }
 
@@ -557,5 +548,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
+  bool continue_after_yield_{false};
 };
 }  // namespace memgraph::communication::v2
