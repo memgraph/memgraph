@@ -1755,6 +1755,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   if (!mem_label_index->RegisterIndex(label)) {
     return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
+  // refresh active indices cache before releasing read only lock
   storage_->RefreshActiveIndicesCache();
   DowngradeToReadIfValid();
   if (auto result = TryPopulateIndex([&] {
@@ -1829,6 +1830,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   if (!mem_edge_type_index->RegisterIndex(edge_type)) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // refresh active indices cache before releasing read only lock
   storage_->RefreshActiveIndicesCache();
   DowngradeToReadIfValid();
   if (auto result = TryPopulateIndex([&] {
@@ -1863,6 +1865,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   if (!mem_edge_type_property_index->RegisterIndex(edge_type, property)) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // refresh active indices cache before releasing read only lock
   storage_->RefreshActiveIndicesCache();
   DowngradeToReadIfValid();
   if (auto result = TryPopulateIndex([&] {
@@ -1897,6 +1900,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   if (!mem_edge_property_index->RegisterIndex(property)) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // refresh active indices cache before releasing read only lock
   storage_->RefreshActiveIndicesCache();
   DowngradeToReadIfValid();
   if (auto result = TryPopulateIndex([&] {
