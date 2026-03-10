@@ -36,6 +36,13 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::auth {
+
+enum class UserOrRoleType {
+  UNSPECIFIED,
+  USER,
+  ROLE,
+};
+
 // These permissions must have values that are applicable for usage in a
 // bitmask.
 // clang-format off

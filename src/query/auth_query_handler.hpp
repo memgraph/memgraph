@@ -54,15 +54,18 @@ class AuthQueryHandler {
 #ifdef MG_ENTERPRISE
   /// Return true if access granted successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void GrantDatabase(const std::string &db, const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void GrantDatabase(const std::string &db, const std::string &username, auth::UserOrRoleType type,
+                             system::Transaction *system_tx) = 0;
 
   /// Return true if access revoked successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DenyDatabase(const std::string &db, const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void DenyDatabase(const std::string &db, const std::string &username, auth::UserOrRoleType type,
+                            system::Transaction *system_tx) = 0;
 
   /// Return true if access revoked successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RevokeDatabase(const std::string &db, const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void RevokeDatabase(const std::string &db, const std::string &username, auth::UserOrRoleType type,
+                              system::Transaction *system_tx) = 0;
 
   using DatabasePrivileges = std::vector<std::vector<memgraph::query::TypedValue>>;
 
@@ -76,7 +79,8 @@ class AuthQueryHandler {
 
   /// Return true if main database set successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetMainDatabase(std::string_view db, const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void SetMainDatabase(std::string_view db, const std::string &username, auth::UserOrRoleType type,
+                               system::Transaction *system_tx) = 0;
 
   /// Delete database from all users
   /// @throw QueryRuntimeException if an error ocurred.
@@ -125,7 +129,13 @@ class AuthQueryHandler {
                           const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
 
   virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
-                                                                              std::optional<std::string>) = 0;
+                                                                              std::optional<std::string> db,
+                                                                              auth::UserOrRoleType type) = 0;
+
+  std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
+                                                                      std::optional<std::string> db) {
+    return GetPrivileges(user_or_role, db, auth::UserOrRoleType::UNSPECIFIED);
+  }
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void GrantPrivilege(
@@ -139,7 +149,7 @@ class AuthQueryHandler {
           &edge_type_privileges
 #endif
       ,
-      system::Transaction *system_tx) = 0;
+      auth::UserOrRoleType type, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DenyPrivilege(
@@ -153,7 +163,7 @@ class AuthQueryHandler {
           &edge_type_privileges
 #endif
       ,
-      system::Transaction *system_tx) = 0;
+      auth::UserOrRoleType type, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RevokePrivilege(
@@ -167,13 +177,13 @@ class AuthQueryHandler {
           &edge_type_privileges
 #endif
       ,
-      system::Transaction *system_tx) = 0;
+      auth::UserOrRoleType type, system::Transaction *system_tx) = 0;
 
 #ifdef MG_ENTERPRISE
   virtual void GrantImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
-                                    system::Transaction *system_tx) = 0;
+                                    auth::UserOrRoleType type, system::Transaction *system_tx) = 0;
   virtual void DenyImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
-                                   system::Transaction *system_tx) = 0;
+                                   auth::UserOrRoleType type, system::Transaction *system_tx) = 0;
 #endif
 
 // User profiles

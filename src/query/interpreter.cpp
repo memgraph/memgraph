@@ -981,6 +981,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
   std::string username = auth_query->user_;
   std::string user_or_role = auth_query->user_or_role_;
+  auto const entity_type = auth_query->entity_type_;
   const bool if_not_exists = auth_query->if_not_exists_;
   std::string database = auth_query->database_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
@@ -1084,6 +1085,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                                  {AuthQuery::FineGrainedPrivilege::DELETE, {query::kAsterisk}}}}
 #endif
                                ,
+                               auth::UserOrRoleType::USER,
                                &*interpreter->system_transaction_);
         }
 
@@ -1290,6 +1292,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       callback.fn = [auth,
                      user_or_role,
                      privileges,
+                     entity_type,
                      interpreter = &interpreter
 #ifdef MG_ENTERPRISE
                      ,
@@ -1311,6 +1314,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                              edge_type_privileges
 #endif
                              ,
+                             entity_type,
                              &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -1320,6 +1324,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       callback.fn = [auth,
                      user_or_role,
                      privileges,
+                     entity_type,
                      interpreter = &interpreter
 #ifdef MG_ENTERPRISE
                      ,
@@ -1341,6 +1346,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                             edge_type_privileges
 #endif
                             ,
+                            entity_type,
                             &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -1350,6 +1356,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       callback.fn = [auth,
                      user_or_role,
                      privileges,
+                     entity_type,
                      interpreter = &interpreter
 #ifdef MG_ENTERPRISE
                      ,
@@ -1371,6 +1378,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                               edge_type_privileges
 #endif
                               ,
+                              entity_type,
                               &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -1380,6 +1388,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       callback.header = {"privilege", "effective", "description"};
       callback.fn = [auth,
                      user_or_role,
+                     entity_type,
                      database_specification = auth_query->database_specification_
 #ifdef MG_ENTERPRISE
                      ,
@@ -1393,7 +1402,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
             throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
           }
-          return auth->GetPrivileges(user_or_role, std::nullopt);
+          return auth->GetPrivileges(user_or_role, std::nullopt, entity_type);
         }
         std::optional<std::string> target_db;
         switch (database_specification) {
@@ -1430,12 +1439,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           // Check that the db exists
           target_db_acc = db_handler->Get(*target_db);
         }
-        return auth->GetPrivileges(user_or_role, target_db);
+        return auth->GetPrivileges(user_or_role, target_db, entity_type);
 #else
         if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
           throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
         }
-        return auth->GetPrivileges(user_or_role, std::nullopt);
+        return auth->GetPrivileges(user_or_role, std::nullopt, entity_type);
 #endif
       };
       return callback;
@@ -1520,7 +1529,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     case AuthQuery::Action::GRANT_DATABASE_TO_USER:
       forbid_on_replica();
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, db_handler, interpreter = &interpreter] {  // NOLINT
+      callback.fn = [auth, database, user_or_role, entity_type, db_handler, interpreter = &interpreter] {  // NOLINT
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
@@ -1531,7 +1540,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
-          auth->GrantDatabase(database, username,
+          auth->GrantDatabase(database,
+                              user_or_role,
+                              entity_type,
                               &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
@@ -1545,7 +1556,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     case AuthQuery::Action::DENY_DATABASE_FROM_USER:
       forbid_on_replica();
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, db_handler, interpreter = &interpreter] {  // NOLINT
+      callback.fn = [auth, database, user_or_role, entity_type, db_handler, interpreter = &interpreter] {  // NOLINT
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
@@ -1556,7 +1567,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
-          auth->DenyDatabase(database, username, &*interpreter->system_transaction_);  // Can throws query exception
+          auth->DenyDatabase(database,
+                             user_or_role,
+                             entity_type,
+                             &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }
@@ -1569,7 +1583,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     case AuthQuery::Action::REVOKE_DATABASE_FROM_USER:
       forbid_on_replica();
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, db_handler, interpreter = &interpreter] {  // NOLINT
+      callback.fn = [auth, database, user_or_role, entity_type, db_handler, interpreter = &interpreter] {  // NOLINT
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
@@ -1580,7 +1594,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
-          auth->RevokeDatabase(database, username,
+          auth->RevokeDatabase(database,
+                               user_or_role,
+                               entity_type,
                                &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
@@ -1594,8 +1610,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     case AuthQuery::Action::SHOW_DATABASE_PRIVILEGES:
       callback.header = {"grants", "denies"};
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, username] {  // NOLINT
-        return auth->GetDatabasePrivileges(username);
+      callback.fn = [auth, user_or_role] {  // NOLINT
+        return auth->GetDatabasePrivileges(user_or_role);
       };
 #else
       callback.fn = [] {  // NOLINT
@@ -1606,7 +1622,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     case AuthQuery::Action::SET_MAIN_DATABASE:
       forbid_on_replica();
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, database, username, db_handler, interpreter = &interpreter] {  // NOLINT
+      callback.fn = [auth, database, user_or_role, entity_type, db_handler, interpreter = &interpreter] {  // NOLINT
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
@@ -1614,7 +1630,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         try {
           const auto db =
               db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
-          auth->SetMainDatabase(database, username,
+          auth->SetMainDatabase(database,
+                                user_or_role,
+                                entity_type,
                                 &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
@@ -1635,6 +1653,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       callback.fn = [auth,
                      user_or_role = std::move(user_or_role),
                      targets = std::move(impersonation_targets),
+                     entity_type,
                      interpreter = &interpreter] {  // NOLINT
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
@@ -1642,6 +1661,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         try {
           auth->GrantImpersonateUser(user_or_role,
                                      targets,
+                                     entity_type,
                                      &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
@@ -1662,6 +1682,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       callback.fn = [auth,
                      user_or_role = std::move(user_or_role),
                      targets = std::move(impersonation_targets),
+                     entity_type,
                      interpreter = &interpreter] {  // NOLINT
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
@@ -1669,6 +1690,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         try {
           auth->DenyImpersonateUser(user_or_role,
                                     targets,
+                                    entity_type,
                                     &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
