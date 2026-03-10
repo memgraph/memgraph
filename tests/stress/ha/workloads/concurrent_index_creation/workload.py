@@ -29,7 +29,7 @@ COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 NUM_INGESTION_WORKERS = 20
 TOTAL_NODES = 10_000_000
 BATCH_SIZE = 10
-NUM_BATCHES_PER_WORKER = 100  # 100 batches × 10 nodes = 1000 nodes per worker
+NUM_BATCHES_PER_WORKER = 1000  # 1000 batches × 10 nodes = 10000 nodes per worker
 LABELS = [f"L{i}" for i in range(10)]
 PROPERTIES = [f"p{i}" for i in range(10)]
 

@@ -425,7 +425,6 @@ def cleanup(coordinator: str = "coord_1", auth: tuple[str, str] = ("", "")) -> N
                 coordinator,
                 f"DROP DATABASE {db_name}",
                 protocol=Protocol.BOLT_ROUTING,
-                query_type=QueryType.WRITE,
                 auth=auth,
             )
         print("Cleanup: tenant databases dropped.")
@@ -435,7 +434,6 @@ def cleanup(coordinator: str = "coord_1", auth: tuple[str, str] = ("", "")) -> N
         coordinator,
         "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n",
         protocol=Protocol.BOLT_ROUTING,
-        query_type=QueryType.WRITE,
         auth=auth,
     )
 
@@ -477,14 +475,10 @@ def cleanup(coordinator: str = "coord_1", auth: tuple[str, str] = ("", "")) -> N
             print(f"Cleanup: unknown index type '{itype}', skipping.")
             continue
 
-        execute_with_manual_retries(
-            coordinator, query, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE, auth=auth
-        )
+        execute_with_manual_retries(coordinator, query, protocol=Protocol.BOLT_ROUTING, auth=auth)
     print(f"Cleanup: dropped {len(indexes)} indexes.")
 
     print("Cleanup: dropping all constraints...")
-    execute_with_manual_retries(
-        coordinator, "DROP ALL CONSTRAINTS", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE, auth=auth
-    )
+    execute_with_manual_retries(coordinator, "DROP ALL CONSTRAINTS", protocol=Protocol.BOLT_ROUTING, auth=auth)
 
     print("Cleanup complete.")
