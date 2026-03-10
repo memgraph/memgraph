@@ -1264,18 +1264,22 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::CLEAR_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, username, interpreter = &interpreter, role_databases = std::move(role_databases)] {
+      callback.fn = [auth,
+                     username,
+                     roles = std::move(auth_query->roles_),
+                     interpreter = &interpreter,
+                     role_databases = std::move(role_databases)] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 
 #ifdef MG_ENTERPRISE
-        auth->ClearRoles(username, role_databases, &*interpreter->system_transaction_);
+        auth->ClearRoles(username, roles, role_databases, &*interpreter->system_transaction_);
 #else
         if (!role_databases.empty()) {
           throw QueryException("Database specification is only available in the enterprise edition");
         }
-        auth->ClearRoles(username, std::unordered_set<std::string>{}, &*interpreter->system_transaction_);
+        auth->ClearRoles(username, roles, std::unordered_set<std::string>{}, &*interpreter->system_transaction_);
 #endif
         return std::vector<std::vector<TypedValue>>();
       };
