@@ -24,6 +24,72 @@ SETUP_CHUNK = 1_000_000  # nodes per CREATE batch during setup
 
 MAX_READ_LATENCY_S = 1.0
 
+PRIVILEGES = ["MATCH", "CREATE", "MERGE", "DELETE", "SET", "REMOVE", "INDEX", "STATS", "AUTH", "REPLICATION"]
+_created_users: list[str] = []
+_created_roles: list[str] = []
+_user_lock = threading.Lock()
+
+ADMIN_USER = "admin"
+ADMIN_PASSWORD = "test"
+AUTH = (ADMIN_USER, ADMIN_PASSWORD)
+
+
+def setup_admin_user() -> None:
+    """Create the admin user before auth is enabled (unauthenticated connection)."""
+    execute_query(
+        COORDINATOR,
+        f"CREATE USER {ADMIN_USER} IDENTIFIED BY '{ADMIN_PASSWORD}';",
+        protocol=Protocol.BOLT_ROUTING,
+        query_type=QueryType.WRITE,
+    )
+    execute_query(
+        COORDINATOR,
+        f"GRANT ALL PRIVILEGES TO {ADMIN_USER};",
+        protocol=Protocol.BOLT_ROUTING,
+        query_type=QueryType.WRITE,
+    )
+    print(f"  [Setup] Admin user '{ADMIN_USER}' created with all privileges.")
+
+
+_user_counter = 0
+
+
+def _next_user() -> tuple[str, str, str]:
+    """Return (username, password, role_name) for the next sequential user."""
+    global _user_counter
+    _user_counter += 1
+    n = _user_counter
+    return f"user_{n}", f"pass_{n}", f"role_{n}"
+
+
+def _cleanup_users() -> None:
+    """Drop all users and roles created during the workload."""
+    with _user_lock:
+        users = list(_created_users)
+        roles = list(_created_roles)
+    for username in users:
+        try:
+            execute_query(
+                COORDINATOR,
+                f"DROP USER {username};",
+                protocol=Protocol.BOLT_ROUTING,
+                query_type=QueryType.WRITE,
+                auth=AUTH,
+            )
+        except Exception:
+            pass
+    for role_name in roles:
+        try:
+            execute_query(
+                COORDINATOR,
+                f"DROP ROLE {role_name};",
+                protocol=Protocol.BOLT_ROUTING,
+                query_type=QueryType.WRITE,
+                auth=AUTH,
+            )
+        except Exception:
+            pass
+
 
 def _create_nodes(done: threading.Event, error: list) -> None:
     """Create TOTAL_NODES nodes with labels and id property, in chunks."""
@@ -33,6 +99,7 @@ def _create_nodes(done: threading.Event, error: list) -> None:
             "CREATE INDEX ON :L0(id);",
             protocol=Protocol.BOLT_ROUTING,
             query_type=QueryType.WRITE,
+            auth=AUTH,
         )
         t0 = time.time()
         for start in range(0, TOTAL_NODES, SETUP_CHUNK):
@@ -43,6 +110,7 @@ def _create_nodes(done: threading.Event, error: list) -> None:
                 params={"start": start, "end": end},
                 protocol=Protocol.BOLT_ROUTING,
                 query_type=QueryType.WRITE,
+                auth=AUTH,
             )
             elapsed = time.time() - t0
             print(f"  [Ingestion] {end:>10,}/{TOTAL_NODES:,} nodes  ({elapsed:.0f}s)")
@@ -52,17 +120,6 @@ def _create_nodes(done: threading.Event, error: list) -> None:
         error[0] = e
     finally:
         done.set()
-
-
-def _timed_fetch(query: str) -> float:
-    """Run a read query and return the elapsed time in seconds."""
-    t0 = time.time()
-    execute_and_fetch(
-        COORDINATOR,
-        query,
-        protocol=Protocol.BOLT_ROUTING,
-    )
-    return time.time() - t0
 
 
 def run_workload() -> None:
@@ -76,26 +133,64 @@ def run_workload() -> None:
     ingestion_thread = threading.Thread(target=_create_nodes, args=(ingestion_done, ingestion_error), daemon=True)
     ingestion_thread.start()
 
-    # Read worker loop — runs in main thread until ingestion finishes
-    queries = ["SHOW INDEXES;", "SHOW METRICS;"]
     iterations = 0
     max_latency = 0.0
 
+    num_labels = len(LABELS)
+
     while not ingestion_done.is_set():
-        for query in queries:
-            latency = _timed_fetch(query)
+        username, password, role_name = _next_user()
+        # Cycle through privilege subsets and labels deterministically
+        n = _user_counter
+        privileges = ", ".join(PRIVILEGES[: (n % len(PRIVILEGES)) + 1])
+        label = LABELS[n % num_labels]
+
+        with _user_lock:
+            _created_users.append(username)
+            _created_roles.append(role_name)
+
+        steps: list[tuple[str, str, QueryType]] = [
+            ("SHOW INDEXES", "SHOW INDEXES", QueryType.READ),
+            ("SHOW METRICS", "SHOW METRICS", QueryType.READ),
+            (
+                f"CREATE USER {username}",
+                f"CREATE USER IF NOT EXISTS {username} IDENTIFIED BY '{password}'",
+                QueryType.WRITE,
+            ),
+            (f"CREATE ROLE {role_name}", f"CREATE ROLE IF NOT EXISTS {role_name}", QueryType.WRITE),
+            (f"GRANT {privileges} TO {role_name}", f"GRANT {privileges} TO {role_name}", QueryType.WRITE),
+            (f"SET ROLE {role_name} FOR {username}", f"SET ROLE FOR {username} TO {role_name}", QueryType.WRITE),
+            (
+                f"GRANT READ :{label} TO {username}",
+                f"GRANT READ ON NODES CONTAINING LABELS :{label} TO {username}",
+                QueryType.WRITE,
+            ),
+        ]
+
+        for name, query, qtype in steps:
+            t_step = time.time()
+            try:
+                execute_query(COORDINATOR, query, protocol=Protocol.BOLT_ROUTING, query_type=qtype, auth=AUTH)
+            except SystemExit:
+                raise
+            except Exception as e:
+                print(f"  [Worker] WARNING: '{name}' failed: {e}")
+                time.sleep(0.5)
+                continue
+
+            latency = time.time() - t_step
             max_latency = max(max_latency, latency)
             iterations += 1
 
             if latency > MAX_READ_LATENCY_S:
                 print(
-                    f"  [Read Worker] FAIL: '{query}' took {latency:.3f}s "
+                    f"  [Worker] FAIL: '{name}' took {latency:.3f}s "
                     f"(limit: {MAX_READ_LATENCY_S}s) on iteration {iterations}"
                 )
                 sys.exit(1)
 
             if iterations % 5 == 0:
-                print(f"  [Read Worker] {iterations} queries OK (max latency so far: {max_latency:.3f}s)")
+                print(f"  [Worker] {iterations} steps OK (max latency so far: {max_latency:.3f}s)")
 
             time.sleep(0.5)
 
@@ -109,7 +204,13 @@ def run_workload() -> None:
         print(f"ERROR: Ingestion failed: {ingestion_error[0]}")
         sys.exit(1)
 
-    print(f"  [Read Worker] Finished: {iterations} queries in {elapsed:.1f}s (max latency: {max_latency:.3f}s)")
+    print(f"  [Worker] Finished: {iterations} steps in {elapsed:.1f}s (max latency: {max_latency:.3f}s)")
+
+    print("  [User Worker] Cleaning up created users and roles...")
+    _cleanup_users()
+    with _user_lock:
+        print(f"  [User Worker] Dropped {len(_created_users)} users and {len(_created_roles)} roles")
+
     print(f"\nAll done in {elapsed:.1f}s ({elapsed / 60:.1f} min)")
 
 
@@ -130,17 +231,20 @@ def main():
         verify_up=True,
         storage_info=["vertex_count", "memory_res", "allocation_limit"],
         interval=2,
+        auth=AUTH,
     )
 
     total_start = time.time()
     try:
         with monitor:
+            setup_admin_user()
             run_workload()
 
             result = execute_and_fetch(
                 COORDINATOR,
                 "MATCH (n:L0) RETURN count(n) AS cnt",
                 protocol=Protocol.BOLT_ROUTING,
+                auth=AUTH,
             )
             node_count = result[0]["cnt"] if result else 0
             print(f"Node count (via :L0): {node_count:,}  (expected: {TOTAL_NODES:,})")
@@ -163,7 +267,7 @@ def main():
     except SystemExit:
         raise
     finally:
-        cleanup()
+        cleanup(auth=AUTH)
 
 
 if __name__ == "__main__":

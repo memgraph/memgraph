@@ -159,17 +159,17 @@ def create_routing_driver_for(
 # PID-aware driver cache (safe across multiprocessing forks)
 # ---------------------------------------------------------------------------
 
-_driver_cache: dict[tuple[int, str, str], Any] = {}
+_driver_cache: dict[tuple[int, str, str, str, str], Any] = {}
 
 
-def _get_or_create_driver(instance_name: str, protocol: Protocol):
+def _get_or_create_driver(instance_name: str, protocol: Protocol, auth: tuple[str, str] = ("", "")):
     pid = os.getpid()
-    key = (pid, instance_name, protocol.value)
+    key = (pid, instance_name, protocol.value, auth[0], auth[1])
     if key not in _driver_cache:
         if protocol == Protocol.BOLT_ROUTING:
-            _driver_cache[key] = create_routing_driver_for(instance_name)
+            _driver_cache[key] = create_routing_driver_for(instance_name, auth=auth)
         else:
-            _driver_cache[key] = create_bolt_driver_for(instance_name)
+            _driver_cache[key] = create_bolt_driver_for(instance_name, auth=auth)
     return _driver_cache[key]
 
 
@@ -226,6 +226,7 @@ def _run_query(
     apply_retry_mechanism: bool,
     result_handler: Callable,
     database: str | None = None,
+    auth: tuple[str, str] = ("", ""),
 ) -> Any:
     """
     Internal query runner. Returns None if SYNC replica error occurs
@@ -236,7 +237,7 @@ def _run_query(
     retry_delay = 2
 
     for attempt in range(1, max_retries + 1):
-        driver = _get_or_create_driver(instance_name, protocol)
+        driver = _get_or_create_driver(instance_name, protocol, auth=auth)
         try:
             with driver.session(database=database) as session:
                 if apply_retry_mechanism:
@@ -252,7 +253,7 @@ def _run_query(
                 return None
             if isinstance(e, ServiceUnavailable) or WRITE_ON_REPLICA_ERROR in str(e):
                 pid = os.getpid()
-                key = (pid, instance_name, protocol.value)
+                key = (pid, instance_name, protocol.value, auth[0], auth[1])
                 _driver_cache.pop(key, None)
                 if attempt < max_retries:
                     print(
@@ -273,6 +274,7 @@ def execute_query(
     query_type: QueryType = QueryType.READ,
     apply_retry_mechanism: bool = False,
     database: str | None = None,
+    auth: tuple[str, str] = ("", ""),
 ) -> None:
     """Execute a query on a specific instance. Discards results."""
     _run_query(
@@ -284,6 +286,7 @@ def execute_query(
         apply_retry_mechanism,
         result_handler=lambda result: result.consume(),
         database=database,
+        auth=auth,
     )
 
 
@@ -292,6 +295,7 @@ def _execute_cleanup_write_with_retries(
     query: str,
     max_retries: int = 5,
     retry_delay_sec: int = 2,
+    auth: tuple[str, str] = ("", ""),
 ) -> None:
     """Execute cleanup write and retry SYNC replica commit errors."""
     for attempt in range(1, max_retries + 1):
@@ -303,6 +307,7 @@ def _execute_cleanup_write_with_retries(
             query_type=QueryType.WRITE,
             apply_retry_mechanism=False,
             result_handler=lambda run_result: run_result.consume(),
+            auth=auth,
         )
         if result is not None:
             return
@@ -329,6 +334,7 @@ def execute_and_fetch(
     query_type: QueryType = QueryType.READ,
     apply_retry_mechanism: bool = False,
     database: str | None = None,
+    auth: tuple[str, str] = ("", ""),
 ) -> list[dict[str, Any]]:
     """Execute a query and return all results as a list of dicts."""
     result = _run_query(
@@ -340,6 +346,7 @@ def execute_and_fetch(
         apply_retry_mechanism,
         result_handler=lambda result: [record.data() for record in result],
         database=database,
+        auth=auth,
     )
     return result if result is not None else []
 
@@ -349,7 +356,7 @@ def execute_and_fetch(
 # ---------------------------------------------------------------------------
 
 
-def cleanup(coordinator: str = "coord_1") -> None:
+def cleanup(coordinator: str = "coord_1", auth: tuple[str, str] = ("", "")) -> None:
     """
     Full wipe of the cluster: drops all tenant databases, then wipes indexes,
     constraints, and graph data from the default database.
@@ -358,21 +365,21 @@ def cleanup(coordinator: str = "coord_1") -> None:
     all data instances. Safe to call between workloads when the cluster
     stays running.
     """
-    rows = execute_and_fetch(coordinator, "SHOW DATABASES;", protocol=Protocol.BOLT_ROUTING)
+    rows = execute_and_fetch(coordinator, "SHOW DATABASES;", protocol=Protocol.BOLT_ROUTING, auth=auth)
     tenant_dbs = [next(iter(row.values())) for row in rows if next(iter(row.values())) != "memgraph"]
     if tenant_dbs:
         print(f"Cleanup: dropping tenant databases {tenant_dbs}...")
         for db_name in tenant_dbs:
-            _execute_cleanup_write_with_retries(coordinator, f"DROP DATABASE {db_name}")
+            _execute_cleanup_write_with_retries(coordinator, f"DROP DATABASE {db_name}", auth=auth)
         print("Cleanup: tenant databases dropped.")
 
     print("Cleanup: deleting all nodes and edges...")
-    _execute_cleanup_write_with_retries(coordinator, "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n")
+    _execute_cleanup_write_with_retries(coordinator, "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n", auth=auth)
 
     print("Cleanup: dropping all indexes...")
-    _execute_cleanup_write_with_retries(coordinator, "DROP ALL INDEXES")
+    _execute_cleanup_write_with_retries(coordinator, "DROP ALL INDEXES", auth=auth)
 
     print("Cleanup: dropping all constraints...")
-    _execute_cleanup_write_with_retries(coordinator, "DROP ALL CONSTRAINTS")
+    _execute_cleanup_write_with_retries(coordinator, "DROP ALL CONSTRAINTS", auth=auth)
 
     print("Cleanup complete.")

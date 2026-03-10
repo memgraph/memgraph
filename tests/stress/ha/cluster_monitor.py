@@ -46,6 +46,7 @@ class ClusterMonitor:
         storage_info: list[str] | None = None,
         metrics_info: list[str] | None = None,
         interval: float = 5.0,
+        auth: tuple[str, str] = ("", ""),
     ):
         if isinstance(coordinators, str):
             coordinators = [coordinators]
@@ -56,6 +57,7 @@ class ClusterMonitor:
         self._storage_fields = storage_info or []
         self._metrics_fields = metrics_info or []
         self._interval = interval
+        self._auth = auth
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
 
@@ -70,7 +72,7 @@ class ClusterMonitor:
         last_err = None
         for coord in candidates:
             try:
-                return coord, execute_and_fetch(coord, query, protocol=protocol, query_type=query_type)
+                return coord, execute_and_fetch(coord, query, protocol=protocol, query_type=query_type, auth=self._auth)
             except Exception as e:
                 last_err = e
         raise last_err  # type: ignore[misc]
