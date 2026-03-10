@@ -1343,9 +1343,9 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
   auto *active_unique_constraints =
       static_cast<DiskUniqueConstraints::ActiveConstraints *>(transaction->active_constraints_.unique_.get());
 
-  auto *label_active_indices = static_cast<DiskLabelIndex::ActiveIndices *>(transaction->active_indices_.label_.get());
+  auto *label_active_indices = static_cast<DiskLabelIndex::ActiveIndices *>(transaction->active_indices_->label_.get());
   auto *label_properties_active_indices =
-      static_cast<DiskLabelPropertyIndex::ActiveIndices *>(transaction->active_indices_.label_properties_.get());
+      static_cast<DiskLabelPropertyIndex::ActiveIndices *>(transaction->active_indices_->label_properties_.get());
 
   auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
   if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(
@@ -2151,6 +2151,8 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
     return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
+  storage_->RefreshActiveIndicesCache();
+
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(always_invalidate_plan_cache);
@@ -2180,6 +2182,8 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
           label, properties[0][0], on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0][0]))) {
     return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
+
+  storage_->RefreshActiveIndicesCache();
 
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
@@ -2218,6 +2222,8 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
     return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
+  storage_->RefreshActiveIndicesCache();
+
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
   storage_->invalidator_->invalidate_now(always_invalidate_plan_cache);
@@ -2245,6 +2251,8 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
   if (!disk_label_property_index->DropIndex(label, properties)) {
     return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
+
+  storage_->RefreshActiveIndicesCache();
 
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
@@ -2436,7 +2444,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
   bool edge_import_mode_active{false};
-  std::optional<ActiveIndices> active_indices;
+  ActiveIndicesPtr active_indices;
   std::optional<ActiveConstraints> active_constraints;
   {
     auto guard = std::lock_guard{engine_lock_};
@@ -2453,7 +2461,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           storage_mode,
           edge_import_mode_active,
           empty_point_index_.CreatePointIndexContext(),
-          *std::move(active_indices),
+          std::move(active_indices),
           *std::move(active_constraints)};
 }
 
@@ -2492,7 +2500,7 @@ std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<Iso
 
 bool DiskStorage::DiskAccessor::LabelPropertyIndexExists(LabelId label,
                                                          std::span<PropertyPath const> properties) const {
-  return transaction_.active_indices_.label_properties_->IndexExists(label, properties);
+  return transaction_.active_indices_->label_properties_->IndexExists(label, properties);
 }
 
 bool DiskStorage::DiskAccessor::EdgeTypeIndexReady(EdgeTypeId /*edge_type*/) const {
@@ -2523,8 +2531,8 @@ bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /
 }
 
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
-  return {transaction_.active_indices_.label_->ListIndices(transaction_.start_timestamp),
-          transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
+  return {transaction_.active_indices_->label_->ListIndices(transaction_.start_timestamp),
+          transaction_.active_indices_->label_properties_->ListIndices(transaction_.start_timestamp),
           {/* edge type indices */},
           {/* edge_type_property */},
           {/*edge property*/},

@@ -64,8 +64,8 @@ void Indices::DropGraphClearIndices() {
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {
-  tx.active_indices_.label_->UpdateOnAddLabel(label, vertex, tx);
-  tx.active_indices_.label_properties_->UpdateOnAddLabel(label, vertex, tx);
+  tx.active_indices_->label_->UpdateOnAddLabel(label, vertex, tx);
+  tx.active_indices_->label_properties_->UpdateOnAddLabel(label, vertex, tx);
   text_index_.UpdateOnAddLabel(label, vertex, tx);
   vector_index_.UpdateOnAddLabel(
       label,
@@ -74,8 +74,8 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, N
 }
 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {
-  tx.active_indices_.label_->UpdateOnRemoveLabel(label, vertex, tx);
-  tx.active_indices_.label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
+  tx.active_indices_->label_->UpdateOnRemoveLabel(label, vertex, tx);
+  tx.active_indices_->label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
   text_index_.UpdateOnRemoveLabel(label, vertex, tx);
   vector_index_.UpdateOnRemoveLabel(
       label,
@@ -84,16 +84,16 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx) {
-  tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
+  tx.active_indices_->label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
   text_index_.UpdateOnSetProperty(vertex, tx, property);
   vector_index_.UpdateOnSetProperty(property, value, vertex);
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
                                   Vertex *from_vertex, Vertex *to_vertex, Edge *edge, Transaction &tx) {
-  tx.active_indices_.edge_type_properties_->UpdateOnSetProperty(
+  tx.active_indices_->edge_type_properties_->UpdateOnSetProperty(
       from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
-  tx.active_indices_.edge_property_->UpdateOnSetProperty(
+  tx.active_indices_->edge_property_->UpdateOnSetProperty(
       from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
   vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
   text_edge_index_.UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx, property);
@@ -101,7 +101,7 @@ void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, con
 
 void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                                    const Transaction &tx) {
-  tx.active_indices_.edge_type_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
+  tx.active_indices_->edge_type_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
 }
 
 Indices::Indices(const Config &config, StorageMode storage_mode)

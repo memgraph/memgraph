@@ -223,6 +223,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
       db_transactional_accessor_ = db_acc->ReadOnlyAccess(override_isolation_level, /*allow timeout*/ timeout);
       break;
     default:
+      // TODO: no access case
       spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
       throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
   }
