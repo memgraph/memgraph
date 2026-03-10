@@ -1,0 +1,8 @@
+exporter:
+  port: 9115
+  pull_frequency_seconds: 5
+instances:
+  - name: memgraph1
+    url: http://mgbuild_v7_ubuntu-24.04
+    port: 9091
+    type: data_instance
