@@ -391,38 +391,44 @@ jobs:
 
 
   StressTestsNativeStandalone:
+    needs: [PrepareReleaseBranch]
     name: "Stress Tests Native Standalone"
     if: ${{ inputs.run_stress_tests }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: standalone/native
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
   StressTestsNativeHA:
+    needs: [PrepareReleaseBranch]
     name: "Stress Tests Native HA"
     if: ${{ inputs.run_stress_tests }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ha/native
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
   StressTestsDockerHA:
     name: "Stress Tests Docker HA"
-    needs: [SetupStressImageOutputs]
+    needs: [PrepareReleaseBranch, SetupStressImageOutputs]
     if: ${{ inputs.run_stress_tests && needs.SetupStressImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ha/docker
       memgraph_image: ${{ needs.SetupStressImageOutputs.outputs.amd_mage_image_url }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
   StressTestsEKSHA:
     name: "Stress Tests EKS HA"
-    needs: [SetupStressImageOutputs]
+    needs: [PrepareReleaseBranch, SetupStressImageOutputs]
     if: ${{ inputs.run_stress_tests && needs.SetupStressImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ha/eks
       memgraph_image: ${{ needs.SetupStressImageOutputs.outputs.amd_mage_image_url }}
       workload: ../workloads/publications/workload.yaml
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
