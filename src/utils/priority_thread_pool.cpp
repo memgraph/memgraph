@@ -179,20 +179,20 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   // HP threads are going to steal this work if not executed in time
 }
 
-// Rescheduling: use the target worker's current task ID (last_task_) when set, so the
-// continuation is the same logical task (e.g. after yield). Pin the task to this worker
-// so it is not stealable by others.
-void PriorityThreadPool::RescheduleTaskOnWorker(uint16_t worker_id, TaskSignature task, const Priority priority) {
+// Reschedule a continuation on a specific worker, preserving its original task ID.
+// last_task_ holds the ID of the task currently executing on that worker. Reusing it
+// ensures the continuation sits at exactly the same position in the priority queue as
+// the original task: LP continuations (ID ≤ INT64_MAX) naturally run after any pending
+// HP tasks (ID > INT64_MAX) without needing any special priority boost.
+void PriorityThreadPool::RescheduleTaskOnWorker(uint16_t worker_id, TaskSignature task) {
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
     return;
   }
   DMG_ASSERT(
       worker_id < workers_.size(), "worker_id {} out of range (num mixed workers {})", worker_id, workers_.size());
   Worker *const w = workers_[worker_id].get();
-  const TaskID current_task = w->last_task_.load(std::memory_order_acquire);
-  const TaskID id = (current_task != 0) ? current_task
-                                        : (TaskID(priority == Priority::HIGH) * kMinHighPriorityId) +
-                                              task_id_.fetch_sub(1, std::memory_order_acq_rel);
+  const TaskID id = w->last_task_.load(std::memory_order_acquire);
+  DMG_ASSERT(id != 0, "RescheduleTaskOnWorker called with no active task on worker {}", worker_id);
   w->push(std::move(task), id, /*pinned=*/true);
 }
 
@@ -294,7 +294,7 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
           }
         }
       }
-      task.value()(Priority::LOW);  // TODO Remove thread priority from task
+      task.value()();
       task.reset();
       // Do NOT set working_=false yet; check Phase 1B first.
       // Keeping working_=true through the queue check ensures that a HP task arriving
@@ -369,14 +369,14 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
 // Prepares task for safe scheduling
 TaskSignature TaskCollection::WrapTask(size_t index) {
   auto &task = tasks_[index];
-  return [&task = task.task_, state = task.state_](utils::Priority priority) {
+  return [&task = task.task_, state = task.state_]() {
     auto expected = Task::State::IDLE;
     if (!state->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
       return;  // Task already scheduled
     }
 
     try {
-      task(priority);
+      task();
       state->store(Task::State::FINISHED, std::memory_order_release);
       state->notify_one();  // Notify waiting threads
     } catch (...) {
@@ -403,7 +403,7 @@ void TaskCollection::WaitOrSteal() {
     auto expected = Task::State::IDLE;
     if (task.state_->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
       try {
-        task.task_(Priority::LOW);
+        task.task_();
         task.state_->store(Task::State::FINISHED, std::memory_order_release);
         task.state_->notify_one();  // Notify waiting threads
       } catch (...) {

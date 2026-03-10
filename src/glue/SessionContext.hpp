@@ -50,9 +50,9 @@ struct Context {
     return worker_pool_->ScheduledAddTask(std::forward<decltype(task)>(task), priority);
   }
 
-  auto AddTaskOnWorker(uint16_t worker_id, auto &&task, utils::Priority priority) {
+  auto AddTaskOnWorker(uint16_t worker_id, auto &&task) {
     MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");
-    return worker_pool_->RescheduleTaskOnWorker(worker_id, std::forward<decltype(task)>(task), priority);
+    return worker_pool_->RescheduleTaskOnWorker(worker_id, std::forward<decltype(task)>(task));
   }
 };
 }  // namespace memgraph::glue

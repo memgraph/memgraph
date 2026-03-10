@@ -2910,6 +2910,16 @@ struct PullPlan {
                                                         const std::vector<Symbol> &output_symbols,
                                                         std::map<std::string, TypedValue> *summary);
 
+  ~PullPlan() {
+    // If the query was abandoned mid-yield (e.g. session closed), the inner
+    // coroutine is still suspended. Destroy it explicitly so its frame is freed.
+    // stored_awaitable_ (the root frame) is destroyed by its own ~PullAwaitable.
+    if (suspended_handle_) {
+      suspended_handle_.destroy();
+      suspended_handle_ = {};
+    }
+  }
+
  private:
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
   plan::UniqueCursorPtr cursor_ = nullptr;

@@ -7340,39 +7340,37 @@ class DistinctParallelCursor : public Cursor {
         std::swap(local_cache_[unique_count_], local_cache_[i]);
       }
     }
+
+    co_return PullFromLocalCache(frame);
   }
 
-  co_return PullFromLocalCache(frame);
-
-}
-
-bool PullFromLocalCache(Frame &frame) {
-  if (current_index_ < unique_count_) {
-    std::swap(frame, local_cache_[current_index_]);
-    current_index_++;
-    return true;
+  bool PullFromLocalCache(Frame &frame) {
+    if (current_index_ < unique_count_) {
+      std::swap(frame, local_cache_[current_index_]);
+      current_index_++;
+      return true;
+    }
+    // All pulled items were duplicates locally, try again
+    return false;
   }
-  // All pulled items were duplicates locally, try again
-  return false;
-}
 
-using RowSet =
-    utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
-                              utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
-                              TypedValueVectorEqual>;
+  using RowSet =
+      utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
+                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+                                TypedValueVectorEqual>;
 
-const Distinct &self_;
-const UniqueCursorPtr input_cursor_;
-// Shared state for parallel execution (nullptr for single-threaded mode)
-std::shared_ptr<SharedDistinctState> shared_state_;
-// Local set for deduplication within batches (parallel mode)
-RowSet local_seen_;
-// Rows in insertion order — used for TryInsertBatch so indices match local_cache_
-std::vector<utils::pmr::vector<TypedValue>> local_batch_;
-std::vector<Frame> local_cache_;
-size_t unique_count_{0};
-size_t current_index_{0};
-bool pulled_all_{false};
+  const Distinct &self_;
+  const UniqueCursorPtr input_cursor_;
+  // Shared state for parallel execution (nullptr for single-threaded mode)
+  std::shared_ptr<SharedDistinctState> shared_state_;
+  // Local set for deduplication within batches (parallel mode)
+  RowSet local_seen_;
+  // Rows in insertion order — used for TryInsertBatch so indices match local_cache_
+  std::vector<utils::pmr::vector<TypedValue>> local_batch_;
+  std::vector<Frame> local_cache_;
+  size_t unique_count_{0};
+  size_t current_index_{0};
+  bool pulled_all_{false};
 };
 #endif
 
@@ -10336,7 +10334,7 @@ class ParallelBranchCursor : public Cursor {
                      frame_size = frame.elems().size(),
                      main_thread = std::this_thread::get_id(),
                      post_pull_func,
-                     mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
+                     mem_tracking = memgraph::memory::CrossThreadMemoryTracking()]() mutable {
         const OOMExceptionEnabler oom_exception;
         const utils::Timer timer;
         if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen

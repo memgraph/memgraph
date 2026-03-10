@@ -398,13 +398,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoWork() {
-    session_context_->AddTask([shared_this = shared_from_this()](
-                                  const auto thread_priority) { shared_this->DoWorkLoop(thread_priority, false); },
+    session_context_->AddTask([shared_this = shared_from_this()]() { shared_this->DoWorkLoop(false); },
                               session_.ApproximateQueryPriority());
   }
 
   // NOTE This is done outside the worker pool, so we can just call it directly.
-  void DoWorkLoop(utils::Priority thread_priority, bool continue_after_yield = false) {
+  void DoWorkLoop(bool continue_after_yield = false) {
     try {
       while (true) {
         if (session_.Execute(continue_after_yield)) {
@@ -415,18 +414,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           if (yield_signal && yield_signal->load(std::memory_order_acquire)) {
             // We yielded; reschedule on the same worker so continuation runs on same thread.
             if (auto wid = utils::WorkerYieldRegistry::GetCurrentWorkerId()) {
-              // Use HIGH so the continuation runs promptly and is not starved by other HP work.
+              // Continuation is pinned to the same worker and reuses the original LP task ID
+              // (RescheduleTaskOnWorker reads last_task_). LP IDs (≤ INT64_MAX) are naturally
+              // lower than HP IDs (> INT64_MAX), so pending HP tasks still run first.
               session_context_->AddTaskOnWorker(
-                  *wid,
-                  [shared_this = shared_from_this()](const auto p) { shared_this->DoWorkLoop(p, true); },
-                  utils::Priority::HIGH);  // TODO Store task prioirty and use it here
+                  *wid, [shared_this = shared_from_this()]() { shared_this->DoWorkLoop(true); });
               return;
             }
-            DoWork();
-            return;
-          }
-          // Task priority lower; reschedule on any worker
-          if (thread_priority > session_.ApproximateQueryPriority()) {
             DoWork();
             return;
           }

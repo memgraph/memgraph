@@ -101,6 +101,17 @@ class PullAwaitable {
     bool result_storage_{false};
     std::exception_ptr exception_storage_{nullptr};
 
+    ~Awaiter() {
+      // The child handle was moved here from the PullAwaitable (operator co_await &&).
+      // The child's ~PullAwaitable() therefore won't destroy it.  We must: if the
+      // child ran to completion (done), destroy its frame now.  If it is still
+      // suspended (parent being torn down mid-yield), leave it — the frame will be
+      // cleaned up by PullPlan::suspended_handle_ on interpreter teardown.
+      if (child_handle_ && child_handle_.done()) {
+        child_handle_.destroy();
+      }
+    }
+
     bool await_ready() const noexcept {
       // If we have an immediate value or no handle, don't suspend.
       // We don't check .done() here because the driver should ensure

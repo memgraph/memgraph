@@ -72,7 +72,7 @@ class HotMask {
   const uint16_t n_groups_;
 };
 
-using TaskSignature = std::move_only_function<void(utils::Priority)>;
+using TaskSignature = std::move_only_function<void()>;
 
 // Collection of tasks that can be executed by the thread pool
 // The idea is to batch tasks and have the ability to wait on them
@@ -145,7 +145,7 @@ class PriorityThreadPool {
    * worker (e.g. continuation after yield, to respect thread-local state).
    * worker_id must be in [0, GetNumMixedWorkers()).
    */
-  void RescheduleTaskOnWorker(uint16_t worker_id, TaskSignature new_task, Priority priority);
+  void RescheduleTaskOnWorker(uint16_t worker_id, TaskSignature new_task);
 
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {
