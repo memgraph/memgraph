@@ -202,7 +202,9 @@ void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id, bool pi
     Work w{id, std::move(new_task), pinned};
     (pinned ? work_pinned_ : work_).push(std::move(w));
     // TODO thing about atomic ordering and if this can be missed or requested when not needed
-    if (id > kMaxLowPriorityId && yield_registry_) {
+    // Only request a yield when the worker is actively running a task. If it is idle it will
+    // pick up the HP task immediately from the priority queue without needing an interrupt.
+    if (id > kMaxLowPriorityId && yield_registry_ && working_.load(std::memory_order_acquire)) {
       DMG_ASSERT(worker_id_ < yield_registry_->MaxWorkers(),
                  "worker_id {} out of range (max {})",
                  worker_id_,
@@ -273,23 +275,42 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
 
     // Phase 1A - already picked a task, needs to be executed
     if (task) {
-      // TODO Think about the ordereding of this and the yield request
       working_.store(true, std::memory_order_release);
       if (yield_registry) {
+        // Clear any stale yield signal from the previous task, then re-arm under
+        // the worker mutex if an HP task arrived in the window between pop_task()
+        // and this clear. push() holds mtx_ when it sets the signal, so the
+        // check below is linearizable with any concurrent push():
+        //   - HP pushed before we lock   → task is in queue   → re-arm ✓
+        //   - HP pushed after we unlock  → push() sees working_=true → sets signal ✓
+        //   - HP pushed while we hold lock → impossible (same mutex)
         memgraph::utils::WorkerYieldRegistry::ClearYieldForCurrentWorker();
+        {
+          auto l = std::unique_lock{mtx_};
+          const bool has_hp = (!work_.empty() && work_.top().id > kMaxLowPriorityId) ||
+                              (!work_pinned_.empty() && work_pinned_.top().id > kMaxLowPriorityId);
+          if (has_hp) {
+            yield_registry->RequestYieldForWorker(worker_id_);
+          }
+        }
       }
       task.value()(Priority::LOW);  // TODO Remove thread priority from task
       task.reset();
-      working_.store(false, std::memory_order_release);
+      // Do NOT set working_=false yet; check Phase 1B first.
+      // Keeping working_=true through the queue check ensures that a HP task arriving
+      // in push() between here and pop_task() correctly sees the worker as busy and
+      // sends a yield signal (rather than treating it as idle).
     }
     // Phase 1B - check if there is other scheduled work
     {
       auto l = std::unique_lock{mtx_};
       if (!work_.empty() || !work_pinned_.empty()) {
         pop_task();
-        continue;  // Spin to phase 1A
+        continue;  // Spin to phase 1A (working_ still true)
       }
     }
+    // No more queued work — worker is genuinely going idle now.
+    working_.store(false, std::memory_order_release);
 
     hot_threads.Set(worker_id);
 

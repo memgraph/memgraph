@@ -88,7 +88,10 @@ class Session {
       if (state_ == State::Close) [[unlikely]] {
         ClientFailureInvalidData();
       }
-      return (state_ == State::Result || state_ == State::Yielded);
+      // Return true only when the query yielded again (must reschedule continuation).
+      // When state == Result (has_more), the client must send the next Pull message first —
+      // returning false here causes DoWorkLoop to call DoRead() and wait for that message.
+      return (state_ == State::Yielded);
     }
 
     if (state_ == State::Handshake) [[unlikely]] {
