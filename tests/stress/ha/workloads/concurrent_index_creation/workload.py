@@ -110,7 +110,7 @@ def index_creation_worker(worker_id: int) -> dict:
                     query,
                     protocol=Protocol.BOLT_ROUTING,
                     query_type=QueryType.WRITE,
-                    apply_retry_mechanism=True,
+                    apply_retry_mechanism=False,
                 )
                 created += 1
                 print(f"  [Index Worker] Created index ON :{label}({prop})")
