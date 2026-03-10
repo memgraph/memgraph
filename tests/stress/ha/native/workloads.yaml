@@ -40,5 +40,9 @@ workloads:
   - config: ../workloads/restarting_instances/workload.yaml
     enabled: true
 
+  # Responsive reads currently disabled as the amount of work to make it responsive
+  # With respect to replication time and the engine lock taken at that time is substantial
+  # Users are advised to just wait for the replication to complete so auth / show indexes / show metrics
+  # queries can continue executing
   - config: ../workloads/responsive_reads/workload.yaml
-    enabled: true
+    enabled: false
