@@ -4187,6 +4187,15 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
   return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
 }
 
+void InMemoryStorage::ClearActiveIndicesCache() {
+  auto empty_indices = std::make_shared<ActiveIndices>(std::make_unique<InMemoryLabelIndex::ActiveIndices>(),
+                                                       std::make_unique<InMemoryLabelPropertyIndex::ActiveIndices>(),
+                                                       std::make_unique<InMemoryEdgeTypeIndex::ActiveIndices>(),
+                                                       std::make_unique<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
+                                                       std::make_unique<InMemoryEdgePropertyIndex::ActiveIndices>());
+  active_indices_cache_.store(std::move(empty_indices), std::memory_order_release);
+}
+
 void InMemoryStorage::Clear() {
   // NOTE: Make sure this function is called while exclusively holding on to the main lock
   // When creating a snapshot, we first lock the snapshot, then create the accessor
@@ -4229,6 +4238,7 @@ void InMemoryStorage::Clear() {
   // Clear indices, constraints and metadata
   indices_.DropGraphClearIndices();
   constraints_.DropGraphClearConstraints();
+  ClearActiveIndicesCache();
   edges_metadata_.clear();
   edges_metadata_.run_gc();
   stored_node_labels_.clear();
@@ -4371,6 +4381,7 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   // also, we're the only transaction running, so we can safely remove the data as well
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
+  mem_storage->ClearActiveIndicesCache();
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 
