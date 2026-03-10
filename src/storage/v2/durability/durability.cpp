@@ -552,13 +552,13 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   RecoveredIndicesAndConstraints indices_constraints;
   std::optional<uint64_t> snapshot_durable_timestamp;
   if (!snapshot_files.empty()) {
-    spdlog::info("Try recovering from snapshot directory {}.", wal_directory_);
+    spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory_);
 
     // UUID used for durability is the UUID of the last snapshot file.
     uuid.set(snapshot_files.back().uuid);
     auto const last_snapshot_uuid_str = std::string{uuid};
 
-    spdlog::trace("UUID of the last snapshot file: {}");
+    spdlog::trace("UUID of the last snapshot file: {}", last_snapshot_uuid_str);
     std::optional<RecoveredSnapshot> recovered_snapshot;
 
     for (auto it = snapshot_files.rbegin(); it != snapshot_files.rend(); ++it) {
