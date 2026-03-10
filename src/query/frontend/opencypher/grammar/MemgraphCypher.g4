@@ -468,6 +468,8 @@ rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
+userOrRole : ( USER | ROLE )? userOrRoleName ;
+
 createRole : CREATE ROLE ifNotExists? role=userOrRoleName ;
 
 dropRole : DROP ROLE role=userOrRoleName ;
@@ -495,29 +497,29 @@ setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNa
 
 clearRole : CLEAR ( ROLE | ROLES ) ( roles=listOfSymbolicNames )? FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM userOrRole=userOrRoleName ;
+revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM target=userOrRole ;
 
 listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
 
 wildcardListOfSymbolicNames : '*' | listOfSymbolicNames ;
 
-grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO userOrRole=userOrRoleName ;
+grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
 
-denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO userOrRole=userOrRoleName ;
+denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
 
-grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO userOrRole=userOrRoleName ;
+grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO target=userOrRole ;
 
-denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM userOrRole=userOrRoleName ;
+denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM target=userOrRole ;
 
-revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM userOrRole=userOrRoleName ;
+revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM target=userOrRole ;
 
-showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR userOrRole=userOrRoleName ;
+showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR target=userOrRole ;
 
-setMainDatabase : SET MAIN DATABASE db=symbolicName FOR userOrRole=userOrRoleName ;
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR target=userOrRole ;
 
 setSessionTraceQuery : SET SESSION TRACE (ON | OFF) ;
 
@@ -580,7 +582,7 @@ listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
 colonSymbolicName : COLON symbolicName ;
 
-showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
+showPrivileges : SHOW PRIVILEGES FOR target=userOrRole ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
 showRoleForUser : SHOW ( ROLE | ROLES ) FOR user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
