@@ -960,6 +960,29 @@ void User::AddMultiTenantRole(Role role, const std::string &db_name) {
   roles_.AddRole(role);
 }
 
+void User::RemoveMultiTenantRole(const std::string &rolename, const std::string &db_name) {
+  auto db_it = db_role_map_.find(db_name);
+  if (db_it == db_role_map_.end() || !db_it->second.contains(rolename)) {
+    return;
+  }
+
+  role_db_map_[rolename].erase(db_name);
+  db_it->second.erase(rolename);
+  if (db_it->second.empty()) {
+    db_role_map_.erase(db_it);
+  }
+
+  auto role = roles_.GetRole(rolename);
+  if (!role) {
+    return;
+  }
+  roles_.RemoveRole(rolename);
+  if (role->db_access().GetGrants().size() > 1) {
+    role->db_access().Deny(db_name);
+    roles_.AddRole(*role);
+  }
+}
+
 void User::ClearMultiTenantRoles(const std::string &db_name) {
   // If role is specified on a database, that means it couldn't have been specified as a global role
   // In turn this means that we need to:

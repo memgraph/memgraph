@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -79,8 +79,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) override;
 
-  void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
-                  system::Transaction *system_tx) override;
+  void ClearRoles(const std::string &username, const std::vector<std::string> &roles,
+                  const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) override;
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
                                                                       std::optional<std::string>) override;
