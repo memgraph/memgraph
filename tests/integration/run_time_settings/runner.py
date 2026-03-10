@@ -197,20 +197,20 @@ def run_storage_access_validation_test(tester_binary: str, memgraph_args: List[s
         tester_binary,
         ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '0'"],
         should_fail=True,
-        failure_message="storage.access_timeout_sec must be in range [1, 1000000]",
+        failure_message="Cannot update setting 'storage.access_timeout_sec': storage.access_timeout_sec must be in range [1, 1000000]",
     )
     execute_tester(
         tester_binary,
         ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '1000001'"],
         should_fail=True,
-        failure_message="storage.access_timeout_sec must be in range [1, 1000000]",
+        failure_message="Cannot update setting 'storage.access_timeout_sec': storage.access_timeout_sec must be in range [1, 1000000]",
     )
     # Non-integer
     execute_tester(
         tester_binary,
         ["SET DATABASE SETTING 'storage.access_timeout_sec' TO 'abc'"],
         should_fail=True,
-        failure_message="storage.access_timeout_sec must be a valid unsigned integer",
+        failure_message="Cannot update setting 'storage.access_timeout_sec': storage.access_timeout_sec must be a valid unsigned integer",
     )
     cleanup(memgraph)
     atexit.unregister(cleanup)
