@@ -74,6 +74,41 @@ enum class Permission : uint64_t {
 };
 // clang-format on
 
+// clang-format off
+inline constexpr std::array kPermissionsAll = {
+    Permission::MATCH,
+    Permission::CREATE,
+    Permission::MERGE,
+    Permission::DELETE,
+    Permission::SET,
+    Permission::REMOVE,
+    Permission::INDEX,
+    Permission::STATS,
+    Permission::CONSTRAINT,
+    Permission::DUMP,
+    Permission::AUTH,
+    Permission::REPLICATION,
+    Permission::DURABILITY,
+    Permission::READ_FILE,
+    Permission::FREE_MEMORY,
+    Permission::TRIGGER,
+    Permission::CONFIG,
+    Permission::STREAM,
+    Permission::MODULE_READ,
+    Permission::MODULE_WRITE,
+    Permission::WEBSOCKET,
+    Permission::TRANSACTION_MANAGEMENT,
+    Permission::STORAGE_MODE,
+    Permission::MULTI_DATABASE_EDIT,
+    Permission::MULTI_DATABASE_USE,
+    Permission::COORDINATOR,
+    Permission::IMPERSONATE_USER,
+    Permission::PROFILE_RESTRICTION,
+    Permission::PARALLEL_EXECUTION,
+    Permission::SERVER_SIDE_PARAMETERS,
+};
+// clang-format on
+
 #ifdef MG_ENTERPRISE
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
@@ -556,6 +591,10 @@ class Role {
 
   // Profile management moved to UserProfiles class
 
+  bool IsBuiltIn() const { return is_builtin_; }
+
+  void SetBuiltIn(bool value) { is_builtin_ = value; }
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
@@ -566,6 +605,7 @@ class Role {
  private:
   std::string rolename_;
   Permissions permissions_;
+  bool is_builtin_{false};
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases db_access_;

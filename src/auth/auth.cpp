@@ -952,6 +952,23 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
   return new_user;
 }
 
+void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
+  spdlog::info(
+      "{} is the first created user. Granting all privileges. The official advice and intention is to use this "
+      "first user as the superuser with full privileges and capabilities on the Memgraph database.",
+      user.username());
+#ifdef MG_ENTERPRISE
+  auto admin = GetRole("admin");
+  MG_ASSERT(admin, "admin role must exist when initialising first user");
+  user.AddRole(*admin);
+#else
+  for (auto const permission : kPermissionsAll) {
+    user.permissions().Grant(permission);
+  }
+#endif
+  SaveUser(user, system_tx);
+}
+
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
@@ -1218,6 +1235,52 @@ std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transacti
   auto new_role = Role(rolename);
   SaveRole(new_role, system_tx);
   return new_role;
+}
+
+void Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
+  auto const make_role = [&](const std::string &name, auto grant_permissions) {
+    Role role{name};
+    grant_permissions(role);
+    role.SetBuiltIn(true);
+    SaveRole(role, system_tx);
+  };
+
+  constexpr auto kFullFineGrained = static_cast<FineGrainedPermission>(
+      std::to_underlying(FineGrainedPermission::READ) | std::to_underlying(FineGrainedPermission::UPDATE) |
+      std::to_underlying(FineGrainedPermission::CREATE) | std::to_underlying(FineGrainedPermission::DELETE));
+
+  auto const grant_privileges =
+      [](Role &role, FineGrainedPermission labelPermissions, FineGrainedPermission edgePermissions) {
+        role.fine_grained_access_handler().label_permissions().GrantGlobal(labelPermissions);
+        role.fine_grained_access_handler().edge_type_permissions().GrantGlobal(edgePermissions);
+      };
+
+  make_role("admin", [&](Role &role) {
+    for (auto permission : kPermissionsAll) {
+      role.permissions().Grant(permission);
+    }
+    grant_privileges(role, kFullFineGrained, kFullFineGrained);
+    role.db_access().GrantAll();
+  });
+
+  make_role("readwrite", [&](Role &role) {
+    for (auto permission : {Permission::CREATE,
+                            Permission::DELETE,
+                            Permission::MERGE,
+                            Permission::SET,
+                            Permission::REMOVE,
+                            Permission::INDEX,
+                            Permission::MATCH}) {
+      role.permissions().Grant(permission);
+    }
+    grant_privileges(role, kFullFineGrained, kFullFineGrained);
+  });
+
+  make_role("readonly", [&](Role &role) {
+    role.permissions().Grant(Permission::MATCH);
+    role.permissions().Grant(Permission::STATS);
+    grant_privileges(role, FineGrainedPermission::READ, FineGrainedPermission::READ);
+  });
 }
 
 bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *system_tx) {
