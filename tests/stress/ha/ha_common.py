@@ -291,6 +291,60 @@ def execute_query(
     )
 
 
+_T = TypeVar("_T")
+
+
+def _run_with_manual_retries(
+    instance_name: str,
+    session_fn: Callable,
+    fallback: _T,
+    protocol: Protocol = Protocol.BOLT,
+    database: str | None = None,
+    auth: tuple[str, str] = ("", ""),
+    max_retries: int = 5,
+    base_delay: float = 1.0,
+) -> _T:
+    """Core retry loop for operational queries.
+
+    Intended for operational queries such as CREATE/DROP INDEX,
+    CREATE/DROP CONSTRAINT, and SHOW INDEX INFO, which do not behave
+    like regular Cypher queries and are not handled correctly by the
+    Neo4j driver's auto-retry.
+
+    - SYNC_REPLICA_ERROR: not retriable — log and return fallback.
+    - TransientError, ServiceUnavailable, WRITE_ON_REPLICA_ERROR: retriable
+      with exponential backoff.
+    - All other exceptions are re-raised.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            driver = _get_or_create_driver(instance_name, protocol, auth=auth)
+            with driver.session(database=database) as session:
+                return session_fn(session)
+        except Exception as e:
+            if SYNC_REPLICA_ERROR in str(e):
+                # The main instance committed the transaction successfully.
+                # The error only means that at least one SYNC replica did not
+                # confirm replication in time. Retrying would execute the
+                # operation a second time on main, which is wrong. The user
+                # should investigate the replica to understand why it lagged.
+                print(f"\nWARN: SYNC_REPLICA_ERROR (instance={instance_name}): {e}")
+                return fallback
+            retriable = isinstance(e, (TransientError, ServiceUnavailable)) or WRITE_ON_REPLICA_ERROR in str(e)
+            if not retriable:
+                raise
+            if attempt == max_retries:
+                print(f"\nWARN: Retriable error after {max_retries} retries (instance={instance_name}): {e}")
+                return fallback
+            delay = base_delay * (2**attempt)
+            print(
+                f"\nWARN: Retriable error (attempt {attempt + 1}/{max_retries + 1}), "
+                f"retrying in {delay:.1f}s... (instance={instance_name})"
+            )
+            time.sleep(delay)
+    return fallback
+
+
 def execute_with_manual_retries(
     instance_name: str,
     query: str,
@@ -301,37 +355,16 @@ def execute_with_manual_retries(
     max_retries: int = 5,
     base_delay: float = 1.0,
 ) -> None:
-    """Execute a query without the built-in retry mechanism.
-
-    Intended for operational queries such as CREATE/DROP INDEX and
-    CREATE/DROP CONSTRAINT, which do not behave like regular Cypher
-    queries and are not handled correctly by the Neo4j driver's auto-retry.
-
-    Retries with exponential backoff on TransientError.
-    All other exceptions are logged and ignored.
-    """
-    for attempt in range(max_retries + 1):
-        try:
-            driver = _get_or_create_driver(instance_name, protocol, auth=auth)
-            with driver.session(database=database) as session:
-                session.run(query, params or {}).consume()
-            return
-        except Exception as e:
-            if SYNC_REPLICA_ERROR in str(e):
-                print(f"\nWARN: SYNC_REPLICA_ERROR (instance={instance_name}): {e}")
-                return
-            retriable = isinstance(e, (TransientError, ServiceUnavailable)) or WRITE_ON_REPLICA_ERROR in str(e)
-            if not retriable:
-                raise
-            if attempt == max_retries:
-                print(f"\nWARN: Retriable error after {max_retries} retries (instance={instance_name}): {e}")
-                return
-            delay = base_delay * (2**attempt)
-            print(
-                f"\nWARN: Retriable error (attempt {attempt + 1}/{max_retries + 1}), "
-                f"retrying in {delay:.1f}s... (instance={instance_name})"
-            )
-            time.sleep(delay)
+    _run_with_manual_retries(
+        instance_name,
+        lambda session: session.run(query, params or {}).consume(),
+        fallback=None,
+        protocol=protocol,
+        database=database,
+        auth=auth,
+        max_retries=max_retries,
+        base_delay=base_delay,
+    )
 
 
 def execute_and_fetch_with_manual_retries(
@@ -344,37 +377,16 @@ def execute_and_fetch_with_manual_retries(
     max_retries: int = 5,
     base_delay: float = 1.0,
 ) -> list[dict[str, Any]]:
-    """Fetch results without the built-in retry mechanism.
-
-    Intended for operational queries such as SHOW INDEX INFO,
-    which do not behave like regular Cypher queries and are not handled
-    correctly by the Neo4j driver's auto-retry.
-
-    Retries with exponential backoff on TransientError, ServiceUnavailable,
-    or write-on-replica errors. All other exceptions are re-raised.
-    """
-    for attempt in range(max_retries + 1):
-        try:
-            driver = _get_or_create_driver(instance_name, protocol, auth=auth)
-            with driver.session(database=database) as session:
-                return [record.data() for record in session.run(query, params or {})]
-        except Exception as e:
-            if SYNC_REPLICA_ERROR in str(e):
-                print(f"\nWARN: SYNC_REPLICA_ERROR (instance={instance_name}): {e}")
-                return []
-            retriable = isinstance(e, (TransientError, ServiceUnavailable)) or WRITE_ON_REPLICA_ERROR in str(e)
-            if not retriable:
-                raise
-            if attempt == max_retries:
-                print(f"\nWARN: Retriable error after {max_retries} retries (instance={instance_name}): {e}")
-                return []
-            delay = base_delay * (2**attempt)
-            print(
-                f"\nWARN: Retriable error (attempt {attempt + 1}/{max_retries + 1}), "
-                f"retrying in {delay:.1f}s... (instance={instance_name})"
-            )
-            time.sleep(delay)
-    return []
+    return _run_with_manual_retries(
+        instance_name,
+        lambda session: [record.data() for record in session.run(query, params or {})],
+        fallback=[],
+        protocol=protocol,
+        database=database,
+        auth=auth,
+        max_retries=max_retries,
+        base_delay=base_delay,
+    )
 
 
 def execute_and_fetch(
@@ -479,6 +491,28 @@ def cleanup(coordinator: str = "coord_1", auth: tuple[str, str] = ("", "")) -> N
     print(f"Cleanup: dropped {len(indexes)} indexes.")
 
     print("Cleanup: dropping all constraints...")
-    execute_with_manual_retries(coordinator, "DROP ALL CONSTRAINTS", protocol=Protocol.BOLT_ROUTING, auth=auth)
+    constraints = execute_and_fetch_with_manual_retries(
+        coordinator, "SHOW CONSTRAINT INFO;", protocol=Protocol.BOLT_ROUTING, auth=auth
+    )
+    for con in constraints:
+        ctype = con["constraint type"]
+        label = con["label"]
+        props = con["properties"]
+        props_list = props if isinstance(props, list) else [props]
+
+        if ctype == "exists":
+            query = f"DROP CONSTRAINT ON (n:{label}) ASSERT EXISTS (n.{props_list[0]});"
+        elif ctype == "unique":
+            props_str = ", ".join(f"n.{p}" for p in props_list)
+            query = f"DROP CONSTRAINT ON (n:{label}) ASSERT {props_str} IS UNIQUE;"
+        elif ctype == "data_type":
+            data_type = con["data_type"]
+            query = f"DROP CONSTRAINT ON (n:{label}) ASSERT n.{props_list[0]} IS TYPED {data_type};"
+        else:
+            print(f"Cleanup: unknown constraint type '{ctype}', skipping.")
+            continue
+
+        execute_with_manual_retries(coordinator, query, protocol=Protocol.BOLT_ROUTING, auth=auth)
+    print(f"Cleanup: dropped {len(constraints)} constraints.")
 
     print("Cleanup complete.")
