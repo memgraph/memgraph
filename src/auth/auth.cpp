@@ -1353,13 +1353,17 @@ std::vector<std::string> Auth::AllUsernamesForRole(const std::string &rolename_o
 }
 
 #ifdef MG_ENTERPRISE
-Auth::Result Auth::GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+Auth::Result Auth::GrantDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                                 system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (auto user = GetUser(name)) {
+  auto user = (type != UserOrRoleType::ROLE) ? GetUser(name) : std::nullopt;
+  auto role = (type != UserOrRoleType::USER) ? GetRole(name) : std::nullopt;
+  if (user && role) throw AuthException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.", name);
+  if (user) {
     GrantDatabase(db, *user, system_tx);
     return SUCCESS;
   }
-  if (auto role = GetRole(name)) {
+  if (role) {
     GrantDatabase(db, *role, system_tx);
     return SUCCESS;
   }
@@ -1384,13 +1388,17 @@ void Auth::GrantDatabase(const std::string &db, Role &role, system::Transaction 
   SaveRole(role, system_tx);
 }
 
-Auth::Result Auth::DenyDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+Auth::Result Auth::DenyDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                                system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (auto user = GetUser(name)) {
+  auto user = (type != UserOrRoleType::ROLE) ? GetUser(name) : std::nullopt;
+  auto role = (type != UserOrRoleType::USER) ? GetRole(name) : std::nullopt;
+  if (user && role) throw AuthException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.", name);
+  if (user) {
     DenyDatabase(db, *user, system_tx);
     return SUCCESS;
   }
-  if (auto role = GetRole(name)) {
+  if (role) {
     DenyDatabase(db, *role, system_tx);
     return SUCCESS;
   }
@@ -1415,13 +1423,17 @@ void Auth::DenyDatabase(const std::string &db, Role &role, system::Transaction *
   SaveRole(role, system_tx);
 }
 
-Auth::Result Auth::RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+Auth::Result Auth::RevokeDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                                  system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (auto user = GetUser(name)) {
+  auto user = (type != UserOrRoleType::ROLE) ? GetUser(name) : std::nullopt;
+  auto role = (type != UserOrRoleType::USER) ? GetRole(name) : std::nullopt;
+  if (user && role) throw AuthException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.", name);
+  if (user) {
     RevokeDatabase(db, *user, system_tx);
     return SUCCESS;
   }
-  if (auto role = GetRole(name)) {
+  if (role) {
     RevokeDatabase(db, *role, system_tx);
     return SUCCESS;
   }
@@ -1471,13 +1483,17 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
   }
 }
 
-Auth::Result Auth::SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx) {
+Auth::Result Auth::SetMainDatabase(std::string_view db, const std::string &name, UserOrRoleType type,
+                                   system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (auto user = GetUser(name)) {
+  auto user = (type != UserOrRoleType::ROLE) ? GetUser(name) : std::nullopt;
+  auto role = (type != UserOrRoleType::USER) ? GetRole(name) : std::nullopt;
+  if (user && role) throw AuthException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.", name);
+  if (user) {
     SetMainDatabase(db, *user, system_tx);
     return SUCCESS;
   }
-  if (auto role = GetRole(name)) {
+  if (role) {
     SetMainDatabase(db, *role, system_tx);
     return SUCCESS;
   }

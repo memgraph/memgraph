@@ -379,7 +379,8 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  Result GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  Result GrantDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                       system::Transaction *system_tx = nullptr);
   void GrantDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
   void GrantDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
@@ -391,7 +392,8 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  Result DenyDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  Result DenyDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                      system::Transaction *system_tx = nullptr);
   void DenyDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
   void DenyDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
@@ -403,7 +405,8 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  Result RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  Result RevokeDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                        system::Transaction *system_tx = nullptr);
   void RevokeDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
   void RevokeDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
@@ -423,7 +426,8 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  Result SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx = nullptr);
+  Result SetMainDatabase(std::string_view db, const std::string &name, UserOrRoleType type,
+                         system::Transaction *system_tx = nullptr);
   void SetMainDatabase(std::string_view db, User &user, system::Transaction *system_tx = nullptr);
   void SetMainDatabase(std::string_view db, Role &role, system::Transaction *system_tx = nullptr);
 #endif
