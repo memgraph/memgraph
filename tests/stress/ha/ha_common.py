@@ -317,6 +317,9 @@ def execute_with_manual_retries(
                 session.run(query, params or {}).consume()
             return
         except Exception as e:
+            if SYNC_REPLICA_ERROR in str(e):
+                print(f"\nWARN: SYNC_REPLICA_ERROR (instance={instance_name}): {e}")
+                return
             retriable = isinstance(e, (TransientError, ServiceUnavailable)) or WRITE_ON_REPLICA_ERROR in str(e)
             if not retriable:
                 raise
@@ -356,6 +359,9 @@ def execute_and_fetch_with_manual_retries(
             with driver.session(database=database) as session:
                 return [record.data() for record in session.run(query, params or {})]
         except Exception as e:
+            if SYNC_REPLICA_ERROR in str(e):
+                print(f"\nWARN: SYNC_REPLICA_ERROR (instance={instance_name}): {e}")
+                return []
             retriable = isinstance(e, (TransientError, ServiceUnavailable)) or WRITE_ON_REPLICA_ERROR in str(e)
             if not retriable:
                 raise
