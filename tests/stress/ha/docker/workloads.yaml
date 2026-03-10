@@ -38,3 +38,6 @@ workloads:
 
   - config: ../workloads/vector_index_recovery/workload.yaml
     enabled: true
+
+  - config: ../workloads/responsive_reads/workload.yaml
+    enabled: true
