@@ -7,13 +7,21 @@ Concurrent phase: 20 workers each SET properties on 100 batches of 10 nodes
 from their modulus partition (id % NUM_INGESTION_WORKERS == worker_id), while
 1 index worker concurrently creates 100 label×property index combinations.
 
-The full workload is repeated 10 times with a cleanup between each run.
+The workload runs once.
 """
 import sys
 import time
 
 from cluster_monitor import ClusterMonitor
-from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_query, run_parallel
+from ha_common import (
+    Protocol,
+    QueryType,
+    cleanup,
+    execute_and_fetch,
+    execute_query,
+    execute_with_manual_retries,
+    run_parallel,
+)
 
 COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
@@ -104,12 +112,10 @@ def index_creation_worker(worker_id: int) -> dict:
         for prop in PROPERTIES:
             query = f"CREATE INDEX ON :{label}({prop});"
             try:
-                execute_query(
+                execute_with_manual_retries(
                     COORDINATOR,
                     query,
                     protocol=Protocol.BOLT_ROUTING,
-                    query_type=QueryType.WRITE,
-                    apply_retry_mechanism=False,
                 )
                 created += 1
                 print(f"  [Index Worker] Created index ON :{label}({prop})")

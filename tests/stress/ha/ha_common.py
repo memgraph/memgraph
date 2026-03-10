@@ -4,6 +4,7 @@ Shared utilities for HA stress tests (ha/docker, ha/native, ha/eks).
 Auto-configures from the STRESS_DEPLOYMENT environment variable set by
 continuous_integration, or can be configured manually via configure().
 """
+
 import atexit
 import importlib
 import logging
@@ -15,7 +16,7 @@ from enum import Enum
 from typing import Any, Callable, Iterable, TypeVar
 
 from neo4j import GraphDatabase
-from neo4j.exceptions import ServiceUnavailable
+from neo4j.exceptions import ServiceUnavailable, TransientError
 
 # Suppress neo4j driver noise (connection pool chatter, retry warnings, etc.)
 # so they don't drown out workload and monitor output.
@@ -290,40 +291,84 @@ def execute_query(
     )
 
 
-def _execute_cleanup_write_with_retries(
-    coordinator: str,
+def execute_with_manual_retries(
+    instance_name: str,
     query: str,
-    max_retries: int = 5,
-    retry_delay_sec: int = 2,
+    params: dict[str, Any] | None = None,
+    protocol: Protocol = Protocol.BOLT,
+    database: str | None = None,
     auth: tuple[str, str] = ("", ""),
+    max_retries: int = 5,
+    base_delay: float = 1.0,
 ) -> None:
-    """Execute cleanup write and retry SYNC replica commit errors."""
-    for attempt in range(1, max_retries + 1):
-        result = _run_query(
-            coordinator,
-            query,
-            params=None,
-            protocol=Protocol.BOLT_ROUTING,
-            query_type=QueryType.WRITE,
-            apply_retry_mechanism=True,
-            result_handler=lambda run_result: run_result.consume(),
-            auth=auth,
-        )
-        if result is not None:
+    """Execute a query without the built-in retry mechanism.
+
+    Intended for operational queries such as CREATE/DROP INDEX and
+    CREATE/DROP CONSTRAINT, which do not behave like regular Cypher
+    queries and are not handled correctly by the Neo4j driver's auto-retry.
+
+    Retries with exponential backoff on TransientError.
+    All other exceptions are logged and ignored.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            driver = _get_or_create_driver(instance_name, protocol, auth=auth)
+            with driver.session(database=database) as session:
+                session.run(query, params or {}).consume()
             return
-
-        if attempt < max_retries:
+        except Exception as e:
+            retriable = isinstance(e, (TransientError, ServiceUnavailable)) or WRITE_ON_REPLICA_ERROR in str(e)
+            if not retriable:
+                raise
+            if attempt == max_retries:
+                print(f"\nWARN: Retriable error after {max_retries} retries (instance={instance_name}): {e}")
+                return
+            delay = base_delay * (2**attempt)
             print(
-                f"WARN: Cleanup write not confirmed on all SYNC replicas "
-                f"(attempt {attempt}/{max_retries}), retrying in {retry_delay_sec}s..."
+                f"\nWARN: Retriable error (attempt {attempt + 1}/{max_retries + 1}), "
+                f"retrying in {delay:.1f}s... (instance={instance_name})"
             )
-            time.sleep(retry_delay_sec)
-            continue
+            time.sleep(delay)
 
-        raise RuntimeError(
-            "Cleanup failed: at least one SYNC replica did not confirm commit "
-            f"after {max_retries} attempts. Query: {query}"
-        )
+
+def execute_and_fetch_with_manual_retries(
+    instance_name: str,
+    query: str,
+    params: dict[str, Any] | None = None,
+    protocol: Protocol = Protocol.BOLT,
+    database: str | None = None,
+    auth: tuple[str, str] = ("", ""),
+    max_retries: int = 5,
+    base_delay: float = 1.0,
+) -> list[dict[str, Any]]:
+    """Fetch results without the built-in retry mechanism.
+
+    Intended for operational queries such as SHOW INDEX INFO,
+    which do not behave like regular Cypher queries and are not handled
+    correctly by the Neo4j driver's auto-retry.
+
+    Retries with exponential backoff on TransientError, ServiceUnavailable,
+    or write-on-replica errors. All other exceptions are re-raised.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            driver = _get_or_create_driver(instance_name, protocol, auth=auth)
+            with driver.session(database=database) as session:
+                return [record.data() for record in session.run(query, params or {})]
+        except Exception as e:
+            retriable = isinstance(e, (TransientError, ServiceUnavailable)) or WRITE_ON_REPLICA_ERROR in str(e)
+            if not retriable:
+                raise
+            if attempt == max_retries:
+                print(f"\nWARN: Retriable error after {max_retries} retries (instance={instance_name}): {e}")
+                return []
+            delay = base_delay * (2**attempt)
+            print(
+                f"\nWARN: Retriable error (attempt {attempt + 1}/{max_retries + 1}), "
+                f"retrying in {delay:.1f}s... (instance={instance_name})"
+            )
+            time.sleep(delay)
+    return []
 
 
 def execute_and_fetch(
@@ -370,11 +415,23 @@ def cleanup(coordinator: str = "coord_1", auth: tuple[str, str] = ("", "")) -> N
     if tenant_dbs:
         print(f"Cleanup: dropping tenant databases {tenant_dbs}...")
         for db_name in tenant_dbs:
-            _execute_cleanup_write_with_retries(coordinator, f"DROP DATABASE {db_name}", auth=auth)
+            execute_with_manual_retries(
+                coordinator,
+                f"DROP DATABASE {db_name}",
+                protocol=Protocol.BOLT_ROUTING,
+                query_type=QueryType.WRITE,
+                auth=auth,
+            )
         print("Cleanup: tenant databases dropped.")
 
     print("Cleanup: deleting all nodes and edges...")
-    _execute_cleanup_write_with_retries(coordinator, "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n", auth=auth)
+    execute_with_manual_retries(
+        coordinator,
+        "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n",
+        protocol=Protocol.BOLT_ROUTING,
+        query_type=QueryType.WRITE,
+        auth=auth,
+    )
 
     print("Cleanup: dropping all indexes...")
     indexes = execute_and_fetch(coordinator, "SHOW INDEX INFO;", protocol=Protocol.BOLT_ROUTING, auth=auth)
@@ -414,10 +471,14 @@ def cleanup(coordinator: str = "coord_1", auth: tuple[str, str] = ("", "")) -> N
             print(f"Cleanup: unknown index type '{itype}', skipping.")
             continue
 
-        _execute_cleanup_write_with_retries(coordinator, query, auth=auth)
+        execute_with_manual_retries(
+            coordinator, query, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE, auth=auth
+        )
     print(f"Cleanup: dropped {len(indexes)} indexes.")
 
     print("Cleanup: dropping all constraints...")
-    _execute_cleanup_write_with_retries(coordinator, "DROP ALL CONSTRAINTS", auth=auth)
+    execute_with_manual_retries(
+        coordinator, "DROP ALL CONSTRAINTS", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE, auth=auth
+    )
 
     print("Cleanup complete.")
