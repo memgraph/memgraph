@@ -793,6 +793,8 @@ class InMemoryStorage final : public Storage {
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
  private:
+  void ClearActiveIndicesCache();
+
   /// @throw std::system_error
   /// @throw std::bad_alloc
   void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic);
