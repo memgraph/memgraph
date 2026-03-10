@@ -17,6 +17,8 @@
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #pragma pop_macro("EOF")  // bring EOF back
 
+#include "auth/models.hpp"
+
 #include "query/frontend/ast/ast_storage.hpp"
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
@@ -559,6 +561,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return std::string
    */
   antlrcpp::Any visitUserOrRoleName(MemgraphCypher::UserOrRoleNameContext *ctx) override;
+
+  /**
+   * @return std::pair<std::string, auth::UserOrRoleType>
+   */
+  antlrcpp::Any visitUserOrRole(MemgraphCypher::UserOrRoleContext *ctx) override;
 
   /**
    * @return AuthQuery*
