@@ -192,6 +192,11 @@ class Auth final {
                               system::Transaction *system_tx = nullptr);
 
   /**
+   * Initializes the first user, which will be the super admin.
+   */
+  void InitialiseFirstUser(User &user, system::Transaction *system_tx = nullptr);
+
+  /**
    * Removes a user from the storage.
    *
    * @param username
@@ -325,6 +330,11 @@ class Auth final {
    * @throw AuthException if unable to save the role.
    */
   std::optional<Role> AddRole(const std::string &rolename, system::Transaction *system_tx = nullptr);
+
+  /**
+   * Creates the built-in roles.
+   */
+  void CreateBuiltinRoles(system::Transaction *system_tx = nullptr);
 
   /**
    * Removes a role from the storage.

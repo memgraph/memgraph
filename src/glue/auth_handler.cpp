@@ -403,41 +403,19 @@ AuthQueryHandler::AuthQueryHandler(memgraph::auth::SynchedAuth *auth) : auth_(au
 bool AuthQueryHandler::CreateUser(const std::string &username, const std::optional<std::string> &password,
                                   system::Transaction *system_tx) {
   try {
-    const auto [first_user, user_added] = std::invoke([&, this] {
-      auto locked_auth = auth_->Lock();
-      const auto first_user = !locked_auth->HasUsers();
-      const auto user_added = locked_auth->AddUser(username, password, system_tx).has_value();
-      return std::make_pair(first_user, user_added);
-    });
+    auto locked_auth = auth_->Lock();
+    const auto first_user = !locked_auth->HasUsers();
 
-    if (first_user) {
-      spdlog::info(
-          "{} is the first created user. Granting all privileges. The official advice and intention is to use this "
-          "first user as the superuser with full privileges and capabilities on the Memgraph database.",
-          username);
-      GrantPrivilege(username,
-                     memgraph::query::kPrivilegesAll
+    auto new_user = locked_auth->AddUser(username, password, system_tx);
+    if (first_user && new_user) {
 #ifdef MG_ENTERPRISE
-                     ,
-                     {{{memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {memgraph::query::kAsterisk}},
-                       {memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE, {memgraph::query::kAsterisk}},
-                       {memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE, {memgraph::query::kAsterisk}},
-                       {memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE, {memgraph::query::kAsterisk}}}},
-                     {memgraph::query::AuthQuery::LabelMatchingMode::ANY},
-                     {{{memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {memgraph::query::kAsterisk}},
-                       {memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE, {memgraph::query::kAsterisk}},
-                       {memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE, {memgraph::query::kAsterisk}},
-                       {memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE, {memgraph::query::kAsterisk}}}}
+      if (locked_auth->AllRoles().empty()) {
+        locked_auth->CreateBuiltinRoles(system_tx);
+      }
 #endif
-                     ,
-                     system_tx);
-#ifdef MG_ENTERPRISE
-      GrantDatabase(auth::kAllDatabases, username, system_tx);
-      SetMainDatabase(dbms::kDefaultDB, username, system_tx);
-#endif
+      locked_auth->InitialiseFirstUser(*new_user, system_tx);
     }
-
-    return user_added;
+    return new_user.has_value();
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -1090,6 +1068,7 @@ void AuthQueryHandler::EditPermissions(
 #endif
       locked_auth->SaveUser(*user, system_tx);
     } else if (auto role = locked_auth->GetRole(user_or_role)) {
+      role->SetBuiltIn(false);
       for (const auto &permission : permissions) {
         edit_permissions_fun(role->permissions(), permission);
       }

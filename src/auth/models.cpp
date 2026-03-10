@@ -25,6 +25,7 @@ namespace memgraph::auth {
 namespace {
 
 constexpr auto kRoleName = "rolename";
+constexpr auto kBuiltIn = "builtin";
 constexpr auto kPermissions = "permissions";
 constexpr auto kGrants = "grants";
 constexpr auto kDenies = "denies";
@@ -89,7 +90,6 @@ const std::vector<Permission> kPermissionsAll = {
     Permission::SERVER_SIDE_PARAMETERS,
     Permission::SERVER_SIDE_DESCRIPTIONS,
 };
-
 #ifdef MG_ENTERPRISE
 const FineGrainedAccessPermissions empty_permissions{};
 #endif
@@ -751,6 +751,7 @@ const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermission
 nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data[kRoleName] = rolename_;
+  data[kBuiltIn] = is_builtin_;
   data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
@@ -773,6 +774,12 @@ Role Role::Deserialize(const nlohmann::json &data) {
     throw AuthException("Couldn't load role data!");
   }
   auto permissions = Permissions::Deserialize(*permissions_it);
+
+  bool is_builtin = false;
+  if (auto it = data.find(kBuiltIn); it != data.end() && it->is_boolean()) {
+    is_builtin = it->get<bool>();
+  }
+
 #ifdef MG_ENTERPRISE
   Databases db_access;
   auto db_access_it = data.find(kDatabases);
@@ -798,9 +805,14 @@ Role Role::Deserialize(const nlohmann::json &data) {
   } else {
     spdlog::warn("Role without impersonation information; defaulting to no impersonation ability.");
   }
-  return {*role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access), std::move(usr_imp)};
+  auto role = Role{
+      *role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access), std::move(usr_imp)};
+  role.SetBuiltIn(is_builtin);
+  return role;
 #else
-  return {*role_name_it, permissions};
+  auto role = Role{*role_name_it, permissions};
+  role.SetBuiltIn(is_builtin);
+  return role;
 #endif
 }
 
