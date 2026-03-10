@@ -17,6 +17,7 @@
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 
+#include <atomic>
 #include <memory>
 #include <vector>
 
@@ -79,4 +80,8 @@ struct ActiveIndices {
   std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties_;
   std::unique_ptr<EdgePropertyIndex::ActiveIndices> edge_property_;
 };
+
+using ActiveIndicesPtr = std::shared_ptr<ActiveIndices>;
+using AtomicActiveIndicesPtr = std::atomic<ActiveIndicesPtr>;
+
 }  // namespace memgraph::storage
