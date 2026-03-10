@@ -26,6 +26,10 @@ on:
         type: boolean
         description: "Run stress test large."
         default: true
+      run_stress_tests:
+        type: boolean
+        description: "Run stress tests."
+        default: true
       package_memgraph:
         type: boolean
         description: "Build Memgraph packages."
@@ -308,6 +312,8 @@ jobs:
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
       arm_image_url: ${{ steps.set_image_urls.outputs.arm_image_url }}
+      amd_mage_image_url: ${{ steps.set_image_urls.outputs.amd_mage_image_url }}
+      arm_mage_image_url: ${{ steps.set_image_urls.outputs.arm_mage_image_url }}
       last_image_version: ${{ steps.set_last_image_version.outputs.last_image_version }}
     steps:
       - name: Checkout code
@@ -329,6 +335,11 @@ jobs:
           echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
           echo "AMD Image URL: $amd_image_url"
           echo "ARM Image URL: $arm_image_url"
+          read amd_mage_image_url arm_mage_image_url < <(python3 tools/ci/get_daily_build_images.py --type=mage)
+          echo "amd_mage_image_url=$amd_mage_image_url" >> $GITHUB_OUTPUT
+          echo "arm_mage_image_url=$arm_mage_image_url" >> $GITHUB_OUTPUT
+          echo "AMD MAGE Image URL: $amd_mage_image_url"
+          echo "ARM MAGE Image URL: $arm_mage_image_url"
 
       - name: Set last image version
         id: set_last_image_version
@@ -354,4 +365,44 @@ jobs:
       next_image: ${{ matrix.next_image }}
       arch: ${{ matrix.arch }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+
+  StressTestsNativeStandalone:
+    name: "Stress Tests Native Standalone"
+    needs: [DockerArtifact]
+    if: ${{ inputs.run_stress_tests }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: standalone/native
+    secrets: inherit
+
+  StressTestsNativeHA:
+    name: "Stress Tests Native HA"
+    needs: [PackageArtifact]
+    if: ${{ inputs.run_stress_tests }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/native
+    secrets: inherit
+
+  StressTestsDockerHA:
+    name: "Stress Tests Docker HA"
+    needs: [SetupRCBuildImageOutputs]
+    if: ${{ inputs.run_stress_tests && needs.SetupRCBuildImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/docker
+      memgraph_image: ${{ needs.SetupRCBuildImageOutputs.outputs.amd_mage_image_url }}
+    secrets: inherit
+
+  StressTestsEKSHA:
+    name: "Stress Tests EKS HA"
+    needs: [SetupRCBuildImageOutputs]
+    if: ${{ inputs.run_stress_tests && needs.SetupRCBuildImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/eks
+      memgraph_image: ${{ needs.SetupRCBuildImageOutputs.outputs.amd_mage_image_url }}
+      workload: ../workloads/publications/workload.yaml
     secrets: inherit
