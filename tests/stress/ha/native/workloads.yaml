@@ -37,6 +37,9 @@ workloads:
   - config: ../workloads/vector_index_recovery/workload.yaml
     enabled: true
 
+  - config: ../workloads/vector_index_concurrent_ops/workload.yaml
+    enabled: true
+
   - config: ../workloads/restarting_instances/workload.yaml
     enabled: true
 
