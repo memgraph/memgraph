@@ -1954,7 +1954,7 @@ TEST_F(AuthQueryHandlerFixture, ClearRole_WithDatabaseSpecification_Success) {
 
   // Clear roles for specific database
   std::unordered_set<std::string> databases = {"db1"};
-  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", databases, nullptr));
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {}, databases, nullptr));
 
   // Verify roles are cleared for db1 but remain for db2
   auto updated_user = auth.value()->GetUser("test_user");
@@ -2091,6 +2091,120 @@ TEST_F(AuthQueryHandlerFixture, ClearRole_ClearsMultiTenantRoles) {
   ASSERT_EQ(roles.size(), 0);
   ASSERT_TRUE(updated_user->roles().empty());
 }
+
+TEST_F(AuthQueryHandlerFixture, ClearRoleRemovesNamedRolesFromDatabase) {
+  memgraph::auth::Role role1("role1");
+  role1.db_access().Grant("db1");
+  auth.value()->SaveRole(role1);
+
+  memgraph::auth::Role role2("role2");
+  role2.db_access().Grant("db1");
+  auth.value()->SaveRole(role2);
+
+  memgraph::auth::User user("test_user");
+  user.AddMultiTenantRole(role1, "db1");
+  user.AddMultiTenantRole(role2, "db1");
+  auth.value()->SaveUser(user);
+
+  std::unordered_set<std::string> databases = {"db1"};
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {"role1"}, databases, nullptr));
+
+  auto updated_user = auth.value()->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+
+  auto db1_roles = updated_user->GetMultiTenantRoles("db1");
+  ASSERT_EQ(db1_roles.size(), 1);
+  ASSERT_EQ(db1_roles.begin()->rolename(), "role2");
+}
+
+TEST_F(AuthQueryHandlerFixture, ClearRoleRemovesNamedRoleOnly) {
+  auto role1 = auth.value()->AddRole("role1");
+  auto role2 = auth.value()->AddRole("role2");
+  ASSERT_TRUE(role1);
+  ASSERT_TRUE(role2);
+
+  auto user = auth.value()->AddUser("test_user");
+  ASSERT_TRUE(user);
+  user->AddRole(*role1);
+  user->AddRole(*role2);
+  auth.value()->SaveUser(*user);
+
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {"role1"}, {}, nullptr));
+
+  auto updated_user = auth.value()->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+
+  auto remaining = updated_user->roles().GetRoles();
+  ASSERT_EQ(remaining.size(), 1);
+  ASSERT_EQ(remaining.begin()->rolename(), "role2");
+}
+
+TEST_F(AuthQueryHandlerFixture, ClearRoleWithEmptyRoleListRemovesAllRoles) {
+  memgraph::auth::Role role1("role1");
+  role1.db_access().Grant("db1");
+  role1.db_access().Grant("db2");
+  auth.value()->SaveRole(role1);
+
+  memgraph::auth::Role role2("role2");
+  role2.db_access().Grant("db1");
+  role2.db_access().Grant("db2");
+  auth.value()->SaveRole(role2);
+
+  memgraph::auth::User user("test_user");
+  user.AddMultiTenantRole(role1, "db1");
+  user.AddMultiTenantRole(role1, "db2");
+  user.AddMultiTenantRole(role2, "db1");
+  user.AddMultiTenantRole(role2, "db2");
+  auth.value()->SaveUser(user);
+
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {}, {}, nullptr));
+
+  auto updated_user = auth.value()->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+  ASSERT_TRUE(updated_user->roles().empty());
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 0);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 0);
+}
+
+TEST_F(AuthQueryHandlerFixture, ClearRoleOnDatabaseLeavesOtherDatabases) {
+  memgraph::auth::Role role1("role1");
+  role1.db_access().Grant("db1");
+  role1.db_access().Grant("db2");
+  auth.value()->SaveRole(role1);
+
+  memgraph::auth::User user("test_user");
+  user.AddMultiTenantRole(role1, "db1");
+  user.AddMultiTenantRole(role1, "db2");
+  auth.value()->SaveUser(user);
+
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {}, {"db1"}, nullptr));
+
+  auto updated_user = auth.value()->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 0);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 1);
+}
+
+TEST_F(AuthQueryHandlerFixture, ClearNamedRoleFromOneDatabaseLeavesOther) {
+  memgraph::auth::Role role1("role1");
+  role1.db_access().Grant("db1");
+  role1.db_access().Grant("db2");
+  auth.value()->SaveRole(role1);
+
+  memgraph::auth::User user("test_user");
+  user.AddMultiTenantRole(role1, "db1");
+  user.AddMultiTenantRole(role1, "db2");
+  auth.value()->SaveUser(user);
+
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {"role1"}, {"db1"}, nullptr));
+
+  auto updated_user = auth.value()->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 0);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 1);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").begin()->rolename(), "role1");
+}
+
 #endif
 
 TEST_F(AuthQueryHandlerFixture, SetRole_MultipleRoles_Success) {
