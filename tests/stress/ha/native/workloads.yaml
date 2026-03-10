@@ -41,8 +41,9 @@ workloads:
   - config: ../workloads/vector_index_concurrent_ops/workload.yaml
     enabled: true
 
+  # Native deployment does not have Memgraph MAGE included so we will not run this one
   - config: ../workloads/restarting_instances/workload.yaml
-    enabled: true
+    enabled: false
 
   # Responsive reads currently disabled as the amount of work to make it responsive
   # With respect to replication time and the engine lock taken at that time is substantial
