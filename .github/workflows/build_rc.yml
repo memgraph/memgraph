@@ -348,7 +348,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       amd_mage_image_url: ${{ steps.set_image_urls.outputs.amd_mage_image_url }}
-      arm_mage_image_url: ${{ steps.set_image_urls.outputs.arm_mage_image_url }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -363,11 +362,9 @@ jobs:
           VERSION: "${{ inputs.version }}"
         run: |
           echo "Setting next image URLs"
-          read amd_mage_image_url arm_mage_image_url < <(python3 tools/ci/get_daily_build_images.py --type=mage)
+          amd_mage_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/mage${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/mage-${VERSION}.tar.gz"
           echo "amd_mage_image_url=$amd_mage_image_url" >> $GITHUB_OUTPUT
-          echo "arm_mage_image_url=$arm_mage_image_url" >> $GITHUB_OUTPUT
           echo "AMD MAGE Image URL: $amd_mage_image_url"
-          echo "ARM MAGE Image URL: $arm_mage_image_url"
 
 
   RunISSUTest:
