@@ -10,6 +10,8 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_debian-12-arm"
+    volumes:
+      - memgraph_logs:/home/mg/memgraph-logs
 
   mgbuild_v7_debian-13-arm:
     image: "memgraph/mgbuild:v7_debian-13-arm"
@@ -20,6 +22,8 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_debian-13-arm"
+    volumes:
+      - memgraph_logs:/home/mg/memgraph-logs
 
   mgbuild_v7_ubuntu-24.04-arm:
     image: "memgraph/mgbuild:v7_ubuntu-24.04-arm"
@@ -30,6 +34,8 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_ubuntu-24.04-arm"
+    volumes:
+      - memgraph_logs:/home/mg/memgraph-logs
 
   mgbuild_v7_fedora-42-arm:
     image: "memgraph/mgbuild:v7_fedora-42-arm"
@@ -40,3 +46,8 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_fedora-42-arm"
+    volumes:
+      - memgraph_logs:/home/mg/memgraph-logs
+
+volumes:
+  memgraph_logs:
