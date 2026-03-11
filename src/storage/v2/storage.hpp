@@ -643,64 +643,66 @@ class Storage {
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
     // Description methods
-    void SetDescription(DescriptionTargetKind kind, std::string_view target_name, std::string description) {
-      auto &store = storage_->description_store_;
-      switch (kind) {
-        case DescriptionTargetKind::LABEL: {
-          auto id = storage_->NameToLabel(target_name);
-          store.SetLabel(id, description);
-          break;
-        }
-        case DescriptionTargetKind::EDGE_TYPE: {
-          auto id = storage_->NameToEdgeType(target_name);
-          store.SetEdgeType(id, description);
-          break;
-        }
-        case DescriptionTargetKind::PROPERTY: {
-          auto id = storage_->NameToProperty(target_name);
-          store.SetProperty(id, description);
-          break;
-        }
-        case DescriptionTargetKind::DATABASE:
-          store.SetDatabase(std::move(description));
-          break;
-      }
+    void SetLabelDescription(std::span<std::string_view const> label_names, std::string_view desc) {
+      storage_->description_store_.SetLabel(ResolveLabels(label_names), desc);
     }
 
-    bool DeleteDescription(DescriptionTargetKind kind, std::string_view target_name) {
-      auto &store = storage_->description_store_;
-      switch (kind) {
-        case DescriptionTargetKind::LABEL:
-          return store.DeleteLabel(storage_->NameToLabel(target_name));
-        case DescriptionTargetKind::EDGE_TYPE:
-          return store.DeleteEdgeType(storage_->NameToEdgeType(target_name));
-        case DescriptionTargetKind::PROPERTY:
-          return store.DeleteProperty(storage_->NameToProperty(target_name));
-        case DescriptionTargetKind::DATABASE:
-          return store.DeleteDatabase();
-      }
-      return false;
+    bool DeleteLabelDescription(std::span<std::string_view const> label_names) {
+      return storage_->description_store_.DeleteLabel(ResolveLabels(label_names));
     }
 
-    std::optional<std::string> GetDescription(DescriptionTargetKind kind, std::string_view target_name) const {
-      auto const &store = storage_->description_store_;
-      switch (kind) {
-        case DescriptionTargetKind::LABEL:
-          return store.GetLabel(storage_->NameToLabel(target_name));
-        case DescriptionTargetKind::EDGE_TYPE:
-          return store.GetEdgeType(storage_->NameToEdgeType(target_name));
-        case DescriptionTargetKind::PROPERTY:
-          return store.GetProperty(storage_->NameToProperty(target_name));
-        case DescriptionTargetKind::DATABASE:
-          return store.GetDatabase();
-      }
-      return std::nullopt;
+    std::optional<std::string> GetLabelDescription(std::span<std::string_view const> label_names) const {
+      return storage_->description_store_.GetLabel(ResolveLabels(label_names));
     }
+
+    void SetEdgeTypeDescription(std::string_view name, std::string_view desc) {
+      storage_->description_store_.SetEdgeType(storage_->NameToEdgeType(name), desc);
+    }
+
+    bool DeleteEdgeTypeDescription(std::string_view name) {
+      return storage_->description_store_.DeleteEdgeType(storage_->NameToEdgeType(name));
+    }
+
+    std::optional<std::string> GetEdgeTypeDescription(std::string_view name) const {
+      return storage_->description_store_.GetEdgeType(storage_->NameToEdgeType(name));
+    }
+
+    void SetPropertyDescription(std::span<std::string_view const> label_qualifier, std::string_view prop_name,
+                                std::string_view desc) {
+      storage_->description_store_.SetProperty(
+          ResolveLabels(label_qualifier), storage_->NameToProperty(prop_name), desc);
+    }
+
+    bool DeletePropertyDescription(std::span<std::string_view const> label_qualifier, std::string_view prop_name) {
+      return storage_->description_store_.DeleteProperty(ResolveLabels(label_qualifier),
+                                                         storage_->NameToProperty(prop_name));
+    }
+
+    std::optional<std::string> GetPropertyDescription(std::span<std::string_view const> label_qualifier,
+                                                      std::string_view prop_name) const {
+      return storage_->description_store_.GetProperty(ResolveLabels(label_qualifier),
+                                                      storage_->NameToProperty(prop_name));
+    }
+
+    void SetDatabaseDescription(std::string_view desc) { storage_->description_store_.SetDatabase(desc); }
+
+    bool DeleteDatabaseDescription() { return storage_->description_store_.DeleteDatabase(); }
+
+    std::optional<std::string> GetDatabaseDescription() const { return storage_->description_store_.GetDatabase(); }
 
     std::vector<DescriptionEntry> GetAllDescriptions() const {
       return storage_->description_store_.GetAll(*storage_->name_id_mapper_);
     }
 
+   private:
+    std::vector<LabelId> ResolveLabels(std::span<std::string_view const> names) const {
+      std::vector<LabelId> ids;
+      ids.reserve(names.size());
+      for (auto name : names) ids.push_back(storage_->NameToLabel(name));
+      return ids;
+    }
+
+   public:
     auto GetEnumValue(std::string_view name, std::string_view value) const -> std::expected<Enum, EnumStorageError> {
       return storage_->enum_store_.ToEnum(name, value);
     }

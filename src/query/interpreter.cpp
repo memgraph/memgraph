@@ -5989,65 +5989,79 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
   std::vector<std::string> property_names;
   for (auto const &p : desc_query->properties_) property_names.push_back(p.name);
 
+  // Build std::string_view spans over the owned strings for passing to the accessor.
+  auto make_sv_vec = [](std::vector<std::string> const &v) {
+    std::vector<std::string_view> sv;
+    sv.reserve(v.size());
+    for (auto const &s : v) sv.emplace_back(s);
+    return sv;
+  };
+
   switch (desc_query->action_) {
     case DescriptionQuery::Action::SET:
-      return {.header = {},
-              .privileges = std::move(parsed_query.required_privileges),
-              .query_handler = [dba = *current_db.execution_db_accessor_,
-                                kind,
-                                label_names = std::move(label_names),
-                                edge_type_name = std::move(edge_type_name),
-                                property_names = std::move(property_names),
-                                database_name = std::move(database_name),
-                                description = std::move(description)](
-                                   AnyStream * /*stream*/,
-                                   std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
-                switch (kind) {
-                  case storage::DescriptionTargetKind::LABEL:
-                    for (auto const &name : label_names) dba.SetDescription(kind, name, description);
-                    break;
-                  case storage::DescriptionTargetKind::EDGE_TYPE:
-                    dba.SetDescription(kind, edge_type_name, description);
-                    break;
-                  case storage::DescriptionTargetKind::PROPERTY:
-                    for (auto const &name : property_names) dba.SetDescription(kind, name, description);
-                    break;
-                  case storage::DescriptionTargetKind::DATABASE:
-                    dba.SetDescription(kind, database_name, description);
-                    break;
-                }
-                return QueryHandlerResult::COMMIT;
-              },
-              .rw_type = RWType::W};
+      return {
+          .header = {},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [dba = *current_db.execution_db_accessor_,
+                            kind,
+                            label_names = std::move(label_names),
+                            edge_type_name = std::move(edge_type_name),
+                            property_names = std::move(property_names),
+                            database_name = std::move(database_name),
+                            description = std::move(description),
+                            make_sv_vec](AnyStream * /*stream*/,
+                                         std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+            auto label_sv = make_sv_vec(label_names);
+            auto prop_sv = make_sv_vec(property_names);
+            switch (kind) {
+              case storage::DescriptionTargetKind::LABEL:
+                dba.SetLabelDescription(label_sv, description);
+                break;
+              case storage::DescriptionTargetKind::EDGE_TYPE:
+                dba.SetEdgeTypeDescription(edge_type_name, description);
+                break;
+              case storage::DescriptionTargetKind::PROPERTY:
+                for (auto prop : prop_sv) dba.SetPropertyDescription(label_sv, prop, description);
+                break;
+              case storage::DescriptionTargetKind::DATABASE:
+                dba.SetDatabaseDescription(description);
+                break;
+            }
+            return QueryHandlerResult::COMMIT;
+          },
+          .rw_type = RWType::W};
 
     case DescriptionQuery::Action::DELETE:
-      return {.header = {},
-              .privileges = std::move(parsed_query.required_privileges),
-              .query_handler = [dba = *current_db.execution_db_accessor_,
-                                kind,
-                                label_names = std::move(label_names),
-                                edge_type_name = std::move(edge_type_name),
-                                property_names = std::move(property_names),
-                                database_name = std::move(database_name)](
-                                   AnyStream * /*stream*/,
-                                   std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
-                switch (kind) {
-                  case storage::DescriptionTargetKind::LABEL:
-                    for (auto const &name : label_names) dba.DeleteDescription(kind, name);
-                    break;
-                  case storage::DescriptionTargetKind::EDGE_TYPE:
-                    dba.DeleteDescription(kind, edge_type_name);
-                    break;
-                  case storage::DescriptionTargetKind::PROPERTY:
-                    for (auto const &name : property_names) dba.DeleteDescription(kind, name);
-                    break;
-                  case storage::DescriptionTargetKind::DATABASE:
-                    dba.DeleteDescription(kind, database_name);
-                    break;
-                }
-                return QueryHandlerResult::COMMIT;
-              },
-              .rw_type = RWType::W};
+      return {
+          .header = {},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [dba = *current_db.execution_db_accessor_,
+                            kind,
+                            label_names = std::move(label_names),
+                            edge_type_name = std::move(edge_type_name),
+                            property_names = std::move(property_names),
+                            database_name = std::move(database_name),
+                            make_sv_vec](AnyStream * /*stream*/,
+                                         std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+            auto label_sv = make_sv_vec(label_names);
+            auto prop_sv = make_sv_vec(property_names);
+            switch (kind) {
+              case storage::DescriptionTargetKind::LABEL:
+                dba.DeleteLabelDescription(label_sv);
+                break;
+              case storage::DescriptionTargetKind::EDGE_TYPE:
+                dba.DeleteEdgeTypeDescription(edge_type_name);
+                break;
+              case storage::DescriptionTargetKind::PROPERTY:
+                for (auto prop : prop_sv) dba.DeletePropertyDescription(label_sv, prop);
+                break;
+              case storage::DescriptionTargetKind::DATABASE:
+                dba.DeleteDatabaseDescription();
+                break;
+            }
+            return QueryHandlerResult::COMMIT;
+          },
+          .rw_type = RWType::W};
 
     case DescriptionQuery::Action::SHOW:
       return PreparedQuery{
@@ -6059,26 +6073,32 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                             edge_type_name = std::move(edge_type_name),
                             property_names = std::move(property_names),
                             database_name = std::move(database_name),
+                            make_sv_vec,
                             pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                                AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
-              std::optional<std::string> desc;
-              switch (kind) {
-                case storage::DescriptionTargetKind::LABEL:
-                  if (!label_names.empty()) desc = dba.GetDescription(kind, label_names[0]);
-                  break;
-                case storage::DescriptionTargetKind::EDGE_TYPE:
-                  desc = dba.GetDescription(kind, edge_type_name);
-                  break;
-                case storage::DescriptionTargetKind::PROPERTY:
-                  if (!property_names.empty()) desc = dba.GetDescription(kind, property_names[0]);
-                  break;
-                case storage::DescriptionTargetKind::DATABASE:
-                  desc = dba.GetDescription(kind, database_name);
-                  break;
-              }
+              auto label_sv = make_sv_vec(label_names);
+              auto prop_sv = make_sv_vec(property_names);
               std::vector<std::vector<TypedValue>> rows;
-              if (desc) rows.push_back({TypedValue{*desc}});
+              switch (kind) {
+                case storage::DescriptionTargetKind::LABEL: {
+                  if (auto desc = dba.GetLabelDescription(label_sv)) rows.push_back({TypedValue{*desc}});
+                  break;
+                }
+                case storage::DescriptionTargetKind::EDGE_TYPE: {
+                  if (auto desc = dba.GetEdgeTypeDescription(edge_type_name)) rows.push_back({TypedValue{*desc}});
+                  break;
+                }
+                case storage::DescriptionTargetKind::PROPERTY:
+                  for (auto prop : prop_sv) {
+                    if (auto desc = dba.GetPropertyDescription(label_sv, prop)) rows.push_back({TypedValue{*desc}});
+                  }
+                  break;
+                case storage::DescriptionTargetKind::DATABASE: {
+                  if (auto desc = dba.GetDatabaseDescription()) rows.push_back({TypedValue{*desc}});
+                  break;
+                }
+              }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
             if (pull_plan->Pull(stream, n)) return QueryHandlerResult::COMMIT;
@@ -6097,23 +6117,22 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
               auto entries = dba.GetAllDescriptions();
               std::vector<std::vector<TypedValue>> rows;
               rows.reserve(entries.size());
-              for (auto const &e : entries) {
-                std::string kind_str;
-                switch (e.kind) {
+              auto kind_to_str = [](storage::DescriptionTargetKind k) -> std::string_view {
+                switch (k) {
                   case storage::DescriptionTargetKind::LABEL:
-                    kind_str = "LABEL";
-                    break;
+                    return "LABEL";
                   case storage::DescriptionTargetKind::EDGE_TYPE:
-                    kind_str = "EDGE_TYPE";
-                    break;
+                    return "EDGE_TYPE";
                   case storage::DescriptionTargetKind::PROPERTY:
-                    kind_str = "PROPERTY";
-                    break;
+                    return "PROPERTY";
                   case storage::DescriptionTargetKind::DATABASE:
-                    kind_str = "DATABASE";
-                    break;
+                    return "DATABASE";
                 }
-                rows.push_back({TypedValue{kind_str}, TypedValue{e.target_name}, TypedValue{e.description}});
+              };
+              for (auto const &e : entries) {
+                rows.push_back({TypedValue{std::string{kind_to_str(e.kind)}},
+                                TypedValue{e.target_name},
+                                TypedValue{e.description}});
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
@@ -8361,7 +8380,13 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(ParameterQuery & /*unused*/) override {}
 
-  void Visit(DescriptionQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(DescriptionQuery &desc_query) override {
+    if (desc_query.action_ == DescriptionQuery::Action::SET || desc_query.action_ == DescriptionQuery::Action::DELETE) {
+      accessor_type_ = storage::StorageAccessType::UNIQUE;
+    } else {
+      accessor_type_ = storage::StorageAccessType::READ;
+    }
+  }
 
   // No database access required (but need current database)
   void Visit(SystemInfoQuery & /*unused*/) override {}

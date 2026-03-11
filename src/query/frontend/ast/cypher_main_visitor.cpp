@@ -4317,7 +4317,7 @@ antlrcpp::Any CypherMainVisitor::visitSetDescription(MemgraphCypher::SetDescript
   q->action_ = DescriptionQuery::Action::SET;
   auto fill = std::any_cast<std::function<void(DescriptionQuery *)>>(ctx->descriptionTarget()->accept(this));
   fill(q);
-  int token_pos = ctx->StringLiteral()->getSymbol()->getTokenIndex();
+  auto token_pos = ctx->StringLiteral()->getSymbol()->getTokenIndex();
   q->description_ = std::string(parameters_->AtTokenPosition(token_pos).ValueString());
   // Description literal varies per invocation — must not cache this query.
   query_info_.is_cacheable = false;

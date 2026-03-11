@@ -992,17 +992,47 @@ class DbAccessor final {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 
-  void SetDescription(storage::DescriptionTargetKind kind, std::string_view target_name, std::string description) {
-    accessor_->SetDescription(kind, target_name, std::move(description));
+  void SetLabelDescription(std::span<std::string_view const> labels, std::string_view desc) {
+    accessor_->SetLabelDescription(labels, desc);
   }
 
-  bool DeleteDescription(storage::DescriptionTargetKind kind, std::string_view target_name) {
-    return accessor_->DeleteDescription(kind, target_name);
+  bool DeleteLabelDescription(std::span<std::string_view const> labels) {
+    return accessor_->DeleteLabelDescription(labels);
   }
 
-  std::optional<std::string> GetDescription(storage::DescriptionTargetKind kind, std::string_view target_name) const {
-    return accessor_->GetDescription(kind, target_name);
+  std::optional<std::string> GetLabelDescription(std::span<std::string_view const> labels) const {
+    return accessor_->GetLabelDescription(labels);
   }
+
+  void SetEdgeTypeDescription(std::string_view name, std::string_view desc) {
+    accessor_->SetEdgeTypeDescription(name, desc);
+  }
+
+  bool DeleteEdgeTypeDescription(std::string_view name) { return accessor_->DeleteEdgeTypeDescription(name); }
+
+  std::optional<std::string> GetEdgeTypeDescription(std::string_view name) const {
+    return accessor_->GetEdgeTypeDescription(name);
+  }
+
+  void SetPropertyDescription(std::span<std::string_view const> label_qualifier, std::string_view prop_name,
+                              std::string_view desc) {
+    accessor_->SetPropertyDescription(label_qualifier, prop_name, desc);
+  }
+
+  bool DeletePropertyDescription(std::span<std::string_view const> label_qualifier, std::string_view prop_name) {
+    return accessor_->DeletePropertyDescription(label_qualifier, prop_name);
+  }
+
+  std::optional<std::string> GetPropertyDescription(std::span<std::string_view const> label_qualifier,
+                                                    std::string_view prop_name) const {
+    return accessor_->GetPropertyDescription(label_qualifier, prop_name);
+  }
+
+  void SetDatabaseDescription(std::string_view desc) { accessor_->SetDatabaseDescription(desc); }
+
+  bool DeleteDatabaseDescription() { return accessor_->DeleteDatabaseDescription(); }
+
+  std::optional<std::string> GetDatabaseDescription() const { return accessor_->GetDatabaseDescription(); }
 
   std::vector<storage::DescriptionEntry> GetAllDescriptions() const { return accessor_->GetAllDescriptions(); }
 
