@@ -2151,9 +2151,6 @@ antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ct
 antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CLEAR_ROLE;
-  if (ctx->roles) {
-    auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
-  }
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   if (ctx->db) {
     auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
