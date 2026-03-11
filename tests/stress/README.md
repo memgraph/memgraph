@@ -98,9 +98,6 @@ Custom workloads can be defined using either **inline workers** or a **custom Py
 customWorkloads:
   tests:
     - name: <string>  # Unique workload name.
-      memgraph_args: []
-      # Additional Memgraph arguments specific to the workload.
-      # Doesn't apply for K8s as they use values file.
       import:
         queries: ["<Cypher Query>"]  # Queries to execute for data import.
       querying:
@@ -126,7 +123,6 @@ Instead of defining workers inline, you can specify a Python script that handles
 customWorkloads:
   tests:
     - name: <string>  # Unique workload name.
-      memgraph_args: []  # Additional Memgraph arguments.
       script: "<path>"  # Path to Python script (relative to stress/ directory or absolute).
       timeout_min: <int>  # Maximum execution time in minutes.
 ```
