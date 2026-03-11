@@ -29,6 +29,7 @@ DEFAULT_FLAGS=(
     "--storage-snapshot-interval-sec=300"
     "--storage-properties-on-edges=true"
     "--storage-wal-enabled=true"
+    "--storage-snapshot-on-exit=false"
     "--telemetry-enabled=false"
 )
 

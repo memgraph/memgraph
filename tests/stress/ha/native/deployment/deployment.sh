@@ -44,6 +44,7 @@ DEFAULT_DATA_FLAGS=(
     "--storage-properties-on-edges=true"
     "--storage-snapshot-interval-sec=300"
     "--storage-wal-enabled=true"
+    "--storage-snapshot-on-exit=false"
     "--telemetry-enabled=false"
     "--query-execution-timeout-sec=1200"
 )
