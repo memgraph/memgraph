@@ -1890,7 +1890,7 @@ TEST_F(AuthQueryHandlerFixture, GetRolenameForUser_WithDatabaseSpecification) {
   // Get roles for specific database
   auto rolenames = auth_handler.GetRolenamesForUser("test_user", "db1");
   ASSERT_EQ(rolenames.size(), 1);
-  ASSERT_EQ(rolenames[0], "test_role");
+  ASSERT_EQ(rolenames[0].first, "test_role");
 
   // Get roles for different database (should be empty)
   auto rolenames_db2 = auth_handler.GetRolenamesForUser("test_user", "db2");
@@ -2821,7 +2821,8 @@ TEST_F(AuthQueryHandlerFixture, FirstUserEnterpriseGetsAdminRoleAndBuiltinRolesC
   EXPECT_EQ(locked->AllRolenames().size(), 3);
   auto const roles = auth_handler.GetRolenamesForUser("alice", std::nullopt);
   EXPECT_EQ(roles.size(), 1);
-  EXPECT_EQ(roles[0], "admin");
+  EXPECT_EQ(roles[0].first, "admin");
+  EXPECT_TRUE(roles[0].second);
 }
 
 TEST_F(AuthQueryHandlerFixture, FirstUserWhenRolesExistGetsPermissionsNoAdminRole) {
@@ -2923,3 +2924,103 @@ TEST_F(AuthQueryHandlerFixture, DisambiguationRoleKeywordBothExistResolvesToRole
   ASSERT_EQ(result.size(), 1);
   ASSERT_EQ(result[0][2].ValueString(), "GRANTED TO ROLE");
 }
+
+TEST_F(AuthQueryHandlerFixture, GetRolenamesReturnsBuiltinFlag) {
+  ASSERT_TRUE(auth_handler.CreateRole("regular_role", nullptr));
+
+  auto regular_role = auth->ReadLock()->GetRole("regular_role");
+  ASSERT_TRUE(regular_role.has_value());
+  EXPECT_FALSE(regular_role->IsBuiltIn());
+
+  memgraph::auth::Role builtin_role{"builtin_role"};
+  builtin_role.SetBuiltIn(true);
+  auth.value()->SaveRole(builtin_role);
+
+  auto const roles = auth_handler.GetRolenames();
+  ASSERT_EQ(roles.size(), 2);
+
+  auto find = [&](std::string_view name) {
+    return std::find_if(roles.begin(), roles.end(), [&](auto const &p) { return p.first == name; });
+  };
+
+  auto regular_it = find("regular_role");
+  ASSERT_NE(regular_it, roles.end());
+  EXPECT_FALSE(regular_it->second);
+
+  auto builtin_it = find("builtin_role");
+  ASSERT_NE(builtin_it, roles.end());
+  EXPECT_TRUE(builtin_it->second);
+}
+
+TEST_F(AuthQueryHandlerFixture, GetRolenamesForUserReturnsBuiltinFlag) {
+  auth.value()->SaveUser(memgraph::auth::User{"alice"});
+  ASSERT_TRUE(auth_handler.CreateRole("regular_role", nullptr));
+
+  memgraph::auth::Role builtin_role{"builtin_role"};
+  builtin_role.SetBuiltIn(true);
+  auth.value()->SaveRole(builtin_role);
+
+  ASSERT_NO_THROW(auth_handler.AddRoles("alice", {"regular_role", "builtin_role"}, {}, nullptr));
+
+  auto const roles = auth_handler.GetRolenamesForUser("alice", std::nullopt);
+  ASSERT_EQ(roles.size(), 2);
+
+  auto find = [&](std::string_view name) {
+    return std::find_if(roles.begin(), roles.end(), [&](auto const &p) { return p.first == name; });
+  };
+
+  auto regular_it = find("regular_role");
+  ASSERT_NE(regular_it, roles.end());
+  EXPECT_FALSE(regular_it->second);
+
+  auto builtin_it = find("builtin_role");
+  ASSERT_NE(builtin_it, roles.end());
+  EXPECT_TRUE(builtin_it->second);
+}
+
+#ifdef MG_ENTERPRISE
+TEST_F(AuthQueryHandlerFixture, GrantPrivilegeOnBuiltinRoleClearsBuiltinFlag) {
+  memgraph::auth::Role builtin_role{"builtin_role"};
+  builtin_role.SetBuiltIn(true);
+  auth.value()->SaveRole(builtin_role);
+
+  ASSERT_TRUE(auth->ReadLock()->GetRole("builtin_role")->IsBuiltIn());
+
+  auth_handler.GrantPrivilege("builtin_role",
+                              {memgraph::query::AuthQuery::Privilege::MATCH},
+                              {},
+                              {},
+                              {},
+                              memgraph::auth::UserOrRoleType::ROLE,
+                              nullptr);
+
+  EXPECT_FALSE(auth->ReadLock()->GetRole("builtin_role")->IsBuiltIn());
+}
+
+TEST_F(AuthQueryHandlerFixture, DenyPrivilegeOnBuiltinRoleClearsBuiltinFlag) {
+  memgraph::auth::Role builtin_role{"builtin_role"};
+  builtin_role.SetBuiltIn(true);
+  auth.value()->SaveRole(builtin_role);
+
+  auth_handler.DenyPrivilege(
+      "builtin_role", {memgraph::query::AuthQuery::Privilege::MATCH}, memgraph::auth::UserOrRoleType::ROLE, nullptr);
+
+  EXPECT_FALSE(auth->ReadLock()->GetRole("builtin_role")->IsBuiltIn());
+}
+
+TEST_F(AuthQueryHandlerFixture, RevokePrivilegeOnBuiltinRoleClearsBuiltinFlag) {
+  memgraph::auth::Role builtin_role{"builtin_role"};
+  builtin_role.SetBuiltIn(true);
+  auth.value()->SaveRole(builtin_role);
+
+  auth_handler.RevokePrivilege("builtin_role",
+                               {memgraph::query::AuthQuery::Privilege::MATCH},
+                               {},
+                               {},
+                               {},
+                               memgraph::auth::UserOrRoleType::ROLE,
+                               nullptr);
+
+  EXPECT_FALSE(auth->ReadLock()->GetRole("builtin_role")->IsBuiltIn());
+}
+#endif
