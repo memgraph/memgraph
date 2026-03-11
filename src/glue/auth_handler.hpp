@@ -82,6 +82,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   void ClearRoles(const std::string &username, const std::vector<std::string> &roles,
                   const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) override;
 
+  using query::AuthQueryHandler::GetPrivileges;
+
   std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
                                                                       std::optional<std::string>,
                                                                       auth::UserOrRoleType type) override;
