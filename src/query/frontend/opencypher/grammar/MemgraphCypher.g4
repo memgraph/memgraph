@@ -497,13 +497,13 @@ showCurrentRole : SHOW CURRENT ( ROLE | ROLES ) ;
 
 showUsers : SHOW USERS ;
 
-setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
+setRole : SET ( ROLE | ROLES ) FOR USER? user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
 
-clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
+clearRole : CLEAR ( ROLE | ROLES ) FOR USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-grantRole : GRANT ( ROLE | ROLES ) roles=listOfSymbolicNames TO user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
+grantRole : GRANT ( ROLE | ROLES ) roles=listOfSymbolicNames TO USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-revokeRole : REVOKE ( ROLE | ROLES ) roles=listOfSymbolicNames FROM user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
+revokeRole : REVOKE ( ROLE | ROLES ) roles=listOfSymbolicNames FROM USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
 
@@ -592,9 +592,9 @@ colonSymbolicName : COLON symbolicName ;
 
 showPrivileges : SHOW PRIVILEGES FOR target=userOrRole ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showRoleForUser : SHOW ( ROLE | ROLES ) FOR user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
+showRoleForUser : SHOW ( ROLE | ROLES ) FOR USER? user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
+showUsersForRole : SHOW USERS FOR ROLE? role=userOrRoleName ;
 
 dumpQuery : DUMP DATABASE ;
 
