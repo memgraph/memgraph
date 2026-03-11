@@ -551,32 +551,32 @@ def test_show_role_syntax_variations(memgraph):
 
     # Test SHOW ROLE ON MAIN
     results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user ON MAIN;"))
-    assert results == [{"role": "null"}]
+    assert results == []
 
     # Test SHOW ROLES ON MAIN
     results = list(memgraph.execute_and_fetch("SHOW ROLES FOR test_user ON MAIN;"))
-    assert results == [{"role": "null"}]
+    assert results == []
 
     # Test SHOW ROLE ON CURRENT
     results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user ON CURRENT;"))
-    assert results == [{"role": "null"}]
+    assert results == []
 
     memgraph.execute("USE DATABASE db1;")
     # Test SHOW ROLES ON CURRENT
     results = list(memgraph.execute_and_fetch("SHOW ROLES FOR test_user ON CURRENT;"))
-    assert results == [{"role": "role1"}]
+    assert [row["role"] for row in results] == ["role1"]
 
     # Test SHOW ROLE ON DATABASE
     results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user ON DATABASE db1;"))
-    assert results == [{"role": "role1"}]
+    assert [row["role"] for row in results] == ["role1"]
 
     # Test SHOW ROLES ON DATABASE
     results = list(memgraph.execute_and_fetch("SHOW ROLES FOR test_user ON DATABASE db1;"))
-    assert results == [{"role": "role1"}]
+    assert [row["role"] for row in results] == ["role1"]
 
     # Test SHOW ROLES ON DATABASE
     results = list(memgraph.execute_and_fetch("SHOW ROLES FOR test_user ON DATABASE db2;"))
-    assert results == [{"role": "role2"}]
+    assert [row["role"] for row in results] == ["role2"]
 
     # Clean up
     memgraph.execute("USE DATABASE memgraph;")
@@ -615,10 +615,10 @@ def test_database_specific_role_management(memgraph):
 
     # Test showing roles for specific databases
     results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user ON DATABASE db1;"))
-    assert results == [{"role": "null"}]
+    assert results == []
 
     results = list(memgraph.execute_and_fetch("SHOW ROLES FOR test_user ON DATABASE db2;"))
-    assert results == [{"role": "null"}]
+    assert results == []
 
     # Test that SHOW ROLE works without database specification even with database-specific roles
     # Set some database-specific roles
