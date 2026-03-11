@@ -2862,6 +2862,16 @@ TEST_P(CypherMainVisitorTest, SetRole) {
   // Single role tests (backward compatibility)
   check_auth_query(
       &ast_generator, "SET ROLE FOR user TO role", AuthQuery::Action::SET_ROLE, "user", {"role"}, "", {}, {}, {}, {});
+  check_auth_query(&ast_generator,
+                   "SET ROLE FOR USER user TO role",
+                   AuthQuery::Action::SET_ROLE,
+                   "user",
+                   {"role"},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {});
   check_auth_query(
       &ast_generator, "SET ROLE FOR user TO null", AuthQuery::Action::SET_ROLE, "user", {"null"}, "", {}, {}, {}, {});
 
@@ -2929,6 +2939,7 @@ TEST_P(CypherMainVisitorTest, ClearRole) {
 
   AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR user", AuthQuery::Action::CLEAR_ROLE).WithUser("user").Check();
   AuthQueryChecker(&ast_generator, "CLEAR ROLES FOR user", AuthQuery::Action::CLEAR_ROLE).WithUser("user").Check();
+  AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR USER user", AuthQuery::Action::CLEAR_ROLE).WithUser("user").Check();
 
   AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR user ON db1", AuthQuery::Action::CLEAR_ROLE)
       .WithUser("user")
@@ -2947,6 +2958,10 @@ TEST_P(CypherMainVisitorTest, GrantRole) {
   ASSERT_THROW(ast_generator.ParseQuery("GRANT ROLE TO user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT ROLE admin"), SyntaxException);
 
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin TO USER user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
   AuthQueryChecker(&ast_generator, "GRANT ROLE admin TO user", AuthQuery::Action::GRANT_ROLE)
       .WithUser("user")
       .WithRoles({"admin"})
@@ -2978,6 +2993,10 @@ TEST_P(CypherMainVisitorTest, RevokeRole) {
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE ROLE FROM user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE ROLE admin"), SyntaxException);
 
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin FROM USER user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
   AuthQueryChecker(&ast_generator, "REVOKE ROLE admin FROM user", AuthQuery::Action::REVOKE_ROLE)
       .WithUser("user")
       .WithRoles({"admin"})
@@ -4348,6 +4367,8 @@ TEST_P(CypherMainVisitorTest, ShowRoleForUser) {
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR "), SyntaxException);
   check_auth_query(
       &ast_generator, "SHOW ROLE FOR user", AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", {}, "", {}, {}, {}, {});
+  check_auth_query(
+      &ast_generator, "SHOW ROLE FOR USER user", AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", {}, "", {}, {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR user1, user2"), SyntaxException);
 }
 
@@ -4356,6 +4377,16 @@ TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR "), SyntaxException);
   check_auth_query(
       &ast_generator, "SHOW USERS FOR role", AuthQuery::Action::SHOW_USERS_FOR_ROLE, "", {"role"}, "", {}, {}, {}, {});
+  check_auth_query(&ast_generator,
+                   "SHOW USERS FOR ROLE role",
+                   AuthQuery::Action::SHOW_USERS_FOR_ROLE,
+                   "",
+                   {"role"},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR role1, role2"), SyntaxException);
 }
 
