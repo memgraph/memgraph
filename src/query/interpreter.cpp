@@ -5984,10 +5984,12 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
   auto description = desc_query->description_;
   auto database_name = desc_query->database_name_;
   std::vector<std::string> label_names;
-  for (auto const &l : desc_query->labels_) label_names.push_back(l.name);
+  label_names.reserve(desc_query->labels_.size());
+  for (auto const &label : desc_query->labels_) label_names.push_back(label.name);
   std::string edge_type_name = desc_query->edge_type_.name;
   std::vector<std::string> property_names;
-  for (auto const &p : desc_query->properties_) property_names.push_back(p.name);
+  property_names.reserve(desc_query->properties_.size());
+  for (auto const &prop : desc_query->properties_) property_names.push_back(prop.name);
 
   // Build std::string_view spans over the owned strings for passing to the accessor.
   auto make_sv_vec = [](std::vector<std::string> const &v) {
