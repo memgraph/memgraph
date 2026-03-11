@@ -106,6 +106,14 @@ jobs:
           --arch $ARCH \
           copy --logs-dir /home/mg/memgraph/tests/stress --dest-dir build/stress/logs
 
+      - name: Upload stress test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-logs-native-ha
+          path: build/stress/logs/
+          if-no-files-found: warn
+
       - name: Stop mgbuild container
         if: always()
         run: |
