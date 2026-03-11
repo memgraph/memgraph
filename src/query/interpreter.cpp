@@ -48,7 +48,6 @@
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
-#include "flags/storage_access.hpp"
 #include "frontend/ast/query/user_profile.hpp"
 #include "frontend/semantic/rw_checker.hpp"
 #include "io/network/endpoint.hpp"
@@ -207,7 +206,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
   auto &db_acc = *db_acc_;
-  const auto timeout = std::chrono::seconds{FLAGS_storage_access_timeout_sec};
+  const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
   switch (acc_type) {
     case storage::StorageAccessType::READ:
       [[fallthrough]];
