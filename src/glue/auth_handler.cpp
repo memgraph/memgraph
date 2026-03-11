@@ -776,6 +776,75 @@ void AuthQueryHandler::ClearRoles(const std::string &username, const std::vector
   }
 }
 
+void AuthQueryHandler::AddRoles(const std::string &username, const std::vector<std::string> &roles,
+                                const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) {
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    }
+
+#ifdef MG_ENTERPRISE
+    if (!role_databases.empty()) {
+      for (const auto &db_name : role_databases) {
+        for (const auto &rolename : roles) {
+          auto role = locked_auth->GetRole(rolename);
+          if (!role) {
+            throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
+          }
+          user->AddMultiTenantRole(*role, db_name);
+        }
+      }
+      locked_auth->SaveUser(*user, system_tx);
+      return;
+    }
+#endif
+
+    for (const auto &rolename : roles) {
+      auto role = locked_auth->GetRole(rolename);
+      if (!role) {
+        throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
+      }
+      user->AddRole(*role);
+    }
+    locked_auth->SaveUser(*user, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+void AuthQueryHandler::RevokeRoles(const std::string &username, const std::vector<std::string> &roles,
+                                   const std::unordered_set<std::string> &role_databases,
+                                   system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) {
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    }
+
+#ifdef MG_ENTERPRISE
+    if (!role_databases.empty()) {
+      for (const auto &db_name : role_databases) {
+        for (const auto &rolename : roles) {
+          user->RemoveMultiTenantRole(rolename, db_name);
+        }
+      }
+      locked_auth->SaveUser(*user, system_tx);
+      return;
+    }
+#endif
+
+    for (const auto &rolename : roles) {
+      user->RemoveRole(rolename);
+    }
+    locked_auth->SaveUser(*user, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
 void AuthQueryHandler::RemoveRole(const std::string &username, const std::string &rolename,
                                   system::Transaction *system_tx) {
   try {
