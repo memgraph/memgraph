@@ -90,7 +90,6 @@ start_memgraph() {
 
 stop_memgraph() {
     local graceful_timeout_sec=60
-    local force_kill_settle_sec=120
 
     if [[ ! -f "memgraph.pid" ]]; then
         echo "No running Memgraph process found."
