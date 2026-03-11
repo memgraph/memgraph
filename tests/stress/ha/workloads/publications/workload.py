@@ -388,7 +388,9 @@ def run_worker(worker_id: int, num_iterations: int) -> dict:
     counts = {"create_no_edge": 0, "create_with_edge": 0, "delete": 0, "add_edge": 0, "remove_edge": 0}
     ops = list(counts.keys())
 
-    for _ in range(num_iterations):
+    for i in range(num_iterations):
+        if i > 0 and i % 100 == 0:
+            print(f"  [Worker {worker_id}] completed {i:,} / {num_iterations:,} iterations")
         choice = random.choice(ops)
         try:
             if choice == "create_no_edge":
