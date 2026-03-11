@@ -1066,6 +1066,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
       forbid_on_replica();
+      callback.header = {"status"};
       callback.fn = [auth,
                      username,
                      password,
@@ -1077,10 +1078,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         }
 
         MG_ASSERT(password.IsString() || password.IsNull());
-        if (!auth->CreateUser(
-                username,
-                password.IsString() ? std::make_optional(std::string(password.ValueString())) : std::nullopt,
-                &*interpreter->system_transaction_)) {
+        auto const created = auth->CreateUser(
+            username,
+            password.IsString() ? std::make_optional(std::string(password.ValueString())) : std::nullopt,
+            &*interpreter->system_transaction_);
+        if (!created) {
           if (!if_not_exists) {
             throw UserAlreadyExistsException(
                 "User or role with name '{}' already exists. Use the SHOW USERS or SHOW ROLES query to list all users "
@@ -1088,6 +1090,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                 username);
           }
           spdlog::warn("User '{}' already exists.", username);
+          return std::vector<std::vector<TypedValue>>{{TypedValue(fmt::format("User {} already exists.", username))}};
         }
 
         // If the license is not valid we create users with admin access
@@ -1110,9 +1113,17 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                                ,
                                auth::UserOrRoleType::USER,
                                &*interpreter->system_transaction_);
+          return std::vector<std::vector<TypedValue>>{
+              {TypedValue(fmt::format("User {} created. All privileges granted.", username))}};
         }
 
-        return std::vector<std::vector<TypedValue>>();
+        auto const roles = auth->GetRolenamesForUser(username, std::nullopt);
+        if (!roles.empty()) {
+          return std::vector<std::vector<TypedValue>>{
+              {TypedValue(fmt::format("User {} created. Assigned built-in role {}.", username, roles[0].first))}};
+        }
+        return std::vector<std::vector<TypedValue>>{
+            {TypedValue(fmt::format("User {} created. No roles or privileges assigned.", username))}};
       };
       return callback;
     case AuthQuery::Action::DROP_USER:
