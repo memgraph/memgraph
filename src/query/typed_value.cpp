@@ -1438,103 +1438,179 @@ double ToDouble(const TypedValue &value) {
 }
 
 namespace {
-bool IsTemporalType(const TypedValue::Type type) {
-  static constexpr std::array temporal_types{TypedValue::Type::Date,
-                                             TypedValue::Type::LocalTime,
-                                             TypedValue::Type::LocalDateTime,
-                                             TypedValue::Type::ZonedDateTime,
-                                             TypedValue::Type::Duration};
-  return std::ranges::any_of(temporal_types, [type](const auto temporal_type) { return temporal_type == type; });
-};
+
+// Three-way comparison returning optional ordering (nullopt = incomparable)
+std::optional<int> TypedValueCmp(const TypedValue &a, const TypedValue &b) {
+  TypedValue less = a < b;
+  if (less.IsNull()) return std::nullopt;
+  if (less.ValueBool()) return -1;
+  TypedValue greater = b < a;
+  if (greater.IsNull()) return std::nullopt;
+  if (greater.ValueBool()) return 1;
+  return 0;
+}
+
+// Helper for list comparison - returns null TypedValue if incomparable
+TypedValue ListLess(const TypedValue::TVector &list_a, const TypedValue::TVector &list_b,
+                    utils::MemoryResource *alloc) {
+  const auto min_size = std::min(list_a.size(), list_b.size());
+  for (size_t i = 0; i < min_size; ++i) {
+    auto cmp = TypedValueCmp(list_a[i], list_b[i]);
+    if (!cmp) return TypedValue(alloc);
+    if (*cmp < 0) return TypedValue(true, alloc);
+    if (*cmp > 0) return TypedValue(false, alloc);
+  }
+  return TypedValue(list_a.size() < list_b.size(), alloc);
+}
+
+// Helper for path comparison - paths compare as alternating [vertex, edge, vertex, ...]
+TypedValue PathLess(const Path &path_a, const Path &path_b, utils::MemoryResource *alloc) {
+  const auto &verts_a = path_a.vertices();
+  const auto &verts_b = path_b.vertices();
+  const auto &edges_a = path_a.edges();
+  const auto &edges_b = path_b.edges();
+  const auto min_edges = std::min(edges_a.size(), edges_b.size());
+
+  for (size_t i = 0; i < min_edges; ++i) {
+    // Compare vertex i
+    auto v_cmp = verts_a[i].Gid() <=> verts_b[i].Gid();
+    if (v_cmp < 0) return TypedValue(true, alloc);
+    if (v_cmp > 0) return TypedValue(false, alloc);
+    // Compare edge i
+    auto e_cmp = edges_a[i].Gid() <=> edges_b[i].Gid();
+    if (e_cmp < 0) return TypedValue(true, alloc);
+    if (e_cmp > 0) return TypedValue(false, alloc);
+  }
+  // Compare the vertex after the last common edge
+  if (min_edges < verts_a.size() && min_edges < verts_b.size()) {
+    auto v_cmp = verts_a[min_edges].Gid() <=> verts_b[min_edges].Gid();
+    if (v_cmp < 0) return TypedValue(true, alloc);
+    if (v_cmp > 0) return TypedValue(false, alloc);
+  }
+  // Shorter path is less
+  return TypedValue(edges_a.size() < edges_b.size(), alloc);
+}
+
+TypedValue MapLess(const TypedValue::TMap &map_a, const TypedValue::TMap &map_b, utils::MemoryResource *alloc) {
+  if (map_a.size() != map_b.size()) {
+    // Still need to check for nulls before comparing by size
+    for (const auto &[k, v] : map_a) {
+      if (v.IsNull()) return TypedValue(alloc);
+    }
+    for (const auto &[k, v] : map_b) {
+      if (v.IsNull()) return TypedValue(alloc);
+    }
+    return TypedValue(map_a.size() < map_b.size(), alloc);
+  }
+  // Same size - compare keys and values in single pass, checking nulls as we go
+  auto it_a = map_a.begin();
+  auto it_b = map_b.begin();
+  while (it_a != map_a.end()) {
+    if (it_a->second.IsNull() || it_b->second.IsNull()) return TypedValue(alloc);
+    auto key_cmp = it_a->first <=> it_b->first;
+    if (key_cmp < 0) return TypedValue(true, alloc);
+    if (key_cmp > 0) return TypedValue(false, alloc);
+    auto val_cmp = TypedValueCmp(it_a->second, it_b->second);
+    if (!val_cmp) return TypedValue(alloc);
+    if (*val_cmp < 0) return TypedValue(true, alloc);
+    if (*val_cmp > 0) return TypedValue(false, alloc);
+    ++it_a;
+    ++it_b;
+  }
+  return TypedValue(false, alloc);
+}
 
 }  // namespace
 
-// TODO: make it faster
 TypedValue operator<(const TypedValue &a, const TypedValue &b) {
-  auto is_legal = [](TypedValue::Type type) {
-    switch (type) {
-      case TypedValue::Type::Null:
-      case TypedValue::Type::Int:
-      case TypedValue::Type::Double:
-      case TypedValue::Type::String:
-      case TypedValue::Type::Date:
-      case TypedValue::Type::LocalTime:
-      case TypedValue::Type::LocalDateTime:
-      case TypedValue::Type::ZonedDateTime:
-      case TypedValue::Type::Duration:
-        return true;
-
-      case TypedValue::Type::Bool:
-      case TypedValue::Type::List:
-      case TypedValue::Type::Map:
-      case TypedValue::Type::Vertex:
-      case TypedValue::Type::Edge:
-      case TypedValue::Type::Path:
-      case TypedValue::Type::Graph:
-      case TypedValue::Type::Function:
-      case TypedValue::Type::Enum:
-      case TypedValue::Type::Point2d:
-      case TypedValue::Type::Point3d:
-        return false;
-    }
-  };
-  if (!is_legal(a.type()) || !is_legal(b.type())) {
-    if ((is_canonical(a.type()) || is_canonical(b.type())) && (a.type() != b.type())) return {};
-    throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
-  }
-
+  // null is incomparable with any value (including other nulls)
   if (a.IsNull() || b.IsNull()) {
     return TypedValue(a.alloc_);
   }
 
-  if (a.IsString() || b.IsString()) {
-    if (a.type() != b.type()) {
-      return {};
-    } else {
-      return TypedValue(a.ValueString() < b.ValueString(), a.alloc_);
-    }
-  }
+  const auto type_a = a.type();
+  const auto type_b = b.type();
 
-  if (IsTemporalType(a.type()) || IsTemporalType(b.type())) {
-    if (a.type() != b.type()) {
-      return {};
+  // Numbers can be compared across Int/Double
+  if (a.IsNumeric() && b.IsNumeric()) {
+    if (a.IsDouble() || b.IsDouble()) {
+      double da = a.IsDouble() ? a.ValueDouble() : static_cast<double>(a.ValueInt());
+      double db = b.IsDouble() ? b.ValueDouble() : static_cast<double>(b.ValueInt());
+      // NaN is incomparable
+      if (std::isnan(da) || std::isnan(db)) {
+        return TypedValue(a.alloc_);
+      }
+      return TypedValue(da < db, a.alloc_);
     }
-
-    switch (a.type()) {
-      case TypedValue::Type::Date:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueDate() < b.ValueDate(), a.alloc_);
-      case TypedValue::Type::LocalTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueLocalTime() < b.ValueLocalTime(), a.alloc_);
-      case TypedValue::Type::LocalDateTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueLocalDateTime() < b.ValueLocalDateTime(), a.alloc_);
-      case TypedValue::Type::ZonedDateTime:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueZonedDateTime() < b.ValueZonedDateTime(), a.alloc_);
-      case TypedValue::Type::Duration:
-        // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueDuration() < b.ValueDuration(), a.alloc_);
-      default:
-        LOG_FATAL("Invalid temporal type");
-    }
-  }
-
-  // at this point we only have int and double
-  if (a.IsDouble() || b.IsDouble()) {
-    return TypedValue(ToDouble(a) < ToDouble(b), a.alloc_);
-  } else {
     return TypedValue(a.ValueInt() < b.ValueInt(), a.alloc_);
+  }
+
+  // All other types are only comparable within their own type
+  if (type_a != type_b) {
+    return TypedValue(a.alloc_);  // Incomparable - different types
+  }
+
+  switch (type_a) {
+    case TypedValue::Type::Bool:
+      // false < true
+      return TypedValue(!a.ValueBool() && b.ValueBool(), a.alloc_);
+
+    case TypedValue::Type::String:
+      return TypedValue(a.ValueString() < b.ValueString(), a.alloc_);
+
+    case TypedValue::Type::List:
+      return ListLess(a.ValueList(), b.ValueList(), a.alloc_.resource());
+
+    case TypedValue::Type::Map:
+      return MapLess(a.ValueMap(), b.ValueMap(), a.alloc_.resource());
+
+    case TypedValue::Type::Vertex:
+      return TypedValue(a.ValueVertex().Gid() < b.ValueVertex().Gid(), a.alloc_);
+
+    case TypedValue::Type::Edge:
+      return TypedValue(a.ValueEdge().Gid() < b.ValueEdge().Gid(), a.alloc_);
+
+    case TypedValue::Type::Path:
+      return PathLess(a.ValuePath(), b.ValuePath(), a.alloc_.resource());
+
+    case TypedValue::Type::Date:
+      return TypedValue(a.ValueDate() < b.ValueDate(), a.alloc_);
+
+    case TypedValue::Type::LocalTime:
+      return TypedValue(a.ValueLocalTime() < b.ValueLocalTime(), a.alloc_);
+
+    case TypedValue::Type::LocalDateTime:
+      return TypedValue(a.ValueLocalDateTime() < b.ValueLocalDateTime(), a.alloc_);
+
+    case TypedValue::Type::ZonedDateTime:
+      return TypedValue(a.ValueZonedDateTime() < b.ValueZonedDateTime(), a.alloc_);
+
+    case TypedValue::Type::Duration:
+      // Duration comparison is incomparable per spec (returns null)
+      return TypedValue(a.alloc_);
+
+    case TypedValue::Type::Enum:
+      return TypedValue(a.ValueEnum() < b.ValueEnum(), a.alloc_);
+
+    case TypedValue::Type::Point2d:
+    case TypedValue::Type::Point3d:
+    case TypedValue::Type::Graph:
+    case TypedValue::Type::Function:
+    case TypedValue::Type::Null:
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+      // These cases are handled above or should not reach here
+      return TypedValue(a.alloc_);
   }
 }
 
 TypedValue operator==(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
 
-  // check we have values that can be compared
-  // this means that either they're the same type, or (int, double) combo
-  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric()))) return TypedValue(false, a.alloc_);
+  // Different types are incomparable (return null), except numbers
+  if (a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())) {
+    return TypedValue(a.alloc_);  // Incomparable - different types
+  }
 
   switch (a.type()) {
     case TypedValue::Type::Bool:
