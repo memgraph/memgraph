@@ -26,6 +26,10 @@ on:
         type: boolean
         description: "Run stress test large."
         default: true
+      run_stress_tests:
+        type: boolean
+        description: "Run stress tests."
+        default: true
       package_memgraph:
         type: boolean
         description: "Build Memgraph packages."
@@ -300,9 +304,9 @@ jobs:
       version: ${{ inputs.version }}
     secrets: inherit
 
-  SetupRCBuildImageOutputs:
+  SetupISSUImageOutputs:
     if: ${{ inputs.run_issu_test }}
-    name: Setup RC Build Image Outputs
+    name: Setup ISSU Image Outputs
     needs: [PrepareReleaseBranch, DockerArtifact]
     runs-on: ubuntu-24.04
     outputs:
@@ -337,21 +341,91 @@ jobs:
           last_image_version=$(./tools/ci/get_latest_tag.sh)
           echo "last_image_version=$last_image_version" >> $GITHUB_OUTPUT
 
+  SetupStressImageOutputs:
+    if: ${{ inputs.run_stress_tests }}
+    name: Setup Stress Image Outputs
+    needs: [PrepareReleaseBranch, BuildAndTestMAGE]
+    runs-on: ubuntu-24.04
+    outputs:
+      amd_mage_image_url: ${{ steps.set_image_urls.outputs.amd_mage_image_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+
+      - name: Set Image URLs
+        id: set_image_urls
+        env:
+          MOCK: "${{ inputs.mock }}"
+          VERSION: "${{ inputs.version }}"
+        run: |
+          echo "Setting next image URLs"
+          amd_mage_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/mage${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/mage-${VERSION}.tar.gz"
+          echo "amd_mage_image_url=$amd_mage_image_url" >> $GITHUB_OUTPUT
+          echo "AMD MAGE Image URL: $amd_mage_image_url"
+
+
   RunISSUTest:
     if: ${{ inputs.run_issu_test }}
     name: Run ISSU Tests
-    needs: [SetupRCBuildImageOutputs, PrepareReleaseBranch]
+    needs: [SetupISSUImageOutputs, PrepareReleaseBranch]
     uses: ./.github/workflows/reusable_issu_test.yaml
     strategy:
       matrix:
         include:
           - arch: amd
-            next_image: ${{ needs.SetupRCBuildImageOutputs.outputs.amd_image_url }}
+            next_image: ${{ needs.SetupISSUImageOutputs.outputs.amd_image_url }}
           - arch: arm
-            next_image: ${{ needs.SetupRCBuildImageOutputs.outputs.arm_image_url }}
+            next_image: ${{ needs.SetupISSUImageOutputs.outputs.arm_image_url }}
     with:
-      last_image: ${{ needs.SetupRCBuildImageOutputs.outputs.last_image_version }}
+      last_image: ${{ needs.SetupISSUImageOutputs.outputs.last_image_version }}
       next_image: ${{ matrix.next_image }}
       arch: ${{ matrix.arch }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+
+  StressTestsNativeStandalone:
+    needs: [PrepareReleaseBranch]
+    name: "Stress Tests Native Standalone"
+    if: ${{ inputs.run_stress_tests }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: standalone/native
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  StressTestsNativeHA:
+    needs: [PrepareReleaseBranch]
+    name: "Stress Tests Native HA"
+    if: ${{ inputs.run_stress_tests }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/native
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  StressTestsDockerHA:
+    name: "Stress Tests Docker HA"
+    needs: [PrepareReleaseBranch, SetupStressImageOutputs]
+    if: ${{ inputs.run_stress_tests && needs.SetupStressImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/docker
+      memgraph_image: ${{ needs.SetupStressImageOutputs.outputs.amd_mage_image_url }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  StressTestsEKSHA:
+    name: "Stress Tests EKS HA"
+    needs: [PrepareReleaseBranch, SetupStressImageOutputs]
+    if: ${{ inputs.run_stress_tests && needs.SetupStressImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/eks
+      memgraph_image: ${{ needs.SetupStressImageOutputs.outputs.amd_mage_image_url }}
+      workload: ../workloads/publications/workload.yaml
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
