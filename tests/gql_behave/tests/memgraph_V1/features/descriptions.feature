@@ -54,11 +54,16 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON PROPERTY age
+            SHOW DESCRIPTION ON PROPERTY :Person(age)
             """
         Then the result should be:
             | description         |
             | 'Age of the person' |
+        When executing query:
+            """
+            SHOW DESCRIPTION ON PROPERTY age
+            """
+        Then the result should be empty
 
     Scenario: Show all descriptions
         Given an empty graph
@@ -119,7 +124,7 @@ Feature: Server-side descriptions
             | description           |
             | 'Updated description' |
 
-    Scenario: Multi-label description applies to both labels
+    Scenario: Multi-label description is stored as a single combo entry
         Given an empty graph
         When executing query:
             """
@@ -128,12 +133,58 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
+            SHOW DESCRIPTION ON LABEL :Person:Student
+            """
+        Then the result should be:
+            | description        |
+            | 'A student person' |
+        When executing query:
+            """
+            SHOW DESCRIPTION ON LABEL :Person
+            """
+        Then the result should be empty
+        When executing query:
+            """
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | kind    | name      | description        |
-            | 'LABEL' | 'Person'  | 'A student person' |
-            | 'LABEL' | 'Student' | 'A student person' |
+            | kind    | name             | description        |
+            | 'LABEL' | 'Person:Student' | 'A student person' |
+
+    Scenario: Label-scoped property descriptions are independent per label
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY :Person(age) "Age of the person"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY :Student(age) "Age of the student"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON PROPERTY :Person(age)
+            """
+        Then the result should be:
+            | description         |
+            | 'Age of the person' |
+        When executing query:
+            """
+            SHOW DESCRIPTION ON PROPERTY :Student(age)
+            """
+        Then the result should be:
+            | description          |
+            | 'Age of the student' |
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | kind       | name          | description          |
+            | 'PROPERTY' | 'Person(age)' | 'Age of the person'  |
+            | 'PROPERTY' | 'Student(age)'| 'Age of the student' |
 
     Scenario: Show description on label with no description returns empty
         Given an empty graph
