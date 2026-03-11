@@ -1005,6 +1005,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                                                           AuthQuery::Action::DROP_ROLE,
                                                           AuthQuery::Action::SET_ROLE,
                                                           AuthQuery::Action::CLEAR_ROLE,
+                                                          AuthQuery::Action::GRANT_ROLE,
+                                                          AuthQuery::Action::REVOKE_ROLE,
                                                           AuthQuery::Action::GRANT_PRIVILEGE,
                                                           AuthQuery::Action::DENY_PRIVILEGE,
                                                           AuthQuery::Action::REVOKE_PRIVILEGE,
@@ -1283,6 +1285,48 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           throw QueryException("Database specification is only available in the enterprise edition");
         }
         auth->ClearRoles(username, roles, std::unordered_set<std::string>{}, &*interpreter->system_transaction_);
+#endif
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    case AuthQuery::Action::GRANT_ROLE:
+      forbid_on_replica();
+      callback.fn = [auth,
+                     username,
+                     roles = std::move(auth_query->roles_),
+                     interpreter = &interpreter,
+                     role_databases = std::move(role_databases)] {
+        if (!interpreter->system_transaction_) {
+          throw QueryException("Expected to be in a system transaction");
+        }
+#ifdef MG_ENTERPRISE
+        auth->AddRoles(username, roles, role_databases, &*interpreter->system_transaction_);
+#else
+        if (!role_databases.empty()) {
+          throw QueryException("Database specification is only available in the enterprise edition");
+        }
+        auth->AddRoles(username, roles, std::unordered_set<std::string>{}, &*interpreter->system_transaction_);
+#endif
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    case AuthQuery::Action::REVOKE_ROLE:
+      forbid_on_replica();
+      callback.fn = [auth,
+                     username,
+                     roles = std::move(auth_query->roles_),
+                     interpreter = &interpreter,
+                     role_databases = std::move(role_databases)] {
+        if (!interpreter->system_transaction_) {
+          throw QueryException("Expected to be in a system transaction");
+        }
+#ifdef MG_ENTERPRISE
+        auth->RevokeRoles(username, roles, role_databases, &*interpreter->system_transaction_);
+#else
+        if (!role_databases.empty()) {
+          throw QueryException("Database specification is only available in the enterprise edition");
+        }
+        auth->RevokeRoles(username, roles, std::unordered_set<std::string>{}, &*interpreter->system_transaction_);
 #endif
         return std::vector<std::vector<TypedValue>>();
       };

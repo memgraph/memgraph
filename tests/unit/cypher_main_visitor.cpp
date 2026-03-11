@@ -3076,6 +3076,68 @@ TEST_P(CypherMainVisitorTest, ClearRole) {
       .Check();
 }
 
+TEST_P(CypherMainVisitorTest, GrantRole) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT ROLE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT ROLE TO user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT ROLE admin"), SyntaxException);
+
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin TO user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLES admin TO user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin, reader TO user", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin TO user ON db1", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .WithDatabases({"db1"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "GRANT ROLE admin, reader TO user ON db1, db2", AuthQuery::Action::GRANT_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .WithDatabases({"db1", "db2"})
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, RevokeRole) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE ROLE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE ROLE FROM user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE ROLE admin"), SyntaxException);
+
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin FROM user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLES admin FROM user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin, reader FROM user", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin FROM user ON db1", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin"})
+      .WithDatabases({"db1"})
+      .Check();
+  AuthQueryChecker(&ast_generator, "REVOKE ROLE admin, reader FROM user ON db1, db2", AuthQuery::Action::REVOKE_ROLE)
+      .WithUser("user")
+      .WithRoles({"admin", "reader"})
+      .WithDatabases({"db1", "db2"})
+      .Check();
+}
+
 TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("GRANT"), SyntaxException);
