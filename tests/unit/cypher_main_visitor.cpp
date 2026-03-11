@@ -3042,36 +3042,16 @@ TEST_P(CypherMainVisitorTest, ClearRole) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE FOR user TO"), SyntaxException);
 
   AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR user", AuthQuery::Action::CLEAR_ROLE).WithUser("user").Check();
   AuthQueryChecker(&ast_generator, "CLEAR ROLES FOR user", AuthQuery::Action::CLEAR_ROLE).WithUser("user").Check();
-
-  AuthQueryChecker(&ast_generator, "CLEAR ROLE admin FOR user", AuthQuery::Action::CLEAR_ROLE)
-      .WithUser("user")
-      .WithRoles({"admin"})
-      .Check();
-  AuthQueryChecker(&ast_generator, "CLEAR ROLES admin FOR user", AuthQuery::Action::CLEAR_ROLE)
-      .WithUser("user")
-      .WithRoles({"admin"})
-      .Check();
-  AuthQueryChecker(&ast_generator, "CLEAR ROLE admin, reader FOR user", AuthQuery::Action::CLEAR_ROLE)
-      .WithUser("user")
-      .WithRoles({"admin", "reader"})
-      .Check();
 
   AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR user ON db1", AuthQuery::Action::CLEAR_ROLE)
       .WithUser("user")
       .WithDatabases({"db1"})
       .Check();
-  AuthQueryChecker(&ast_generator, "CLEAR ROLE admin FOR user ON db1", AuthQuery::Action::CLEAR_ROLE)
+  AuthQueryChecker(&ast_generator, "CLEAR ROLE FOR user ON db1, db2", AuthQuery::Action::CLEAR_ROLE)
       .WithUser("user")
-      .WithRoles({"admin"})
-      .WithDatabases({"db1"})
-      .Check();
-  AuthQueryChecker(&ast_generator, "CLEAR ROLE admin, reader FOR user ON db1, db2", AuthQuery::Action::CLEAR_ROLE)
-      .WithUser("user")
-      .WithRoles({"admin", "reader"})
       .WithDatabases({"db1", "db2"})
       .Check();
 }

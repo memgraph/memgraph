@@ -499,7 +499,7 @@ showUsers : SHOW USERS ;
 
 setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
 
-clearRole : CLEAR ( ROLE | ROLES ) ( roles=listOfSymbolicNames )? FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
+clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
 grantRole : GRANT ( ROLE | ROLES ) roles=listOfSymbolicNames TO user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 

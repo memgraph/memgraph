@@ -749,7 +749,7 @@ void AuthQueryHandler::SetRoles(const std::string &username, const std::vector<s
   }
 }
 
-void AuthQueryHandler::ClearRoles(const std::string &username, const std::vector<std::string> &roles,
+void AuthQueryHandler::ClearRoles(const std::string &username, const std::vector<std::string> &,
                                   const std::unordered_set<std::string> &role_databases,
                                   system::Transaction *system_tx) {
   try {
@@ -762,26 +762,14 @@ void AuthQueryHandler::ClearRoles(const std::string &username, const std::vector
 #ifdef MG_ENTERPRISE
     if (!role_databases.empty()) {
       for (const auto &db_name : role_databases) {
-        if (roles.empty()) {
-          user->ClearMultiTenantRoles(db_name);
-        } else {
-          for (const auto &rolename : roles) {
-            user->RemoveMultiTenantRole(rolename, db_name);
-          }
-        }
+        user->ClearMultiTenantRoles(db_name);
       }
       locked_auth->SaveUser(*user, system_tx);
       return;
     }
 #endif
 
-    if (roles.empty()) {
-      user->ClearAllRoles();
-    } else {
-      for (const auto &rolename : roles) {
-        user->RemoveRole(rolename);
-      }
-    }
+    user->ClearAllRoles();
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
