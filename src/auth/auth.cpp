@@ -942,10 +942,7 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
   if (!NameRegexMatch(username)) {
     throw AuthException("Invalid user name.");
   }
-  auto existing_user = GetUser(username);
-  if (existing_user) return std::nullopt;
-  auto existing_role = GetRole(username);
-  if (existing_role) return std::nullopt;
+  if (GetUser(username)) return std::nullopt;
   auto new_user = User(username);
   UpdatePassword(new_user, password);
   SaveUser(new_user, system_tx);
@@ -957,15 +954,17 @@ void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
       "{} is the first created user. Granting all privileges. The official advice and intention is to use this "
       "first user as the superuser with full privileges and capabilities on the Memgraph database.",
       user.username());
-#ifdef MG_ENTERPRISE
-  auto admin = GetRole("admin");
-  MG_ASSERT(admin, "admin role must exist when initialising first user");
-  user.AddRole(*admin);
-#else
+  if (license::global_license_checker.IsEnterpriseValidFast()) {
+    auto admin = GetRole("admin");
+    if (admin && admin->IsBuiltIn()) {
+      user.AddRole(*admin);
+      SaveUser(user, system_tx);
+      return;
+    }
+  }
   for (auto const permission : kPermissionsAll) {
     user.permissions().Grant(permission);
   }
-#endif
   SaveUser(user, system_tx);
 }
 
@@ -1230,14 +1229,16 @@ std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transacti
   if (!NameRegexMatch(rolename)) {
     throw AuthException("Invalid role name.");
   }
-  if (auto existing_role = GetRole(rolename)) return std::nullopt;
-  if (auto existing_user = GetUser(rolename)) return std::nullopt;
+  if (GetRole(rolename)) return std::nullopt;
   auto new_role = Role(rolename);
   SaveRole(new_role, system_tx);
   return new_role;
 }
 
 void Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
+  if (!license::global_license_checker.IsEnterpriseValidFast()) return;
+  if (!AllRolenames().empty()) return;
+
   auto const make_role = [&](const std::string &name, auto grant_permissions) {
     Role role{name};
     grant_permissions(role);

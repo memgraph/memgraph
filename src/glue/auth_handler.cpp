@@ -408,11 +408,7 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
 
     auto new_user = locked_auth->AddUser(username, password, system_tx);
     if (first_user && new_user) {
-#ifdef MG_ENTERPRISE
-      if (locked_auth->AllRoles().empty()) {
-        locked_auth->CreateBuiltinRoles(system_tx);
-      }
-#endif
+      locked_auth->CreateBuiltinRoles(system_tx);
       locked_auth->InitialiseFirstUser(*new_user, system_tx);
     }
     return new_user.has_value();
