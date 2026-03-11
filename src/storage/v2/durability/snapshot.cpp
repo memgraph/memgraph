@@ -607,6 +607,11 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     } else {
       info.offset_ttl = SnapshotInfo::kInvalidOffset;
     }
+    if (*version >= kDescriptionSupport) {
+      info.offset_descriptions = read_offset();
+    } else {
+      info.offset_descriptions = SnapshotInfo::kInvalidOffset;
+    }
   }
 
   // Read metadata.
@@ -9042,6 +9047,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                              NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                              Config const &config, EnumStore *enum_store,
                                              SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
+                                             memgraph::storage::DescriptionStore *description_store,
                                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // Cleanup of loaded data in case of failure.
 
@@ -9819,6 +9825,95 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     spdlog::info("TTL data recovered.");
   }
 
+  // Recover description store data if available
+  if (info.offset_descriptions != SnapshotInfo::kInvalidOffset && description_store) {
+    spdlog::info("Recovering description store data.");
+    if (!snapshot.SetPosition(info.offset_descriptions))
+      throw RecoveryFailure("Couldn't read description store data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_DESCRIPTIONS) {
+      throw RecoveryFailure("Couldn't read section descriptions marker!");
+    }
+
+    auto count = snapshot.ReadUint();
+    if (!count) throw RecoveryFailure("Couldn't read description store count!");
+
+    for (uint64_t i = 0; i < *count; ++i) {
+      auto kind_raw = snapshot.ReadUint();
+      if (!kind_raw) throw RecoveryFailure("Couldn't read description target kind!");
+      auto kind = static_cast<DescriptionTargetKind>(*kind_raw);
+
+      switch (kind) {
+        case DescriptionTargetKind::LABEL: {
+          auto label_count = snapshot.ReadUint();
+          if (!label_count) throw RecoveryFailure("Couldn't read label count for description!");
+          std::vector<LabelId> label_ids;
+          label_ids.reserve(*label_count);
+          for (uint64_t j = 0; j < *label_count; ++j) {
+            auto name = snapshot.ReadString();
+            if (!name) throw RecoveryFailure("Couldn't read label name for description!");
+            label_ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(*name)));
+          }
+          auto desc = snapshot.ReadString();
+          if (!desc) throw RecoveryFailure("Couldn't read label description!");
+          description_store->SetLabel(label_ids, *desc);
+          break;
+        }
+        case DescriptionTargetKind::EDGE_TYPE: {
+          auto name = snapshot.ReadString();
+          if (!name) throw RecoveryFailure("Couldn't read edge type name for description!");
+          auto desc = snapshot.ReadString();
+          if (!desc) throw RecoveryFailure("Couldn't read edge type description!");
+          auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(*name));
+          description_store->SetEdgeType(edge_type_id, *desc);
+          break;
+        }
+        case DescriptionTargetKind::PROPERTY: {
+          // Disambiguate label-scoped vs edge-type-scoped via a flag
+          auto is_label_scoped = snapshot.ReadBool();
+          if (!is_label_scoped) throw RecoveryFailure("Couldn't read property scope flag for description!");
+          if (*is_label_scoped) {
+            auto label_count = snapshot.ReadUint();
+            if (!label_count) throw RecoveryFailure("Couldn't read label qualifier count for description!");
+            std::vector<LabelId> label_ids;
+            label_ids.reserve(*label_count);
+            for (uint64_t j = 0; j < *label_count; ++j) {
+              auto name = snapshot.ReadString();
+              if (!name) throw RecoveryFailure("Couldn't read label qualifier name for description!");
+              label_ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(*name)));
+            }
+            auto prop_name = snapshot.ReadString();
+            if (!prop_name) throw RecoveryFailure("Couldn't read property name for description!");
+            auto desc = snapshot.ReadString();
+            if (!desc) throw RecoveryFailure("Couldn't read label-property description!");
+            auto prop_id = PropertyId::FromUint(name_id_mapper->NameToId(*prop_name));
+            description_store->SetLabelProperty(label_ids, prop_id, *desc);
+          } else {
+            auto et_name = snapshot.ReadString();
+            if (!et_name) throw RecoveryFailure("Couldn't read edge type name for property description!");
+            auto prop_name = snapshot.ReadString();
+            if (!prop_name) throw RecoveryFailure("Couldn't read property name for edge type description!");
+            auto desc = snapshot.ReadString();
+            if (!desc) throw RecoveryFailure("Couldn't read edge-type-property description!");
+            auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(*et_name));
+            auto prop_id = PropertyId::FromUint(name_id_mapper->NameToId(*prop_name));
+            description_store->SetEdgeTypeProperty(edge_type_id, prop_id, *desc);
+          }
+          break;
+        }
+        case DescriptionTargetKind::DATABASE: {
+          auto desc = snapshot.ReadString();
+          if (!desc) throw RecoveryFailure("Couldn't read database description!");
+          description_store->SetDatabase(*desc);
+          break;
+        }
+      }
+    }
+
+    spdlog::info("Description store data recovered.");
+  }
+
   spdlog::info("Metadata recovered.");
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
@@ -9837,7 +9932,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
-                               memgraph::storage::ttl::TTL *ttl,
+                               memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   Decoder snapshot;
   const auto version = snapshot.Initialize(path, kSnapshotMagic);
@@ -10057,6 +10152,23 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                         enum_store,
                                         schema_info,
                                         ttl,
+                                        nullptr,
+                                        snapshot_info);
+    }
+    case 34U: {
+      return LoadCurrentVersionSnapshot(snapshot,
+                                        path,
+                                        vertices,
+                                        edges,
+                                        edges_metadata,
+                                        epoch_history,
+                                        name_id_mapper,
+                                        edge_count,
+                                        config,
+                                        enum_store,
+                                        schema_info,
+                                        ttl,
+                                        description_store,
                                         snapshot_info);
     }
     default: {
@@ -10228,6 +10340,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   uint64_t offset_edge_batches = 0;
   uint64_t offset_vertex_batches = 0;
   uint64_t offset_ttl = 0;
+  uint64_t offset_descriptions = 0;
 
   auto write_offsets = [&] {
     snapshot.WriteUint(offset_edges);
@@ -10242,6 +10355,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     snapshot.WriteUint(offset_edge_batches);
     snapshot.WriteUint(offset_vertex_batches);
     snapshot.WriteUint(offset_ttl);
+    snapshot.WriteUint(offset_descriptions);
   };
 
   {
@@ -10940,6 +11054,70 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     // Write TTL always disabled in community edition
     snapshot.WriteBool(false);
 #endif
+
+    if (snapshot_aborted()) {
+      return std::nullopt;
+    }
+  }
+
+  // Write description store data
+  {
+    offset_descriptions = snapshot.GetPosition();
+    snapshot.WriteMarker(Marker::SECTION_DESCRIPTIONS);
+
+    auto const entries = storage->description_store_.GetAll(*storage->name_id_mapper_);
+    snapshot.WriteUint(entries.size());
+
+    auto parse_label_names = [](std::string_view label_part) {
+      std::vector<std::string> names;
+      std::string_view rest = label_part;
+      while (!rest.empty()) {
+        auto colon = rest.find(':');
+        auto token = colon == std::string_view::npos ? rest : rest.substr(0, colon);
+        if (!token.empty()) names.emplace_back(token);
+        if (colon == std::string_view::npos) break;
+        rest = rest.substr(colon + 1);
+      }
+      return names;
+    };
+
+    for (auto const &entry : entries) {
+      snapshot.WriteUint(static_cast<uint64_t>(entry.kind));
+      switch (entry.kind) {
+        case DescriptionTargetKind::LABEL: {
+          auto const label_names = parse_label_names(entry.target_name);
+          snapshot.WriteUint(label_names.size());
+          for (auto const &name : label_names) snapshot.WriteString(name);
+          snapshot.WriteString(entry.description);
+          break;
+        }
+        case DescriptionTargetKind::EDGE_TYPE: {
+          snapshot.WriteString(entry.target_name);
+          snapshot.WriteString(entry.description);
+          break;
+        }
+        case DescriptionTargetKind::PROPERTY: {
+          snapshot.WriteBool(entry.is_label_scoped);
+          auto paren_pos = entry.target_name.rfind('(');
+          auto prop_name = entry.target_name.substr(paren_pos + 1, entry.target_name.size() - paren_pos - 2);
+          auto qualifier = entry.target_name.substr(0, paren_pos);
+          if (entry.is_label_scoped) {
+            auto const label_names = parse_label_names(qualifier);
+            snapshot.WriteUint(label_names.size());
+            for (auto const &name : label_names) snapshot.WriteString(name);
+          } else {
+            snapshot.WriteString(qualifier);
+          }
+          snapshot.WriteString(prop_name);
+          snapshot.WriteString(entry.description);
+          break;
+        }
+        case DescriptionTargetKind::DATABASE: {
+          snapshot.WriteString(entry.description);
+          break;
+        }
+      }
+    }
 
     if (snapshot_aborted()) {
       return std::nullopt;

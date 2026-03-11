@@ -19,6 +19,7 @@
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
@@ -373,6 +374,76 @@ struct WalVectorIndexDrop {
   std::string index_name;
 };
 
+struct WalDescriptionSetLabel {
+  friend bool operator==(const WalDescriptionSetLabel &, const WalDescriptionSetLabel &) = default;
+  using ctr_types = std::tuple<std::vector<std::string>, std::string>;
+  std::vector<std::string> labels;
+  std::string description;
+};
+
+struct WalDescriptionDeleteLabel {
+  friend bool operator==(const WalDescriptionDeleteLabel &, const WalDescriptionDeleteLabel &) = default;
+  using ctr_types = std::tuple<std::vector<std::string>>;
+  std::vector<std::string> labels;
+};
+
+struct WalDescriptionSetEdgeType {
+  friend bool operator==(const WalDescriptionSetEdgeType &, const WalDescriptionSetEdgeType &) = default;
+  using ctr_types = std::tuple<std::string, std::string>;
+  std::string edge_type;
+  std::string description;
+};
+
+struct WalDescriptionDeleteEdgeType {
+  friend bool operator==(const WalDescriptionDeleteEdgeType &, const WalDescriptionDeleteEdgeType &) = default;
+  using ctr_types = std::tuple<std::string>;
+  std::string edge_type;
+};
+
+struct WalDescriptionSetLabelProperty {
+  friend bool operator==(const WalDescriptionSetLabelProperty &, const WalDescriptionSetLabelProperty &) = default;
+  using ctr_types = std::tuple<std::vector<std::string>, std::string, std::string>;
+  std::vector<std::string> label_qualifier;
+  std::string property;
+  std::string description;
+};
+
+struct WalDescriptionDeleteLabelProperty {
+  friend bool operator==(const WalDescriptionDeleteLabelProperty &,
+                         const WalDescriptionDeleteLabelProperty &) = default;
+  using ctr_types = std::tuple<std::vector<std::string>, std::string>;
+  std::vector<std::string> label_qualifier;
+  std::string property;
+};
+
+struct WalDescriptionSetEdgeTypeProperty {
+  friend bool operator==(const WalDescriptionSetEdgeTypeProperty &,
+                         const WalDescriptionSetEdgeTypeProperty &) = default;
+  using ctr_types = std::tuple<std::string, std::string, std::string>;
+  std::string edge_type;
+  std::string property;
+  std::string description;
+};
+
+struct WalDescriptionDeleteEdgeTypeProperty {
+  friend bool operator==(const WalDescriptionDeleteEdgeTypeProperty &,
+                         const WalDescriptionDeleteEdgeTypeProperty &) = default;
+  using ctr_types = std::tuple<std::string, std::string>;
+  std::string edge_type;
+  std::string property;
+};
+
+struct WalDescriptionSetDatabase {
+  friend bool operator==(const WalDescriptionSetDatabase &, const WalDescriptionSetDatabase &) = default;
+  using ctr_types = std::tuple<std::string>;
+  std::string description;
+};
+
+struct WalDescriptionDeleteDatabase {
+  friend bool operator==(const WalDescriptionDeleteDatabase &, const WalDescriptionDeleteDatabase &) = default;
+  using ctr_types = std::tuple<>;
+};
+
 // Single TTL WAL structure that encompasses all TTL operations
 struct WalTtlOperation {
   friend bool operator==(const WalTtlOperation &, const WalTtlOperation &) = default;
@@ -407,7 +478,11 @@ struct WalDeltaData {
                WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
                WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
                WalTextIndexCreate, WalTextIndexDrop, WalTextEdgeIndexCreate, WalEnumCreate, WalEnumAlterAdd,
-               WalEnumAlterUpdate, WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation>
+               WalEnumAlterUpdate, WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation,
+               WalDescriptionSetLabel, WalDescriptionDeleteLabel, WalDescriptionSetEdgeType,
+               WalDescriptionDeleteEdgeType, WalDescriptionSetLabelProperty, WalDescriptionDeleteLabelProperty,
+               WalDescriptionSetEdgeTypeProperty, WalDescriptionDeleteEdgeTypeProperty, WalDescriptionSetDatabase,
+               WalDescriptionDeleteDatabase>
       data_ = WalTransactionEnd{};
 };
 
@@ -463,6 +538,16 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalVectorEdgeIndexCreate const &) { return true; },
                         [](WalVectorIndexDrop const &) { return true; },
                         [](WalTtlOperation const &) { return true; },
+                        [](WalDescriptionSetLabel const &) { return true; },
+                        [](WalDescriptionDeleteLabel const &) { return true; },
+                        [](WalDescriptionSetEdgeType const &) { return true; },
+                        [](WalDescriptionDeleteEdgeType const &) { return true; },
+                        [](WalDescriptionSetLabelProperty const &) { return true; },
+                        [](WalDescriptionDeleteLabelProperty const &) { return true; },
+                        [](WalDescriptionSetEdgeTypeProperty const &) { return true; },
+                        [](WalDescriptionDeleteEdgeTypeProperty const &) { return true; },
+                        [](WalDescriptionSetDatabase const &) { return true; },
+                        [](WalDescriptionDeleteDatabase const &) { return true; },
                     },
                     delta.data_);
 }
@@ -544,6 +629,25 @@ void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, c
 void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorEdgeIndexSpec &spec);
 void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name);
 
+// Description encoding functions
+void EncodeDescriptionSetLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::span<LabelId const> labels,
+                               std::string_view description);
+void EncodeDescriptionDeleteLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::span<LabelId const> labels);
+void EncodeDescriptionSetEdgeType(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
+                                  std::string_view description);
+void EncodeDescriptionDeleteEdgeType(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
+void EncodeDescriptionSetLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                                       std::span<LabelId const> label_qualifier, PropertyId property,
+                                       std::string_view description);
+void EncodeDescriptionDeleteLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                                          std::span<LabelId const> label_qualifier, PropertyId property);
+void EncodeDescriptionSetEdgeTypeProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
+                                          PropertyId property, std::string_view description);
+void EncodeDescriptionDeleteEdgeTypeProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
+                                             PropertyId property);
+void EncodeDescriptionSetDatabase(BaseEncoder &encoder, std::string_view description);
+void EncodeDescriptionDeleteDatabase(BaseEncoder &encoder);
+
 // TTL encoding function
 void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
                         const std::optional<std::chrono::microseconds> &period,
@@ -560,7 +664,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl);
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {

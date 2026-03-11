@@ -119,6 +119,16 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
     add_case(TTL_OPERATION);
+    add_case(DESCRIPTION_SET_LABEL);
+    add_case(DESCRIPTION_DELETE_LABEL);
+    add_case(DESCRIPTION_SET_EDGE_TYPE);
+    add_case(DESCRIPTION_DELETE_EDGE_TYPE);
+    add_case(DESCRIPTION_SET_LABEL_PROPERTY);
+    add_case(DESCRIPTION_DELETE_LABEL_PROPERTY);
+    add_case(DESCRIPTION_SET_EDGE_TYPE_PROPERTY);
+    add_case(DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY);
+    add_case(DESCRIPTION_SET_DATABASE);
+    add_case(DESCRIPTION_DELETE_DATABASE);
     default:
       LOG_FATAL("Unknown MetadataDelta::Action");
   }
@@ -362,7 +372,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
         [this](Gid edge_gid) { return FindEdge(edge_gid); },
         name(),
-        &ttl_);
+        &ttl_,
+        &description_store_);
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -3332,6 +3343,86 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         });
         break;
       }
+      case MetadataDelta::Action::DESCRIPTION_SET_LABEL: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionSetLabel(encoder,
+                                                *mem_storage->name_id_mapper_,
+                                                md_delta.description_label_set.labels,
+                                                md_delta.description_label_set.description);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_DELETE_LABEL: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionDeleteLabel(
+              encoder, *mem_storage->name_id_mapper_, md_delta.description_label_delete.labels);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_SET_EDGE_TYPE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionSetEdgeType(encoder,
+                                                   *mem_storage->name_id_mapper_,
+                                                   md_delta.description_edge_type_set.edge_type,
+                                                   md_delta.description_edge_type_set.description);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_DELETE_EDGE_TYPE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionDeleteEdgeType(encoder, *mem_storage->name_id_mapper_, md_delta.edge_type);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_SET_LABEL_PROPERTY: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionSetLabelProperty(encoder,
+                                                        *mem_storage->name_id_mapper_,
+                                                        md_delta.description_label_property_set.label_qualifier,
+                                                        md_delta.description_label_property_set.property,
+                                                        md_delta.description_label_property_set.description);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_DELETE_LABEL_PROPERTY: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionDeleteLabelProperty(encoder,
+                                                           *mem_storage->name_id_mapper_,
+                                                           md_delta.description_label_property_delete.label_qualifier,
+                                                           md_delta.description_label_property_delete.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_SET_EDGE_TYPE_PROPERTY: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionSetEdgeTypeProperty(encoder,
+                                                           *mem_storage->name_id_mapper_,
+                                                           md_delta.description_edge_type_property_set.edge_type,
+                                                           md_delta.description_edge_type_property_set.property,
+                                                           md_delta.description_edge_type_property_set.description);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionDeleteEdgeTypeProperty(encoder,
+                                                              *mem_storage->name_id_mapper_,
+                                                              md_delta.edge_type_property.edge_type,
+                                                              md_delta.edge_type_property.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_SET_DATABASE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionSetDatabase(encoder, md_delta.index_name);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_DELETE_DATABASE: {
+        apply_encode(op,
+                     [&](durability::BaseEncoder &encoder) { durability::EncodeDescriptionDeleteDatabase(encoder); });
+        break;
+      }
     }
   }
   // A single transaction will always be fully-contained in a single WAL file.
@@ -3820,7 +3911,8 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
                                           config_,
                                           &enum_store_,
                                           config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-                                          &ttl_);
+                                          &ttl_,
+                                          &description_store_);
     spdlog::debug("Snapshot recovered successfully");
     // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
     // This snapshot creates a new state and cannot have any WALs associated with it at this point

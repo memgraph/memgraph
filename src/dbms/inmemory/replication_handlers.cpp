@@ -667,6 +667,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           &storage->enum_store_,
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
           &storage->ttl_,
+          &storage->description_store_,
           snapshot_observer_info);
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
@@ -1876,6 +1877,56 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 #else
           spdlog::trace("TTL operation is not supported in community edition");
 #endif
+        },
+        [&](WalDescriptionSetLabel const &data) {
+          spdlog::trace("   Delta {}. Set label description", current_delta_idx);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          transaction->SetLabelDescription(data.labels, data.description);
+        },
+        [&](WalDescriptionDeleteLabel const &data) {
+          spdlog::trace("   Delta {}. Delete label description", current_delta_idx);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          transaction->DeleteLabelDescription(data.labels);
+        },
+        [&](WalDescriptionSetEdgeType const &data) {
+          spdlog::trace("   Delta {}. Set edge type description", current_delta_idx);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          transaction->SetEdgeTypeDescription(data.edge_type, data.description);
+        },
+        [&](WalDescriptionDeleteEdgeType const &data) {
+          spdlog::trace("   Delta {}. Delete edge type description", current_delta_idx);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          transaction->DeleteEdgeTypeDescription(data.edge_type);
+        },
+        [&](WalDescriptionSetLabelProperty const &data) {
+          spdlog::trace("   Delta {}. Set label property description", current_delta_idx);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          transaction->SetLabelPropertyDescription(data.label_qualifier, data.property, data.description);
+        },
+        [&](WalDescriptionDeleteLabelProperty const &data) {
+          spdlog::trace("   Delta {}. Delete label property description", current_delta_idx);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          transaction->DeleteLabelPropertyDescription(data.label_qualifier, data.property);
+        },
+        [&](WalDescriptionSetEdgeTypeProperty const &data) {
+          spdlog::trace("   Delta {}. Set edge type property description", current_delta_idx);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          transaction->SetEdgeTypePropertyDescription(data.edge_type, data.property, data.description);
+        },
+        [&](WalDescriptionDeleteEdgeTypeProperty const &data) {
+          spdlog::trace("   Delta {}. Delete edge type property description", current_delta_idx);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          transaction->DeleteEdgeTypePropertyDescription(data.edge_type, data.property);
+        },
+        [&](WalDescriptionSetDatabase const &data) {
+          spdlog::trace("   Delta {}. Set database description", current_delta_idx);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          transaction->SetDatabaseDescription(data.description);
+        },
+        [&](WalDescriptionDeleteDatabase const &) {
+          spdlog::trace("   Delta {}. Delete database description", current_delta_idx);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          transaction->DeleteDatabaseDescription();
         },
     };
 

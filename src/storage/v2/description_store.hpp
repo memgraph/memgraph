@@ -28,7 +28,10 @@ enum class DescriptionTargetKind : uint8_t { DATABASE, LABEL, EDGE_TYPE, PROPERT
 
 struct DescriptionEntry {
   DescriptionTargetKind kind;
-  std::string target_name;  // formatted: "Person:Student", "Person(age)", "age", or "" for DATABASE
+  // Only meaningful when kind == PROPERTY: true for label-scoped, false for edge-type-scoped.
+  bool is_label_scoped{false};
+  // formatted: "Person:Student", "Person(age)", "KNOWS(weight)", or "" for DATABASE
+  std::string target_name;
   std::string description;
 };
 
@@ -58,20 +61,35 @@ class DescriptionStore {
     return it->second;
   }
 
-  // PROPERTY: key is (sorted label qualifier, PropertyId).
-  // Empty label qualifier = bare property with no label scope.
-  // :Person(age) and :Label(age) are distinct entries.
-  void SetProperty(std::span<LabelId const> label_qualifier, PropertyId prop, std::string_view desc) {
-    property_descriptions_[{SortedIds(label_qualifier), prop}] = desc;
+  // PROPERTY (label-scoped): key is (sorted label qualifier, PropertyId).
+  // :Person(age) and :Student(age) are distinct entries.
+  void SetLabelProperty(std::span<LabelId const> label_qualifier, PropertyId prop, std::string_view desc) {
+    label_property_descriptions_[{SortedIds(label_qualifier), prop}] = desc;
   }
 
-  bool DeleteProperty(std::span<LabelId const> label_qualifier, PropertyId prop) {
-    return property_descriptions_.erase({SortedIds(label_qualifier), prop}) > 0;
+  bool DeleteLabelProperty(std::span<LabelId const> label_qualifier, PropertyId prop) {
+    return label_property_descriptions_.erase({SortedIds(label_qualifier), prop}) > 0;
   }
 
-  std::optional<std::string> GetProperty(std::span<LabelId const> label_qualifier, PropertyId prop) const {
-    auto it = property_descriptions_.find({SortedIds(label_qualifier), prop});
-    if (it == property_descriptions_.end()) return std::nullopt;
+  std::optional<std::string> GetLabelProperty(std::span<LabelId const> label_qualifier, PropertyId prop) const {
+    auto it = label_property_descriptions_.find({SortedIds(label_qualifier), prop});
+    if (it == label_property_descriptions_.end()) return std::nullopt;
+    return it->second;
+  }
+
+  // PROPERTY (edge-type-scoped): key is (EdgeTypeId, PropertyId).
+  // :KNOWS(weight) and :SENT(weight) are distinct entries.
+  void SetEdgeTypeProperty(EdgeTypeId edge_type, PropertyId prop, std::string_view desc) {
+    edge_type_property_descriptions_[{edge_type, prop}] = desc;
+  }
+
+  bool DeleteEdgeTypeProperty(EdgeTypeId edge_type, PropertyId prop) {
+    return edge_type_property_descriptions_.erase({edge_type, prop}) > 0;
+  }
+
+  std::optional<std::string> GetEdgeTypeProperty(EdgeTypeId edge_type, PropertyId prop) const {
+    auto it = edge_type_property_descriptions_.find({edge_type, prop});
+    if (it == edge_type_property_descriptions_.end()) return std::nullopt;
     return it->second;
   }
 
@@ -88,8 +106,8 @@ class DescriptionStore {
 
   std::vector<DescriptionEntry> GetAll(NameIdMapper &mapper) const {
     std::vector<DescriptionEntry> result;
-    result.reserve(label_descriptions_.size() + edge_type_descriptions_.size() + property_descriptions_.size() +
-                   (database_description_ ? 1 : 0));
+    result.reserve(label_descriptions_.size() + edge_type_descriptions_.size() + label_property_descriptions_.size() +
+                   edge_type_property_descriptions_.size() + (database_description_ ? 1 : 0));
 
     for (auto const &[ids, desc] : label_descriptions_) {
       std::string name;
@@ -97,29 +115,33 @@ class DescriptionStore {
         if (!name.empty()) name += ':';
         name += mapper.IdToName(id.AsUint());
       }
-      result.push_back({DescriptionTargetKind::LABEL, std::move(name), desc});
+      result.push_back({DescriptionTargetKind::LABEL, false, std::move(name), desc});
     }
     for (auto const &[id, desc] : edge_type_descriptions_) {
-      result.push_back({DescriptionTargetKind::EDGE_TYPE, mapper.IdToName(id.AsUint()), desc});
+      result.push_back({DescriptionTargetKind::EDGE_TYPE, false, mapper.IdToName(id.AsUint()), desc});
     }
-    for (auto const &[key, desc] : property_descriptions_) {
+    for (auto const &[key, desc] : label_property_descriptions_) {
       auto const &[label_ids, prop_id] = key;
       std::string name;
-      if (!label_ids.empty()) {
-        for (auto id : label_ids) {
-          if (!name.empty()) name += ':';
-          name += mapper.IdToName(id.AsUint());
-        }
-        name += '(';
-        name += mapper.IdToName(prop_id.AsUint());
-        name += ')';
-      } else {
-        name = mapper.IdToName(prop_id.AsUint());
+      for (auto id : label_ids) {
+        if (!name.empty()) name += ':';
+        name += mapper.IdToName(id.AsUint());
       }
-      result.push_back({DescriptionTargetKind::PROPERTY, std::move(name), desc});
+      name += '(';
+      name += mapper.IdToName(prop_id.AsUint());
+      name += ')';
+      result.push_back({DescriptionTargetKind::PROPERTY, true, std::move(name), desc});
+    }
+    for (auto const &[key, desc] : edge_type_property_descriptions_) {
+      auto const &[edge_type_id, prop_id] = key;
+      std::string name = mapper.IdToName(edge_type_id.AsUint());
+      name += '(';
+      name += mapper.IdToName(prop_id.AsUint());
+      name += ')';
+      result.push_back({DescriptionTargetKind::PROPERTY, false, std::move(name), desc});
     }
     if (database_description_) {
-      result.push_back({DescriptionTargetKind::DATABASE, "", *database_description_});
+      result.push_back({DescriptionTargetKind::DATABASE, false, std::string{}, *database_description_});
     }
     return result;
   }
@@ -127,7 +149,8 @@ class DescriptionStore {
   void Clear() {
     label_descriptions_.clear();
     edge_type_descriptions_.clear();
-    property_descriptions_.clear();
+    label_property_descriptions_.clear();
+    edge_type_property_descriptions_.clear();
     database_description_.reset();
   }
 
@@ -138,11 +161,12 @@ class DescriptionStore {
     return ids;
   }
 
-  // Label combo key: sorted vector of LabelIds — :Person:Student is its own key.
   std::map<std::vector<LabelId>, std::string> label_descriptions_;
   std::map<EdgeTypeId, std::string> edge_type_descriptions_;
-  // Property key: (sorted label qualifier, PropertyId); empty labels = bare property.
-  std::map<std::pair<std::vector<LabelId>, PropertyId>, std::string> property_descriptions_;
+  // Label-scoped: :Person(age) and :Student(age) are distinct.
+  std::map<std::pair<std::vector<LabelId>, PropertyId>, std::string> label_property_descriptions_;
+  // Edge-type-scoped: :KNOWS(weight) and :SENT(weight) are distinct.
+  std::map<std::pair<EdgeTypeId, PropertyId>, std::string> edge_type_property_descriptions_;
   std::optional<std::string> database_description_;
 };
 

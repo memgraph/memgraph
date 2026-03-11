@@ -61,6 +61,16 @@ struct MetadataDelta {
     VECTOR_INDEX_DROP,
     VECTOR_EDGE_INDEX_CREATE,
     TTL_OPERATION,
+    DESCRIPTION_SET_LABEL,
+    DESCRIPTION_DELETE_LABEL,
+    DESCRIPTION_SET_EDGE_TYPE,
+    DESCRIPTION_DELETE_EDGE_TYPE,
+    DESCRIPTION_SET_LABEL_PROPERTY,
+    DESCRIPTION_DELETE_LABEL_PROPERTY,
+    DESCRIPTION_SET_EDGE_TYPE_PROPERTY,
+    DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY,
+    DESCRIPTION_SET_DATABASE,
+    DESCRIPTION_DELETE_DATABASE,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -158,6 +168,36 @@ struct MetadataDelta {
 
   static constexpr struct TtlOperation {
   } ttl_operation;
+
+  static constexpr struct DescriptionSetLabel {
+  } description_set_label;
+
+  static constexpr struct DescriptionDeleteLabel {
+  } description_delete_label;
+
+  static constexpr struct DescriptionSetEdgeType {
+  } description_set_edge_type;
+
+  static constexpr struct DescriptionDeleteEdgeType {
+  } description_delete_edge_type;
+
+  static constexpr struct DescriptionSetLabelProperty {
+  } description_set_label_property;
+
+  static constexpr struct DescriptionDeleteLabelProperty {
+  } description_delete_label_property;
+
+  static constexpr struct DescriptionSetEdgeTypeProperty {
+  } description_set_edge_type_property;
+
+  static constexpr struct DescriptionDeleteEdgeTypeProperty {
+  } description_delete_edge_type_property;
+
+  static constexpr struct DescriptionSetDatabase {
+  } description_set_database;
+
+  static constexpr struct DescriptionDeleteDatabase {
+  } description_delete_database;
 
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
@@ -261,6 +301,42 @@ struct MetadataDelta {
                            .start_time = start_time,
                            .should_run_edge_ttl = should_run_edge_ttl} {}
 
+  MetadataDelta(DescriptionSetLabel /*tag*/, std::vector<LabelId> labels, std::string description)
+      : action(Action::DESCRIPTION_SET_LABEL), description_label_set{std::move(labels), std::move(description)} {}
+
+  MetadataDelta(DescriptionDeleteLabel /*tag*/, std::vector<LabelId> labels)
+      : action(Action::DESCRIPTION_DELETE_LABEL), description_label_delete{std::move(labels)} {}
+
+  MetadataDelta(DescriptionSetEdgeType /*tag*/, EdgeTypeId edge_type, std::string description)
+      : action(Action::DESCRIPTION_SET_EDGE_TYPE), description_edge_type_set{edge_type, std::move(description)} {}
+
+  MetadataDelta(DescriptionDeleteEdgeType /*tag*/, EdgeTypeId edge_type_arg)
+      : action(Action::DESCRIPTION_DELETE_EDGE_TYPE), edge_type(edge_type_arg) {}
+
+  MetadataDelta(DescriptionSetLabelProperty /*tag*/, std::vector<LabelId> label_qualifier, PropertyId property,
+                std::string description)
+      : action(Action::DESCRIPTION_SET_LABEL_PROPERTY),
+        description_label_property_set{std::move(label_qualifier), property, std::move(description)} {}
+
+  MetadataDelta(DescriptionDeleteLabelProperty /*tag*/, std::vector<LabelId> label_qualifier, PropertyId property)
+      : action(Action::DESCRIPTION_DELETE_LABEL_PROPERTY),
+        description_label_property_delete{std::move(label_qualifier), property} {}
+
+  MetadataDelta(DescriptionSetEdgeTypeProperty /*tag*/, EdgeTypeId edge_type, PropertyId property,
+                std::string description)
+      : action(Action::DESCRIPTION_SET_EDGE_TYPE_PROPERTY),
+        description_edge_type_property_set{edge_type, property, std::move(description)} {}
+
+  MetadataDelta(DescriptionDeleteEdgeTypeProperty /*tag*/, EdgeTypeId edge_type, PropertyId property)
+      : action(Action::DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY), edge_type_property{edge_type, property} {}
+
+  MetadataDelta(DescriptionSetDatabase /*tag*/, std::string description)
+      : action(Action::DESCRIPTION_SET_DATABASE), index_name(std::move(description)) {}
+
+  MetadataDelta(DescriptionDeleteDatabase /*tag*/) : action(Action::DESCRIPTION_DELETE_DATABASE) {
+    std::construct_at(&label, LabelId{});
+  }
+
   MetadataDelta(const MetadataDelta &) = delete;
   MetadataDelta(MetadataDelta &&) = delete;
   MetadataDelta &operator=(const MetadataDelta &) = delete;
@@ -362,6 +438,46 @@ struct MetadataDelta {
         std::destroy_at(&ttl_operation_info);
         break;
       }
+      case DESCRIPTION_SET_LABEL: {
+        std::destroy_at(&description_label_set);
+        break;
+      }
+      case DESCRIPTION_DELETE_LABEL: {
+        std::destroy_at(&description_label_delete);
+        break;
+      }
+      case DESCRIPTION_SET_EDGE_TYPE: {
+        std::destroy_at(&description_edge_type_set);
+        break;
+      }
+      case DESCRIPTION_DELETE_EDGE_TYPE: {
+        std::destroy_at(&edge_type);
+        break;
+      }
+      case DESCRIPTION_SET_LABEL_PROPERTY: {
+        std::destroy_at(&description_label_property_set);
+        break;
+      }
+      case DESCRIPTION_DELETE_LABEL_PROPERTY: {
+        std::destroy_at(&description_label_property_delete);
+        break;
+      }
+      case DESCRIPTION_SET_EDGE_TYPE_PROPERTY: {
+        std::destroy_at(&description_edge_type_property_set);
+        break;
+      }
+      case DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY: {
+        std::destroy_at(&edge_type_property);
+        break;
+      }
+      case DESCRIPTION_SET_DATABASE: {
+        std::destroy_at(&index_name);
+        break;
+      }
+      case DESCRIPTION_DELETE_DATABASE: {
+        std::destroy_at(&label);
+        break;
+      }
     }
   }
 
@@ -439,6 +555,37 @@ struct MetadataDelta {
     VectorIndexSpec vector_index_spec;
     VectorEdgeIndexSpec vector_edge_index_spec;
     std::string index_name;
+
+    struct {
+      std::vector<LabelId> labels;
+      std::string description;
+    } description_label_set;
+
+    struct {
+      std::vector<LabelId> labels;
+    } description_label_delete;
+
+    struct {
+      EdgeTypeId edge_type;
+      std::string description;
+    } description_edge_type_set;
+
+    struct {
+      std::vector<LabelId> label_qualifier;
+      PropertyId property;
+      std::string description;
+    } description_label_property_set;
+
+    struct {
+      std::vector<LabelId> label_qualifier;
+      PropertyId property;
+    } description_label_property_delete;
+
+    struct {
+      EdgeTypeId edge_type;
+      PropertyId property;
+      std::string description;
+    } description_edge_type_property_set;
   };
 };
 

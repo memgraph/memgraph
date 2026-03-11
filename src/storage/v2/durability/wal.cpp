@@ -140,6 +140,16 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
     add_case(TTL_OPERATION);
+    add_case(DESCRIPTION_SET_LABEL);
+    add_case(DESCRIPTION_DELETE_LABEL);
+    add_case(DESCRIPTION_SET_EDGE_TYPE);
+    add_case(DESCRIPTION_DELETE_EDGE_TYPE);
+    add_case(DESCRIPTION_SET_LABEL_PROPERTY);
+    add_case(DESCRIPTION_DELETE_LABEL_PROPERTY);
+    add_case(DESCRIPTION_SET_EDGE_TYPE_PROPERTY);
+    add_case(DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY);
+    add_case(DESCRIPTION_SET_DATABASE);
+    add_case(DESCRIPTION_DELETE_DATABASE);
   }
 #undef add_case
 }
@@ -228,6 +238,16 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_VECTOR_EDGE_INDEX_CREATE:
     case DELTA_VECTOR_INDEX_DROP:
     case DELTA_TTL_OPERATION:
+    case DELTA_DESCRIPTION_SET_LABEL:
+    case DELTA_DESCRIPTION_DELETE_LABEL:
+    case DELTA_DESCRIPTION_SET_EDGE_TYPE:
+    case DELTA_DESCRIPTION_DELETE_EDGE_TYPE:
+    case DELTA_DESCRIPTION_SET_LABEL_PROPERTY:
+    case DELTA_DESCRIPTION_DELETE_LABEL_PROPERTY:
+    case DELTA_DESCRIPTION_SET_EDGE_TYPE_PROPERTY:
+    case DELTA_DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY:
+    case DELTA_DESCRIPTION_SET_DATABASE:
+    case DELTA_DESCRIPTION_DELETE_DATABASE:
       return true;
 
     // Not deltas
@@ -257,6 +277,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case SECTION_OFFSETS:
     case SECTION_ENUMS:
     case SECTION_TTL:
+    case SECTION_DESCRIPTIONS:
     case VALUE_FALSE:
     case VALUE_TRUE:
       throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -653,6 +674,16 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(VECTOR_EDGE_INDEX_CREATE, WalVectorEdgeIndexCreate);
     read_skip(VECTOR_INDEX_DROP, WalVectorIndexDrop);
     read_skip(TTL_OPERATION, WalTtlOperation);
+    read_skip(DESCRIPTION_SET_LABEL, WalDescriptionSetLabel);
+    read_skip(DESCRIPTION_DELETE_LABEL, WalDescriptionDeleteLabel);
+    read_skip(DESCRIPTION_SET_EDGE_TYPE, WalDescriptionSetEdgeType);
+    read_skip(DESCRIPTION_DELETE_EDGE_TYPE, WalDescriptionDeleteEdgeType);
+    read_skip(DESCRIPTION_SET_LABEL_PROPERTY, WalDescriptionSetLabelProperty);
+    read_skip(DESCRIPTION_DELETE_LABEL_PROPERTY, WalDescriptionDeleteLabelProperty);
+    read_skip(DESCRIPTION_SET_EDGE_TYPE_PROPERTY, WalDescriptionSetEdgeTypeProperty);
+    read_skip(DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY, WalDescriptionDeleteEdgeTypeProperty);
+    read_skip(DESCRIPTION_SET_DATABASE, WalDescriptionSetDatabase);
+    read_skip(DESCRIPTION_DELETE_DATABASE, WalDescriptionDeleteDatabase);
 
     // Other markers are not actions
     case Marker::TYPE_NULL:
@@ -681,6 +712,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case Marker::SECTION_OFFSETS:
     case Marker::SECTION_ENUMS:
     case Marker::SECTION_TTL:
+    case Marker::SECTION_DESCRIPTIONS:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -963,7 +995,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl) {
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -1528,6 +1560,60 @@ std::optional<RecoveryInfo> LoadWal(
             throw RecoveryFailure("Invalid TTL operation type: {}", static_cast<int>(data.operation_type));
         }
       },
+      [&](WalDescriptionSetLabel const &data) {
+        std::vector<LabelId> label_ids;
+        label_ids.reserve(data.labels.size());
+        for (auto const &name : data.labels) {
+          label_ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(name)));
+        }
+        description_store->SetLabel(label_ids, data.description);
+      },
+      [&](WalDescriptionDeleteLabel const &data) {
+        std::vector<LabelId> label_ids;
+        label_ids.reserve(data.labels.size());
+        for (auto const &name : data.labels) {
+          label_ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(name)));
+        }
+        description_store->DeleteLabel(label_ids);
+      },
+      [&](WalDescriptionSetEdgeType const &data) {
+        auto const edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
+        description_store->SetEdgeType(edge_type_id, data.description);
+      },
+      [&](WalDescriptionDeleteEdgeType const &data) {
+        auto const edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
+        description_store->DeleteEdgeType(edge_type_id);
+      },
+      [&](WalDescriptionSetLabelProperty const &data) {
+        std::vector<LabelId> label_ids;
+        label_ids.reserve(data.label_qualifier.size());
+        for (auto const &name : data.label_qualifier) {
+          label_ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(name)));
+        }
+        auto const prop_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        description_store->SetLabelProperty(label_ids, prop_id, data.description);
+      },
+      [&](WalDescriptionDeleteLabelProperty const &data) {
+        std::vector<LabelId> label_ids;
+        label_ids.reserve(data.label_qualifier.size());
+        for (auto const &name : data.label_qualifier) {
+          label_ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(name)));
+        }
+        auto const prop_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        description_store->DeleteLabelProperty(label_ids, prop_id);
+      },
+      [&](WalDescriptionSetEdgeTypeProperty const &data) {
+        auto const edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
+        auto const prop_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        description_store->SetEdgeTypeProperty(edge_type_id, prop_id, data.description);
+      },
+      [&](WalDescriptionDeleteEdgeTypeProperty const &data) {
+        auto const edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
+        auto const prop_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        description_store->DeleteEdgeTypeProperty(edge_type_id, prop_id);
+      },
+      [&](WalDescriptionSetDatabase const &data) { description_store->SetDatabase(data.description); },
+      [&](WalDescriptionDeleteDatabase const &) { description_store->DeleteDatabase(); },
   };
 
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
@@ -1862,6 +1948,74 @@ void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
         std::chrono::duration_cast<std::chrono::microseconds>(start_time->time_since_epoch()).count()));
   }
   encoder.WriteBool(should_run_edge_ttl);
+}
+
+void EncodeDescriptionSetLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::span<LabelId const> labels,
+                               std::string_view description) {
+  encoder.WriteUint(labels.size());
+  for (auto id : labels) {
+    encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
+  }
+  encoder.WriteString(description);
+}
+
+void EncodeDescriptionDeleteLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::span<LabelId const> labels) {
+  encoder.WriteUint(labels.size());
+  for (auto id : labels) {
+    encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
+  }
+}
+
+void EncodeDescriptionSetEdgeType(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
+                                  std::string_view description) {
+  encoder.WriteString(name_id_mapper.IdToName(edge_type.AsUint()));
+  encoder.WriteString(description);
+}
+
+void EncodeDescriptionDeleteEdgeType(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type) {
+  encoder.WriteString(name_id_mapper.IdToName(edge_type.AsUint()));
+}
+
+void EncodeDescriptionSetLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                                       std::span<LabelId const> label_qualifier, PropertyId property,
+                                       std::string_view description) {
+  encoder.WriteUint(label_qualifier.size());
+  for (auto id : label_qualifier) {
+    encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
+  }
+  encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  encoder.WriteString(description);
+}
+
+void EncodeDescriptionDeleteLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                                          std::span<LabelId const> label_qualifier, PropertyId property) {
+  encoder.WriteUint(label_qualifier.size());
+  for (auto id : label_qualifier) {
+    encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
+  }
+  encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+}
+
+void EncodeDescriptionSetEdgeTypeProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
+                                          PropertyId property, std::string_view description) {
+  encoder.WriteString(name_id_mapper.IdToName(edge_type.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  encoder.WriteString(description);
+}
+
+void EncodeDescriptionDeleteEdgeTypeProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
+                                             PropertyId property) {
+  encoder.WriteString(name_id_mapper.IdToName(edge_type.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+}
+
+void EncodeDescriptionSetDatabase(BaseEncoder &encoder, std::string_view description) {
+  encoder.WriteString(description);
+}
+
+void EncodeDescriptionDeleteDatabase(BaseEncoder &encoder) {
+  // No payload - marker only.
+  (void)encoder;
 }
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp) {

@@ -692,6 +692,17 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
+    case Marker::SECTION_DESCRIPTIONS:
+    case Marker::DELTA_DESCRIPTION_SET_LABEL:
+    case Marker::DELTA_DESCRIPTION_DELETE_LABEL:
+    case Marker::DELTA_DESCRIPTION_SET_EDGE_TYPE:
+    case Marker::DELTA_DESCRIPTION_DELETE_EDGE_TYPE:
+    case Marker::DELTA_DESCRIPTION_SET_LABEL_PROPERTY:
+    case Marker::DELTA_DESCRIPTION_DELETE_LABEL_PROPERTY:
+    case Marker::DELTA_DESCRIPTION_SET_EDGE_TYPE_PROPERTY:
+    case Marker::DELTA_DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY:
+    case Marker::DELTA_DESCRIPTION_SET_DATABASE:
+    case Marker::DELTA_DESCRIPTION_DELETE_DATABASE:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return std::nullopt;
@@ -846,6 +857,17 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
+    case Marker::SECTION_DESCRIPTIONS:
+    case Marker::DELTA_DESCRIPTION_SET_LABEL:
+    case Marker::DELTA_DESCRIPTION_DELETE_LABEL:
+    case Marker::DELTA_DESCRIPTION_SET_EDGE_TYPE:
+    case Marker::DELTA_DESCRIPTION_DELETE_EDGE_TYPE:
+    case Marker::DELTA_DESCRIPTION_SET_LABEL_PROPERTY:
+    case Marker::DELTA_DESCRIPTION_DELETE_LABEL_PROPERTY:
+    case Marker::DELTA_DESCRIPTION_SET_EDGE_TYPE_PROPERTY:
+    case Marker::DELTA_DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY:
+    case Marker::DELTA_DESCRIPTION_SET_DATABASE:
+    case Marker::DELTA_DESCRIPTION_DELETE_DATABASE:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return false;
