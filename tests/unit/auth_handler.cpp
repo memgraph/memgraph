@@ -2956,3 +2956,62 @@ TEST_F(AuthQueryHandlerFixture, CreateUserWhenRoleWithSameNameExists) {
   ASSERT_TRUE(auth_handler.CreateRole("developer", nullptr));
   ASSERT_TRUE(auth_handler.CreateUser("developer", {}, nullptr));
 }
+
+TEST_F(AuthQueryHandlerFixture, DisambiguationUnspecifiedOnlyUserExists) {
+  auth.value()->SaveUser(memgraph::auth::User{"alice"});
+  ASSERT_NO_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::UNSPECIFIED));
+}
+
+TEST_F(AuthQueryHandlerFixture, DisambiguationUnspecifiedOnlyRoleExists) {
+  auth.value()->SaveRole(memgraph::auth::Role{"alice"});
+  ASSERT_NO_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::UNSPECIFIED));
+}
+
+TEST_F(AuthQueryHandlerFixture, DisambiguationUnspecifiedBothExistThrows) {
+  auth.value()->SaveUser(memgraph::auth::User{"alice"});
+  auth.value()->SaveRole(memgraph::auth::Role{"alice"});
+  ASSERT_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::UNSPECIFIED),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, DisambiguationUserKeywordWithUser) {
+  auth.value()->SaveUser(memgraph::auth::User{"alice"});
+  ASSERT_NO_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::USER));
+}
+
+TEST_F(AuthQueryHandlerFixture, DisambiguationRoleKeywordWithRole) {
+  auth.value()->SaveRole(memgraph::auth::Role{"alice"});
+  ASSERT_NO_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::ROLE));
+}
+
+TEST_F(AuthQueryHandlerFixture, DisambiguationUserKeywordButOnlyRoleExistsThrows) {
+  auth.value()->SaveRole(memgraph::auth::Role{"alice"});
+  ASSERT_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::USER),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, DisambiguationRoleKeywordButOnlyUserExistsThrows) {
+  auth.value()->SaveUser(memgraph::auth::User{"alice"});
+  ASSERT_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::ROLE),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, DisambiguationUserKeywordBothExistResolvesToUser) {
+  memgraph::auth::Permissions perms;
+  perms.Grant(memgraph::auth::Permission::MATCH);
+  auth.value()->SaveUser(memgraph::auth::User{"alice", std::nullopt, perms});
+  auth.value()->SaveRole(memgraph::auth::Role{"alice"});
+  auto result = auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::USER);
+  ASSERT_EQ(result.size(), 1);
+  ASSERT_EQ(result[0][2].ValueString(), "GRANTED TO USER");
+}
+
+TEST_F(AuthQueryHandlerFixture, DisambiguationRoleKeywordBothExistResolvesToRole) {
+  memgraph::auth::Permissions role_perms;
+  role_perms.Grant(memgraph::auth::Permission::MATCH);
+  auth.value()->SaveUser(memgraph::auth::User{"alice"});
+  auth.value()->SaveRole(memgraph::auth::Role{"alice", role_perms});
+  auto result = auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::ROLE);
+  ASSERT_EQ(result.size(), 1);
+  ASSERT_EQ(result[0][2].ValueString(), "GRANTED TO ROLE");
+}
