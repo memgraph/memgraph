@@ -17,13 +17,14 @@ if [[ ! -x "$MEMGRAPH_BINARY" ]]; then
     exit 1
 fi
 DATA_DIR="stress_data"
+LOG_DIR="${LOG_DIR:-stress_logs}"
 
 # Default flags for Memgraph
 DEFAULT_FLAGS=(
     "--also-log-to-stderr=true"
     "--bolt-server-name-for-init=Neo4j/"
     "--data-directory=$DATA_DIR"
-    "--log-file="
+    "--log-file=$LOG_DIR/memgraph.log"
     "--log-level=TRACE"
     "--query-execution-timeout-sec=1200"
     "--storage-snapshot-interval-sec=300"
@@ -80,7 +81,8 @@ start_memgraph() {
     CMD="$MEMGRAPH_BINARY $FINAL_FLAGS"
     echo "Executing: $CMD"
 
-    $CMD &  # Run the command
+    mkdir -p "$LOG_DIR"
+    $CMD &
     MG_PID=$!
     echo $MG_PID > memgraph.pid
     wait_for_server 7687
