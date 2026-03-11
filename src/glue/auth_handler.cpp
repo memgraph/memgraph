@@ -629,14 +629,14 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernames() {
   }
 }
 
-std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetRolenames() {
+std::vector<std::pair<std::string, bool>> AuthQueryHandler::GetRolenames() {
   try {
     auto locked_auth = auth_->ReadLock();
-    std::vector<memgraph::query::TypedValue> rolenames;
+    std::vector<std::pair<std::string, bool>> rolenames;
     const auto &roles = locked_auth->AllRoles();
     rolenames.reserve(roles.size());
     for (const auto &role : roles) {
-      rolenames.emplace_back(role.rolename());
+      rolenames.emplace_back(role.rolename(), role.IsBuiltIn());
     }
     return rolenames;
   } catch (const memgraph::auth::AuthException &e) {
@@ -644,8 +644,8 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetRolenames() {
   }
 }
 
-std::vector<std::string> AuthQueryHandler::GetRolenamesForUser(const std::string &username,
-                                                               std::optional<std::string> db_name) {
+std::vector<std::pair<std::string, bool>> AuthQueryHandler::GetRolenamesForUser(const std::string &username,
+                                                                                std::optional<std::string> db_name) {
   try {
     auto locked_auth = auth_->ReadLock();
     auto user = locked_auth->GetUser(username);
@@ -653,18 +653,17 @@ std::vector<std::string> AuthQueryHandler::GetRolenamesForUser(const std::string
       throw query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
 
-    std::vector<std::string> rolenames;
+    std::vector<std::pair<std::string, bool>> rolenames;
     auto roles = user->roles().GetRoles();
 #ifdef MG_ENTERPRISE
     if (db_name) {
-      // Get roles filtered by database
       roles = user->GetMultiTenantRoles(db_name.value());
     }
 #endif
     if (!roles.empty()) {
       rolenames.reserve(roles.size());
       for (const auto &role : roles) {
-        rolenames.emplace_back(role.rolename());
+        rolenames.emplace_back(role.rolename(), role.IsBuiltIn());
       }
     }
     return rolenames;

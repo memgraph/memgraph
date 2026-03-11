@@ -1255,13 +1255,13 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::SHOW_ROLES:
-      callback.header = {"role"};
+      callback.header = {"role", "builtin"};
       callback.fn = [auth] {
         std::vector<std::vector<TypedValue>> rows;
-        auto rolenames = auth->GetRolenames();
-        rows.reserve(rolenames.size());
-        for (auto &&rolename : rolenames) {
-          rows.emplace_back(std::vector<TypedValue>{rolename});
+        auto roles = auth->GetRolenames();
+        rows.reserve(roles.size());
+        for (auto &&[rolename, is_builtin] : roles) {
+          rows.emplace_back(std::vector<TypedValue>{TypedValue(rolename), TypedValue(is_builtin)});
         }
         return rows;
       };
@@ -1493,7 +1493,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::SHOW_ROLE_FOR_USER:
-      callback.header = std::vector<std::string>{"role"};
+      callback.header = {"role", "builtin"};
       callback.fn = [auth,
                      username,
                      database_specification = auth_query->database_specification_
@@ -1543,12 +1543,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         auto rolenames = auth->GetRolenamesForUser(username, std::nullopt);
 #endif
         if (rolenames.empty()) {
-          return std::vector<std::vector<TypedValue>>{std::vector<TypedValue>{TypedValue("null")}};
+          return std::vector<std::vector<TypedValue>>{};
         }
         std::vector<std::vector<TypedValue>> rows;
         rows.reserve(rolenames.size());
-        for (auto &&rolename : rolenames) {
-          rows.emplace_back(std::vector<TypedValue>{TypedValue{rolename}});
+        for (auto &&[rolename, is_builtin] : rolenames) {
+          rows.emplace_back(std::vector<TypedValue>{TypedValue(rolename), TypedValue(is_builtin)});
         }
         return rows;
       };
