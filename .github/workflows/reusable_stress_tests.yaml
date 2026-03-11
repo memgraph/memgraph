@@ -110,7 +110,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stress-logs-native-ha
+          name: stress-logs-native-standalone
           path: build/stress/logs/
           if-no-files-found: warn
 
