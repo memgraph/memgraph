@@ -1170,45 +1170,21 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
 
-  // First, remove the role from all users who have it
+  // Reject deletion if any user has the role assigned (global or per-database)
   for (auto it = storage_.begin(kRoleLinkPrefix); it != storage_.end(kRoleLinkPrefix); ++it) {
-    auto username = it->first.substr(kRoleLinkPrefix.size());
-    bool needs_update = false;
-    nlohmann::json updated_roles;
-
     try {
-      // Parse as JSON array (V2 format)
       auto json_data = ParseJson(it->second);
-      if (!json_data.is_array()) {
-        spdlog::warn("Found invalid JSON in link format for user '{}'", username);
-        continue;
-      }
-      // V2 format: remove the role from the array
-      updated_roles = nlohmann::json::array();
-      for (const auto &role_name : json_data) {
-        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) != rolename) {
-          updated_roles.push_back(role_name);
-        } else if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
-          needs_update = true;
+      if (!json_data.is_array()) continue;
+      for (auto const &role_name : json_data) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+          auto username = it->first.substr(kRoleLinkPrefix.size());
+          throw AuthException("Cannot delete role '{}': it is assigned to user '{}'.", rolename, username);
         }
       }
-    } catch (const nlohmann::detail::exception &) {
-      // This shouldn't happen after V2 migration, but handle gracefully
-      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
+    } catch (AuthException const &) {
+      throw;
+    } catch (nlohmann::detail::exception const &) {
       continue;
-    }
-
-    if (needs_update) {
-      if (updated_roles.is_null()) {
-        // Remove the link entirely (old format or empty array)
-        storage_.Delete(it->first);
-      } else if (updated_roles.empty()) {
-        // Remove the link entirely (empty array)
-        storage_.Delete(it->first);
-      } else {
-        // Update with the remaining roles
-        storage_.Put(it->first, updated_roles.dump());
-      }
     }
   }
 
@@ -1216,24 +1192,13 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
     auto username = it->first.substr(kMtLinkPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
     auto json_data = ParseJson(it->second);
-    bool update = false;
-    for (auto &[db_name, role_names] : json_data.items()) {
-      if (role_names.is_array()) {
-        // Find and remove the role by index
-        for (size_t i = 0; i < role_names.size(); ++i) {
-          if (role_names[i].is_string() && utils::ToLowerCase(role_names[i].get<std::string>()) == rolename) {
-            role_names.erase(i);
-            update = true;
-            break;  // Remove only the first occurrence
-          }
+    for (auto const &[db_name, role_names] : json_data.items()) {
+      if (!role_names.is_array()) continue;
+      for (auto const &role_name : role_names) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+          throw AuthException(
+              "Cannot delete role '{}': it is assigned to user '{}' on database '{}'.", rolename, username, db_name);
         }
-      }
-    }
-    if (update) {
-      if (json_data.empty()) {
-        storage_.Delete(it->first);
-      } else {
-        storage_.Put(it->first, json_data.dump());
       }
     }
   }

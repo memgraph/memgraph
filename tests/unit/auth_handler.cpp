@@ -1209,6 +1209,9 @@ TEST_F(AuthQueryHandlerFixture, UserProfileRole) {
     ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
   }
 
+  // Revoke role from user before dropping
+  auth_handler.RevokeRoles("user", {"role"}, {}, nullptr);
+
   // Drop role and verify user still exists
   auth_handler.DropRole("role", nullptr);
   {
@@ -3114,5 +3117,31 @@ TEST_F(AuthQueryHandlerFixture, RevokePrivilegeOnBuiltinRoleClearsBuiltinFlag) {
                                nullptr);
 
   EXPECT_FALSE(auth->ReadLock()->GetRole("builtin_role")->IsBuiltIn());
+}
+#endif
+
+TEST_F(AuthQueryHandlerFixture, DropRoleFailsIfAssignedToUser) {
+  ASSERT_TRUE(auth_handler.CreateRole("role1", nullptr));
+  auth.value()->SaveUser(memgraph::auth::User{"alice"});
+  ASSERT_NO_THROW(auth_handler.AddRoles("alice", {"role1"}, {}, nullptr));
+
+  ASSERT_THROW(auth_handler.DropRole("role1", nullptr), memgraph::query::QueryRuntimeException);
+}
+
+#ifdef MG_ENTERPRISE
+TEST_F(AuthQueryHandlerFixture, DropRoleFailsIfAssignedToUserOnDatabase) {
+  ASSERT_TRUE(auth_handler.CreateRole("role1", nullptr));
+  auto role = auth->ReadLock()->GetRole("role1");
+  ASSERT_TRUE(role.has_value());
+
+  memgraph::auth::Role role_with_access = *role;
+  role_with_access.db_access().Grant("db1");
+  auth.value()->SaveRole(role_with_access);
+
+  memgraph::auth::User user{"alice"};
+  user.AddMultiTenantRole(role_with_access, "db1");
+  auth.value()->SaveUser(user);
+
+  ASSERT_THROW(auth_handler.DropRole("role1", nullptr), memgraph::query::QueryRuntimeException);
 }
 #endif
