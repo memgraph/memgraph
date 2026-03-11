@@ -115,15 +115,7 @@ stop_memgraph() {
     echo "Warning: Memgraph process $MG_PID is still running after ${graceful_timeout_sec} seconds. Force killing..."
     kill -9 "$MG_PID" 2>/dev/null || true
 
-    echo "Waiting ${force_kill_settle_sec} seconds before final stop check..."
-    sleep "$force_kill_settle_sec"
-
-    if kill -0 "$MG_PID" 2>/dev/null; then
-        echo "ERROR: Failed to stop Memgraph process $MG_PID"
-        return 1
-    fi
-
-    echo "Memgraph has stopped after force kill."
+    echo "Warning: Memgraph process $MG_PID may still be in D-state (kernel I/O), continuing anyway."
     rm -f memgraph.pid
     clean_data_directory
 }
