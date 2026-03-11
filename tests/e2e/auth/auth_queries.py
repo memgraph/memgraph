@@ -164,6 +164,7 @@ def test_roles_function_multi_tenant(memgraph):
     memgraph.execute("CREATE DATABASE db2;")
     memgraph.execute("GRANT DATABASE * TO admin_role;")
     memgraph.execute("GRANT DATABASE * TO user_role;")
+    memgraph.execute("CLEAR ROLE FOR test_user;")
     memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role ON db1;")
     memgraph.execute("SET ROLE FOR test_user TO user_role ON db2;")
     memgraph.execute("SET ROLE FOR test_user TO admin_role ON memgraph;")
@@ -216,7 +217,7 @@ def test_username_and_roles_functions_in_trigger(memgraph):
     memgraph.execute("CREATE USER test_user;")
     memgraph.execute("CREATE ROLE admin_role;")
     memgraph.execute("CREATE ROLE user_role;")
-    memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role;")
+    memgraph.execute("GRANT ROLES admin_role, user_role TO test_user;")
 
     memgraph.execute(
         """
@@ -243,7 +244,8 @@ def test_username_and_roles_functions_in_trigger(memgraph):
     assert results[0]["username"] == "test_user"
     roles = results[0]["roles"]
     assert isinstance(roles, list)
-    assert len(roles) == 2
+    assert len(roles) == 3
+    assert "admin" in roles
     assert "admin_role" in roles
     assert "user_role" in roles
 
@@ -281,7 +283,8 @@ def test_username_and_roles_functions_in_trigger(memgraph):
     assert results[0]["username"] == "test_user"
     roles = results[0]["roles"]
     assert isinstance(roles, list)
-    assert len(roles) == 2
+    assert len(roles) == 3
+    assert "admin" in roles
     assert "admin_role" in roles
     assert "user_role" in roles
 
@@ -338,6 +341,7 @@ def test_show_current_roles_multi_tenant(memgraph):
     memgraph.execute("CREATE DATABASE db2;")
     memgraph.execute("GRANT DATABASE * TO admin_role;")
     memgraph.execute("GRANT DATABASE * TO user_role;")
+    memgraph.execute("CLEAR ROLE FOR test_user;")
     memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role ON db1;")
     memgraph.execute("SET ROLE FOR test_user TO user_role ON db2;")
 
@@ -366,6 +370,8 @@ def test_show_current_roles_multi_tenant(memgraph):
     assert "admin_role" == results[0]["role"] or "admin_role" == results[1]["role"]
     assert "user_role" == results[0]["role"] or "user_role" == results[1]["role"]
 
+    # These tests cannot be used because gqlalchemy reconnects with every query,
+    # rather than exposing persistent connection objects.
     # # db1
     # memgraph_with_user.execute_and_fetch("USE DATABASE db1;", connection=connection)
     # results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLES;", connection=connection))
@@ -683,7 +689,7 @@ def test_complex_role_privilege_flow(memgraph):
     memgraph.execute("CREATE ROLE user;")
     memgraph.execute("CREATE ROLE architect;")
     memgraph.execute("CREATE ROLE moderator;")
-    memgraph.execute("CREATE ROLE admin;")
+    memgraph.execute("CREATE ROLE superadmin;")
     memgraph.execute("CREATE ROLE support;")
 
     # Create databases
@@ -695,7 +701,7 @@ def test_complex_role_privilege_flow(memgraph):
     memgraph.execute("GRANT DATABASE db1 TO architect;")
     memgraph.execute("GRANT DATABASE db1 TO moderator;")
     memgraph.execute("GRANT DATABASE db2 TO support;")
-    memgraph.execute("GRANT DATABASE db2 TO admin;")
+    memgraph.execute("GRANT DATABASE db2 TO superadmin;")
 
     # Set main databases for roles
     memgraph.execute("SET MAIN DATABASE db1 FOR architect;")
@@ -704,7 +710,7 @@ def test_complex_role_privilege_flow(memgraph):
     # Set roles for charlie
     memgraph.execute("SET ROLE FOR charlie TO user;")
     memgraph.execute("SET ROLE FOR charlie TO architect, moderator ON db1;")
-    memgraph.execute("SET ROLE FOR charlie TO admin, support ON db2;")
+    memgraph.execute("SET ROLE FOR charlie TO superadmin, support ON db2;")
 
     # Check SHOW PRIVILEGES FOR charlie ON DATABASE db1 - should give empty result initially
     results = list(memgraph.execute_and_fetch("SHOW PRIVILEGES FOR charlie ON DATABASE db1;"))
@@ -748,7 +754,7 @@ def test_complex_role_privilege_flow(memgraph):
     memgraph.execute("DROP ROLE user;")
     memgraph.execute("DROP ROLE architect;")
     memgraph.execute("DROP ROLE moderator;")
-    memgraph.execute("DROP ROLE admin;")
+    memgraph.execute("DROP ROLE superadmin;")
     memgraph.execute("DROP ROLE support;")
     memgraph.execute("DROP DATABASE db1;")
     memgraph.execute("DROP DATABASE db2;")
@@ -758,7 +764,7 @@ def test_complex_role_privilege_flow(memgraph):
 def test_show_databases_for_user_and_role(memgraph):
     default_db = "memgraph"
     """Test SHOW DATABASES FOR <user> and SHOW DATABASES FOR <role> with multiple roles and grants/denies."""
-    # Setup: create databases, users, and roles
+    # Setup: create databases, users, and roles3
     memgraph.execute("CREATE DATABASE db1;")
     memgraph.execute("CREATE DATABASE db2;")
     memgraph.execute("CREATE DATABASE db3;")
@@ -766,18 +772,18 @@ def test_show_databases_for_user_and_role(memgraph):
     memgraph.execute("CREATE USER bob;")
     memgraph.execute("CREATE ROLE architect;")
     memgraph.execute("CREATE ROLE moderator;")
-    memgraph.execute("CREATE ROLE admin;")
+    memgraph.execute("CREATE ROLE superadmin;")
 
     # Grant/deny database access to roles
     memgraph.execute("GRANT DATABASE db1 TO architect;")
     memgraph.execute("GRANT DATABASE db2 TO architect;")
     memgraph.execute("GRANT DATABASE db2 TO moderator;")
-    memgraph.execute("GRANT DATABASE db3 TO admin;")
+    memgraph.execute("GRANT DATABASE db3 TO superadmin;")
     memgraph.execute("DENY DATABASE db2 FROM architect;")  # architect: db1 only
 
     # Assign roles to users
-    memgraph.execute("SET ROLE FOR alice TO architect, moderator;")
-    memgraph.execute("SET ROLE FOR bob TO admin, moderator;")
+    memgraph.execute("GRANT ROLES architect, moderator TO alice;")
+    memgraph.execute("GRANT ROLES superadmin, moderator TO bob;")
 
     # As admin, check SHOW DATABASES FOR <role>
     result = list(memgraph.execute_and_fetch("SHOW DATABASE PRIVILEGES FOR architect;"))
@@ -820,7 +826,7 @@ def test_show_databases_for_user_and_role(memgraph):
     memgraph.execute("DROP USER bob;")
     memgraph.execute("DROP ROLE architect;")
     memgraph.execute("DROP ROLE moderator;")
-    memgraph.execute("DROP ROLE admin;")
+    memgraph.execute("DROP ROLE superadmin;")
     memgraph.execute("DROP DATABASE db1;")
     memgraph.execute("DROP DATABASE db2;")
     memgraph.execute("DROP DATABASE db3;")
