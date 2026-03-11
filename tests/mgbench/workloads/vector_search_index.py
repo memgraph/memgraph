@@ -39,7 +39,7 @@ class VectorSearchIndex(Workload):
             ("CREATE INDEX ON :Node(id);", {}),
             (
                 'CREATE VECTOR INDEX index ON :Node(vector) WITH CONFIG {"dimension": %i, "capacity": %i};'
-                % (VectorSearchIndex.VECTOR_DIMENSIONS, self._nodes_count + self._nodes_count // 10),
+                % (VectorSearchIndex.VECTOR_DIMENSIONS, self._nodes_count),
                 {},
             ),
         ]
