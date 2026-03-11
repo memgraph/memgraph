@@ -367,9 +367,7 @@ int main(int argc, char **argv) {
 
   memgraph::license::global_license_checker.CheckEnvLicense(*settings);
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
-    spdlog::warn("Using license info overrides");
-    memgraph::license::global_license_checker.SetLicenseInfoOverride(
-        FLAGS_license_key, FLAGS_organization_name, *settings);
+    memgraph::license::global_license_checker.SetCliLicense(FLAGS_license_key, FLAGS_organization_name, *settings);
   }
 
   memgraph::license::global_license_checker.StartBackgroundLicenseChecker(settings);

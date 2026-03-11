@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -71,7 +71,8 @@ class TextEdgeIndex {
 
   std::map<std::string, TextEdgeIndexData, std::less<>> index_;
 
-  void RemoveEdge(const Edge *edge, EdgeTypeId edge_type, Transaction &tx);
+  void RemoveEdge(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
+                  Transaction &tx);
 
   void UpdateOnSetProperty(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
                            Transaction &tx, PropertyId property);

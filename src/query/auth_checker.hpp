@@ -13,6 +13,7 @@
 
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -53,7 +54,7 @@ class FineGrainedAuthChecker {
   [[nodiscard]] virtual bool Has(const EdgeAccessor &edge,
                                  AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
-  [[nodiscard]] virtual bool Has(const std::vector<memgraph::storage::LabelId> &labels,
+  [[nodiscard]] virtual bool Has(std::span<memgraph::storage::LabelId const> labels,
                                  AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
   [[nodiscard]] virtual bool Has(const memgraph::storage::EdgeTypeId &edge_type,
@@ -87,8 +88,8 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
     return true;
   }
 
-  bool Has(const std::vector<memgraph::storage::LabelId> & /*labels*/,
-           const AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
+  bool Has(std::span<memgraph::storage::LabelId const> /*labels*/,
+           AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 

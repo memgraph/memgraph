@@ -488,3 +488,18 @@ Scenario: Advance command on subquery should not affect outer query vertex visib
         Then the result should be:
             | id |
             | 1  |
+
+    Scenario: Subquery with union missing WITH in second branch should fail
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n:Node {flagged: 1})
+            CALL {
+                WITH n
+                MATCH (m:Node) WHERE m.prop_a = n.prop_a RETURN m
+                UNION
+                MATCH (m:Node) WHERE m.prop_b = n.prop_b RETURN m
+            }
+            RETURN m.prop_a
+            """
+        Then an error should be raised

@@ -2057,7 +2057,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto vertices_acc = in_memory->vertices_.access();
-  if (vector_index.DropIndex(index_name, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
+  if (vector_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
   } else if (vector_edge_index.DropIndex(index_name)) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
@@ -2935,6 +2935,20 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // VERTICES (has ptr to Edges, must be before removing edges)
   if (!current_deleted_vertices.empty()) {
     auto vertex_acc = vertices_.access();
+
+    if (!indices_.vector_index_.Empty()) {
+      // Remove from vector indices BEFORE skip list removal while Vertex* is still valid.
+      auto const vertices_to_remove = current_deleted_vertices |
+                                      std::ranges::views::transform([&vertex_acc](auto const gid) {
+                                        auto it = vertex_acc.find(gid);
+                                        DMG_ASSERT(it != vertex_acc.end(), "Invalid database state!");
+                                        return &*it;
+                                      }) |
+                                      std::ranges::to<std::vector>();
+
+      indices_.RemoveVerticesFromVectorIndices(vertices_to_remove);
+    }
+
     for (auto vertex : current_deleted_vertices) {
       MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
     }
@@ -2942,6 +2956,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   // EDGES
   if (!current_deleted_edges.empty()) {
+    if (!indices_.vector_edge_index_.Empty()) {
+      indices_.RemoveEdgesFromVectorEdgeIndices(current_deleted_edges);
+    }
+
     auto edge_acc = edges_.access();
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
@@ -2955,6 +2973,18 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   //  we will wait for evidence that this is needed before doing so.
   if (need_full_scan_vertices) {
     auto vertex_acc = vertices_.access();
+
+    if (!indices_.vector_index_.Empty()) {
+      // Collect deleted vertex pointers BEFORE skip-list removal while Vertex* is still valid.
+      auto const analytical_deleted_vertices =
+          vertex_acc | std::ranges::views::filter([](auto const &v) { return v.delta() == nullptr && v.deleted(); }) |
+          std::ranges::views::transform([](auto &v) { return &v; }) | std::ranges::to<std::vector>();
+
+      if (!analytical_deleted_vertices.empty()) {
+        indices_.RemoveVerticesFromVectorIndices(analytical_deleted_vertices);
+      }
+    }
+
     for (auto &vertex : vertex_acc) {
       // a deleted vertex which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
       if (vertex.delta() == nullptr && vertex.deleted()) {
@@ -2966,6 +2996,20 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
   if (need_full_scan_edges) {
     auto edge_acc = edges_.access();
+
+    if (!indices_.vector_edge_index_.Empty()) {
+      // Collect deleted edge GIDs BEFORE skip-list removal while Edge* is still valid.
+      std::list<Gid> analytical_deleted_edge_gids;
+      for (auto const &edge : edge_acc) {
+        if (edge.delta() == nullptr && edge.deleted()) {
+          analytical_deleted_edge_gids.push_back(edge.gid);
+        }
+      }
+      if (!analytical_deleted_edge_gids.empty()) {
+        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edge_gids);
+      }
+    }
+
     auto edge_metadata_acc = edges_metadata_.access();
     for (auto &edge : edge_acc) {
       // a deleted edge which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion

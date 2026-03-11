@@ -6,6 +6,7 @@ continuous_integration, or can be configured manually via configure().
 """
 import atexit
 import importlib
+import logging
 import multiprocessing
 import os
 import sys
@@ -16,9 +17,14 @@ from typing import Any, Callable, Iterable, TypeVar
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 
+# Suppress neo4j driver noise (connection pool chatter, retry warnings, etc.)
+# so they don't drown out workload and monitor output.
+logging.getLogger("neo4j").setLevel(logging.CRITICAL)
+
 R = TypeVar("R")
 
 SYNC_REPLICA_ERROR = "At least one SYNC replica has not confirmed committing last transaction."
+WRITE_ON_REPLICA_ERROR = "Write queries are forbidden on the replica instance"
 
 COORDINATOR_INSTANCES = {"coord_1", "coord_2", "coord_3"}
 
@@ -219,6 +225,7 @@ def _run_query(
     query_type: QueryType,
     apply_retry_mechanism: bool,
     result_handler: Callable,
+    database: str | None = None,
 ) -> Any:
     """
     Internal query runner. Returns None if SYNC replica error occurs
@@ -231,7 +238,7 @@ def _run_query(
     for attempt in range(1, max_retries + 1):
         driver = _get_or_create_driver(instance_name, protocol)
         try:
-            with driver.session() as session:
+            with driver.session(database=database) as session:
                 if apply_retry_mechanism:
                     if query_type == QueryType.WRITE:
                         return session.execute_write(lambda tx: result_handler(tx.run(query, params or {})))
@@ -241,8 +248,9 @@ def _run_query(
                     return result_handler(session.run(query, params or {}))
         except Exception as e:
             if SYNC_REPLICA_ERROR in str(e):
+                print(f"\nWARN: Sync replica error (instance={instance_name}): {e}")
                 return None
-            if isinstance(e, ServiceUnavailable):
+            if isinstance(e, ServiceUnavailable) or WRITE_ON_REPLICA_ERROR in str(e):
                 pid = os.getpid()
                 key = (pid, instance_name, protocol.value)
                 _driver_cache.pop(key, None)
@@ -264,6 +272,7 @@ def execute_query(
     protocol: Protocol = Protocol.BOLT,
     query_type: QueryType = QueryType.READ,
     apply_retry_mechanism: bool = False,
+    database: str | None = None,
 ) -> None:
     """Execute a query on a specific instance. Discards results."""
     _run_query(
@@ -274,7 +283,42 @@ def execute_query(
         query_type,
         apply_retry_mechanism,
         result_handler=lambda result: result.consume(),
+        database=database,
     )
+
+
+def _execute_cleanup_write_with_retries(
+    coordinator: str,
+    query: str,
+    max_retries: int = 5,
+    retry_delay_sec: int = 2,
+) -> None:
+    """Execute cleanup write and retry SYNC replica commit errors."""
+    for attempt in range(1, max_retries + 1):
+        result = _run_query(
+            coordinator,
+            query,
+            params=None,
+            protocol=Protocol.BOLT_ROUTING,
+            query_type=QueryType.WRITE,
+            apply_retry_mechanism=False,
+            result_handler=lambda run_result: run_result.consume(),
+        )
+        if result is not None:
+            return
+
+        if attempt < max_retries:
+            print(
+                f"WARN: Cleanup write not confirmed on all SYNC replicas "
+                f"(attempt {attempt}/{max_retries}), retrying in {retry_delay_sec}s..."
+            )
+            time.sleep(retry_delay_sec)
+            continue
+
+        raise RuntimeError(
+            "Cleanup failed: at least one SYNC replica did not confirm commit "
+            f"after {max_retries} attempts. Query: {query}"
+        )
 
 
 def execute_and_fetch(
@@ -284,6 +328,7 @@ def execute_and_fetch(
     protocol: Protocol = Protocol.BOLT,
     query_type: QueryType = QueryType.READ,
     apply_retry_mechanism: bool = False,
+    database: str | None = None,
 ) -> list[dict[str, Any]]:
     """Execute a query and return all results as a list of dicts."""
     result = _run_query(
@@ -294,6 +339,7 @@ def execute_and_fetch(
         query_type,
         apply_retry_mechanism,
         result_handler=lambda result: [record.data() for record in result],
+        database=database,
     )
     return result if result is not None else []
 
@@ -305,24 +351,28 @@ def execute_and_fetch(
 
 def cleanup(coordinator: str = "coord_1") -> None:
     """
-    Full wipe of the cluster: drops all indexes, constraints, and graph data.
+    Full wipe of the cluster: drops all tenant databases, then wipes indexes,
+    constraints, and graph data from the default database.
 
     Runs via bolt+routing on the given coordinator so changes propagate to
     all data instances. Safe to call between workloads when the cluster
     stays running.
     """
+    rows = execute_and_fetch(coordinator, "SHOW DATABASES;", protocol=Protocol.BOLT_ROUTING)
+    tenant_dbs = [next(iter(row.values())) for row in rows if next(iter(row.values())) != "memgraph"]
+    if tenant_dbs:
+        print(f"Cleanup: dropping tenant databases {tenant_dbs}...")
+        for db_name in tenant_dbs:
+            _execute_cleanup_write_with_retries(coordinator, f"DROP DATABASE {db_name}")
+        print("Cleanup: tenant databases dropped.")
+
     print("Cleanup: deleting all nodes and edges...")
-    execute_query(
-        coordinator,
-        "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n",
-        protocol=Protocol.BOLT_ROUTING,
-        query_type=QueryType.WRITE,
-    )
+    _execute_cleanup_write_with_retries(coordinator, "USING PERIODIC COMMIT 10000 MATCH (n) DETACH DELETE n")
 
     print("Cleanup: dropping all indexes...")
-    execute_query(coordinator, "DROP ALL INDEXES", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
+    _execute_cleanup_write_with_retries(coordinator, "DROP ALL INDEXES")
 
     print("Cleanup: dropping all constraints...")
-    execute_query(coordinator, "DROP ALL CONSTRAINTS", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
+    _execute_cleanup_write_with_retries(coordinator, "DROP ALL CONSTRAINTS")
 
     print("Cleanup complete.")

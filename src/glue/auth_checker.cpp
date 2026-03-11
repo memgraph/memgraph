@@ -250,8 +250,8 @@ bool FineGrainedAuthChecker::Has(const memgraph::query::EdgeAccessor &edge,
   return IsAuthorizedEdgeType(GetCachedEdgePermissions(), dba_, edge.EdgeType(), fine_grained_privilege);
 }
 
-bool FineGrainedAuthChecker::Has(const std::vector<memgraph::storage::LabelId> &labels,
-                                 const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
+bool FineGrainedAuthChecker::Has(std::span<memgraph::storage::LabelId const> labels,
+                                 memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
   return IsAuthorizedLabels(GetCachedLabelPermissions(), dba_, labels, fine_grained_privilege);
 }
 

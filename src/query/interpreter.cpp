@@ -48,7 +48,6 @@
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
-#include "flags/storage_access.hpp"
 #include "frontend/ast/query/user_profile.hpp"
 #include "frontend/semantic/rw_checker.hpp"
 #include "io/network/endpoint.hpp"
@@ -207,7 +206,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
   auto &db_acc = *db_acc_;
-  const auto timeout = std::chrono::seconds{FLAGS_storage_access_timeout_sec};
+  const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
   switch (acc_type) {
     case storage::StorageAccessType::READ:
       [[fallthrough]];
@@ -7535,9 +7534,9 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         }
       }
 
-      const auto node_predicate = [&auth_checker](auto label_id) {
-        return auth_checker &&
-               auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ);
+      const auto node_predicate = [&auth_checker](auto const &labels) {
+        return auth_checker && auth_checker->Has(std::span<storage::LabelId const>{labels.data(), labels.size()},
+                                                 AuthQuery::FineGrainedPrivilege::READ);
       };
       const auto edge_predicate = [&auth_checker](auto edge_type_id) {
         return auth_checker && auth_checker->Has(edge_type_id, AuthQuery::FineGrainedPrivilege::READ);
@@ -7558,8 +7557,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label indices
       for (const auto label_id : index_info.label) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker &&
-            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+        if (auth_checker && !auth_checker->Has(std::span{&label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
           continue;
         }
 #endif
@@ -7574,8 +7572,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label property indices
       for (const auto &[label_id, property_paths] : index_info.label_properties) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker &&
-            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+        if (auth_checker && !auth_checker->Has(std::span{&label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
           continue;
         }
 #endif
@@ -7594,8 +7591,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label text
       for (const auto &[index_name, label_id, properties] : index_info.text_indices) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker &&
-            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+        if (auth_checker && !auth_checker->Has(std::span{&label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
           continue;
         }
 #endif
@@ -7613,8 +7609,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label property_point
       for (const auto &[label_id, property] : index_info.point_label_property) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker &&
-            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+        if (auth_checker && !auth_checker->Has(std::span{&label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
           continue;
         }
 #endif
@@ -7628,8 +7623,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label property_vector
       for (const auto &spec : index_info.vector_indices_spec) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker &&
-            !auth_checker->Has(std::vector<storage::LabelId>{spec.label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+        if (auth_checker && !auth_checker->Has(std::span{&spec.label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
           continue;
         }
 #endif
@@ -7715,8 +7709,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Existence
       for (const auto &[label_id, property] : constraint_info.existence) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker &&
-            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+        if (auth_checker && !auth_checker->Has(std::span{&label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
           continue;
         }
 #endif
@@ -7727,8 +7720,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Unique
       for (const auto &[label_id, properties] : constraint_info.unique) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker &&
-            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+        if (auth_checker && !auth_checker->Has(std::span{&label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
           continue;
         }
 #endif
@@ -7743,8 +7735,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Type
       for (const auto &[label_id, property, constraint_kind] : constraint_info.type) {
 #ifdef MG_ENTERPRISE
-        if (auth_checker &&
-            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+        if (auth_checker && !auth_checker->Has(std::span{&label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
           continue;
         }
 #endif

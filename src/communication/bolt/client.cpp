@@ -139,7 +139,7 @@ QueryData Client::Execute(std::string_view query, const map_t &parameters, const
       break;
     } else if (signature == Signature::Failure) {
       Value data;
-      if (!decoder_.ReadValue(&data)) {
+      if (!decoder_.ReadValue(&data, Value::Type::Map)) {
         throw ServerCommunicationException();
       }
       HandleFailure<ClientQueryException>(data.ValueMap());
@@ -156,13 +156,11 @@ QueryData Client::Execute(std::string_view query, const map_t &parameters, const
 
   QueryData ret{{}, std::move(records), std::move(metadata.ValueMap())};
 
-  if (!header.contains("fields")) {
+  auto fields_it = header.find("fields");
+  if (fields_it == header.end() || fields_it->second.type() != Value::Type::List) {
     throw ServerMalformedDataException();
   }
-  if (header["fields"].type() != Value::Type::List) {
-    throw ServerMalformedDataException();
-  }
-  auto &field_vector = header["fields"].ValueList();
+  auto &field_vector = fields_it->second.ValueList();
 
   for (auto &field_item : field_vector) {
     if (field_item.type() != Value::Type::String) {
@@ -171,8 +169,9 @@ QueryData Client::Execute(std::string_view query, const map_t &parameters, const
     ret.fields.emplace_back(std::move(field_item.ValueString()));
   }
 
-  if (header.contains("qid")) {
-    ret.metadata["qid"] = header["qid"];
+  auto qid_it = header.find("qid");
+  if (qid_it != header.end()) {
+    ret.metadata["qid"] = qid_it->second;
   }
 
   return ret;
@@ -220,7 +219,7 @@ std::optional<map_t> Client::Route(const map_t &routing, const std::vector<Value
   spdlog::debug("Reading route message response");
   Signature signature{};
   Value fields;
-  if (!ReadMessage(signature, fields)) {
+  if (!ReadMessage(signature, fields) || fields.type() != Value::Type::Map) {
     throw ServerCommunicationException();
   }
   if (signature == Signature::Ignored) {

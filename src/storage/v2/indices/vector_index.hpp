@@ -181,10 +181,9 @@ class VectorIndex {
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @param vertices Vertices accessor (used to iterate and decode properties).
-  /// @param indices Indices (for property decoding).
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @return true if the index was dropped successfully, false otherwise.
-  bool DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
+  bool DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,
                  NameIdMapper *name_id_mapper);
 
   /// @brief Drops all existing indexes.
@@ -245,9 +244,9 @@ class VectorIndex {
   VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
                                       const std::vector<float> &query_vector, NameIdMapper *name_id_mapper) const;
 
-  /// @brief Removes obsolete entries from the index.
-  /// @param token A stop token to allow for cancellation of the operation.
-  void RemoveObsoleteEntries(std::stop_token token) const;
+  /// @brief Removes vertices from all vector indices.
+  /// Called by GC before skip list removal, while the vertex pointer is still valid.
+  void RemoveVertices(std::vector<Vertex *> const &vertices_to_remove) const;
 
   /// @brief Returns an abort processor snapshot used during transaction abort.
   /// @return AbortProcessor containing label/property mappings for vector indices.

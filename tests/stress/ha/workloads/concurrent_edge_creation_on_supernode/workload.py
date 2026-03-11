@@ -2,17 +2,20 @@
 """
 Concurrent write workload for stress testing edge creation on a supernode.
 
-Creates a supernode and 1000 regular nodes, then concurrently creates edges
+Creates a supernode and many regular nodes, then concurrently creates edges
 between the supernode and each regular node using parallel workers.
 """
 import sys
+import time
 
-from ha_common import Protocol, QueryType, cleanup, execute_query, run_parallel
+from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_query, get_instance_names, run_parallel
 
 COORDINATOR = "coord_1"
+DATA_INSTANCES = sorted(instance for instance in get_instance_names() if instance.startswith("data_"))
 
-NUM_NODES = 1000
-NUM_WORKERS = 4
+NUM_NODES = 1000000
+NUM_WORKERS = 20
+REPLICA_SYNC_TIMEOUT_SEC = 120
 
 
 def setup_graph() -> None:
@@ -70,15 +73,58 @@ def run_workload() -> None:
     print("Edge creation complete.")
 
 
-def verify_results() -> None:
-    print("\nVerifying results...")
-    execute_query(
-        COORDINATOR,
+def get_edge_count(instance: str, protocol: Protocol = Protocol.BOLT) -> int:
+    """Get edge count from a specific instance."""
+    results = execute_and_fetch(
+        instance,
         "MATCH (:SuperNode)-[r:CONNECTED_TO]->(:Node) RETURN count(r) AS edge_count",
-        protocol=Protocol.BOLT_ROUTING,
+        protocol=protocol,
         query_type=QueryType.READ,
     )
-    print(f"Verification query executed. Check edge count matches {NUM_NODES}.")
+    return results[0]["edge_count"]
+
+
+def wait_for_replica_sync(timeout_sec: int = REPLICA_SYNC_TIMEOUT_SEC) -> None:
+    """Wait for all replicas to sync with the expected edge count."""
+    print(f"\nWaiting for replicas to sync (timeout: {timeout_sec}s)...")
+    start_time = time.time()
+
+    while time.time() - start_time < timeout_sec:
+        all_synced = True
+        for instance in DATA_INSTANCES:
+            try:
+                count = get_edge_count(instance)
+                if count != NUM_NODES:
+                    print(f"  {instance}: {count}/{NUM_NODES} edges")
+                    all_synced = False
+            except Exception as e:
+                print(f"  {instance}: error - {e}")
+                all_synced = False
+
+        if all_synced:
+            print("All replicas synced.")
+            return
+
+        time.sleep(2)
+
+    raise RuntimeError(f"Replicas did not sync within {timeout_sec} seconds")
+
+
+def verify_results() -> None:
+    print("\nVerifying results on coordinator...")
+    edge_count = get_edge_count(COORDINATOR, Protocol.BOLT_ROUTING)
+    if edge_count != NUM_NODES:
+        raise RuntimeError(f"Edge count mismatch: expected {NUM_NODES}, got {edge_count}")
+    print(f"Coordinator edge count: {edge_count}")
+
+    wait_for_replica_sync()
+
+    print("\nVerifying edge count on all data instances...")
+    for instance in DATA_INSTANCES:
+        count = get_edge_count(instance)
+        if count != NUM_NODES:
+            raise RuntimeError(f"{instance} edge count mismatch: expected {NUM_NODES}, got {count}")
+        print(f"  {instance}: {count} edges (OK)")
 
 
 def main():

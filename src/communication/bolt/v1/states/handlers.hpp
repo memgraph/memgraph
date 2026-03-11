@@ -115,7 +115,8 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
       return State::Close;
     }
 
-    if (summary.contains("has_more") && summary.at("has_more").ValueBool()) {
+    auto has_more_it = summary.find("has_more");
+    if (has_more_it != summary.end() && has_more_it->second.IsBool() && has_more_it->second.ValueBool()) {
       return State::Result;
     }
 
@@ -170,14 +171,16 @@ State HandlePullDiscardV4(TSession &session, const State state, const Marker mar
     spdlog::trace("Couldn't read extra field!");
   }
   const auto &extra_map = extra.ValueMap();
-  if (extra_map.contains("n")) {
-    if (const auto n_value = extra_map.at("n").ValueInt(); n_value != kPullAll) {
+  auto n_it = extra_map.find("n");
+  if (n_it != extra_map.end() && n_it->second.IsInt()) {
+    if (const auto n_value = n_it->second.ValueInt(); n_value != kPullAll) {
       n = n_value;
     }
   }
 
-  if (extra_map.contains("qid")) {
-    if (const auto qid_value = extra_map.at("qid").ValueInt(); qid_value != kPullLast) {
+  auto qid_it = extra_map.find("qid");
+  if (qid_it != extra_map.end() && qid_it->second.IsInt()) {
+    if (const auto qid_value = qid_it->second.ValueInt(); qid_value != kPullLast) {
       qid = qid_value;
     }
   }
@@ -514,7 +517,7 @@ auto ReadDB(TSession &session) -> std::optional<std::string> {
     }
     auto const extra_map = extra.ValueMap();
     auto const db_it = extra_map.find("db");
-    if (db_it == extra_map.end()) {
+    if (db_it == extra_map.end() || !db_it->second.IsString()) {
       spdlog::trace("Couldn't read db field inside extra!");
       return std::nullopt;
     }
@@ -522,7 +525,7 @@ auto ReadDB(TSession &session) -> std::optional<std::string> {
   }
   if constexpr (bolt_major == 4 && bolt_minor == 3) {
     Value val_db;
-    if (!session.decoder_.ReadValue(&val_db)) {
+    if (!session.decoder_.ReadValue(&val_db, Value::Type::String)) {
       spdlog::trace("Couldn't read db field!");
       return std::nullopt;
     }
