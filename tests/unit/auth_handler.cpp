@@ -2113,6 +2113,114 @@ TEST_F(AuthQueryHandlerFixture, ClearNamedRoleFromOneDatabaseLeavesOther) {
   ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").begin()->rolename(), "role1");
 }
 
+TEST_F(AuthQueryHandlerFixture, AddRolesAddsRolesToUser) {
+  memgraph::auth::Role role1("role1");
+  memgraph::auth::Role role2("role2");
+  auth.value()->SaveRole(role1);
+  auth.value()->SaveRole(role2);
+
+  memgraph::auth::User user("test_user");
+  auth.value()->SaveUser(user);
+
+  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role1"}, {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role2"}, {}, nullptr));
+
+  auto updated_user = auth.value()->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+  auto const &roles = updated_user->roles().GetRoles();
+  ASSERT_EQ(roles.size(), 2);
+}
+
+TEST_F(AuthQueryHandlerFixture, AddRolesThrowsIfRoleDoesNotExist) {
+  memgraph::auth::User user("test_user");
+  auth.value()->SaveUser(user);
+
+  ASSERT_THROW(auth_handler.AddRoles("test_user", {"nonexistent"}, {}, nullptr),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, AddRolesThrowsIfUserDoesNotExist) {
+  memgraph::auth::Role role("role1");
+  auth.value()->SaveRole(role);
+
+  ASSERT_THROW(auth_handler.AddRoles("nonexistent", {"role1"}, {}, nullptr), memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, AddRolesDoesNotDuplicateExistingRole) {
+  memgraph::auth::Role role("role1");
+  auth.value()->SaveRole(role);
+
+  memgraph::auth::User user("test_user");
+  user.AddRole(role);
+  auth.value()->SaveUser(user);
+
+  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role1"}, {}, nullptr));
+
+  auto updated_user = auth.value()->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+  ASSERT_EQ(updated_user->roles().GetRoles().size(), 1);
+}
+
+TEST_F(AuthQueryHandlerFixture, RevokeRolesRemovesRoleFromUser) {
+  memgraph::auth::Role role1("role1");
+  memgraph::auth::Role role2("role2");
+  auth.value()->SaveRole(role1);
+  auth.value()->SaveRole(role2);
+
+  memgraph::auth::User user("test_user");
+  user.AddRole(role1);
+  user.AddRole(role2);
+  auth.value()->SaveUser(user);
+
+  ASSERT_NO_THROW(auth_handler.RevokeRoles("test_user", {"role1"}, {}, nullptr));
+
+  auto updated_user = auth.value()->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+  auto const &roles = updated_user->roles().GetRoles();
+  ASSERT_EQ(roles.size(), 1);
+  ASSERT_EQ(roles.begin()->rolename(), "role2");
+}
+
+TEST_F(AuthQueryHandlerFixture, RevokeRolesThrowsIfUserDoesNotExist) {
+  ASSERT_THROW(auth_handler.RevokeRoles("nonexistent", {"role1"}, {}, nullptr), memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, RevokeRolesOnDatabaseLeavesOtherDatabases) {
+  memgraph::auth::Role role1("role1");
+  role1.db_access().Grant("db1");
+  role1.db_access().Grant("db2");
+  auth.value()->SaveRole(role1);
+
+  memgraph::auth::User user("test_user");
+  user.AddMultiTenantRole(role1, "db1");
+  user.AddMultiTenantRole(role1, "db2");
+  auth.value()->SaveUser(user);
+
+  ASSERT_NO_THROW(auth_handler.RevokeRoles("test_user", {"role1"}, {"db1"}, nullptr));
+
+  auto updated_user = auth.value()->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 0);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 1);
+}
+
+TEST_F(AuthQueryHandlerFixture, AddRolesOnDatabaseAddsToSpecifiedDatabase) {
+  memgraph::auth::Role role1("role1");
+  role1.db_access().Grant("db1");
+  role1.db_access().Grant("db2");
+  auth.value()->SaveRole(role1);
+
+  memgraph::auth::User user("test_user");
+  auth.value()->SaveUser(user);
+
+  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role1"}, {"db1"}, nullptr));
+
+  auto updated_user = auth.value()->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 1);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 0);
+}
+
 #endif
 
 TEST_F(AuthQueryHandlerFixture, SetRole_MultipleRoles_Success) {

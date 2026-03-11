@@ -128,6 +128,14 @@ class AuthQueryHandler {
   virtual void ClearRoles(const std::string &username, const std::vector<std::string> &roles,
                           const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
 
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void AddRoles(const std::string &username, const std::vector<std::string> &roles,
+                        const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void RevokeRoles(const std::string &username, const std::vector<std::string> &roles,
+                           const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
+
   virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
                                                                               std::optional<std::string> db,
                                                                               auth::UserOrRoleType type) = 0;
