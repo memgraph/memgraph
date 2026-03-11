@@ -4356,6 +4356,7 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->vertices_.clear();
   mem_storage->edges_.clear();
   mem_storage->edge_count_.store(0, std::memory_order_release);
+  mem_storage->description_store_.Clear();
 
   memory::PurgeUnusedMemory();
 }

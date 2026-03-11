@@ -1361,6 +1361,13 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitShowResourceConsumption(MemgraphCypher::ShowResourceConsumptionContext *ctx) override;
 
+  antlrcpp::Any visitDescriptionQuery(MemgraphCypher::DescriptionQueryContext *ctx) override;
+  antlrcpp::Any visitSetDescription(MemgraphCypher::SetDescriptionContext *ctx) override;
+  antlrcpp::Any visitDeleteDescription(MemgraphCypher::DeleteDescriptionContext *ctx) override;
+  antlrcpp::Any visitShowDescriptionQuery(MemgraphCypher::ShowDescriptionQueryContext *ctx) override;
+  antlrcpp::Any visitShowDescriptions(MemgraphCypher::ShowDescriptionsContext *ctx) override;
+  antlrcpp::Any visitDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx) override;
+
  public:
   Query *query() { return query_; }
 

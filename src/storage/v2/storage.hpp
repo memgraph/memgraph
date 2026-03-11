@@ -18,6 +18,7 @@
 #include "storage/v2/commit_args.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_protector.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_chunked_iterable.hpp"
 #include "storage/v2/edges_iterable.hpp"
@@ -641,6 +642,65 @@ class Storage {
 
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
+    // Description methods
+    void SetDescription(DescriptionTargetKind kind, std::string_view target_name, std::string description) {
+      auto &store = storage_->description_store_;
+      switch (kind) {
+        case DescriptionTargetKind::LABEL: {
+          auto id = storage_->NameToLabel(target_name);
+          store.SetLabel(id, description);
+          break;
+        }
+        case DescriptionTargetKind::EDGE_TYPE: {
+          auto id = storage_->NameToEdgeType(target_name);
+          store.SetEdgeType(id, description);
+          break;
+        }
+        case DescriptionTargetKind::PROPERTY: {
+          auto id = storage_->NameToProperty(target_name);
+          store.SetProperty(id, description);
+          break;
+        }
+        case DescriptionTargetKind::DATABASE:
+          store.SetDatabase(std::move(description));
+          break;
+      }
+    }
+
+    bool DeleteDescription(DescriptionTargetKind kind, std::string_view target_name) {
+      auto &store = storage_->description_store_;
+      switch (kind) {
+        case DescriptionTargetKind::LABEL:
+          return store.DeleteLabel(storage_->NameToLabel(target_name));
+        case DescriptionTargetKind::EDGE_TYPE:
+          return store.DeleteEdgeType(storage_->NameToEdgeType(target_name));
+        case DescriptionTargetKind::PROPERTY:
+          return store.DeleteProperty(storage_->NameToProperty(target_name));
+        case DescriptionTargetKind::DATABASE:
+          return store.DeleteDatabase();
+      }
+      return false;
+    }
+
+    std::optional<std::string> GetDescription(DescriptionTargetKind kind, std::string_view target_name) const {
+      auto const &store = storage_->description_store_;
+      switch (kind) {
+        case DescriptionTargetKind::LABEL:
+          return store.GetLabel(storage_->NameToLabel(target_name));
+        case DescriptionTargetKind::EDGE_TYPE:
+          return store.GetEdgeType(storage_->NameToEdgeType(target_name));
+        case DescriptionTargetKind::PROPERTY:
+          return store.GetProperty(storage_->NameToProperty(target_name));
+        case DescriptionTargetKind::DATABASE:
+          return store.GetDatabase();
+      }
+      return std::nullopt;
+    }
+
+    std::vector<DescriptionEntry> GetAllDescriptions() const {
+      return storage_->description_store_.GetAll(*storage_->name_id_mapper_);
+    }
+
     auto GetEnumValue(std::string_view name, std::string_view value) const -> std::expected<Enum, EnumStorageError> {
       return storage_->enum_store_.ToEnum(name, value);
     }
@@ -874,6 +934,7 @@ class Storage {
 
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;
+  DescriptionStore description_store_;
 
   SchemaInfo schema_info_;
 

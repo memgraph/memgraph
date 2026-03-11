@@ -992,6 +992,20 @@ class DbAccessor final {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 
+  void SetDescription(storage::DescriptionTargetKind kind, std::string_view target_name, std::string description) {
+    accessor_->SetDescription(kind, target_name, std::move(description));
+  }
+
+  bool DeleteDescription(storage::DescriptionTargetKind kind, std::string_view target_name) {
+    return accessor_->DeleteDescription(kind, target_name);
+  }
+
+  std::optional<std::string> GetDescription(storage::DescriptionTargetKind kind, std::string_view target_name) const {
+    return accessor_->GetDescription(kind, target_name);
+  }
+
+  std::vector<storage::DescriptionEntry> GetAllDescriptions() const { return accessor_->GetAllDescriptions(); }
+
   auto GetStorageAccessor() const -> storage::Storage::Accessor * { return accessor_; }
 
 #ifdef MG_ENTERPRISE
