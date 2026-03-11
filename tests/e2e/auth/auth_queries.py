@@ -1034,5 +1034,79 @@ def test_show_role_no_database_specification_required(memgraph):
     memgraph.execute("DROP DATABASE test_db;")
 
 
+def test_show_roles_builtin_column(memgraph):
+    memgraph.execute("CREATE ROLE regular_role;")
+
+    results = list(memgraph.execute_and_fetch("SHOW ROLES;"))
+    assert len(results) > 0
+
+    builtin_names = {"admin", "readwrite", "readonly"}
+    for row in results:
+        assert "builtin" in row
+        if row["role"] in builtin_names:
+            assert row["builtin"] is True
+        elif row["role"] == "regular_role":
+            assert row["builtin"] is False
+
+    memgraph.execute("DROP ROLE regular_role;")
+
+
+def test_show_roles_for_user_builtin_column(memgraph):
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE regular_role;")
+    memgraph.execute("GRANT ROLES admin, regular_role TO test_user;")
+
+    results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user;"))
+    assert len(results) == 2
+
+    for row in results:
+        assert "builtin" in row
+        if row["role"] == "admin":
+            assert row["builtin"] is True
+        elif row["role"] == "regular_role":
+            assert row["builtin"] is False
+
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE regular_role;")
+
+
+def test_multiple_roles_on_database(memgraph):
+    memgraph.execute("CREATE DATABASE testdb;")
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE role1;")
+    memgraph.execute("CREATE ROLE role2;")
+    memgraph.execute("GRANT DATABASE testdb TO role1;")
+    memgraph.execute("GRANT DATABASE testdb TO role2;")
+
+    memgraph.execute("SET ROLE FOR test_user TO role1, role2 ON testdb;")
+
+    results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user ON DATABASE testdb;"))
+    assert len(results) == 2
+    role_names = [row["role"] for row in results]
+    assert "role1" in role_names
+    assert "role2" in role_names
+
+    memgraph.execute("CREATE ROLE role3;")
+    memgraph.execute("GRANT DATABASE testdb TO role3;")
+    memgraph.execute("GRANT ROLE role3 TO test_user ON testdb;")
+
+    results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user ON DATABASE testdb;"))
+    assert len(results) == 3
+    role_names = [row["role"] for row in results]
+    assert "role3" in role_names
+
+    memgraph.execute("REVOKE ROLE role2 FROM test_user ON testdb;")
+    results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user ON DATABASE testdb;"))
+    assert len(results) == 2
+    role_names = [row["role"] for row in results]
+    assert "role2" not in role_names
+
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE role1;")
+    memgraph.execute("DROP ROLE role2;")
+    memgraph.execute("DROP ROLE role3;")
+    memgraph.execute("DROP DATABASE testdb;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
