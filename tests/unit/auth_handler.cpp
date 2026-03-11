@@ -2849,3 +2849,69 @@ TEST_F(AuthQueryHandlerFixture, MemoryExhaustionUnderLoad) {
   ASSERT_EQ(failure_count.load(), 4);
 }
 #endif
+
+TEST_F(AuthQueryHandlerFixture, FirstUserCommunityGetsPermissionsNoRoles) {
+  memgraph::license::global_license_checker.DisableTesting();
+
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr));
+
+  auto user = auth->ReadLock()->GetUser("alice");
+  ASSERT_TRUE(user.has_value());
+  EXPECT_EQ(auth_handler.GetRolenames().size(), 0);
+  EXPECT_TRUE(user->roles().GetRoles().empty());
+  EXPECT_NE(user->permissions().grants(), 0);
+}
+
+#ifdef MG_ENTERPRISE
+TEST_F(AuthQueryHandlerFixture, FirstUserEnterpriseGetsAdminRoleAndBuiltinRolesCreated) {
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr));
+
+  auto locked = auth->ReadLock();
+  auto user = locked->GetUser("alice");
+  ASSERT_TRUE(user.has_value());
+  EXPECT_EQ(locked->AllRolenames().size(), 3);
+  auto const roles = auth_handler.GetRolenamesForUser("alice", std::nullopt);
+  EXPECT_EQ(roles.size(), 1);
+  EXPECT_EQ(roles[0], "admin");
+}
+
+TEST_F(AuthQueryHandlerFixture, FirstUserWhenRolesExistGetsPermissionsNoAdminRole) {
+  ASSERT_TRUE(auth_handler.CreateRole("somerole", nullptr));
+
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr));
+
+  auto locked = auth->ReadLock();
+  auto user = locked->GetUser("alice");
+  ASSERT_TRUE(user.has_value());
+
+  EXPECT_EQ(locked->AllRolenames().size(), 1);
+  EXPECT_TRUE(user->roles().GetRoles().empty());
+  EXPECT_NE(user->permissions().grants(), 0);
+}
+
+TEST_F(AuthQueryHandlerFixture, FirstUserWhenNonBuiltinAdminExistsGetsPermissionsNotAdminRole) {
+  ASSERT_TRUE(auth_handler.CreateRole("admin", nullptr));
+
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr));
+
+  auto locked = auth->ReadLock();
+  auto user = locked->GetUser("alice");
+  ASSERT_TRUE(user.has_value());
+  EXPECT_TRUE(user->roles().GetRoles().empty());
+  EXPECT_NE(user->permissions().grants(), 0);
+
+  auto admin_role = auth->ReadLock()->GetRole("admin");
+  ASSERT_TRUE(admin_role.has_value());
+  EXPECT_FALSE(admin_role->IsBuiltIn());
+}
+#endif
+
+TEST_F(AuthQueryHandlerFixture, CreateRoleWhenUserWithSameNameExists) {
+  ASSERT_TRUE(auth_handler.CreateUser("developer", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateRole("developer", nullptr));
+}
+
+TEST_F(AuthQueryHandlerFixture, CreateUserWhenRoleWithSameNameExists) {
+  ASSERT_TRUE(auth_handler.CreateRole("developer", nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("developer", {}, nullptr));
+}
