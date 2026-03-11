@@ -1062,6 +1062,7 @@ test_memgraph() {
   local EXPORT_AWS_KEY_ID="export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}"
   local EXPORT_AWS_SECRET_KEY="export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
+  local default_benchmark_result_file='benchmark_result.json'
 
   # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
   echo "Running $1 test on $build_container..."
@@ -1244,17 +1245,23 @@ test_memgraph() {
     ;;
     mgbench-vector-search-index)
       shift 1
-      local EXPORT_RESULTS_FILE='benchmark_result.json'
+      local export_results_file="$default_benchmark_result_file"
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --export-results-file)
-            EXPORT_RESULTS_FILE="$2"
+            local results_file_arg="$2"
+            export_results_file="$results_file_arg"
             shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-vector-search-index"
+            echo "Supported flags: --export-results-file"
+            exit 1
           ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules vector_search_index/default/vector/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_index/default/vector/*"
     ;;
     upload-to-bench-graph)
       shift 1
