@@ -300,6 +300,8 @@ authQuery : createRole
           | showUsers
           | setRole
           | clearRole
+          | grantRole
+          | revokeRole
           | grantPrivilege
           | denyPrivilege
           | revokePrivilege
@@ -484,6 +486,10 @@ showUsers : SHOW USERS ;
 setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
 
 clearRole : CLEAR ( ROLE | ROLES ) ( roles=listOfSymbolicNames )? FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
+
+grantRole : GRANT ( ROLE | ROLES ) roles=listOfSymbolicNames TO user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
+
+revokeRole : REVOKE ( ROLE | ROLES ) roles=listOfSymbolicNames FROM user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
 

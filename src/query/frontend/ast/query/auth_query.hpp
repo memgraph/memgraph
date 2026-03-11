@@ -39,6 +39,8 @@ class AuthQuery : public memgraph::query::Query {
     SHOW_USERS,
     SET_ROLE,
     CLEAR_ROLE,
+    GRANT_ROLE,
+    REVOKE_ROLE,
     GRANT_PRIVILEGE,
     DENY_PRIVILEGE,
     REVOKE_PRIVILEGE,

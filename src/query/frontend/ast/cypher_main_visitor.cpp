@@ -2156,6 +2156,32 @@ antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext
   return auth;
 }
 
+antlrcpp::Any CypherMainVisitor::visitGrantRole(MemgraphCypher::GrantRoleContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::GRANT_ROLE;
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
+  if (ctx->db) {
+    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
+    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
+                                                            std::make_move_iterator(db_names.end()));
+  }
+  return auth;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRevokeRole(MemgraphCypher::RevokeRoleContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::REVOKE_ROLE;
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
+  if (ctx->db) {
+    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
+    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
+                                                            std::make_move_iterator(db_names.end()));
+  }
+  return auth;
+}
+
 /**
  * @return AuthQuery*
  */
