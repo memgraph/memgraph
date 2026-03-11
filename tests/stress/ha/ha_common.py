@@ -259,7 +259,7 @@ def _run_query(
                 if attempt < max_retries:
                     print(
                         f"\nWARN: Routing/connection error (attempt {attempt}/{max_retries}), "
-                        f"retrying in {retry_delay}s... (instance={instance_name})"
+                        f"retrying in {retry_delay}s... (instance={instance_name}): {e}"
                     )
                     time.sleep(retry_delay)
                     continue
@@ -339,7 +339,7 @@ def _run_with_manual_retries(
             delay = base_delay * (2**attempt)
             print(
                 f"\nWARN: Retriable error (attempt {attempt + 1}/{max_retries + 1}), "
-                f"retrying in {delay:.1f}s... (instance={instance_name})"
+                f"retrying in {delay:.1f}s... (instance={instance_name}): {e}"
             )
             time.sleep(delay)
     return fallback
