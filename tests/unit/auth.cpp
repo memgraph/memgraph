@@ -836,6 +836,12 @@ TEST_F(AuthWithStorage, RoleManipulations) {
     ASSERT_EQ(roles2.rolenames().front(), "role2");
   }
 
+  {
+    auto user1 = auth->GetUser("user1");
+    ASSERT_TRUE(user1);
+    user1->ClearAllRoles();
+    auth->SaveUser(*user1);
+  }
   ASSERT_TRUE(auth->RemoveRole("role1"));
 
   {
@@ -2398,20 +2404,20 @@ TEST_F(AuthWithStorage, MultiTenantRoleRemoveRole) {
     ASSERT_EQ(updated_user->roles().size(), 1);
   }
 
+  // Unassign role before removing
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    updated_user->ClearAllRoles();
+    auth->SaveUser(*updated_user);
+  }
+
   // Remove the role
   ASSERT_TRUE(auth->RemoveRole("test_role"));
 
   // Verify role is removed
   auto removed_role = auth->GetRole("test_role");
   ASSERT_EQ(removed_role, std::nullopt);
-
-  // Verify user is updated
-  {
-    auto updated_user = auth->GetUser("test_user");
-    ASSERT_NE(updated_user, std::nullopt);
-    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 0);
-    ASSERT_EQ(updated_user->roles().size(), 0);
-  }
 
   // Re-add the role
   ASSERT_TRUE(auth->AddRole("test_role"));
@@ -2720,6 +2726,13 @@ TEST_F(AuthWithStorage, SetProfileUserWRole) {
     const auto profile = auth->GetProfileForUsername("user");
     ASSERT_TRUE(profile);
     ASSERT_EQ(*profile, "profile");
+  }
+
+  // Unassign role before removing
+  {
+    auto u = auth->GetUser("user");
+    u->ClearAllRoles();
+    auth->SaveUser(*u);
   }
 
   // Remove role and verify profile is still there
