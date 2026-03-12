@@ -514,17 +514,20 @@ class DeltaGenerator final {
         });
         break;
       }
-      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_SET_LABEL:
-      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_DELETE_LABEL:
-      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_SET_EDGE_TYPE:
-      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_DELETE_EDGE_TYPE:
-      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_SET_LABEL_PROPERTY:
-      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_DELETE_LABEL_PROPERTY:
-      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_SET_EDGE_TYPE_PROPERTY:
-      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY:
-      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_SET_DATABASE:
-      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_DELETE_DATABASE:
+      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_SET: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          memgraph::storage::durability::EncodeDescriptionSet(
+              encoder, *storage_->name_id_mapper_, memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {}, "");
+        });
         break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_DELETE: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          memgraph::storage::durability::EncodeDescriptionDelete(
+              encoder, *storage_->name_id_mapper_, memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {});
+        });
+        break;
+      }
     }
     if (valid_) {
       UpdateStats(timestamp_, 1);
@@ -612,26 +615,10 @@ class DeltaGenerator final {
             return {WalVectorIndexDrop{vector_index_name}};
           case TTL_OPERATION:
             return {WalTtlOperation{TtlOperationType::ENABLE, std::nullopt, std::nullopt, false}};
-          case DESCRIPTION_SET_LABEL:
-            return {WalDescriptionSetLabel{{}, ""}};
-          case DESCRIPTION_DELETE_LABEL:
-            return {WalDescriptionDeleteLabel{{}}};
-          case DESCRIPTION_SET_EDGE_TYPE:
-            return {WalDescriptionSetEdgeType{"", ""}};
-          case DESCRIPTION_DELETE_EDGE_TYPE:
-            return {WalDescriptionDeleteEdgeType{""}};
-          case DESCRIPTION_SET_LABEL_PROPERTY:
-            return {WalDescriptionSetLabelProperty{{}, "", ""}};
-          case DESCRIPTION_DELETE_LABEL_PROPERTY:
-            return {WalDescriptionDeleteLabelProperty{{}, ""}};
-          case DESCRIPTION_SET_EDGE_TYPE_PROPERTY:
-            return {WalDescriptionSetEdgeTypeProperty{"", "", ""}};
-          case DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY:
-            return {WalDescriptionDeleteEdgeTypeProperty{"", ""}};
-          case DESCRIPTION_SET_DATABASE:
-            return {WalDescriptionSetDatabase{""}};
-          case DESCRIPTION_DELETE_DATABASE:
-            return {WalDescriptionDeleteDatabase{}};
+          case DESCRIPTION_SET:
+            return {WalDescriptionSet{memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {}, ""}};
+          case DESCRIPTION_DELETE:
+            return {WalDescriptionDelete{memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {}}};
         }
       });
       data_.emplace_back(timestamp_, data);

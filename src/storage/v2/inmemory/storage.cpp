@@ -119,16 +119,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
     add_case(TTL_OPERATION);
-    add_case(DESCRIPTION_SET_LABEL);
-    add_case(DESCRIPTION_DELETE_LABEL);
-    add_case(DESCRIPTION_SET_EDGE_TYPE);
-    add_case(DESCRIPTION_DELETE_EDGE_TYPE);
-    add_case(DESCRIPTION_SET_LABEL_PROPERTY);
-    add_case(DESCRIPTION_DELETE_LABEL_PROPERTY);
-    add_case(DESCRIPTION_SET_EDGE_TYPE_PROPERTY);
-    add_case(DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY);
-    add_case(DESCRIPTION_SET_DATABASE);
-    add_case(DESCRIPTION_DELETE_DATABASE);
+    add_case(DESCRIPTION_SET);
+    add_case(DESCRIPTION_DELETE);
     default:
       LOG_FATAL("Unknown MetadataDelta::Action");
   }
@@ -3343,84 +3335,27 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         });
         break;
       }
-      case MetadataDelta::Action::DESCRIPTION_SET_LABEL: {
+      case MetadataDelta::Action::DESCRIPTION_SET: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionSetLabel(encoder,
-                                                *mem_storage->name_id_mapper_,
-                                                md_delta.description_label_set.labels,
-                                                md_delta.description_label_set.description);
+          durability::EncodeDescriptionSet(encoder,
+                                           *mem_storage->name_id_mapper_,
+                                           md_delta.description_op.kind,
+                                           md_delta.description_op.labels,
+                                           md_delta.description_op.edge_type,
+                                           md_delta.description_op.property,
+                                           md_delta.description_op.description);
         });
         break;
       }
-      case MetadataDelta::Action::DESCRIPTION_DELETE_LABEL: {
+      case MetadataDelta::Action::DESCRIPTION_DELETE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionDeleteLabel(
-              encoder, *mem_storage->name_id_mapper_, md_delta.description_label_delete.labels);
+          durability::EncodeDescriptionDelete(encoder,
+                                              *mem_storage->name_id_mapper_,
+                                              md_delta.description_op.kind,
+                                              md_delta.description_op.labels,
+                                              md_delta.description_op.edge_type,
+                                              md_delta.description_op.property);
         });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_SET_EDGE_TYPE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionSetEdgeType(encoder,
-                                                   *mem_storage->name_id_mapper_,
-                                                   md_delta.description_edge_type_set.edge_type,
-                                                   md_delta.description_edge_type_set.description);
-        });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_DELETE_EDGE_TYPE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionDeleteEdgeType(encoder, *mem_storage->name_id_mapper_, md_delta.edge_type);
-        });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_SET_LABEL_PROPERTY: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionSetLabelProperty(encoder,
-                                                        *mem_storage->name_id_mapper_,
-                                                        md_delta.description_label_property_set.label_qualifier,
-                                                        md_delta.description_label_property_set.property,
-                                                        md_delta.description_label_property_set.description);
-        });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_DELETE_LABEL_PROPERTY: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionDeleteLabelProperty(encoder,
-                                                           *mem_storage->name_id_mapper_,
-                                                           md_delta.description_label_property_delete.label_qualifier,
-                                                           md_delta.description_label_property_delete.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_SET_EDGE_TYPE_PROPERTY: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionSetEdgeTypeProperty(encoder,
-                                                           *mem_storage->name_id_mapper_,
-                                                           md_delta.description_edge_type_property_set.edge_type,
-                                                           md_delta.description_edge_type_property_set.property,
-                                                           md_delta.description_edge_type_property_set.description);
-        });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionDeleteEdgeTypeProperty(encoder,
-                                                              *mem_storage->name_id_mapper_,
-                                                              md_delta.edge_type_property.edge_type,
-                                                              md_delta.edge_type_property.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_SET_DATABASE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionSetDatabase(encoder, md_delta.index_name);
-        });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_DELETE_DATABASE: {
-        apply_encode(op,
-                     [&](durability::BaseEncoder &encoder) { durability::EncodeDescriptionDeleteDatabase(encoder); });
         break;
       }
     }

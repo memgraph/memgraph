@@ -24,7 +24,7 @@
 
 namespace memgraph::storage {
 
-enum class DescriptionTargetKind : uint8_t { DATABASE, LABEL, EDGE_TYPE, PROPERTY };
+enum class DescriptionTargetKind : uint8_t { DATABASE, LABEL, EDGE_TYPE, PROPERTY, LABEL_PROPERTY, EDGE_TYPE_PROPERTY };
 
 struct DescriptionEntry {
   DescriptionTargetKind kind;

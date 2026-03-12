@@ -9908,6 +9908,9 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           description_store->SetDatabase(*desc);
           break;
         }
+        case DescriptionTargetKind::LABEL_PROPERTY:
+        case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+          throw RecoveryFailure("Unexpected description target kind in snapshot!");
       }
     }
 
@@ -11116,6 +11119,9 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
           snapshot.WriteString(entry.description);
           break;
         }
+        case DescriptionTargetKind::LABEL_PROPERTY:
+        case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+          break;
       }
     }
 

@@ -35,6 +35,7 @@
 import memgraph.utils.fnv;
 
 using memgraph::storage::Delta;
+using memgraph::storage::DescriptionTargetKind;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;
 using memgraph::storage::LabelIndexStats;
@@ -1878,55 +1879,51 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           spdlog::trace("TTL operation is not supported in community edition");
 #endif
         },
-        [&](WalDescriptionSetLabel const &data) {
-          spdlog::trace("   Delta {}. Set label description", current_delta_idx);
+        [&](WalDescriptionSet const &data) {
+          spdlog::trace("   Delta {}. Set description (kind={})", current_delta_idx, static_cast<int>(data.kind));
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          transaction->SetLabelDescription(data.labels, data.description);
+          switch (data.kind) {
+            case DescriptionTargetKind::DATABASE:
+              transaction->SetDatabaseDescription(data.description);
+              break;
+            case DescriptionTargetKind::LABEL:
+              transaction->SetLabelDescription(data.labels, data.description);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE:
+              transaction->SetEdgeTypeDescription(data.edge_type, data.description);
+              break;
+            case DescriptionTargetKind::LABEL_PROPERTY:
+              transaction->SetLabelPropertyDescription(data.labels, data.property, data.description);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+              transaction->SetEdgeTypePropertyDescription(data.edge_type, data.property, data.description);
+              break;
+            default:
+              break;
+          }
         },
-        [&](WalDescriptionDeleteLabel const &data) {
-          spdlog::trace("   Delta {}. Delete label description", current_delta_idx);
+        [&](WalDescriptionDelete const &data) {
+          spdlog::trace("   Delta {}. Delete description (kind={})", current_delta_idx, static_cast<int>(data.kind));
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          transaction->DeleteLabelDescription(data.labels);
-        },
-        [&](WalDescriptionSetEdgeType const &data) {
-          spdlog::trace("   Delta {}. Set edge type description", current_delta_idx);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          transaction->SetEdgeTypeDescription(data.edge_type, data.description);
-        },
-        [&](WalDescriptionDeleteEdgeType const &data) {
-          spdlog::trace("   Delta {}. Delete edge type description", current_delta_idx);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          transaction->DeleteEdgeTypeDescription(data.edge_type);
-        },
-        [&](WalDescriptionSetLabelProperty const &data) {
-          spdlog::trace("   Delta {}. Set label property description", current_delta_idx);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          transaction->SetLabelPropertyDescription(data.label_qualifier, data.property, data.description);
-        },
-        [&](WalDescriptionDeleteLabelProperty const &data) {
-          spdlog::trace("   Delta {}. Delete label property description", current_delta_idx);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          transaction->DeleteLabelPropertyDescription(data.label_qualifier, data.property);
-        },
-        [&](WalDescriptionSetEdgeTypeProperty const &data) {
-          spdlog::trace("   Delta {}. Set edge type property description", current_delta_idx);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          transaction->SetEdgeTypePropertyDescription(data.edge_type, data.property, data.description);
-        },
-        [&](WalDescriptionDeleteEdgeTypeProperty const &data) {
-          spdlog::trace("   Delta {}. Delete edge type property description", current_delta_idx);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          transaction->DeleteEdgeTypePropertyDescription(data.edge_type, data.property);
-        },
-        [&](WalDescriptionSetDatabase const &data) {
-          spdlog::trace("   Delta {}. Set database description", current_delta_idx);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          transaction->SetDatabaseDescription(data.description);
-        },
-        [&](WalDescriptionDeleteDatabase const &) {
-          spdlog::trace("   Delta {}. Delete database description", current_delta_idx);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          transaction->DeleteDatabaseDescription();
+          switch (data.kind) {
+            case DescriptionTargetKind::DATABASE:
+              transaction->DeleteDatabaseDescription();
+              break;
+            case DescriptionTargetKind::LABEL:
+              transaction->DeleteLabelDescription(data.labels);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE:
+              transaction->DeleteEdgeTypeDescription(data.edge_type);
+              break;
+            case DescriptionTargetKind::LABEL_PROPERTY:
+              transaction->DeleteLabelPropertyDescription(data.labels, data.property);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+              transaction->DeleteEdgeTypePropertyDescription(data.edge_type, data.property);
+              break;
+            default:
+              break;
+          }
         },
     };
 

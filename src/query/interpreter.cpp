@@ -6018,6 +6018,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   case storage::DescriptionTargetKind::DATABASE:
                     dba.SetDatabaseDescription(description);
                     break;
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                    break;
                 }
                 return QueryHandlerResult::COMMIT;
               },
@@ -6050,6 +6053,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     break;
                   case storage::DescriptionTargetKind::DATABASE:
                     dba.DeleteDatabaseDescription();
+                    break;
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
                     break;
                 }
                 return QueryHandlerResult::COMMIT;
@@ -6095,6 +6101,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   if (auto desc = dba.GetDatabaseDescription()) rows.push_back({TypedValue{*desc}});
                   break;
                 }
+                case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                  break;
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
@@ -6124,6 +6133,10 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     return "PROPERTY";
                   case storage::DescriptionTargetKind::DATABASE:
                     return "DATABASE";
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                    return "PROPERTY";
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                    return "PROPERTY";
                 }
               };
               for (auto const &e : entries) {

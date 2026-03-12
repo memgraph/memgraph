@@ -474,16 +474,8 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_UPDATE:
         case memgraph::storage::durability::Marker::DELTA_TTL_OPERATION:
         case memgraph::storage::durability::Marker::SECTION_DESCRIPTIONS:
-        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_SET_LABEL:
-        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_DELETE_LABEL:
-        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_SET_EDGE_TYPE:
-        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_DELETE_EDGE_TYPE:
-        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_SET_LABEL_PROPERTY:
-        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_DELETE_LABEL_PROPERTY:
-        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_SET_EDGE_TYPE_PROPERTY:
-        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_DELETE_EDGE_TYPE_PROPERTY:
-        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_SET_DATABASE:
-        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_DELETE_DATABASE:
+        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_SET:
+        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_DELETE:
         case memgraph::storage::durability::Marker::VALUE_FALSE:
         case memgraph::storage::durability::Marker::VALUE_TRUE:
           valid_marker = false;
