@@ -356,14 +356,78 @@ TEST_F(CoordinatorLogStoreTests, TestConf) {
   memgraph::coordination::LogStoreDurability log_store_durability{log_store_storage};
   CoordinatorLogStore log_store{GetLogger(), log_store_durability};
 
-  // conf log gets serialized as empty string, check that on restart reading from disk works correctly
-  std::string data = "anything";
-  auto log_term_buffer = buffer::alloc(sizeof(uint32_t) + data.size());
-  buffer_serializer bs{log_term_buffer};
-  bs.put_str(data);
-  auto log_entry_obj = cs_new<log_entry>(1, log_term_buffer, nuraft::log_val_type::conf);
+  // Create a real cluster_config — conf entries always carry serialized cluster configs
+  auto config = nuraft::cs_new<nuraft::cluster_config>(10, 9);
+  config->get_servers().push_back(nuraft::cs_new<nuraft::srv_config>(1, 0, "127.0.0.1:12000", "", false, 1));
+  auto conf_buf = config->serialize();
+
+  auto log_entry_obj = cs_new<log_entry>(1, conf_buf, nuraft::log_val_type::conf);
   log_store.append(log_entry_obj);
 
   CoordinatorLogStore log_store2{GetLogger(), log_store_durability};
   auto entry = log_store2.entry_at(1);
+  ASSERT_EQ(entry->get_val_type(), nuraft::log_val_type::conf);
+}
+
+// Reproduces the crash-loop bug: config entries have their NuRaft buffer discarded
+// during StoreEntryToDisk (stored as empty string). On restart, the reloaded buffer
+// is only 4 bytes. When NuRaft's become_leader() calls cluster_config::deserialize()
+// on it, it throws "not enough space" — crashing the coordinator in a loop.
+TEST_F(CoordinatorLogStoreTests, TestConfEntryBufferPreservedAfterRestart) {
+  // Build a realistic cluster_config with 3 servers (like a 3-coordinator HA cluster)
+  auto config = nuraft::cs_new<nuraft::cluster_config>(100 /*log_idx*/, 99 /*prev_log_idx*/);
+  config->get_servers().push_back(nuraft::cs_new<nuraft::srv_config>(1, 0, "127.0.0.1:12000", "", false, 1));
+  config->get_servers().push_back(nuraft::cs_new<nuraft::srv_config>(2, 0, "127.0.0.1:12001", "", false, 1));
+  config->get_servers().push_back(nuraft::cs_new<nuraft::srv_config>(3, 0, "127.0.0.1:12002", "", false, 1));
+
+  // Serialize the config — this is exactly what NuRaft does before appending a conf entry
+  auto original_buf = config->serialize();
+  ASSERT_GT(original_buf->size(), 4) << "Serialized cluster_config must be larger than 4 bytes";
+
+  // Store the conf entry, then destroy the log store (simulating process shutdown)
+  {
+    auto log_store_storage = std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestConfBufferPreserved");
+    memgraph::coordination::LogStoreDurability log_store_durability{.durability_store_ = log_store_storage};
+    CoordinatorLogStore log_store{GetLogger(), log_store_durability};
+
+    auto conf_entry = nuraft::cs_new<log_entry>(1, original_buf, nuraft::log_val_type::conf);
+    log_store.append(conf_entry);
+
+    ASSERT_EQ(log_store.next_slot(), 2);
+  }
+
+  // Recreate the log store from disk (simulating coordinator restart)
+  {
+    auto log_store_storage = std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestConfBufferPreserved");
+    memgraph::coordination::LogStoreDurability log_store_durability{log_store_storage};
+    CoordinatorLogStore log_store{GetLogger(), log_store_durability};
+
+    ASSERT_EQ(log_store.next_slot(), 2);
+
+    auto reloaded_entry = log_store.entry_at(1);
+    ASSERT_NE(reloaded_entry, nullptr);
+    ASSERT_EQ(reloaded_entry->get_val_type(), nuraft::log_val_type::conf);
+
+    // This is the critical check: the reloaded buffer must be large enough for
+    // cluster_config::deserialize(). With the bug, this is only 4 bytes (empty string
+    // prefix) and the deserialize call throws std::overflow_error("not enough space").
+    ASSERT_EQ(reloaded_entry->get_buf().size(), original_buf->size())
+        << "Config entry buffer was truncated during persistence! "
+           "Buffer size "
+        << reloaded_entry->get_buf().size() << " bytes, expected " << original_buf->size() << " bytes";
+
+    // This is exactly what NuRaft's become_leader() does with uncommitted config entries.
+    // With the bug, this throws std::overflow_error and kills the ASIO worker thread.
+    nuraft::ptr<nuraft::cluster_config> deserialized;
+    EXPECT_NO_THROW(deserialized = nuraft::cluster_config::deserialize(reloaded_entry->get_buf()))
+        << "cluster_config::deserialize() failed on reloaded conf entry — "
+           "this is the crash-loop root cause";
+
+    // Verify the deserialized config matches the original
+    if (deserialized) {
+      EXPECT_EQ(deserialized->get_log_idx(), 100);
+      EXPECT_EQ(deserialized->get_prev_log_idx(), 99);
+      EXPECT_EQ(deserialized->get_servers().size(), 3);
+    }
+  }
 }
