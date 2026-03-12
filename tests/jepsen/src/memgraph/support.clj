@@ -14,6 +14,7 @@
 (def mgpid  (str mgdir "/memgraph.pid"))
 (def sync-after-n-txn (atom 100000))
 (def storage-backup-dir-enabled (atom true))
+(def shutdown-signal (atom :-9))
 
 (defn get-rnd-snapshot-interval-sec
   "Gets the random snapshot interval sec between 5 and 300 secs."
@@ -91,7 +92,7 @@
 (defn stop-node!
   [test node]
   (info "Stopping Memgraph node" node)
-  (cu/stop-daemon! (:local-binary test) mgpid))
+  (cu/stop-daemon! (:local-binary test) mgpid @shutdown-signal))
 
 (defn db
   "Manage Memgraph DB on each node."
@@ -101,9 +102,11 @@
       (let [local-binary (:local-binary opts)
             nodes-config (:nodes-config opts)
             flush-after-n-txn (:sync-after-n-txn opts)
-            storage-backup-dir-enabled-arg (:storage-backup-dir-enabled opts)]
+            storage-backup-dir-enabled-arg (:storage-backup-dir-enabled opts)
+            shutdown-signal-arg (:shutdown-signal opts)]
         (reset! sync-after-n-txn flush-after-n-txn)
         (reset! storage-backup-dir-enabled storage-backup-dir-enabled-arg)
+        (reset! shutdown-signal shutdown-signal-arg)
         (c/su
          (c/exec :apt-get :update)
          (debian/install ['python3 'python3-dev]))
