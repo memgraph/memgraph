@@ -4278,6 +4278,8 @@ auto CypherMainVisitor::ExtractOperators(std::vector<antlr4::tree::ParseTree *> 
 
 antlrcpp::Any CypherMainVisitor::visitDescriptionQuery(MemgraphCypher::DescriptionQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "DescriptionQuery should have exactly one child!");
+  // Description string and labels are resolved at parse time, so caching would serve stale values.
+  query_info_.is_cacheable = false;
   auto *description_query = std::any_cast<DescriptionQuery *>(ctx->children[0]->accept(this));
   query_ = description_query;
   return description_query;

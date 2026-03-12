@@ -132,7 +132,7 @@ def test_description_replication(connection, test_name):
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Knows relationship";')
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON PROPERTY :Person(age) "Age of person";')
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON DATABASE memgraph "Test database";')
-    wait_for_replication_change(main_cursor, 6)
+    wait_for_replication_change(main_cursor, 8)
 
     # 2/
     expected_descriptions = sorted(
@@ -152,7 +152,7 @@ def test_description_replication(connection, test_name):
 
     # 3/
     execute_and_fetch_all(main_cursor, "DELETE DESCRIPTION ON LABEL :Person;")
-    wait_for_replication_change(main_cursor, 8)
+    wait_for_replication_change(main_cursor, 10)
 
     # 4/
     expected_after_delete = sorted(
@@ -171,7 +171,7 @@ def test_description_replication(connection, test_name):
 
     # 5/
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Updated knows relationship";')
-    wait_for_replication_change(main_cursor, 10)
+    wait_for_replication_change(main_cursor, 12)
 
     # 6/
     expected_after_update = sorted(
