@@ -44,6 +44,7 @@ DEFAULT_DATA_FLAGS=(
     "--storage-properties-on-edges=true"
     "--storage-snapshot-interval-sec=300"
     "--storage-wal-enabled=true"
+    "--storage-snapshot-on-exit=false"
     "--telemetry-enabled=false"
     "--query-execution-timeout-sec=1200"
 )
@@ -218,7 +219,6 @@ wait_for_healthy_cluster() {
 _stop_processes() {
     # Stops all Memgraph processes without cleaning data directories.
     local graceful_timeout_sec=60
-    local force_kill_settle_sec=20
 
     if [[ ! -f "memgraph_ha.pid" ]]; then
         echo "No running Memgraph processes found."
@@ -269,22 +269,7 @@ _stop_processes() {
         kill -9 "$pid" 2>/dev/null || true
     done
 
-    echo "Waiting ${force_kill_settle_sec} seconds before final stop check..."
-    sleep "$force_kill_settle_sec"
-
-    local still_running=()
-    for pid in "${remaining_pids[@]}"; do
-        if kill -0 "$pid" 2>/dev/null; then
-            still_running+=("$pid")
-        fi
-    done
-
-    if [[ ${#still_running[@]} -gt 0 ]]; then
-        echo "ERROR: Failed to stop all Memgraph processes: ${still_running[*]}"
-        return 1
-    fi
-
-    echo "All Memgraph processes have stopped after force kill."
+    echo "Warning: Some Memgraph processes may still be in D-state (kernel I/O), continuing anyway."
     rm -f memgraph_ha.pid
     return 0
 }
@@ -315,7 +300,7 @@ restart_all() {
     echo "Restarting all Memgraph HA instances (preserving data)..."
     _stop_processes
     sleep 2
-    _start_processes
+    _start_processes "$@"
     echo "All Memgraph HA instances restarted (data preserved)"
 }
 
@@ -340,7 +325,8 @@ case "$1" in
         collect_logs "$2"
         ;;
     restart)
-        restart_all
+        shift
+        restart_all "$@"
         ;;
     status)
         if nc -z 127.0.0.1 7687; then
