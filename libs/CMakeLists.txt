@@ -364,6 +364,15 @@ if(usearch_patch_result AND NOT usearch_patch_result EQUAL 0)
   message(STATUS "usearch patch already applied or skipped (exit code: ${usearch_patch_result})")
 endif()
 
+execute_process(
+  COMMAND patch -p1 --forward -i "${CMAKE_CURRENT_SOURCE_DIR}/usearch-tombstone-fix.patch"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/usearch"
+  RESULT_VARIABLE usearch_tombstone_patch_result
+)
+if(usearch_tombstone_patch_result AND NOT usearch_tombstone_patch_result EQUAL 0)
+  message(STATUS "usearch tombstone fix patch already applied or skipped (exit code: ${usearch_tombstone_patch_result})")
+endif()
+
 import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)
 set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
