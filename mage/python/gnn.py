@@ -165,6 +165,7 @@ def _pyg_import_data(
     y = pyg_dict.get("y")
     labels = pyg_dict.get("labels")
     edge_types = pyg_dict.get("edge_types")
+    idx_to_node_id = pyg_dict.get("idx_to_node_id")
 
     nodes_data: List[Dict[str, Any]] = []
     for idx in range(num_nodes):
@@ -175,16 +176,36 @@ def _pyg_import_data(
             nd["labels"] = [default_node_label]
 
         props: Dict[str, Any] = {}
+
+        # Named node properties from top-level JSON keys
+        if node_property_names:
+            for name in node_property_names:
+                if name in pyg_dict:
+                    vals = pyg_dict[name]
+                    if isinstance(vals, list) and idx < len(vals):
+                        props[name] = vals[idx]
+
+        # Fall back to x column mapping for properties not yet resolved
         if x is not None and idx < len(x):
             feats = x[idx]
             if node_property_names:
-                for i, n in enumerate(node_property_names):
-                    if i < len(feats):
-                        props[n] = feats[i]
-            else:
+                col_idx = 0
+                for name in node_property_names:
+                    if name not in props and col_idx < len(feats):
+                        props[name] = feats[col_idx]
+                    col_idx += 1
+            elif not props:
                 props["features"] = feats
+
         if y is not None and idx < len(y) and y[idx] is not None:
             props["y"] = y[idx]
+
+        # Store original Memgraph node ID if mapping is available
+        if idx_to_node_id:
+            orig_id = idx_to_node_id.get(str(idx))
+            if orig_id is not None:
+                props["_original_id"] = orig_id
+
         nd["properties"] = props
         nodes_data.append(nd)
 
@@ -197,15 +218,28 @@ def _pyg_import_data(
             "target_idx": di,
             "type": (edge_types[ei] if edge_types and ei < len(edge_types) else default_edge_type),
         }
-        props = {}
+        props: Dict[str, Any] = {}
+
+        # Named edge properties from top-level JSON keys
+        if edge_property_names:
+            for name in edge_property_names:
+                if name in pyg_dict:
+                    vals = pyg_dict[name]
+                    if isinstance(vals, list) and ei < len(vals):
+                        props[name] = vals[ei]
+
+        # Fall back to edge_attr column mapping for properties not yet resolved
         if edge_attr is not None and ei < len(edge_attr):
             feats = edge_attr[ei]
             if edge_property_names:
-                for i, n in enumerate(edge_property_names):
-                    if i < len(feats):
-                        props[n] = feats[i]
-            else:
+                col_idx = 0
+                for name in edge_property_names:
+                    if name not in props and col_idx < len(feats):
+                        props[name] = feats[col_idx]
+                    col_idx += 1
+            elif not props:
                 props["features"] = feats
+
         ed["properties"] = props
         edges_data.append(ed)
 
@@ -444,15 +478,68 @@ def pyg_import(
     default_edge_type: str = "CONNECTS",
     node_property_names: mgp.Nullable[mgp.List[str]] = None,
     edge_property_names: mgp.Nullable[mgp.List[str]] = None,
-) -> mgp.Record(nodes_created=int, edges_created=int):
-    """Import PyG data from a JSON string."""
+    update_existing: bool = False,
+) -> mgp.Record(nodes_created=int, edges_created=int, nodes_updated=int):
+    """Import PyG data from a JSON string.
+
+    When *update_existing* is ``True`` the procedure does **not** create new
+    nodes.  Instead it uses the ``idx_to_node_id`` mapping inside the JSON
+    payload to look up existing vertices by their Memgraph internal ID and
+    sets the requested *node_property_names* on them.  This is the typical
+    "export → inference → write-back" workflow.
+    """
     pyg_dict = json.loads(json_data)
+    node_props = list(node_property_names) if node_property_names else None
+    edge_props = list(edge_property_names) if edge_property_names else None
+
+    if update_existing:
+        idx_to_node_id = pyg_dict.get("idx_to_node_id", {})
+        num_nodes = pyg_dict.get("num_nodes", 0)
+        x = pyg_dict.get("x")
+        nodes_updated = 0
+
+        for idx in range(num_nodes):
+            orig_id = idx_to_node_id.get(str(idx))
+            if orig_id is None:
+                continue
+            try:
+                vertex = ctx.graph.get_vertex_by_id(orig_id)
+            except IndexError:
+                continue
+
+            # Named node properties from top-level JSON keys
+            if node_props:
+                for name in node_props:
+                    if name in pyg_dict:
+                        vals = pyg_dict[name]
+                        if isinstance(vals, list) and idx < len(vals):
+                            vertex.properties.set(name, vals[idx])
+
+            # Fall back to x column mapping for unresolved properties
+            if x is not None and idx < len(x):
+                feats = x[idx]
+                if node_props:
+                    col_idx = 0
+                    for name in node_props:
+                        if name not in pyg_dict and col_idx < len(feats):
+                            vertex.properties.set(name, feats[col_idx])
+                        col_idx += 1
+
+            nodes_updated += 1
+
+        return mgp.Record(
+            nodes_created=0,
+            edges_created=0,
+            nodes_updated=nodes_updated,
+        )
+
+    # -- create mode (default) -------------------------------------------
     nodes_data, edges_data = _pyg_import_data(
         pyg_dict,
         default_node_label,
         default_edge_type,
-        (list(node_property_names) if node_property_names else None),
-        (list(edge_property_names) if edge_property_names else None),
+        node_props,
+        edge_props,
     )
 
     idx_to_vertex: Dict[int, mgp.Vertex] = {}
@@ -484,6 +571,7 @@ def pyg_import(
     return mgp.Record(
         nodes_created=nodes_created,
         edges_created=edges_created,
+        nodes_updated=0,
     )
 
 
