@@ -4,6 +4,7 @@ args: &args
   - "--log-level=TRACE"
 
 base_setup_queries: &base_setup_queries
+  - "CREATE ROLE _dummy_role;"
   - "CREATE USER admin IDENTIFIED BY 'test';"
   - "CREATE USER user IDENTIFIED BY 'test';"
   - "GRANT ALL PRIVILEGES TO admin;"
@@ -15,6 +16,7 @@ base_setup_queries: &base_setup_queries
   - "CREATE DATABASE clean;"
 
 edge_type_filtering_setup_queries: &edge_type_filtering_setup_queries
+  - "CREATE ROLE _dummy_role;"
   - "CREATE USER admin IDENTIFIED BY 'test';"
   - "CREATE USER user IDENTIFIED BY 'test';"
   - "GRANT ALL PRIVILEGES TO admin;"
@@ -43,6 +45,7 @@ edge_type_filtering_setup_queries: &edge_type_filtering_setup_queries
   - "USE DATABASE memgraph"
 
 path_filtering_setup_queries: &path_filtering_setup_queries
+  - "CREATE ROLE _dummy_role;"
   - "CREATE USER admin IDENTIFIED BY 'test';"
   - "CREATE USER user IDENTIFIED BY 'test';"
   - "GRANT ALL PRIVILEGES TO admin;"
@@ -77,6 +80,7 @@ path_filtering_setup_queries: &path_filtering_setup_queries
   - "USE DATABASE memgraph"
 
 show_databases_w_user_setup_queries: &show_databases_w_user_setup_queries
+  - "CREATE ROLE _dummy_role;"
   - "CREATE USER admin IDENTIFIED BY 'test';"
   - "CREATE USER user IDENTIFIED BY 'test';"
   - "CREATE USER user2 IDENTIFIED BY 'test';"
