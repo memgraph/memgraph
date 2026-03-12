@@ -106,6 +106,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "ReloadSSL"sv;
     case NotificationCode::INDEX_CONSTRAINT_NAME_IGNORED:
       return "IndexConstraintNameIgnored"sv;
+    case NotificationCode::CREATE_USER:
+      return "CreateUser"sv;
   }
 }
 }  // namespace
