@@ -63,6 +63,7 @@ enum class NotificationCode : uint8_t {
   RELOAD_SSL,
   INDEX_CONSTRAINT_NAME_IGNORED,
   CREATE_USER,
+  CREATE_ROLE,
 };
 
 struct Notification {
