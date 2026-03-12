@@ -3654,7 +3654,8 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       nullptr /* schema_info */,
       [](auto in) { return std::nullopt; },
       "memgraph",
-      &ttl);
+      &ttl,
+      nullptr /* description_store */);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
   const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);
