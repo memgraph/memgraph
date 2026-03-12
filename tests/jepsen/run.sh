@@ -110,6 +110,8 @@ fi
 cd "$script_dir/jepsen"
 git fetch
 git checkout "$JEPSEN_COMMIT"
+cd "$script_dir/jepsen/jepsen"
+lein install
 cd "$script_dir"
 
 
