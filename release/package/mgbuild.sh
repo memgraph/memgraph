@@ -1188,7 +1188,7 @@ test_memgraph() {
       shift 1
       local DATASET='pokec'
       local DATASET_SIZE='medium'
-      local EXPORT_RESULTS_FILE='benchmark_result.json'
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1217,7 +1217,7 @@ test_memgraph() {
     ;;
     mgbench-supernode)
       shift 1
-      local EXPORT_RESULTS_FILE='benchmark_result.json'
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --export-results-file)
@@ -1231,7 +1231,7 @@ test_memgraph() {
     ;;
     mgbench-load-parquet)
       shift 1
-      local EXPORT_RESULTS_FILE='benchmark_result.json'
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --export-results-file)
@@ -1247,14 +1247,14 @@ test_memgraph() {
       shift 1
       local export_results_file="$default_benchmark_result_file"
       while [[ $# -gt 0 ]]; do
-        case "$1" in
+        local flag="$1"
+        case "$flag" in
           --export-results-file)
-            local results_file_arg="$2"
-            export_results_file="$results_file_arg"
+            export_results_file="$2"
             shift 2
           ;;
           *)
-            echo "Error: Unknown flag '$1' for mgbench-vector-search-index"
+            echo "Error: Unknown flag '$flag' for mgbench-vector-search-index"
             echo "Supported flags: --export-results-file"
             exit 1
           ;;
