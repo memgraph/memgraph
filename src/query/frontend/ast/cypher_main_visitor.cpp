@@ -4317,7 +4317,7 @@ antlrcpp::Any CypherMainVisitor::visitSetDescription(MemgraphCypher::SetDescript
   auto *description_query = storage_->Create<DescriptionQuery>();
   description_query->action_ = DescriptionQuery::Action::SET;
   FillDescriptionTarget(ctx->descriptionTarget(), description_query);
-  const auto token_pos = ctx->StringLiteral()->getSymbol()->getTokenIndex();
+  const auto token_pos = static_cast<int>(ctx->StringLiteral()->getSymbol()->getTokenIndex());
   description_query->description_ = std::string(parameters_->AtTokenPosition(token_pos).ValueString());
   return description_query;
 }
