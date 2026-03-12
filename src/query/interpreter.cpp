@@ -336,6 +336,7 @@ struct Callback {
   std::vector<std::string> header;
   using CallbackFunction = std::function<std::vector<std::vector<TypedValue>>()>;
   CallbackFunction fn;
+  std::shared_ptr<std::vector<Notification>> notifications_ptr;
 };
 
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionVisitor<TypedValue> &eval) {
@@ -1042,14 +1043,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   };
 
   switch (auth_query->action_) {
-    case AuthQuery::Action::CREATE_USER:
+    case AuthQuery::Action::CREATE_USER: {
       forbid_on_replica();
-      callback.header = {"status"};
+      auto runtime_notifications = std::make_shared<std::vector<Notification>>();
+      callback.notifications_ptr = runtime_notifications;
       callback.fn = [auth,
                      username,
                      password,
                      if_not_exists,
                      valid_enterprise_license = license_check_result.has_value(),
+                     runtime_notifications,
                      interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
@@ -1068,7 +1071,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                 username);
           }
           spdlog::warn("User '{}' already exists.", username);
-          return std::vector<std::vector<TypedValue>>{{TypedValue(fmt::format("User {} already exists.", username))}};
+          runtime_notifications->emplace_back(
+              SeverityLevel::WARNING, NotificationCode::CREATE_USER, fmt::format("User {} already exists.", username));
+          return std::vector<std::vector<TypedValue>>{};
         }
 
         // If the license is not valid we create users with admin access
@@ -1091,19 +1096,28 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                                ,
                                auth::UserOrRoleType::USER,
                                &*interpreter->system_transaction_);
-          return std::vector<std::vector<TypedValue>>{
-              {TypedValue(fmt::format("User {} created. All privileges granted.", username))}};
+          runtime_notifications->emplace_back(SeverityLevel::INFO,
+                                              NotificationCode::CREATE_USER,
+                                              fmt::format("User {} created. All privileges granted.", username));
+          return std::vector<std::vector<TypedValue>>{};
         }
 
         auto const roles = auth->GetRolenamesForUser(username, std::nullopt);
         if (!roles.empty()) {
-          return std::vector<std::vector<TypedValue>>{
-              {TypedValue(fmt::format("User {} created. Assigned built-in role {}.", username, roles[0].first))}};
+          runtime_notifications->emplace_back(
+              SeverityLevel::INFO,
+              NotificationCode::CREATE_USER,
+              fmt::format("User {} created. Assigned built-in role {}.", username, roles[0].first));
+        } else {
+          runtime_notifications->emplace_back(
+              SeverityLevel::INFO,
+              NotificationCode::CREATE_USER,
+              fmt::format("User {} created. No roles or privileges assigned.", username));
         }
-        return std::vector<std::vector<TypedValue>>{
-            {TypedValue(fmt::format("User {} created. No roles or privileges assigned.", username))}};
+        return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
+    }
     case AuthQuery::Action::DROP_USER:
       forbid_on_replica();
       callback.fn = [auth, username, interpreter = &interpreter] {
@@ -5021,7 +5035,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
 
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                InterpreterContext *interpreter_context, Interpreter &interpreter,
-                               std::optional<memgraph::dbms::DatabaseAccess> db_acc) {
+                               std::optional<memgraph::dbms::DatabaseAccess> db_acc,
+                               std::vector<Notification> *notifications) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
@@ -5042,13 +5057,19 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
   return PreparedQuery{.header = std::move(callback.header),
                        .privileges = std::move(parsed_query.required_privileges),
                        .query_handler = [handler = std::move(callback.fn),
+                                         runtime_notifications = std::move(callback.notifications_ptr),
+                                         notifications,
                                          pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](  // NOLINT
                                             AnyStream *stream,
                                             std::optional<int>
                                                 n) mutable -> std::optional<QueryHandlerResult> {
                          if (!pull_plan) {
-                           // Run the specific query
                            auto results = handler();
+                           if (runtime_notifications) {
+                             for (auto &notif : *runtime_notifications) {
+                               notifications->emplace_back(std::move(notif));
+                             }
+                           }
                            pull_plan = std::make_shared<PullPlanVector>(std::move(results));
                          }
 
@@ -8997,8 +9018,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       /// SYSTEM (Replication) PURE
-      prepared_query = PrepareAuthQuery(
-          std::move(parsed_query), in_explicit_transaction_, interpreter_context_, *this, current_db_.db_acc_);
+      prepared_query = PrepareAuthQuery(std::move(parsed_query),
+                                        in_explicit_transaction_,
+                                        interpreter_context_,
+                                        *this,
+                                        current_db_.db_acc_,
+                                        &query_execution->notifications);
     } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
       prepared_query = PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
