@@ -101,9 +101,10 @@ fi
 
 if [ ! -d "$script_dir/jepsen" ]; then
   echo "Cloning Jepsen $JEPSEN_COMMIT ..."
-  git clone http://mgdeps-cache:8000/git/jepsen.git "$script_dir/jepsen" &> /dev/null \
-  || git clone https://github.com/jepsen-io/jepsen.git "$script_dir/jepsen"
-  echo "Applying patch for Jepsen 0.3.5 ..."
+  # TODO: (andi) Uncomment once mg-deps cache is upgraded
+#   git clone http://mgdeps-cache:8000/git/jepsen.git "$script_dir/jepsen" &> /dev/null \
+#   || git clone https://github.com/jepsen-io/jepsen.git "$script_dir/jepsen"
+  git clone https://github.com/jepsen-io/jepsen.git "$script_dir/jepsen"
   cd "$script_dir/jepsen"
   git checkout "$JEPSEN_COMMIT"
   cd "$script_dir"
