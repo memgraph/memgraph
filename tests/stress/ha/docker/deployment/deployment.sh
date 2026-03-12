@@ -26,6 +26,9 @@ PROMETHEUS_SERVER_CONFIG="${SCRIPT_DIR}/prometheus/prometheus.yaml"
 COORDINATOR_CONTAINER="${CONTAINER_PREFIX}_coord_1"
 DATA_CONTAINER="${CONTAINER_PREFIX}_data_1"
 
+# Core dump configuration
+CORES_DIR="${CORES_DIR:-/tmp/mg-cores}"
+
 # Default flags for Memgraph Data Nodes
 DEFAULT_DATA_FLAGS=(
     "--storage-properties-on-edges=true"
@@ -72,6 +75,8 @@ start_data_container() {
     echo "Starting data container: $container_name"
     docker run -d --name "$container_name" \
         --network host \
+        --ulimit core=-1 \
+        -v "${CORES_DIR}:${CORES_DIR}" \
         -e MEMGRAPH_ENTERPRISE_LICENSE="$MEMGRAPH_ENTERPRISE_LICENSE" \
         -e MEMGRAPH_ORGANIZATION_NAME="$MEMGRAPH_ORGANIZATION_NAME" \
         "$MEMGRAPH_IMAGE" \
@@ -104,6 +109,8 @@ start_coord_container() {
     echo "Starting coordinator container: $container_name"
     docker run -d --name "$container_name" \
         --network host \
+        --ulimit core=-1 \
+        -v "${CORES_DIR}:${CORES_DIR}" \
         -e MEMGRAPH_ENTERPRISE_LICENSE="$MEMGRAPH_ENTERPRISE_LICENSE" \
         -e MEMGRAPH_ORGANIZATION_NAME="$MEMGRAPH_ORGANIZATION_NAME" \
         "$MEMGRAPH_IMAGE" \
@@ -421,11 +428,52 @@ collect_logs() {
     echo "Logs collected."
 }
 
+collect_cores() {
+    local dest_dir="${1:-stress_cores}"
+    mkdir -p "$dest_dir"
+
+    if [[ ! -d "$CORES_DIR" ]]; then
+        echo "No core dump directory found ($CORES_DIR), skipping."
+        return 0
+    fi
+
+    local found=false
+    for core in "$CORES_DIR"/core.*; do
+        [[ -f "$core" ]] || continue
+        found=true
+        local basename
+        basename=$(basename "$core")
+
+        echo "  Generating backtrace: $basename -> $dest_dir/${basename}.bt.txt.gz"
+        docker run --rm \
+            -v "${CORES_DIR}:${CORES_DIR}" \
+            --user root \
+            --entrypoint bash \
+            "$MEMGRAPH_IMAGE" \
+            -c "apt-get install -y -q --no-install-recommends gdb > /dev/null 2>&1 && \
+                gdb -batch -ex 'thread apply all bt' /usr/lib/memgraph/memgraph $core" \
+            | gzip > "$dest_dir/${basename}.bt.txt.gz"
+
+        echo "  Compressing core dump: $basename -> $dest_dir/${basename}.gz"
+        sudo gzip -c "$core" > "$dest_dir/${basename}.gz"
+
+        echo "  Removing raw core dump: $core"
+        sudo rm -f "$core"
+    done
+
+    if [[ "$found" == "false" ]]; then
+        echo "No core dumps found in $CORES_DIR"
+    else
+        echo "Core dumps collected."
+    fi
+}
+
 stop_memgraph() {
     echo "Stopping Memgraph HA Deployment (Docker)..."
 
-    # Collect logs before removing containers
+    # Collect logs and core dumps before removing containers
     collect_logs
+    collect_cores
 
     # Stop monitoring stack if running
     stop_monitoring
@@ -627,6 +675,7 @@ case "$1" in
         ;;
     collect-logs)
         collect_logs "$2"
+        collect_cores "$2"
         ;;
     status)
         check_status

@@ -162,6 +162,25 @@ This starts:
 - **Prometheus exporter:** `http://localhost:9100`
 - **Grafana:** `http://localhost:3000` (login: `admin`/`admin`)
 
+## Core Dumps (Docker HA)
+
+To capture core dumps from containers locally, configure the host kernel's core pattern before starting the deployment:
+
+```sh
+sudo mkdir -p /tmp/mg-cores
+sudo chmod 1777 /tmp/mg-cores
+echo '/tmp/mg-cores/core.%e.%p.%t' | sudo tee /proc/sys/kernel/core_pattern
+```
+
+Core files will be written to `/tmp/mg-cores/`. When the deployment is stopped, `deployment.sh stop` automatically compresses them with gzip and copies them to `stress_cores/`.
+
+> **Note:** `/proc/sys/kernel/core_pattern` is a host-wide kernel setting shared by all containers. This step is done automatically in CI.
+
+To make the `core_pattern` persistent across reboots:
+```sh
+echo 'kernel.core_pattern=/tmp/mg-cores/core.%e.%p.%t' | sudo tee -a /etc/sysctl.conf
+```
+
 ## EKS Deployment
 
 Use `ha/eks/deployment/deployment.sh` to deploy Memgraph HA on AWS EKS.
