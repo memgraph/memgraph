@@ -122,6 +122,12 @@ auto GetStorageSnapshotInterval() -> std::string;
 auto GetFileDownloadConnTimeoutSec() -> uint64_t;
 
 /**
+ * @brief Get the storage access timeout value
+ * @return uint64_t
+ */
+auto GetStorageAccessTimeoutSec() -> std::chrono::seconds;
+
+/**
  * @brief Attach observer to the global snapshor period variable
  */
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);

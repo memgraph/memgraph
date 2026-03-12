@@ -58,16 +58,14 @@ extern const Event ActiveTypeConstraints;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
-
 class SharedAccessTimeout : public utils::BasicException {
  public:
   SharedAccessTimeout()
       : utils::BasicException(
-            "Cannot get shared access to the storage. Try stopping other queries that are running in parallel. "
-            "You can increase the storage timeout (--storage-access-timeout-sec) to give your query more time to "
-            "complete. "
-            "For more information, see "
-            "https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
+            "Cannot get shared access to the storage. Try stopping other parallel queries. "
+            "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
+            "or via the --storage-access-timeout-sec flag. Run SHOW CONFIG to return the current value. "
+            "See: https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
   SPECIALIZE_GET_EXCEPTION_NAME(SharedAccessTimeout)
 };
 
@@ -75,13 +73,11 @@ class UniqueAccessTimeout : public utils::BasicException {
  public:
   UniqueAccessTimeout()
       : utils::BasicException(
-            "Cannot get unique access to the storage. Try stopping other queries that are running in parallel. "
-            "Note: periodic snapshots also hold access to the storage even when no user queries are running. "
-            "You can increase the storage timeout (--storage-access-timeout-sec) to give your query more time to "
-            "complete. "
-            "You can also configure the periodic snapshot to run at a different interval. "
-            "For more information, see "
-            "https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
+            "Cannot get unique access to the storage. Try stopping other parallel queries. "
+            "Note: Periodic snapshots also hold storage access. "
+            "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
+            "or via the --storage-access-timeout-sec flag. Run SHOW CONFIG to return the current value. "
+            "See: https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
   SPECIALIZE_GET_EXCEPTION_NAME(UniqueAccessTimeout)
 };
 
@@ -89,11 +85,10 @@ class ReadOnlyAccessTimeout : public utils::BasicException {
  public:
   ReadOnlyAccessTimeout()
       : utils::BasicException(
-            "Cannot get read only access to the storage. Try stopping other queries that are running in parallel. "
-            "You can increase the storage timeout (--storage-access-timeout-sec) to give your query more time to "
-            "complete. "
-            "For more information, see "
-            "https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
+            "Cannot get read-only access to the storage. Try stopping other parallel queries. "
+            "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
+            "or via the --storage-access-timeout-sec flag. Run SHOW CONFIG to return the current value. "
+            "See: https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReadOnlyAccessTimeout)
 };
 

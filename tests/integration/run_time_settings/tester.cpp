@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -8,8 +8,6 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
-#include <regex>
 
 #include <gflags/gflags.h>
 
@@ -43,17 +41,16 @@ int main(int argc, char **argv) {
   memgraph::communication::ClientContext context(FLAGS_use_ssl);
   memgraph::communication::bolt::Client client(context);
 
-  std::regex re(FLAGS_failure_message);
-
   try {
     client.Connect(endpoint, FLAGS_username, FLAGS_password);
   } catch (const memgraph::communication::bolt::ClientFatalException &e) {
     if (FLAGS_connection_should_fail) {
-      if (!FLAGS_failure_message.empty() && !std::regex_match(e.what(), re)) {
+      if (!FLAGS_failure_message.empty() && std::string(e.what()).find(FLAGS_failure_message) == std::string::npos) {
         LOG_FATAL(
             "The connection should have failed with an error message of '{}'' but "
             "instead it failed with '{}'",
-            FLAGS_failure_message, e.what());
+            FLAGS_failure_message,
+            e.what());
       }
       return 0;
     } else {
@@ -70,7 +67,7 @@ int main(int argc, char **argv) {
       client.Execute(query, {});
     } catch (const memgraph::communication::bolt::ClientQueryException &e) {
       if (!FLAGS_check_failure) {
-        if (!FLAGS_failure_message.empty() && std::regex_match(e.what(), re)) {
+        if (!FLAGS_failure_message.empty() && std::string(e.what()).find(FLAGS_failure_message) != std::string::npos) {
           LOG_FATAL(
               "The query should have succeeded or failed with an error "
               "message that isn't equal to '{}' but it failed with that error "
@@ -80,11 +77,12 @@ int main(int argc, char **argv) {
         continue;
       }
       if (FLAGS_should_fail) {
-        if (!FLAGS_failure_message.empty() && !std::regex_match(e.what(), re)) {
+        if (!FLAGS_failure_message.empty() && std::string(e.what()).find(FLAGS_failure_message) == std::string::npos) {
           LOG_FATAL(
               "The query should have failed with an error message of '{}'' but "
               "instead it failed with '{}'",
-              FLAGS_failure_message, e.what());
+              FLAGS_failure_message,
+              e.what());
         }
         return 0;
       } else {
