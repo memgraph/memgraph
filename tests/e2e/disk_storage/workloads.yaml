@@ -56,3 +56,14 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["disk_storage/update_storage_mode_memory_to_disk.py"]
     <<: *disk_storage
+
+  - name: "Tests metrics endpoint remains alive after switching to on-disk storage mode."
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/metrics_after_storage_mode_switch.py"]
+    cluster:
+      main:
+        args: ["--bolt-port", "7687", "--log-level", "TRACE", "--memory-limit", "150",
+               "--metrics-address", "127.0.0.1", "--metrics-port", "9091"]
+        log_file: "disk_storage.log"
+        setup_queries: []
+        validation_queries: []
