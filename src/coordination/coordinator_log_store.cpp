@@ -14,10 +14,8 @@
 #include "coordination/coordinator_log_store.hpp"
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/utils.hpp"
+#include "coordination/coordinator_state_manager.hpp"
 #include "utils/logging.hpp"
-
-#include "kvstore/kvstore.hpp"
 
 #include <ranges>
 
@@ -85,10 +83,23 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
           auto const term = j.at(kLogEntryTermKey).get<int>();
           auto const data = j.at(kLogEntryDataKey).get<std::string>();
           auto const value_type = j.at("val_type").get<int>();
-          auto log_term_buffer = buffer::alloc(sizeof(uint32_t) + data.size());
-          buffer_serializer bs{log_term_buffer};
-          bs.put_str(data);
-          logs_[id] = std::make_shared<log_entry>(term, log_term_buffer, static_cast<nuraft::log_val_type>(value_type));
+          auto const val_type_enum = static_cast<nuraft::log_val_type>(value_type);
+
+          nuraft::ptr<buffer> log_term_buffer;
+          if (val_type_enum == nuraft::log_val_type::conf && !data.empty()) {
+            // Config entries store a JSON-serialized cluster_config.
+            // Reconstruct the NuRaft binary buffer from it.
+            auto const config_json = nlohmann::json::parse(data);
+            std::shared_ptr<nuraft::cluster_config> config;
+            from_json(config_json, config);
+            log_term_buffer = config->serialize();
+          } else {
+            log_term_buffer = buffer::alloc(sizeof(uint32_t) + data.size());
+            buffer_serializer bs{log_term_buffer};
+            bs.put_str(data);
+          }
+
+          logs_[id] = std::make_shared<log_entry>(term, log_term_buffer, val_type_enum);
           logger_.Log(nuraft_log_level::TRACE,
                       fmt::format("Loaded entry from disk: ID {}, \n ENTRY {} ,\n DATA:{}, ", j.dump(), id, data));
         } catch (std::exception const &e) {
@@ -336,17 +347,17 @@ bool CoordinatorLogStore::flush() {
 bool CoordinatorLogStore::StoreEntryToDisk(const std::shared_ptr<log_entry> &clone, uint64_t key_id,
                                            bool is_newest_entry) {
   auto const data_string = [&clone, logger = &logger_]() -> std::string {
-    if (clone->get_val_type() != nuraft::log_val_type::app_log) {
-      // this is only our log, others nuraft creates and we
-      // don't have actions for them
-      logger->Log(nuraft_log_level::TRACE, "Received non-application log, data will be empty string.");
-      // behavior.
-      return {};
+    if (clone->get_val_type() == nuraft::log_val_type::conf) {
+      logger->Log(nuraft_log_level::TRACE, "Received config log, serializing cluster config as JSON.");
+      auto config = nuraft::cluster_config::deserialize(clone->get_buf());
+      nlohmann::json j;
+      to_json(j, *config);
+      return j.dump();
     }
     logger->Log(nuraft_log_level::TRACE, "Received application log, serializing it.");
-    buffer_serializer bs(clone->get_buf());  // data buff, nlohmann::json
+    buffer_serializer bs(clone->get_buf());
     return bs.get_str();
-  }();  // iile
+  }();
 
   auto const clone_val = static_cast<int>(clone->get_val_type());
   logger_.Log(nuraft_log_level::TRACE,
