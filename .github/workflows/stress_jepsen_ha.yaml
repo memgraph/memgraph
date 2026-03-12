@@ -40,6 +40,13 @@ on:
         description: "If enabled, .old dir will be used."
         type: boolean
         default: true
+      shutdown-signal:
+        description: "Signal to use for terminating instances (:-9 (SIGKILL), :-TERM (SIGTERM))"
+        type: choice
+        options:
+          - :-9
+          - :-TERM
+        default: :-9
 
 
   schedule:
@@ -85,6 +92,7 @@ jobs:
       num-tenants: ${{ matrix.mt && '3' || '1' }}
       concurrency: ""
       storage-backup-dir-enabled: true
+      shutdown-signal: :-9
     secrets: inherit
 
   run-manual-jepsen-tests:
@@ -98,6 +106,7 @@ jobs:
       num-tenants: ${{ inputs.num-tenants }}
       concurrency: ${{ inputs.concurrency }}
       storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
+      shutdown-signal: ${{ inputs.shutdown-signal }}
     secrets: inherit
 
   run-manual-jepsen-tests-mt:
@@ -111,4 +120,5 @@ jobs:
       num-tenants: ${{ inputs.num-tenants }}
       concurrency: ${{ inputs.concurrency }}
       storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
+      shutdown-signal: ${{ inputs.shutdown-signal }}
     secrets: inherit
