@@ -1059,11 +1059,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         }
 
         MG_ASSERT(password.IsString() || password.IsNull());
-        auto const created = auth->CreateUser(
+        auto const result = auth->CreateUser(
             username,
             password.IsString() ? std::make_optional(std::string(password.ValueString())) : std::nullopt,
             &*interpreter->system_transaction_);
-        if (!created) {
+        if (!result.created) {
           if (!if_not_exists) {
             throw UserAlreadyExistsException(
                 "User or role with name '{}' already exists. Use the SHOW USERS or SHOW ROLES query to list all users "
@@ -1104,10 +1104,22 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
         auto const roles = auth->GetRolenamesForUser(username, std::nullopt);
         if (!roles.empty()) {
-          runtime_notifications->emplace_back(
-              SeverityLevel::INFO,
-              NotificationCode::CREATE_USER,
-              fmt::format("User {} created. Assigned built-in role {}.", username, roles[0].first));
+          if (result.builtin_roles_created) {
+            runtime_notifications->emplace_back(
+                SeverityLevel::INFO,
+                NotificationCode::CREATE_USER,
+                fmt::format("User {} created. Built-in roles created: admin, readwrite, readonly. User {} assigned "
+                            "built-in role admin, with full access to all data and privileges.",
+                            username,
+                            username));
+          } else {
+            runtime_notifications->emplace_back(
+                SeverityLevel::INFO,
+                NotificationCode::CREATE_USER,
+                fmt::format("User {} created. Assigned built-in role admin, with full access to all data and "
+                            "privileges.",
+                            username));
+          }
         } else {
           runtime_notifications->emplace_back(
               SeverityLevel::INFO,
@@ -1166,9 +1178,15 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
-    case AuthQuery::Action::CREATE_ROLE:
+    case AuthQuery::Action::CREATE_ROLE: {
       forbid_on_replica();
-      callback.fn = [auth, roles = std::move(auth_query->roles_), if_not_exists, interpreter = &interpreter] {
+      auto runtime_notifications = std::make_shared<std::vector<Notification>>();
+      callback.notifications_ptr = runtime_notifications;
+      callback.fn = [auth,
+                     roles = std::move(auth_query->roles_),
+                     if_not_exists,
+                     runtime_notifications,
+                     interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
@@ -1186,10 +1204,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                 rolename);
           }
           spdlog::warn("Role '{}' already exists.", rolename);
+          runtime_notifications->emplace_back(
+              SeverityLevel::WARNING, NotificationCode::CREATE_ROLE, fmt::format("Role {} already exists.", rolename));
+        } else {
+          runtime_notifications->emplace_back(
+              SeverityLevel::INFO, NotificationCode::CREATE_ROLE, fmt::format("Role {} created.", rolename));
         }
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
+    }
     case AuthQuery::Action::DROP_ROLE:
       forbid_on_replica();
       callback.fn = [auth, roles = std::move(auth_query->roles_), interpreter = &interpreter] {

@@ -27,8 +27,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
  public:
   explicit AuthQueryHandler(memgraph::auth::SynchedAuth *auth);
 
-  bool CreateUser(const std::string &username, const std::optional<std::string> &password,
-                  system::Transaction *system_tx) override;
+  query::CreateUserResult CreateUser(const std::string &username, const std::optional<std::string> &password,
+                                     system::Transaction *system_tx) override;
 
   bool DropUser(const std::string &username, system::Transaction *system_tx) override;
 

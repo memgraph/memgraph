@@ -62,6 +62,7 @@ enum class NotificationCode : uint8_t {
   PARALLEL_EXECUTION_FALLBACK,
   RELOAD_SSL,
   CREATE_USER,
+  CREATE_ROLE,
 };
 
 struct Notification {
