@@ -4290,21 +4290,22 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
   if (ctx->LABEL()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::LABEL;
     for (auto *ln : ctx->labelName()) {
-      description_query->labels_.push_back(AddLabel(std::any_cast<std::string>(ln->accept(this))));
+      description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(ln->accept(this))));
     }
   } else if (ctx->PROPERTY()) {
-    description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY;
     if (ctx->EDGE()) {
       // PROPERTY EDGE TYPE :EdgeType(prop) — edge-type-scoped
+      description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY;
       description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));
     } else {
       // PROPERTY :Label(prop) — label-scoped
+      description_query->target_kind_ = storage::DescriptionTargetKind::LABEL_PROPERTY;
       for (auto *ln : ctx->labelName()) {
-        description_query->labels_.push_back(AddLabel(std::any_cast<std::string>(ln->accept(this))));
+        description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(ln->accept(this))));
       }
     }
     for (auto *pk : ctx->propertyKeyName()) {
-      description_query->properties_.push_back(std::any_cast<PropertyIx>(pk->accept(this)));
+      description_query->properties_.emplace_back(std::any_cast<PropertyIx>(pk->accept(this)));
     }
   } else if (ctx->EDGE()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE;
@@ -4320,7 +4321,7 @@ antlrcpp::Any CypherMainVisitor::visitSetDescription(MemgraphCypher::SetDescript
   description_query->action_ = DescriptionQuery::Action::SET;
   FillDescriptionTarget(ctx->descriptionTarget(), description_query);
   const auto token_pos = static_cast<int>(ctx->StringLiteral()->getSymbol()->getTokenIndex());
-  description_query->description_ = std::string(parameters_->AtTokenPosition(token_pos).ValueString());
+  description_query->description_ = parameters_->AtTokenPosition(token_pos).ValueString();
   return description_query;
 }
 

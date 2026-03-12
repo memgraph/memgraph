@@ -166,6 +166,43 @@ Feature: Server-side descriptions
             | 'PROPERTY' | 'Person(age)'  | 'Age of the person'  |
             | 'PROPERTY' | 'Student(age)' | 'Age of the student' |
 
+    Scenario: Multi-label property description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY :Person:Student(age) "Age of a student person"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON PROPERTY :Person:Student(age)
+            """
+        Then the result should be:
+            | description               |
+            | 'Age of a student person' |
+        When executing query:
+            """
+            SHOW DESCRIPTION ON PROPERTY :Person(age)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | kind       | name                   | description               |
+            | 'PROPERTY' | 'Person:Student(age)'  | 'Age of a student person' |
+        When executing query:
+            """
+            DELETE DESCRIPTION ON PROPERTY :Person:Student(age)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be empty
+
     Scenario: Show description on label with no description returns empty
         Given an empty graph
         When executing query:

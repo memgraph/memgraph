@@ -11,27 +11,25 @@
 
 #pragma once
 
+#include <algorithm>
 #include <map>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 
 namespace memgraph::storage {
 
-enum class DescriptionTargetKind : uint8_t { DATABASE, LABEL, EDGE_TYPE, PROPERTY, LABEL_PROPERTY, EDGE_TYPE_PROPERTY };
+enum class DescriptionTargetKind : uint8_t { DATABASE, LABEL, EDGE_TYPE, LABEL_PROPERTY, EDGE_TYPE_PROPERTY };
 
 struct DescriptionEntry {
   DescriptionTargetKind kind;
-  // Only meaningful when kind == PROPERTY: true for label-scoped, false for edge-type-scoped.
-  bool is_label_scoped{false};
-  // formatted: "Person:Student", "Person(age)", "KNOWS(weight)", or "" for DATABASE
-  std::string target_name;
+  std::vector<LabelId> labels;
+  EdgeTypeId edge_type{};
+  PropertyId property{};
   std::string description;
 };
 
@@ -53,7 +51,7 @@ class DescriptionStore {
   // EDGE_TYPE: single EdgeTypeId key.
   void SetEdgeType(EdgeTypeId id, std::string_view desc) { edge_type_descriptions_[id] = desc; }
 
-  bool DeleteEdgeType(EdgeTypeId id) { return edge_type_descriptions_.erase(id) > 0; }
+  bool DeleteEdgeType(EdgeTypeId id) { return edge_type_descriptions_.erase(id); }
 
   std::optional<std::string> GetEdgeType(EdgeTypeId id) const {
     auto it = edge_type_descriptions_.find(id);
@@ -84,7 +82,7 @@ class DescriptionStore {
   }
 
   bool DeleteEdgeTypeProperty(EdgeTypeId edge_type, PropertyId prop) {
-    return edge_type_property_descriptions_.erase({edge_type, prop}) > 0;
+    return edge_type_property_descriptions_.erase({edge_type, prop});
   }
 
   std::optional<std::string> GetEdgeTypeProperty(EdgeTypeId edge_type, PropertyId prop) const {
@@ -104,44 +102,35 @@ class DescriptionStore {
 
   std::optional<std::string> GetDatabase() const { return database_description_; }
 
-  std::vector<DescriptionEntry> GetAll(NameIdMapper &mapper) const {
+  std::vector<DescriptionEntry> GetAll() const {
     std::vector<DescriptionEntry> result;
-    result.reserve(label_descriptions_.size() + edge_type_descriptions_.size() + label_property_descriptions_.size() +
-                   edge_type_property_descriptions_.size() + (database_description_ ? 1 : 0));
+    const auto size = label_descriptions_.size() + edge_type_descriptions_.size() +
+                      label_property_descriptions_.size() + edge_type_property_descriptions_.size() +
+                      (database_description_ ? 1 : 0);
+    result.reserve(size);
 
     for (auto const &[ids, desc] : label_descriptions_) {
-      std::string name;
-      for (auto id : ids) {
-        if (!name.empty()) name += ':';
-        name += mapper.IdToName(id.AsUint());
-      }
-      result.push_back({DescriptionTargetKind::LABEL, false, std::move(name), desc});
+      result.push_back({.kind = DescriptionTargetKind::LABEL, .labels = ids, .description = desc});
     }
     for (auto const &[id, desc] : edge_type_descriptions_) {
-      result.push_back({DescriptionTargetKind::EDGE_TYPE, false, mapper.IdToName(id.AsUint()), desc});
+      result.push_back({.kind = DescriptionTargetKind::EDGE_TYPE, .edge_type = id, .description = desc});
     }
     for (auto const &[key, desc] : label_property_descriptions_) {
       auto const &[label_ids, prop_id] = key;
-      std::string name;
-      for (auto id : label_ids) {
-        if (!name.empty()) name += ':';
-        name += mapper.IdToName(id.AsUint());
-      }
-      name += '(';
-      name += mapper.IdToName(prop_id.AsUint());
-      name += ')';
-      result.push_back({DescriptionTargetKind::PROPERTY, true, std::move(name), desc});
+      result.push_back({.kind = DescriptionTargetKind::LABEL_PROPERTY,
+                        .labels = label_ids,
+                        .property = prop_id,
+                        .description = desc});
     }
     for (auto const &[key, desc] : edge_type_property_descriptions_) {
       auto const &[edge_type_id, prop_id] = key;
-      std::string name = mapper.IdToName(edge_type_id.AsUint());
-      name += '(';
-      name += mapper.IdToName(prop_id.AsUint());
-      name += ')';
-      result.push_back({DescriptionTargetKind::PROPERTY, false, std::move(name), desc});
+      result.push_back({.kind = DescriptionTargetKind::EDGE_TYPE_PROPERTY,
+                        .edge_type = edge_type_id,
+                        .property = prop_id,
+                        .description = desc});
     }
     if (database_description_) {
-      result.push_back({DescriptionTargetKind::DATABASE, false, std::string{}, *database_description_});
+      result.push_back({.kind = DescriptionTargetKind::DATABASE, .description = *database_description_});
     }
     return result;
   }

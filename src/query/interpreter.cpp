@@ -6006,20 +6006,16 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   case storage::DescriptionTargetKind::EDGE_TYPE:
                     dba.SetEdgeTypeDescription(edge_type_name, description);
                     break;
-                  case storage::DescriptionTargetKind::PROPERTY:
-                    if (!edge_type_name.empty()) {
-                      for (auto const &prop : property_names)
-                        dba.SetEdgeTypePropertyDescription(edge_type_name, prop, description);
-                    } else {
-                      for (auto const &prop : property_names)
-                        dba.SetLabelPropertyDescription(label_names, prop, description);
-                    }
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                    for (auto const &prop : property_names)
+                      dba.SetLabelPropertyDescription(label_names, prop, description);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                    for (auto const &prop : property_names)
+                      dba.SetEdgeTypePropertyDescription(edge_type_name, prop, description);
                     break;
                   case storage::DescriptionTargetKind::DATABASE:
                     dba.SetDatabaseDescription(description);
-                    break;
-                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
-                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
                     break;
                 }
                 return QueryHandlerResult::COMMIT;
@@ -6043,19 +6039,14 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   case storage::DescriptionTargetKind::EDGE_TYPE:
                     dba.DeleteEdgeTypeDescription(edge_type_name);
                     break;
-                  case storage::DescriptionTargetKind::PROPERTY:
-                    if (!edge_type_name.empty()) {
-                      for (auto const &prop : property_names)
-                        dba.DeleteEdgeTypePropertyDescription(edge_type_name, prop);
-                    } else {
-                      for (auto const &prop : property_names) dba.DeleteLabelPropertyDescription(label_names, prop);
-                    }
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                    for (auto const &prop : property_names) dba.DeleteLabelPropertyDescription(label_names, prop);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                    for (auto const &prop : property_names) dba.DeleteEdgeTypePropertyDescription(edge_type_name, prop);
                     break;
                   case storage::DescriptionTargetKind::DATABASE:
                     dba.DeleteDatabaseDescription();
-                    break;
-                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
-                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
                     break;
                 }
                 return QueryHandlerResult::COMMIT;
@@ -6084,26 +6075,22 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   if (auto desc = dba.GetEdgeTypeDescription(edge_type_name)) rows.push_back({TypedValue{*desc}});
                   break;
                 }
-                case storage::DescriptionTargetKind::PROPERTY:
-                  if (!edge_type_name.empty()) {
-                    for (auto const &prop : property_names) {
-                      if (auto desc = dba.GetEdgeTypePropertyDescription(edge_type_name, prop))
-                        rows.push_back({TypedValue{*desc}});
-                    }
-                  } else {
-                    for (auto const &prop : property_names) {
-                      if (auto desc = dba.GetLabelPropertyDescription(label_names, prop))
-                        rows.push_back({TypedValue{*desc}});
-                    }
+                case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                  for (auto const &prop : property_names) {
+                    if (auto desc = dba.GetLabelPropertyDescription(label_names, prop))
+                      rows.push_back({TypedValue{*desc}});
+                  }
+                  break;
+                case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                  for (auto const &prop : property_names) {
+                    if (auto desc = dba.GetEdgeTypePropertyDescription(edge_type_name, prop))
+                      rows.push_back({TypedValue{*desc}});
                   }
                   break;
                 case storage::DescriptionTargetKind::DATABASE: {
                   if (auto desc = dba.GetDatabaseDescription()) rows.push_back({TypedValue{*desc}});
                   break;
                 }
-                case storage::DescriptionTargetKind::LABEL_PROPERTY:
-                case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
-                  break;
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
@@ -6129,8 +6116,6 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     return "LABEL";
                   case storage::DescriptionTargetKind::EDGE_TYPE:
                     return "EDGE_TYPE";
-                  case storage::DescriptionTargetKind::PROPERTY:
-                    return "PROPERTY";
                   case storage::DescriptionTargetKind::DATABASE:
                     return "DATABASE";
                   case storage::DescriptionTargetKind::LABEL_PROPERTY:
@@ -6138,9 +6123,43 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     return "PROPERTY";
                 }
               };
+              auto entry_name = [&](auto const &e) -> std::string {
+                switch (e.kind) {
+                  case storage::DescriptionTargetKind::LABEL: {
+                    std::string name;
+                    for (auto id : e.labels) {
+                      if (!name.empty()) name += ':';
+                      name += dba.LabelToName(id);
+                    }
+                    return name;
+                  }
+                  case storage::DescriptionTargetKind::EDGE_TYPE:
+                    return dba.EdgeTypeToName(e.edge_type);
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY: {
+                    std::string name;
+                    for (auto id : e.labels) {
+                      if (!name.empty()) name += ':';
+                      name += dba.LabelToName(id);
+                    }
+                    name += '(';
+                    name += dba.PropertyToName(e.property);
+                    name += ')';
+                    return name;
+                  }
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY: {
+                    auto name = dba.EdgeTypeToName(e.edge_type);
+                    name += '(';
+                    name += dba.PropertyToName(e.property);
+                    name += ')';
+                    return name;
+                  }
+                  case storage::DescriptionTargetKind::DATABASE:
+                    return "";
+                }
+              };
               for (auto const &e : entries) {
                 rows.push_back({TypedValue{std::string{kind_to_str(e.kind)}},
-                                TypedValue{e.target_name},
+                                TypedValue{entry_name(e)},
                                 TypedValue{e.description}});
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));

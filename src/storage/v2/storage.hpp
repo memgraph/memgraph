@@ -642,7 +642,6 @@ class Storage {
 
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
-    // Description methods
     void SetLabelDescription(std::span<std::string const> label_names, std::string_view desc) {
       auto labels = ResolveLabels(label_names);
       storage_->description_store_.SetLabel(labels, desc);
@@ -656,7 +655,7 @@ class Storage {
 
     bool DeleteLabelDescription(std::span<std::string const> label_names) {
       auto labels = ResolveLabels(label_names);
-      bool deleted = storage_->description_store_.DeleteLabel(labels);
+      auto deleted = storage_->description_store_.DeleteLabel(labels);
       if (deleted) {
         transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
                                             DescriptionTargetKind::LABEL,
@@ -672,24 +671,24 @@ class Storage {
     }
 
     void SetEdgeTypeDescription(std::string_view name, std::string_view desc) {
-      auto et = storage_->NameToEdgeType(name);
-      storage_->description_store_.SetEdgeType(et, desc);
+      auto edge_type = storage_->NameToEdgeType(name);
+      storage_->description_store_.SetEdgeType(edge_type, desc);
       transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
                                           DescriptionTargetKind::EDGE_TYPE,
                                           std::vector<LabelId>{},
-                                          et,
+                                          edge_type,
                                           PropertyId{},
                                           std::string{desc});
     }
 
     bool DeleteEdgeTypeDescription(std::string_view name) {
-      auto et = storage_->NameToEdgeType(name);
-      bool deleted = storage_->description_store_.DeleteEdgeType(et);
+      auto edge_type = storage_->NameToEdgeType(name);
+      auto deleted = storage_->description_store_.DeleteEdgeType(edge_type);
       if (deleted) {
         transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
                                             DescriptionTargetKind::EDGE_TYPE,
                                             std::vector<LabelId>{},
-                                            et,
+                                            edge_type,
                                             PropertyId{});
       }
       return deleted;
@@ -734,26 +733,26 @@ class Storage {
 
     void SetEdgeTypePropertyDescription(std::string_view edge_type_name, std::string_view prop_name,
                                         std::string_view desc) {
-      auto et = storage_->NameToEdgeType(edge_type_name);
+      auto edge_type = storage_->NameToEdgeType(edge_type_name);
       auto prop = storage_->NameToProperty(prop_name);
-      storage_->description_store_.SetEdgeTypeProperty(et, prop, desc);
+      storage_->description_store_.SetEdgeTypeProperty(edge_type, prop, desc);
       transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
                                           DescriptionTargetKind::EDGE_TYPE_PROPERTY,
                                           std::vector<LabelId>{},
-                                          et,
+                                          edge_type,
                                           prop,
                                           std::string{desc});
     }
 
     bool DeleteEdgeTypePropertyDescription(std::string_view edge_type_name, std::string_view prop_name) {
-      auto et = storage_->NameToEdgeType(edge_type_name);
+      auto edge_type = storage_->NameToEdgeType(edge_type_name);
       auto prop = storage_->NameToProperty(prop_name);
-      bool deleted = storage_->description_store_.DeleteEdgeTypeProperty(et, prop);
+      bool deleted = storage_->description_store_.DeleteEdgeTypeProperty(edge_type, prop);
       if (deleted) {
         transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
                                             DescriptionTargetKind::EDGE_TYPE_PROPERTY,
                                             std::vector<LabelId>{},
-                                            et,
+                                            edge_type,
                                             prop);
       }
       return deleted;
@@ -789,15 +788,13 @@ class Storage {
 
     std::optional<std::string> GetDatabaseDescription() const { return storage_->description_store_.GetDatabase(); }
 
-    std::vector<DescriptionEntry> GetAllDescriptions() const {
-      return storage_->description_store_.GetAll(*storage_->name_id_mapper_);
-    }
+    std::vector<DescriptionEntry> GetAllDescriptions() const { return storage_->description_store_.GetAll(); }
 
    private:
     std::vector<LabelId> ResolveLabels(std::span<std::string const> names) const {
       std::vector<LabelId> ids;
       ids.reserve(names.size());
-      for (auto name : names) ids.push_back(storage_->NameToLabel(name));
+      for (const auto &name : names) ids.emplace_back(storage_->NameToLabel(name));
       return ids;
     }
 

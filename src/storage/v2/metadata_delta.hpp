@@ -462,14 +462,7 @@ struct MetadataDelta {
     VectorIndexSpec vector_index_spec;
     VectorEdgeIndexSpec vector_edge_index_spec;
     std::string index_name;
-
-    struct {
-      DescriptionTargetKind kind;
-      std::vector<LabelId> labels;
-      EdgeTypeId edge_type;
-      PropertyId property;
-      std::string description;
-    } description_op;
+    DescriptionEntry description_op;
   };
 };
 

@@ -9839,78 +9839,51 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     auto count = snapshot.ReadUint();
     if (!count) throw RecoveryFailure("Couldn't read description store count!");
 
+    auto read_string = [&](const char *what) {
+      auto val = snapshot.ReadString();
+      if (!val) throw RecoveryFailure(fmt::format("Couldn't read {} for description!", what));
+      return *val;
+    };
+
+    auto read_label_ids = [&] {
+      auto label_count = snapshot.ReadUint();
+      if (!label_count) throw RecoveryFailure("Couldn't read label count for description!");
+      std::vector<LabelId> ids;
+      ids.reserve(*label_count);
+      for (uint64_t j = 0; j < *label_count; ++j)
+        ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(read_string("label name"))));
+      return ids;
+    };
+
     for (uint64_t i = 0; i < *count; ++i) {
       auto kind_raw = snapshot.ReadUint();
       if (!kind_raw) throw RecoveryFailure("Couldn't read description target kind!");
       auto kind = static_cast<DescriptionTargetKind>(*kind_raw);
 
       switch (kind) {
-        case DescriptionTargetKind::LABEL: {
-          auto label_count = snapshot.ReadUint();
-          if (!label_count) throw RecoveryFailure("Couldn't read label count for description!");
-          std::vector<LabelId> label_ids;
-          label_ids.reserve(*label_count);
-          for (uint64_t j = 0; j < *label_count; ++j) {
-            auto name = snapshot.ReadString();
-            if (!name) throw RecoveryFailure("Couldn't read label name for description!");
-            label_ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(*name)));
-          }
-          auto desc = snapshot.ReadString();
-          if (!desc) throw RecoveryFailure("Couldn't read label description!");
-          description_store->SetLabel(label_ids, *desc);
+        case DescriptionTargetKind::LABEL:
+          description_store->SetLabel(read_label_ids(), read_string("label description"));
           break;
-        }
         case DescriptionTargetKind::EDGE_TYPE: {
-          auto name = snapshot.ReadString();
-          if (!name) throw RecoveryFailure("Couldn't read edge type name for description!");
-          auto desc = snapshot.ReadString();
-          if (!desc) throw RecoveryFailure("Couldn't read edge type description!");
-          auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(*name));
-          description_store->SetEdgeType(edge_type_id, *desc);
+          auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
+          description_store->SetEdgeType(et, read_string("edge type description"));
           break;
         }
-        case DescriptionTargetKind::PROPERTY: {
-          // Disambiguate label-scoped vs edge-type-scoped via a flag
-          auto is_label_scoped = snapshot.ReadBool();
-          if (!is_label_scoped) throw RecoveryFailure("Couldn't read property scope flag for description!");
-          if (*is_label_scoped) {
-            auto label_count = snapshot.ReadUint();
-            if (!label_count) throw RecoveryFailure("Couldn't read label qualifier count for description!");
-            std::vector<LabelId> label_ids;
-            label_ids.reserve(*label_count);
-            for (uint64_t j = 0; j < *label_count; ++j) {
-              auto name = snapshot.ReadString();
-              if (!name) throw RecoveryFailure("Couldn't read label qualifier name for description!");
-              label_ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(*name)));
-            }
-            auto prop_name = snapshot.ReadString();
-            if (!prop_name) throw RecoveryFailure("Couldn't read property name for description!");
-            auto desc = snapshot.ReadString();
-            if (!desc) throw RecoveryFailure("Couldn't read label-property description!");
-            auto prop_id = PropertyId::FromUint(name_id_mapper->NameToId(*prop_name));
-            description_store->SetLabelProperty(label_ids, prop_id, *desc);
-          } else {
-            auto et_name = snapshot.ReadString();
-            if (!et_name) throw RecoveryFailure("Couldn't read edge type name for property description!");
-            auto prop_name = snapshot.ReadString();
-            if (!prop_name) throw RecoveryFailure("Couldn't read property name for edge type description!");
-            auto desc = snapshot.ReadString();
-            if (!desc) throw RecoveryFailure("Couldn't read edge-type-property description!");
-            auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(*et_name));
-            auto prop_id = PropertyId::FromUint(name_id_mapper->NameToId(*prop_name));
-            description_store->SetEdgeTypeProperty(edge_type_id, prop_id, *desc);
-          }
+        case DescriptionTargetKind::LABEL_PROPERTY: {
+          auto labels = read_label_ids();
+          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+          description_store->SetLabelProperty(labels, prop, read_string("label-property description"));
           break;
         }
-        case DescriptionTargetKind::DATABASE: {
-          auto desc = snapshot.ReadString();
-          if (!desc) throw RecoveryFailure("Couldn't read database description!");
-          description_store->SetDatabase(*desc);
+        case DescriptionTargetKind::EDGE_TYPE_PROPERTY: {
+          auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
+          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+          description_store->SetEdgeTypeProperty(et, prop, read_string("edge-type-property description"));
           break;
         }
-        case DescriptionTargetKind::LABEL_PROPERTY:
-        case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
-          throw RecoveryFailure("Unexpected description target kind in snapshot!");
+        case DescriptionTargetKind::DATABASE:
+          description_store->SetDatabase(read_string("database description"));
+          break;
       }
     }
 
@@ -11068,59 +11041,39 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     offset_descriptions = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_DESCRIPTIONS);
 
-    auto const entries = storage->description_store_.GetAll(*storage->name_id_mapper_);
+    auto const entries = storage->description_store_.GetAll();
     snapshot.WriteUint(entries.size());
 
-    auto parse_label_names = [](std::string_view label_part) {
-      std::vector<std::string> names;
-      std::string_view rest = label_part;
-      while (!rest.empty()) {
-        auto colon = rest.find(':');
-        auto token = colon == std::string_view::npos ? rest : rest.substr(0, colon);
-        if (!token.empty()) names.emplace_back(token);
-        if (colon == std::string_view::npos) break;
-        rest = rest.substr(colon + 1);
-      }
-      return names;
+    auto write_label_names = [&](std::span<LabelId const> labels) {
+      snapshot.WriteUint(labels.size());
+      for (auto id : labels) snapshot.WriteString(storage->name_id_mapper_->IdToName(id.AsUint()));
     };
+
+    auto id_to_name = [&](auto id) { return storage->name_id_mapper_->IdToName(id.AsUint()); };
 
     for (auto const &entry : entries) {
       snapshot.WriteUint(static_cast<uint64_t>(entry.kind));
       switch (entry.kind) {
-        case DescriptionTargetKind::LABEL: {
-          auto const label_names = parse_label_names(entry.target_name);
-          snapshot.WriteUint(label_names.size());
-          for (auto const &name : label_names) snapshot.WriteString(name);
+        case DescriptionTargetKind::LABEL:
+          write_label_names(entry.labels);
           snapshot.WriteString(entry.description);
           break;
-        }
-        case DescriptionTargetKind::EDGE_TYPE: {
-          snapshot.WriteString(entry.target_name);
+        case DescriptionTargetKind::EDGE_TYPE:
+          snapshot.WriteString(id_to_name(entry.edge_type));
           snapshot.WriteString(entry.description);
           break;
-        }
-        case DescriptionTargetKind::PROPERTY: {
-          snapshot.WriteBool(entry.is_label_scoped);
-          auto paren_pos = entry.target_name.rfind('(');
-          auto prop_name = entry.target_name.substr(paren_pos + 1, entry.target_name.size() - paren_pos - 2);
-          auto qualifier = entry.target_name.substr(0, paren_pos);
-          if (entry.is_label_scoped) {
-            auto const label_names = parse_label_names(qualifier);
-            snapshot.WriteUint(label_names.size());
-            for (auto const &name : label_names) snapshot.WriteString(name);
-          } else {
-            snapshot.WriteString(qualifier);
-          }
-          snapshot.WriteString(prop_name);
-          snapshot.WriteString(entry.description);
-          break;
-        }
-        case DescriptionTargetKind::DATABASE: {
-          snapshot.WriteString(entry.description);
-          break;
-        }
         case DescriptionTargetKind::LABEL_PROPERTY:
+          write_label_names(entry.labels);
+          snapshot.WriteString(id_to_name(entry.property));
+          snapshot.WriteString(entry.description);
+          break;
         case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+          snapshot.WriteString(id_to_name(entry.edge_type));
+          snapshot.WriteString(id_to_name(entry.property));
+          snapshot.WriteString(entry.description);
+          break;
+        case DescriptionTargetKind::DATABASE:
+          snapshot.WriteString(entry.description);
           break;
       }
     }

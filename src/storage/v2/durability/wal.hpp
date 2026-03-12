@@ -565,7 +565,6 @@ void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, c
 void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorEdgeIndexSpec &spec);
 void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name);
 
-// Description encoding functions
 void EncodeDescriptionSet(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
                           std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
                           std::string_view description);

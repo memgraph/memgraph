@@ -606,73 +606,73 @@ auto ReadDescriptionFields(BaseDecoder *decoder) {
   if (!kind_val) throw RecoveryFailure(kInvalidWalErrorMessage);
   auto kind = static_cast<DescriptionTargetKind>(*kind_val);
 
-  Fields f{.kind = kind};
+  Fields fields{.kind = kind};
   switch (kind) {
     case DescriptionTargetKind::DATABASE:
       break;
     case DescriptionTargetKind::LABEL: {
       auto count = decoder->ReadUint();
       if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
-      f.labels.reserve(*count);
+      fields.labels.reserve(*count);
       for (uint64_t i = 0; i < *count; ++i) {
         auto s = decoder->ReadString();
         if (!s) throw RecoveryFailure(kInvalidWalErrorMessage);
-        f.labels.emplace_back(*std::move(s));
+        fields.labels.emplace_back(*std::move(s));
       }
       break;
     }
     case DescriptionTargetKind::EDGE_TYPE: {
-      auto s = decoder->ReadString();
-      if (!s) throw RecoveryFailure(kInvalidWalErrorMessage);
-      f.edge_type = *std::move(s);
+      auto string = decoder->ReadString();
+      if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
+      fields.edge_type = *std::move(string);
       break;
     }
     case DescriptionTargetKind::LABEL_PROPERTY: {
       auto count = decoder->ReadUint();
       if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
-      f.labels.reserve(*count);
+      fields.labels.reserve(*count);
       for (uint64_t i = 0; i < *count; ++i) {
-        auto s = decoder->ReadString();
-        if (!s) throw RecoveryFailure(kInvalidWalErrorMessage);
-        f.labels.emplace_back(*std::move(s));
+        auto string = decoder->ReadString();
+        if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
+        fields.labels.emplace_back(*std::move(string));
       }
       auto prop = decoder->ReadString();
       if (!prop) throw RecoveryFailure(kInvalidWalErrorMessage);
-      f.property = *std::move(prop);
+      fields.property = *std::move(prop);
       break;
     }
     case DescriptionTargetKind::EDGE_TYPE_PROPERTY: {
-      auto et = decoder->ReadString();
-      if (!et) throw RecoveryFailure(kInvalidWalErrorMessage);
-      f.edge_type = *std::move(et);
+      auto edge_type = decoder->ReadString();
+      if (!edge_type) throw RecoveryFailure(kInvalidWalErrorMessage);
+      fields.edge_type = *std::move(edge_type);
       auto prop = decoder->ReadString();
       if (!prop) throw RecoveryFailure(kInvalidWalErrorMessage);
-      f.property = *std::move(prop);
+      fields.property = *std::move(prop);
       break;
     }
     default:
       throw RecoveryFailure(kInvalidWalErrorMessage);
   }
-  return f;
+  return fields;
 }
 
 auto ReadDescriptionSet(BaseDecoder *decoder) -> WalDescriptionSet {
-  auto f = ReadDescriptionFields(decoder);
+  auto fields = ReadDescriptionFields(decoder);
   auto desc = decoder->ReadString();
   if (!desc) throw RecoveryFailure(kInvalidWalErrorMessage);
-  return {.kind = f.kind,
-          .labels = std::move(f.labels),
-          .edge_type = std::move(f.edge_type),
-          .property = std::move(f.property),
+  return {.kind = fields.kind,
+          .labels = std::move(fields.labels),
+          .edge_type = std::move(fields.edge_type),
+          .property = std::move(fields.property),
           .description = *std::move(desc)};
 }
 
 auto ReadDescriptionDelete(BaseDecoder *decoder) -> WalDescriptionDelete {
-  auto f = ReadDescriptionFields(decoder);
-  return {.kind = f.kind,
-          .labels = std::move(f.labels),
-          .edge_type = std::move(f.edge_type),
-          .property = std::move(f.property)};
+  auto fields = ReadDescriptionFields(decoder);
+  return {.kind = fields.kind,
+          .labels = std::move(fields.labels),
+          .edge_type = std::move(fields.edge_type),
+          .property = std::move(fields.property)};
 }
 
 void SkipDescriptionFields(BaseDecoder *decoder) {

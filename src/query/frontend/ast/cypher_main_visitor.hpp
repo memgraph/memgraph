@@ -18,7 +18,6 @@
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #pragma pop_macro("EOF")  // bring EOF back
 
-#include "query/frontend/ast/ast_storage.hpp"
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
