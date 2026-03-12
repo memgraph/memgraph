@@ -72,6 +72,47 @@ Feature: ComparabilityEquivalence
       | [1, 2] < 'abc' |
       | {a: 1} < [1]   |
 
+  # Incomparability - Duration comparison
+  # Per GQL/openCypher spec, durations are incomparable
+
+  Scenario Outline: Duration comparison returns null
+    Given any graph
+    When executing query:
+      """
+      RETURN <expr> AS result
+      """
+    Then the result should be:
+      | result |
+      | null   |
+
+    Examples:
+      | expr                                   |
+      | duration('P1D') < duration('P2D')      |
+      | duration('PT1H') > duration('PT30M')   |
+      | duration('P1D') <= duration('P1D')     |
+      | duration('P2D') >= duration('P1D')     |
+
+  # Incomparability - NaN ordering comparison
+  # NaN is incomparable for ordering operators (<, >, <=, >=)
+  # Note: NaN equality follows IEEE 754 (NaN = NaN is false, NaN <> NaN is true)
+
+  Scenario Outline: NaN ordering comparison returns null
+    Given any graph
+    When executing query:
+      """
+      RETURN <expr> AS result
+      """
+    Then the result should be:
+      | result |
+      | null   |
+
+    Examples:
+      | expr              |
+      | (0.0/0.0) < 1     |
+      | 1 > (0.0/0.0)     |
+      | (0.0/0.0) <= 1    |
+      | (0.0/0.0) >= 1    |
+
   # Orderability - ORDER BY with null
 
   Scenario: ORDER BY places null last in ascending order

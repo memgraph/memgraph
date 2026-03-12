@@ -6,7 +6,7 @@ Feature: WorkingWithNull
     Given an empty graph
     And having executed:
       """
-      CREATE (n:Person {name: 'Alice'})
+      CREATE (n:Person {name: 'Marko'})
       """
     When executing query:
       """
