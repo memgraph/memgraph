@@ -6134,7 +6134,6 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   case storage::DescriptionTargetKind::DATABASE:
                     return "DATABASE";
                   case storage::DescriptionTargetKind::LABEL_PROPERTY:
-                    return "PROPERTY";
                   case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
                     return "PROPERTY";
                 }

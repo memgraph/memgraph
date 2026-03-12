@@ -660,12 +660,19 @@ auto ReadDescriptionSet(BaseDecoder *decoder) -> WalDescriptionSet {
   auto f = ReadDescriptionFields(decoder);
   auto desc = decoder->ReadString();
   if (!desc) throw RecoveryFailure(kInvalidWalErrorMessage);
-  return {f.kind, std::move(f.labels), std::move(f.edge_type), std::move(f.property), *std::move(desc)};
+  return {.kind = f.kind,
+          .labels = std::move(f.labels),
+          .edge_type = std::move(f.edge_type),
+          .property = std::move(f.property),
+          .description = *std::move(desc)};
 }
 
 auto ReadDescriptionDelete(BaseDecoder *decoder) -> WalDescriptionDelete {
   auto f = ReadDescriptionFields(decoder);
-  return {f.kind, std::move(f.labels), std::move(f.edge_type), std::move(f.property)};
+  return {.kind = f.kind,
+          .labels = std::move(f.labels),
+          .edge_type = std::move(f.edge_type),
+          .property = std::move(f.property)};
 }
 
 void SkipDescriptionFields(BaseDecoder *decoder) {
