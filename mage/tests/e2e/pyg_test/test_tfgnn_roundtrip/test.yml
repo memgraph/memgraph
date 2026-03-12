@@ -1,8 +1,7 @@
 query: >
-  CALL gnn.pyg_export(["feat"], ["weight"], "class")
-  YIELD json_data
+  CALL gnn.tf_export(["score"], ["weight"]) YIELD json_data
   WITH json_data
-  CALL gnn.pyg_import(json_data, "Imported", "IMP", ["feat"], ["weight"])
+  CALL gnn.tf_import(json_data, "TfNode", "TF_EDGE")
   YIELD nodes_created, edges_created
   RETURN nodes_created, edges_created;
 output:
