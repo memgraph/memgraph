@@ -30,22 +30,7 @@ Feature: Server-side descriptions
             | description          |
             | 'Knows relationship' |
 
-    Scenario: Set and show property description (bare)
-        Given an empty graph
-        When executing query:
-            """
-            SET DESCRIPTION ON PROPERTY name "The name of the entity"
-            """
-        Then the result should be empty
-        When executing query:
-            """
-            SHOW DESCRIPTION ON PROPERTY name
-            """
-        Then the result should be:
-            | description              |
-            | 'The name of the entity' |
-
-    Scenario: Set property description with label qualifier
+    Scenario: Set and show label-scoped property description
         Given an empty graph
         When executing query:
             """
@@ -59,11 +44,6 @@ Feature: Server-side descriptions
         Then the result should be:
             | description         |
             | 'Age of the person' |
-        When executing query:
-            """
-            SHOW DESCRIPTION ON PROPERTY age
-            """
-        Then the result should be empty
 
     Scenario: Show all descriptions
         Given an empty graph
@@ -74,7 +54,7 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SET DESCRIPTION ON PROPERTY name "The name"
+            SET DESCRIPTION ON PROPERTY :Person(name) "Name of the person"
             """
         Then the result should be empty
         When executing query:
@@ -82,9 +62,9 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | kind       | name     | description     |
-            | 'LABEL'    | 'Person' | 'A person node' |
-            | 'PROPERTY' | 'name'   | 'The name'      |
+            | kind       | name          | description         |
+            | 'LABEL'    | 'Person'      | 'A person node'     |
+            | 'PROPERTY' | 'Person(name)'| 'Name of the person'|
 
     Scenario: Delete description
         Given an empty graph
@@ -182,9 +162,9 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | kind       | name          | description          |
-            | 'PROPERTY' | 'Person(age)' | 'Age of the person'  |
-            | 'PROPERTY' | 'Student(age)'| 'Age of the student' |
+            | kind       | name           | description          |
+            | 'PROPERTY' | 'Person(age)'  | 'Age of the person'  |
+            | 'PROPERTY' | 'Student(age)' | 'Age of the student' |
 
     Scenario: Show description on label with no description returns empty
         Given an empty graph

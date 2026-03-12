@@ -905,10 +905,9 @@ showDescriptions
     ;
 
 descriptionTarget
-    : LABEL COLON labelName ( COLON labelName )*
-    | EDGE TYPE COLON labelName
-    | PROPERTY LPAREN propertyKeyName ( COMMA propertyKeyName )* RPAREN
-    | PROPERTY COLON labelName ( COLON labelName )* LPAREN propertyKeyName ( COMMA propertyKeyName )* RPAREN
-    | PROPERTY propertyKeyName
+    : LABEL ':' labelName ( ':' labelName )*
+    | EDGE TYPE ':' labelName
+    | PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | PROPERTY EDGE TYPE ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
     | DATABASE symbolicName
     ;

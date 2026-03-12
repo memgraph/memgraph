@@ -992,15 +992,13 @@ class DbAccessor final {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 
-  void SetLabelDescription(std::span<std::string_view const> labels, std::string_view desc) {
+  void SetLabelDescription(std::span<std::string const> labels, std::string_view desc) {
     accessor_->SetLabelDescription(labels, desc);
   }
 
-  bool DeleteLabelDescription(std::span<std::string_view const> labels) {
-    return accessor_->DeleteLabelDescription(labels);
-  }
+  bool DeleteLabelDescription(std::span<std::string const> labels) { return accessor_->DeleteLabelDescription(labels); }
 
-  std::optional<std::string> GetLabelDescription(std::span<std::string_view const> labels) const {
+  std::optional<std::string> GetLabelDescription(std::span<std::string const> labels) const {
     return accessor_->GetLabelDescription(labels);
   }
 
@@ -1014,18 +1012,32 @@ class DbAccessor final {
     return accessor_->GetEdgeTypeDescription(name);
   }
 
-  void SetPropertyDescription(std::span<std::string_view const> label_qualifier, std::string_view prop_name,
-                              std::string_view desc) {
-    accessor_->SetPropertyDescription(label_qualifier, prop_name, desc);
+  void SetLabelPropertyDescription(std::span<std::string const> label_qualifier, std::string_view prop_name,
+                                   std::string_view desc) {
+    accessor_->SetLabelPropertyDescription(label_qualifier, prop_name, desc);
   }
 
-  bool DeletePropertyDescription(std::span<std::string_view const> label_qualifier, std::string_view prop_name) {
-    return accessor_->DeletePropertyDescription(label_qualifier, prop_name);
+  bool DeleteLabelPropertyDescription(std::span<std::string const> label_qualifier, std::string_view prop_name) {
+    return accessor_->DeleteLabelPropertyDescription(label_qualifier, prop_name);
   }
 
-  std::optional<std::string> GetPropertyDescription(std::span<std::string_view const> label_qualifier,
-                                                    std::string_view prop_name) const {
-    return accessor_->GetPropertyDescription(label_qualifier, prop_name);
+  std::optional<std::string> GetLabelPropertyDescription(std::span<std::string const> label_qualifier,
+                                                         std::string_view prop_name) const {
+    return accessor_->GetLabelPropertyDescription(label_qualifier, prop_name);
+  }
+
+  void SetEdgeTypePropertyDescription(std::string_view edge_type_name, std::string_view prop_name,
+                                      std::string_view desc) {
+    accessor_->SetEdgeTypePropertyDescription(edge_type_name, prop_name, desc);
+  }
+
+  bool DeleteEdgeTypePropertyDescription(std::string_view edge_type_name, std::string_view prop_name) {
+    return accessor_->DeleteEdgeTypePropertyDescription(edge_type_name, prop_name);
+  }
+
+  std::optional<std::string> GetEdgeTypePropertyDescription(std::string_view edge_type_name,
+                                                            std::string_view prop_name) const {
+    return accessor_->GetEdgeTypePropertyDescription(edge_type_name, prop_name);
   }
 
   void SetDatabaseDescription(std::string_view desc) { accessor_->SetDatabaseDescription(desc); }

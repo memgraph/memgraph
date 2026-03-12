@@ -11,7 +11,8 @@
 
 #pragma once
 
-#include <cstdio>          // Ensure EOF macro is defined
+#include <cstdio>  // Ensure EOF macro is defined
+#include "frontend/ast/ast.hpp"
 #pragma push_macro("EOF")  // hide EOF for antlr headers
 #include <support/Any.h>
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
@@ -1366,7 +1367,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDeleteDescription(MemgraphCypher::DeleteDescriptionContext *ctx) override;
   antlrcpp::Any visitShowDescriptionQuery(MemgraphCypher::ShowDescriptionQueryContext *ctx) override;
   antlrcpp::Any visitShowDescriptions(MemgraphCypher::ShowDescriptionsContext *ctx) override;
-  antlrcpp::Any visitDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx) override;
+  void FillDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx, DescriptionQuery *description_query);
 
  public:
   Query *query() { return query_; }

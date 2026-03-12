@@ -4278,72 +4278,68 @@ auto CypherMainVisitor::ExtractOperators(std::vector<antlr4::tree::ParseTree *> 
 
 antlrcpp::Any CypherMainVisitor::visitDescriptionQuery(MemgraphCypher::DescriptionQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "DescriptionQuery should have exactly one child!");
-  auto *q = std::any_cast<DescriptionQuery *>(ctx->children[0]->accept(this));
-  query_ = q;
-  return q;
+  auto *description_query = std::any_cast<DescriptionQuery *>(ctx->children[0]->accept(this));
+  query_ = description_query;
+  return description_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx) {
-  return std::function<void(DescriptionQuery *)>{[this, ctx](DescriptionQuery *q) {
-    if (ctx->LABEL()) {
-      q->target_kind_ = storage::DescriptionTargetKind::LABEL;
-      for (auto *ln : ctx->labelName()) {
-        q->labels_.push_back(AddLabel(std::any_cast<std::string>(ln->accept(this))));
-      }
-    } else if (ctx->EDGE()) {
-      q->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE;
-      q->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));
-    } else if (ctx->PROPERTY()) {
-      q->target_kind_ = storage::DescriptionTargetKind::PROPERTY;
-      if (ctx->LPAREN()) {
-        for (auto *ln : ctx->labelName()) {
-          q->labels_.push_back(AddLabel(std::any_cast<std::string>(ln->accept(this))));
-        }
-        for (auto *pk : ctx->propertyKeyName()) {
-          q->properties_.push_back(std::any_cast<PropertyIx>(pk->accept(this)));
-        }
-      } else {
-        q->properties_.push_back(std::any_cast<PropertyIx>(ctx->propertyKeyName(0)->accept(this)));
-      }
-    } else if (ctx->DATABASE()) {
-      q->target_kind_ = storage::DescriptionTargetKind::DATABASE;
-      q->database_name_ = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx,
+                                              DescriptionQuery *description_query) {
+  if (ctx->LABEL()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::LABEL;
+    for (auto *ln : ctx->labelName()) {
+      description_query->labels_.push_back(AddLabel(std::any_cast<std::string>(ln->accept(this))));
     }
-  }};
+  } else if (ctx->PROPERTY()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY;
+    if (ctx->EDGE()) {
+      // PROPERTY EDGE TYPE :EdgeType(prop) — edge-type-scoped
+      description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));
+    } else {
+      // PROPERTY :Label(prop) — label-scoped
+      for (auto *ln : ctx->labelName()) {
+        description_query->labels_.push_back(AddLabel(std::any_cast<std::string>(ln->accept(this))));
+      }
+    }
+    for (auto *pk : ctx->propertyKeyName()) {
+      description_query->properties_.push_back(std::any_cast<PropertyIx>(pk->accept(this)));
+    }
+  } else if (ctx->EDGE()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE;
+    description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));
+  } else if (ctx->DATABASE()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::DATABASE;
+    description_query->database_name_ = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+  }
 }
 
 antlrcpp::Any CypherMainVisitor::visitSetDescription(MemgraphCypher::SetDescriptionContext *ctx) {
-  auto *q = storage_->Create<DescriptionQuery>();
-  q->action_ = DescriptionQuery::Action::SET;
-  auto fill = std::any_cast<std::function<void(DescriptionQuery *)>>(ctx->descriptionTarget()->accept(this));
-  fill(q);
+  auto *description_query = storage_->Create<DescriptionQuery>();
+  description_query->action_ = DescriptionQuery::Action::SET;
+  FillDescriptionTarget(ctx->descriptionTarget(), description_query);
   const auto token_pos = ctx->StringLiteral()->getSymbol()->getTokenIndex();
-  q->description_ = std::string(parameters_->AtTokenPosition(token_pos).ValueString());
-  // Description literal varies per invocation — must not cache this query.
-  query_info_.is_cacheable = false;
-  return q;
+  description_query->description_ = std::string(parameters_->AtTokenPosition(token_pos).ValueString());
+  return description_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitDeleteDescription(MemgraphCypher::DeleteDescriptionContext *ctx) {
-  auto *q = storage_->Create<DescriptionQuery>();
-  q->action_ = DescriptionQuery::Action::DELETE;
-  auto fill = std::any_cast<std::function<void(DescriptionQuery *)>>(ctx->descriptionTarget()->accept(this));
-  fill(q);
-  return q;
+  auto *description_query = storage_->Create<DescriptionQuery>();
+  description_query->action_ = DescriptionQuery::Action::DELETE;
+  FillDescriptionTarget(ctx->descriptionTarget(), description_query);
+  return description_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitShowDescriptionQuery(MemgraphCypher::ShowDescriptionQueryContext *ctx) {
-  auto *q = storage_->Create<DescriptionQuery>();
-  q->action_ = DescriptionQuery::Action::SHOW;
-  auto fill = std::any_cast<std::function<void(DescriptionQuery *)>>(ctx->descriptionTarget()->accept(this));
-  fill(q);
-  return q;
+  auto *description_query = storage_->Create<DescriptionQuery>();
+  description_query->action_ = DescriptionQuery::Action::SHOW;
+  FillDescriptionTarget(ctx->descriptionTarget(), description_query);
+  return description_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitShowDescriptions(MemgraphCypher::ShowDescriptionsContext * /*ctx*/) {
-  auto *q = storage_->Create<DescriptionQuery>();
-  q->action_ = DescriptionQuery::Action::SHOW_ALL;
-  return q;
+  auto *description_query = storage_->Create<DescriptionQuery>();
+  description_query->action_ = DescriptionQuery::Action::SHOW_ALL;
+  return description_query;
 }
 
 }  // namespace memgraph::query::frontend
