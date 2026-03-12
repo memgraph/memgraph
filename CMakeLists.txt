@@ -65,17 +65,12 @@ else()
   set(get_version_offering "--open-source")
 endif()
 set(get_version_script "${CMAKE_CURRENT_SOURCE_DIR}/release/get_version.py")
-# Use /usr/bin/python3 directly to avoid picking up non-native python3 from PATH
-find_program(SYSTEM_PYTHON3 python3 PATHS /usr/bin /usr/local/bin NO_DEFAULT_PATH)
-if(NOT SYSTEM_PYTHON3)
-    set(SYSTEM_PYTHON3 python3)
-endif()
 
 # Get version that should be used in the binary.
 execute_process(
     OUTPUT_VARIABLE MEMGRAPH_VERSION
     RESULT_VARIABLE MEMGRAPH_VERSION_RESULT
-    COMMAND "${SYSTEM_PYTHON3}" "${get_version_script}" ${get_version_offering}
+    COMMAND "${get_version_script}" ${get_version_offering}
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
                 "--memgraph-root-dir"
@@ -91,7 +86,7 @@ endif()
 execute_process(
     OUTPUT_VARIABLE MEMGRAPH_VERSION_DEB
     RESULT_VARIABLE MEMGRAPH_VERSION_DEB_RESULT
-    COMMAND "${SYSTEM_PYTHON3}" "${get_version_script}" ${get_version_offering}
+    COMMAND "${get_version_script}" ${get_version_offering}
                 --variant deb
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
@@ -108,7 +103,7 @@ endif()
 execute_process(
     OUTPUT_VARIABLE MEMGRAPH_VERSION_RPM
     RESULT_VARIABLE MEMGRAPH_VERSION_RPM_RESULT
-    COMMAND "${SYSTEM_PYTHON3}" "${get_version_script}" ${get_version_offering}
+    COMMAND "${get_version_script}" ${get_version_offering}
                 --variant rpm
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
