@@ -250,7 +250,7 @@ def _run_query(
                     return result_handler(session.run(query, params or {}))
         except Exception as e:
             if SYNC_REPLICA_ERROR in str(e):
-                print(f"\nWARN: Sync replica error (instance={instance_name}): {e}")
+                print(f"\nWARN: Sync replica error (instance={instance_name}, query={query!r}): {e}")
                 return None
             if isinstance(e, ServiceUnavailable) or WRITE_ON_REPLICA_ERROR in str(e):
                 pid = os.getpid()
@@ -259,11 +259,11 @@ def _run_query(
                 if attempt < max_retries:
                     print(
                         f"\nWARN: Routing/connection error (attempt {attempt}/{max_retries}), "
-                        f"retrying in {retry_delay}s... (instance={instance_name}): {e}"
+                        f"retrying in {retry_delay}s... (instance={instance_name}, query={query!r}): {e}"
                     )
                     time.sleep(retry_delay)
                     continue
-            print(f"\nFATAL: {e} (instance={instance_name}, protocol={protocol.value})")
+            print(f"\nFATAL: {e} (instance={instance_name}, protocol={protocol.value}, query={query!r})")
             raise
 
 
@@ -298,6 +298,7 @@ def _run_with_manual_retries(
     instance_name: str,
     session_fn: Callable,
     fallback: _T,
+    query: str,
     protocol: Protocol = Protocol.BOLT,
     database: str | None = None,
     auth: tuple[str, str] = ("", ""),
@@ -328,18 +329,20 @@ def _run_with_manual_retries(
                 # confirm replication in time. Retrying would execute the
                 # operation a second time on main, which is wrong. The user
                 # should investigate the replica to understand why it lagged.
-                print(f"\nWARN: SYNC_REPLICA_ERROR (instance={instance_name}): {e}")
+                print(f"\nWARN: SYNC_REPLICA_ERROR (instance={instance_name}, query={query!r}): {e}")
                 return fallback
             retriable = isinstance(e, (TransientError, ServiceUnavailable)) or WRITE_ON_REPLICA_ERROR in str(e)
             if not retriable:
                 raise
             if attempt == max_retries:
-                print(f"\nWARN: Retriable error after {max_retries} retries (instance={instance_name}): {e}")
+                print(
+                    f"\nWARN: Retriable error after {max_retries} retries (instance={instance_name}, query={query!r}): {e}"
+                )
                 return fallback
             delay = base_delay * (2**attempt)
             print(
                 f"\nWARN: Retriable error (attempt {attempt + 1}/{max_retries + 1}), "
-                f"retrying in {delay:.1f}s... (instance={instance_name}): {e}"
+                f"retrying in {delay:.1f}s... (instance={instance_name}, query={query!r}): {e}"
             )
             time.sleep(delay)
     return fallback
@@ -359,6 +362,7 @@ def execute_with_manual_retries(
         instance_name,
         lambda session: session.run(query, params or {}).consume(),
         fallback=None,
+        query=query,
         protocol=protocol,
         database=database,
         auth=auth,
@@ -381,6 +385,7 @@ def execute_and_fetch_with_manual_retries(
         instance_name,
         lambda session: [record.data() for record in session.run(query, params or {})],
         fallback=[],
+        query=query,
         protocol=protocol,
         database=database,
         auth=auth,
