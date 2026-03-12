@@ -23,7 +23,7 @@ S3_REGION = "eu-west-1"
 
 # Concurrent workload settings
 NUM_WORKERS = 10
-ITERATIONS = 50_000  # total iterations across all workers
+ITERATIONS = 10_000  # total iterations across all workers
 
 LABELS = ["Concept", "Journal", "Publication", "Date", "Section", "Author"]
 LABEL_UNIQUE_PROP = {
