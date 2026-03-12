@@ -183,9 +183,9 @@ class Config:
             allowed_keys = {"deployment"}
             extra_keys = set(memgraph.keys()) - allowed_keys
             if extra_keys:
-                raise ValueError(
-                    f"Externally managed deployments should not have extra keys under 'memgraph': {extra_keys}. "
-                    "Remove them or set externally_managed to false."
+                print(
+                    f"WARN: Externally managed deployment — ignoring 'memgraph' keys {extra_keys} "
+                    "(args and env vars are controlled by the external deployment)."
                 )
             self._memgraph_args = []
             self._env = {}

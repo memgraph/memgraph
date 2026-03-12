@@ -440,7 +440,7 @@ def cleanup(coordinator: str = "coord_1", auth: tuple[str, str] = ("", "")) -> N
         for db_name in tenant_dbs:
             execute_with_manual_retries(
                 coordinator,
-                f"DROP DATABASE {db_name}",
+                f"DROP DATABASE {db_name} FORCE",
                 protocol=Protocol.BOLT_ROUTING,
                 auth=auth,
             )
