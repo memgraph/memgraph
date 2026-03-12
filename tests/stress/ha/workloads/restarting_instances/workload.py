@@ -23,7 +23,7 @@ S3_BUCKET = "memgraph-stress-tests-bucket"
 S3_DATASET_PATH = "publications-dataset-1-percent"
 S3_REGION = "eu-west-1"
 
-EDGES_PER_ITERATION = 1000
+EDGES_PER_ITERATION = 100
 NUM_WORKERS = 4
 NUM_ITERATIONS = 100
 
