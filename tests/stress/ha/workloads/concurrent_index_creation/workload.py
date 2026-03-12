@@ -79,6 +79,13 @@ def setup_nodes() -> None:
     elapsed = time.time() - t0
     print(f"  Setup done: {TOTAL_NODES:,} nodes in {elapsed:.1f}s")
 
+    execute_query(
+        COORDINATOR,
+        "SET DATABASE SETTING 'storage.access_timeout_sec' TO '10'",
+        protocol=Protocol.BOLT_ROUTING,
+        query_type=QueryType.WRITE,
+    )
+
 
 def ingest_worker(worker_id: int) -> dict:
     """SET properties on 100 batches of 10 nodes from this worker's modulus partition."""
