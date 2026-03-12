@@ -329,8 +329,9 @@ class Auth final {
 
   /**
    * Creates the built-in roles.
+   * @return true if the roles were created, false if they already existed or license is invalid.
    */
-  void CreateBuiltinRoles(system::Transaction *system_tx = nullptr);
+  bool CreateBuiltinRoles(system::Transaction *system_tx = nullptr);
 
   /**
    * Removes a role from the storage.

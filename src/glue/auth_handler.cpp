@@ -390,18 +390,20 @@ namespace memgraph::glue {
 
 AuthQueryHandler::AuthQueryHandler(memgraph::auth::SynchedAuth *auth) : auth_(auth) {}
 
-bool AuthQueryHandler::CreateUser(const std::string &username, const std::optional<std::string> &password,
-                                  system::Transaction *system_tx) {
+query::CreateUserResult AuthQueryHandler::CreateUser(const std::string &username,
+                                                     const std::optional<std::string> &password,
+                                                     system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     const auto first_user = !locked_auth->HasUsers();
 
     auto new_user = locked_auth->AddUser(username, password, system_tx);
+    bool builtin_roles_created = false;
     if (first_user && new_user) {
-      locked_auth->CreateBuiltinRoles(system_tx);
+      builtin_roles_created = locked_auth->CreateBuiltinRoles(system_tx);
       locked_auth->InitialiseFirstUser(*new_user, system_tx);
     }
-    return new_user.has_value();
+    return {new_user.has_value(), builtin_roles_created};
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }

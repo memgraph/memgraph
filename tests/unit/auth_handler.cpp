@@ -1087,7 +1087,7 @@ TEST_F(AuthQueryHandlerFixture, SetProfile) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr).created);
 
   ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
   {
@@ -1125,7 +1125,7 @@ TEST_F(AuthQueryHandlerFixture, RevokeProfile) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr).created);
 
   ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
   {
@@ -1170,7 +1170,7 @@ TEST_F(AuthQueryHandlerFixture, UserProfileRole) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr).created);
   ASSERT_TRUE(auth_handler.CreateRole("role", nullptr));
   auth_handler.SetRoles("user", {"role"}, {}, nullptr);
 
@@ -1230,7 +1230,7 @@ TEST_F(AuthQueryHandlerFixture, GetProfileForUser) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr).created);
 
   ASSERT_FALSE(auth_handler.GetProfileForUser("user"));
   ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
@@ -1272,10 +1272,10 @@ TEST_F(AuthQueryHandlerFixture, GetUsersForProfile) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("user1", {}, nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("user2", {}, nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("user3", {}, nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("user4", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("user1", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user2", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user3", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user4", {}, nullptr).created);
 
   ASSERT_EQ(auth_handler.GetUsernamesForProfile("profile").size(), 0);
 
@@ -2417,8 +2417,8 @@ TEST_F(AuthQueryHandlerFixture, ConcurrentProfileAssignment) {
   // Create profiles and users
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile1", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile2", {}, {}, nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("user1", {}, nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("user2", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("user1", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user2", {}, nullptr).created);
 
   constexpr size_t kNumThreads = 4;
   std::vector<std::thread> threads;
@@ -2506,7 +2506,7 @@ TEST_F(AuthQueryHandlerFixture, ConcurrentResourceAccess) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("limited_profile", "test_user", nullptr));
 
   constexpr size_t kNumThreads = 10;
@@ -2554,7 +2554,7 @@ TEST_F(AuthQueryHandlerFixture, SessionLimitExhaustion) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("single_session_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2589,7 +2589,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustion) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("memory_limited_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2629,7 +2629,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocation) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("moderate_memory_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2657,7 +2657,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocationAndNoThr
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("moderate_memory_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2693,7 +2693,7 @@ TEST_F(AuthQueryHandlerFixture, ResourceExhaustionRecovery) {
        memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], memory_limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("recovery_test_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2740,7 +2740,7 @@ TEST_F(AuthQueryHandlerFixture, ProfileUpdateDuringResourceExhaustion) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("update_test_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2779,7 +2779,7 @@ TEST_F(AuthQueryHandlerFixture, ProfileDeletionDuringResourceUsage) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("delete_test_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2814,7 +2814,7 @@ TEST_F(AuthQueryHandlerFixture, ConcurrentResourceExhaustion) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("concurrent_exhaustion_profile", "test_user", nullptr));
 
   constexpr size_t kNumThreads = 10;
@@ -2862,7 +2862,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryExhaustionUnderLoad) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], memory_limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("memory_load_profile", "test_user", nullptr));
 
   constexpr size_t kNumThreads = 8;
@@ -2897,7 +2897,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryExhaustionUnderLoad) {
 TEST_F(AuthQueryHandlerFixture, FirstUserCommunityGetsPermissionsNoRoles) {
   memgraph::license::global_license_checker.DisableTesting();
 
-  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
 
   auto user = auth->ReadLock()->GetUser("alice");
   ASSERT_TRUE(user.has_value());
@@ -2908,7 +2908,7 @@ TEST_F(AuthQueryHandlerFixture, FirstUserCommunityGetsPermissionsNoRoles) {
 
 #ifdef MG_ENTERPRISE
 TEST_F(AuthQueryHandlerFixture, FirstUserEnterpriseGetsAdminRoleAndBuiltinRolesCreated) {
-  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
 
   auto locked = auth->ReadLock();
   auto user = locked->GetUser("alice");
@@ -2923,7 +2923,7 @@ TEST_F(AuthQueryHandlerFixture, FirstUserEnterpriseGetsAdminRoleAndBuiltinRolesC
 TEST_F(AuthQueryHandlerFixture, FirstUserWhenRolesExistGetsPermissionsNoAdminRole) {
   ASSERT_TRUE(auth_handler.CreateRole("somerole", nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
 
   auto locked = auth->ReadLock();
   auto user = locked->GetUser("alice");
@@ -2937,7 +2937,7 @@ TEST_F(AuthQueryHandlerFixture, FirstUserWhenRolesExistGetsPermissionsNoAdminRol
 TEST_F(AuthQueryHandlerFixture, FirstUserWhenNonBuiltinAdminExistsGetsPermissionsNotAdminRole) {
   ASSERT_TRUE(auth_handler.CreateRole("admin", nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
 
   auto locked = auth->ReadLock();
   auto user = locked->GetUser("alice");
@@ -2952,13 +2952,13 @@ TEST_F(AuthQueryHandlerFixture, FirstUserWhenNonBuiltinAdminExistsGetsPermission
 #endif
 
 TEST_F(AuthQueryHandlerFixture, CreateRoleWhenUserWithSameNameExists) {
-  ASSERT_TRUE(auth_handler.CreateUser("developer", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("developer", {}, nullptr).created);
   ASSERT_TRUE(auth_handler.CreateRole("developer", nullptr));
 }
 
 TEST_F(AuthQueryHandlerFixture, CreateUserWhenRoleWithSameNameExists) {
   ASSERT_TRUE(auth_handler.CreateRole("developer", nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("developer", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("developer", {}, nullptr).created);
 }
 
 TEST_F(AuthQueryHandlerFixture, DisambiguationUnspecifiedOnlyUserExists) {

@@ -24,6 +24,11 @@
 
 namespace memgraph::query {
 
+struct CreateUserResult {
+  bool created;
+  bool builtin_roles_created;
+};
+
 class AuthQueryHandler {
  public:
   AuthQueryHandler() = default;
@@ -34,10 +39,10 @@ class AuthQueryHandler {
   AuthQueryHandler &operator=(const AuthQueryHandler &) = delete;
   AuthQueryHandler &operator=(AuthQueryHandler &&) = delete;
 
-  /// Return false if the user already exists.
+  /// Return created=false if the user already exists.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool CreateUser(const std::string &username, const std::optional<std::string> &password,
-                          system::Transaction *system_tx) = 0;
+  virtual CreateUserResult CreateUser(const std::string &username, const std::optional<std::string> &password,
+                                      system::Transaction *system_tx) = 0;
 
   /// Return false if the user does not exist.
   /// @throw QueryRuntimeException if an error ocurred.

@@ -1124,9 +1124,9 @@ std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transacti
   return new_role;
 }
 
-void Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
-  if (!license::global_license_checker.IsEnterpriseValidFast()) return;
-  if (!AllRolenames().empty()) return;
+bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
+  if (!license::global_license_checker.IsEnterpriseValidFast()) return false;
+  if (!AllRolenames().empty()) return false;
 
   auto const make_role = [&](const std::string &name, auto grant_permissions) {
     Role role{name};
@@ -1171,6 +1171,8 @@ void Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
     role.permissions().Grant(Permission::STATS);
     grant_privileges(role, FineGrainedPermission::READ, FineGrainedPermission::READ);
   });
+
+  return true;
 }
 
 bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *system_tx) {
