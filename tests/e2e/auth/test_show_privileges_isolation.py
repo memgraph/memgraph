@@ -33,10 +33,11 @@ def _ensure_clean_state_and_create_admin(memgraph):
     except Exception:
         assert False, "Failed to check users"
 
-    # Check that there are no existing roles
+    # Check that there are no existing non-builtin roles
     try:
         roles = list(memgraph.execute_and_fetch("SHOW ROLES;"))
-        assert len(roles) == 0, f"Expected no roles, found: {roles}"
+        non_builtin_roles = [r for r in roles if not r.get("builtin", False)]
+        assert len(non_builtin_roles) == 0, f"Expected no non-builtin roles, found: {non_builtin_roles}"
     except Exception:
         assert False, "Failed to check roles"
 

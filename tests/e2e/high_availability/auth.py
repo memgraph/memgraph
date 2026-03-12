@@ -368,6 +368,7 @@ def test_ha_mt_auth_scenario(test_name):
 
     # Create users with different access levels
     with driver.session() as session:
+        session.run("CREATE ROLE _dummy_role")
         # Create admin user with access to all databases
         session.run("CREATE USER admin IDENTIFIED BY 'admin123'")
         session.run("GRANT ALL PRIVILEGES TO admin")
