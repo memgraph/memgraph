@@ -35,6 +35,9 @@ DATA_DIR_PREFIX="mg_data"
 COORD_DIR_PREFIX="mg_coord"
 LOG_DIR="${LOG_DIR:-stress_logs}"
 
+# Core dump configuration
+CORES_DIR="${CORES_DIR:-/tmp/mg-cores}"
+
 # Default flags for Memgraph Data Nodes
 DEFAULT_DATA_FLAGS=(
     "--also-log-to-stderr=true"
@@ -115,6 +118,8 @@ _start_processes() {
     export MEMGRAPH_ORGANIZATION_NAME
     rm -f memgraph_ha.pid
     mkdir -p "$LOG_DIR"
+    mkdir -p "$CORES_DIR"
+    ulimit -c unlimited
 
     local i=1
     for node in "${DATA_NODES[@]}"; do
@@ -290,8 +295,43 @@ collect_logs() {
     echo "Logs collected."
 }
 
+collect_cores() {
+    local dest_dir="${1:-stress_cores}"
+    mkdir -p "$dest_dir"
+
+    if [[ ! -d "$CORES_DIR" ]]; then
+        echo "No core dump directory found ($CORES_DIR), skipping."
+        return 0
+    fi
+
+    local found=false
+    for core in "$CORES_DIR"/core.*; do
+        [[ -f "$core" ]] || continue
+        found=true
+        local basename
+        basename=$(basename "$core")
+
+        echo "  Generating backtrace: $basename -> $dest_dir/${basename}.bt.txt.gz"
+        gdb -batch -ex 'thread apply all bt' "$MEMGRAPH_BINARY" "$core" \
+            | gzip > "$dest_dir/${basename}.bt.txt.gz"
+
+        echo "  Compressing core dump: $basename -> $dest_dir/${basename}.gz"
+        gzip -c "$core" > "$dest_dir/${basename}.gz"
+
+        echo "  Removing raw core dump: $core"
+        rm -f "$core"
+    done
+
+    if [[ "$found" == "false" ]]; then
+        echo "No core dumps found in $CORES_DIR"
+    else
+        echo "Core dumps collected."
+    fi
+}
+
 stop_memgraph() {
     collect_logs
+    collect_cores
     _stop_processes
     clean_data_directories
 }
@@ -323,6 +363,7 @@ case "$1" in
         ;;
     collect-logs)
         collect_logs "$2"
+        collect_cores "$2"
         ;;
     restart)
         shift

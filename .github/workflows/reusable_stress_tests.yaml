@@ -192,6 +192,11 @@ jobs:
           --arch $ARCH \
           init-tests
 
+      - name: Set up core dumps
+        run: |
+          mkdir -p /tmp/mg-cores
+          chmod 1777 /tmp/mg-cores
+
       - name: Run stress tests (native HA)
         run: |
           ./release/package/mgbuild.sh \
@@ -214,6 +219,15 @@ jobs:
           --arch $ARCH \
           copy --logs-dir /home/mg/memgraph/tests/stress/stress_logs --dest-dir build/stress/logs
 
+      - name: Copy core dumps
+        if: failure()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --logs-dir /home/mg/memgraph/tests/stress/stress_cores --dest-dir build/stress/cores
+
       - name: Upload stress test logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -221,6 +235,14 @@ jobs:
           name: stress-logs-native-ha
           path: build/stress/logs/
           if-no-files-found: warn
+
+      - name: Upload core dumps
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-cores-native-ha
+          path: build/stress/cores/
+          if-no-files-found: ignore
 
       - name: Stop mgbuild container
         if: always()
@@ -296,9 +318,8 @@ jobs:
 
       - name: Set up core dumps
         run: |
-          sudo mkdir -p /tmp/mg-cores
-          sudo chmod 1777 /tmp/mg-cores
-          echo '/tmp/mg-cores/core.%e.%p.%t' | sudo tee /proc/sys/kernel/core_pattern
+          mkdir -p /tmp/mg-cores
+          chmod 1777 /tmp/mg-cores
 
       - name: Run stress tests (docker HA)
         run: |
