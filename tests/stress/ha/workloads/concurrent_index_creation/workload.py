@@ -79,6 +79,7 @@ def setup_nodes() -> None:
     elapsed = time.time() - t0
     print(f"  Setup done: {TOTAL_NODES:,} nodes in {elapsed:.1f}s")
 
+    # Adjust this to a little bit more since the setting can take longer
     execute_query(
         COORDINATOR,
         "SET DATABASE SETTING 'storage.access_timeout_sec' TO '10'",
