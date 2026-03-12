@@ -1475,17 +1475,20 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         }
         std::optional<std::string> target_db;
         switch (database_specification) {
-          case AuthQuery::DatabaseSpecification::NONE:
+          case AuthQuery::DatabaseSpecification::NONE: {
             // Allow only if there are no other databases (or for roles)
             // Roles themselves cannot have MT specializations, so no need to filter for them (nullopt)
             // Users can have MT specializations, so we force them to specify the database
-            if (db_handler->Count() > 1 && !auth->HasRole(user_or_role)) {
+            auto const is_role = entity_type == auth::UserOrRoleType::ROLE ||
+                                 (entity_type == auth::UserOrRoleType::UNSPECIFIED && auth->HasRole(user_or_role));
+            if (db_handler->Count() > 1 && !is_role) {
               throw QueryRuntimeException(
                   "In a multi-tenant environment, SHOW PRIVILEGES query requires database specification. Use ON MAIN, "
                   "ON CURRENT or ON DATABASE db_name.");
             }
             target_db = dbms::kDefaultDB;  // HOTFIX: REMOVE ONCE MASTER IS FIXED
             break;
+          }
           case AuthQuery::DatabaseSpecification::MAIN: {
             auto main_db = auth->GetMainDatabase(user_or_role);
             if (!main_db) {
