@@ -847,6 +847,13 @@ void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
   for (auto const permission : kPermissionsAll) {
     user.permissions().Grant(permission);
   }
+  if (license::global_license_checker.IsEnterpriseValidFast()) {
+    constexpr auto kFullFineGrained = FineGrainedPermission::READ | FineGrainedPermission::UPDATE |
+                                      FineGrainedPermission::CREATE | FineGrainedPermission::DELETE;
+    user.fine_grained_access_handler().label_permissions().GrantGlobal(kFullFineGrained);
+    user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(kFullFineGrained);
+    user.db_access().GrantAll();
+  }
   SaveUser(user, system_tx);
 }
 
