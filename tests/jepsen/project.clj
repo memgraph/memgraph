@@ -6,7 +6,7 @@
   :main memgraph.core
   :dependencies [[org.clojure/clojure "1.11.2"]
                  ;; Details under https://clojars.org/jepsen/versions.
-                 [jepsen "0.3.5-SNAPSHOT"]
+                 [jepsen "0.3.11-SNAPSHOT"]
                  [gorillalabs/neo4j-clj "5.0.0"]]
 
   :pom-addition [:developers
