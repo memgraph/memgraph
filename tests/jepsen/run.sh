@@ -105,10 +105,13 @@ if [ ! -d "$script_dir/jepsen" ]; then
 #   git clone http://mgdeps-cache:8000/git/jepsen.git "$script_dir/jepsen" &> /dev/null \
 #   || git clone https://github.com/jepsen-io/jepsen.git "$script_dir/jepsen"
   git clone https://github.com/jepsen-io/jepsen.git "$script_dir/jepsen"
-  cd "$script_dir/jepsen"
-  git checkout "$JEPSEN_COMMIT"
-  cd "$script_dir"
 fi
+
+cd "$script_dir/jepsen"
+git fetch
+git checkout "$JEPSEN_COMMIT"
+cd "$script_dir"
+
 
 PROCESS_ARGS() {
     shift
