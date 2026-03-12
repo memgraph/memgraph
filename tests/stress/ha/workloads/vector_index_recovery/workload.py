@@ -33,8 +33,8 @@ VECTOR_DIMENSIONS = 128
 BATCH_SIZE = 100
 NUM_WORKERS = 4
 
-ITERATIONS = 200_000
-NUM_WORKERS_PER_DB = 5
+ITERATIONS = 100_000
+NUM_WORKERS_PER_DB = 4
 
 HEALTH_CHECK_RETRIES = 30
 HEALTH_CHECK_INTERVAL = 10
@@ -180,7 +180,9 @@ def run_iterations(worker_id: int, num_iterations: int, db_name: str) -> dict:
     """Randomly create or delete one node per iteration in db_name."""
     created = 0
     deleted = 0
-    for _ in range(num_iterations):
+    for i in range(num_iterations):
+        if i > 0 and i % 1000 == 0:
+            print(f"  [Worker {worker_id}/{db_name}] {i:,} / {num_iterations:,} iterations")
         if random.random() < 0.5:
             _create_random_node(db_name)
             created += 1
