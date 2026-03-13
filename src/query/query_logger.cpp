@@ -9,10 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fmt/format.h>
+#include <spdlog/common.h>
+#include <spdlog/logger.h>
+#include <spdlog/sinks/daily_file_sink.h>
+#include <time.h>
+#include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
-
-#include <fmt/core.h>
 
 #include "query/query_logger.hpp"
 

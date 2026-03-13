@@ -11,9 +11,24 @@
 
 #include "communication/client.hpp"
 
+#include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#include <spdlog/spdlog.h>
+#include <string>
+
+#include "buffer.hpp"
 #include "communication/helpers.hpp"
-#include "io/network/network_error.hpp"
-#include "utils/logging.hpp"
+#include "context.hpp"
+#include "io/network/stream_buffer.hpp"
+
+namespace memgraph {
+namespace io {
+namespace network {
+class Endpoint;
+}  // namespace network
+}  // namespace io
+}  // namespace memgraph
 
 namespace memgraph::communication {
 

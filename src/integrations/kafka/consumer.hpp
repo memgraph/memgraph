@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <librdkafka/rdkafka.h>
+#include <librdkafka/rdkafkacpp.h>
+#include <stdint.h>
 #include <atomic>
 #include <chrono>
 #include <expected>
@@ -19,11 +22,10 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <vector>
-
-#include <librdkafka/rdkafka.h>
-#include <librdkafka/rdkafkacpp.h>
 
 namespace memgraph::integrations::kafka {
 

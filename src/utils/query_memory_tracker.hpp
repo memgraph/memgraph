@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
 #include <shared_mutex>
 #include <unordered_map>
 #include <utility>

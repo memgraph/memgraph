@@ -10,9 +10,14 @@
 // licenses/APL.txt.
 
 #include "communication/context.hpp"
+
+#include <openssl/opensslv.h>
+#include <openssl/ssl.h>
+#include <boost/asio/ssl.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/asio/ssl/verify_mode.hpp>
 #include <boost/system/detail/error_code.hpp>
+#include <utility>
 
 #include "utils/logging.hpp"
 

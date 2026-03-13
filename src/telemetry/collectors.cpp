@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,18 +11,21 @@
 
 #include "telemetry/collectors.hpp"
 
-#include <filesystem>
-#include <string>
-#include <utility>
-
+#include <fmt/format.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <filesystem>
+#include <nlohmann/json.hpp>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
+#include "nlohmann/json.hpp"
+#include "nlohmann/json_fwd.hpp"
 #include "utils/file.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
-
-#include <nlohmann/json.hpp>
 
 namespace memgraph::telemetry {
 

@@ -12,11 +12,21 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_cluster_state.hpp"
-#include "coordination/constants.hpp"
-#include "replication_coordination_glue/common.hpp"
 
+#include <algorithm>
+#include <libnuraft/buffer.hxx>
+#include <libnuraft/buffer_serializer.hxx>
 #include <nlohmann/json.hpp>
+#include <ranges>
 #include <shared_mutex>
+#include <utility>
+
+#include "coordination/constants.hpp"
+#include "coordination/coordinator_communication_config.hpp"
+#include "nlohmann/json.hpp"
+#include "nlohmann/json_fwd.hpp"
+#include "replication_coordination_glue/common.hpp"
+#include "replication_coordination_glue/role.hpp"
 
 namespace memgraph::coordination {
 

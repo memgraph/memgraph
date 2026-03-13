@@ -11,7 +11,13 @@
 
 #include "coordination/utils.hpp"
 
+#include <fmt/format.h>
+#include <optional>
 #include <string_view>
+
+#include "coordination/log_level.hpp"
+#include "coordination/logger_wrapper.hpp"
+#include "kvstore/kvstore.hpp"
 
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {

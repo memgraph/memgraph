@@ -11,8 +11,8 @@
 
 #include "init.hpp"
 
-#include <openssl/bio.h>
 #include <openssl/err.h>
+#include <openssl/opensslv.h>
 #include <openssl/ssl.h>
 
 #include "utils/logging.hpp"
