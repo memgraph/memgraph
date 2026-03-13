@@ -342,7 +342,7 @@ class Auth final {
    *         doesn't exist
    * @throw AuthException if unable to remove the role.
    */
-  bool RemoveRole(const std::string &rolename, system::Transaction *system_tx = nullptr);
+  bool RemoveRole(const std::string &rolename, bool force = false, system::Transaction *system_tx = nullptr);
 
   /**
    * Gets all roles from the storage.
