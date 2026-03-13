@@ -1071,8 +1071,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                 username);
           }
           spdlog::warn("User '{}' already exists.", username);
-          runtime_notifications->emplace_back(
-              SeverityLevel::WARNING, NotificationCode::CREATE_USER, fmt::format("User {} already exists.", username));
+          runtime_notifications->emplace_back(SeverityLevel::WARNING,
+                                              NotificationCode::CREATE_USER,
+                                              fmt::format("User '{}' already exists.", username));
           return std::vector<std::vector<TypedValue>>{};
         }
 
@@ -1098,7 +1099,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                                &*interpreter->system_transaction_);
           runtime_notifications->emplace_back(SeverityLevel::INFO,
                                               NotificationCode::CREATE_USER,
-                                              fmt::format("User {} created. All privileges granted.", username));
+                                              fmt::format("User '{}' created. All privileges granted.", username));
           return std::vector<std::vector<TypedValue>>{};
         }
 
@@ -1108,15 +1109,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             runtime_notifications->emplace_back(
                 SeverityLevel::INFO,
                 NotificationCode::CREATE_USER,
-                fmt::format("User {} created. Built-in roles created: admin, readwrite, readonly. User {} assigned "
-                            "built-in role admin, with full access to all data and privileges.",
-                            username,
-                            username));
+                fmt::format(
+                    "User '{}' created. Built-in roles created: 'admin', 'readwrite', 'readonly'. User '{}' assigned "
+                    "built-in role 'admin', with full access to all data and privileges.",
+                    username,
+                    username));
           } else {
             runtime_notifications->emplace_back(
                 SeverityLevel::INFO,
                 NotificationCode::CREATE_USER,
-                fmt::format("User {} created. Assigned built-in role admin, with full access to all data and "
+                fmt::format("User '{}' created. Assigned built-in role 'admin', with full access to all data and "
                             "privileges.",
                             username));
           }
@@ -1124,7 +1126,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           runtime_notifications->emplace_back(
               SeverityLevel::INFO,
               NotificationCode::CREATE_USER,
-              fmt::format("User {} created. No roles or privileges assigned.", username));
+              fmt::format("User '{}' created. No roles or privileges assigned.", username));
         }
         return std::vector<std::vector<TypedValue>>{};
       };
@@ -1204,11 +1206,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                 rolename);
           }
           spdlog::warn("Role '{}' already exists.", rolename);
-          runtime_notifications->emplace_back(
-              SeverityLevel::WARNING, NotificationCode::CREATE_ROLE, fmt::format("Role {} already exists.", rolename));
+          runtime_notifications->emplace_back(SeverityLevel::WARNING,
+                                              NotificationCode::CREATE_ROLE,
+                                              fmt::format("Role '{}' already exists.", rolename));
         } else {
           runtime_notifications->emplace_back(
-              SeverityLevel::INFO, NotificationCode::CREATE_ROLE, fmt::format("Role {} created.", rolename));
+              SeverityLevel::INFO, NotificationCode::CREATE_ROLE, fmt::format("Role '{}' created.", rolename));
         }
         return std::vector<std::vector<TypedValue>>();
       };
