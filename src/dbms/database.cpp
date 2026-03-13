@@ -15,6 +15,7 @@
 #include "storage/v2/storage_mode.hpp"
 
 #include <memory>
+#include <mutex>
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
@@ -68,6 +69,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 }
 
 void Database::SwitchToOnDisk() {
+  auto const guard = std::unique_lock{storage_swap_lock_};
   // Preserve the database protector factory from the previous storage
   // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
   auto preserved_factory = storage_->get_database_protector_factory();
