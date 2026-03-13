@@ -331,6 +331,28 @@ void SessionHL::LogOff() {
 
 void SessionHL::Abort() { interpreter_.Abort(); }
 
+communication::bolt::State SessionHL::ContinuePull() {
+  bolt_map_t summary;
+  try {
+    summary = Pull(last_pull_n_, last_pull_qid_);
+  } catch (...) {
+    return communication::bolt::State::Close;
+  }
+  // Scheduler-driven yield: do not send to client; session will reschedule and we'll send when done.
+  // Only return Yielded when there is actually more work (has_more). When has_more is false we're done
+  // even if "yielded" is true (e.g. stale from a previous run); send the summary and return Idle.
+  if (summary.contains("yielded") && summary.at("yielded").ValueBool()) {
+    return communication::bolt::State::Yielded;
+  }
+  if (!encoder_.MessageSuccess(summary)) {
+    return communication::bolt::State::Close;
+  }
+  if (summary.contains("has_more") && summary.at("has_more").ValueBool()) {
+    return communication::bolt::State::Result;
+  }
+  return communication::bolt::State::Idle;
+}
+
 bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
   try {
     memgraph::query::DiscardValueResultStream stream;
@@ -353,6 +375,8 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
 }
 
 bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
+  last_pull_n_ = n;
+  last_pull_qid_ = qid;
   try {
     using TEncoder =
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;

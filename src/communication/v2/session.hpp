@@ -52,6 +52,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/priority_thread_pool.hpp"
 #include "utils/variant_helpers.hpp"
+#include "utils/worker_yield_signal.hpp"
 
 #include "flags/scheduler.hpp"
 
@@ -397,29 +398,37 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoWork() {
-    session_context_->AddTask(
-        [shared_this = shared_from_this()](const auto thread_priority) {
-          try {
-            while (true) {
-              if (shared_this->session_.Execute()) {
-                // Check if we can just steal this task (loop through)
-                if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
-                  // Task priority lower; reschedule
-                  shared_this->DoWork();
-                  return;
-                }
-              } else {
-                // Handled all data,  async wait for new incoming data
-                shared_this->DoRead();
-                return;
-              }
-            }
-          } catch (const std::exception & /* unused */) {
-            boost::asio::post(shared_this->strand_,
-                              [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
+    session_context_->AddResumableTask([shared_this = shared_from_this()]() { return shared_this->DoWorkLoop(); },
+                                       session_.ApproximateQueryPriority());
+  }
+
+  // Runs the session execute loop. Returns true if the task yielded and wants
+  // to be rescheduled on the same worker; false when done (DoRead queued or
+  // exception). The pool calls this again automatically on yield.
+  bool DoWorkLoop() {
+    try {
+      while (true) {
+        if (session_.Execute(continue_after_yield_)) {
+          continue_after_yield_ = true;
+          auto *yield_signal = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+          if (yield_signal && yield_signal->load(std::memory_order_acquire)) {
+            return true;  // yield to pool; reschedule on same worker
           }
-        },
-        session_.ApproximateQueryPriority());
+          // Yield signal cleared — we're the continuation. Loop and call ContinuePull().
+        } else {
+          // Handled all data, async wait for new incoming data
+          continue_after_yield_ = false;
+          DoRead();
+          return false;
+        }
+      }
+    } catch (const std::exception &) {
+      continue_after_yield_ = false;
+      boost::asio::post(strand_, [shared_this = shared_from_this(), eptr = std::current_exception()]() {
+        shared_this->HandleException(eptr);
+      });
+      return false;
+    }
   }
 
   void OnError(const boost::system::error_code &ec) {
@@ -539,5 +548,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
+  bool continue_after_yield_{false};
 };
 }  // namespace memgraph::communication::v2
