@@ -13,6 +13,10 @@
 
 #include <rocksdb/options.h>
 
+namespace rocksdb {
+struct Options;
+}  // namespace rocksdb
+
 namespace memgraph::utils {
 
 /// Apply RocksDB tuning flags to options.

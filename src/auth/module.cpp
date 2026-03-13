@@ -8,30 +8,29 @@
 
 #include "auth/module.hpp"
 
-#include <array>
-#include <cerrno>
-#include <cstdlib>
-#include <cstring>
-#include <iostream>
-#include <thread>
-
 #include <fcntl.h>
 #include <poll.h>
-#include <pwd.h>
 #include <sched.h>
 #include <seccomp.h>
+#include <signal.h>
+#include <spdlog/spdlog.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
-
-#include <gflags/gflags.h>
-
-#include "utils/logging.hpp"
-
+#include <array>
+#include <cerrno>
+#include <chrono>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
 #include <mutex>
-
 #include <nlohmann/json.hpp>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "nlohmann/json_fwd.hpp"
 
 namespace {
 

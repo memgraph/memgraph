@@ -11,17 +11,36 @@
 
 module;
 
+#include <aws/core/Aws.h>
+#include <aws/core/auth/AWSCredentials.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
+#include <aws/core/auth/signer/AWSAuthV4Signer.h>
+#include <aws/core/client/AWSError.h>
+#include <aws/core/client/ClientConfiguration.h>
+#include <aws/core/utils/Outcome.h>
+#include <aws/core/utils/memory/stl/AWSString.h>
+#include <aws/core/utils/threading/DefaultExecutor.h>
+#include <aws/s3/S3Client.h>
+#include <aws/s3/S3Errors.h>
+#include <aws/s3/S3ServiceClientModel.h>
+#include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/GetObjectResult.h>
+#include <aws/transfer/TransferHandle.h>
+#include <aws/transfer/TransferManager.h>
+#include <fmt/format.h>
+#include <stdint.h>
+#include <cstdlib>
 #include <expected>
+#include <functional>
+#include <istream>
+#include <iterator>
 #include <map>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <string>
-
-#include <aws/core/Aws.h>
-#include <aws/core/auth/AWSCredentialsProvider.h>
-#include <aws/s3/S3Client.h>
-#include <aws/s3/model/GetObjectRequest.h>
-#include <aws/transfer/TransferManager.h>
+#include <string_view>
+#include <utility>
 
 #include "spdlog/spdlog.h"
 #include "utils/counter.hpp"

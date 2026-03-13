@@ -13,6 +13,14 @@
 
 #include "coordination/logger_wrapper.hpp"
 
+#include "coordination/logger.hpp"
+
+namespace memgraph {
+namespace coordination {
+enum class nuraft_log_level : uint8_t;
+}  // namespace coordination
+}  // namespace memgraph
+
 namespace memgraph::coordination {
 
 LoggerWrapper::LoggerWrapper(Logger *logger) : logger_(logger) {}

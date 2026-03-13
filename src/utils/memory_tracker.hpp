@@ -11,7 +11,10 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
 #include <atomic>
+#include <exception>
 #include <optional>
 #include <string>
 #include <utility>

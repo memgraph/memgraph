@@ -9,7 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <gflags/gflags.h>
 #include <filesystem>
+#include <iostream>
+#include <string_view>
+#include <vector>
 
 #include "flags/auth.hpp"
 #include "glue/auth_global.hpp"

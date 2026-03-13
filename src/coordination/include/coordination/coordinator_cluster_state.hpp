@@ -13,6 +13,19 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <stdint.h>
+#include <libnuraft/nuraft.hxx>
+#include <libnuraft/ptr.hxx>
+#include <limits>
+#include <mutex>
+#include <nlohmann/json_fwd.hpp>
+#include <optional>
+#include <range/v3/view.hpp>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <vector>
+
 #include "coordination/coordinator_instance_context.hpp"
 #include "coordination/data_instance_context.hpp"
 #include "replication_coordination_glue/common.hpp"
@@ -20,11 +33,16 @@
 #include "utils/resource_lock.hpp"
 #include "utils/uuid.hpp"
 
-#include <libnuraft/nuraft.hxx>
-#include <nlohmann/json_fwd.hpp>
-#include <range/v3/view.hpp>
+namespace memgraph {
+namespace replication_coordination_glue {
+enum class ReplicationRole : uint8_t;
+}  // namespace replication_coordination_glue
+}  // namespace memgraph
 
-#include <string>
+namespace nuraft {
+class buffer;
+class buffer_serializer;
+}  // namespace nuraft
 
 namespace memgraph::coordination {
 

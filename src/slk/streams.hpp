@@ -11,10 +11,14 @@
 
 #pragma once
 
+#include <fmt/base.h>
+#include <stddef.h>
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <limits>
 #include <optional>
+#include <string>
 #include <utility>
 
 #include "utils/exceptions.hpp"

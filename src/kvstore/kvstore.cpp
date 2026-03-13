@@ -10,7 +10,11 @@
 // licenses/APL.txt.
 
 #include <rocksdb/db.h>
+#include <rocksdb/iterator.h>
 #include <rocksdb/options.h>
+#include <rocksdb/slice.h>
+#include <rocksdb/status.h>
+#include <rocksdb/write_batch.h>
 
 #include "kvstore/kvstore.hpp"
 #include "kvstore/rocksdb_utils.hpp"

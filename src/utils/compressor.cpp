@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,8 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <gflags/gflags.h>
+#include <zconf.h>
 #include <zlib.h>
-#include <cstdint>
+#include <expected>
+#include <iostream>
+#include <limits>
 #include <memory>
 
 #include "utils/compressor.hpp"

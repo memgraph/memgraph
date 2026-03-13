@@ -13,18 +13,42 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <stdint.h>
+#include <algorithm>
+#include <exception>
+#include <functional>
+#include <iterator>
+#include <libnuraft/basic_types.hxx>
+#include <libnuraft/cluster_config.hxx>
+#include <libnuraft/state_mgr.hxx>
+#include <list>
+#include <memory>
+#include <nlohmann/json.hpp>
+#include <optional>
+#include <shared_mutex>
+#include <vector>
+
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_aux.hpp"
 #include "coordination/coordinator_log_store.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
+#include "nlohmann/json_fwd.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 
-#include <nlohmann/json.hpp>
+namespace memgraph {
+namespace coordination {
+struct CoordinatorStateManagerConfig;
+}  // namespace coordination
+}  // namespace memgraph
 
-#include <shared_mutex>
+namespace nuraft {
+class logger;
+class srv_config;
+class srv_state;
+}  // namespace nuraft
 
 namespace memgraph::coordination {
 using nuraft::cluster_config;

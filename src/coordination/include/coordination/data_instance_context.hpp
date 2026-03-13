@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,17 @@
 
 #pragma once
 
+#include <nlohmann/json_fwd.hpp>
+
 #include "coordination/coordinator_communication_config.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/uuid.hpp"
 
-#include <nlohmann/json_fwd.hpp>
+namespace memgraph {
+namespace replication_coordination_glue {
+enum class ReplicationRole : uint8_t;
+}  // namespace replication_coordination_glue
+}  // namespace memgraph
 
 #ifdef MG_ENTERPRISE
 

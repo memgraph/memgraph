@@ -13,18 +13,30 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <stdint.h>
+#include <chrono>
+#include <filesystem>
+#include <memory>
+#include <nlohmann/json_fwd.hpp>
+#include <string>
+#include <utility>
+#include <variant>
+
 #include "coordination/constants.hpp"
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/uuid.hpp"
 
-#include <chrono>
-#include <string>
-#include <utility>
-#include <variant>
+namespace memgraph {
+namespace kvstore {
+class KVStore;
+}  // namespace kvstore
 
-#include <nlohmann/json_fwd.hpp>
+namespace replication_coordination_glue {
+enum class ReplicationMode : std::uint8_t;
+}  // namespace replication_coordination_glue
+}  // namespace memgraph
 
 namespace memgraph::coordination {
 

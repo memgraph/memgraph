@@ -12,9 +12,12 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_instance_context.hpp"
-#include "utils/logging.hpp"
 
 #include <nlohmann/json.hpp>
+#include <string_view>
+
+#include "nlohmann/json.hpp"
+#include "nlohmann/json_fwd.hpp"
 
 static constexpr std::string_view kId{"id"};
 static constexpr std::string_view kBoltServer{"bolt_server"};

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,8 +12,14 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/data_instance_context.hpp"
+
 #include <nlohmann/json.hpp>
+#include <string_view>
+
 #include "coordination/constants.hpp"
+#include "nlohmann/json.hpp"
+#include "nlohmann/json_fwd.hpp"
+#include "replication_coordination_glue/role.hpp"
 
 namespace memgraph::coordination {
 

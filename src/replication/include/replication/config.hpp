@@ -11,13 +11,19 @@
 
 #pragma once
 
-#include "io/network/endpoint.hpp"
-#include "replication_coordination_glue/mode.hpp"
-
 #include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
+
+#include "io/network/endpoint.hpp"
+#include "replication_coordination_glue/mode.hpp"
+
+namespace memgraph {
+namespace replication_coordination_glue {
+enum class ReplicationMode : std::uint8_t;
+}  // namespace replication_coordination_glue
+}  // namespace memgraph
 
 namespace memgraph::replication {
 

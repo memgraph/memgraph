@@ -11,14 +11,25 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <expected>
+#include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+
+namespace memgraph {
+namespace utils {
+struct Settings;
+}  // namespace utils
+}  // namespace memgraph
 
 namespace memgraph::license {
 

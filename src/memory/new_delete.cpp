@@ -9,7 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <cstdlib>
 #include <new>
+#include <optional>
+#include <string>
+#include <utility>
 
 #if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>

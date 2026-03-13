@@ -11,24 +11,34 @@
 
 #include "license/license.hpp"
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
+#include <boost/container/container_fwd.hpp>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <ctime>
 #include <functional>
 #include <limits>
 #include <optional>
+#include <stdexcept>
 #include <type_traits>
 #include <vector>
 
 #include "slk/serialization.hpp"
+#include "slk/streams.hpp"
 #include "utils/base64.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+
+struct tm;
 
 namespace memgraph::license {
 

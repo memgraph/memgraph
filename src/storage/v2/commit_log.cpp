@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,9 +10,15 @@
 // licenses/APL.txt.
 
 #include "storage/v2/commit_log.hpp"
-#include "utils/memory.hpp"
 
+#include <stddef.h>
+#include <limits>
 #include <mutex>
+#include <utility>
+
+#include "utils/logging.hpp"
+#include "utils/memory.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::storage {
 CommitLog::CommitLog() : allocator_(utils::NewDeleteResource()) {}
