@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@ import memgraph.planner.core.union_find;
 
 namespace memgraph::planner::core {
 
-TEST(UnionFind, InitAndMergeSets) {
+TEST(Core_UnionFind, InitAndMergeSets) {
   UnionFind uf;
 
   auto id1 = uf.MakeSet();
@@ -45,7 +45,7 @@ TEST(UnionFind, InitAndMergeSets) {
   EXPECT_EQ(uf.Find(id3), root);
 }
 
-TEST(UnionFind, BulkUnionMultipleSets) {
+TEST(Core_UnionFind, BulkUnionMultipleSets) {
   UnionFind uf;
   UnionFindContext ctx;
 
@@ -79,7 +79,7 @@ TEST(UnionFind, BulkUnionMultipleSets) {
   EXPECT_TRUE(uf.Connected(b2, c2));
 }
 
-TEST(UnionFind, UnionWithSelf) {
+TEST(Core_UnionFind, UnionWithSelf) {
   UnionFind uf;
 
   auto id1 = uf.MakeSet();
@@ -93,7 +93,7 @@ TEST(UnionFind, UnionWithSelf) {
   EXPECT_EQ(uf.ComponentCount(), 2);
 }
 
-TEST(UnionFind, ClearResetsStructure) {
+TEST(Core_UnionFind, ClearResetsStructure) {
   UnionFind uf;
 
   auto id1 = uf.MakeSet();

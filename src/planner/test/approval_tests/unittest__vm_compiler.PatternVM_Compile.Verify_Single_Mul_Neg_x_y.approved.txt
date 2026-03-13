@@ -1,0 +1,23 @@
+0:	IterSymbolEClasses rc0, Neg (sym[0]), @21
+1:	Jump @3
+2:	NextSymbolEClass rc0, @21
+3:	IterENodes rn0, rc0
+4:	Jump @6
+5:	NextENode rn0, @2
+6:	CheckSymbol rn0, Neg (sym[0]), @5
+7:	CheckArity rn0, 1, @5
+8:	LoadChild rc1, rn0, 0
+9:	BindSlot slot[0], rc1, @5
+10:	IterParents rn1, rc0, @5
+11:	Jump @13
+12:	NextParent rn1, @5
+13:	CheckSymbol rn1, Mul (sym[1]), @12
+14:	CheckArity rn1, 2, @12
+15:	LoadChild rc2, rn1, 0
+16:	CheckEClassEq rc2, rc0, @12
+17:	LoadChild rc3, rn1, 1
+18:	BindSlot slot[1], rc3, @12
+19:	Yield (mark slot[1])
+20:	Jump @12
+21:	Halt
+

@@ -1,0 +1,217 @@
+0:	IterSymbolEClasses rc0, Neg (sym[0]), @215
+1:	Jump @3
+2:	NextSymbolEClass rc0, @215
+3:	IterENodes rn0, rc0
+4:	Jump @6
+5:	NextENode rn0, @2
+6:	CheckSymbol rn0, Neg (sym[0]), @5
+7:	CheckArity rn0, 1, @5
+8:	LoadChild rc1, rn0, 0
+9:	BindSlot slot[0], rc1, @5
+10:	IterParents rn1, rc0, @5
+11:	Jump @13
+12:	NextParent rn1, @5
+13:	CheckSymbol rn1, Neg (sym[0]), @12
+14:	CheckArity rn1, 1, @12
+15:	GetENodeEClass rc2, rn1
+16:	IterParents rn2, rc2, @12
+17:	Jump @19
+18:	NextParent rn2, @12
+19:	CheckSymbol rn2, Neg (sym[0]), @18
+20:	CheckArity rn2, 1, @18
+21:	GetENodeEClass rc3, rn2
+22:	IterParents rn3, rc3, @18
+23:	Jump @25
+24:	NextParent rn3, @18
+25:	CheckSymbol rn3, Neg (sym[0]), @24
+26:	CheckArity rn3, 1, @24
+27:	GetENodeEClass rc4, rn3
+28:	IterParents rn4, rc4, @24
+29:	Jump @31
+30:	NextParent rn4, @24
+31:	CheckSymbol rn4, Neg (sym[0]), @30
+32:	CheckArity rn4, 1, @30
+33:	GetENodeEClass rc5, rn4
+34:	IterParents rn5, rc5, @30
+35:	Jump @37
+36:	NextParent rn5, @30
+37:	CheckSymbol rn5, Neg (sym[0]), @36
+38:	CheckArity rn5, 1, @36
+39:	GetENodeEClass rc6, rn5
+40:	IterParents rn6, rc6, @36
+41:	Jump @43
+42:	NextParent rn6, @36
+43:	CheckSymbol rn6, Neg (sym[0]), @42
+44:	CheckArity rn6, 1, @42
+45:	GetENodeEClass rc7, rn6
+46:	IterParents rn7, rc7, @42
+47:	Jump @49
+48:	NextParent rn7, @42
+49:	CheckSymbol rn7, Neg (sym[0]), @48
+50:	CheckArity rn7, 1, @48
+51:	GetENodeEClass rc8, rn7
+52:	IterParents rn8, rc8, @48
+53:	Jump @55
+54:	NextParent rn8, @48
+55:	CheckSymbol rn8, Neg (sym[0]), @54
+56:	CheckArity rn8, 1, @54
+57:	GetENodeEClass rc9, rn8
+58:	IterParents rn9, rc9, @54
+59:	Jump @61
+60:	NextParent rn9, @54
+61:	CheckSymbol rn9, Neg (sym[0]), @60
+62:	CheckArity rn9, 1, @60
+63:	GetENodeEClass rc10, rn9
+64:	IterParents rn10, rc10, @60
+65:	Jump @67
+66:	NextParent rn10, @60
+67:	CheckSymbol rn10, Neg (sym[0]), @66
+68:	CheckArity rn10, 1, @66
+69:	GetENodeEClass rc11, rn10
+70:	IterParents rn11, rc11, @66
+71:	Jump @73
+72:	NextParent rn11, @66
+73:	CheckSymbol rn11, Neg (sym[0]), @72
+74:	CheckArity rn11, 1, @72
+75:	GetENodeEClass rc12, rn11
+76:	IterParents rn12, rc12, @72
+77:	Jump @79
+78:	NextParent rn12, @72
+79:	CheckSymbol rn12, Neg (sym[0]), @78
+80:	CheckArity rn12, 1, @78
+81:	GetENodeEClass rc13, rn12
+82:	IterParents rn13, rc13, @78
+83:	Jump @85
+84:	NextParent rn13, @78
+85:	CheckSymbol rn13, Neg (sym[0]), @84
+86:	CheckArity rn13, 1, @84
+87:	GetENodeEClass rc14, rn13
+88:	IterParents rn14, rc14, @84
+89:	Jump @91
+90:	NextParent rn14, @84
+91:	CheckSymbol rn14, Neg (sym[0]), @90
+92:	CheckArity rn14, 1, @90
+93:	GetENodeEClass rc15, rn14
+94:	IterParents rn15, rc15, @90
+95:	Jump @97
+96:	NextParent rn15, @90
+97:	CheckSymbol rn15, Neg (sym[0]), @96
+98:	CheckArity rn15, 1, @96
+99:	GetENodeEClass rc16, rn15
+100:	IterParents rn16, rc16, @96
+101:	Jump @103
+102:	NextParent rn16, @96
+103:	CheckSymbol rn16, Neg (sym[0]), @102
+104:	CheckArity rn16, 1, @102
+105:	GetENodeEClass rc17, rn16
+106:	IterParents rn17, rc17, @102
+107:	Jump @109
+108:	NextParent rn17, @102
+109:	CheckSymbol rn17, Neg (sym[0]), @108
+110:	CheckArity rn17, 1, @108
+111:	GetENodeEClass rc18, rn17
+112:	IterParents rn18, rc18, @108
+113:	Jump @115
+114:	NextParent rn18, @108
+115:	CheckSymbol rn18, Neg (sym[0]), @114
+116:	CheckArity rn18, 1, @114
+117:	GetENodeEClass rc19, rn18
+118:	IterParents rn19, rc19, @114
+119:	Jump @121
+120:	NextParent rn19, @114
+121:	CheckSymbol rn19, Neg (sym[0]), @120
+122:	CheckArity rn19, 1, @120
+123:	GetENodeEClass rc20, rn19
+124:	IterParents rn20, rc20, @120
+125:	Jump @127
+126:	NextParent rn20, @120
+127:	CheckSymbol rn20, Neg (sym[0]), @126
+128:	CheckArity rn20, 1, @126
+129:	GetENodeEClass rc21, rn20
+130:	IterParents rn21, rc21, @126
+131:	Jump @133
+132:	NextParent rn21, @126
+133:	CheckSymbol rn21, Neg (sym[0]), @132
+134:	CheckArity rn21, 1, @132
+135:	GetENodeEClass rc22, rn21
+136:	IterParents rn22, rc22, @132
+137:	Jump @139
+138:	NextParent rn22, @132
+139:	CheckSymbol rn22, Neg (sym[0]), @138
+140:	CheckArity rn22, 1, @138
+141:	GetENodeEClass rc23, rn22
+142:	IterParents rn23, rc23, @138
+143:	Jump @145
+144:	NextParent rn23, @138
+145:	CheckSymbol rn23, Neg (sym[0]), @144
+146:	CheckArity rn23, 1, @144
+147:	GetENodeEClass rc24, rn23
+148:	IterParents rn24, rc24, @144
+149:	Jump @151
+150:	NextParent rn24, @144
+151:	CheckSymbol rn24, Neg (sym[0]), @150
+152:	CheckArity rn24, 1, @150
+153:	GetENodeEClass rc25, rn24
+154:	IterParents rn25, rc25, @150
+155:	Jump @157
+156:	NextParent rn25, @150
+157:	CheckSymbol rn25, Neg (sym[0]), @156
+158:	CheckArity rn25, 1, @156
+159:	GetENodeEClass rc26, rn25
+160:	IterParents rn26, rc26, @156
+161:	Jump @163
+162:	NextParent rn26, @156
+163:	CheckSymbol rn26, Neg (sym[0]), @162
+164:	CheckArity rn26, 1, @162
+165:	GetENodeEClass rc27, rn26
+166:	IterParents rn27, rc27, @162
+167:	Jump @169
+168:	NextParent rn27, @162
+169:	CheckSymbol rn27, Neg (sym[0]), @168
+170:	CheckArity rn27, 1, @168
+171:	GetENodeEClass rc28, rn27
+172:	IterParents rn28, rc28, @168
+173:	Jump @175
+174:	NextParent rn28, @168
+175:	CheckSymbol rn28, Neg (sym[0]), @174
+176:	CheckArity rn28, 1, @174
+177:	GetENodeEClass rc29, rn28
+178:	IterParents rn29, rc29, @174
+179:	Jump @181
+180:	NextParent rn29, @174
+181:	CheckSymbol rn29, Neg (sym[0]), @180
+182:	CheckArity rn29, 1, @180
+183:	GetENodeEClass rc30, rn29
+184:	IterParents rn30, rc30, @180
+185:	Jump @187
+186:	NextParent rn30, @180
+187:	CheckSymbol rn30, Neg (sym[0]), @186
+188:	CheckArity rn30, 1, @186
+189:	GetENodeEClass rc31, rn30
+190:	IterParents rn31, rc31, @186
+191:	Jump @193
+192:	NextParent rn31, @186
+193:	CheckSymbol rn31, Neg (sym[0]), @192
+194:	CheckArity rn31, 1, @192
+195:	GetENodeEClass rc32, rn31
+196:	IterParents rn32, rc32, @192
+197:	Jump @199
+198:	NextParent rn32, @192
+199:	CheckSymbol rn32, Neg (sym[0]), @198
+200:	CheckArity rn32, 1, @198
+201:	GetENodeEClass rc33, rn32
+202:	IterParents rn33, rc33, @198
+203:	Jump @205
+204:	NextParent rn33, @198
+205:	CheckSymbol rn33, Neg (sym[0]), @204
+206:	CheckArity rn33, 1, @204
+207:	GetENodeEClass rc34, rn33
+208:	IterParents rn34, rc34, @204
+209:	Jump @211
+210:	NextParent rn34, @204
+211:	CheckSymbol rn34, Neg (sym[0]), @210
+212:	CheckArity rn34, 1, @210
+213:	Yield (mark slot[0])
+214:	Jump @2
+215:	Halt
+
