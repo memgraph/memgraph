@@ -312,7 +312,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcNoTimeout) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -344,7 +344,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcProgress) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -381,7 +381,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 

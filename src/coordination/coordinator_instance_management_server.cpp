@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,10 +26,14 @@ CoordinatorInstanceManagementServer::CoordinatorInstanceManagementServer(const M
       rpc_server_{config.endpoint, &rpc_server_context_, kCoordInstanceManagementServerThreads} {}
 
 CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {
-  if (rpc_server_.IsRunning()) {
-    rpc_server_.Shutdown();
+  if (rpc_server_.Shutdown()) {
+    try {
+      spdlog::trace("Closing CoordinatorInstanceManagementServer");
+      // NOLINTNEXTLINE(bugprone-empty-catch)
+    } catch (std::exception const &e) {
+    }
+    rpc_server_.AwaitShutdown();
   }
-  rpc_server_.AwaitShutdown();
 }
 
 bool CoordinatorInstanceManagementServer::Start() { return rpc_server_.Start(); }
