@@ -20,6 +20,7 @@
 #include <boost/beast/version.hpp>
 #include <nlohmann/json_fwd.hpp>
 
+#include "dbms/database.hpp"
 #include "license/license_sender.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/event_counter.hpp"
@@ -112,7 +113,7 @@ struct MetricsResponse {
 
 class MetricsService {
  public:
-  explicit MetricsService(storage::Storage *storage) : db_(storage) {}
+  explicit MetricsService(dbms::Database *database) : db_(database) {}
 
   nlohmann::json GetMetricsJSON() {
     auto response = GetMetrics();
@@ -120,7 +121,7 @@ class MetricsService {
   }
 
  private:
-  storage::Storage *const db_;
+  dbms::Database *const db_;
 
   MetricsResponse GetMetrics() {
     auto info = db_->GetBaseInfo();
@@ -221,11 +222,9 @@ class MetricsService {
   }
 };
 
-// TODO: Should this be inside Database?
-// Raw pointer could be dangerous
 class MetricsRequestHandler final {
  public:
-  explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {}
+  explicit MetricsRequestHandler(dbms::Database *database) : service_(database) {}
 
   MetricsRequestHandler(const MetricsRequestHandler &) = delete;
   MetricsRequestHandler(MetricsRequestHandler &&) = delete;
