@@ -44,6 +44,18 @@ def memgraph(**kwargs) -> Memgraph:
     except Exception as e:
         pass
     try:
+        memgraph.execute("DROP ROLE admin;")
+    except Exception as e:
+        pass
+    try:
+        memgraph.execute("DROP ROLE readwrite;")
+    except Exception as e:
+        pass
+    try:
+        memgraph.execute("DROP ROLE readonly;")
+    except Exception as e:
+        pass
+    try:
         memgraph.execute("DROP PROFILE profile;")
     except Exception as e:
         pass
@@ -61,9 +73,12 @@ def memgraph(**kwargs) -> Memgraph:
 def provide_user() -> Memgraph:
     memgraph = Memgraph()
 
+    # Create superuser first so anthony is not the first user and gets no builtin role
+    memgraph.execute("CREATE USER superuser IDENTIFIED BY 'superpassword';")
     memgraph.execute("CREATE USER anthony IDENTIFIED BY 'password';")
 
     yield None
 
-    memgraph = Memgraph(username="anthony", password="password")
+    memgraph = Memgraph(username="superuser", password="superpassword")
     memgraph.execute("DROP USER anthony;")
+    memgraph.execute("DROP USER superuser;")

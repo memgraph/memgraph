@@ -60,6 +60,8 @@ enum class NotificationCode : uint8_t {
   DISABLE_TTL,
   STOP_TTL,
   PARALLEL_EXECUTION_FALLBACK,
+  CREATE_USER,
+  CREATE_ROLE,
 };
 
 struct Notification {

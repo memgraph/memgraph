@@ -53,6 +53,7 @@ auto User2Role(auto json) {
   json.erase(kUsername);
   json.erase(kUUID);
   json.erase(kPasswordHash);
+  json["builtin"] = false;
   return json;
 }
 
@@ -1166,7 +1167,8 @@ TEST(AuthModule, RoleSerialization) {
           },
           "permissions":{"denies":0,"grants":0},
           "rolename":"",
-          "user_imp":null
+          "user_imp":null,
+          "builtin":false
           })");
 
   // Empty role

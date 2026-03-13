@@ -27,6 +27,13 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::auth {
+
+enum class UserOrRoleType {
+  UNSPECIFIED,
+  USER,
+  ROLE,
+};
+
 // These permissions must have values that are applicable for usage in a
 // bitmask.
 // clang-format off
@@ -61,6 +68,41 @@ enum class Permission : uint64_t {
   PROFILE_RESTRICTION    = 1U << 27U,
   PARALLEL_EXECUTION     = 1U << 28U,
   SERVER_SIDE_PARAMETERS = 1U << 29U,
+};
+// clang-format on
+
+// clang-format off
+inline constexpr std::array kPermissionsAll = {
+    Permission::MATCH,
+    Permission::CREATE,
+    Permission::MERGE,
+    Permission::DELETE,
+    Permission::SET,
+    Permission::REMOVE,
+    Permission::INDEX,
+    Permission::STATS,
+    Permission::CONSTRAINT,
+    Permission::DUMP,
+    Permission::AUTH,
+    Permission::REPLICATION,
+    Permission::DURABILITY,
+    Permission::READ_FILE,
+    Permission::FREE_MEMORY,
+    Permission::TRIGGER,
+    Permission::CONFIG,
+    Permission::STREAM,
+    Permission::MODULE_READ,
+    Permission::MODULE_WRITE,
+    Permission::WEBSOCKET,
+    Permission::TRANSACTION_MANAGEMENT,
+    Permission::STORAGE_MODE,
+    Permission::MULTI_DATABASE_EDIT,
+    Permission::MULTI_DATABASE_USE,
+    Permission::COORDINATOR,
+    Permission::IMPERSONATE_USER,
+    Permission::PROFILE_RESTRICTION,
+    Permission::PARALLEL_EXECUTION,
+    Permission::SERVER_SIDE_PARAMETERS,
 };
 // clang-format on
 
@@ -525,6 +567,10 @@ class Role {
 
   // Profile management moved to UserProfiles class
 
+  bool IsBuiltIn() const { return is_builtin_; }
+
+  void SetBuiltIn(bool value) { is_builtin_ = value; }
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
@@ -535,6 +581,7 @@ class Role {
  private:
   std::string rolename_;
   Permissions permissions_;
+  bool is_builtin_{false};
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases db_access_;
@@ -754,6 +801,7 @@ class User final {
 // Multi-tenant role support
 #ifdef MG_ENTERPRISE
   void AddMultiTenantRole(Role role, const std::string &db_name);
+  void RemoveMultiTenantRole(const std::string &rolename, const std::string &db_name);
   void ClearMultiTenantRoles(const std::string &db_name);
 #endif
 
