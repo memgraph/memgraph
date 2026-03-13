@@ -5987,14 +5987,7 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
   auto property_names =
       desc_query->properties_ | rv::transform([](auto const &property) { return property.name; }) | r::to_vector;
   auto database_name = std::move(desc_query->database_name_);
-
-  if (kind == storage::DescriptionTargetKind::DATABASE && !database_name.empty()) {
-    auto current_name = current_db.db_acc_->get()->name();
-    if (database_name != current_name) {
-      throw QueryException(fmt::format(
-          "Cannot set description on database '{}' while using database '{}'.", database_name, current_name));
-    }
-  }
+  auto current_db_name = current_db.db_acc_->get()->name();
 
   switch (desc_query->action_) {
     case DescriptionQuery::Action::SET:
@@ -6005,9 +5998,10 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                                 label_names = std::move(label_names),
                                 edge_type_name = std::move(edge_type_name),
                                 property_names = std::move(property_names),
-                                description = std::move(description)](
-                                   AnyStream * /*stream*/,
-                                   std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+                                description = std::move(description),
+                                database_name = std::move(database_name),
+                                current_db_name](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable
+                  -> std::optional<QueryHandlerResult> {
                 switch (kind) {
                   case storage::DescriptionTargetKind::LABEL:
                     dba.SetLabelDescription(label_names, description);
@@ -6024,6 +6018,11 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                       dba.SetEdgeTypePropertyDescription(edge_type_name, prop, description);
                     break;
                   case storage::DescriptionTargetKind::DATABASE:
+                    if (database_name != current_db_name) {
+                      throw QueryException("Cannot set description on database '{}' while using database '{}'.",
+                                           database_name,
+                                           current_db_name);
+                    }
                     dba.SetDatabaseDescription(description);
                     break;
                 }
@@ -6038,9 +6037,10 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                                 kind,
                                 label_names = std::move(label_names),
                                 edge_type_name = std::move(edge_type_name),
-                                property_names = std::move(property_names)](
-                                   AnyStream * /*stream*/,
-                                   std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+                                property_names = std::move(property_names),
+                                database_name = std::move(database_name),
+                                current_db_name](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable
+                  -> std::optional<QueryHandlerResult> {
                 switch (kind) {
                   case storage::DescriptionTargetKind::LABEL:
                     dba.DeleteLabelDescription(label_names);
@@ -6055,6 +6055,11 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     for (auto const &prop : property_names) dba.DeleteEdgeTypePropertyDescription(edge_type_name, prop);
                     break;
                   case storage::DescriptionTargetKind::DATABASE:
+                    if (database_name != current_db_name) {
+                      throw QueryException("Cannot delete description on database '{}' while using database '{}'.",
+                                           database_name,
+                                           current_db_name);
+                    }
                     dba.DeleteDatabaseDescription();
                     break;
                 }
@@ -6071,6 +6076,8 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                             label_names = std::move(label_names),
                             edge_type_name = std::move(edge_type_name),
                             property_names = std::move(property_names),
+                            database_name = std::move(database_name),
+                            current_db_name,
                             pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                                AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
@@ -6097,6 +6104,11 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   }
                   break;
                 case storage::DescriptionTargetKind::DATABASE: {
+                  if (database_name != current_db_name) {
+                    throw QueryException("Cannot show description of database '{}' while using database '{}'.",
+                                         database_name,
+                                         current_db_name);
+                  }
                   if (auto desc = dba.GetDatabaseDescription()) rows.push_back({TypedValue{*desc}});
                   break;
                 }

@@ -255,6 +255,22 @@ Feature: Server-side descriptions
             """
         Then an error should be raised
 
+    Scenario: Deleting description on wrong database throws error
+        Given an empty graph
+        When executing query:
+            """
+            DELETE DESCRIPTION ON DATABASE other_db
+            """
+        Then an error should be raised
+
+    Scenario: Showing description on wrong database throws error
+        Given an empty graph
+        When executing query:
+            """
+            SHOW DESCRIPTION ON DATABASE other_db
+            """
+        Then an error should be raised
+
     Scenario: Show description on label with no description returns empty
         Given an empty graph
         When executing query:
