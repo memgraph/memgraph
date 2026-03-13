@@ -3136,6 +3136,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     light_edge_graveyard_.WithLock([&](auto &graveyard) {
       while (!graveyard.empty() && graveyard.front().mark_timestamp <= oldest_active_start_timestamp &&
              light_edge_iterable_tracker_.IsSafeToFree(graveyard.front().guard_epoch)) {
+        // Remove from vector edge index BEFORE freeing Edge* while pointers are still valid.
+        if (!indices_.vector_edge_index_.Empty()) {
+          std::list<Gid> gids_to_remove;
+          for (auto const *edge : graveyard.front().edges) {
+            gids_to_remove.push_back(edge->gid);
+          }
+          indices_.RemoveEdgesFromVectorEdgeIndices(gids_to_remove);
+        }
         for (auto *edge : graveyard.front().edges) {
           DeleteLightEdge(edge);
         }
