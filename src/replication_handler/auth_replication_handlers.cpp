@@ -126,7 +126,7 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
         auth->RemoveUser(req.name);
       } break;
       case ROLE: {
-        auth->RemoveRole(req.name);
+        auth->RemoveRole(req.name, true);
       } break;
       case PROFILE: {
         auth->DropProfile(req.name);
@@ -190,7 +190,7 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
       }
       // Delete all the leftover roles
       for (const auto &role : old_roles) {
-        if (!locked_auth.RemoveRole(role)) {
+        if (!locked_auth.RemoveRole(role, true)) {
           spdlog::debug("SystemRecoveryHandler: Failed to remove role \"{}\".", role);
           return false;
         }

@@ -613,7 +613,7 @@ bool AuthQueryHandler::DropRole(const std::string &rolename, system::Transaction
       return false;
     };
 
-    return locked_auth->RemoveRole(rolename, system_tx);
+    return locked_auth->RemoveRole(rolename, false, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
