@@ -24,6 +24,7 @@
 #include "query/typed_value.hpp"
 #include "range/v3/all.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/logging.hpp"
@@ -31,10 +32,69 @@
 namespace memgraph::query {
 
 namespace {
+
+/// Returns the orderability rank for a TypedValue type.
+/// Hierarchy from least to greatest:
+/// MAP < NODE < RELATIONSHIP < LIST < PATH < POINT < DATE < LOCAL TIME <
+/// LOCAL DATETIME < ZONED DATETIME < DURATION < STRING < BOOLEAN < NUMBER < NULL
+/// Note: Temporal types sorted by type (DATE < DATETIME), then by value within type.
+constexpr int TypeOrderRank(TypedValue::Type type) {
+  switch (type) {
+    // MAP (lowest)
+    case TypedValue::Type::Map:
+      return 0;
+    case TypedValue::Type::Vertex:  // NODE
+      return 1;
+    case TypedValue::Type::Edge:  // RELATIONSHIP
+      return 2;
+    case TypedValue::Type::List:
+      return 3;
+    case TypedValue::Type::Path:
+      return 4;
+    // Non-standard types (not in spec, placed after PATH)
+    case TypedValue::Type::Graph:
+      return 5;
+    case TypedValue::Type::Function:
+      return 6;
+    // POINT (ordered by SRID: 4326 < 4979 < 7203 < 9157, then coordinates)
+    case TypedValue::Type::Point2d:
+    case TypedValue::Type::Point3d:
+      return 7;
+    // Temporal types: DATE < LOCAL TIME < LOCAL DATETIME < ZONED DATETIME < DURATION
+    case TypedValue::Type::Date:
+      return 8;
+    case TypedValue::Type::LocalTime:
+      return 9;
+    case TypedValue::Type::LocalDateTime:
+      return 10;
+    case TypedValue::Type::ZonedDateTime:
+      return 11;
+    case TypedValue::Type::Duration:
+      return 12;
+    case TypedValue::Type::String:
+      return 13;
+    case TypedValue::Type::Enum:
+      return 14;
+    case TypedValue::Type::Bool:
+      return 15;
+    // Int and Double share rank - compared by value
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+      return 16;
+    // NULL (highest - comes last)
+    case TypedValue::Type::Null:
+      return 17;
+  }
+}
+
 std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b) {
-  // First assume typical same type comparisons
-  if (a.type() == b.type()) {
-    switch (a.type()) {
+  const auto type_a = a.type();
+  const auto type_b = b.type();
+
+  if (type_a == type_b) [[likely]] {
+    switch (type_a) {
+      case TypedValue::Type::Null:
+        return std::partial_ordering::equivalent;
       case TypedValue::Type::Bool:
         return a.UnsafeValueBool() <=> b.UnsafeValueBool();
       case TypedValue::Type::Int:
@@ -53,64 +113,111 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
         return a.UnsafeValueZonedDateTime() <=> b.UnsafeValueZonedDateTime();
       case TypedValue::Type::Duration:
         return a.UnsafeValueDuration() <=> b.UnsafeValueDuration();
-      case TypedValue::Type::Null:
-        return std::partial_ordering::equivalent;
       case TypedValue::Type::Enum:
         return a.UnsafeValueEnum() <=> b.UnsafeValueEnum();
       case TypedValue::Type::Point2d:
         return a.UnsafeValuePoint2d() <=> b.UnsafeValuePoint2d();
       case TypedValue::Type::Point3d:
         return a.UnsafeValuePoint3d() <=> b.UnsafeValuePoint3d();
-        break;
-      case TypedValue::Type::List:
-      case TypedValue::Type::Map:
+      case TypedValue::Type::List: {
+        const auto &list_a = a.UnsafeValueList();
+        const auto &list_b = b.UnsafeValueList();
+        const auto min_size = std::min(list_a.size(), list_b.size());
+        for (size_t i = 0; i < min_size; ++i) {
+          auto cmp = TypedValueCompare(list_a[i], list_b[i]);
+          if (cmp != std::partial_ordering::equivalent) {
+            return cmp;
+          }
+        }
+        return list_a.size() <=> list_b.size();
+      }
+      case TypedValue::Type::Map: {
+        // Maps ordering: 1) by size, 2) by keys alphabetically, 3) by values
+        const auto &map_a = a.UnsafeValueMap();
+        const auto &map_b = b.UnsafeValueMap();
+        if (map_a.size() != map_b.size()) {
+          return map_a.size() <=> map_b.size();
+        }
+        auto it_a = map_a.begin();
+        auto it_b = map_b.begin();
+        // maps have same size so this is safe
+        while (it_a != map_a.end()) {
+          auto key_cmp = it_a->first <=> it_b->first;
+          if (key_cmp != std::strong_ordering::equal) {
+            return key_cmp;
+          }
+          ++it_a;
+          ++it_b;
+        }
+        it_a = map_a.begin();
+        it_b = map_b.begin();
+        while (it_a != map_a.end()) {
+          auto val_cmp = TypedValueCompare(it_a->second, it_b->second);
+          if (val_cmp != std::partial_ordering::equivalent) {
+            return val_cmp;
+          }
+          ++it_a;
+          ++it_b;
+        }
+        return std::partial_ordering::equivalent;
+      }
       case TypedValue::Type::Vertex:
+        return a.ValueVertex().Gid() <=> b.ValueVertex().Gid();
       case TypedValue::Type::Edge:
-      case TypedValue::Type::Path:
+        return a.ValueEdge().Gid() <=> b.ValueEdge().Gid();
+      case TypedValue::Type::Path: {
+        const auto &path_a = a.ValuePath();
+        const auto &path_b = b.ValuePath();
+        const auto &verts_a = path_a.vertices();
+        const auto &verts_b = path_b.vertices();
+        const auto &edges_a = path_a.edges();
+        const auto &edges_b = path_b.edges();
+        const auto min_edges = std::min(edges_a.size(), edges_b.size());
+        for (size_t i = 0; i < min_edges; ++i) {
+          // Compare vertex i
+          auto v_cmp = verts_a[i].Gid() <=> verts_b[i].Gid();
+          if (v_cmp != std::strong_ordering::equal) {
+            return v_cmp;
+          }
+          // Compare edge i
+          auto e_cmp = edges_a[i].Gid() <=> edges_b[i].Gid();
+          if (e_cmp != std::strong_ordering::equal) {
+            return e_cmp;
+          }
+        }
+        // Compare the vertex after the last common edge
+        if (min_edges < verts_a.size() && min_edges < verts_b.size()) {
+          auto v_cmp = verts_a[min_edges].Gid() <=> verts_b[min_edges].Gid();
+          if (v_cmp != std::strong_ordering::equal) {
+            return v_cmp;
+          }
+        }
+        return edges_a.size() <=> edges_b.size();
+      }
       case TypedValue::Type::Graph:
       case TypedValue::Type::Function:
-        throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
-    }
-  } else {
-    // from this point legal only between values of
-    // int+float combinations or against null
-
-    // in ordering null comes after everything else
-    // at the same time Null is not less that null
-    // first deal with Null < Whatever case
-    if (a.IsNull()) return std::partial_ordering::greater;
-    // now deal with NotNull < Null case
-    if (b.IsNull()) return std::partial_ordering::less;
-
-    if (!(a.IsNumeric() && b.IsNumeric())) [[unlikely]]
-      throw QueryRuntimeException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
-
-    switch (a.type()) {
-      case TypedValue::Type::Int:
-        return a.UnsafeValueInt() <=> b.ValueDouble();
-      case TypedValue::Type::Double:
-        return a.UnsafeValueDouble() <=> b.ValueInt();
-      case TypedValue::Type::Bool:
-      case TypedValue::Type::Null:
-      case TypedValue::Type::String:
-      case TypedValue::Type::List:
-      case TypedValue::Type::Map:
-      case TypedValue::Type::Vertex:
-      case TypedValue::Type::Edge:
-      case TypedValue::Type::Path:
-      case TypedValue::Type::Date:
-      case TypedValue::Type::LocalTime:
-      case TypedValue::Type::LocalDateTime:
-      case TypedValue::Type::ZonedDateTime:
-      case TypedValue::Type::Duration:
-      case TypedValue::Type::Enum:
-      case TypedValue::Type::Point2d:
-      case TypedValue::Type::Point3d:
-      case TypedValue::Type::Graph:
-      case TypedValue::Type::Function:
-        LOG_FATAL("Invalid type");
+        return std::partial_ordering::equivalent;
     }
   }
+
+  // Different types: handle common cases before computing ranks
+  if (type_a == TypedValue::Type::Int && type_b == TypedValue::Type::Double) {
+    return a.UnsafeValueInt() <=> b.UnsafeValueDouble();
+  }
+  if (type_a == TypedValue::Type::Double && type_b == TypedValue::Type::Int) {
+    return a.UnsafeValueDouble() <=> b.UnsafeValueInt();
+  }
+
+  // Point2d vs Point3d (same rank, compare by SRID)
+  if (type_a == TypedValue::Type::Point2d && type_b == TypedValue::Type::Point3d) {
+    return storage::CrsToSrid(a.UnsafeValuePoint2d().crs()) <=> storage::CrsToSrid(b.UnsafeValuePoint3d().crs());
+  }
+  if (type_a == TypedValue::Type::Point3d && type_b == TypedValue::Type::Point2d) {
+    return storage::CrsToSrid(a.UnsafeValuePoint3d().crs()) <=> storage::CrsToSrid(b.UnsafeValuePoint2d().crs());
+  }
+
+  // All other different types: compare by rank
+  return TypeOrderRank(type_a) <=> TypeOrderRank(type_b);
 }
 
 }  // namespace
