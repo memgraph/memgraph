@@ -378,7 +378,7 @@ void MigrateVersions(kvstore::KVStore &store) {
             puts.emplace(key, data.dump());
           }
         } catch (const nlohmann::json::exception &e) {
-          spdlog::error("Failed to migrate {}: {}", key, e.what());
+          throw AuthException("Failed to migrate auth data for '{}': {}", key, e.what());
         }
       }
     };
@@ -488,7 +488,7 @@ void MigrateVersions(kvstore::KVStore &store) {
             puts.emplace(key, data.dump());
           }
         } catch (const nlohmann::json::exception &e) {
-          spdlog::error("Failed to migrate {}: {}", key, e.what());
+          throw AuthException("Failed to migrate auth data for '{}': {}", key, e.what());
         }
       }
     };
