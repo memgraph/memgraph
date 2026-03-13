@@ -108,6 +108,38 @@ def _collect_feature_values(
 # ---- PyG helpers ---------------------------------------------------
 
 
+def _resolve_named_props(
+    pyg_dict: Dict[str, Any],
+    property_names: List[str],
+    idx: int,
+) -> Dict[str, Any]:
+    """Pick property values from top-level JSON keys for a given index."""
+    props: Dict[str, Any] = {}
+    for name in property_names:
+        if name in pyg_dict:
+            vals = pyg_dict[name]
+            if isinstance(vals, list) and idx < len(vals):
+                props[name] = vals[idx]
+    return props
+
+
+def _resolve_feature_fallback(
+    props: Dict[str, Any],
+    feats: List[Any],
+    property_names: Optional[List[str]],
+) -> Dict[str, Any]:
+    """Fill property values from a feature vector for unresolved names."""
+    if property_names:
+        col_idx = 0
+        for name in property_names:
+            if name not in props and col_idx < len(feats):
+                props[name] = feats[col_idx]
+            col_idx += 1
+    elif not props:
+        props["features"] = feats
+    return props
+
+
 def _pyg_export_dict(
     vertices: List[Any],
     edges: List[Any],
@@ -176,31 +208,12 @@ def _pyg_import_data(
             nd["labels"] = [default_node_label]
 
         props: Dict[str, Any] = {}
-
-        # Named node properties from top-level JSON keys
         if node_property_names:
-            for name in node_property_names:
-                if name in pyg_dict:
-                    vals = pyg_dict[name]
-                    if isinstance(vals, list) and idx < len(vals):
-                        props[name] = vals[idx]
-
-        # Fall back to x column mapping for properties not yet resolved
+            props = _resolve_named_props(pyg_dict, node_property_names, idx)
         if x is not None and idx < len(x):
-            feats = x[idx]
-            if node_property_names:
-                col_idx = 0
-                for name in node_property_names:
-                    if name not in props and col_idx < len(feats):
-                        props[name] = feats[col_idx]
-                    col_idx += 1
-            elif not props:
-                props["features"] = feats
-
+            props = _resolve_feature_fallback(props, x[idx], node_property_names)
         if y is not None and idx < len(y) and y[idx] is not None:
             props["y"] = y[idx]
-
-        # Store original Memgraph node ID if mapping is available
         if idx_to_node_id:
             orig_id = idx_to_node_id.get(str(idx))
             if orig_id is not None:
@@ -219,26 +232,10 @@ def _pyg_import_data(
             "type": (edge_types[ei] if edge_types and ei < len(edge_types) else default_edge_type),
         }
         props: Dict[str, Any] = {}
-
-        # Named edge properties from top-level JSON keys
         if edge_property_names:
-            for name in edge_property_names:
-                if name in pyg_dict:
-                    vals = pyg_dict[name]
-                    if isinstance(vals, list) and ei < len(vals):
-                        props[name] = vals[ei]
-
-        # Fall back to edge_attr column mapping for properties not yet resolved
+            props = _resolve_named_props(pyg_dict, edge_property_names, ei)
         if edge_attr is not None and ei < len(edge_attr):
-            feats = edge_attr[ei]
-            if edge_property_names:
-                col_idx = 0
-                for name in edge_property_names:
-                    if name not in props and col_idx < len(feats):
-                        props[name] = feats[col_idx]
-                    col_idx += 1
-            elif not props:
-                props["features"] = feats
+            props = _resolve_feature_fallback(props, edge_attr[ei], edge_property_names)
 
         ed["properties"] = props
         edges_data.append(ed)
@@ -507,23 +504,13 @@ def pyg_import(
             except IndexError:
                 continue
 
-            # Named node properties from top-level JSON keys
+            props: Dict[str, Any] = {}
             if node_props:
-                for name in node_props:
-                    if name in pyg_dict:
-                        vals = pyg_dict[name]
-                        if isinstance(vals, list) and idx < len(vals):
-                            vertex.properties.set(name, vals[idx])
-
-            # Fall back to x column mapping for unresolved properties
+                props = _resolve_named_props(pyg_dict, node_props, idx)
             if x is not None and idx < len(x):
-                feats = x[idx]
-                if node_props:
-                    col_idx = 0
-                    for name in node_props:
-                        if name not in pyg_dict and col_idx < len(feats):
-                            vertex.properties.set(name, feats[col_idx])
-                        col_idx += 1
+                props = _resolve_feature_fallback(props, x[idx], node_props)
+            for k, v in props.items():
+                vertex.properties.set(k, v)
 
             nodes_updated += 1
 
