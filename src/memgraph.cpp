@@ -583,6 +583,10 @@ int main(int argc, char **argv) {
   using memgraph::coordination::CoordinatorInstanceInitConfig;
   using memgraph::coordination::CoordinatorState;
   using memgraph::coordination::ReplicationInstanceInitConfig;
+
+  // coordinator_state must be declared before repl_state because in initialization repl state needs coordinator state —
+  // but DataInstanceManagementServer must be explicitly shut down before repl_state destruction (done in shutdown
+  // lambda)
   std::shared_ptr<CoordinatorState> coordinator_state{};
   auto const is_valid_data_instance =
       coordination_setup.management_port && !coordination_setup.coordinator_port && !coordination_setup.coordinator_id;

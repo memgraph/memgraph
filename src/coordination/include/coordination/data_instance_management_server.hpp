@@ -28,7 +28,7 @@ class DataInstanceManagementServer {
 
   ~DataInstanceManagementServer();
 
-  void Shutdown();
+  bool Shutdown();
 
   bool Start();
 

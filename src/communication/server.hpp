@@ -122,14 +122,20 @@ class Server final {
   }
 
   /// Signals the server to start shutting down
-  void Shutdown() {
+  bool Shutdown() {
     // This should be as simple as possible, so that it can be called inside a
     // signal handler.
-    alive_.store(false);
-    // Shutdown the socket to return from any waiting `Accept` calls.
-    socket_.Shutdown();
-    // Shutdown the listener.
-    listener_.Shutdown();
+    auto expected{true};
+    // If I am the thread which earned the right to do the shutdown
+    auto const res =
+        alive_.compare_exchange_strong(expected, false, std::memory_order_acq_rel, std::memory_order_acquire);
+    if (res) {
+      // Shutdown the socket to return from any waiting `Accept` calls.
+      socket_.Shutdown();
+      // Shutdown the listener.
+      listener_.Shutdown();
+    }
+    return res;
   }
 
   /// Waits for the server to be signaled to shutdown

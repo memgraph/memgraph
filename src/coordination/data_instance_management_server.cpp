@@ -30,17 +30,18 @@ DataInstanceManagementServer::DataInstanceManagementServer(const ManagementServe
 
 DataInstanceManagementServer::~DataInstanceManagementServer() { Shutdown(); }
 
-void DataInstanceManagementServer::Shutdown() {
-  if (rpc_server_.IsRunning()) {
+bool DataInstanceManagementServer::Shutdown() {
+  if (rpc_server_.Shutdown()) {
     try {
       // trace can throw
       spdlog::trace("Closing data instance management server");
-      rpc_server_.Shutdown();
       // NOLINTNEXTLINE(bugprone-empty-catch)
     } catch (std::exception const &) {
     }
+    rpc_server_.AwaitShutdown();
+    return true;
   }
-  rpc_server_.AwaitShutdown();
+  return false;
 }
 
 bool DataInstanceManagementServer::Start() { return rpc_server_.Start(); }

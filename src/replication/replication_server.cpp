@@ -52,18 +52,20 @@ ReplicationServer::~ReplicationServer() { Shutdown(); }
 
 bool ReplicationServer::Start() { return rpc_server_.Start(); }
 
-void ReplicationServer::Shutdown() {
-  if (rpc_server_.IsRunning()) {
+bool ReplicationServer::Shutdown() {
+  // if I am the thread which did the shutdown
+  if (rpc_server_.Shutdown()) {
     try {
       // trace can throw
       auto const &endpoint = rpc_server_.endpoint();
       spdlog::trace("Closing replication server on {}", endpoint.SocketAddress());
-      rpc_server_.Shutdown();
       // NOLINTNEXTLINE(bugprone-empty-catch)
     } catch (std::exception const &) {
     }
+    rpc_server_.AwaitShutdown();
+    return true;
   }
-  rpc_server_.AwaitShutdown();
+  return false;
 }
 
 }  // namespace memgraph::replication

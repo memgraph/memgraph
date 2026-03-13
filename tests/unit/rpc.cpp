@@ -30,7 +30,7 @@ TEST(Rpc, Call) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   auto const on_exit = memgraph::utils::OnScopeExit{[&] {
-    server.Shutdown();
+    ASSERT_TRUE(server.Shutdown());
     server.AwaitShutdown();
   }};
   server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
@@ -84,7 +84,7 @@ TEST(Rpc, Abort) {
 
   thread.join();
 
-  server.Shutdown();
+  ASSERT_TRUE(server.Shutdown());
   server.AwaitShutdown();
 }
 
@@ -146,7 +146,7 @@ TEST(Rpc, ClientPool) {
   }
   EXPECT_LE(t2.Elapsed(), 200ms);
 
-  server.Shutdown();
+  ASSERT_TRUE(server.Shutdown());
   server.AwaitShutdown();
 }
 
@@ -171,7 +171,7 @@ TEST(Rpc, LargeMessage) {
   auto echo = client.Call<Echo>(testdata);
   EXPECT_EQ(echo.data, testdata);
 
-  server.Shutdown();
+  ASSERT_TRUE(server.Shutdown());
   server.AwaitShutdown();
 }
 
@@ -197,7 +197,7 @@ TEST(Rpc, JumboMessage) {
   auto echo = client.Call<Echo>(testdata);
   EXPECT_EQ(echo.data, testdata);
 
-  server.Shutdown();
+  ASSERT_TRUE(server.Shutdown());
   server.AwaitShutdown();
 }
 
@@ -225,7 +225,7 @@ TEST(Rpc, Stream) {
   auto echo = stream.SendAndWait();
   EXPECT_EQ(echo.data, "helloworld");
 
-  server.Shutdown();
+  ASSERT_TRUE(server.Shutdown());
   server.AwaitShutdown();
 }
 
@@ -256,7 +256,7 @@ TEST(Rpc, StreamLarge) {
   auto echo = stream.SendAndWait();
   EXPECT_EQ(echo.data, testdata1 + testdata2);
 
-  server.Shutdown();
+  ASSERT_TRUE(server.Shutdown());
   server.AwaitShutdown();
 }
 
@@ -289,6 +289,6 @@ TEST(Rpc, StreamJumbo) {
   auto echo = stream.SendAndWait();
   EXPECT_EQ(echo.data, testdata1 + testdata2);
 
-  server.Shutdown();
+  ASSERT_TRUE(server.Shutdown());
   server.AwaitShutdown();
 }
