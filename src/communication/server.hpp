@@ -125,7 +125,7 @@ class Server final {
   bool Shutdown() {
     // This should be as simple as possible, so that it can be called inside a
     // signal handler.
-    auto expected{true};
+    bool expected{true};
     // If I am the thread which earned the right to do the shutdown
     auto const res =
         alive_.compare_exchange_strong(expected, false, std::memory_order_acq_rel, std::memory_order_acquire);

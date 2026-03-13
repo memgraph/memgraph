@@ -18,7 +18,7 @@ Server::Server(io::network::Endpoint endpoint, communication::ServerContext *con
 
 bool Server::Start() { return server_.Start(); }
 
-bool Server::Shutdown() { return server_.Shutdown(); }
+[[nodiscard]] bool Server::Shutdown() { return server_.Shutdown(); }
 
 void Server::AwaitShutdown() { server_.AwaitShutdown(); }
 
