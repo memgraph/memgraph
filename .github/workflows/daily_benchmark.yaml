@@ -155,6 +155,19 @@ jobs:
             $BRANCH_NAME \
             mgbench
 
+      - name: Run and upload mgbench-vector-search-index
+        id: mgbench-vector-search-index
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-vector-search-index \
+            vector-search-index \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
       - name: Run extended planner optimizations mgbench
         id: planner
         continue-on-error: true
