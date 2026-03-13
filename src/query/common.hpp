@@ -63,6 +63,12 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
         return a.UnsafeValuePoint3d() <=> b.UnsafeValuePoint3d();
         break;
       case TypedValue::Type::List:
+        return std::lexicographical_compare_three_way(a.UnsafeValueList().begin(),
+                                                      a.UnsafeValueList().end(),
+                                                      b.UnsafeValueList().begin(),
+                                                      b.UnsafeValueList().end(),
+                                                      TypedValueCompare);
+        break;
       case TypedValue::Type::Map:
       case TypedValue::Type::Vertex:
       case TypedValue::Type::Edge:
