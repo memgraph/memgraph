@@ -863,6 +863,13 @@ int main(int argc, char **argv) {
     if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server
     server.Shutdown();
+
+    // DataInstanceManagementServer needs to be closed before replication state because some RPCs require access to
+    // replication state
+    if (coordinator_state && coordinator_state->IsDataInstance()) {
+      coordinator_state->GetDataInstanceManagementServer().Shutdown();
+    }
+
     // Don't replicate on shutdown anymore
     {
       auto locked_repl_state = repl_state.Lock();

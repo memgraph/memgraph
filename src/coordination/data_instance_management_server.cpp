@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,9 +28,17 @@ DataInstanceManagementServer::DataInstanceManagementServer(const ManagementServe
     : rpc_server_context_{communication::ServerContext{}},
       rpc_server_{config.endpoint, &rpc_server_context_, kDataInstanceManagementServerThreads} {}
 
-DataInstanceManagementServer::~DataInstanceManagementServer() {
+DataInstanceManagementServer::~DataInstanceManagementServer() { Shutdown(); }
+
+void DataInstanceManagementServer::Shutdown() {
   if (rpc_server_.IsRunning()) {
-    rpc_server_.Shutdown();
+    try {
+      // trace can throw
+      spdlog::trace("Closing data instance management server");
+      rpc_server_.Shutdown();
+      // NOLINTNEXTLINE(bugprone-empty-catch)
+    } catch (std::exception const &) {
+    }
   }
   rpc_server_.AwaitShutdown();
 }
