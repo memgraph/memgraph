@@ -63,6 +63,8 @@ memgraphCypherKeyword : cypherKeyword
                       | DELIMITER
                       | DEMOTE
                       | DENY
+                      | DESCRIPTION
+                      | DESCRIPTIONS
                       | DIRECTORY
                       | DISABLE
                       | DO
@@ -110,6 +112,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ISOLATION
                       | JSONL
                       | KAFKA
+                      | LABEL
                       | LABELS
                       | LAG
                       | LEADERSHIP
@@ -148,6 +151,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PERIODIC
                       | POINT
                       | PORT
+                      | PROPERTY
                       | PRIVILEGES
                       | PROFILE_RESTRICTION
                       | PROFILES
@@ -284,6 +288,7 @@ query : cypherQuery
       | ttlQuery
       | setSessionTraceQuery
       | userProfileQuery
+      | descriptionQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -875,3 +880,34 @@ userProfileQuery : createUserProfile
                  | clearUserProfile
                  | showResourceConsumption
                  ;
+
+descriptionQuery
+    : setDescription
+    | deleteDescription
+    | showDescriptionQuery
+    | showDescriptions
+    ;
+
+setDescription
+    : SET DESCRIPTION ON descriptionTarget StringLiteral
+    ;
+
+deleteDescription
+    : DELETE DESCRIPTION ON descriptionTarget
+    ;
+
+showDescriptionQuery
+    : SHOW DESCRIPTION ON descriptionTarget
+    ;
+
+showDescriptions
+    : SHOW DESCRIPTIONS
+    ;
+
+descriptionTarget
+    : LABEL ':' labelName ( ':' labelName )*
+    | EDGE TYPE ':' labelName
+    | PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | PROPERTY EDGE TYPE ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | DATABASE symbolicName
+    ;

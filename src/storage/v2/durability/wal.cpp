@@ -140,6 +140,8 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
     add_case(TTL_OPERATION);
+    add_case(DESCRIPTION_SET);
+    add_case(DESCRIPTION_DELETE);
   }
 #undef add_case
 }
@@ -228,6 +230,8 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_VECTOR_EDGE_INDEX_CREATE:
     case DELTA_VECTOR_INDEX_DROP:
     case DELTA_TTL_OPERATION:
+    case DELTA_DESCRIPTION_SET:
+    case DELTA_DESCRIPTION_DELETE:
       return true;
 
     // Not deltas
@@ -257,6 +261,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case SECTION_OFFSETS:
     case SECTION_ENUMS:
     case SECTION_TTL:
+    case SECTION_DESCRIPTIONS:
     case VALUE_FALSE:
     case VALUE_TRUE:
       throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -587,6 +592,133 @@ auto Skip(BaseDecoder *decoder, const uint64_t version) -> void {
   }(std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
 }
 
+// Reads the kind-dependent payload for a description WAL entry.
+// Wire format: kind_byte, then kind-dependent fields, then description string (for SET only).
+auto ReadDescriptionFields(BaseDecoder *decoder) {
+  struct Fields {
+    DescriptionTargetKind kind;
+    std::vector<std::string> labels;
+    std::string edge_type;
+    std::string property;
+  };
+
+  auto kind_val = decoder->ReadUint();
+  if (!kind_val) throw RecoveryFailure(kInvalidWalErrorMessage);
+  auto kind = static_cast<DescriptionTargetKind>(*kind_val);
+
+  Fields fields{.kind = kind};
+  switch (kind) {
+    case DescriptionTargetKind::DATABASE:
+      break;
+    case DescriptionTargetKind::LABEL: {
+      auto count = decoder->ReadUint();
+      if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      fields.labels.reserve(*count);
+      for (uint64_t i = 0; i < *count; ++i) {
+        auto string = decoder->ReadString();
+        if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
+        fields.labels.emplace_back(*std::move(string));
+      }
+      break;
+    }
+    case DescriptionTargetKind::EDGE_TYPE: {
+      auto string = decoder->ReadString();
+      if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
+      fields.edge_type = *std::move(string);
+      break;
+    }
+    case DescriptionTargetKind::LABEL_PROPERTY: {
+      auto count = decoder->ReadUint();
+      if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      fields.labels.reserve(*count);
+      for (uint64_t i = 0; i < *count; ++i) {
+        auto string = decoder->ReadString();
+        if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
+        fields.labels.emplace_back(*std::move(string));
+      }
+      auto prop = decoder->ReadString();
+      if (!prop) throw RecoveryFailure(kInvalidWalErrorMessage);
+      fields.property = *std::move(prop);
+      break;
+    }
+    case DescriptionTargetKind::EDGE_TYPE_PROPERTY: {
+      auto edge_type = decoder->ReadString();
+      if (!edge_type) throw RecoveryFailure(kInvalidWalErrorMessage);
+      fields.edge_type = *std::move(edge_type);
+      auto prop = decoder->ReadString();
+      if (!prop) throw RecoveryFailure(kInvalidWalErrorMessage);
+      fields.property = *std::move(prop);
+      break;
+    }
+    default:
+      throw RecoveryFailure(kInvalidWalErrorMessage);
+  }
+  return fields;
+}
+
+auto ReadDescriptionSet(BaseDecoder *decoder) -> WalDescriptionSet {
+  auto fields = ReadDescriptionFields(decoder);
+  auto desc = decoder->ReadString();
+  if (!desc) throw RecoveryFailure(kInvalidWalErrorMessage);
+  return {.kind = fields.kind,
+          .labels = std::move(fields.labels),
+          .edge_type = std::move(fields.edge_type),
+          .property = std::move(fields.property),
+          .description = *std::move(desc)};
+}
+
+auto ReadDescriptionDelete(BaseDecoder *decoder) -> WalDescriptionDelete {
+  auto fields = ReadDescriptionFields(decoder);
+  return {.kind = fields.kind,
+          .labels = std::move(fields.labels),
+          .edge_type = std::move(fields.edge_type),
+          .property = std::move(fields.property)};
+}
+
+void SkipDescriptionFields(BaseDecoder *decoder) {
+  auto kind_val = decoder->ReadUint();
+  if (!kind_val) throw RecoveryFailure(kInvalidWalErrorMessage);
+  auto kind = static_cast<DescriptionTargetKind>(*kind_val);
+
+  switch (kind) {
+    case DescriptionTargetKind::DATABASE:
+      break;
+    case DescriptionTargetKind::LABEL: {
+      auto count = decoder->ReadUint();
+      if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      for (uint64_t i = 0; i < *count; ++i) {
+        if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      }
+      break;
+    }
+    case DescriptionTargetKind::EDGE_TYPE:
+      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      break;
+    case DescriptionTargetKind::LABEL_PROPERTY: {
+      auto count = decoder->ReadUint();
+      if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+      for (uint64_t i = 0; i < *count; ++i) {
+        if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      }
+      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      break;
+    }
+    case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      break;
+    default:
+      throw RecoveryFailure(kInvalidWalErrorMessage);
+  }
+}
+
+void SkipDescription(BaseDecoder *decoder, bool is_set) {
+  SkipDescriptionFields(decoder);
+  if (is_set) {
+    if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+  }
+}
+
 // Function used to either read or skip the current WAL delta data. The WAL
 // delta header must be read before calling this function. If the delta data is
 // read then the data returned is valid, if the delta data is skipped then the
@@ -653,6 +785,22 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(VECTOR_EDGE_INDEX_CREATE, WalVectorEdgeIndexCreate);
     read_skip(VECTOR_INDEX_DROP, WalVectorIndexDrop);
     read_skip(TTL_OPERATION, WalTtlOperation);
+    case Marker::DELTA_DESCRIPTION_SET: {
+      if constexpr (read_data) {
+        return {.data_ = ReadDescriptionSet(decoder)};
+      } else {
+        SkipDescription(decoder, true);
+        return IsMarkerTransactionEnd(*action, version);
+      }
+    }
+    case Marker::DELTA_DESCRIPTION_DELETE: {
+      if constexpr (read_data) {
+        return {.data_ = ReadDescriptionDelete(decoder)};
+      } else {
+        SkipDescription(decoder, false);
+        return IsMarkerTransactionEnd(*action, version);
+      }
+    }
 
     // Other markers are not actions
     case Marker::TYPE_NULL:
@@ -681,6 +829,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case Marker::SECTION_OFFSETS:
     case Marker::SECTION_ENUMS:
     case Marker::SECTION_TTL:
+    case Marker::SECTION_DESCRIPTIONS:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -963,7 +1112,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl) {
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -1528,6 +1677,66 @@ std::optional<RecoveryInfo> LoadWal(
             throw RecoveryFailure("Invalid TTL operation type: {}", static_cast<int>(data.operation_type));
         }
       },
+      [&](WalDescriptionSet const &data) {
+        auto resolve_labels = [&] {
+          std::vector<LabelId> ids;
+          ids.reserve(data.labels.size());
+          for (auto const &name : data.labels) ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(name)));
+          return ids;
+        };
+        switch (data.kind) {
+          case DescriptionTargetKind::DATABASE:
+            description_store->SetDatabase(data.description);
+            break;
+          case DescriptionTargetKind::LABEL:
+            description_store->SetLabel(resolve_labels(), data.description);
+            break;
+          case DescriptionTargetKind::EDGE_TYPE:
+            description_store->SetEdgeType(EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)),
+                                           data.description);
+            break;
+          case DescriptionTargetKind::LABEL_PROPERTY:
+            description_store->SetLabelProperty(
+                resolve_labels(), PropertyId::FromUint(name_id_mapper->NameToId(data.property)), data.description);
+            break;
+          case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+            description_store->SetEdgeTypeProperty(EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)),
+                                                   PropertyId::FromUint(name_id_mapper->NameToId(data.property)),
+                                                   data.description);
+            break;
+          default:
+            throw RecoveryFailure(kInvalidWalErrorMessage);
+        }
+      },
+      [&](WalDescriptionDelete const &data) {
+        auto resolve_labels = [&] {
+          std::vector<LabelId> ids;
+          ids.reserve(data.labels.size());
+          for (auto const &name : data.labels) ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(name)));
+          return ids;
+        };
+        switch (data.kind) {
+          case DescriptionTargetKind::DATABASE:
+            description_store->DeleteDatabase();
+            break;
+          case DescriptionTargetKind::LABEL:
+            description_store->DeleteLabel(resolve_labels());
+            break;
+          case DescriptionTargetKind::EDGE_TYPE:
+            description_store->DeleteEdgeType(EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)));
+            break;
+          case DescriptionTargetKind::LABEL_PROPERTY:
+            description_store->DeleteLabelProperty(resolve_labels(),
+                                                   PropertyId::FromUint(name_id_mapper->NameToId(data.property)));
+            break;
+          case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+            description_store->DeleteEdgeTypeProperty(EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)),
+                                                      PropertyId::FromUint(name_id_mapper->NameToId(data.property)));
+            break;
+          default:
+            throw RecoveryFailure(kInvalidWalErrorMessage);
+        }
+      },
   };
 
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
@@ -1862,6 +2071,51 @@ void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
         std::chrono::duration_cast<std::chrono::microseconds>(start_time->time_since_epoch()).count()));
   }
   encoder.WriteBool(should_run_edge_ttl);
+}
+
+namespace {
+void EncodeDescriptionKindFields(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
+                                 std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property) {
+  encoder.WriteUint(static_cast<uint64_t>(kind));
+  switch (kind) {
+    case DescriptionTargetKind::DATABASE:
+      break;
+    case DescriptionTargetKind::LABEL:
+      encoder.WriteUint(labels.size());
+      for (auto id : labels) {
+        encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
+      }
+      break;
+    case DescriptionTargetKind::EDGE_TYPE:
+      encoder.WriteString(name_id_mapper.IdToName(edge_type.AsUint()));
+      break;
+    case DescriptionTargetKind::LABEL_PROPERTY:
+      encoder.WriteUint(labels.size());
+      for (auto id : labels) {
+        encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
+      }
+      encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+      break;
+    case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+      encoder.WriteString(name_id_mapper.IdToName(edge_type.AsUint()));
+      encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+      break;
+    default:
+      throw RecoveryFailure(kInvalidWalErrorMessage);
+  }
+}
+}  // namespace
+
+void EncodeDescriptionSet(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
+                          std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
+                          std::string_view description) {
+  EncodeDescriptionKindFields(encoder, name_id_mapper, kind, labels, edge_type, property);
+  encoder.WriteString(description);
+}
+
+void EncodeDescriptionDelete(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
+                             std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property) {
+  EncodeDescriptionKindFields(encoder, name_id_mapper, kind, labels, edge_type, property);
 }
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp) {

@@ -514,6 +514,20 @@ class DeltaGenerator final {
         });
         break;
       }
+      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_SET: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          memgraph::storage::durability::EncodeDescriptionSet(
+              encoder, *storage_->name_id_mapper_, memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {}, "");
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_DELETE: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          memgraph::storage::durability::EncodeDescriptionDelete(
+              encoder, *storage_->name_id_mapper_, memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {});
+        });
+        break;
+      }
     }
     if (valid_) {
       UpdateStats(timestamp_, 1);
@@ -601,6 +615,10 @@ class DeltaGenerator final {
             return {WalVectorIndexDrop{vector_index_name}};
           case TTL_OPERATION:
             return {WalTtlOperation{TtlOperationType::ENABLE, std::nullopt, std::nullopt, false}};
+          case DESCRIPTION_SET:
+            return {WalDescriptionSet{memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {}, ""}};
+          case DESCRIPTION_DELETE:
+            return {WalDescriptionDelete{memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {}}};
         }
       });
       data_.emplace_back(timestamp_, data);

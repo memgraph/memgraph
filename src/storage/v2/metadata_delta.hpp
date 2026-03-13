@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "storage/v2/constraints/type_constraints.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/durability/ttl_operation_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -61,6 +62,8 @@ struct MetadataDelta {
     VECTOR_INDEX_DROP,
     VECTOR_EDGE_INDEX_CREATE,
     TTL_OPERATION,
+    DESCRIPTION_SET,
+    DESCRIPTION_DELETE,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -158,6 +161,12 @@ struct MetadataDelta {
 
   static constexpr struct TtlOperation {
   } ttl_operation;
+
+  static constexpr struct DescriptionSet {
+  } description_set;
+
+  static constexpr struct DescriptionDelete {
+  } description_delete;
 
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
@@ -261,6 +270,15 @@ struct MetadataDelta {
                            .start_time = start_time,
                            .should_run_edge_ttl = should_run_edge_ttl} {}
 
+  MetadataDelta(DescriptionSet /*tag*/, DescriptionTargetKind kind, std::vector<LabelId> labels, EdgeTypeId edge_type,
+                PropertyId property, std::string description)
+      : action(Action::DESCRIPTION_SET),
+        description_op{kind, std::move(labels), edge_type, property, std::move(description)} {}
+
+  MetadataDelta(DescriptionDelete /*tag*/, DescriptionTargetKind kind, std::vector<LabelId> labels,
+                EdgeTypeId edge_type, PropertyId property)
+      : action(Action::DESCRIPTION_DELETE), description_op{kind, std::move(labels), edge_type, property, {}} {}
+
   MetadataDelta(const MetadataDelta &) = delete;
   MetadataDelta(MetadataDelta &&) = delete;
   MetadataDelta &operator=(const MetadataDelta &) = delete;
@@ -362,6 +380,11 @@ struct MetadataDelta {
         std::destroy_at(&ttl_operation_info);
         break;
       }
+      case DESCRIPTION_SET:
+      case DESCRIPTION_DELETE: {
+        std::destroy_at(&description_op);
+        break;
+      }
     }
   }
 
@@ -439,6 +462,7 @@ struct MetadataDelta {
     VectorIndexSpec vector_index_spec;
     VectorEdgeIndexSpec vector_edge_index_spec;
     std::string index_name;
+    DescriptionEntry description_op;
   };
 };
 

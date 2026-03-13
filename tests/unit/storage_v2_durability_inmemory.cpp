@@ -3654,7 +3654,8 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       nullptr /* schema_info */,
       [](auto in) { return std::nullopt; },
       "memgraph",
-      &ttl);
+      &ttl,
+      nullptr /* description_store */);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
   const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);
@@ -4525,5 +4526,114 @@ TEST_P(DurabilityTest, SnapshotWithNonSequentialDeltas) {
     ASSERT_TRUE(found_edge2);
 
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
+  // Create descriptions and snapshot.
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+    memgraph::dbms::Database db{config};
+
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      std::vector<std::string> person_labels{"Person"};
+      std::vector<std::string> person_student_labels{"Person", "Student"};
+      acc->SetLabelDescription(person_labels, "A person node");
+      acc->SetLabelDescription(person_student_labels, "A student person");
+      acc->SetEdgeTypeDescription("KNOWS", "Knows relationship");
+      acc->SetLabelPropertyDescription(person_labels, "age", "Age of the person");
+      acc->SetEdgeTypePropertyDescription("KNOWS", "since", "When they met");
+      acc->SetDatabaseDescription("Test database");
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Verify before snapshot.
+    {
+      auto acc = db.Access(memgraph::storage::READ);
+      std::vector<std::string> person_labels{"Person"};
+      std::vector<std::string> person_student_labels{"Person", "Student"};
+      ASSERT_EQ(acc->GetLabelDescription(person_labels), "A person node");
+      ASSERT_EQ(acc->GetLabelDescription(person_student_labels), "A student person");
+      ASSERT_EQ(acc->GetEdgeTypeDescription("KNOWS"), "Knows relationship");
+      ASSERT_EQ(acc->GetLabelPropertyDescription(person_labels, "age"), "Age of the person");
+      ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
+      ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
+      ASSERT_EQ(acc->GetAllDescriptions().size(), 6);
+    }
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetWalsList().size(), 0);
+
+  // Recover and verify.
+  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                   .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+  memgraph::dbms::Database db{config};
+
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    std::vector<std::string> person_labels{"Person"};
+    std::vector<std::string> person_student_labels{"Person", "Student"};
+    ASSERT_EQ(acc->GetLabelDescription(person_labels), "A person node");
+    ASSERT_EQ(acc->GetLabelDescription(person_student_labels), "A student person");
+    ASSERT_EQ(acc->GetEdgeTypeDescription("KNOWS"), "Knows relationship");
+    ASSERT_EQ(acc->GetLabelPropertyDescription(person_labels, "age"), "Age of the person");
+    ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
+    ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
+    ASSERT_EQ(acc->GetAllDescriptions().size(), 6);
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
+  // Create descriptions without snapshot_on_exit so they go through WAL.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_on_exit = false},
+        .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+    memgraph::dbms::Database db{config};
+
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      std::vector<std::string> person_labels{"Person"};
+      acc->SetLabelDescription(person_labels, "A person node");
+      acc->SetEdgeTypeDescription("KNOWS", "Knows relationship");
+      acc->SetLabelPropertyDescription(person_labels, "age", "Age of the person");
+      acc->SetEdgeTypePropertyDescription("KNOWS", "since", "When they met");
+      acc->SetDatabaseDescription("Test database");
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Delete one description in a separate transaction.
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      std::vector<std::string> person_labels{"Person"};
+      ASSERT_TRUE(acc->DeleteLabelDescription(person_labels));
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Recover and verify.
+  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                   .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+  memgraph::dbms::Database db{config};
+
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    std::vector<std::string> person_labels{"Person"};
+    ASSERT_EQ(acc->GetLabelDescription(person_labels), std::nullopt);
+    ASSERT_EQ(acc->GetEdgeTypeDescription("KNOWS"), "Knows relationship");
+    ASSERT_EQ(acc->GetLabelPropertyDescription(person_labels, "age"), "Age of the person");
+    ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
+    ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
+    ASSERT_EQ(acc->GetAllDescriptions().size(), 4);
   }
 }

@@ -473,6 +473,9 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_ADD:
         case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_UPDATE:
         case memgraph::storage::durability::Marker::DELTA_TTL_OPERATION:
+        case memgraph::storage::durability::Marker::SECTION_DESCRIPTIONS:
+        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_SET:
+        case memgraph::storage::durability::Marker::DELTA_DESCRIPTION_DELETE:
         case memgraph::storage::durability::Marker::VALUE_FALSE:
         case memgraph::storage::durability::Marker::VALUE_TRUE:
           valid_marker = false;
