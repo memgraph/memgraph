@@ -12,12 +12,21 @@
 #pragma once
 
 #include <netdb.h>
-
+#include <stdint.h>
+#include <cstddef>
 #include <iterator>
 #include <memory>
 #include <string>
 
 #include "io/network/endpoint.hpp"
+
+namespace memgraph {
+namespace io {
+namespace network {
+class Endpoint;
+}  // namespace network
+}  // namespace io
+}  // namespace memgraph
 
 namespace memgraph::io::network {
 

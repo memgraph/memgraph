@@ -9,10 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <fmt/format.h>
-
+#include <spdlog/spdlog.h>
+#include <mutex>
 #include <shared_mutex>
 
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/settings.hpp"
 

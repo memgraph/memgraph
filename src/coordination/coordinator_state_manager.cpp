@@ -12,14 +12,35 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_state_manager.hpp"
+
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <sys/types.h>
+#include <filesystem>
+#include <libnuraft/srv_config.hxx>
+#include <libnuraft/srv_state.hxx>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <range/v3/iterator/basic_iterator.hpp>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/transform.hpp>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+#include <variant>
+
 #include "coordination/coordination_observer.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/log_level.hpp"
 #include "coordination/utils.hpp"
+#include "nlohmann/json.hpp"
 #include "utils/logging.hpp"
 
-#include <spdlog/spdlog.h>
-#include <nlohmann/json.hpp>
-#include <range/v3/view.hpp>
+namespace nuraft {
+class buffer;
+}  // namespace nuraft
 
 namespace memgraph::coordination {
 using nuraft::cluster_config;

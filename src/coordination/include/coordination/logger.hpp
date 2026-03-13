@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,16 +13,23 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/log_level.hpp"
-
 #include <spdlog/common.h>
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/spdlog.h>
-#include <string>
 // clang-format off
 // First import nuraft.hxx then logger.hxx to avoid problem with __interface_body__
 #include <libnuraft/nuraft.hxx>
 #include <libnuraft/logger.hxx>
+#include <stddef.h>
+#include <string>
+#include <memory>
+
+#include "coordination/log_level.hpp"
+
+namespace spdlog {
+class logger;
+}  // namespace spdlog
+
 // clang-format on
 
 namespace memgraph::coordination {

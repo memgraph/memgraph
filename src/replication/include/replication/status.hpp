@@ -11,9 +11,10 @@
 
 #pragma once
 
-#include <variant>
-
+#include <stdint.h>
 #include <nlohmann/json_fwd.hpp>
+#include <optional>
+#include <variant>
 
 #include "replication/config.hpp"
 #include "replication_coordination_glue/common.hpp"

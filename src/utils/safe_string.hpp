@@ -15,6 +15,8 @@
 #include <nlohmann/json_fwd.hpp>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
+#include <utility>
 
 namespace memgraph::utils {
 struct SafeString {
@@ -104,6 +106,7 @@ struct SafeString {
 namespace memgraph::slk {
 class Reader;
 class Builder;
+
 void Save(const ::memgraph::utils::SafeString &self, Builder *builder);
 void Load(::memgraph::utils::SafeString *self, Reader *reader);
 }  // namespace memgraph::slk

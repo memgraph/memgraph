@@ -12,12 +12,20 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <utility>
 
 #include "utils/typeinfo.hpp"
+
+namespace memgraph {
+namespace utils {
+struct TypeInfo;
+}  // namespace utils
+}  // namespace memgraph
 
 namespace memgraph::query {
 

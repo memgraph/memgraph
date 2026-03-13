@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,12 @@
 
 #include "utils/uuid.hpp"
 
+#include <stddef.h>
 #include <array>
-
-#include "slk/serialization.hpp"
-
 #include <nlohmann/json.hpp>
+
+#include "nlohmann/json_fwd.hpp"
+#include "slk/serialization.hpp"
 
 namespace memgraph::utils {
 

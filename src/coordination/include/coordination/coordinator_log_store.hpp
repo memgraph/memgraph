@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,11 +13,37 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <stdint.h>
+#include <sys/types.h>
+#include <atomic>
+#include <libnuraft/basic_types.hxx>
+#include <libnuraft/log_store.hxx>
+#include <libnuraft/nuraft.hxx>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <utility>
+#include <vector>
+
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/logger_wrapper.hpp"
-
-#include <libnuraft/nuraft.hxx>
 #include "kvstore/kvstore.hpp"
+
+namespace memgraph {
+namespace coordination {
+enum class LogStoreVersion : uint8_t;
+struct LogStoreDurability;
+}  // namespace coordination
+
+namespace kvstore {
+class KVStore;
+}  // namespace kvstore
+}  // namespace memgraph
+
+namespace nuraft {
+class log_entry;
+class raft_server;
+}  // namespace nuraft
 
 namespace memgraph::coordination {
 

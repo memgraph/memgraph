@@ -11,22 +11,36 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
+#include <stdint.h>
+#include <concepts>
+#include <functional>
+#include <map>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/filter.hpp>
+#include <range/v3/view/transform.hpp>
+#include <ranges>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
 #include "coordination/coordinator_instance_context.hpp"
 #include "coordination/data_instance_context.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/logging.hpp"
 
-#include <functional>
-#include <map>
-#include <string>
-#include <string_view>
-#include <vector>
+namespace memgraph {
+namespace coordination {
+class LoggerWrapper;
+struct DataInstanceContext;
+}  // namespace coordination
 
-#include <spdlog/spdlog.h>
-#include <range/v3/range/conversion.hpp>
-#include <range/v3/view/filter.hpp>
-#include <range/v3/view/transform.hpp>
+namespace kvstore {
+class KVStore;
+}  // namespace kvstore
+}  // namespace memgraph
 
 #ifdef MG_ENTERPRISE
 

@@ -11,13 +11,26 @@
 
 #pragma once
 
+#include <bit>
+#include <boost/container_hash/hash.hpp>
+#include <boost/functional/hash.hpp>
 #include <compare>
+#include <cstddef>
 #include <cstdint>
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <typeindex>
 
-#include <boost/functional/hash.hpp>
+namespace memgraph {
+namespace storage {
+class EdgeTypeId;
+class Gid;
+class LabelId;
+class PropertyId;
+}  // namespace storage
+}  // namespace memgraph
 
 namespace memgraph::storage {
 

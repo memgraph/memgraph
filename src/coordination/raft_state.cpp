@@ -11,25 +11,74 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <atomic>
 #include <chrono>
-#include <functional>
+#include <filesystem>
+#include <libnuraft/asio_service.hxx>
+#include <libnuraft/async.hxx>
+#include <libnuraft/basic_types.hxx>
+#include <libnuraft/callback.hxx>
+#include <libnuraft/context.hxx>
+#include <libnuraft/log_entry.hxx>
+#include <libnuraft/log_val_type.hxx>
+#include <libnuraft/raft_params.hxx>
+#include <libnuraft/raft_server.hxx>
+#include <libnuraft/rpc_listener.hxx>
+#include <libnuraft/snapshot.hxx>
+#include <libnuraft/srv_config.hxx>
+#include <list>
+#include <map>
+#include <memory>
+#include <nlohmann/json.hpp>
 #include <optional>
+#include <range/v3/iterator/basic_iterator.hpp>
+#include <range/v3/view/view.hpp>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "coordination/constants.hpp"
+#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/coordinator_instance_aux.hpp"
+#include "coordination/coordinator_instance_context.hpp"
+#include "coordination/coordinator_log_store.hpp"
+#include "coordination/coordinator_ops_status.hpp"
+#include "coordination/coordinator_state_machine.hpp"
+#include "coordination/coordinator_state_manager.hpp"
+#include "coordination/logger.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/utils.hpp"
+#include "io/network/endpoint.hpp"
+#include "kvstore/kvstore.hpp"
+#include "nlohmann/json_fwd.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/uuid.hpp"
 
-#include <spdlog/spdlog.h>
-#include <nlohmann/json.hpp>
+namespace memgraph {
+namespace coordination {
+struct CoordinatorClusterStateDelta;
+struct DataInstanceContext;
+}  // namespace coordination
+}  // namespace memgraph
+
+namespace nuraft {
+class delayed_task_scheduler;
+class rpc_client_factory;
+class state_machine;
+class state_mgr;
+}  // namespace nuraft
 
 namespace {
 constexpr std::string_view kStateMgrDurabilityPath = "network";

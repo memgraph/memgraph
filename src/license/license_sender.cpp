@@ -12,16 +12,21 @@
 #include "license/license_sender.hpp"
 
 #include <spdlog/spdlog.h>
+#include <algorithm>
+#include <compare>
 #include <cstdint>
+#include <functional>
+#include <nlohmann/json.hpp>
+#include <utility>
 
+#include "license/license.hpp"
+#include "nlohmann/json_fwd.hpp"
 #include "requests/requests.hpp"
-#include "utils/memory_tracker.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/system_info.hpp"
 #include "utils/timestamp.hpp"
-
-#include <nlohmann/json.hpp>
 
 namespace {
 constexpr auto kFirstShotAfter = std::chrono::seconds{60};

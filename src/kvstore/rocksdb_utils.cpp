@@ -11,6 +11,10 @@
 
 #include "kvstore/rocksdb_utils.hpp"
 
+#include <rocksdb/env.h>
+#include <rocksdb/options.h>
+#include <string>
+
 #include "flags/general.hpp"
 #include "spdlog/spdlog.h"
 

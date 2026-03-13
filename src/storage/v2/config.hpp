@@ -15,8 +15,12 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <optional>
+#include <string>
 
 #include "flags/coord_flag_env_handler.hpp"
+#include "nlohmann/json_fwd.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/compressor.hpp"

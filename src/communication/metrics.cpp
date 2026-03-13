@@ -13,6 +13,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include "nlohmann/json.hpp"
+#include "nlohmann/json_fwd.hpp"
+
 namespace {
 constexpr auto kName = "name";
 constexpr auto kSupportedBoltVersions = "supported_bolt_versions";
