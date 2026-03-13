@@ -1,0 +1,38 @@
+data_dir: /tmp/vector-data
+
+sources:
+  memgraph_logs:
+    type: file
+    include:
+      - /home/mg/memgraph-logs/**/memgraph*.log
+    read_from: end
+
+transforms:
+  enrich:
+    type: remap
+    inputs: [memgraph_logs]
+    source: |
+      .app = "memgraph"
+      .job = "memgraph"
+      .role = "standalone"
+      .namespace = "docker-compose"
+      .pod = "native-memgraph"
+      .cluster_id = "local-dev"
+      .cluster_env = "ci-native"
+
+sinks:
+  victorialogs:
+    type: loki
+    inputs: [enrich]
+    endpoint: "http://192.168.0.25:30454/insert"
+    encoding:
+      codec: text
+    labels:
+      app: "{{ app }}"
+      job: "{{ job }}"
+      role: "{{ role }}"
+      namespace: "{{ namespace }}"
+      pod: "{{ pod }}"
+      cluster_id: "{{ cluster_id }}"
+      cluster_env: "{{ cluster_env }}"
+    remove_label_fields: true
