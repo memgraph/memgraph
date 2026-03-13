@@ -14,6 +14,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
 
@@ -322,10 +323,9 @@ void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
 }
 
 InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                          utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-                                          utils::SkipList<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
-                                          View view, Storage *storage, Transaction *transaction)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+                                          utils::SkipList<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin,
+                                          EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction)
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
@@ -375,10 +375,10 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(Edge
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   return {it->second->skip_list_.access(),
           std::move(vertex_acc),
-          std::move(edge_acc),
+          std::move(edge_pin),
           edge_type,
           view,
           storage,
@@ -386,14 +386,14 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(Edge
 }
 
 InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::ChunkedEdges(
-    EdgeTypeId edge_type, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge>::ConstAccessor edge_accessor, View view, Storage *storage, Transaction *transaction,
-    size_t num_chunks) {
+    EdgeTypeId edge_type, utils::SkipList<Vertex>::ConstAccessor vertex_accessor, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   return {it->second->skip_list_.access(),
           std::move(vertex_accessor),
-          std::move(edge_accessor),
+          std::move(edge_pin),
           edge_type,
           view,
           storage,
@@ -431,10 +431,9 @@ void InMemoryEdgeTypeIndex::CleanupAllIndices() {
 
 InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
                                                         utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-                                                        utils::SkipList<Edge>::ConstAccessor edge_accessor,
-                                                        EdgeTypeId edge_type, View view, Storage *storage,
-                                                        Transaction *transaction, size_t num_chunks)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+                                                        EdgePin edge_pin, EdgeTypeId edge_type, View view,
+                                                        Storage *storage, Transaction *transaction, size_t num_chunks)
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),

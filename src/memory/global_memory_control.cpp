@@ -236,6 +236,21 @@ void UnsetHooks() {
 #endif
 }
 
+void InstallTrackingHooksOnArena(unsigned arena_id) {
+#if USE_JEMALLOC
+  if (!old_hooks) return;  // SetHooks() not yet called — hooks unset, skip
+
+  // Dynamically-created arenas are already initialized; a single write suffices.
+  // (The two-step read+write in SetHooks() is needed only for pre-existing arenas
+  // at startup to force their lazy initialization.)
+  const std::string func_name = "arena." + std::to_string(arena_id) + ".extent_hooks";
+  const int err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&new_hooks, sizeof(extent_hooks_t *));
+  if (err) {
+    spdlog::error("InstallTrackingHooksOnArena: failed to set hooks for arena {}", arena_id);
+  }
+#endif
+}
+
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC
   je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);

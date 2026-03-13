@@ -1404,3 +1404,221 @@ TEST(StorageV2Gc, HasNonSequentialDeltasFlagClearedWhenAllDeltasRemoved) {
     ASSERT_FALSE(v1->vertex_->has_uncommitted_non_sequential_deltas());
   }
 }
+
+// ---------------------------------------------------------------------------
+// Light-edge GC tests: same scenarios as above but with storage_light_edge=true.
+// ---------------------------------------------------------------------------
+
+namespace {
+auto MakeLightEdgeGcStorage() {
+  return std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)},
+                 .salient = {.items = {.properties_on_edges = true, .storage_light_edge = true}}});
+}
+}  // namespace
+
+// Mirrors StorageV2Gc/Sanity: GC running while a transaction is still alive must not free live data.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2GcLightEdge, Sanity) {
+  auto storage = MakeLightEdgeGcStorage();
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("e")).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Reader keeps an open transaction.
+  auto reader = storage->Access(memgraph::storage::WRITE);
+
+  {
+    // Delete the edge in a second transaction while reader is alive.
+    auto writer = storage->Access(memgraph::storage::WRITE);
+    auto v1 = writer->FindVertex(v1_gid, ms::View::OLD).value();
+    auto edges = v1.OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+    auto edge = edges->edges[0];
+    ASSERT_TRUE(writer->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(writer->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Let GC run while reader is still alive — it must NOT free the edge yet.
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  // Reader still sees the edge via View::OLD.
+  {
+    auto v1 = reader->FindVertex(v1_gid, ms::View::OLD).value();
+    auto edges = v1.OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+  }
+
+  reader->Abort();
+
+  // After reader closes, GC must eventually collect the graveyard.
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  // Storage destructor runs without crash — graveyard fully drained.
+}
+
+// Mirrors StorageV2Gc/ConcurrentEdgeOperationsAbortDeleteRepeat:
+// two transactions each create an edge, both abort; GC must not crash.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2GcLightEdge, ConcurrentEdgeOperationsAbortDeleteRepeat) {
+  auto storage = MakeLightEdgeGcStorage();
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto tx1 = storage->Access(memgraph::storage::WRITE);
+  auto tx2 = storage->Access(memgraph::storage::WRITE);
+
+  {
+    auto v1 = tx1->FindVertex(v1_gid, ms::View::OLD).value();
+    auto v2 = tx1->FindVertex(v2_gid, ms::View::OLD).value();
+    ASSERT_TRUE(tx1->CreateEdge(&v1, &v2, tx1->NameToEdgeType("Edge1")).has_value());
+  }
+  {
+    auto v1 = tx2->FindVertex(v1_gid, ms::View::OLD).value();
+    auto v2 = tx2->FindVertex(v2_gid, ms::View::OLD).value();
+    ASSERT_TRUE(tx2->CreateEdge(&v1, &v2, tx2->NameToEdgeType("Edge2")).has_value());
+  }
+
+  tx1->Abort();
+  tx2->Abort();
+
+  // GC runs; aborted light-edge creations must have been freed inline (not via graveyard).
+  std::this_thread::sleep_for(std::chrono::milliseconds(400));
+
+  {
+    auto reader = storage->Access(memgraph::storage::WRITE);
+    auto v1 = reader->FindVertex(v1_gid, ms::View::OLD);
+    if (v1.has_value()) {
+      auto edges = v1->OutEdges(ms::View::OLD);
+      ASSERT_TRUE(edges.has_value());
+      ASSERT_EQ(edges->edges.size(), 0U);
+    }
+  }
+}
+
+// Mirrors StorageV2Gc/Indices: index GC correctness with light edges.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2GcLightEdge, Indices) {
+  auto storage = MakeLightEdgeGcStorage();
+
+  {
+    auto unique_acc = storage->UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(storage->NameToLabel("label")).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    ASSERT_TRUE(*v1.AddLabel(acc->NameToLabel("label")));
+    ASSERT_TRUE(*v2.AddLabel(acc->NameToLabel("label")));
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("e")).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto acc1 = storage->Access(memgraph::storage::WRITE);
+
+    auto acc2 = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc2->FindVertex(v1_gid, ms::View::OLD).value();
+    auto v2 = acc2->FindVertex(v2_gid, ms::View::OLD).value();
+    auto edges = v1.OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+    auto edge = edges->edges[0];
+    ASSERT_TRUE(acc2->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(*v1.RemoveLabel(acc2->NameToLabel("label")));
+    ASSERT_TRUE(*v2.RemoveLabel(acc2->NameToLabel("label")));
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+
+    // GC runs while acc1 still holds a snapshot — must not collect index entries visible to acc1.
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    std::set<ms::Gid> gids;
+    for (auto vertex : acc1->Vertices(acc1->NameToLabel("label"), ms::View::OLD)) {
+      gids.insert(vertex.Gid());
+    }
+    EXPECT_EQ(gids.size(), 2U);
+  }
+}
+
+// Regression test: light edges deleted in analytical mode must be put in the graveyard
+// and freed by GC, not leaked.  Verifies that:
+//   - the storage destructor does not crash (no double-free / use-after-free)
+//   - ~Edge() is called (catches PropertyStore heap-allocation leak under ASan)
+//   - graveyard is drained correctly after mode switch back to transactional
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2GcLightEdge, AnalyticalModeDeleteGoesToGraveyard) {
+  auto storage = MakeLightEdgeGcStorage();
+  auto *mem_storage = static_cast<ms::InMemoryStorage *>(storage.get());
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    auto edge_res = acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("e"));
+    ASSERT_TRUE(edge_res.has_value());
+    // Set a property so the PropertyStore has a heap allocation — caught by ASan if ~Edge() is skipped.
+    ASSERT_TRUE(edge_res->SetProperty(acc->NameToProperty("key"), ms::PropertyValue{"value"}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Switch to analytical mode and delete the edge there.
+  mem_storage->SetStorageMode(ms::StorageMode::IN_MEMORY_ANALYTICAL);
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto edges = v1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+    auto edge = edges->edges[0];
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Switch back — this triggers a FreeMemory/GC pass which must not crash.
+  mem_storage->SetStorageMode(ms::StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+  // Run GC explicitly a second time to drain the graveyard.
+  {
+    auto main_guard = std::unique_lock{mem_storage->main_lock_};
+    mem_storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  // Verify the edge is gone and the two vertices are still intact.
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto edges = v1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    EXPECT_TRUE(edges->edges.empty());
+    EXPECT_TRUE(acc->FindVertex(v2_gid, ms::View::OLD).has_value());
+  }
+  // storage destructor runs here — must not crash or report sanitizer errors.
+}
