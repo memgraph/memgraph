@@ -356,7 +356,7 @@ FineGrainedAccessPermissions::FineGrainedAccessPermissions(std::optional<uint64_
                                                            std::vector<FineGrainedAccessRule> rules)
     : global_permission_(global_permission), rules_{std::move(rules)} {}
 
-PermissionLevel FineGrainedAccessPermissions::Has(std::span<std::string const> symbols,
+PermissionLevel FineGrainedAccessPermissions::Has(std::span<const std::string_view> symbols,
                                                   const FineGrainedPermission fine_grained_permission) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return PermissionLevel::GRANT;
@@ -426,8 +426,13 @@ PermissionLevel FineGrainedAccessPermissions::HasGlobal(const FineGrainedPermiss
 void FineGrainedAccessPermissions::Grant(std::unordered_set<std::string> const &symbols,
                                          FineGrainedPermission const fine_grained_permission,
                                          MatchingMode const matching_mode) {
-  auto it = r::find_if(
-      rules_, [&](auto const &rule) { return rule.symbols == symbols && rule.matching_mode == matching_mode; });
+  // rule.symbols uses a transparent hash; compare by size+contains since the set types differ.
+  auto const same_symbols = [&](FineGrainedAccessRule const &rule) {
+    return rule.symbols.size() == symbols.size() &&
+           r::all_of(symbols, [&](auto const &s) { return rule.symbols.contains(s); });
+  };
+  auto it =
+      r::find_if(rules_, [&](auto const &rule) { return same_symbols(rule) && rule.matching_mode == matching_mode; });
 
   if (it != rules_.end()) {
     if (fine_grained_permission == FineGrainedPermission::NOTHING) {
@@ -436,7 +441,7 @@ void FineGrainedAccessPermissions::Grant(std::unordered_set<std::string> const &
       it->permissions |= fine_grained_permission;
     }
   } else {
-    rules_.push_back({symbols, fine_grained_permission, matching_mode});
+    rules_.push_back({{symbols.begin(), symbols.end()}, fine_grained_permission, matching_mode});
   }
 }
 
@@ -451,8 +456,12 @@ void FineGrainedAccessPermissions::GrantGlobal(const FineGrainedPermission fine_
 void FineGrainedAccessPermissions::Revoke(std::unordered_set<std::string> const &symbols,
                                           FineGrainedPermission const fine_grained_permission,
                                           MatchingMode const matching_mode) {
-  auto const it = r::find_if(
-      rules_, [&](auto const &rule) { return rule.symbols == symbols && rule.matching_mode == matching_mode; });
+  auto const same_symbols = [&](FineGrainedAccessRule const &rule) {
+    return rule.symbols.size() == symbols.size() &&
+           r::all_of(symbols, [&](auto const &s) { return rule.symbols.contains(s); });
+  };
+  auto const it =
+      r::find_if(rules_, [&](auto const &rule) { return same_symbols(rule) && rule.matching_mode == matching_mode; });
 
   if (it != rules_.end()) {
     if (fine_grained_permission == FineGrainedPermission::NOTHING) {
@@ -552,7 +561,7 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
     for (const auto &rule_json : *rules_json) {
       if (!rule_json.is_object()) continue;
 
-      std::unordered_set<std::string> symbols;
+      std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> symbols;
       if (rule_json.contains("symbols") && rule_json["symbols"].is_array()) {
         for (const auto &symbol : rule_json["symbols"]) {
           if (symbol.is_string()) {
