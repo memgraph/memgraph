@@ -686,6 +686,10 @@ def run_isolated_workload_with_authorization(
         )
 
         vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
+        # Purge jemalloc and reset VmHWM so peak memory reflects only
+        # the benchmark workload, not transient snapshot loading structures.
+        # Use the benchmark user credentials since auth is enabled at this point.
+        vendor_runner.free_memory(username=USERNAME, password=PASSWORD)
         start_time = time.time()
         warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count, benchmark_context))
 
