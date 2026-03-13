@@ -178,5 +178,42 @@ def test_durability_multi_label_description(test_name):
     assert result == []
 
 
+def test_durability_snapshot_recovery(test_name):
+    # Goal: Descriptions survive snapshot-based recovery (not WAL).
+    data_directory = get_data_path(FILE, test_name)
+
+    instance_desc = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--storage-snapshot-on-exit=true",
+                "--storage-wal-enabled=false",
+            ],
+            "log_file": "main_durability_snapshot_recovery.log",
+            "data_directory": data_directory,
+        },
+    }
+
+    interactive_mg_runner.start(instance_desc, "main")
+    cursor = connect(host="localhost", port=7687).cursor()
+
+    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL :Person "A person node";')
+    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Knows relationship";')
+    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON PROPERTY :Person(age) "Age of person";')
+    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON DATABASE memgraph "Test database";')
+
+    descriptions = get_all_descriptions(cursor)
+    assert len(descriptions) == 4
+
+    # Graceful shutdown triggers snapshot-on-exit.
+    interactive_mg_runner.stop(instance_desc, "main")
+    interactive_mg_runner.start(instance_desc, "main")
+    cursor = connect(host="localhost", port=7687).cursor()
+
+    descriptions_after = get_all_descriptions(cursor)
+    assert descriptions_after == descriptions
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

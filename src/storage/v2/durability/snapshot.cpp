@@ -9826,8 +9826,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   }
 
   // Recover description store data if available
-  if (info.offset_descriptions != SnapshotInfo::kInvalidOffset) {
-    MG_ASSERT(description_store, "Description store should already be initialized.");
+  if (info.offset_descriptions != SnapshotInfo::kInvalidOffset && description_store) {
     spdlog::info("Recovering description store data.");
     if (!snapshot.SetPosition(info.offset_descriptions))
       throw RecoveryFailure("Couldn't read description store data from snapshot!");

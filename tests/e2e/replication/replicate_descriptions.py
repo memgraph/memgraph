@@ -127,7 +127,7 @@ def test_description_replication(connection, test_name):
 
     expected_descriptions = sorted(
         [
-            ("DATABASE", "", "Test database"),
+            ("DATABASE", "memgraph", "Test database"),
             ("EDGE_TYPE", "KNOWS", "Knows relationship"),
             ("LABEL", "Person", "A person node"),
             ("PROPERTY", "Person(age)", "Age of person"),
@@ -145,7 +145,7 @@ def test_description_replication(connection, test_name):
 
     expected_after_delete = sorted(
         [
-            ("DATABASE", "", "Test database"),
+            ("DATABASE", "memgraph", "Test database"),
             ("EDGE_TYPE", "KNOWS", "Knows relationship"),
             ("PROPERTY", "Person(age)", "Age of person"),
         ]
@@ -162,7 +162,7 @@ def test_description_replication(connection, test_name):
 
     expected_after_update = sorted(
         [
-            ("DATABASE", "", "Test database"),
+            ("DATABASE", "memgraph", "Test database"),
             ("EDGE_TYPE", "KNOWS", "Updated knows relationship"),
             ("PROPERTY", "Person(age)", "Age of person"),
         ]
