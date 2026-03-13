@@ -1293,38 +1293,40 @@ bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
   return true;
 }
 
-bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *system_tx) {
+bool Auth::RemoveRole(const std::string &rolename_orig, bool force, system::Transaction *system_tx) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
 
   // Reject deletion if any user has the role assigned (global or per-database)
-  for (auto it = storage_.begin(kRoleLinkPrefix); it != storage_.end(kRoleLinkPrefix); ++it) {
-    try {
-      auto json_data = ParseJson(it->second);
-      if (!json_data.is_array()) continue;
-      for (auto const &role_name : json_data) {
-        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
-          auto username = it->first.substr(kRoleLinkPrefix.size());
-          throw AuthException("Cannot delete role '{}': it is assigned to user '{}'.", rolename, username);
+  if (!force) {
+    for (auto it = storage_.begin(kRoleLinkPrefix); it != storage_.end(kRoleLinkPrefix); ++it) {
+      try {
+        auto json_data = ParseJson(it->second);
+        if (!json_data.is_array()) continue;
+        for (auto const &role_name : json_data) {
+          if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+            auto username = it->first.substr(kRoleLinkPrefix.size());
+            throw AuthException("Cannot delete role '{}': it is assigned to user '{}'.", rolename, username);
+          }
         }
+      } catch (AuthException const &) {
+        throw;
+      } catch (nlohmann::detail::exception const &) {
+        continue;
       }
-    } catch (AuthException const &) {
-      throw;
-    } catch (nlohmann::detail::exception const &) {
-      continue;
     }
-  }
 
-  for (auto it = storage_.begin(kMtLinkPrefix); it != storage_.end(kMtLinkPrefix); ++it) {
-    auto username = it->first.substr(kMtLinkPrefix.size());
-    if (username != utils::ToLowerCase(username)) continue;
-    auto json_data = ParseJson(it->second);
-    for (auto const &[db_name, role_names] : json_data.items()) {
-      if (!role_names.is_array()) continue;
-      for (auto const &role_name : role_names) {
-        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
-          throw AuthException(
-              "Cannot delete role '{}': it is assigned to user '{}' on database '{}'.", rolename, username, db_name);
+    for (auto it = storage_.begin(kMtLinkPrefix); it != storage_.end(kMtLinkPrefix); ++it) {
+      auto username = it->first.substr(kMtLinkPrefix.size());
+      if (username != utils::ToLowerCase(username)) continue;
+      auto json_data = ParseJson(it->second);
+      for (auto const &[db_name, role_names] : json_data.items()) {
+        if (!role_names.is_array()) continue;
+        for (auto const &role_name : role_names) {
+          if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+            throw AuthException(
+                "Cannot delete role '{}': it is assigned to user '{}' on database '{}'.", rolename, username, db_name);
+          }
         }
       }
     }
