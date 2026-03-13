@@ -583,7 +583,7 @@ class BaseRunner(ABC):
     def clean_db(self):
         pass
 
-    def free_memory(self):
+    def free_memory(self, username: str = "", password: str = ""):
         """Execute FREE MEMORY on the running database to release jemalloc-held pages.
         Override for vendor-specific implementation."""
         pass
@@ -699,7 +699,7 @@ class Memgraph(BaseRunner):
         ret, usage = self._cleanup()
         return usage
 
-    def free_memory(self):
+    def free_memory(self, username: str = "", password: str = ""):
         if self._proc_mg is None:
             return
         query_file = os.path.join(self._directory.name, "free_memory_query.json")
@@ -712,6 +712,8 @@ class Memgraph(BaseRunner):
             num_workers=1,
             queries_json=True,
             port=self._bolt_port,
+            username=username,
+            password=password,
         )
         ret = subprocess.run(args, capture_output=True)
         if ret.returncode != 0:
