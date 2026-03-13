@@ -85,8 +85,14 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
           auto const value_type = j.at("val_type").get<int>();
           auto const val_type_enum = static_cast<nuraft::log_val_type>(value_type);
 
-          nuraft::ptr<buffer> log_term_buffer;
-          if (val_type_enum == nuraft::log_val_type::conf && !data.empty()) {
+          std::shared_ptr<buffer> log_term_buffer;
+          if (val_type_enum == nuraft::log_val_type::conf) {
+            // This is needed because at one point we had a bug in the way we serialize cluster_config. We serialized it
+            // just as an empty string to in order to keep things compatible in newer versions, we have to skip such
+            // logs.
+            if (data.empty()) {
+              continue;
+            }
             // Config entries store a JSON-serialized cluster_config.
             // Reconstruct the NuRaft binary buffer from it.
             auto const config_json = nlohmann::json::parse(data);
@@ -347,16 +353,20 @@ bool CoordinatorLogStore::flush() {
 bool CoordinatorLogStore::StoreEntryToDisk(const std::shared_ptr<log_entry> &clone, uint64_t key_id,
                                            bool is_newest_entry) {
   auto const data_string = [&clone, logger = &logger_]() -> std::string {
-    if (clone->get_val_type() == nuraft::log_val_type::conf) {
+    auto const log_type = clone->get_val_type();
+    if (log_type == nuraft::log_val_type::conf) {
       logger->Log(nuraft_log_level::TRACE, "Received config log, serializing cluster config as JSON.");
       auto config = nuraft::cluster_config::deserialize(clone->get_buf());
       nlohmann::json j;
       to_json(j, *config);
       return j.dump();
     }
-    logger->Log(nuraft_log_level::TRACE, "Received application log, serializing it.");
-    buffer_serializer bs(clone->get_buf());
-    return bs.get_str();
+    if (log_type == nuraft::log_val_type::app_log) {
+      logger->Log(nuraft_log_level::TRACE, "Received application log, serializing it.");
+      buffer_serializer bs(clone->get_buf());
+      return bs.get_str();
+    }
+    LOG_FATAL("Unknown log type when trying to store entry to disk {}", static_cast<std::byte>(log_type));
   }();
 
   auto const clone_val = static_cast<int>(clone->get_val_type());
