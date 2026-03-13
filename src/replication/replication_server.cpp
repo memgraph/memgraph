@@ -56,9 +56,7 @@ bool ReplicationServer::Shutdown() {
   // if I am the thread which did the shutdown
   if (rpc_server_.Shutdown()) {
     try {
-      // trace can throw
-      auto const &endpoint = rpc_server_.endpoint();
-      spdlog::trace("Closing replication server on {}", endpoint.SocketAddress());
+      spdlog::trace("Closing replication server on");
       // NOLINTNEXTLINE(bugprone-empty-catch)
     } catch (std::exception const &) {
     }
