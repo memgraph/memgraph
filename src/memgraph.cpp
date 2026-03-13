@@ -868,11 +868,13 @@ int main(int argc, char **argv) {
     // Shutdown communication server
     server.Shutdown();
 
-    // DataInstanceManagementServer needs to be closed before replication state because some RPCs require access to
-    // replication state
+// DataInstanceManagementServer needs to be closed before replication state because some RPCs require access to
+// replication state
+#ifdef MG_ENTERPRISE
     if (coordinator_state && coordinator_state->IsDataInstance()) {
       coordinator_state->GetDataInstanceManagementServer().Shutdown();
     }
+#endif
 
     // Don't replicate on shutdown anymore
     {
