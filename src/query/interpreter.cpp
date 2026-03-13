@@ -5986,6 +5986,15 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
   auto label_names = desc_query->labels_ | rv::transform([](auto const &label) { return label.name; }) | r::to_vector;
   auto property_names =
       desc_query->properties_ | rv::transform([](auto const &property) { return property.name; }) | r::to_vector;
+  auto database_name = std::move(desc_query->database_name_);
+
+  if (kind == storage::DescriptionTargetKind::DATABASE && !database_name.empty()) {
+    auto current_name = current_db.db_acc_->get()->name();
+    if (database_name != current_name) {
+      throw QueryException(fmt::format(
+          "Cannot set description on database '{}' while using database '{}'.", database_name, current_name));
+    }
+  }
 
   switch (desc_query->action_) {
     case DescriptionQuery::Action::SET:
@@ -6104,6 +6113,7 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
           .header = {"kind", "name", "description"},
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [dba = *current_db.execution_db_accessor_,
+                            db_name = current_db.db_acc_->get()->name(),
                             pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                                AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
@@ -6123,44 +6133,28 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     return "PROPERTY";
                 }
               };
-              auto entry_name = [&](auto const &e) -> std::string {
-                switch (e.kind) {
-                  case storage::DescriptionTargetKind::LABEL: {
-                    std::string name;
-                    for (auto id : e.labels) {
-                      if (!name.empty()) name += ':';
-                      name += dba.LabelToName(id);
-                    }
-                    return name;
-                  }
+              auto join_labels = [&](auto const &labels) {
+                return labels | rv::transform([&](auto id) { return dba.LabelToName(id); }) | rv::join(':') |
+                       r::to<std::string>();
+              };
+              auto entry_name = [&](auto const &entry) -> std::string {
+                switch (entry.kind) {
+                  case storage::DescriptionTargetKind::LABEL:
+                    return join_labels(entry.labels);
                   case storage::DescriptionTargetKind::EDGE_TYPE:
-                    return dba.EdgeTypeToName(e.edge_type);
-                  case storage::DescriptionTargetKind::LABEL_PROPERTY: {
-                    std::string name;
-                    for (auto id : e.labels) {
-                      if (!name.empty()) name += ':';
-                      name += dba.LabelToName(id);
-                    }
-                    name += '(';
-                    name += dba.PropertyToName(e.property);
-                    name += ')';
-                    return name;
-                  }
-                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY: {
-                    auto name = dba.EdgeTypeToName(e.edge_type);
-                    name += '(';
-                    name += dba.PropertyToName(e.property);
-                    name += ')';
-                    return name;
-                  }
+                    return dba.EdgeTypeToName(entry.edge_type);
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                    return join_labels(entry.labels) + '(' + dba.PropertyToName(entry.property) + ')';
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                    return dba.EdgeTypeToName(entry.edge_type) + '(' + dba.PropertyToName(entry.property) + ')';
                   case storage::DescriptionTargetKind::DATABASE:
-                    return "";
+                    return db_name;
                 }
               };
-              for (auto const &e : entries) {
-                rows.push_back({TypedValue{std::string{kind_to_str(e.kind)}},
-                                TypedValue{entry_name(e)},
-                                TypedValue{e.description}});
+              for (auto const &entry : entries) {
+                rows.push_back({TypedValue{std::string{kind_to_str(entry.kind)}},
+                                TypedValue{entry_name(entry)},
+                                TypedValue{entry.description}});
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }

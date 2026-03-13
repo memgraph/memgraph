@@ -9826,7 +9826,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   }
 
   // Recover description store data if available
-  if (info.offset_descriptions != SnapshotInfo::kInvalidOffset && description_store) {
+  if (info.offset_descriptions != SnapshotInfo::kInvalidOffset) {
+    MG_ASSERT(description_store, "Description store should already be initialized.");
     spdlog::info("Recovering description store data.");
     if (!snapshot.SetPosition(info.offset_descriptions))
       throw RecoveryFailure("Couldn't read description store data from snapshot!");
@@ -9844,7 +9845,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       if (!val) throw RecoveryFailure(fmt::format("Couldn't read {} for description!", what));
       return *val;
     };
-
     auto read_label_ids = [&] {
       auto label_count = snapshot.ReadUint();
       if (!label_count) throw RecoveryFailure("Couldn't read label count for description!");

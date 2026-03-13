@@ -615,9 +615,9 @@ auto ReadDescriptionFields(BaseDecoder *decoder) {
       if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
       fields.labels.reserve(*count);
       for (uint64_t i = 0; i < *count; ++i) {
-        auto s = decoder->ReadString();
-        if (!s) throw RecoveryFailure(kInvalidWalErrorMessage);
-        fields.labels.emplace_back(*std::move(s));
+        auto string = decoder->ReadString();
+        if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
+        fields.labels.emplace_back(*std::move(string));
       }
       break;
     }

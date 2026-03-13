@@ -203,6 +203,58 @@ Feature: Server-side descriptions
             """
         Then the result should be empty
 
+    Scenario: Set and show database description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON DATABASE memgraph "The main graph database"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON DATABASE memgraph
+            """
+        Then the result should be:
+            | description              |
+            | 'The main graph database' |
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | kind       | name       | description               |
+            | 'DATABASE' | 'memgraph' | 'The main graph database' |
+
+    Scenario: Set and show edge-type-scoped property description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY EDGE TYPE :KNOWS(since) "Year the relationship started"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON PROPERTY EDGE TYPE :KNOWS(since)
+            """
+        Then the result should be:
+            | description                       |
+            | 'Year the relationship started'   |
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | kind       | name           | description                     |
+            | 'PROPERTY' | 'KNOWS(since)' | 'Year the relationship started' |
+
+    Scenario: Setting description on wrong database throws error
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON DATABASE other_db "Some description"
+            """
+        Then an error should be raised
+
     Scenario: Show description on label with no description returns empty
         Given an empty graph
         When executing query:

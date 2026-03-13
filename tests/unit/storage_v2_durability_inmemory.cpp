@@ -4529,7 +4529,6 @@ TEST_P(DurabilityTest, SnapshotWithNonSequentialDeltas) {
   }
 }
 
-// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
   // Create descriptions and snapshot.
   {

@@ -4289,8 +4289,8 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
                                               DescriptionQuery *description_query) {
   if (ctx->LABEL()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::LABEL;
-    for (auto *ln : ctx->labelName()) {
-      description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(ln->accept(this))));
+    for (auto *label : ctx->labelName()) {
+      description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
     }
   } else if (ctx->PROPERTY()) {
     if (ctx->EDGE()) {
@@ -4300,12 +4300,12 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
     } else {
       // PROPERTY :Label(prop) — label-scoped
       description_query->target_kind_ = storage::DescriptionTargetKind::LABEL_PROPERTY;
-      for (auto *ln : ctx->labelName()) {
-        description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(ln->accept(this))));
+      for (auto *label : ctx->labelName()) {
+        description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
       }
     }
-    for (auto *pk : ctx->propertyKeyName()) {
-      description_query->properties_.emplace_back(std::any_cast<PropertyIx>(pk->accept(this)));
+    for (auto *property : ctx->propertyKeyName()) {
+      description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
     }
   } else if (ctx->EDGE()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE;

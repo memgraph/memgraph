@@ -110,31 +110,21 @@ def wait_for_replication_change(cursor, ts):
 
 def test_description_replication(connection, test_name):
     # Goal: All description types are replicated to REPLICAs.
-    # 0/ Setup replication
-    # 1/ Create descriptions on MAIN (label, edge type, property, database)
-    # 2/ Validate descriptions have arrived at REPLICAs
-    # 3/ Delete a description on MAIN
-    # 4/ Validate deletion replicated to REPLICAs
-    # 5/ Update a description on MAIN
-    # 6/ Validate update replicated to REPLICAs
 
     instances = make_instances(test_name)
 
-    # 0/
     interactive_mg_runner.start_all(instances)
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     def get_replica_cursor(name):
         return connection(BOLT_PORTS[name], "replica").cursor()
 
-    # 1/
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON LABEL :Person "A person node";')
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Knows relationship";')
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON PROPERTY :Person(age) "Age of person";')
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON DATABASE memgraph "Test database";')
     wait_for_replication_change(main_cursor, 8)
 
-    # 2/
     expected_descriptions = sorted(
         [
             ("DATABASE", "", "Test database"),
@@ -150,11 +140,9 @@ def test_description_replication(connection, test_name):
     replica_2_descriptions = get_all_descriptions(get_replica_cursor("replica_2"))
     assert replica_2_descriptions == expected_descriptions
 
-    # 3/
     execute_and_fetch_all(main_cursor, "DELETE DESCRIPTION ON LABEL :Person;")
     wait_for_replication_change(main_cursor, 10)
 
-    # 4/
     expected_after_delete = sorted(
         [
             ("DATABASE", "", "Test database"),
@@ -169,11 +157,9 @@ def test_description_replication(connection, test_name):
     replica_2_descriptions = get_all_descriptions(get_replica_cursor("replica_2"))
     assert replica_2_descriptions == expected_after_delete
 
-    # 5/
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Updated knows relationship";')
     wait_for_replication_change(main_cursor, 12)
 
-    # 6/
     expected_after_update = sorted(
         [
             ("DATABASE", "", "Test database"),
