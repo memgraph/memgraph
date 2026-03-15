@@ -6,37 +6,21 @@
 # IWYU will then recommend the specific sub-header that actually defines
 # each symbol (e.g. <range/v3/view/transform.hpp>).
 #
-# The detail/* mapping is also updated: instead of mapping to all.hpp,
-# we leave them unmapped (IWYU will trace through to the public header
-# that re-exports them).
+# Note: IWYU treats headers as public by default, so we only need to
+# explicitly map private/internal headers to their public counterparts.
 [
   # Umbrella headers — mark as private so IWYU never recommends them.
-  # Any file using range-v3 will get the specific header instead.
-  { include: ["<range/v3/all.hpp>", "private", "<range/v3/view/transform.hpp>", "public"] },
-  { include: ["<range/v3/view.hpp>", "private", "<range/v3/view/transform.hpp>", "public"] },
-  { include: ["<range/v3/algorithm.hpp>", "private", "<range/v3/algorithm/sort.hpp>", "public"] },
-  { include: ["<range/v3/action.hpp>", "private", "<range/v3/action/sort.hpp>", "public"] },
+  # The "to" header is a placeholder; IWYU will still trace the actual
+  # symbol to its defining sub-header.
+  { include: ["<range/v3/all.hpp>", "private", "<range/v3/range/primitives.hpp>", "public"] },
+  { include: ["<range/v3/view.hpp>", "private", "<range/v3/range/primitives.hpp>", "public"] },
+  { include: ["<range/v3/algorithm.hpp>", "private", "<range/v3/range/primitives.hpp>", "public"] },
+  { include: ["<range/v3/action.hpp>", "private", "<range/v3/range/primitives.hpp>", "public"] },
 
-  # Detail/internal headers — treat as private; IWYU will find the public
-  # header that includes them.
+  # Detail/internal headers — treat as private; map to range/primitives
+  # as fallback. IWYU will trace the actual symbol to its defining header.
   { include: ["@<range/v3/detail/.*>", "private", "<range/v3/range/primitives.hpp>", "public"] },
   { include: ["@<range/v3/utility/.*>", "private", "<range/v3/range/primitives.hpp>", "public"] },
   { include: ["@<range/v3/iterator/.*>", "private", "<range/v3/range/primitives.hpp>", "public"] },
-  { include: ["@<range/v3/functional/.*>", "private", "<range/v3/range/primitives.hpp>", "public"] },
-
-  # view/all.hpp is the internal "ref_view/owning_view" header, keep it public
-  # since some code uses rv::all explicitly
-  { include: ["<range/v3/view/all.hpp>", "public"] },
-
-  # All specific view/*.hpp headers are public (IWYU default, but be explicit)
-  { include: ["@<range/v3/view/[^.]+\\.hpp>", "public"] },
-
-  # All specific algorithm/*.hpp headers are public
-  { include: ["@<range/v3/algorithm/[^.]+\\.hpp>", "public"] },
-
-  # All specific range/*.hpp headers are public
-  { include: ["@<range/v3/range/[^.]+\\.hpp>", "public"] },
-
-  # All specific action/*.hpp headers are public
-  { include: ["@<range/v3/action/[^.]+\\.hpp>", "public"] }
+  { include: ["@<range/v3/functional/.*>", "private", "<range/v3/range/primitives.hpp>", "public"] }
 ]

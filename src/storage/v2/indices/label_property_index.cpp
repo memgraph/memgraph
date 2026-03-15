@@ -11,6 +11,7 @@
 
 #include "label_property_index.hpp"
 
+#include <range/v3/all.hpp>
 #include <span>
 
 namespace r = ranges;

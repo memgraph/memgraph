@@ -15,7 +15,8 @@
 #include <string>
 #include <vector>
 
-#include <range/v3/all.hpp>
+#include <range/v3/algorithm/transform.hpp>
+#include <range/v3/view/zip.hpp>
 #include "storage/v2/enum.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"

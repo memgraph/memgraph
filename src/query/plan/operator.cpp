@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan/operator.hpp"
+#include <range/v3/all.hpp>
 
 #include <algorithm>
 #include <cstdint>

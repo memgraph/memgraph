@@ -23,6 +23,44 @@ Top template instantiation costs:
 - `nlohmann::json::parse` — 116 times × 456ms avg = **52,960ms**
 - `boost::container::flat_map` — 117 times × 797ms avg = **93,317ms**
 
+## `-ftime-trace` Analysis (Top 25 Project Headers, Post-Phase-1)
+
+Aggregated from 487 TUs using `tools/iwyu/analyze_ftime_trace.py`.
+
+| Rank | Total (ms) | Avg (ms) | TUs | Header |
+|------|-----------|---------|-----|--------|
+| 1 | 237,648 | 3,008 | 79 | `storage/v2/inmemory/storage.hpp` |
+| 2 | 205,251 | 2,534 | 81 | `storage/v2/durability/durability.hpp` |
+| 3 | 198,236 | 2,509 | 79 | `storage/v2/inmemory/replication/recovery.hpp` |
+| 4 | 191,062 | 2,302 | 83 | `storage/v2/durability/wal.hpp` |
+| 5 | 159,391 | 590 | 270 | `storage/v2/property_value.hpp` |
+| 6 | 156,468 | 1,118 | 140 | `storage/v2/storage.hpp` |
+| 7 | 149,422 | 970 | 154 | `storage/v2/transaction.hpp` |
+| 8 | 145,532 | 3,465 | 42 | `tests/unit/disk_test_utils.hpp` |
+| 9 | 137,272 | 3,813 | 36 | `dbms/database.hpp` |
+| 10 | 131,459 | 907 | 145 | `storage/v2/indices/indices.hpp` |
+| 11 | 129,596 | 2,700 | 48 | `storage/v2/disk/storage.hpp` |
+| 12 | 122,425 | 1,345 | 91 | `query/plan/operator.hpp` |
+| 13 | 108,708 | 863 | 126 | `query/typed_value.hpp` |
+| 14 | 107,693 | 1,455 | 74 | `query/trigger.hpp` |
+| 15 | 106,184 | 727 | 146 | `storage/v2/indices/text_edge_index.hpp` |
+| 16 | 100,761 | 800 | 126 | `query/path.hpp` |
+| 17 | 100,448 | 510 | 197 | `storage/v2/edge.hpp` |
+| 18 | 99,324 | 1,399 | 71 | `query/db_accessor.hpp` |
+| 19 | 98,965 | 553 | 179 | `storage/v2/edge_accessor.hpp` |
+| 20 | 96,478 | 1,304 | 74 | `query/cypher_query_interpreter.hpp` |
+| 21 | 94,940 | 913 | 104 | `query/frontend/ast/ast.hpp` |
+| 22 | 94,861 | 637 | 149 | `storage/v2/inmemory/label_index.hpp` |
+| 23 | 92,661 | 718 | 129 | `query/edge_accessor.hpp` |
+| 24 | 89,239 | 599 | 149 | `storage/v2/indices/indices_utils.hpp` |
+| 25 | 84,534 | 494 | 171 | `replication/replication_client.hpp` |
+
+Notable 3rd-party headers:
+- `range/v3/all.hpp` — 43,581ms across 122 TUs (rank 60, down from ~270 TUs pre-narrowing)
+- `nlohmann/json.hpp` — 47,674ms across 216 TUs (rank 56)
+- `gtest/gtest.h` — 61,284ms across 177 TUs (rank 40, test-only)
+- `<chrono>` — 85,114ms across 428 TUs (rank 25, STL)
+
 ---
 
 ## Phase 1: Include Narrowing (DONE)
