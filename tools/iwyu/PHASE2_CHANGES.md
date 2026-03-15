@@ -97,3 +97,19 @@ savings from removing it from `vertex.hpp`.
 **Lesson:** Splitting `property_value.hpp` out of the vertex chain requires
 also fixing the accessor headers, which is not feasible without changing their
 API (e.g., opaque return types or PIMPL). This is a Phase 3+ task if pursued.
+
+## 2F. Narrow `range/v3/all.hpp` in `query/common.hpp`
+
+**File:** `src/query/common.hpp`
+**Change:** Replaced `#include "range/v3/all.hpp"` with `#include <range/v3/view/zip.hpp>`.
+
+**Rationale:** `query/common.hpp` only uses `ranges::views::zip` (line 149).
+The umbrella header pulls in the entire range-v3 library unnecessarily for 92 TUs.
+
+**Transitive breakage fixed:**
+- `dbms/inmemory/replication_handlers.cpp` — added `#include <range/v3/algorithm/find_if.hpp>`
+  (was getting `ranges::find_if` transitively via `type_constraints_kind.hpp` →
+  `property_value.hpp` → `range/v3/all.hpp`, broken by 2C above)
+
+**Impact:** 92 TUs that include `query/common.hpp` no longer parse the full
+range-v3 umbrella header (~360ms/TU).
