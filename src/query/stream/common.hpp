@@ -15,7 +15,6 @@
 #include <concepts>
 #include <cstdint>
 #include <functional>
-#include <nlohmann/json_fwd.hpp>
 #include <optional>
 #include <string>
 #include <string_view>

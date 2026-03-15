@@ -1,0 +1,46 @@
+[
+  # Use IWYU built-in STL/libc mappings (absolute paths for iwyu_tool.py compatibility)
+  { ref: "/home/ivan.linux/work/include-what-you-use/stl.c.headers.imp" },
+  { ref: "/home/ivan.linux/work/include-what-you-use/gcc.libc.imp" },
+  { ref: "/home/ivan.linux/work/include-what-you-use/gcc.stl.headers.imp" },
+  { ref: "/home/ivan.linux/work/include-what-you-use/gcc.symbols.imp" },
+
+  # Boost: treat all internal/detail/impl headers as private
+  { include: ["@<boost/detail/.*>", "private", "<boost/config.hpp>", "public"] },
+  { include: ["@<boost/preprocessor/.*>", "private", "<boost/preprocessor.hpp>", "public"] },
+  { include: ["@<boost/container/detail/.*>", "private", "<boost/container/container_fwd.hpp>", "public"] },
+  { include: ["@<boost/geometry/algorithms/detail/.*>", "private", "<boost/geometry.hpp>", "public"] },
+  { include: ["@<boost/asio/ssl/impl/.*>", "private", "<boost/asio/ssl.hpp>", "public"] },
+
+  # spdlog internals -> public header (sinks are public, don't remap them)
+  { include: ["@<spdlog/details/.*>", "private", "<spdlog/spdlog.h>", "public"] },
+
+  # fmt internals -> public header
+  { include: ["@<fmt/detail/.*>", "private", "<fmt/format.h>", "public"] },
+
+  # gflags (custom fork in libs/)
+  { include: ["@\"gflags/.*\"", "private", "\"gflags/gflags.h\"", "public"] },
+
+  # nlohmann json (used with both quoted and angle includes)
+  { include: ["@<nlohmann/detail/.*>", "private", "<nlohmann/json.hpp>", "public"] },
+  { include: ["@\"nlohmann/detail/.*\"", "private", "\"nlohmann/json.hpp\"", "public"] },
+
+  # antlr4 runtime internals
+  { include: ["@<antlr4-runtime/.*>", "private", "<antlr4-runtime.h>", "public"] },
+
+  # range-v3: use specific headers, not umbrella all.hpp (see tools/iwyu/range-v3.imp)
+  { ref: "tools/iwyu/range-v3.imp" },
+
+  # RocksDB internals
+  { include: ["@<rocksdb/advanced/.*>", "private", "<rocksdb/db.h>", "public"] },
+
+  # simdjson internals
+  { include: ["@<simdjson/.*>", "private", "<simdjson.h>", "public"] },
+
+  # absl internals
+  { include: ["@<absl/.*internal.*>", "private", "<absl/strings/str_cat.h>", "public"] },
+
+  # Arrow internals
+  { include: ["@<arrow/.*>", "private", "<arrow/api.h>", "public"] },
+  { include: ["@<parquet/.*>", "private", "<parquet/arrow/reader.h>", "public"] }
+]
