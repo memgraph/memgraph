@@ -70,52 +70,38 @@ Notable 3rd-party headers:
 - **1C** Forward-declare `Vertex` in `schema_info_types.hpp` (71 TUs shed vertex→delta→property_value chain)
 - **1F** Remove redundant `json_fwd.hpp` from `query/stream/common.hpp`
 
-### Deferred: Narrow `range/v3/all.hpp`
-Requires IWYU re-run with updated mappings first. See [range-v3 section](#range-v3-include-narrowing) below.
+- **1A** Narrow `range/v3/all.hpp` in `property_value.hpp` and `enum_store.hpp` (manually fixed ~22 .cpp transitive consumers)
 
 ---
 
-## Phase 2: Header Splitting (HIGH IMPACT)
+## Phase 2: Header Splitting & Forward Declarations (IN PROGRESS)
 
-### 2A. Split `property_value.hpp` → extract `property_value_types.hpp`
+### 2A. Create `property_value_fwd.hpp` (DONE)
 
-**File:** `src/storage/v2/property_value.hpp` (1825 lines, 120+ TUs)
+Created `src/storage/v2/property_value_fwd.hpp` — lightweight forward-declaration
+header with enum, tag types, aliases. See PHASE2_CHANGES.md for details.
 
-**Problem:** The file contains both lightweight type definitions and the massive
-`PropertyValueImpl` template class (800+ lines). Most includers only need the
-enum and types, not the full template.
+### 2B. Break `delta.hpp` → `property_value.hpp` chain (DONE)
 
-**Split:**
-```
-NEW: src/storage/v2/property_value_types.hpp (~100 lines)
-  - PropertyValueType enum (lines 59-76)
-  - Tag types: IntListTag, DoubleListTag, NumericListTag (lines 78-83)
-  - PropertyValueException class
-  - Utility functions: AreComparableTypes, CompareNumericValues
-  - ExtendedPropertyType struct
-  - Minimal includes: <cstdint>, <string>, storage/v2/enum.hpp, utils/exceptions.hpp
-  - NO range/v3, NO boost
+Replaced include in `delta.hpp` with `property_value_fwd.hpp`. Created `delta.cpp`
+with out-of-lined `SetPropertyTag` constructors. Limited impact due to
+`property_store.hpp` still including full `property_value.hpp` in the same chain.
 
-KEEP: src/storage/v2/property_value.hpp
-  - #include "property_value_types.hpp"
-  - PropertyValueImpl template class
-  - Heavy includes (range/v3, boost/container/flat_map)
-```
+### 2B'. Break `type_constraints_kind.hpp` → `property_value.hpp` (DONE)
 
-**Impact:** 80+ TUs that only need type info avoid 1825-line file + heavy deps.
+Moved two inline PropertyValue-dependent functions to `type_constraints.cpp`.
 
-### 2B. Update `delta.hpp` to use `property_value_types.hpp`
+### 2B''. Break `property_store.hpp` → `property_value.hpp` (ATTEMPTED, REVERTED)
 
-**File:** `src/storage/v2/delta.hpp` (420 lines, 120 TUs)
+Not feasible: `vertex_accessor.hpp` uses `Result<PropertyValue>` (`std::expected`)
+which requires complete type. Removing `property_value.hpp` from vertex chain
+doesn't help when the accessor headers bring it back for ~179 TUs.
 
-**Problem:** Includes full `property_value.hpp` (1825 lines) but likely only needs
-`PropertyValueType` enum and forward-declared `PropertyValue`.
+### 2D'. Remove `trigger.hpp` from `context.hpp` (DONE — HIGH IMPACT)
 
-**Change:** Replace `#include "storage/v2/property_value.hpp"` with
-`#include "storage/v2/property_value_types.hpp"` + forward declaration of
-`PropertyValueImpl`. Move constructors that take `PropertyValue` to `delta.cpp`.
-
-**Impact:** 120 TUs × ~1000ms saved per TU from avoiding full property_value.hpp.
+`context.hpp` (55 TUs) was including `trigger.hpp` (1455ms/TU) unnecessarily.
+Replaced with forward declarations of `TriggerContextCollector` and
+`FineGrainedAuthChecker`. Fixed 4 transitive consumers. Expected savings: **~55s**.
 
 ### 2C. Split `storage.hpp` → extract `storage_fwd.hpp` and `storage_info.hpp`
 

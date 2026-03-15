@@ -21,6 +21,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/point.hpp"
+#include "storage/v2/property_value_fwd.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
@@ -46,53 +47,6 @@ void do_reserve(T &v, std::size_t n) {
   if constexpr (Reservable<T>) {
     v.reserve(n);
   }
-}
-
-/// An exception raised by the PropertyValue. Typically when trying to perform
-/// operations (such as addition) on PropertyValues of incompatible Types.
-class PropertyValueException : public utils::BasicException {
- public:
-  using utils::BasicException::BasicException;
-  SPECIALIZE_GET_EXCEPTION_NAME(PropertyValueException)
-};
-
-// These are durable, do not change their values
-enum class PropertyValueType : uint8_t {
-  Null = 0,
-  Bool = 1,
-  Int = 2,
-  Double = 3,
-  String = 4,
-  List = 5,
-  Map = 6,
-  TemporalData = 7,
-  ZonedTemporalData = 8,
-  Enum = 9,
-  Point2d = 10,
-  Point3d = 11,
-  IntList = 12,
-  DoubleList = 13,
-  NumericList = 14,
-  VectorIndexId = 15,
-};
-
-// Tag types for dispatching between different list construction
-struct IntListTag {};
-
-struct DoubleListTag {};
-
-struct NumericListTag {};
-
-inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
-  return (a == b) || (a == PropertyValueType::Int && b == PropertyValueType::Double) ||
-         (a == PropertyValueType::Double && b == PropertyValueType::Int);
-}
-
-/// Helper function to compare two numeric values (int or double)
-inline std::partial_ordering CompareNumericValues(const std::variant<int, double> &a,
-                                                  const std::variant<int, double> &b) {
-  return std::visit(
-      [](const auto &val_a, const auto &val_b) -> std::partial_ordering { return val_a <=> val_b; }, a, b);
 }
 
 /// Encapsulation of a value and its type in a class that has no compile-time
@@ -1562,8 +1516,8 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc,
   }
 }
 
-using PropertyValue = PropertyValueImpl<std::allocator<std::byte>, PropertyId, uint64_t>;
-using ExternalPropertyValue = PropertyValueImpl<std::allocator<std::byte>, std::string, std::string>;
+// PropertyValue, ExternalPropertyValue, and pmr::PropertyValue aliases are
+// defined in property_value_fwd.hpp (included above).
 
 inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdMapper *mapper) {
   switch (value.type()) {
@@ -1678,9 +1632,7 @@ inline ExternalPropertyValue ToExternalPropertyValue(const PropertyValue &value,
   throw PropertyValueException("Unknown type during conversion");
 }
 
-namespace pmr {
-using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t>;
-}  // namespace pmr
+// pmr::PropertyValue alias is in property_value_fwd.hpp
 
 struct ExtendedPropertyType {
   PropertyValueType type{PropertyValueType::Null};

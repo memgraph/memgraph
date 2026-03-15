@@ -39,6 +39,7 @@
 #include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
 #include "memory/query_memory_control.hpp"
+#include "query/auth_checker.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
