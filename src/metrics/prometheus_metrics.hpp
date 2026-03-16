@@ -30,22 +30,11 @@ struct StorageSnapshot {
 };
 
 struct DatabaseMetricHandles {
+  // Storage
   prometheus::Gauge *vertex_count;
   prometheus::Gauge *edge_count;
   prometheus::Gauge *disk_usage_bytes;
   prometheus::Gauge *memory_res_bytes;
-  prometheus::Gauge *active_transactions;
-  prometheus::Counter *committed_transactions;
-  prometheus::Counter *rollbacked_transactions;
-  prometheus::Counter *failed_query;
-  prometheus::Counter *read_query;
-  prometheus::Counter *write_query;
-  prometheus::Counter *read_write_query;
-};
-
-struct GlobalMetricHandles {
-  // QueryType
-  // (per-db versions exist; no global query type counters)
 
   // Operators
   prometheus::Counter *once_operator;
@@ -127,15 +116,7 @@ struct GlobalMetricHandles {
   prometheus::Counter *triggers_created;
   prometheus::Counter *triggers_executed;
 
-  // Session
-  prometheus::Gauge *active_sessions;
-  prometheus::Gauge *active_bolt_sessions;
-  prometheus::Gauge *active_tcp_sessions;
-  prometheus::Gauge *active_ssl_sessions;
-  prometheus::Gauge *active_websocket_sessions;
-  prometheus::Counter *bolt_messages;
-
-  // Transaction (global aggregates — not per-db)
+  // Transaction
   prometheus::Gauge *active_transactions;
   prometheus::Counter *committed_transactions;
   prometheus::Counter *rollbacked_transactions;
@@ -147,12 +128,34 @@ struct GlobalMetricHandles {
   prometheus::Counter *transient_errors;
   prometheus::Gauge *unreleased_delta_objects;
 
+  // Query type
+  prometheus::Counter *read_query;
+  prometheus::Counter *write_query;
+  prometheus::Counter *read_write_query;
+
   // TTL
   prometheus::Counter *deleted_nodes;
   prometheus::Counter *deleted_edges;
 
   // SchemaInfo
   prometheus::Counter *show_schema;
+
+  // Histograms
+  prometheus::Histogram *query_execution_latency_seconds;
+  prometheus::Histogram *snapshot_creation_latency_seconds;
+  prometheus::Histogram *snapshot_recovery_latency_seconds;
+  prometheus::Histogram *gc_latency_seconds;
+  prometheus::Histogram *gc_skiplist_cleanup_latency_seconds;
+};
+
+struct GlobalMetricHandles {
+  // Session
+  prometheus::Gauge *active_sessions;
+  prometheus::Gauge *active_bolt_sessions;
+  prometheus::Gauge *active_tcp_sessions;
+  prometheus::Gauge *active_ssl_sessions;
+  prometheus::Gauge *active_websocket_sessions;
+  prometheus::Counter *bolt_messages;
 
   // Memory
   prometheus::Gauge *peak_memory_res_bytes;
@@ -190,10 +193,7 @@ struct GlobalMetricHandles {
   prometheus::Counter *update_data_instance_config_rpc_success;
   prometheus::Counter *update_data_instance_config_rpc_fail;
 
-  // Histograms
-  prometheus::Histogram *query_execution_latency_seconds;
-  prometheus::Histogram *snapshot_creation_latency_seconds;
-  prometheus::Histogram *snapshot_recovery_latency_seconds;
+  // HA Histograms
   prometheus::Histogram *instance_succ_callback_seconds;
   prometheus::Histogram *instance_fail_callback_seconds;
   prometheus::Histogram *choose_most_up_to_date_instance_seconds;
@@ -218,8 +218,6 @@ struct GlobalMetricHandles {
   prometheus::Histogram *system_recovery_rpc_seconds;
   prometheus::Histogram *update_data_instance_config_rpc_seconds;
   prometheus::Histogram *get_histories_seconds;
-  prometheus::Histogram *gc_latency_seconds;
-  prometheus::Histogram *gc_skiplist_cleanup_latency_seconds;
 };
 
 class PrometheusMetrics {
@@ -249,20 +247,24 @@ class PrometheusMetrics {
   prometheus::Registry registry_;
   std::list<DatabaseEntry> databases_;
 
-  // Per-database metric families
+  // Per-database metric families — storage
   prometheus::Family<prometheus::Gauge> &vertex_count_family_;
   prometheus::Family<prometheus::Gauge> &edge_count_family_;
   prometheus::Family<prometheus::Gauge> &disk_usage_family_;
   prometheus::Family<prometheus::Gauge> &memory_res_family_;
+
+  // Per-database metric families — transaction (partial: active/committed/rollbacked/failed)
   prometheus::Family<prometheus::Gauge> &active_transactions_family_;
   prometheus::Family<prometheus::Counter> &committed_transactions_family_;
   prometheus::Family<prometheus::Counter> &rollbacked_transactions_family_;
   prometheus::Family<prometheus::Counter> &failed_query_family_;
+
+  // Per-database metric families — query type
   prometheus::Family<prometheus::Counter> &read_query_family_;
   prometheus::Family<prometheus::Counter> &write_query_family_;
   prometheus::Family<prometheus::Counter> &read_write_query_family_;
 
-  // Global metric families — operators
+  // Per-database metric families — operators
   prometheus::Family<prometheus::Counter> &once_operator_family_;
   prometheus::Family<prometheus::Counter> &create_node_operator_family_;
   prometheus::Family<prometheus::Counter> &create_expand_operator_family_;
@@ -317,7 +319,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &set_nested_property_operator_family_;
   prometheus::Family<prometheus::Counter> &remove_nested_property_operator_family_;
 
-  // Global metric families — index
+  // Per-database metric families — index
   prometheus::Family<prometheus::Gauge> &active_label_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_label_property_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_edge_type_indices_family_;
@@ -329,16 +331,16 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &active_vector_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_vector_edge_indices_family_;
 
-  // Global metric families — constraint
+  // Per-database metric families — constraint
   prometheus::Family<prometheus::Gauge> &active_existence_constraints_family_;
   prometheus::Family<prometheus::Gauge> &active_unique_constraints_family_;
   prometheus::Family<prometheus::Gauge> &active_type_constraints_family_;
 
-  // Global metric families — stream
+  // Per-database metric families — stream
   prometheus::Family<prometheus::Counter> &streams_created_family_;
   prometheus::Family<prometheus::Counter> &messages_consumed_family_;
 
-  // Global metric families — trigger
+  // Per-database metric families — trigger
   prometheus::Family<prometheus::Counter> &triggers_created_family_;
   prometheus::Family<prometheus::Counter> &triggers_executed_family_;
 
@@ -350,11 +352,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &active_websocket_sessions_family_;
   prometheus::Family<prometheus::Counter> &bolt_messages_family_;
 
-  // Global metric families — transaction
-  prometheus::Family<prometheus::Gauge> &global_active_transactions_family_;
-  prometheus::Family<prometheus::Counter> &global_committed_transactions_family_;
-  prometheus::Family<prometheus::Counter> &global_rollbacked_transactions_family_;
-  prometheus::Family<prometheus::Counter> &global_failed_query_family_;
+  // Per-database metric families — transaction (remainder)
   prometheus::Family<prometheus::Counter> &failed_prepare_family_;
   prometheus::Family<prometheus::Counter> &failed_pull_family_;
   prometheus::Family<prometheus::Counter> &successful_query_family_;
@@ -362,11 +360,11 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &transient_errors_family_;
   prometheus::Family<prometheus::Gauge> &unreleased_delta_objects_family_;
 
-  // Global metric families — TTL
+  // Per-database metric families — TTL
   prometheus::Family<prometheus::Counter> &deleted_nodes_family_;
   prometheus::Family<prometheus::Counter> &deleted_edges_family_;
 
-  // Global metric families — schema info
+  // Per-database metric families — schema info
   prometheus::Family<prometheus::Counter> &show_schema_family_;
 
   // Global metric families — memory
@@ -405,10 +403,12 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &update_data_instance_config_rpc_success_family_;
   prometheus::Family<prometheus::Counter> &update_data_instance_config_rpc_fail_family_;
 
-  // Global metric families — histograms
+  // Per-database metric families — histograms
   prometheus::Family<prometheus::Histogram> &query_execution_latency_family_;
   prometheus::Family<prometheus::Histogram> &snapshot_creation_latency_family_;
   prometheus::Family<prometheus::Histogram> &snapshot_recovery_latency_family_;
+
+  // Global metric families — HA histograms
   prometheus::Family<prometheus::Histogram> &instance_succ_callback_family_;
   prometheus::Family<prometheus::Histogram> &instance_fail_callback_family_;
   prometheus::Family<prometheus::Histogram> &choose_most_up_to_date_instance_family_;
@@ -433,6 +433,8 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Histogram> &system_recovery_rpc_family_;
   prometheus::Family<prometheus::Histogram> &update_data_instance_config_rpc_histogram_family_;
   prometheus::Family<prometheus::Histogram> &get_histories_family_;
+
+  // Per-database metric families — GC histograms
   prometheus::Family<prometheus::Histogram> &gc_latency_family_;
   prometheus::Family<prometheus::Histogram> &gc_skiplist_cleanup_latency_family_;
 };
