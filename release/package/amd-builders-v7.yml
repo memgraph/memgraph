@@ -10,8 +10,6 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_centos-9"
-    volumes:
-      - memgraph_logs:/home/mg/memgraph-logs
 
   mgbuild_v7_centos-10:
     image: "memgraph/mgbuild:v7_centos-10"
@@ -22,8 +20,6 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_centos-10"
-    volumes:
-      - memgraph_logs:/home/mg/memgraph-logs
 
   mgbuild_v7_debian-12:
     image: "memgraph/mgbuild:v7_debian-12"
@@ -34,8 +30,6 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_debian-12"
-    volumes:
-      - memgraph_logs:/home/mg/memgraph-logs
 
   mgbuild_v7_debian-13:
     image: "memgraph/mgbuild:v7_debian-13"
@@ -46,8 +40,6 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_debian-13"
-    volumes:
-      - memgraph_logs:/home/mg/memgraph-logs
 
   mgbuild_v7_fedora-42:
     image: "memgraph/mgbuild:v7_fedora-42"
@@ -58,8 +50,6 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_fedora-42"
-    volumes:
-      - memgraph_logs:/home/mg/memgraph-logs
 
   mgbuild_v7_rocky-10:
     image: "memgraph/mgbuild:v7_rocky-10"
@@ -70,8 +60,6 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_rocky-10"
-    volumes:
-      - memgraph_logs:/home/mg/memgraph-logs
 
   mgbuild_v7_ubuntu-22.04:
     image: "memgraph/mgbuild:v7_ubuntu-22.04"
@@ -82,8 +70,6 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_ubuntu-22.04"
-    volumes:
-      - memgraph_logs:/home/mg/memgraph-logs
 
   mgbuild_v7_ubuntu-24.04:
     image: "memgraph/mgbuild:v7_ubuntu-24.04"
@@ -94,8 +80,6 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_ubuntu-24.04"
-    volumes:
-      - memgraph_logs:/home/mg/memgraph-logs
 
   mgbuild_v7_ubuntu-24.04-cugraph:
     image: "memgraph/mgbuild:v7_ubuntu-24.04-cugraph"
@@ -106,9 +90,3 @@ services:
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v7_ubuntu-24.04-cugraph"
-    volumes:
-      - memgraph_logs:/home/mg/memgraph-logs
-
-volumes:
-  memgraph_logs:
-    name: memgraph_logs

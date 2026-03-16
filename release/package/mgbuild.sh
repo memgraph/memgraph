@@ -2161,19 +2161,6 @@ case $command in
         $docker_compose_cmd $compose_files up -d $build_container
       fi
 
-      # Ensure shared logs volume is writable for the mg user in running builders.
-      echo "Setting shared logs volume permissions..."
-      while IFS= read -r service; do
-        [[ -z "$service" ]] && continue
-        container_id="$($docker_compose_cmd $compose_files ps -q "$service" 2>/dev/null || true)"
-        [[ -z "$container_id" ]] && continue
-        docker exec -u root "$container_id" bash -c "
-          mkdir -p /home/mg/memgraph-logs
-          chown -R mg:mg /home/mg/memgraph-logs
-          chmod -R a+rwX /home/mg/memgraph-logs
-        " >/dev/null 2>&1 || true
-      done < <($docker_compose_cmd $compose_files ps --services 2>/dev/null || true)
-
       # set custom mirror for CI
       if [[ "$custom_mirror" = "true" && "$os" =~ ^"ubuntu-24.04".* ]]; then
         echo "Copying custom mirror to container..."
@@ -2285,9 +2272,6 @@ case $command in
           docker rm $build_container
         fi
       fi
-
-      # Remove shared logs volume used by mgbuild containers.
-      docker volume rm memgraph_logs >/dev/null 2>&1 || true
 
       # Clean up override files if they were created
       cleanup_cache_override
