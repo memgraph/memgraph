@@ -6,3 +6,7 @@ instances:
     url: http://mgbuild_v7_ubuntu-24.04
     port: 9091
     type: data_instance
+  - name: memgraph2
+    url: http://mgbuild_v7_debian-12
+    port: 9091
+    type: data_instance

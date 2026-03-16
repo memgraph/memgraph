@@ -1,30 +1,70 @@
 data_dir: /tmp/vector-data
 
 sources:
-  memgraph_logs:
-    type: file
-    include:
-      - /home/mg/memgraph-logs/**/memgraph*.log
-    read_from: end
+  memgraph_logs_1:
+    type: websocket
+    uri: "ws://mgbuild_v7_ubuntu-24.04:7444"
+  memgraph_logs_2:
+    type: websocket
+    uri: "ws://mgbuild_v7_debian-12:7444"
+
 
 transforms:
+  annotate_memgraph_logs_1:
+    type: remap
+    inputs: [memgraph_logs_1]
+    source: |
+      .pod = "mgbuild_v7_ubuntu-24.04"
+      .source = "ws://mgbuild_v7_ubuntu-24.04:7444"
+  annotate_memgraph_logs_2:
+    type: remap
+    inputs: [memgraph_logs_2]
+    source: |
+      .pod = "mgbuild_v7_debian-12"
+      .source = "ws://mgbuild_v7_debian-12:7444"
+
   enrich:
     type: remap
-    inputs: [memgraph_logs]
+    inputs: [annotate_memgraph_logs_1, annotate_memgraph_logs_2]
     source: |
+      if exists(.message) && is_string(.message) {
+        parsed, err = parse_json(.message)
+        if err == null && is_object(parsed) {
+          . = merge!(., parsed)
+        }
+      }
+      if !exists(._msg) {
+        if exists(.message) {
+          ._msg = to_string!(.message)
+        } else if exists(.msg) {
+          ._msg = to_string!(.msg)
+        } else if exists(.log) {
+          ._msg = to_string!(.log)
+        } else {
+          ._msg = encode_json(.)
+        }
+      }
+      .message = ._msg
       .app = "memgraph"
       .job = "memgraph"
       .role = "standalone"
       .namespace = "docker-compose"
-      .pod = "native-memgraph"
+      if !exists(.pod) {
+        .pod = "native-memgraph"
+      }
       .cluster_id = "local-dev"
-      .cluster_env = "ci-native"
+      .service_name = "test-service"
+      .cluster_env = "matt-desktop"
 
 sinks:
   victorialogs:
     type: loki
     inputs: [enrich]
-    endpoint: "http://192.168.0.25:30454/insert"
+    endpoint: "http://heimdall:30454/insert"
+    auth:
+      strategy: basic
+      user: "ci-monitor"
+      password: "iQkLaD39VRuqE4Eh8BReJv6QAzBQ6tXzbaTXnN6NmnMCsBdLpmA8qEwBTjCJFwaB"
     encoding:
       codec: text
     labels:
@@ -34,5 +74,6 @@ sinks:
       namespace: "{{ namespace }}"
       pod: "{{ pod }}"
       cluster_id: "{{ cluster_id }}"
+      service_name: "{{ service_name }}"
       cluster_env: "{{ cluster_env }}"
     remove_label_fields: true
