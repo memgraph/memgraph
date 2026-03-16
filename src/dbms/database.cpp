@@ -16,6 +16,7 @@
 #include "dbms/database_info.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "memory/db_arena.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -58,7 +59,72 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
-Database::~Database() = default;
+Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
+                   metrics::PrometheusMetrics *prometheus_metrics)
+    : db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
+      after_commit_trigger_pool_{1,
+                                 [this]() -> utils::ThreadPool::TaskSignature {
+                                   auto db_arena_scope = std::make_unique<memory::DbArenaScope>(db_arena_.get());
+                                   return [db_arena_scope = std::move(db_arena_scope)]() mutable {
+                                     db_arena_scope.reset();
+                                   };
+                                 }},
+      streams_(
+          std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams", db_arena_.get())),
+      plan_cache_{FLAGS_query_plan_cache_max_size},
+      counters_storage_{std::make_unique<metrics::Counter[]>(metrics::CounterEnd())},
+      histograms_storage_{std::make_unique<metrics::Histogram[]>(metrics::HistogramEnd())},
+      prometheus_metrics_{prometheus_metrics},
+      counters{counters_storage_.get()},
+      histograms{histograms_storage_.get()} {
+  const memory::DbArenaScope db_arena_scope{this, memory::DbArenaScope::Type::FORCE};
+
+  trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
+  std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
+
+  if (auto global_max = utils::total_memory_tracker.MaximumHardLimit(); global_max > 0) {
+    db_total_memory_tracker_.SetMaximumHardLimit(global_max);
+    db_total_memory_tracker_.SetHardLimit(0);
+  }
+
+  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
+      utils::DirExists(config.disk.main_storage_directory)) {
+    config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+    storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
+                                                      std::move(invalidator),
+                                                      database_protector_factory,
+                                                      db_arena_.get(),
+                                                      &db_embedding_memory_tracker_);
+  } else {
+    storage_ = dbms::CreateInMemoryStorage(std::move(config),
+                                           std::move(invalidator),
+                                           database_protector_factory,
+                                           db_arena_.get(),
+                                           &db_embedding_memory_tracker_);
+  }
+
+  if (prometheus_metrics_) {
+    metric_handles_ = prometheus_metrics_->AddDatabase(storage_->name(), [s = storage_.get()] {
+      auto const info = s->GetBaseInfo();
+      return metrics::StorageSnapshot{
+          .vertex_count = info.vertex_count,
+          .edge_count = info.edge_count,
+          .disk_usage = info.disk_usage,
+          .memory_res = info.memory_res,
+      };
+    });
+  }
+}
+
+Database::~Database() {
+  if (prometheus_metrics_ && metric_handles_) {
+    prometheus_metrics_->RemoveDatabase(metric_handles_);
+  }
+}
+
+memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
+
+memory::ArenaPool &Database::Arena() const noexcept { return *db_arena_; }
 
 std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType rw_type,
                                                     std::optional<storage::IsolationLevel> override_isolation_level,
@@ -87,54 +153,6 @@ const storage::Config &Database::config() const { return storage_->config_; }
 storage::StorageMode Database::GetStorageMode() const noexcept { return storage_->GetStorageMode(); }
 
 storage::ttl::TTL &Database::ttl() { return storage_->ttl_; }
-
-memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
-
-memory::ArenaPool &Database::Arena() const noexcept { return *db_arena_; }
-
-Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
-      after_commit_trigger_pool_{1,
-                                 // After-commit triggers run on a dedicated DB worker.
-                                 // Keep a DB arena scope alive for the full worker lifetime.
-                                 [this]() -> utils::ThreadPool::TaskSignature {
-                                   auto db_arena_scope = std::make_unique<memory::DbArenaScope>(this);
-                                   return [db_arena_scope = std::move(db_arena_scope)]() mutable {
-                                     db_arena_scope.reset();
-                                   };
-                                 }},
-      streams_(
-          std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams", db_arena_.get())),
-      plan_cache_{FLAGS_query_plan_cache_max_size} {
-  // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
-  const memory::DbArenaScope db_arena_scope{this};
-
-  // Postpone creation after the scope has been created
-  trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
-  std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
-
-  // Bound the per-DB cap by the global --memory-limit; SetHardLimit(0) falls back to it.
-  if (auto global_max = utils::total_memory_tracker.MaximumHardLimit(); global_max > 0) {
-    db_total_memory_tracker_.SetMaximumHardLimit(global_max);
-    db_total_memory_tracker_.SetHardLimit(0);
-  }
-
-  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
-      utils::DirExists(config.disk.main_storage_directory)) {
-    config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
-    storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
-                                                      std::move(invalidator),
-                                                      database_protector_factory,
-                                                      db_arena_.get(),
-                                                      &db_embedding_memory_tracker_);
-  } else {
-    storage_ = dbms::CreateInMemoryStorage(std::move(config),
-                                           std::move(invalidator),
-                                           database_protector_factory,
-                                           db_arena_.get(),
-                                           &db_embedding_memory_tracker_);
-  }
-}
 
 DatabaseInfo Database::GetInfo() const {
   DatabaseInfo info;

@@ -24,6 +24,10 @@
 
 #include "handler.hpp"
 
+namespace memgraph::metrics {
+class PrometheusMetrics;
+}  // namespace memgraph::metrics
+
 namespace memgraph::dbms {
 
 /* NOTE
@@ -42,6 +46,9 @@ namespace memgraph::dbms {
 class DatabaseHandler : public Handler<Database> {
  public:
   using HandlerT = Handler<Database>;
+
+  explicit DatabaseHandler(metrics::PrometheusMetrics *prometheus_metrics = nullptr)
+      : prometheus_metrics_{prometheus_metrics} {}
 
   ~DatabaseHandler() override {
     for (auto &db : *this) {
@@ -84,7 +91,11 @@ class DatabaseHandler : public Handler<Database> {
       return nullptr;
     };
 
-    return HandlerT::New(std::piecewise_construct, *config.salient.name.str_view(), config, database_protector_factory);
+    return HandlerT::New(std::piecewise_construct,
+                         *config.salient.name.str_view(),
+                         config,
+                         database_protector_factory,
+                         prometheus_metrics_);
   }
 
   /**
@@ -115,6 +126,9 @@ class DatabaseHandler : public Handler<Database> {
     }
     return std::nullopt;
   }
+
+ private:
+  metrics::PrometheusMetrics *prometheus_metrics_{nullptr};
 };
 
 }  // namespace memgraph::dbms
