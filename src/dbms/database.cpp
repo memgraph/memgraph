@@ -15,6 +15,7 @@
 
 #include "dbms/database_info.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -57,7 +58,35 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
-Database::~Database() = default;
+Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
+    : trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
+      streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
+      plan_cache_{FLAGS_query_plan_cache_max_size},
+      counters_storage_{std::make_unique<metrics::Counter[]>(metrics::CounterEnd())},
+      histograms_storage_{std::make_unique<metrics::Histogram[]>(metrics::HistogramEnd())},
+      prometheus_metrics_{prometheus_metrics},
+      metric_handles_{prometheus_metrics_ ? std::make_unique<metrics::DatabaseMetricHandles>(
+                                                prometheus_metrics_->AddDatabase(config.salient.name.str()))
+                                          : nullptr},
+      counters{counters_storage_.get()},
+      histograms{histograms_storage_.get()} {
+  std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
+
+  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
+      utils::DirExists(config.disk.main_storage_directory)) {
+    config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+    storage_ =
+        std::make_unique<storage::DiskStorage>(std::move(config), std::move(invalidator), database_protector_factory);
+  } else {
+    storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
+  }
+}
+
+Database::~Database() {
+  if (prometheus_metrics_ && metric_handles_) {
+    prometheus_metrics_->RemoveDatabase(*metric_handles_);
+  }
+}
 
 std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType rw_type,
                                                     std::optional<storage::IsolationLevel> override_isolation_level,
@@ -86,26 +115,6 @@ const storage::Config &Database::config() const { return storage_->config_; }
 storage::StorageMode Database::GetStorageMode() const noexcept { return storage_->GetStorageMode(); }
 
 storage::ttl::TTL &Database::ttl() { return storage_->ttl_; }
-
-Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
-      streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
-      plan_cache_{FLAGS_query_plan_cache_max_size},
-      counters_storage_{std::make_unique<metrics::Counter[]>(metrics::CounterEnd())},
-      histograms_storage_{std::make_unique<metrics::Histogram[]>(metrics::HistogramEnd())},
-      counters{counters_storage_.get()},
-      histograms{histograms_storage_.get()} {
-  std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
-
-  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
-      utils::DirExists(config.disk.main_storage_directory)) {
-    config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
-    storage_ =
-        std::make_unique<storage::DiskStorage>(std::move(config), std::move(invalidator), database_protector_factory);
-  } else {
-    storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
-  }
-}
 
 DatabaseInfo Database::GetInfo() const {
   DatabaseInfo info;

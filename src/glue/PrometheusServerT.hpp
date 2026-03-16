@@ -12,15 +12,15 @@
 #pragma once
 
 #include "communication/http/server.hpp"
-#include "dbms/dbms_handler.hpp"
 #include "http_handlers/prometheus_service.hpp"
+#include "metrics/prometheus_metrics.hpp"
 
 extern template class memgraph::communication::http::Server<memgraph::http::PrometheusRequestHandler,
-                                                            memgraph::dbms::DbmsHandler>;
+                                                            memgraph::metrics::PrometheusMetrics>;
 
 namespace memgraph::glue {
 
-using PrometheusServerT =
-    memgraph::communication::http::Server<memgraph::http::PrometheusRequestHandler, memgraph::dbms::DbmsHandler>;
+using PrometheusServerT = memgraph::communication::http::Server<memgraph::http::PrometheusRequestHandler,
+                                                                memgraph::metrics::PrometheusMetrics>;
 
 }  // namespace memgraph::glue

@@ -46,6 +46,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -957,7 +958,7 @@ int main(int argc, char **argv) {
                                                    &bolt_server_context};
   spdlog::trace("Metrics server created.");
   // TODO: replace hardcoded port 9092 with FLAGS_metrics_port once old metrics server is removed
-  memgraph::glue::PrometheusServerT prometheus_server{{"localhost", 9092}, &dbms_handler, &context};
+  memgraph::glue::PrometheusServerT prometheus_server{{"localhost", 9092}, &prometheus_metrics, &context};
   spdlog::trace("Prometheus metrics server created.");
 #endif
 
