@@ -19,15 +19,6 @@
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 
-namespace memgraph {
-namespace utils {
-struct SchedulerInterval;
-struct Settings;
-template <typename T>
-class Observer;
-}  // namespace utils
-}  // namespace memgraph
-
 namespace memgraph::flags::run_time {
 
 /**

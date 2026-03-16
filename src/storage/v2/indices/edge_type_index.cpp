@@ -13,12 +13,6 @@
 
 #include <utility>
 
-namespace memgraph {
-namespace storage {
-struct Edge;
-}  // namespace storage
-}  // namespace memgraph
-
 namespace memgraph::storage {
 void EdgeTypeIndex::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
                                                          Edge *edge) {

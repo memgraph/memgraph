@@ -20,12 +20,6 @@
 #include "spdlog/sinks/sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 
-namespace spdlog {
-namespace sinks {
-class sink;
-}  // namespace sinks
-}  // namespace spdlog
-
 namespace memgraph::flags {
 
 inline std::shared_ptr<spdlog::sinks::sink> &stderr_sink() {

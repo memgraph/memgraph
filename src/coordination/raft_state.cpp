@@ -65,20 +65,6 @@
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
 
-namespace memgraph {
-namespace coordination {
-struct CoordinatorClusterStateDelta;
-struct DataInstanceContext;
-}  // namespace coordination
-}  // namespace memgraph
-
-namespace nuraft {
-class delayed_task_scheduler;
-class rpc_client_factory;
-class state_machine;
-class state_mgr;
-}  // namespace nuraft
-
 namespace {
 constexpr std::string_view kStateMgrDurabilityPath = "network";
 constexpr std::string_view kLogStoreDurabilityPath = "logs";

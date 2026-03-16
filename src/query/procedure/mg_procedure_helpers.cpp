@@ -15,11 +15,6 @@
 
 #include "query/procedure/fmt.hpp"
 
-struct mgp_memory;
-struct mgp_result;
-struct mgp_result_record;
-struct mgp_value;
-
 namespace memgraph::query::procedure {
 MgpUniquePtr<mgp_value> GetStringValueOrSetError(const char *string, mgp_memory *memory, mgp_result *result) {
   procedure::MgpUniquePtr<mgp_value> value{nullptr, mgp_value_destroy};

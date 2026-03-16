@@ -23,15 +23,6 @@
 #include <type_traits>
 #include <typeindex>
 
-namespace memgraph {
-namespace storage {
-class EdgeTypeId;
-class Gid;
-class LabelId;
-class PropertyId;
-}  // namespace storage
-}  // namespace memgraph
-
 namespace memgraph::storage {
 
 #define STORAGE_DEFINE_ID_TYPE(name, type_store, type_conv)                                     \

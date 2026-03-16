@@ -15,14 +15,6 @@ module;
 
 #include <strong_type/type.hpp>
 
-namespace strong {
-struct formattable;
-struct hashable;
-struct ordered;
-struct ostreamable;
-struct regular;
-}  // namespace strong
-
 export module rollbear.strong_type;
 
 // Re-export the strong namespace members that are currently used across the planner module

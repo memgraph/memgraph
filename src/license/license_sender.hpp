@@ -22,16 +22,6 @@
 #include "utils/synchronized.hpp"
 #include "utils/timer.hpp"
 
-namespace memgraph {
-namespace license {
-struct LicenseInfo;
-}  // namespace license
-
-namespace utils {
-class SpinLock;
-}  // namespace utils
-}  // namespace memgraph
-
 namespace memgraph::license {
 
 class LicenseInfoSender final {

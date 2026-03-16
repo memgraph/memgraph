@@ -22,14 +22,6 @@
 #include "context.hpp"
 #include "io/network/stream_buffer.hpp"
 
-namespace memgraph {
-namespace io {
-namespace network {
-class Endpoint;
-}  // namespace network
-}  // namespace io
-}  // namespace memgraph
-
 namespace memgraph::communication {
 
 Client::Client(ClientContext *context) : context_(context) {}

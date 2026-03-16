@@ -25,12 +25,6 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-namespace memgraph {
-namespace utils {
-struct Settings;
-}  // namespace utils
-}  // namespace memgraph
-
 namespace memgraph::license {
 
 enum class LicenseType : uint8_t { ENTERPRISE, OEM };

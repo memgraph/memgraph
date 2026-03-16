@@ -32,18 +32,6 @@
 #include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
 
-namespace memgraph {
-namespace communication {
-class ClientContext;
-}  // namespace communication
-
-namespace io {
-namespace network {
-class Endpoint;
-}  // namespace network
-}  // namespace io
-}  // namespace memgraph
-
 namespace memgraph::communication {
 
 /**

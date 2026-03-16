@@ -31,17 +31,6 @@
 #include "kvstore/kvstore.hpp"
 #include "utils/logging.hpp"
 
-namespace memgraph {
-namespace coordination {
-class LoggerWrapper;
-struct DataInstanceContext;
-}  // namespace coordination
-
-namespace kvstore {
-class KVStore;
-}  // namespace kvstore
-}  // namespace memgraph
-
 #ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {

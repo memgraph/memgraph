@@ -37,18 +37,6 @@
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 
-namespace memgraph {
-namespace coordination {
-struct CoordinatorStateManagerConfig;
-}  // namespace coordination
-}  // namespace memgraph
-
-namespace nuraft {
-class logger;
-class srv_config;
-class srv_state;
-}  // namespace nuraft
-
 namespace memgraph::coordination {
 using nuraft::cluster_config;
 using nuraft::logger;

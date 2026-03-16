@@ -38,10 +38,6 @@
 #include "nlohmann/json.hpp"
 #include "utils/logging.hpp"
 
-namespace nuraft {
-class buffer;
-}  // namespace nuraft
-
 #include <cstdlib>
 
 namespace memgraph::coordination {

@@ -17,14 +17,6 @@
 #include <memory>
 #include <string>
 
-namespace spdlog {
-class logger;
-
-namespace level {
-enum level_enum : int;
-}  // namespace level
-}  // namespace spdlog
-
 namespace memgraph::query {
 
 class QueryLogger {

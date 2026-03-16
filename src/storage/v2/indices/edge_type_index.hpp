@@ -23,12 +23,6 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 
-namespace memgraph {
-namespace storage {
-struct Edge;
-}  // namespace storage
-}  // namespace memgraph
-
 namespace memgraph::storage {
 
 struct Transaction;

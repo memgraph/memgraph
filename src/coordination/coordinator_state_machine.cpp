@@ -36,10 +36,6 @@
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
 
-namespace nuraft {
-class cluster_config;
-}  // namespace nuraft
-
 using nuraft::cluster_config;
 using nuraft::ptr;
 using nuraft::snapshot;

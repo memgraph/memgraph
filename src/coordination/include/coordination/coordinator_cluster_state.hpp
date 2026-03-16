@@ -33,17 +33,6 @@
 #include "utils/resource_lock.hpp"
 #include "utils/uuid.hpp"
 
-namespace memgraph {
-namespace replication_coordination_glue {
-enum class ReplicationRole : uint8_t;
-}  // namespace replication_coordination_glue
-}  // namespace memgraph
-
-namespace nuraft {
-class buffer;
-class buffer_serializer;
-}  // namespace nuraft
-
 namespace memgraph::coordination {
 
 using nuraft::buffer;

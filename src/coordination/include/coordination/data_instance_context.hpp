@@ -17,12 +17,6 @@
 #include "replication_coordination_glue/role.hpp"
 #include "utils/uuid.hpp"
 
-namespace memgraph {
-namespace replication_coordination_glue {
-enum class ReplicationRole : uint8_t;
-}  // namespace replication_coordination_glue
-}  // namespace memgraph
-
 #ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {

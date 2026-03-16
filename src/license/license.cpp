@@ -38,8 +38,6 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-struct tm;
-
 namespace memgraph::license {
 
 namespace {

@@ -20,11 +20,6 @@
 #include "query/procedure/fmt.hpp"
 #include "utils/logging.hpp"
 
-struct mgp_memory;
-struct mgp_result;
-struct mgp_result_record;
-struct mgp_value;
-
 namespace memgraph::query::procedure {
 template <typename TResult, typename TFunc, typename... TArgs>
 TResult Call(TFunc func, TArgs... args) {

@@ -21,12 +21,6 @@
 
 #include "utils/typeinfo.hpp"
 
-namespace memgraph {
-namespace utils {
-struct TypeInfo;
-}  // namespace utils
-}  // namespace memgraph
-
 namespace memgraph::query {
 
 class Symbol {

@@ -19,12 +19,6 @@
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
 
-namespace memgraph {
-namespace replication_coordination_glue {
-enum class ReplicationMode : std::uint8_t;
-}  // namespace replication_coordination_glue
-}  // namespace memgraph
-
 namespace memgraph::replication {
 
 inline constexpr uint16_t kDefaultReplicationPort = 10'000;

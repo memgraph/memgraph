@@ -20,14 +20,6 @@
 
 #include "io/network/endpoint.hpp"
 
-namespace memgraph {
-namespace io {
-namespace network {
-class Endpoint;
-}  // namespace network
-}  // namespace io
-}  // namespace memgraph
-
 namespace memgraph::io::network {
 
 /**

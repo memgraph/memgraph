@@ -29,22 +29,6 @@
 #include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
 
-namespace memgraph {
-namespace coordination {
-enum class LogStoreVersion : uint8_t;
-struct LogStoreDurability;
-}  // namespace coordination
-
-namespace kvstore {
-class KVStore;
-}  // namespace kvstore
-}  // namespace memgraph
-
-namespace nuraft {
-class log_entry;
-class raft_server;
-}  // namespace nuraft
-
 namespace memgraph::coordination {
 
 using nuraft::buffer;

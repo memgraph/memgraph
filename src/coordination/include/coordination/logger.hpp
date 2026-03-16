@@ -26,10 +26,6 @@
 
 #include "coordination/log_level.hpp"
 
-namespace spdlog {
-class logger;
-}  // namespace spdlog
-
 // clang-format on
 
 namespace memgraph::coordination {

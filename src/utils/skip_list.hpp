@@ -41,13 +41,6 @@
 #include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
 
-namespace memgraph {
-namespace utils {
-template <typename TValue>
-class Bound;
-}  // namespace utils
-}  // namespace memgraph
-
 // This code heavily depends on atomic operations. For a more detailed
 // description of how exactly atomic operations work, see:
 // https://www.codeproject.com/Articles/1183423/We-make-a-std-shared-mutex-times-faster

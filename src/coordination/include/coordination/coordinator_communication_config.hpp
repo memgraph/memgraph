@@ -28,16 +28,6 @@
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/uuid.hpp"
 
-namespace memgraph {
-namespace kvstore {
-class KVStore;
-}  // namespace kvstore
-
-namespace replication_coordination_glue {
-enum class ReplicationMode : std::uint8_t;
-}  // namespace replication_coordination_glue
-}  // namespace memgraph
-
 namespace memgraph::coordination {
 
 inline constexpr auto *kDefaultManagementServerIp = "0.0.0.0";

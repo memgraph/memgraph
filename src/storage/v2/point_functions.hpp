@@ -13,13 +13,6 @@
 
 #include "storage/v2/point.hpp"
 
-namespace memgraph {
-namespace storage {
-struct Point2d;
-struct Point3d;
-}  // namespace storage
-}  // namespace memgraph
-
 namespace memgraph::storage {
 
 double Haversine(const Point2d &point1, const Point2d &point2);

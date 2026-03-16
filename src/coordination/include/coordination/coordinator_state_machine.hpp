@@ -40,24 +40,6 @@
 #include "nlohmann/json_fwd.hpp"
 #include "utils/uuid.hpp"
 
-namespace memgraph {
-namespace coordination {
-enum class LogStoreVersion : uint8_t;
-struct LogStoreDurability;
-}  // namespace coordination
-
-namespace kvstore {
-class KVStore;
-}  // namespace kvstore
-}  // namespace memgraph
-
-namespace nuraft {
-class buffer;
-class buffer_serializer;
-class logger;
-class snapshot;
-}  // namespace nuraft
-
 namespace memgraph::coordination {
 
 using nuraft::async_result;
