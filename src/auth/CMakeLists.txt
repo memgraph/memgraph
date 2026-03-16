@@ -38,3 +38,5 @@ install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/requirements.txt
         DESTINATION lib/memgraph/auth_module)
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/oidc.py
         DESTINATION lib/memgraph/auth_module)
+install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/kerberos.py
+        DESTINATION lib/memgraph/auth_module)
