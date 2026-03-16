@@ -56,6 +56,8 @@ class PrometheusRequestHandler final {
       return send(bad_request("Illegal request-target"));
     }
 
+    prometheus_metrics_->UpdateGauges();
+
     prometheus::TextSerializer serializer;
     std::ostringstream oss;
     serializer.Serialize(oss, prometheus_metrics_->registry().Collect());
