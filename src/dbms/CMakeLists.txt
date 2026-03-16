@@ -17,4 +17,4 @@ target_sources(mg-dbms
     database_protector.hpp
 )
 
-target_link_libraries(mg-dbms mg-utils mg::storage mg-query mg-auth mg-replication mg-coordination prometheus-cpp::core)
+target_link_libraries(mg-dbms mg-utils mg::storage mg-query mg-auth mg-replication mg-coordination mg-metrics)
