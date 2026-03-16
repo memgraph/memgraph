@@ -28,6 +28,7 @@
 #include <vector>
 
 #include <gflags/gflags.h>
+#include <range/v3/all.hpp>
 
 #include "frontend/ast/ast.hpp"
 #include "frontend/ast/ast_storage.hpp"

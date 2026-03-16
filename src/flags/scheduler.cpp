@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,15 @@
 // licenses/APL.txt.
 
 #include "flags/scheduler.hpp"
+
+#include <fmt/format.h>
+#include <gflags/gflags.h>
+#include <algorithm>
+#include <array>
+#include <expected>
+#include <optional>
+#include <string>
+#include <utility>
 
 #include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"

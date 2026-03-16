@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,8 +14,9 @@
 #include "storage/v2/enum.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 
+#include <range/v3/view/enumerate.hpp>
+#include <range/v3/view/zip.hpp>
 #include "absl/container/flat_hash_map.h"
-#include "range/v3/all.hpp"
 #include "strong_type/strong_type.hpp"
 
 #include <algorithm>

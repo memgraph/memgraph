@@ -27,6 +27,7 @@
 
 #include <spdlog/spdlog.h>
 #include <optional>
+#include <range/v3/algorithm/find_if.hpp>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>

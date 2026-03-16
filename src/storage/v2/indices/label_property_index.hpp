@@ -15,8 +15,10 @@
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/bound.hpp"
 
 #include <cstdint>
+#include <range/v3/view/enumerate.hpp>
 #include <ranges>
 
 namespace memgraph::storage {

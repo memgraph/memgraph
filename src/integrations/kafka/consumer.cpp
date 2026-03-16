@@ -11,13 +11,20 @@
 
 #include "integrations/kafka/consumer.hpp"
 
-#include <algorithm>
-#include <chrono>
-#include <memory>
-#include <unordered_set>
-
+#include <fmt/format.h>
+#include <librdkafka/rdkafka.h>
 #include <librdkafka/rdkafkacpp.h>
 #include <spdlog/spdlog.h>
+#include <stddef.h>
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <compare>
+#include <exception>
+#include <iterator>
+#include <memory>
+#include <unordered_set>
+#include <utility>
 
 #include "integrations/constants.hpp"
 #include "integrations/kafka/exceptions.hpp"

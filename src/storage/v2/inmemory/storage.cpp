@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include <range/v3/all.hpp>
 
 #include <algorithm>
 #include <atomic>

@@ -11,9 +11,16 @@
 
 #pragma once
 
+#include <expected>
+#include <filesystem>
 #include <functional>
+#include <iterator>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "kvstore/kvstore.hpp"
 #include "utils/rw_lock.hpp"

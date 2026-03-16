@@ -10,10 +10,20 @@
 // licenses/APL.txt.
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <spdlog/spdlog.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+#include <chrono>
+#include <compare>
+#include <cstring>
+#include <string>
 
 #include "io/network/addrinfo.hpp"
 #include "io/network/endpoint.hpp"

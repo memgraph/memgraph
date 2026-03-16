@@ -12,12 +12,22 @@
 /** @file */
 #pragma once
 
+#include <ctype.h>
+#include <stdint.h>
+#include <string.h>
 #include <algorithm>
 #include <charconv>
 #include <iomanip>
+#include <iterator>
+#include <locale>
 #include <random>
+#include <ranges>
 #include <sstream>
+#include <string>
+#include <string_view>
+#include <system_error>
 #include <utility>
+#include <vector>
 
 #include "utils/exceptions.hpp"
 

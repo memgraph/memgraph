@@ -11,27 +11,31 @@
 
 #include "io/network/endpoint.hpp"
 
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fmt/format.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <spdlog/spdlog.h>
+#include <stddef.h>
+#include <sys/socket.h>
 #include <array>
+#include <compare>
 #include <cstdint>
+#include <functional>
 #include <limits>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <utility>
+#include <vector>
 
 #include "io/network/network_error.hpp"
-#include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/string.hpp"
-
-#include <arpa/inet.h>
-#include <fmt/core.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <spdlog/spdlog.h>
-#include <sys/socket.h>
-#include <nlohmann/json.hpp>
 
 namespace {
 constexpr std::string_view delimiter = ":";

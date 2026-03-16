@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <range/v3/algorithm/any_of.hpp>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/transform.hpp>
+
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/recovery_type.hpp"

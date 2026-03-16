@@ -9,6 +9,7 @@ target_sources(mg-storage-v2
         commit_log.cpp
         config.cpp
         constraint_verification_info.cpp
+        delta.cpp
         constraints/constraints.cpp
         constraints/existence_constraints.cpp
         constraints/type_constraints.cpp
@@ -125,6 +126,7 @@ target_sources(mg-storage-v2
         property_store.hpp
         indexed_property_decoder.hpp
         property_value.hpp
+        property_value_fwd.hpp
         property_value_utils.hpp
         replication/replication_transaction.hpp
         schema_info.hpp

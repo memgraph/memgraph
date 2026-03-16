@@ -11,9 +11,9 @@
 
 #include "communication/buffer.hpp"
 
-#include "utils/logging.hpp"
+#include <string.h>
 
-#include <cstddef>
+#include "utils/logging.hpp"
 
 namespace memgraph::communication {
 

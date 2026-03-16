@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,13 +11,17 @@
 
 #pragma once
 
-#include "storage/v2/edge_ref.hpp"
-#include "storage/v2/id_types.hpp"
-
+#include <stdint.h>
 #include <algorithm>
 #include <map>
+#include <memory>
 #include <span>
+#include <tuple>
+#include <variant>
 #include <vector>
+
+#include "storage/v2/edge_ref.hpp"
+#include "storage/v2/id_types.hpp"
 
 namespace memgraph::storage {
 
