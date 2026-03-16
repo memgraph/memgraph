@@ -1,0 +1,5 @@
+customWorkloads:
+  tests:
+    - name: concurrent-index-creation
+      script: "ha/workloads/concurrent_index_creation/workload.py"
+      timeout_min: 240
