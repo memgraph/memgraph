@@ -69,7 +69,7 @@ class DiskLabelIndex : public storage::LabelIndex {
                                                             EntriesForDeletion const &entries_for_deletion);
 
   /// Returns false if there was no index to drop
-  bool DropIndex(LabelId label) override;
+  bool DropIndex(LabelId label, ActiveIndicesUpdater const &updater) override;
 
   RocksDBStorage *GetRocksDBStorage() const;
 

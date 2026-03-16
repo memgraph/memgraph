@@ -32,6 +32,7 @@ target_sources(mg-storage-v2
         edge_ref.cpp
         edges_iterable.cpp
         id_types.cpp
+        indices/active_indices_updater.cpp
         indices/edge_property_index.cpp
         indices/edge_type_index.cpp
         indices/edge_type_property_index.cpp
@@ -43,9 +44,9 @@ target_sources(mg-storage-v2
         indices/point_index.cpp
         indices/point_index_change_collector.cpp
         indices/point_iterator.cpp
-        indices/text_index_utils.cpp
-        indices/text_index.cpp
         indices/text_edge_index.cpp
+        indices/text_index.cpp
+        indices/text_index_utils.cpp
         indices/vector_edge_index.cpp
         indices/vector_index.cpp
         inmemory/edge_property_index.cpp
@@ -104,6 +105,7 @@ target_sources(mg-storage-v2
         enum_store.hpp
         id_types.hpp
         indices/active_indices.hpp
+        indices/active_indices_updater.hpp
         indices/indices_utils.hpp
         indices/point_index.hpp
         indices/point_index_change_collector.hpp

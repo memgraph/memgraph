@@ -2218,7 +2218,8 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
-  if (!disk_label_index->DropIndex(label)) {
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  if (!disk_label_index->DropIndex(label, updater)) {
     return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 

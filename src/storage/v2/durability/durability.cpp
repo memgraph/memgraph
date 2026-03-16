@@ -242,11 +242,12 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
+  auto updater = ActiveIndicesUpdater{indices->active_indices_};
   // Recover label indices.
   {
     spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
     for (const auto &item : indices_metadata.label) {
-      if (!mem_label_index->CreateIndexOnePass(item, vertices->access(), parallel_exec_info, snapshot_info)) {
+      if (!mem_label_index->CreateIndexOnePass(item, vertices->access(), parallel_exec_info, updater, snapshot_info)) {
         throw RecoveryFailure("The label index must be created here!");
       }
       spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));

@@ -170,7 +170,7 @@ void DiskLabelIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_label, V
 }
 
 /// TODO: andi Here will come Bloom filter deletion
-bool DiskLabelIndex::DropIndex(LabelId label) {
+bool DiskLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &updater) {
   if (!(index_.erase(label) > 0)) {
     return false;
   }
