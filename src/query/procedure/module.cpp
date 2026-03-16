@@ -1094,7 +1094,7 @@ bool PythonModule::Close() {
         break;
       }
       auto const &rec_dir_entry = *rec_it;
-      std::string rec_dir_entry_stem = rec_dir_entry.path().stem().string();
+      std::string const rec_dir_entry_stem = rec_dir_entry.path().stem().string();
       if (rec_dir_entry.is_directory() && rec_dir_entry_stem != "__pycache__") {
         ec.clear();
         std::filesystem::remove_all(rec_dir_entry.path() / "__pycache__", ec);
@@ -1102,7 +1102,7 @@ bool PythonModule::Close() {
           spdlog::warn("Failed to remove __pycache__ in {}: {}", rec_dir_entry.path().string(), ec.message());
         }
       }
-      std::string rec_dir_entry_ext = rec_dir_entry.path().extension().string();
+      std::string const rec_dir_entry_ext = rec_dir_entry.path().extension().string();
       if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext != ".py") continue;
       ProcessFileDependencies(rec_dir_entry.path().c_str(), file_path_.stem().c_str(), func_code, sys_mod_ref);
     }
