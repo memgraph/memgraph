@@ -56,7 +56,7 @@ env:
   MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
   MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
   MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
-  CLUSTER_ID: "${{ github.run_id }}-${{ github.run_attempt }}"
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
   CLUSTER_ENV: "ci-diff-release"
 
 jobs:
