@@ -87,11 +87,12 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
 
           std::shared_ptr<buffer> log_term_buffer;
           if (val_type_enum == nuraft::log_val_type::conf) {
-            // This is needed because at one point we had a bug in the way we serialize cluster_config. We serialized it
-            // just as an empty string to in order to keep things compatible in newer versions, we have to skip such
-            // logs.
             if (data.empty()) {
-              continue;
+              LOG_FATAL(
+                  "Detected old-format coordinator config log entry at index {} with empty data. "
+                  "This version requires a clean coordinator data directory. "
+                  "Please stop all coordinators, remove their data directories, and re-establish the HA cluster.",
+                  id);
             }
             // Config entries store a JSON-serialized cluster_config.
             // Reconstruct the NuRaft binary buffer from it.
