@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "dbms/inmemory/storage_helper.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -54,14 +55,17 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
-Database::~Database() = default;
-
-Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
+Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
+                   metrics::PrometheusMetrics *prometheus_metrics)
     : trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
       streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
       plan_cache_{FLAGS_query_plan_cache_max_size},
       counters_storage_{std::make_unique<metrics::Counter[]>(metrics::CounterEnd())},
       histograms_storage_{std::make_unique<metrics::Histogram[]>(metrics::HistogramEnd())},
+      prometheus_metrics_{prometheus_metrics},
+      metric_handles_{prometheus_metrics_ ? std::make_unique<metrics::DatabaseMetricHandles>(
+                                                prometheus_metrics_->AddDatabase(config.salient.name.str()))
+                                          : nullptr},
       counters{counters_storage_.get()},
       histograms{histograms_storage_.get()} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
@@ -73,6 +77,12 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
         std::make_unique<storage::DiskStorage>(std::move(config), std::move(invalidator), database_protector_factory);
   } else {
     storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
+  }
+}
+
+Database::~Database() {
+  if (prometheus_metrics_ && metric_handles_) {
+    prometheus_metrics_->RemoveDatabase(*metric_handles_);
   }
 }
 
