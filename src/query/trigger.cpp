@@ -300,8 +300,8 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   // Trigger can be executed from the Commit (where we don't want to yield)
   // or in a separate thread that does not need to yield to other work.
   while (true) {
-    auto awaitable = cursor->Pull(frame, ctx);
-    if (plan::RunPullToCompletion(awaitable, ctx).status != plan::PullRunResult::Status::HasRow) break;
+    auto resume_aw = cursor->Pull(frame, ctx);
+    if (plan::RunPullToCompletion(resume_aw, ctx).status != plan::PullRunResult::Status::HasRow) break;
   }
 
   cursor->Shutdown();

@@ -2913,7 +2913,7 @@ struct PullPlan {
   ~PullPlan() {
     // If the query was abandoned mid-yield (e.g. session closed), the inner
     // coroutine is still suspended. Destroy it explicitly so its frame is freed.
-    // stored_awaitable_ (the root frame) is destroyed by its own ~PullAwaitable.
+    // The cursor's gen_ (root frame) is destroyed when the cursor is reset or destroyed.
     if (suspended_handle_) {
       suspended_handle_.destroy();
       suspended_handle_ = {};
@@ -2944,10 +2944,10 @@ struct PullPlan {
   // manually by using this flag.
   bool has_unsent_results_ = false;
 
-  // Scheduler-driven yield: keep the suspended coroutine handle and root
-  // awaitable alive so the task can return and be resumed later.
+  // Scheduler-driven yield: keep the suspended coroutine handle alive so the task can return and be resumed later.
+  // gen_live_ tracks whether the cursor has a live generator (yielded but not yet finished/reset).
   std::coroutine_handle<> suspended_handle_{};
-  std::optional<plan::PullAwaitable> stored_awaitable_{};
+  bool gen_live_ = false;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
@@ -3054,23 +3054,18 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     // Returns std::optional<bool>: true = has row, false = done, nullopt = yielded (caller should return and resume
     // later).
     const auto pull_result = [this, summary]() -> std::optional<bool> {
-      plan::PullAwaitable awaitable;
-      if (stored_awaitable_) {
-        awaitable = std::move(*stored_awaitable_);
-        stored_awaitable_.reset();
-      } else {
-        awaitable = cursor_->Pull(frame_, ctx_);
+      // cursor_->Pull() lazily creates the generator on first call and returns a ResumeAwaitable
+      // for the live generator. Subsequent calls return a new ResumeAwaitable for the same gen_.
+      auto resume_aw = cursor_->Pull(frame_, ctx_);
+      summary->insert_or_assign("yielded", TypedValue(false));
+      auto result = plan::RunPullToCompletion(resume_aw, ctx_);
+      if (result.status == plan::PullRunResult::Status::Yielded) {
+        gen_live_ = true;
+        summary->insert_or_assign("yielded", TypedValue(true));
+        return std::nullopt;  // Expose yield to scheduler; next Pull() will resume.
       }
-      while (true) {
-        summary->insert_or_assign("yielded", TypedValue(false));
-        auto result = plan::RunPullToCompletion(awaitable, ctx_);
-        if (result.status == plan::PullRunResult::Status::Yielded) {
-          stored_awaitable_ = std::move(awaitable);
-          summary->insert_or_assign("yielded", TypedValue(true));
-          return std::nullopt;  // Expose yield to scheduler; next Pull() will resume.
-        }
-        return result.status == plan::PullRunResult::Status::HasRow;
-      }
+      gen_live_ = false;
+      return result.status == plan::PullRunResult::Status::HasRow;
     };
 
     auto values = std::vector<TypedValue>(output_symbols.size());
@@ -3103,7 +3098,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     }
 
     // If we yielded, return without finishing so the task can end and be resumed later.
-    if (stored_awaitable_) {
+    if (gen_live_) {
       return std::nullopt;
     }
 

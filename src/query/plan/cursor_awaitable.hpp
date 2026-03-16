@@ -64,4 +64,7 @@ class YieldPointAwaitable {
 /// Returns HasRow, Done, or Yielded. If Yielded, *ctx.suspended_task_handle_ptr holds the handle to resume.
 PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ctx);
 
+/// Generator-aware variant: resumes the root generator one step (one row or exhaustion).
+PullRunResult RunPullToCompletion(PullAwaitable::ResumeAwaitable &awaitable, ExecutionContext &ctx);
+
 }  // namespace memgraph::query::plan

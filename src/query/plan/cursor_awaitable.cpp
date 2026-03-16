@@ -11,7 +11,16 @@
 
 #include "query/plan/cursor_awaitable.hpp"
 
+#include "query/plan/operator.hpp"
+
 namespace memgraph::query::plan {
+
+PullAwaitable::ResumeAwaitable Cursor::Pull(Frame &f, ExecutionContext &ctx) {
+  if (!gen_) gen_ = DoPull(f, ctx);
+  return gen_->Resume();
+}
+
+void Cursor::Reset() { gen_.reset(); }
 
 PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ctx) {
   // 1. If we are resuming after a yield, the suspended handle is in the context.
@@ -54,6 +63,32 @@ PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ct
 
   awaitable.RethrowIfException();
   return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
+}
+
+PullRunResult RunPullToCompletion(PullAwaitable::ResumeAwaitable &ra, ExecutionContext &ctx) {
+  if (ra.Done()) return PullRunResult::Done();
+
+  // Root generator's continuation must be noop so that co_yield transfers control
+  // back to this function (via symmetric transfer → noop_coroutine → resume returns).
+  ra.GetHandle().promise().continuation_ = std::noop_coroutine();
+
+  // Determine which handle to resume: either the scheduler-yielded inner handle,
+  // or the root generator itself.
+  std::coroutine_handle<> resume_target;
+  if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
+    resume_target = std::exchange(*ctx.suspended_task_handle_ptr, {});
+  } else {
+    resume_target = ra.GetHandle();
+  }
+
+  resume_target.resume();
+
+  if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
+    return PullRunResult::Yielded();
+  }
+
+  ra.RethrowIfException();
+  return ra.Result() ? PullRunResult::Row() : PullRunResult::Done();
 }
 
 }  // namespace memgraph::query::plan
