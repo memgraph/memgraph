@@ -2394,7 +2394,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
         throw AuthorizationException{
             "Adding label to vertex failed: missing SET LABEL or UPDATE permission on existing vertex labels."};
       }
-      if (!ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
+      if (!ctx->auth_checker->Has(std::span{&label_id, 1}, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
         throw AuthorizationException{"Adding label to vertex failed: missing CREATE permission on target label."};
       }
     }
@@ -2438,7 +2438,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker) {
       // Check DELETE on target label
-      if (!ctx->auth_checker->Has(std::vector{label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
+      if (!ctx->auth_checker->Has(std::span{&label_id, 1}, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
         throw AuthorizationException{"Removing label from vertex failed: missing DELETE permission on target label."};
       }
       // Check REMOVE_LABEL on existing vertex (gatekeeper)
