@@ -38,6 +38,7 @@
 #include "flags/general.hpp"
 #include "flags/logging.hpp"
 #include "glue/MonitoringServerT.hpp"
+#include "glue/PrometheusServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
@@ -955,6 +956,9 @@ int main(int argc, char **argv) {
                                                    db_acc.has_value() ? db_acc->get()->storage() : nullptr,
                                                    &bolt_server_context};
   spdlog::trace("Metrics server created.");
+  // TODO: replace hardcoded port 9092 with FLAGS_metrics_port once old metrics server is removed
+  memgraph::glue::PrometheusServerT prometheus_server{{"localhost", 9092}, &dbms_handler, &context};
+  spdlog::trace("Prometheus metrics server created.");
 #endif
 
   // Handler for regular termination signals
@@ -962,6 +966,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
                       &coordinator_state,
                       &metrics_server,
+                      &prometheus_server,
 #endif
                       is_coordinator_instance,
                       &websocket_server,
@@ -1017,6 +1022,7 @@ int main(int argc, char **argv) {
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();
+    prometheus_server.Shutdown();
     if (coordinator_state && coordinator_state->IsCoordinator()) {
       // Coordinator instance destruction will handle the complete shutdown
       coordinator_state.reset();
@@ -1036,6 +1042,8 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   metrics_server.Start();
   spdlog::trace("Metrics server started");
+  prometheus_server.Start();
+  spdlog::trace("Prometheus metrics server started");
 #endif
 
   if (!FLAGS_init_data_file.empty() && dbms_handler.has_value()) {
@@ -1066,6 +1074,7 @@ int main(int argc, char **argv) {
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
   metrics_server.AwaitShutdown();
+  prometheus_server.AwaitShutdown();
 #endif
   try {
     memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
