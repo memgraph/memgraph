@@ -21,11 +21,13 @@ VLOGS_SCHEME="${VLOGS_SCHEME:-http}"
 MEMGRAPH_METRICS_HOST="${MEMGRAPH_METRICS_HOST:-host.docker.internal}"
 MEMGRAPH_METRICS_PORT="${MEMGRAPH_METRICS_PORT:-9091}"
 MEMGRAPH_METRICS_TARGETS="${MEMGRAPH_METRICS_TARGETS:-}"
-MEMGRAPH_LOGS_VOLUME="${MEMGRAPH_LOGS_VOLUME:-memgraph_logs}"
-MEMGRAPH_LOGS_PATH_IN_VOLUME="${MEMGRAPH_LOGS_PATH_IN_VOLUME:-/home/mg/memgraph-logs}"
-MEMGRAPH_LOG_GLOB="${MEMGRAPH_LOG_GLOB:-${MEMGRAPH_LOGS_PATH_IN_VOLUME}/**/memgraph*.log}"
+MEMGRAPH_LOG_WS_PORT="${MEMGRAPH_LOG_WS_PORT:-7444}"
+MEMGRAPH_LOG_WS_TARGETS="${MEMGRAPH_LOG_WS_TARGETS:-}"
 CLUSTER_ID="${CLUSTER_ID:-}"
 CLUSTER_ENV="${CLUSTER_ENV:-ci-standalone-victoria}"
+SERVICE_NAME="${SERVICE_NAME:-memgraph}"
+MONITORING_USERNAME="${MONITORING_USERNAME:-${CI_MONITORING_USER:-}}"
+MONITORING_PASSWORD="${MONITORING_PASSWORD:-${CI_MONITORING_PASSWORD:-}}"
 
 if [[ -z "${REMOTE_WRITE_URL}" || -z "${VLOGS_PUSH_URL}" ]]; then
   if [[ -z "${MONITORING_SERVER_HOST}" ]]; then
@@ -93,9 +95,96 @@ else
   envsubst < "${MANIFESTS_DIR}/mg-exporter-standalone.yaml.tmpl" > "${MG_EXPORTER_CONFIG}"
 fi
 
+if [[ -z "${MEMGRAPH_LOG_WS_TARGETS}" ]]; then
+  if [[ -n "${MEMGRAPH_METRICS_TARGETS}" ]]; then
+    MEMGRAPH_LOG_WS_TARGETS=""
+    IFS=',' read -r -a metrics_targets_for_ws <<< "${MEMGRAPH_METRICS_TARGETS}"
+    for metrics_target in "${metrics_targets_for_ws[@]}"; do
+      trimmed_metrics_target="$(echo "${metrics_target}" | xargs)"
+      [[ -z "${trimmed_metrics_target}" ]] && continue
+      metrics_host="${trimmed_metrics_target%:*}"
+      metrics_port="${trimmed_metrics_target##*:}"
+      if [[ "${metrics_host}" == "${metrics_port}" ]]; then
+        metrics_host="${trimmed_metrics_target}"
+      fi
+      if [[ -n "${MEMGRAPH_LOG_WS_TARGETS}" ]]; then
+        MEMGRAPH_LOG_WS_TARGETS+=","
+      fi
+      MEMGRAPH_LOG_WS_TARGETS+="${metrics_host}:${MEMGRAPH_LOG_WS_PORT}"
+    done
+  else
+    MEMGRAPH_LOG_WS_TARGETS="${MEMGRAPH_METRICS_HOST}:${MEMGRAPH_LOG_WS_PORT}"
+  fi
+fi
+
+if [[ -n "${MONITORING_USERNAME}" || -n "${MONITORING_PASSWORD}" ]]; then
+  if [[ -z "${MONITORING_USERNAME}" || -z "${MONITORING_PASSWORD}" ]]; then
+    echo "error: both MONITORING_USERNAME and MONITORING_PASSWORD are required when using basic auth." >&2
+    exit 2
+  fi
+  VMAGENT_AUTH_ARGS="-remoteWrite.basicAuth.username=${MONITORING_USERNAME} -remoteWrite.basicAuth.password=${MONITORING_PASSWORD}"
+  VLOGS_AUTH_BLOCK=$'    auth:\n      strategy: basic\n      user: "'"${MONITORING_USERNAME}"$'"\n      password: "'"${MONITORING_PASSWORD}"$'"'
+else
+  VMAGENT_AUTH_ARGS=""
+  VLOGS_AUTH_BLOCK=""
+fi
+
+VECTOR_SOURCES_BLOCK=""
+VECTOR_PREPROCESS_BLOCK=""
+VECTOR_ENRICH_INPUTS=""
+ws_index=1
+IFS=',' read -r -a ws_targets <<< "${MEMGRAPH_LOG_WS_TARGETS}"
+for target in "${ws_targets[@]}"; do
+  trimmed_target="$(echo "${target}" | xargs)"
+  if [[ -z "${trimmed_target}" ]]; then
+    continue
+  fi
+  ws_url=""
+  instance_label=""
+  if [[ "${trimmed_target}" =~ ^wss?:// ]]; then
+    ws_url="${trimmed_target}"
+    target_without_scheme="${trimmed_target#*://}"
+    instance_label="${target_without_scheme%%/*}"
+  else
+    target_host="${trimmed_target%:*}"
+    target_port="${trimmed_target##*:}"
+    if [[ "${target_host}" == "${target_port}" ]]; then
+      target_host="${trimmed_target}"
+      target_port="${MEMGRAPH_LOG_WS_PORT}"
+    fi
+    ws_url="ws://${target_host}:${target_port}"
+    instance_label="${target_host}"
+  fi
+
+  source_name="memgraph_logs_${ws_index}"
+  preprocess_name="annotate_${source_name}"
+  VECTOR_SOURCES_BLOCK+="  ${source_name}:"$'\n'
+  VECTOR_SOURCES_BLOCK+="    type: websocket"$'\n'
+  VECTOR_SOURCES_BLOCK+="    uri: \"${ws_url}\""$'\n'
+
+  VECTOR_PREPROCESS_BLOCK+="  ${preprocess_name}:"$'\n'
+  VECTOR_PREPROCESS_BLOCK+="    type: remap"$'\n'
+  VECTOR_PREPROCESS_BLOCK+="    inputs: [${source_name}]"$'\n'
+  VECTOR_PREPROCESS_BLOCK+="    source: |"$'\n'
+  VECTOR_PREPROCESS_BLOCK+="      .pod = \"${instance_label}\""$'\n'
+  VECTOR_PREPROCESS_BLOCK+="      .source = \"${ws_url}\""$'\n'
+
+  if [[ -n "${VECTOR_ENRICH_INPUTS}" ]]; then
+    VECTOR_ENRICH_INPUTS+=", "
+  fi
+  VECTOR_ENRICH_INPUTS+="${preprocess_name}"
+  ws_index=$((ws_index + 1))
+done
+
+if [[ -z "${VECTOR_ENRICH_INPUTS}" ]]; then
+  echo "error: no valid MEMGRAPH_LOG_WS_TARGETS were parsed." >&2
+  exit 2
+fi
+
 export COMPOSE_PROJECT_NAME REMOTE_WRITE_URL VLOGS_INSERT_ENDPOINT MG_EXPORTER_DEPLOYMENT_TYPE
-export MEMGRAPH_METRICS_HOST MEMGRAPH_METRICS_PORT MEMGRAPH_LOGS_VOLUME MEMGRAPH_LOGS_PATH_IN_VOLUME
-export MEMGRAPH_LOG_GLOB CLUSTER_ID CLUSTER_ENV
+export MEMGRAPH_METRICS_HOST MEMGRAPH_METRICS_PORT CLUSTER_ID CLUSTER_ENV SERVICE_NAME
+export VECTOR_SOURCES_BLOCK VECTOR_PREPROCESS_BLOCK VECTOR_ENRICH_INPUTS
+export VMAGENT_AUTH_ARGS VLOGS_AUTH_BLOCK
 
 envsubst < "${MANIFESTS_DIR}/vmagent-scrape.yml.tmpl" > "${VMAGENT_SCRAPE_CONFIG}"
 envsubst < "${MANIFESTS_DIR}/vector.yaml.tmpl" > "${VECTOR_CONFIG}"
@@ -110,8 +199,8 @@ echo
 echo "Done."
 echo "  VictoriaMetrics write: ${REMOTE_WRITE_URL}"
 echo "  VictoriaLogs push:     ${VLOGS_PUSH_URL}"
-echo "  Labels:                cluster_id='${CLUSTER_ID}', cluster_env='${CLUSTER_ENV}'"
-echo "  Logs source volume:    ${MEMGRAPH_LOGS_VOLUME} (${MEMGRAPH_LOG_GLOB})"
+echo "  Labels:                cluster_id='${CLUSTER_ID}', service_name='${SERVICE_NAME}', cluster_env='${CLUSTER_ENV}'"
+echo "  Logs websocket targets:${MEMGRAPH_LOG_WS_TARGETS}"
 if [[ -n "${MEMGRAPH_METRICS_TARGETS}" ]]; then
   echo "  Metrics targets:       ${MEMGRAPH_METRICS_TARGETS}"
 else

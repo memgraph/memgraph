@@ -51,3 +51,4 @@ services:
 
 volumes:
   memgraph_logs:
+    name: memgraph_logs

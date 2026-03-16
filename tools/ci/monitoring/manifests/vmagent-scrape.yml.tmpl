@@ -2,6 +2,7 @@ global:
   scrape_interval: 15s
   external_labels:
     cluster_id: "${CLUSTER_ID}"
+    service_name: "${SERVICE_NAME}"
     cluster_env: "${CLUSTER_ENV}"
 
 scrape_configs:
