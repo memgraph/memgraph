@@ -12,7 +12,6 @@
 #pragma once
 
 #include <functional>
-#include <memory>
 #include <sstream>
 
 #include <prometheus/detail/builder.h>
@@ -28,9 +27,24 @@ namespace memgraph::http {
 
 class PrometheusRequestHandler final {
  public:
-  explicit PrometheusRequestHandler(dbms::DbmsHandler *dbms_handler) : dbms_handler_(dbms_handler) {
-    (void)dbms_handler_;
-  }
+  explicit PrometheusRequestHandler(dbms::DbmsHandler *dbms_handler)
+      : dbms_handler_(dbms_handler),
+        vertex_count_family_{prometheus::BuildGauge()
+                                 .Name("memgraph_vertex_count")
+                                 .Help("Number of vertices in the database")
+                                 .Register(registry_)},
+        edge_count_family_{prometheus::BuildGauge()
+                               .Name("memgraph_edge_count")
+                               .Help("Number of edges in the database")
+                               .Register(registry_)},
+        disk_usage_family_{prometheus::BuildGauge()
+                               .Name("memgraph_disk_usage_bytes")
+                               .Help("Disk usage of the database in bytes")
+                               .Register(registry_)},
+        memory_res_family_{prometheus::BuildGauge()
+                               .Name("memgraph_memory_res_bytes")
+                               .Help("Resident memory usage of the database in bytes")
+                               .Register(registry_)} {}
 
   PrometheusRequestHandler(PrometheusRequestHandler const &) = delete;
   PrometheusRequestHandler(PrometheusRequestHandler &&) = delete;
@@ -60,17 +74,20 @@ class PrometheusRequestHandler final {
       return send(bad_request("Illegal request-target"));
     }
 
-    auto registry = std::make_shared<prometheus::Registry>();
+    dbms_handler_->ForEach([this](dbms::DatabaseAccess db_acc) {
+      auto const info = db_acc->storage()->GetBaseInfo();
+      auto const db_name = db_acc->name();
+      prometheus::Labels const labels{{"database", db_name}};
 
-    // TODO: populate registry with per-db and global metrics
-    // Temporary smoke-test metric — remove when real metrics are wired up
-    auto &gauge_family =
-        prometheus::BuildGauge().Name("memgraph_up").Help("Memgraph instance is up").Register(*registry);
-    gauge_family.Add({}).Set(1.0);
+      vertex_count_family_.Add(labels).Set(static_cast<double>(info.vertex_count));
+      edge_count_family_.Add(labels).Set(static_cast<double>(info.edge_count));
+      disk_usage_family_.Add(labels).Set(static_cast<double>(info.disk_usage));
+      memory_res_family_.Add(labels).Set(static_cast<double>(info.memory_res));
+    });
 
     prometheus::TextSerializer serializer;
     std::ostringstream oss;
-    serializer.Serialize(oss, registry->Collect());
+    serializer.Serialize(oss, registry_.Collect());
 
     auto body = oss.str();
     auto const size = body.size();
@@ -88,6 +105,11 @@ class PrometheusRequestHandler final {
 
  private:
   dbms::DbmsHandler *const dbms_handler_;
+  prometheus::Registry registry_;
+  prometheus::Family<prometheus::Gauge> &vertex_count_family_;
+  prometheus::Family<prometheus::Gauge> &edge_count_family_;
+  prometheus::Family<prometheus::Gauge> &disk_usage_family_;
+  prometheus::Family<prometheus::Gauge> &memory_res_family_;
 };
 
 }  // namespace memgraph::http
