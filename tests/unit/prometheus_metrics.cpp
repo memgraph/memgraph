@@ -38,15 +38,19 @@ std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &fa
 
 }  // namespace
 
+namespace {
+memgraph::metrics::StorageSnapshot no_op_snapshot() { return {}; }
+}  // namespace
+
 TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
   memgraph::metrics::PrometheusMetrics pm;
-  auto handles = pm.AddDatabase("db1");
+  auto *handles = pm.AddDatabase("db1", no_op_snapshot);
 
-  ASSERT_NE(handles.vertex_count, nullptr);
-  ASSERT_NE(handles.committed_transactions, nullptr);
+  ASSERT_NE(handles->vertex_count, nullptr);
+  ASSERT_NE(handles->committed_transactions, nullptr);
 
-  handles.vertex_count->Set(42.0);
-  handles.committed_transactions->Increment(5.0);
+  handles->vertex_count->Set(42.0);
+  handles->committed_transactions->Increment(5.0);
 
   auto const families = pm.registry().Collect();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 42.0);
@@ -55,21 +59,36 @@ TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
 
 TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
   memgraph::metrics::PrometheusMetrics pm;
-  auto h1 = pm.AddDatabase("db1");
-  auto h2 = pm.AddDatabase("db2");
+  auto *h1 = pm.AddDatabase("db1", no_op_snapshot);
+  auto *h2 = pm.AddDatabase("db2", no_op_snapshot);
 
-  h1.vertex_count->Set(10.0);
-  h2.vertex_count->Set(20.0);
+  h1->vertex_count->Set(10.0);
+  h2->vertex_count->Set(20.0);
 
   auto const families = pm.registry().Collect();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 10.0);
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db2"), 20.0);
 }
 
+TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
+  memgraph::metrics::PrometheusMetrics pm;
+  memgraph::metrics::StorageSnapshot snapshot{
+      .vertex_count = 7, .edge_count = 3, .disk_usage = 1024, .memory_res = 4096};
+  pm.AddDatabase("db1", [&snapshot] { return snapshot; });
+
+  pm.UpdateGauges();
+
+  auto const families = pm.registry().Collect();
+  EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 7.0);
+  EXPECT_EQ(FindSample(families, "memgraph_edge_count", "db1"), 3.0);
+  EXPECT_EQ(FindSample(families, "memgraph_disk_usage_bytes", "db1"), 1024.0);
+  EXPECT_EQ(FindSample(families, "memgraph_memory_res_bytes", "db1"), 4096.0);
+}
+
 TEST(PrometheusMetrics, RemoveDatabaseRemovesMetrics) {
   memgraph::metrics::PrometheusMetrics pm;
-  auto handles = pm.AddDatabase("db1");
-  handles.vertex_count->Set(99.0);
+  auto *handles = pm.AddDatabase("db1", no_op_snapshot);
+  handles->vertex_count->Set(99.0);
 
   pm.RemoveDatabase(handles);
 
