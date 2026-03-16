@@ -100,10 +100,12 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
             std::shared_ptr<nuraft::cluster_config> config;
             from_json(config_json, config);
             log_term_buffer = config->serialize();
-          } else {
+          } else if (val_type_enum == nuraft::log_val_type::app_log) {
             log_term_buffer = buffer::alloc(sizeof(uint32_t) + data.size());
             buffer_serializer bs{log_term_buffer};
             bs.put_str(data);
+          } else {
+            LOG_FATAL("Invalid type of logs found in log store durability");
           }
 
           logs_[id] = std::make_shared<log_entry>(term, log_term_buffer, val_type_enum);
