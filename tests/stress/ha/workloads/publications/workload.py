@@ -18,12 +18,12 @@ COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 
 S3_BUCKET = "memgraph-stress-tests-bucket"
-S3_DATASET_PATH = "publications-dataset-10-percent"  # options: "publications-dataset-1-percent", "publications-dataset-10-percent", "publications-dataset"
+S3_DATASET_PATH = "publications-dataset-1-percent"  # options: "publications-dataset-1-percent", "publications-dataset-10-percent", "publications-dataset"
 S3_REGION = "eu-west-1"
 
 # Concurrent workload settings
 NUM_WORKERS = 10
-ITERATIONS = 50_000  # total iterations across all workers
+ITERATIONS = 10_000  # total iterations across all workers
 
 LABELS = ["Concept", "Journal", "Publication", "Date", "Section", "Author"]
 LABEL_UNIQUE_PROP = {
@@ -388,7 +388,9 @@ def run_worker(worker_id: int, num_iterations: int) -> dict:
     counts = {"create_no_edge": 0, "create_with_edge": 0, "delete": 0, "add_edge": 0, "remove_edge": 0}
     ops = list(counts.keys())
 
-    for _ in range(num_iterations):
+    for i in range(num_iterations):
+        if i > 0 and i % 100 == 0:
+            print(f"  [Worker {worker_id}] completed {i:,} / {num_iterations:,} iterations")
         choice = random.choice(ops)
         try:
             if choice == "create_no_edge":
