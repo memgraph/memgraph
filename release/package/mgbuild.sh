@@ -1969,8 +1969,6 @@ build_container=""
 cugraph=false
 enable_monitoring=false
 monitoring_host=""
-monitoring_username=""
-monitoring_password=""
 cluster_id=""
 cluster_env=""
 service_name=""
@@ -2048,14 +2046,6 @@ while [[ $# -gt 0 ]]; do
       monitoring_host=$2
       shift 2
     ;;
-    --monitoring-username)
-      monitoring_username=$2
-      shift 2
-    ;;
-    --monitoring-password)
-      monitoring_password=$2
-      shift 2
-    ;;
     --cluster-id)
       cluster_id=$2
       shift 2
@@ -2083,9 +2073,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # only allow monitoring if all variables are set
-if [[ "$enable_monitoring" == "true" ]] && [[ -z "$monitoring_host" ]] || [[ -z "$monitoring_username" ]] || [[ -z "$monitoring_password" ]] || [[ -z "$cluster_id" ]] || [[ -z "$cluster_env" ]] || [[ -z "$service_name" ]]; then
+if [[ "$enable_monitoring" == "true" && (-z "$monitoring_host" || -z "$cluster_id" || -z "$cluster_env" || -z "$service_name") ]]; then
   echo -e "Error: Monitoring is enabled but not all monitoring variables are set"
-  echo -e "Provide --monitoring-host, --monitoring-username, --monitoring-password, --cluster-id, --cluster-env and --service-name"
+  echo -e "Provide --monitoring-host, --cluster-id, --cluster-env and --service-name"
   exit 1
 fi
 
