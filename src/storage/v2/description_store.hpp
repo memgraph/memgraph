@@ -48,7 +48,6 @@ class DescriptionStore {
     return it->second;
   }
 
-  // EDGE_TYPE: single EdgeTypeId key.
   void SetEdgeType(EdgeTypeId id, std::string_view desc) { edge_type_descriptions_[id] = desc; }
 
   bool DeleteEdgeType(EdgeTypeId id) { return edge_type_descriptions_.erase(id); }
@@ -59,8 +58,6 @@ class DescriptionStore {
     return it->second;
   }
 
-  // PROPERTY (label-scoped): key is (sorted label qualifier, PropertyId).
-  // :Person(age) and :Student(age) are distinct entries.
   void SetLabelProperty(std::span<LabelId const> label_qualifier, PropertyId prop, std::string_view desc) {
     label_property_descriptions_[{SortedIds(label_qualifier), prop}] = desc;
   }
@@ -75,8 +72,6 @@ class DescriptionStore {
     return it->second;
   }
 
-  // PROPERTY (edge-type-scoped): key is (EdgeTypeId, PropertyId).
-  // :KNOWS(weight) and :SENT(weight) are distinct entries.
   void SetEdgeTypeProperty(EdgeTypeId edge_type, PropertyId prop, std::string_view desc) {
     edge_type_property_descriptions_[{edge_type, prop}] = desc;
   }
@@ -91,7 +86,6 @@ class DescriptionStore {
     return it->second;
   }
 
-  // PROPERTY (global): key is PropertyId — applies to all nodes/edges with this property.
   void SetProperty(PropertyId prop, std::string_view desc) { property_descriptions_[prop] = desc; }
 
   bool DeleteProperty(PropertyId prop) { return property_descriptions_.erase(prop) > 0; }
@@ -102,7 +96,6 @@ class DescriptionStore {
     return it->second;
   }
 
-  // DATABASE: single optional string.
   void SetDatabase(std::string_view desc) { database_description_ = desc; }
 
   bool DeleteDatabase() {
@@ -167,11 +160,8 @@ class DescriptionStore {
 
   std::map<std::vector<LabelId>, std::string> label_descriptions_;
   std::map<EdgeTypeId, std::string> edge_type_descriptions_;
-  // Label-scoped: :Person(age) and :Student(age) are distinct.
   std::map<std::pair<std::vector<LabelId>, PropertyId>, std::string> label_property_descriptions_;
-  // Edge-type-scoped: :KNOWS(weight) and :SENT(weight) are distinct.
   std::map<std::pair<EdgeTypeId, PropertyId>, std::string> edge_type_property_descriptions_;
-  // Global property: keyed by PropertyId alone.
   std::map<PropertyId, std::string> property_descriptions_;
   std::optional<std::string> database_description_;
 };

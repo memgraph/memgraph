@@ -4288,7 +4288,6 @@ antlrcpp::Any CypherMainVisitor::visitDescriptionQuery(MemgraphCypher::Descripti
 void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx,
                                               DescriptionQuery *description_query) {
   if (ctx->LABEL() && ctx->PROPERTY()) {
-    // LABEL PROPERTY :Label(prop) — label-scoped property
     description_query->target_kind_ = storage::DescriptionTargetKind::LABEL_PROPERTY;
     for (auto *label : ctx->labelName()) {
       description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
@@ -4297,7 +4296,6 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
       description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
     }
   } else if (ctx->EDGE() && ctx->PROPERTY()) {
-    // EDGE TYPE PROPERTY :EdgeType(prop) — edge-type-scoped property
     description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY;
     description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));
     for (auto *property : ctx->propertyKeyName()) {
@@ -4309,7 +4307,6 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
       description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
     }
   } else if (ctx->PROPERTY()) {
-    // PROPERTY propertyKeyName — global property description
     description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY;
     description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName(0)->accept(this)));
   } else if (ctx->EDGE()) {
