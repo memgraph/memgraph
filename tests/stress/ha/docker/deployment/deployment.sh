@@ -638,7 +638,7 @@ restart_container() {
     fi
 
     echo "Restarting container: $container_name"
-    docker restart "$container_name"
+    docker restart --time 120 "$container_name"
 
     if [[ $? -ne 0 ]]; then
         echo "ERROR: Failed to restart $container_name"
@@ -652,13 +652,31 @@ restart_container() {
 restart_all() {
     echo "Restarting all Memgraph HA containers..."
 
+    # Collect all instance names
+    local all_names=()
     for node in "${DATA_NODES[@]}"; do
         read -r name _ <<< "$node"
-        restart_container "$name"
+        all_names+=("$name")
     done
-
     for node in "${COORD_NODES[@]}"; do
         read -r name _ <<< "$node"
+        all_names+=("$name")
+    done
+
+    # Shuffle the order
+    local shuffled=()
+    while [[ ${#all_names[@]} -gt 0 ]]; do
+        local idx=$((RANDOM % ${#all_names[@]}))
+        shuffled+=("${all_names[$idx]}")
+        all_names=("${all_names[@]:0:$idx}" "${all_names[@]:$((idx+1))}")
+    done
+
+    # Collect logs before restarting (docker restart clears them)
+    collect_logs "stress_logs"
+    collect_cores "stress_cores"
+
+    echo "Restart order: ${shuffled[*]}"
+    for name in "${shuffled[@]}"; do
         restart_container "$name"
     done
 
