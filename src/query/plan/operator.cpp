@@ -656,8 +656,6 @@ PullAwaitable CreateNode::CreateNodeCursor::DoPull(Frame &frame, ExecutionContex
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("CreateNode");
 
-  co_await AbortCheck(context);
-
   ExpressionEvaluator evaluator(&frame,
                                 context.symbol_table,
                                 context.evaluation_context,
@@ -669,6 +667,7 @@ PullAwaitable CreateNode::CreateNodeCursor::DoPull(Frame &frame, ExecutionContex
                                 context.triggering_user);
 
   while (co_await input_cursor_->Pull(frame, context)) {
+    co_await AbortCheck(context);
     // we have to resolve the labels before we can check for permissions
     auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
 
@@ -879,7 +878,6 @@ PullAwaitable CreateExpand::CreateExpandCursor::DoPull(Frame &frame, ExecutionCo
 
     co_yield true;
   }  // while (true)
-  co_return false;
 }
 
 void CreateExpand::CreateExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -1014,7 +1012,6 @@ class ScanAllByEdgeCursor : public Cursor {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
       auto output_expansion = [this, &frame_writer](const EdgeAccessor &edge, bool reverse) {
         frame_writer.Write(self_.common_.edge_symbol, edge);
-        frame_writer.Write(self_.common_.edge_symbol, edge);
         if (!reverse) {
           frame_writer.Write(self_.common_.node1_symbol, edge.From());
           frame_writer.Write(self_.common_.node2_symbol, edge.To());
@@ -1025,7 +1022,6 @@ class ScanAllByEdgeCursor : public Cursor {
       };
 
       const EdgeAccessor edge = *edges_it_.value();
-      frame_writer.Write(self_.common_.edge_symbol, edge);
       if (self_.common_.direction == EdgeAtom::Direction::OUT) {
         output_expansion(edge, false);
       } else if (self_.common_.direction == EdgeAtom::Direction::IN) {
@@ -4668,8 +4664,6 @@ PullAwaitable Filter::FilterCursor::DoPull(Frame &frame, ExecutionContext &conte
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
-  co_await AbortCheck(context);
-
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
   ExpressionEvaluator evaluator(&frame,
@@ -4682,6 +4676,7 @@ PullAwaitable Filter::FilterCursor::DoPull(Frame &frame, ExecutionContext &conte
                                 context.user_or_role,
                                 context.triggering_user);
   while (co_await input_cursor_->Pull(frame, context)) {
+    co_await AbortCheck(context);
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       co_await pattern_filter_cursor->Pull(frame, context);
     }
@@ -4736,11 +4731,23 @@ PullAwaitable EvaluatePatternFilter::EvaluatePatternFilterCursor::DoPull(Frame &
         [&frame, self = this->self_, input_cursor = this->input_cursor_.get(), &context](TypedValue *return_value) {
           OOMExceptionEnabler const oom_exception;
           input_cursor->Reset();
-          // TODO: Should be coroutine
+          // Pattern-filter evaluation is called synchronously from the expression
+          // evaluator; we cannot propagate a scheduler yield from here.  Disable
+          // the yield signal and suspended-handle pointer for the duration so that
+          // RunPullToCompletion always runs to completion and never leaves a stale
+          // handle in ctx.suspended_task_handle_ptr.
+          auto *saved_yield = context.stopping_context.yield_requested;
+          auto *saved_handle_ptr = context.suspended_task_handle_ptr;
+          context.stopping_context.yield_requested = nullptr;
+          context.suspended_task_handle_ptr = nullptr;
+
           auto resume_aw = input_cursor->Pull(frame, context);
-          *return_value =
-              TypedValue(plan::RunPullToCompletion(resume_aw, context).status == plan::PullRunResult::Status::HasRow,
-                         context.evaluation_context.memory);
+          bool const has_row =
+              plan::RunPullToCompletion(resume_aw, context).status == plan::PullRunResult::Status::HasRow;
+
+          context.stopping_context.yield_requested = saved_yield;
+          context.suspended_task_handle_ptr = saved_handle_ptr;
+          *return_value = TypedValue(has_row, context.evaluation_context.memory);
         };
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
@@ -4800,9 +4807,8 @@ PullAwaitable Produce::ProduceCursor::DoPull(Frame &frame, ExecutionContext &con
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
-  co_await AbortCheck(context);
-
   while (co_await input_cursor_->Pull(frame, context)) {
+    co_await AbortCheck(context);
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame,
                                   context.symbol_table,
@@ -6183,8 +6189,6 @@ PullAwaitable EdgeUniquenessFilter::EdgeUniquenessFilterCursor::DoPull(Frame &fr
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("EdgeUniquenessFilter");
 
-  co_await AbortCheck(context);
-
   auto expansion_ok = [&]() {
     const auto &expand_value = frame[self_.expand_symbol_];
     for (const auto &previous_symbol : self_.previous_symbols_) {
@@ -6197,11 +6201,12 @@ PullAwaitable EdgeUniquenessFilter::EdgeUniquenessFilterCursor::DoPull(Frame &fr
     return true;
   };
 
-  while (co_await input_cursor_->Pull(frame, context))
+  while (co_await input_cursor_->Pull(frame, context)) {
+    co_await AbortCheck(context);
     if (expansion_ok()) {
       co_yield true;
-      continue;
     }
+  }
   co_return false;
 }
 
@@ -8862,6 +8867,7 @@ class ForeachCursor : public Cursor {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
       const auto &cache_ = expr_result.ValueList();
       for (const auto &index : cache_) {
+        co_await AbortCheck(context);
         frame_writer.Write(loop_variable_symbol_, index);
         while (co_await updates_->Pull(frame, context)) {
           co_await AbortCheck(context);
@@ -9422,7 +9428,6 @@ class PeriodicCommitCursor : public Cursor {
       }
       co_return false;
     }  // while (true)
-    co_return false;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
@@ -11410,9 +11415,8 @@ PullAwaitable Skip::SkipCursor::DoPull(Frame &frame, ExecutionContext &context) 
   const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Skip");
 
-  co_await AbortCheck(context);
-
   while (co_await input_cursor_->Pull(frame, context)) {
+    co_await AbortCheck(context);
     if (to_skip_ == -1) {
       // First successful pull from the input, evaluate the skip expression.
       // The skip expression doesn't contain identifiers so graph view

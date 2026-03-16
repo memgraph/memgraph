@@ -2911,11 +2911,14 @@ struct PullPlan {
                                                         std::map<std::string, TypedValue> *summary);
 
   ~PullPlan() {
-    // If the query was abandoned mid-yield (e.g. session closed), the inner
-    // coroutine is still suspended. Destroy it explicitly so its frame is freed.
-    // The cursor's gen_ (root frame) is destroyed when the cursor is reset or destroyed.
+    // If the query was abandoned mid-yield the innermost cursor's coroutine
+    // frame is still suspended.  That frame is co-owned by the cursor's gen_
+    // member AND by suspended_handle_.  Calling Reset() on the cursor chain
+    // destroys every gen_ (including the suspended one) exactly once via
+    // ~PullAwaitable().  We then clear suspended_handle_ so the normal cursor
+    // destructor path finds gen_ already null and does nothing.
     if (suspended_handle_) {
-      suspended_handle_.destroy();
+      cursor_->Reset();
       suspended_handle_ = {};
     }
   }
