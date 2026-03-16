@@ -21,6 +21,11 @@
 #include "utils/event_histogram.hpp"
 #include "utils/gatekeeper.hpp"
 
+namespace memgraph::metrics {
+class PrometheusMetrics;
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 namespace memgraph::dbms {
 
 struct DatabaseInfo {
@@ -44,7 +49,8 @@ class Database {
    * @param database_protector_factory factory function to create database protectors for async operations
    */
   explicit Database(storage::Config config,
-                    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
+                    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
+                    metrics::PrometheusMetrics *prometheus_metrics = nullptr);
 
   /**
    * @brief Returns the raw storage pointer.
@@ -183,6 +189,12 @@ class Database {
     storage_->StopAllBackgroundTasks();
   }
 
+  ~Database();
+
+  metrics::DatabaseMetricHandles const *metric_handles() const { return metric_handles_.get(); }
+
+  metrics::DatabaseMetricHandles *metric_handles() { return metric_handles_.get(); }
+
  private:
   std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
@@ -194,6 +206,9 @@ class Database {
 
   std::unique_ptr<metrics::Counter[]> counters_storage_;
   std::unique_ptr<metrics::Histogram[]> histograms_storage_;
+
+  metrics::PrometheusMetrics *prometheus_metrics_{nullptr};
+  std::unique_ptr<metrics::DatabaseMetricHandles> metric_handles_;
 
  public:
   metrics::EventCounters counters;
