@@ -906,7 +906,7 @@ add_unit_test(counter
 
 add_unit_test(prometheus_metrics
     SOURCES prometheus_metrics.cpp
-    LINK_TARGETS prometheus-cpp::core mg-utils
+    LINK_TARGETS mg-metrics
 )
 
 # Test coordination
