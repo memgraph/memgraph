@@ -969,6 +969,8 @@ class Storage {
 
   virtual StorageInfo GetInfo() = 0;
 
+  size_t GetDescriptionCount() const { return description_store_.Size(); }
+
   virtual std::unordered_map<LabelId, uint64_t> GetLabelCounts() const = 0;
 
   virtual void UpdateLabelCount(LabelId label, int64_t change) = 0;

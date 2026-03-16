@@ -142,6 +142,11 @@ class DescriptionStore {
     return result;
   }
 
+  size_t Size() const {
+    return label_descriptions_.size() + edge_type_descriptions_.size() + label_property_descriptions_.size() +
+           edge_type_property_descriptions_.size() + property_descriptions_.size() + (database_description_ ? 1 : 0);
+  }
+
   void Clear() {
     label_descriptions_.clear();
     edge_type_descriptions_.clear();
