@@ -34,8 +34,6 @@
 #include <utility>
 
 #include "flags/experimental.hpp"
-#include "nlohmann/json.hpp"
-#include "nlohmann/json_fwd.hpp"
 #include "utils/flag_validation.hpp"
 
 // Bolt server flags.

@@ -17,8 +17,6 @@
 #include <string_view>
 
 #include "coordination/constants.hpp"
-#include "nlohmann/json.hpp"
-#include "nlohmann/json_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
 
 namespace memgraph::coordination {

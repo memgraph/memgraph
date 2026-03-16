@@ -33,8 +33,6 @@
 #include <vector>
 
 #include "io/network/network_error.hpp"
-#include "nlohmann/json.hpp"
-#include "nlohmann/json_fwd.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/string.hpp"

@@ -13,7 +13,6 @@
 
 #include <nlohmann/json.hpp>
 
-#include "nlohmann/json_fwd.hpp"
 #include "slk/serialization.hpp"
 
 namespace memgraph::utils {

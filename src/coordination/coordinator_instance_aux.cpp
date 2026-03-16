@@ -16,9 +16,6 @@
 #include <nlohmann/json.hpp>
 #include <string_view>
 
-#include "nlohmann/json.hpp"
-#include "nlohmann/json_fwd.hpp"
-
 static constexpr std::string_view kId{"id"};
 static constexpr std::string_view kManagementServer{"management_server"};
 static constexpr std::string_view kCoordinatorServer{"coordinator_server"};

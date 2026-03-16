@@ -30,8 +30,6 @@
 #include <thread>
 #include <vector>
 
-#include "nlohmann/json_fwd.hpp"
-
 namespace {
 
 /////////////////////////////////////////////////////////////////////////

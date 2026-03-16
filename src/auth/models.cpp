@@ -16,8 +16,6 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "license/license.hpp"
-#include "nlohmann/json.hpp"
-#include "nlohmann/json_fwd.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/string.hpp"
 #include "utils/uuid.hpp"

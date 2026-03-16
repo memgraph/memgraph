@@ -16,9 +16,6 @@
 #include <iterator>
 #include <nlohmann/json.hpp>
 
-#include "nlohmann/json.hpp"
-#include "nlohmann/json_fwd.hpp"
-
 namespace {
 template <typename T, typename K>
 int NameToId(const T &names, const K &name) {

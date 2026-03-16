@@ -25,7 +25,6 @@
 #include <sstream>
 #include <utility>
 
-#include "nlohmann/json_fwd.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/counter.hpp"
 #include "utils/exceptions.hpp"

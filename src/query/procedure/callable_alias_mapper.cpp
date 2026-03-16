@@ -17,7 +17,6 @@
 #include <nlohmann/json.hpp>
 #include <utility>
 
-#include "nlohmann/json_fwd.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::procedure {

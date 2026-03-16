@@ -30,8 +30,6 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/log_level.hpp"
 #include "kvstore/kvstore.hpp"
-#include "nlohmann/json.hpp"
-#include "nlohmann/json_fwd.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::coordination {

@@ -18,8 +18,6 @@
 #include <string_view>
 #include <utility>
 
-#include "nlohmann/json_fwd.hpp"
-
 namespace memgraph::replication_coordination_glue {
 
 namespace {

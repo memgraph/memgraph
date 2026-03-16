@@ -60,7 +60,6 @@
 #include "coordination/utils.hpp"
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
-#include "nlohmann/json_fwd.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"

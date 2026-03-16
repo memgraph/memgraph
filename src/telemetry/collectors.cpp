@@ -21,8 +21,6 @@
 #include <utility>
 #include <vector>
 
-#include "nlohmann/json.hpp"
-#include "nlohmann/json_fwd.hpp"
 #include "utils/file.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"

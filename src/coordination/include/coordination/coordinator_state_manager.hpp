@@ -34,7 +34,6 @@
 #include "coordination/coordinator_log_store.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
-#include "nlohmann/json_fwd.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 

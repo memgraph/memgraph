@@ -23,8 +23,6 @@
 
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_communication_config.hpp"
-#include "nlohmann/json.hpp"
-#include "nlohmann/json_fwd.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/role.hpp"
 
