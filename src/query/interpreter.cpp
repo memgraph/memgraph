@@ -6219,7 +6219,7 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                       pattern += ":" + dba.LabelToName(label);
                     }
                     pattern += ")";
-                    label_col = TypedValue{std::move(pattern)};
+                    label_col = TypedValue{pattern};
                     break;
                   }
                   case storage::DescriptionTargetKind::DATABASE:
@@ -8056,7 +8056,8 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
 
         for (auto &edge : json["edges"]) {
           auto et_id = name_to_edge_type(edge["type"].get<std::string>());
-          std::vector<storage::LabelId> from_ids, to_ids;
+          std::vector<storage::LabelId> from_ids;
+          std::vector<storage::LabelId> to_ids;
           for (auto const &name : edge["start_node_labels"]) {
             from_ids.push_back(name_to_label(name.get<std::string>()));
           }
