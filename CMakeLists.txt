@@ -15,34 +15,6 @@ if(CCACHE_PROGRAM)
     set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
 endif()
 
-# Include What You Use (IWYU) integration
-option(ENABLE_IWYU "Enable Include What You Use analysis" OFF)
-if(ENABLE_IWYU)
-    find_program(IWYU_PROGRAM NAMES include-what-you-use iwyu)
-    if(IWYU_PROGRAM)
-        message(STATUS "Using IWYU: ${IWYU_PROGRAM}")
-        set(IWYU_MAPPING_FILE "${CMAKE_CURRENT_SOURCE_DIR}/iwyu.imp")
-        if(EXISTS "${IWYU_MAPPING_FILE}")
-            set(IWYU_WRAPPER "${CMAKE_CURRENT_SOURCE_DIR}/tools/iwyu-wrapper.sh")
-            set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE
-                "${IWYU_WRAPPER};${IWYU_PROGRAM};-Xiwyu;--mapping_file=${IWYU_MAPPING_FILE};-ferror-limit=0"
-                CACHE STRING "" FORCE)
-            set(CMAKE_C_INCLUDE_WHAT_YOU_USE
-                "${IWYU_WRAPPER};${IWYU_PROGRAM};-Xiwyu;--mapping_file=${IWYU_MAPPING_FILE};-ferror-limit=0"
-                CACHE STRING "" FORCE)
-        else()
-            message(STATUS "IWYU mapping file not found at ${IWYU_MAPPING_FILE}, running without mappings")
-            set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE "${IWYU_PROGRAM}" CACHE STRING "" FORCE)
-            set(CMAKE_C_INCLUDE_WHAT_YOU_USE "${IWYU_PROGRAM}" CACHE STRING "" FORCE)
-        endif()
-    else()
-        message(WARNING "ENABLE_IWYU is ON but include-what-you-use was not found")
-    endif()
-else()
-    unset(CMAKE_CXX_INCLUDE_WHAT_YOU_USE CACHE)
-    unset(CMAKE_C_INCLUDE_WHAT_YOU_USE CACHE)
-endif()
-
 # Set `make clean` to ignore outputs of add_custom_command. If generated files
 # need to be cleaned, set ADDITIONAL_MAKE_CLEAN_FILES property.
 set_directory_properties(PROPERTIES CLEAN_NO_CUSTOM TRUE)
