@@ -65,9 +65,6 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
       counters_storage_{std::make_unique<metrics::Counter[]>(metrics::CounterEnd())},
       histograms_storage_{std::make_unique<metrics::Histogram[]>(metrics::HistogramEnd())},
       prometheus_metrics_{prometheus_metrics},
-      metric_handles_{prometheus_metrics_ ? std::make_unique<metrics::DatabaseMetricHandles>(
-                                                prometheus_metrics_->AddDatabase(config.salient.name.str()))
-                                          : nullptr},
       counters{counters_storage_.get()},
       histograms{histograms_storage_.get()} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
@@ -80,11 +77,23 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   } else {
     storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
   }
+
+  if (prometheus_metrics_) {
+    metric_handles_ = prometheus_metrics_->AddDatabase(storage_->name(), [s = storage_.get()] {
+      auto const info = s->GetBaseInfo();
+      return metrics::StorageSnapshot{
+          .vertex_count = info.vertex_count,
+          .edge_count = info.edge_count,
+          .disk_usage = info.disk_usage,
+          .memory_res = info.memory_res,
+      };
+    });
+  }
 }
 
 Database::~Database() {
   if (prometheus_metrics_ && metric_handles_) {
-    prometheus_metrics_->RemoveDatabase(*metric_handles_);
+    prometheus_metrics_->RemoveDatabase(metric_handles_);
   }
 }
 
