@@ -17,9 +17,10 @@
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 
-#include <atomic>
 #include <memory>
 #include <vector>
+
+#include "utils/rw_lock.hpp"
 
 namespace memgraph::storage {
 
@@ -34,11 +35,11 @@ struct IndicesCollection {
 struct ActiveIndices {
   ActiveIndices() = delete;  // to avoid nullptr
 
-  explicit ActiveIndices(std::unique_ptr<LabelIndex::ActiveIndices> label,
-                         std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
-                         std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type,
-                         std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties,
-                         std::unique_ptr<EdgePropertyIndex::ActiveIndices> edge_property)
+  explicit ActiveIndices(std::shared_ptr<LabelIndex::ActiveIndices> label,
+                         std::shared_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
+                         std::shared_ptr<EdgeTypeIndex::ActiveIndices> edge_type,
+                         std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties,
+                         std::shared_ptr<EdgePropertyIndex::ActiveIndices> edge_property)
       : label_{std::move(label)},
         label_properties_{std::move(label_properties)},
         edge_type_{std::move(edge_type)},
@@ -74,14 +75,14 @@ struct ActiveIndices {
     return true;
   }
 
-  std::unique_ptr<LabelIndex::ActiveIndices> label_;
-  std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties_;
-  std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type_;
-  std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties_;
-  std::unique_ptr<EdgePropertyIndex::ActiveIndices> edge_property_;
+  std::shared_ptr<LabelIndex::ActiveIndices> label_;
+  std::shared_ptr<LabelPropertyIndex::ActiveIndices> label_properties_;
+  std::shared_ptr<EdgeTypeIndex::ActiveIndices> edge_type_;
+  std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties_;
+  std::shared_ptr<EdgePropertyIndex::ActiveIndices> edge_property_;
 };
 
-using ActiveIndicesPtr = std::shared_ptr<ActiveIndices>;
-using AtomicActiveIndicesPtr = std::atomic<ActiveIndicesPtr>;
+using ActiveIndicesPtr = std::shared_ptr<ActiveIndices const>;
+using ActiveIndicesStore = utils::Synchronized<ActiveIndicesPtr, utils::WritePrioritizedRWLock>;
 
 }  // namespace memgraph::storage

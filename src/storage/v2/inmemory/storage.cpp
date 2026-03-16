@@ -1752,19 +1752,23 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
-  if (!mem_label_index->RegisterIndex(label)) {
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  if (!mem_label_index->RegisterIndex(label, updater)) {
     return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
-  // refresh active indices cache before releasing read only lock
-  storage_->RefreshActiveIndicesCache();
   DowngradeToReadIfValid();
-  if (auto result = TryPopulateIndex([&] {
-        return mem_label_index->PopulateIndex(
-            label, in_memory->vertices_.access(), std::nullopt, std::nullopt, &transaction_, std::move(cancel_check));
-      });
-      !result) {
-    return result;
+  if (!mem_label_index
+           ->PopulateIndex(label,
+                           in_memory->vertices_.access(),
+                           std::nullopt,
+                           updater,
+                           std::nullopt,
+                           &transaction_,
+                           std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
   }
+
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
       [=](uint64_t commit_timestamp) { return mem_label_index->PublishIndex(label, commit_timestamp); });
@@ -1925,9 +1929,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
             "Dropping label index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
 
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_label_index->DropIndex(label); });
+  auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_label_index->DropIndex(label, updater); });
   if (!was_dropped) {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -4187,15 +4192,6 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
   return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
 }
 
-void InMemoryStorage::ClearActiveIndicesCache() {
-  auto empty_indices = std::make_shared<ActiveIndices>(std::make_unique<InMemoryLabelIndex::ActiveIndices>(),
-                                                       std::make_unique<InMemoryLabelPropertyIndex::ActiveIndices>(),
-                                                       std::make_unique<InMemoryEdgeTypeIndex::ActiveIndices>(),
-                                                       std::make_unique<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
-                                                       std::make_unique<InMemoryEdgePropertyIndex::ActiveIndices>());
-  active_indices_cache_.store(std::move(empty_indices), std::memory_order_release);
-}
-
 void InMemoryStorage::Clear() {
   // NOTE: Make sure this function is called while exclusively holding on to the main lock
   // When creating a snapshot, we first lock the snapshot, then create the accessor
@@ -4238,7 +4234,7 @@ void InMemoryStorage::Clear() {
   // Clear indices, constraints and metadata
   indices_.DropGraphClearIndices();
   constraints_.DropGraphClearConstraints();
-  ClearActiveIndicesCache();
+
   edges_metadata_.clear();
   edges_metadata_.run_gc();
   stored_node_labels_.clear();
@@ -4381,7 +4377,6 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   // also, we're the only transaction running, so we can safely remove the data as well
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
-  mem_storage->ClearActiveIndicesCache();
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 

@@ -22,6 +22,7 @@
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 
@@ -56,6 +57,15 @@ void Indices::DropGraphClearIndices() {
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->DropGraphClearIndices();
+  active_indices_.WithLock([](ActiveIndicesPtr &ci) {
+    ci = std::make_shared<ActiveIndices>(std::make_shared<InMemoryLabelIndex::ActiveIndices>(),
+                                         std::make_shared<InMemoryLabelPropertyIndex::ActiveIndices>(),
+                                         std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
+                                         std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
+                                         std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>()
+
+    );
+  });
   point_index_.Clear();
   vector_index_.Clear();
   vector_edge_index_.Clear();
@@ -176,7 +186,7 @@ bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) {
   return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property);
 }
 
-void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp,
+void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
                                       NameIdMapper *name_id_mapper) {
   active_indices.label_->AbortEntries(label_.cleanup_collection_, start_timestamp);
   active_indices.label_properties_->AbortEntries(label_properties_.cleanup_collection, start_timestamp);

@@ -796,17 +796,20 @@ class Storage {
 
   /// Returns the current snapshot of active indices
   /// Thread-safe: uses atomic load
-  auto GetActiveIndices() const -> ActiveIndicesPtr { return active_indices_cache_.load(std::memory_order_acquire); }
+  auto GetActiveIndices() const -> ActiveIndicesPtr { return indices_.active_indices_.WithReadLock(std::identity{}); }
 
   /// Rebuilds and atomically updates the active indices snapshot
   /// Should be called after index create/drop operations complete
   void RefreshActiveIndicesCache() {
-    auto new_indices = std::make_shared<ActiveIndices>(indices_.label_index_->GetActiveIndices(),
-                                                       indices_.label_property_index_->GetActiveIndices(),
-                                                       indices_.edge_type_index_->GetActiveIndices(),
-                                                       indices_.edge_type_property_index_->GetActiveIndices(),
-                                                       indices_.edge_property_index_->GetActiveIndices());
-    active_indices_cache_.store(std::move(new_indices), std::memory_order_release);
+    indices_.active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> ai) {
+      // TODO: lock order incorrect here
+      //       RefreshActiveIndicesCache should be depricated
+      ai = std::make_shared<ActiveIndices>(indices_.label_index_->GetActiveIndices(),
+                                           indices_.label_property_index_->GetActiveIndices(),
+                                           indices_.edge_type_index_->GetActiveIndices(),
+                                           indices_.edge_type_property_index_->GetActiveIndices(),
+                                           indices_.edge_property_index_->GetActiveIndices());
+    });
   }
 
   auto GetActiveConstraints() const -> ActiveConstraints {
@@ -862,9 +865,9 @@ class Storage {
   Constraints constraints_;
   PlanInvalidatorPtr invalidator_;
 
-  /// Cached snapshot of active indices for concurrent access
-  /// Updated atomically after index create/drop operations
-  AtomicActiveIndicesPtr active_indices_cache_;
+  // /// Snapshot of active indices for concurrent access
+  // /// Updated atomically after index create/drop operations
+  // ActiveIndicesStore active_indices_;
 
   // Datastructures to provide fast retrieval of node-label and
   // edge-type related metadata.
