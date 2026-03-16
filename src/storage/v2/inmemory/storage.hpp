@@ -182,9 +182,6 @@ class InMemoryStorage final : public Storage {
                                                     TransactionReplication &replicating_txn,
                                                     CommitArgs const &commit_args);
 
-    // Helper to handle PopulateIndex calls with proper cache refresh on failure.
-    // PopulateIndex internally calls DropIndex on cancellation or OOM, so we must
-    // refresh the active indices cache before returning/rethrowing.
     template <typename PopulateFn>
     auto TryPopulateIndex(PopulateFn &&populate_fn) -> std::expected<void, StorageIndexDefinitionError> {
       try {
