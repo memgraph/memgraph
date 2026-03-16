@@ -210,7 +210,11 @@ auto CoordinatorStateManager::load_log_store() -> std::shared_ptr<log_store> { r
 auto CoordinatorStateManager::server_id() -> int32 { return my_id_; }
 
 auto CoordinatorStateManager::system_exit(int const exit_code) -> void {
-  spdlog::critical("NuRaft triggered system exit with code: {}", exit_code);
+  try {
+    spdlog::critical("NuRaft triggered system exit with code: {}", exit_code);
+    // NOLINTNEXTLINE(bugprone-empty-catch)
+  } catch (std::exception const & /*e*/) {
+  }
   // Use quick_exit() to terminate immediately without running global destructors.
   // NuRaft calls ::exit(-1) after this callback, which can cause the static
   // destruction order fiasco
