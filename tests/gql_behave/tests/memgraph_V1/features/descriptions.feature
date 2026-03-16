@@ -303,6 +303,54 @@ Feature: Server-side descriptions
             """
         Then the result should be empty
 
+    Scenario: Set and show edge type pattern description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location) "city is a location"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location)
+            """
+        Then the result should be:
+            | description           |
+            | 'city is a location'  |
+
+    Scenario: Delete edge type pattern description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location) "city is a location"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            DELETE DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location)
+            """
+        Then the result should be empty
+
+    Scenario: Edge type pattern description in SHOW DESCRIPTIONS
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "person knows person"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | description type | label                             | property | description           |
+            | 'edge type'      | '(:Person)-[:KNOWS]->(:Person)'  | null     | 'person knows person' |
+
     Scenario: Show description on label with no description returns empty
         Given an empty graph
         When executing query:

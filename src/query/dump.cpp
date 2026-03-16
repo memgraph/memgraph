@@ -1134,6 +1134,18 @@ PullPlanDump::PullChunk PullPlanDump::CreateDescriptionsPullChunk() {
       case storage::DescriptionTargetKind::PROPERTY:
         os << "PROPERTY " << EscapeName(dba_->PropertyToName(entry.property));
         break;
+      case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN: {
+        os << "EDGE TYPE (";
+        for (auto const &label : entry.from_labels) {
+          os << ":" << EscapeName(dba_->LabelToName(label));
+        }
+        os << ")-[:" << EscapeName(dba_->EdgeTypeToName(entry.edge_type)) << "]->(";
+        for (auto const &label : entry.to_labels) {
+          os << ":" << EscapeName(dba_->LabelToName(label));
+        }
+        os << ")";
+        break;
+      }
     }
 
     os << " " << utils::Escape(entry.description) << ";";

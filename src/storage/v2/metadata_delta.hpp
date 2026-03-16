@@ -271,13 +271,23 @@ struct MetadataDelta {
                            .should_run_edge_ttl = should_run_edge_ttl} {}
 
   MetadataDelta(DescriptionSet /*tag*/, DescriptionTargetKind kind, std::vector<LabelId> labels, EdgeTypeId edge_type,
-                PropertyId property, std::string description)
+                PropertyId property, std::string description, std::vector<LabelId> from_labels = {},
+                std::vector<LabelId> to_labels = {})
       : action(Action::DESCRIPTION_SET),
-        description_op{kind, std::move(labels), edge_type, property, std::move(description)} {}
+        description_op{kind,
+                       std::move(labels),
+                       edge_type,
+                       property,
+                       std::move(description),
+                       std::move(from_labels),
+                       std::move(to_labels)} {}
 
   MetadataDelta(DescriptionDelete /*tag*/, DescriptionTargetKind kind, std::vector<LabelId> labels,
-                EdgeTypeId edge_type, PropertyId property)
-      : action(Action::DESCRIPTION_DELETE), description_op{kind, std::move(labels), edge_type, property, {}} {}
+                EdgeTypeId edge_type, PropertyId property, std::vector<LabelId> from_labels = {},
+                std::vector<LabelId> to_labels = {})
+      : action(Action::DESCRIPTION_DELETE),
+        description_op{kind, std::move(labels), edge_type, property, {}, std::move(from_labels), std::move(to_labels)} {
+  }
 
   MetadataDelta(const MetadataDelta &) = delete;
   MetadataDelta(MetadataDelta &&) = delete;

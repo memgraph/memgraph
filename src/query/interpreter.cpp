@@ -5986,6 +5986,10 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
   auto label_names = desc_query->labels_ | rv::transform([](auto const &label) { return label.name; }) | r::to_vector;
   auto property_names =
       desc_query->properties_ | rv::transform([](auto const &property) { return property.name; }) | r::to_vector;
+  auto from_label_names =
+      desc_query->from_labels_ | rv::transform([](auto const &label) { return label.name; }) | r::to_vector;
+  auto to_label_names =
+      desc_query->to_labels_ | rv::transform([](auto const &label) { return label.name; }) | r::to_vector;
   auto database_name = std::move(desc_query->database_name_);
   auto current_db_name = current_db.db_acc_->get()->name();
 
@@ -5998,6 +6002,8 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                                 label_names = std::move(label_names),
                                 edge_type_name = std::move(edge_type_name),
                                 property_names = std::move(property_names),
+                                from_label_names = std::move(from_label_names),
+                                to_label_names = std::move(to_label_names),
                                 description = std::move(description),
                                 database_name = std::move(database_name),
                                 current_db_name](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable
@@ -6028,6 +6034,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     }
                     dba.SetDatabaseDescription(description);
                     break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
+                    dba.SetEdgeTypePatternDescription(from_label_names, edge_type_name, to_label_names, description);
+                    break;
                 }
                 return QueryHandlerResult::COMMIT;
               },
@@ -6041,6 +6050,8 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                                 label_names = std::move(label_names),
                                 edge_type_name = std::move(edge_type_name),
                                 property_names = std::move(property_names),
+                                from_label_names = std::move(from_label_names),
+                                to_label_names = std::move(to_label_names),
                                 database_name = std::move(database_name),
                                 current_db_name](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable
                   -> std::optional<QueryHandlerResult> {
@@ -6068,6 +6079,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     }
                     dba.DeleteDatabaseDescription();
                     break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
+                    dba.DeleteEdgeTypePatternDescription(from_label_names, edge_type_name, to_label_names);
+                    break;
                 }
                 return QueryHandlerResult::COMMIT;
               },
@@ -6082,6 +6096,8 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                             label_names = std::move(label_names),
                             edge_type_name = std::move(edge_type_name),
                             property_names = std::move(property_names),
+                            from_label_names = std::move(from_label_names),
+                            to_label_names = std::move(to_label_names),
                             database_name = std::move(database_name),
                             current_db_name,
                             pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
@@ -6123,6 +6139,11 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   if (auto desc = dba.GetDatabaseDescription()) rows.push_back({TypedValue{*desc}});
                   break;
                 }
+                case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN: {
+                  if (auto desc = dba.GetEdgeTypePatternDescription(from_label_names, edge_type_name, to_label_names))
+                    rows.push_back({TypedValue{*desc}});
+                  break;
+                }
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
@@ -6157,6 +6178,8 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     return "edge type property";
                   case storage::DescriptionTargetKind::PROPERTY:
                     return "property";
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
+                    return "edge type";
                 }
               };
               auto labels_to_list = [&](auto const &labels) {
@@ -6186,6 +6209,19 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   case storage::DescriptionTargetKind::PROPERTY:
                     prop_col = TypedValue{dba.PropertyToName(entry.property)};
                     break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN: {
+                    std::string pattern = "(";
+                    for (auto const &label : entry.from_labels) {
+                      pattern += ":" + dba.LabelToName(label);
+                    }
+                    pattern += ")-[:" + dba.EdgeTypeToName(entry.edge_type) + "]->(";
+                    for (auto const &label : entry.to_labels) {
+                      pattern += ":" + dba.LabelToName(label);
+                    }
+                    pattern += ")";
+                    label_col = TypedValue{std::move(pattern)};
+                    break;
+                  }
                   case storage::DescriptionTargetKind::DATABASE:
                     label_col = TypedValue{std::string{db_name}};
                     break;
@@ -7984,6 +8020,66 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         enums.push_back(nlohmann::json::object({{"name", type}, {"values", std::move(json_values)}}));
       }
       json.emplace("enums", std::move(enums));
+
+      // Enrich with descriptions
+      {
+        auto const &desc_store = storage->description_store_;
+
+        auto name_to_label = [&](std::string const &name) {
+          return storage::LabelId::FromUint(storage->name_id_mapper_->NameToId(name));
+        };
+        auto name_to_edge_type = [&](std::string const &name) {
+          return storage::EdgeTypeId::FromUint(storage->name_id_mapper_->NameToId(name));
+        };
+        auto name_to_property = [&](std::string const &name) {
+          return storage::PropertyId::FromUint(storage->name_id_mapper_->NameToId(name));
+        };
+
+        for (auto &node : json["nodes"]) {
+          std::vector<storage::LabelId> label_ids;
+          for (auto const &label_name : node["labels"]) {
+            label_ids.push_back(name_to_label(label_name.get<std::string>()));
+          }
+          std::ranges::sort(label_ids);
+          if (auto desc = desc_store.GetLabel(label_ids)) {
+            node["description"] = *desc;
+          }
+          for (auto &prop : node["properties"]) {
+            auto prop_id = name_to_property(prop["key"].get<std::string>());
+            if (auto desc = desc_store.GetLabelProperty(label_ids, prop_id)) {
+              prop["description"] = *desc;
+            } else if (auto gdesc = desc_store.GetProperty(prop_id)) {
+              prop["description"] = *gdesc;
+            }
+          }
+        }
+
+        for (auto &edge : json["edges"]) {
+          auto et_id = name_to_edge_type(edge["type"].get<std::string>());
+          std::vector<storage::LabelId> from_ids, to_ids;
+          for (auto const &name : edge["start_node_labels"]) {
+            from_ids.push_back(name_to_label(name.get<std::string>()));
+          }
+          for (auto const &name : edge["end_node_labels"]) {
+            to_ids.push_back(name_to_label(name.get<std::string>()));
+          }
+          std::ranges::sort(from_ids);
+          std::ranges::sort(to_ids);
+          if (auto desc = desc_store.GetEdgeTypePattern(from_ids, et_id, to_ids)) {
+            edge["description"] = *desc;
+          } else if (auto gdesc = desc_store.GetEdgeType(et_id)) {
+            edge["description"] = *gdesc;
+          }
+          for (auto &prop : edge["properties"]) {
+            auto prop_id = name_to_property(prop["key"].get<std::string>());
+            if (auto desc = desc_store.GetEdgeTypeProperty(et_id, prop_id)) {
+              prop["description"] = *desc;
+            } else if (auto gdesc = desc_store.GetProperty(prop_id)) {
+              prop["description"] = *gdesc;
+            }
+          }
+        }
+      }
 
       // Pack json into query result
       schema.push_back(std::vector<TypedValue>{TypedValue(json.dump())});

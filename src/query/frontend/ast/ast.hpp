@@ -4316,6 +4316,8 @@ class DescriptionQuery : public memgraph::query::Query {
   std::vector<LabelIx> labels_;
   EdgeTypeIx edge_type_;
   std::vector<PropertyIx> properties_;
+  std::vector<LabelIx> from_labels_;
+  std::vector<LabelIx> to_labels_;
   std::string database_name_;
   std::string description_;
 
@@ -4326,6 +4328,8 @@ class DescriptionQuery : public memgraph::query::Query {
     object->labels_ = labels_;
     object->edge_type_ = edge_type_;
     object->properties_ = properties_;
+    object->from_labels_ = from_labels_;
+    object->to_labels_ = to_labels_;
     object->database_name_ = database_name_;
     object->description_ = description_;
     return object;

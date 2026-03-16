@@ -4546,6 +4546,7 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
       acc->SetLabelPropertyDescription(person_labels, "age", "Age of the person");
       acc->SetEdgeTypePropertyDescription("KNOWS", "since", "When they met");
       acc->SetDatabaseDescription("Test database");
+      acc->SetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels, "Person knows person");
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
@@ -4560,7 +4561,8 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
       ASSERT_EQ(acc->GetLabelPropertyDescription(person_labels, "age"), "Age of the person");
       ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
       ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
-      ASSERT_EQ(acc->GetAllDescriptions().size(), 6);
+      ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
+      ASSERT_EQ(acc->GetAllDescriptions().size(), 7);
     }
   }
 
@@ -4582,7 +4584,8 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
     ASSERT_EQ(acc->GetLabelPropertyDescription(person_labels, "age"), "Age of the person");
     ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
     ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
-    ASSERT_EQ(acc->GetAllDescriptions().size(), 6);
+    ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
+    ASSERT_EQ(acc->GetAllDescriptions().size(), 7);
   }
 }
 
@@ -4606,6 +4609,7 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
       acc->SetLabelPropertyDescription(person_labels, "age", "Age of the person");
       acc->SetEdgeTypePropertyDescription("KNOWS", "since", "When they met");
       acc->SetDatabaseDescription("Test database");
+      acc->SetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels, "Person knows person");
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
@@ -4634,6 +4638,7 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
     ASSERT_EQ(acc->GetLabelPropertyDescription(person_labels, "age"), "Age of the person");
     ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
     ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
-    ASSERT_EQ(acc->GetAllDescriptions().size(), 4);
+    ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
+    ASSERT_EQ(acc->GetAllDescriptions().size(), 5);
   }
 }

@@ -904,8 +904,13 @@ showDescriptions
     : SHOW DESCRIPTIONS
     ;
 
+edgeTypePattern
+    : '(' ':' labelName ')' '-' '[' ':' labelName ']' '-' '>' '(' ':' labelName ')'
+    ;
+
 descriptionTarget
     : LABEL ':' labelName ( ':' labelName )*
+    | EDGE TYPE edgeTypePattern
     | EDGE TYPE ':' labelName
     | LABEL PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
     | EDGE TYPE PROPERTY ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'

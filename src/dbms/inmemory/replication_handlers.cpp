@@ -1901,6 +1901,10 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             case DescriptionTargetKind::PROPERTY:
               transaction->SetPropertyDescription(data.property, data.description);
               break;
+            case DescriptionTargetKind::EDGE_TYPE_PATTERN:
+              transaction->SetEdgeTypePatternDescription(
+                  data.from_labels, data.edge_type, data.to_labels, data.description);
+              break;
             default:
               break;
           }
@@ -1926,6 +1930,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               break;
             case DescriptionTargetKind::PROPERTY:
               transaction->DeletePropertyDescription(data.property);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE_PATTERN:
+              transaction->DeleteEdgeTypePatternDescription(data.from_labels, data.edge_type, data.to_labels);
               break;
             default:
               break;

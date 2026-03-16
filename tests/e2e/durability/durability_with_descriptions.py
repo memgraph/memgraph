@@ -64,9 +64,10 @@ def test_durability_all_description_types(test_name):
     execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of person";')
     execute_and_fetch_all(cursor, 'SET DESCRIPTION ON DATABASE memgraph "Test database";')
     execute_and_fetch_all(cursor, 'SET DESCRIPTION ON PROPERTY age "Age in years";')
+    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "Person knows person";')
 
     descriptions = get_all_descriptions(cursor)
-    assert len(descriptions) == 5
+    assert len(descriptions) == 6
 
     interactive_mg_runner.kill(instance_desc, "main")
     interactive_mg_runner.start(instance_desc, "main")
@@ -204,9 +205,10 @@ def test_durability_snapshot_recovery(test_name):
     execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of person";')
     execute_and_fetch_all(cursor, 'SET DESCRIPTION ON DATABASE memgraph "Test database";')
     execute_and_fetch_all(cursor, 'SET DESCRIPTION ON PROPERTY age "Age in years";')
+    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "Person knows person";')
 
     descriptions = get_all_descriptions(cursor)
-    assert len(descriptions) == 5
+    assert len(descriptions) == 6
 
     # Graceful shutdown triggers snapshot-on-exit.
     interactive_mg_runner.stop(instance_desc, "main")

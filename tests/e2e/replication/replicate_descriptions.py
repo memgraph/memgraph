@@ -124,12 +124,16 @@ def test_description_replication(connection, test_name):
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of person";')
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON DATABASE memgraph "Test database";')
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON PROPERTY age "Age in years";')
-    wait_for_replication_change(main_cursor, 10)
+    execute_and_fetch_all(
+        main_cursor, 'SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "Person knows person";'
+    )
+    wait_for_replication_change(main_cursor, 12)
 
     expected_descriptions = sorted(
         [
             ("database", "memgraph", None, "Test database"),
             ("edge type", "KNOWS", None, "Knows relationship"),
+            ("edge type", "(:Person)-[:KNOWS]->(:Person)", None, "Person knows person"),
             ("label", ["Person"], None, "A person node"),
             ("label property", ["Person"], "age", "Age of person"),
             ("property", None, "age", "Age in years"),
@@ -143,12 +147,13 @@ def test_description_replication(connection, test_name):
     assert replica_2_descriptions == expected_descriptions
 
     execute_and_fetch_all(main_cursor, "DELETE DESCRIPTION ON LABEL :Person;")
-    wait_for_replication_change(main_cursor, 12)
+    wait_for_replication_change(main_cursor, 14)
 
     expected_after_delete = sorted(
         [
             ("database", "memgraph", None, "Test database"),
             ("edge type", "KNOWS", None, "Knows relationship"),
+            ("edge type", "(:Person)-[:KNOWS]->(:Person)", None, "Person knows person"),
             ("label property", ["Person"], "age", "Age of person"),
             ("property", None, "age", "Age in years"),
         ]
@@ -161,12 +166,13 @@ def test_description_replication(connection, test_name):
     assert replica_2_descriptions == expected_after_delete
 
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Updated knows relationship";')
-    wait_for_replication_change(main_cursor, 14)
+    wait_for_replication_change(main_cursor, 16)
 
     expected_after_update = sorted(
         [
             ("database", "memgraph", None, "Test database"),
             ("edge type", "KNOWS", None, "Updated knows relationship"),
+            ("edge type", "(:Person)-[:KNOWS]->(:Person)", None, "Person knows person"),
             ("label property", ["Person"], "age", "Age of person"),
             ("property", None, "age", "Age in years"),
         ]

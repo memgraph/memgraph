@@ -3343,7 +3343,9 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
                                            md_delta.description_op.labels,
                                            md_delta.description_op.edge_type,
                                            md_delta.description_op.property,
-                                           md_delta.description_op.description);
+                                           md_delta.description_op.description,
+                                           md_delta.description_op.from_labels,
+                                           md_delta.description_op.to_labels);
         });
         break;
       }
@@ -3354,7 +3356,9 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
                                               md_delta.description_op.kind,
                                               md_delta.description_op.labels,
                                               md_delta.description_op.edge_type,
-                                              md_delta.description_op.property);
+                                              md_delta.description_op.property,
+                                              md_delta.description_op.from_labels,
+                                              md_delta.description_op.to_labels);
         });
         break;
       }
