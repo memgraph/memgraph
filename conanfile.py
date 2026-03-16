@@ -118,6 +118,7 @@ class Memgraph(ConanFile):
         self.requires("strong_type/v15")
         self.requires("usearch/2.21.4")
         self.requires("zlib/1.3.1")
+        self.requires("prometheus-cpp/1.3.0")
 
         # Version overrides — pin transitive dependency versions
         self.requires("libcurl/8.17.0", override=True)
