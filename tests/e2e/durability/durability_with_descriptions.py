@@ -99,14 +99,14 @@ def test_durability_delete_description_persisted(test_name):
     execute_and_fetch_all(cursor, "DELETE DESCRIPTION ON LABEL :Person;")
 
     descriptions = get_all_descriptions(cursor)
-    assert descriptions == [("LABEL", "Company", "A company node")]
+    assert descriptions == [("label", ["Company"], None, "A company node")]
 
     interactive_mg_runner.kill(instance_desc, "main")
     interactive_mg_runner.start(instance_desc, "main")
     cursor = connect(host="localhost", port=7687).cursor()
 
     descriptions = get_all_descriptions(cursor)
-    assert descriptions == [("LABEL", "Company", "A company node")]
+    assert descriptions == [("label", ["Company"], None, "A company node")]
 
 
 def test_durability_update_description_persisted(test_name):

@@ -6133,7 +6133,7 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
 
     case DescriptionQuery::Action::SHOW_ALL:
       return PreparedQuery{
-          .header = {"kind", "name", "description"},
+          .header = {"description type", "label", "property", "description"},
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [dba = *current_db.execution_db_accessor_,
                             db_name = current_db.db_acc_->get()->name(),
@@ -6146,43 +6146,52 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
               auto kind_to_str = [](storage::DescriptionTargetKind k) -> std::string_view {
                 switch (k) {
                   case storage::DescriptionTargetKind::LABEL:
-                    return "LABEL";
+                    return "label";
                   case storage::DescriptionTargetKind::EDGE_TYPE:
-                    return "EDGE_TYPE";
+                    return "edge type";
                   case storage::DescriptionTargetKind::DATABASE:
-                    return "DATABASE";
+                    return "database";
                   case storage::DescriptionTargetKind::LABEL_PROPERTY:
-                    return "LABEL_PROPERTY";
+                    return "label property";
                   case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
-                    return "EDGE_TYPE_PROPERTY";
+                    return "edge type property";
                   case storage::DescriptionTargetKind::PROPERTY:
-                    return "PROPERTY";
+                    return "property";
                 }
               };
-              auto join_labels = [&](auto const &labels) {
-                return labels | rv::transform([&](auto id) { return dba.LabelToName(id); }) | rv::join(':') |
-                       r::to<std::string>();
-              };
-              auto entry_name = [&](auto const &entry) -> std::string {
-                switch (entry.kind) {
-                  case storage::DescriptionTargetKind::LABEL:
-                    return join_labels(entry.labels);
-                  case storage::DescriptionTargetKind::EDGE_TYPE:
-                    return dba.EdgeTypeToName(entry.edge_type);
-                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
-                    return join_labels(entry.labels) + '(' + dba.PropertyToName(entry.property) + ')';
-                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
-                    return dba.EdgeTypeToName(entry.edge_type) + '(' + dba.PropertyToName(entry.property) + ')';
-                  case storage::DescriptionTargetKind::PROPERTY:
-                    return dba.PropertyToName(entry.property);
-                  case storage::DescriptionTargetKind::DATABASE:
-                    return db_name;
-                }
+              auto labels_to_list = [&](auto const &labels) {
+                auto result = labels | rv::transform([&](auto id) { return TypedValue{dba.LabelToName(id)}; }) |
+                              r::to<std::vector<TypedValue>>();
+                return TypedValue{std::move(result)};
               };
               for (auto const &entry : entries) {
-                rows.push_back({TypedValue{std::string{kind_to_str(entry.kind)}},
-                                TypedValue{entry_name(entry)},
-                                TypedValue{entry.description}});
+                auto type = TypedValue{std::string{kind_to_str(entry.kind)}};
+                TypedValue label_col;
+                TypedValue prop_col;
+                switch (entry.kind) {
+                  case storage::DescriptionTargetKind::LABEL:
+                    label_col = labels_to_list(entry.labels);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE:
+                    label_col = TypedValue{dba.EdgeTypeToName(entry.edge_type)};
+                    break;
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                    label_col = labels_to_list(entry.labels);
+                    prop_col = TypedValue{dba.PropertyToName(entry.property)};
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                    label_col = TypedValue{dba.EdgeTypeToName(entry.edge_type)};
+                    prop_col = TypedValue{dba.PropertyToName(entry.property)};
+                    break;
+                  case storage::DescriptionTargetKind::PROPERTY:
+                    prop_col = TypedValue{dba.PropertyToName(entry.property)};
+                    break;
+                  case storage::DescriptionTargetKind::DATABASE:
+                    label_col = TypedValue{std::string{db_name}};
+                    break;
+                }
+                rows.push_back(
+                    {std::move(type), std::move(label_col), std::move(prop_col), TypedValue{entry.description}});
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }

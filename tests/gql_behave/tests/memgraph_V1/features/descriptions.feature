@@ -62,9 +62,9 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | kind       | name          | description         |
-            | 'LABEL'          | 'Person'      | 'A person node'     |
-            | 'LABEL_PROPERTY' | 'Person(name)'| 'Name of the person'|
+            | description type | label        | property | description          |
+            | 'label'          | ['Person']   | null     | 'A person node'      |
+            | 'label property' | ['Person']   | 'name'   | 'Name of the person' |
 
     Scenario: Delete description
         Given an empty graph
@@ -128,8 +128,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | kind    | name             | description        |
-            | 'LABEL' | 'Person:Student' | 'A student person' |
+            | description type | label                  | property | description        |
+            | 'label'          | ['Person', 'Student']  | null     | 'A student person' |
 
     Scenario: Label-scoped property descriptions are independent per label
         Given an empty graph
@@ -162,9 +162,9 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | kind       | name           | description          |
-            | 'LABEL_PROPERTY' | 'Person(age)'  | 'Age of the person'  |
-            | 'LABEL_PROPERTY' | 'Student(age)' | 'Age of the student' |
+            | description type | label        | property | description          |
+            | 'label property' | ['Person']   | 'age'    | 'Age of the person'  |
+            | 'label property' | ['Student']  | 'age'    | 'Age of the student' |
 
     Scenario: Multi-label property description
         Given an empty graph
@@ -190,8 +190,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | kind       | name                   | description               |
-            | 'LABEL_PROPERTY' | 'Person:Student(age)'  | 'Age of a student person' |
+            | description type | label                  | property | description               |
+            | 'label property' | ['Person', 'Student']  | 'age'    | 'Age of a student person' |
         When executing query:
             """
             DELETE DESCRIPTION ON LABEL PROPERTY :Person:Student(age)
@@ -222,8 +222,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | kind       | name       | description               |
-            | 'DATABASE' | 'memgraph' | 'The main graph database' |
+            | description type | label      | property | description               |
+            | 'database'       | 'memgraph' | null     | 'The main graph database' |
 
     Scenario: Set and show edge-type-scoped property description
         Given an empty graph
@@ -244,8 +244,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | kind       | name           | description                     |
-            | 'EDGE_TYPE_PROPERTY' | 'KNOWS(since)' | 'Year the relationship started' |
+            | description type      | label   | property | description                     |
+            | 'edge type property'  | 'KNOWS' | 'since'  | 'Year the relationship started' |
 
     Scenario: Setting description on wrong database throws error
         Given an empty graph
@@ -290,8 +290,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | kind       | name  | description    |
-            | 'PROPERTY' | 'age' | 'Age in years' |
+            | description type | label | property | description    |
+            | 'property'       | null  | 'age'    | 'Age in years' |
         When executing query:
             """
             DELETE DESCRIPTION ON PROPERTY age

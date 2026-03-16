@@ -128,11 +128,11 @@ def test_description_replication(connection, test_name):
 
     expected_descriptions = sorted(
         [
-            ("DATABASE", "memgraph", "Test database"),
-            ("EDGE_TYPE", "KNOWS", "Knows relationship"),
-            ("LABEL", "Person", "A person node"),
-            ("LABEL_PROPERTY", "Person(age)", "Age of person"),
-            ("PROPERTY", "age", "Age in years"),
+            ("database", "memgraph", None, "Test database"),
+            ("edge type", "KNOWS", None, "Knows relationship"),
+            ("label", ["Person"], None, "A person node"),
+            ("label property", ["Person"], "age", "Age of person"),
+            ("property", None, "age", "Age in years"),
         ]
     )
 
@@ -147,10 +147,10 @@ def test_description_replication(connection, test_name):
 
     expected_after_delete = sorted(
         [
-            ("DATABASE", "memgraph", "Test database"),
-            ("EDGE_TYPE", "KNOWS", "Knows relationship"),
-            ("LABEL_PROPERTY", "Person(age)", "Age of person"),
-            ("PROPERTY", "age", "Age in years"),
+            ("database", "memgraph", None, "Test database"),
+            ("edge type", "KNOWS", None, "Knows relationship"),
+            ("label property", ["Person"], "age", "Age of person"),
+            ("property", None, "age", "Age in years"),
         ]
     )
 
@@ -165,10 +165,10 @@ def test_description_replication(connection, test_name):
 
     expected_after_update = sorted(
         [
-            ("DATABASE", "memgraph", "Test database"),
-            ("EDGE_TYPE", "KNOWS", "Updated knows relationship"),
-            ("LABEL_PROPERTY", "Person(age)", "Age of person"),
-            ("PROPERTY", "age", "Age in years"),
+            ("database", "memgraph", None, "Test database"),
+            ("edge type", "KNOWS", None, "Updated knows relationship"),
+            ("label property", ["Person"], "age", "Age of person"),
+            ("property", None, "age", "Age in years"),
         ]
     )
 
@@ -218,8 +218,8 @@ def test_property_description_replication(connection, test_name):
 
     expected = sorted(
         [
-            ("LABEL_PROPERTY", "Person(age)", "Age of person"),
-            ("LABEL_PROPERTY", "Student(age)", "Age of student"),
+            ("label property", ["Person"], "age", "Age of person"),
+            ("label property", ["Student"], "age", "Age of student"),
         ]
     )
 
