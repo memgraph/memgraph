@@ -16,6 +16,8 @@
 
 #include "query/cypher_query_interpreter.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/event_counter.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/gatekeeper.hpp"
 
 namespace memgraph::query {
@@ -186,6 +188,13 @@ class Database {
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
   std::unique_ptr<query::stream::Streams> streams_;     //!< Streams associated with the storage
   query::PlanCacheLRU plan_cache_;                      //!< Plan cache associated with the storage
+
+  std::unique_ptr<metrics::Counter[]> counters_storage_;
+  std::unique_ptr<metrics::Histogram[]> histograms_storage_;
+
+ public:
+  metrics::EventCounters counters;
+  metrics::EventHistograms histograms;
 };
 
 }  // namespace memgraph::dbms
