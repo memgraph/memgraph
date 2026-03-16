@@ -245,57 +245,52 @@ def single_gpu_compute(
 ) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
     vertex_input = isinstance(embedding_property, str)
     try:
-        try:
-            model = _get_or_load_model(model_name, f"cuda:{device}")
-        except Exception as e:
-            logger.error(f"Failed to load model {model_name}: {e}")
-            return return_data(
-                input_items if vertex_input else None,
-                embedding_property_name=embedding_property if vertex_input else None,
-                return_embeddings=return_embeddings,
-                success=False,
-                dimension=dimension,
-            )
-        item_iter = iter(input_items)
-        n = len(input_items)
-        all_embeddings = []  # only used for string inputs
-        for i in range(0, n, batch_size):
-            batch = []
-            for _ in range(batch_size):
-                try:
-                    batch.append(next(item_iter))
-                except StopIteration:
-                    break
-            if vertex_input:
-                batch_texts = build_texts(batch, excluded_properties)
-            else:
-                batch_texts = batch
-            embs = model.encode(
-                batch_texts,
-                batch_size=batch_size,
-                convert_to_numpy=True,
-                normalize_embeddings=True,
-                show_progress_bar=False,
-            )
-            embeddings_list = embs.tolist()
-            if vertex_input:
-                for v, e in zip(batch, embeddings_list):
-                    v.properties[embedding_property] = e
-            else:
-                all_embeddings.extend(embeddings_list)
-
-        logger.info(f"Processed {len(input_items)} items on GPU {device}.")
+        model = _get_or_load_model(model_name, f"cuda:{device}")
+    except Exception as e:
+        logger.error(f"Failed to load model {model_name}: {e}")
         return return_data(
-            input_items if vertex_input else all_embeddings,
+            input_items if vertex_input else None,
             embedding_property_name=embedding_property if vertex_input else None,
             return_embeddings=return_embeddings,
-            success=True,
+            success=False,
             dimension=dimension,
         )
+    item_iter = iter(input_items)
+    n = len(input_items)
+    all_embeddings = []  # only used for string inputs
+    for i in range(0, n, batch_size):
+        batch = []
+        for _ in range(batch_size):
+            try:
+                batch.append(next(item_iter))
+            except StopIteration:
+                break
+        if vertex_input:
+            batch_texts = build_texts(batch, excluded_properties)
+        else:
+            batch_texts = batch
+        embs = model.encode(
+            batch_texts,
+            batch_size=batch_size,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        embeddings_list = embs.tolist()
+        if vertex_input:
+            for v, e in zip(batch, embeddings_list):
+                v.properties[embedding_property] = e
+        else:
+            all_embeddings.extend(embeddings_list)
 
-    finally:
-        # Model is cached, no need to delete it
-        pass
+    logger.info(f"Processed {len(input_items)} items on GPU {device}.")
+    return return_data(
+        input_items if vertex_input else all_embeddings,
+        embedding_property_name=embedding_property if vertex_input else None,
+        return_embeddings=return_embeddings,
+        success=True,
+        dimension=dimension,
+    )
 
 
 def multi_gpu_compute(
@@ -330,7 +325,7 @@ def multi_gpu_compute(
     # Multi-GPU via spawn - process in chunks to avoid memory issues
     # We spawn a worker process for each GPU every time we process a chunk.
     # every time that happens, it takes about 8-10s to import libraries and load the model.
-    # `chunk_size` shoiuld be tweaked to minimize the number of times we spawn a worker process,
+    # `chunk_size` should be tweaked to minimize the number of times we spawn a worker process,
     # while avoiding OOM.
     chunk_size = min(batch_size * chunk_size, n)
     total_processed = 0
