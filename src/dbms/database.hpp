@@ -191,9 +191,9 @@ class Database {
 
   ~Database();
 
-  metrics::DatabaseMetricHandles const *metric_handles() const { return metric_handles_.get(); }
+  metrics::DatabaseMetricHandles const *metric_handles() const { return metric_handles_; }
 
-  metrics::DatabaseMetricHandles *metric_handles() { return metric_handles_.get(); }
+  metrics::DatabaseMetricHandles *metric_handles() { return metric_handles_; }
 
  private:
   std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
@@ -208,7 +208,7 @@ class Database {
   std::unique_ptr<metrics::Histogram[]> histograms_storage_;
 
   metrics::PrometheusMetrics *prometheus_metrics_{nullptr};
-  std::unique_ptr<metrics::DatabaseMetricHandles> metric_handles_;
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 
  public:
   metrics::EventCounters counters;
