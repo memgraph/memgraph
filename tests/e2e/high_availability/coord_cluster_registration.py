@@ -226,6 +226,75 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
+def test_add_coordinator_after_restart(test_name):
+    # Test that adding a new coordinator after restarting an existing 2-coordinator
+    # cluster works correctly. This is a regression test for a bug where config
+    # entries (val_type 2) were stored to disk with empty data strings, causing
+    # crashes when a new coordinator joined after restart and the leader tried to
+    # replicate those entries.
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)
+
+    # Step 1: Start only coordinators 1 and 2 (not 3)
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
+
+    # Step 2: Form a 2-coordinator Raft cluster
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+
+    execute_and_fetch_all(
+        coordinator1_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+    )
+    execute_and_fetch_all(
+        coordinator1_cursor,
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+    )
+
+    two_coord_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+    ]
+    mg_sleep_and_assert(two_coord_data, partial(show_instances, coordinator1_cursor))
+
+    # Step 3: Restart both coordinators (this writes config entries to disk)
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
+
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+
+    two_coord_data_any_leader = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+    ]
+    leader_name = find_instance_and_assert_instances(instance_role="leader", num_coordinators=2)
+    two_coord_data_any_leader = update_tuple_value(two_coord_data_any_leader, leader_name, 0, -1, "leader")
+    mg_sleep_and_assert(two_coord_data_any_leader, partial(show_instances, coordinator1_cursor))
+
+    # Step 4: Start coordinator 3 and add it to the cluster after restart.
+    # This is where the bug manifested: the leader would try to replicate
+    # old config entries (loaded from disk with empty data) to coordinator 3,
+    # causing a crash in cluster_config::deserialize().
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_3")
+
+    execute_and_fetch_all(
+        coordinator1_cursor,
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+    )
+
+    three_coord_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+    ]
+    leader_name = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
+    three_coord_data = update_tuple_value(three_coord_data, leader_name, 0, -1, "leader")
+
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+    mg_sleep_and_assert(three_coord_data, partial(show_instances, coordinator1_cursor))
+
+
 def test_data_instance_cannot_start_wal_disabled(test_name):
     SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
     PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", "..", ".."))
