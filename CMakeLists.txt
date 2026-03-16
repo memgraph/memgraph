@@ -222,6 +222,7 @@ find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
 # Now load mgclient which depends on OpenSSL
 find_package(OpenSSL REQUIRED)
 find_package(mgclient REQUIRED)
+find_package(prometheus-cpp REQUIRED)
 
 # -----------------------------------------------------------------------------
 
