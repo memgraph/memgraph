@@ -55,3 +55,4 @@ CREATE EDGE INDEX ON :`edge_type`;
 CREATE EDGE INDEX ON :`edge_type`(`prop`);
 CREATE GLOBAL EDGE INDEX ON :(`ttl`);
 ENABLE TTL EVERY "1000s" AT "12:00:00";
+SET DESCRIPTION ON LABEL :`label` "Label for testing";

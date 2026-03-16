@@ -1143,7 +1143,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateDescriptionsPullChunk() {
   return [global_index = 0U, results = std::move(queries)](
              AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     size_t local_counter = 0;
-    while (global_index < results.size() && (!n || local_counter < *n)) {
+    while (global_index < results.size() && (!n || std::cmp_less(local_counter, *n))) {
       stream->Result({TypedValue(results[global_index])});
       ++global_index;
       ++local_counter;

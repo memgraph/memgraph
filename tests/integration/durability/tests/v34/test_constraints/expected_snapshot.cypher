@@ -4,3 +4,4 @@ CREATE CONSTRAINT ON (u:`label2`) ASSERT u.`a`, u.`b` IS UNIQUE;
 CREATE CONSTRAINT ON (u:`label`) ASSERT u.`a` IS UNIQUE;
 CREATE CONSTRAINT ON (u:`label`) ASSERT u.`b` IS UNIQUE;
 CREATE CONSTRAINT ON (u:`label`) ASSERT u.`c` IS UNIQUE;
+SET DESCRIPTION ON LABEL :`label` "Label for testing";

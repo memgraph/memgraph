@@ -14,3 +14,4 @@ CREATE (:__mg_vertex__ {__mg_id__: 12, `prop`: " \n\"\'\t\\%"});
 CREATE INDEX ON :__mg_vertex__(__mg_id__);
 DROP INDEX ON :__mg_vertex__(__mg_id__);
 MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;
+SET DESCRIPTION ON LABEL :`label` "Label for testing";
