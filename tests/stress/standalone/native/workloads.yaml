@@ -2,11 +2,6 @@
 # List all workloads to run for this deployment type.
 # Set enabled: false to skip a workload.
 
-defaults:
-  memgraph:
-    args:
-      - "--log-level=WARNING"
-
 workloads:
   - config: workloads/supernode_edge_abort/workload.yaml
     enabled: true

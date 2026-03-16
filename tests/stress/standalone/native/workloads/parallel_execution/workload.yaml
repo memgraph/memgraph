@@ -23,7 +23,6 @@ dataset:
 customWorkloads:
   tests:
     - name: parallel-execution-stress
-      memgraph_args: []
       querying:
         host: "localhost"
         port: 7687

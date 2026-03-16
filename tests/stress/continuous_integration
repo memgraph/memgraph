@@ -183,9 +183,9 @@ class Config:
             allowed_keys = {"deployment"}
             extra_keys = set(memgraph.keys()) - allowed_keys
             if extra_keys:
-                raise ValueError(
-                    f"Externally managed deployments should not have extra keys under 'memgraph': {extra_keys}. "
-                    "Remove them or set externally_managed to false."
+                print(
+                    f"WARN: Externally managed deployment — ignoring 'memgraph' keys {extra_keys} "
+                    "(args and env vars are controlled by the external deployment)."
                 )
             self._memgraph_args = []
             self._env = {}
@@ -549,7 +549,13 @@ if __name__ == "__main__":
         workload_file = args.workload
         if not os.path.isabs(workload_file):
             workload_file = os.path.join(get_deployment_path(args.deployment), workload_file)
-        result = run_config_file(args, workload_file, deployment=args.deployment)
+        # Load registry defaults so deployment-level config (args, env, cluster) is applied.
+        registry = load_workloads_registry(args.deployment)
+        registry_defaults = next(
+            (w["config"] for w in registry if os.path.abspath(w["config_path"]) == os.path.abspath(workload_file)),
+            None,
+        )
+        result = run_config_file(args, workload_file, config_dict=registry_defaults, deployment=args.deployment)
     # Run all tests for a specific deployment
     elif args.deployment:
         result = run_deployment(args, args.deployment)
