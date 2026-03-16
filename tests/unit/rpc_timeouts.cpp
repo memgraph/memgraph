@@ -58,7 +58,7 @@ TEST(RpcTimeout, TimeoutNoFailure) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -93,7 +93,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -128,7 +128,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -185,7 +185,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -242,7 +242,7 @@ TEST(RpcTimeout, Timeouts) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 2};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 

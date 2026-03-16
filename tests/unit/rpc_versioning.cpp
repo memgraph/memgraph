@@ -46,7 +46,7 @@ TEST(RpcVersioning, SumUpgrade) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -95,7 +95,7 @@ TEST(RpcVersioning, GetDBHistories) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -169,7 +169,7 @@ TEST(RpcVersioning, StateCheckRpc) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -240,7 +240,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
