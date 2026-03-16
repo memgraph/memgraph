@@ -113,3 +113,44 @@ The umbrella header pulls in the entire range-v3 library unnecessarily for 92 TU
 
 **Impact:** 92 TUs that include `query/common.hpp` no longer parse the full
 range-v3 umbrella header (~360ms/TU).
+
+## 2G. PIMPL `trigger_store_` and `streams_` in `database.hpp`
+
+**File:** `src/dbms/database.hpp`
+**Change:** Replaced by-value members with `std::unique_ptr<>`:
+```cpp
+// Before:
+query::TriggerStore trigger_store_;
+query::stream::Streams streams_;
+
+// After:
+std::unique_ptr<query::TriggerStore> trigger_store_;
+std::unique_ptr<query::stream::Streams> streams_;
+```
+
+Removed `#include "query/stream/streams.hpp"` and `#include "query/trigger.hpp"` from the
+header. Added forward declarations for `TriggerStore` and `Streams`. Moved `GetInfo()` and
+`StopAllBackgroundTasks()` to `database.cpp` (they call methods on the PIMPL'd members).
+Added explicit destructor definition in `.cpp` (required for `unique_ptr` to incomplete types).
+
+Kept `plan_cache_` as-is since its type alias (`PlanCacheLRU`) comes from
+`cypher_query_interpreter.hpp` which is already included for the forward-declared type.
+Changed to including `cypher_query_interpreter.hpp` directly instead of transitively via
+`trigger.hpp`.
+
+**Transitive breakage fixed:**
+- `query/dump.hpp` — added `#include "dbms/database_protector.hpp"`
+- `query/interpreter.hpp` — added `#include "dbms/database_protector.hpp"` and
+  `#include "query/trigger_context.hpp"`
+- `query/interpreter_context.cpp` — added `#include "query/query_user.hpp"`
+- `dbms/dbms_handler.hpp` — added `#include "query/stream/streams.hpp"` and
+  `#include "query/trigger.hpp"` (needs full types to call methods)
+- `tests/unit/interpreter_faker.hpp` — added `#include "query/auth_checker.hpp"`
+- `tests/unit/storage_v2_constraints.cpp` — added `#include "dbms/database_protector.hpp"`
+- `tests/unit/ttl.cpp` — added `#include "dbms/database_protector.hpp"` and
+  `#include "query/auth_checker.hpp"`
+
+**Impact:** `database.hpp` (rank 9, 36 TUs × 3813ms) no longer pulls in `trigger.hpp`
+(1455ms avg) or `streams.hpp` (heavy: kafka, kvstore, typed_value). The 16 TUs via
+`dbms_handler.hpp` still pay the cost, but the remaining ~20 TUs via other paths
+(interpreter.hpp, dump.hpp, tests) save ~2000ms+ each.
