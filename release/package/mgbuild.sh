@@ -1063,6 +1063,12 @@ test_memgraph() {
   local EXPORT_AWS_SECRET_KEY="export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
 
+  if [[ "$enable_monitoring" == "true" ]]; then
+    start_monitoring
+  fi
+
+  trap stop_monitoring EXIT INT TERM
+
   # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
   echo "Running $1 test on $build_container..."
   case "$1" in
@@ -1912,6 +1918,31 @@ build_ssl() {
 
   echo "OpenSSL built and uploaded to conan cache"
 }
+
+start_monitoring() {
+  echo -e "${GREEN_BOLD}Setting up monitoring...${RESET}"
+  echo -e "${GREEN_BOLD}Cluster id: ${RED_BOLD}$cluster_id${RESET}"
+  echo -e "${GREEN_BOLD}Cluster env: ${RED_BOLD}$cluster_env${RESET}"
+  echo -e "${GREEN_BOLD}Service name: ${RED_BOLD}$service_name${RESET}"
+
+  # start the monitoring stack
+  cd $PROJECT_ROOT/tools/ci/monitoring
+  MONITORING_SERVER_HOST=$monitoring_host \
+  CLUSTER_ID=$cluster_id \
+  CLUSTER_ENV=$cluster_env \
+  SERVICE_NAME=$service_name \
+  MEMGRAPH_METRICS_TARGETS=$build_container:9091 \
+  MEMGRAPH_LOG_WS_TARGETS=$build_container:7444 \
+  ./up.sh
+}
+
+stop_monitoring() {
+  echo -e "${GREEN_BOLD}Stopping monitoring...${RESET}"
+  cd $PROJECT_ROOT/tools/ci/monitoring
+  ./down.sh
+}
+
+
 ##################################################
 ################### PARSE ARGS ###################
 ##################################################
@@ -1936,6 +1967,13 @@ conan_cache_dir=""
 command=""
 build_container=""
 cugraph=false
+enable_monitoring=false
+monitoring_host=""
+monitoring_username=""
+monitoring_password=""
+cluster_id=""
+cluster_env=""
+service_name=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)
@@ -2002,6 +2040,34 @@ while [[ $# -gt 0 ]]; do
       conan_cache_dir=$2
       shift 2
     ;;
+    --enable-monitoring)
+      enable_monitoring=true
+      shift 1
+    ;;
+    --monitoring-host)
+      monitoring_host=$2
+      shift 2
+    ;;
+    --monitoring-username)
+      monitoring_username=$2
+      shift 2
+    ;;
+    --monitoring-password)
+      monitoring_password=$2
+      shift 2
+    ;;
+    --cluster-id)
+      cluster_id=$2
+      shift 2
+    ;;
+    --cluster-env)
+      cluster_env=$2
+      shift 2
+    ;;
+    --service-name)
+      service_name=$2
+      shift 2
+    ;;
     *)
       if [[ "$1" =~ ^--.* ]]; then
         echo -e "Error: Unknown option '$1'"
@@ -2015,6 +2081,13 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
+
+# only allow monitoring if all variables are set
+if [[ "$enable_monitoring" == "true" ]] && [[ -z "$monitoring_host" ]] || [[ -z "$monitoring_username" ]] || [[ -z "$monitoring_password" ]] || [[ -z "$cluster_id" ]] || [[ -z "$cluster_env" ]] || [[ -z "$service_name" ]]; then
+  echo -e "Error: Monitoring is enabled but not all monitoring variables are set"
+  echo -e "Provide --monitoring-host, --monitoring-username, --monitoring-password, --cluster-id, --cluster-env and --service-name"
+  exit 1
+fi
 
 if [[ -z "$conan_cache_dir" ]]; then
   conan_cache_dir="$HOME/.conan2-ci"
