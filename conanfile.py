@@ -91,6 +91,7 @@ class Memgraph(ConanFile):
         # 3.0 here so that the binary can dynamically link to any version of OpenSSL >=3 and < 4,
         # therefore allowing it to work with any package provided by our supported Linux distributions.
         self.requires("openssl/3.0.18", override=True, options={"shared": True})
+        self.requires("prometheus-cpp/1.3.0")
 
     def build_requirements(self):
         self.tool_requires("cmake/4.1.2")
