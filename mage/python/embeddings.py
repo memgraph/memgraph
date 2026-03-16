@@ -1,6 +1,7 @@
 import multiprocessing as mp
 import os
 import sys
+import threading
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import List
 
@@ -15,6 +16,26 @@ logger: mgp.Logger = mgp.Logger()
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("TRANSFORMERS_NO_TORCHVISION", "1")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+_model_cache = {}
+_model_lock = threading.Lock()
+
+
+def _get_or_load_model(model_name: str, device: str = "cpu"):
+    """Thread-safe model loading with caching."""
+    key = (model_name, device)
+    if key in _model_cache:
+        return _model_cache[key]
+    with _model_lock:
+        # Double-check after acquiring lock
+        if key in _model_cache:
+            return _model_cache[key]
+        import transformers  # noqa: F401
+        from sentence_transformers import SentenceTransformer
+
+        model = SentenceTransformer(model_name, device=device)
+        _model_cache[key] = model
+        return model
 
 
 def build_texts(vertices, excluded_properties):
@@ -180,10 +201,7 @@ def cpu_compute(
     return_embeddings: bool = False,
     dimension: int = None,
 ) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
-    import transformers  # noqa: F401
-    from sentence_transformers import SentenceTransformer
-
-    model = SentenceTransformer(model_name, device="cpu")
+    model = _get_or_load_model(model_name, "cpu")
     vertex_input = isinstance(embedding_property, str)
     if vertex_input:
         texts = build_texts(input_items, excluded_properties)
@@ -225,20 +243,10 @@ def single_gpu_compute(
     return_embeddings: bool = False,
     dimension: int = None,
 ) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
-    import gc
-
-    import torch
-    import transformers  # noqa: F401
-    from sentence_transformers import SentenceTransformer
-
     vertex_input = isinstance(embedding_property, str)
-    model = None
-    allocated_memory = 0
     try:
         try:
-            model = SentenceTransformer(model_name, device=f"cuda:{device}")
-            allocated_memory = torch.cuda.memory_allocated()
-            logger.info(f"Allocated memory: {allocated_memory / 1024 / 1024:.2f} MB")
+            model = _get_or_load_model(model_name, f"cuda:{device}")
         except Exception as e:
             logger.error(f"Failed to load model {model_name}: {e}")
             return return_data(
@@ -286,20 +294,8 @@ def single_gpu_compute(
         )
 
     finally:
-        # TODO(matt): figure out why destructor for the model is not called...
-        logger.info("Freeing GPU memory...")
-        if model is not None:
-            model.to("cpu")
-            del model
-            freed_memory = allocated_memory - torch.cuda.memory_allocated()
-        # Force garbage collection
-        gc.collect()
-
-        # Clear PyTorch cache
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-
-        logger.info(f"GPU {device} Freed memory: {freed_memory / 1024 / 1024:.2f} MB")
+        # Model is cached, no need to delete it
+        pass
 
 
 def multi_gpu_compute(
@@ -463,18 +459,13 @@ def validate_configuration(configuration: mgp.Map):
     excluded = configuration.get("excluded_properties")
     if not excluded:
         configuration["excluded_properties"] = (
-            [configuration["embedding_property"]]
-            if configuration["embedding_property"] is not None
-            else []
+            [configuration["embedding_property"]] if configuration["embedding_property"] is not None else []
         )
     elif not isinstance(excluded, list):
         configuration["excluded_properties"] = list(excluded)
 
     excluded = configuration["excluded_properties"]
-    if (
-        configuration["embedding_property"] is not None
-        and configuration["embedding_property"] not in excluded
-    ):
+    if configuration["embedding_property"] is not None and configuration["embedding_property"] not in excluded:
         excluded.append(configuration["embedding_property"])
 
     logger.debug(f"Using embedding configuration: {configuration}")
@@ -594,10 +585,7 @@ def compute_embeddings(
 
 
 def get_model_info(configuration: mgp.Map):
-    import transformers  # noqa: F401
-    from sentence_transformers import SentenceTransformer
-
-    model = SentenceTransformer(configuration["model_name"], device="cpu")
+    model = _get_or_load_model(configuration["model_name"], "cpu")
 
     info = {
         "model_name": configuration["model_name"],
