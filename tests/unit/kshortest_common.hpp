@@ -185,8 +185,8 @@ class Yield : public memgraph::query::plan::LogicalOperator {
     YieldCursor(const Yield *self, memgraph::query::plan::UniqueCursorPtr input_cursor)
         : self_(self), input_cursor_(std::move(input_cursor)), pull_index_(self_->values_.size()) {}
 
-    memgraph::query::plan::PullAwaitable Pull(memgraph::query::Frame &frame,
-                                              memgraph::query::ExecutionContext &context) override {
+    memgraph::query::plan::PullAwaitable DoPull(memgraph::query::Frame &frame,
+                                                memgraph::query::ExecutionContext &context) override {
       if (pull_index_ < self_->values_.size()) {
         for (size_t i = 0; i < self_->values_[pull_index_].size(); ++i) {
           auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, context.evaluation_context.memory);
