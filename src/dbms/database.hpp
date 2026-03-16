@@ -18,11 +18,9 @@
 #include <string>
 
 #include "query/cypher_query_interpreter.hpp"
-#include "storage/v2/access_type.hpp"
-#include "storage/v2/config.hpp"
-#include "storage/v2/database_protector.hpp"
-#include "storage/v2/isolation_level.hpp"
-#include "storage/v2/storage_mode.hpp"
+#include "storage/v2/storage.hpp"
+#include "utils/event_counter.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/safe_string.hpp"
 #include "utils/thread_pool.hpp"
@@ -191,6 +189,13 @@ class Database {
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
   std::unique_ptr<query::stream::Streams> streams_;     //!< Streams associated with the storage
   query::PlanCacheLRU plan_cache_;                      //!< Plan cache associated with the storage
+
+  std::unique_ptr<metrics::Counter[]> counters_storage_;
+  std::unique_ptr<metrics::Histogram[]> histograms_storage_;
+
+ public:
+  metrics::EventCounters counters;
+  metrics::EventHistograms histograms;
 };
 
 }  // namespace memgraph::dbms

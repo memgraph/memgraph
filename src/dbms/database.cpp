@@ -90,7 +90,11 @@ storage::ttl::TTL &Database::ttl() { return storage_->ttl_; }
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
       streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
-      plan_cache_{FLAGS_query_plan_cache_max_size} {
+      plan_cache_{FLAGS_query_plan_cache_max_size},
+      counters_storage_{std::make_unique<metrics::Counter[]>(metrics::CounterEnd())},
+      histograms_storage_{std::make_unique<metrics::Histogram[]>(metrics::HistogramEnd())},
+      counters{counters_storage_.get()},
+      histograms{histograms_storage_.get()} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
