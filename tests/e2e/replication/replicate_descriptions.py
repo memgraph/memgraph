@@ -121,16 +121,18 @@ def test_description_replication(connection, test_name):
 
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON LABEL :Person "A person node";')
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Knows relationship";')
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON PROPERTY :Person(age) "Age of person";')
+    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of person";')
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON DATABASE memgraph "Test database";')
-    wait_for_replication_change(main_cursor, 8)
+    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON PROPERTY age "Age in years";')
+    wait_for_replication_change(main_cursor, 10)
 
     expected_descriptions = sorted(
         [
             ("DATABASE", "memgraph", "Test database"),
             ("EDGE_TYPE", "KNOWS", "Knows relationship"),
             ("LABEL", "Person", "A person node"),
-            ("PROPERTY", "Person(age)", "Age of person"),
+            ("LABEL_PROPERTY", "Person(age)", "Age of person"),
+            ("PROPERTY", "age", "Age in years"),
         ]
     )
 
@@ -141,13 +143,14 @@ def test_description_replication(connection, test_name):
     assert replica_2_descriptions == expected_descriptions
 
     execute_and_fetch_all(main_cursor, "DELETE DESCRIPTION ON LABEL :Person;")
-    wait_for_replication_change(main_cursor, 10)
+    wait_for_replication_change(main_cursor, 12)
 
     expected_after_delete = sorted(
         [
             ("DATABASE", "memgraph", "Test database"),
             ("EDGE_TYPE", "KNOWS", "Knows relationship"),
-            ("PROPERTY", "Person(age)", "Age of person"),
+            ("LABEL_PROPERTY", "Person(age)", "Age of person"),
+            ("PROPERTY", "age", "Age in years"),
         ]
     )
 
@@ -158,13 +161,14 @@ def test_description_replication(connection, test_name):
     assert replica_2_descriptions == expected_after_delete
 
     execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Updated knows relationship";')
-    wait_for_replication_change(main_cursor, 12)
+    wait_for_replication_change(main_cursor, 14)
 
     expected_after_update = sorted(
         [
             ("DATABASE", "memgraph", "Test database"),
             ("EDGE_TYPE", "KNOWS", "Updated knows relationship"),
-            ("PROPERTY", "Person(age)", "Age of person"),
+            ("LABEL_PROPERTY", "Person(age)", "Age of person"),
+            ("PROPERTY", "age", "Age in years"),
         ]
     )
 
@@ -208,14 +212,14 @@ def test_property_description_replication(connection, test_name):
     def get_replica_cursor(name):
         return connection(BOLT_PORTS[name], "replica").cursor()
 
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON PROPERTY :Person(age) "Age of person";')
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON PROPERTY :Student(age) "Age of student";')
+    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of person";')
+    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON LABEL PROPERTY :Student(age) "Age of student";')
     wait_for_replication_change(main_cursor, 4)
 
     expected = sorted(
         [
-            ("PROPERTY", "Person(age)", "Age of person"),
-            ("PROPERTY", "Student(age)", "Age of student"),
+            ("LABEL_PROPERTY", "Person(age)", "Age of person"),
+            ("LABEL_PROPERTY", "Student(age)", "Age of student"),
         ]
     )
 

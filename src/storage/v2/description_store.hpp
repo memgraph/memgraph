@@ -23,7 +23,7 @@
 
 namespace memgraph::storage {
 
-enum class DescriptionTargetKind : uint8_t { DATABASE, LABEL, EDGE_TYPE, LABEL_PROPERTY, EDGE_TYPE_PROPERTY };
+enum class DescriptionTargetKind : uint8_t { DATABASE, LABEL, EDGE_TYPE, LABEL_PROPERTY, EDGE_TYPE_PROPERTY, PROPERTY };
 
 struct DescriptionEntry {
   DescriptionTargetKind kind;
@@ -91,6 +91,17 @@ class DescriptionStore {
     return it->second;
   }
 
+  // PROPERTY (global): key is PropertyId — applies to all nodes/edges with this property.
+  void SetProperty(PropertyId prop, std::string_view desc) { property_descriptions_[prop] = desc; }
+
+  bool DeleteProperty(PropertyId prop) { return property_descriptions_.erase(prop) > 0; }
+
+  std::optional<std::string> GetProperty(PropertyId prop) const {
+    auto it = property_descriptions_.find(prop);
+    if (it == property_descriptions_.end()) return std::nullopt;
+    return it->second;
+  }
+
   // DATABASE: single optional string.
   void SetDatabase(std::string_view desc) { database_description_ = desc; }
 
@@ -106,7 +117,7 @@ class DescriptionStore {
     std::vector<DescriptionEntry> result;
     const auto size = label_descriptions_.size() + edge_type_descriptions_.size() +
                       label_property_descriptions_.size() + edge_type_property_descriptions_.size() +
-                      (database_description_ ? 1 : 0);
+                      property_descriptions_.size() + (database_description_ ? 1 : 0);
     result.reserve(size);
 
     for (auto const &[ids, desc] : label_descriptions_) {
@@ -129,6 +140,9 @@ class DescriptionStore {
                         .property = prop_id,
                         .description = desc});
     }
+    for (auto const &[prop_id, desc] : property_descriptions_) {
+      result.push_back({.kind = DescriptionTargetKind::PROPERTY, .property = prop_id, .description = desc});
+    }
     if (database_description_) {
       result.push_back({.kind = DescriptionTargetKind::DATABASE, .description = *database_description_});
     }
@@ -140,6 +154,7 @@ class DescriptionStore {
     edge_type_descriptions_.clear();
     label_property_descriptions_.clear();
     edge_type_property_descriptions_.clear();
+    property_descriptions_.clear();
     database_description_.reset();
   }
 
@@ -156,6 +171,8 @@ class DescriptionStore {
   std::map<std::pair<std::vector<LabelId>, PropertyId>, std::string> label_property_descriptions_;
   // Edge-type-scoped: :KNOWS(weight) and :SENT(weight) are distinct.
   std::map<std::pair<EdgeTypeId, PropertyId>, std::string> edge_type_property_descriptions_;
+  // Global property: keyed by PropertyId alone.
+  std::map<PropertyId, std::string> property_descriptions_;
   std::optional<std::string> database_description_;
 };
 

@@ -34,12 +34,12 @@ Feature: Server-side descriptions
         Given an empty graph
         When executing query:
             """
-            SET DESCRIPTION ON PROPERTY :Person(age) "Age of the person"
+            SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of the person"
             """
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON PROPERTY :Person(age)
+            SHOW DESCRIPTION ON LABEL PROPERTY :Person(age)
             """
         Then the result should be:
             | description         |
@@ -54,7 +54,7 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SET DESCRIPTION ON PROPERTY :Person(name) "Name of the person"
+            SET DESCRIPTION ON LABEL PROPERTY :Person(name) "Name of the person"
             """
         Then the result should be empty
         When executing query:
@@ -63,8 +63,8 @@ Feature: Server-side descriptions
             """
         Then the result should be:
             | kind       | name          | description         |
-            | 'LABEL'    | 'Person'      | 'A person node'     |
-            | 'PROPERTY' | 'Person(name)'| 'Name of the person'|
+            | 'LABEL'          | 'Person'      | 'A person node'     |
+            | 'LABEL_PROPERTY' | 'Person(name)'| 'Name of the person'|
 
     Scenario: Delete description
         Given an empty graph
@@ -135,24 +135,24 @@ Feature: Server-side descriptions
         Given an empty graph
         When executing query:
             """
-            SET DESCRIPTION ON PROPERTY :Person(age) "Age of the person"
+            SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of the person"
             """
         Then the result should be empty
         When executing query:
             """
-            SET DESCRIPTION ON PROPERTY :Student(age) "Age of the student"
+            SET DESCRIPTION ON LABEL PROPERTY :Student(age) "Age of the student"
             """
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON PROPERTY :Person(age)
+            SHOW DESCRIPTION ON LABEL PROPERTY :Person(age)
             """
         Then the result should be:
             | description         |
             | 'Age of the person' |
         When executing query:
             """
-            SHOW DESCRIPTION ON PROPERTY :Student(age)
+            SHOW DESCRIPTION ON LABEL PROPERTY :Student(age)
             """
         Then the result should be:
             | description          |
@@ -163,26 +163,26 @@ Feature: Server-side descriptions
             """
         Then the result should be:
             | kind       | name           | description          |
-            | 'PROPERTY' | 'Person(age)'  | 'Age of the person'  |
-            | 'PROPERTY' | 'Student(age)' | 'Age of the student' |
+            | 'LABEL_PROPERTY' | 'Person(age)'  | 'Age of the person'  |
+            | 'LABEL_PROPERTY' | 'Student(age)' | 'Age of the student' |
 
     Scenario: Multi-label property description
         Given an empty graph
         When executing query:
             """
-            SET DESCRIPTION ON PROPERTY :Person:Student(age) "Age of a student person"
+            SET DESCRIPTION ON LABEL PROPERTY :Person:Student(age) "Age of a student person"
             """
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON PROPERTY :Person:Student(age)
+            SHOW DESCRIPTION ON LABEL PROPERTY :Person:Student(age)
             """
         Then the result should be:
             | description               |
             | 'Age of a student person' |
         When executing query:
             """
-            SHOW DESCRIPTION ON PROPERTY :Person(age)
+            SHOW DESCRIPTION ON LABEL PROPERTY :Person(age)
             """
         Then the result should be empty
         When executing query:
@@ -191,10 +191,10 @@ Feature: Server-side descriptions
             """
         Then the result should be:
             | kind       | name                   | description               |
-            | 'PROPERTY' | 'Person:Student(age)'  | 'Age of a student person' |
+            | 'LABEL_PROPERTY' | 'Person:Student(age)'  | 'Age of a student person' |
         When executing query:
             """
-            DELETE DESCRIPTION ON PROPERTY :Person:Student(age)
+            DELETE DESCRIPTION ON LABEL PROPERTY :Person:Student(age)
             """
         Then the result should be empty
         When executing query:
@@ -229,12 +229,12 @@ Feature: Server-side descriptions
         Given an empty graph
         When executing query:
             """
-            SET DESCRIPTION ON PROPERTY EDGE TYPE :KNOWS(since) "Year the relationship started"
+            SET DESCRIPTION ON EDGE TYPE PROPERTY :KNOWS(since) "Year the relationship started"
             """
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON PROPERTY EDGE TYPE :KNOWS(since)
+            SHOW DESCRIPTION ON EDGE TYPE PROPERTY :KNOWS(since)
             """
         Then the result should be:
             | description                       |
@@ -245,7 +245,7 @@ Feature: Server-side descriptions
             """
         Then the result should be:
             | kind       | name           | description                     |
-            | 'PROPERTY' | 'KNOWS(since)' | 'Year the relationship started' |
+            | 'EDGE_TYPE_PROPERTY' | 'KNOWS(since)' | 'Year the relationship started' |
 
     Scenario: Setting description on wrong database throws error
         Given an empty graph
@@ -270,6 +270,38 @@ Feature: Server-side descriptions
             SHOW DESCRIPTION ON DATABASE other_db
             """
         Then an error should be raised
+
+    Scenario: Set and show global property description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY age "Age in years"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON PROPERTY age
+            """
+        Then the result should be:
+            | description    |
+            | 'Age in years' |
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | kind       | name  | description    |
+            | 'PROPERTY' | 'age' | 'Age in years' |
+        When executing query:
+            """
+            DELETE DESCRIPTION ON PROPERTY age
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be empty
 
     Scenario: Show description on label with no description returns empty
         Given an empty graph

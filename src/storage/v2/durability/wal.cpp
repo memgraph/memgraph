@@ -650,6 +650,12 @@ auto ReadDescriptionFields(BaseDecoder *decoder) {
       fields.property = *std::move(prop);
       break;
     }
+    case DescriptionTargetKind::PROPERTY: {
+      auto prop = decoder->ReadString();
+      if (!prop) throw RecoveryFailure(kInvalidWalErrorMessage);
+      fields.property = *std::move(prop);
+      break;
+    }
     default:
       throw RecoveryFailure(kInvalidWalErrorMessage);
   }
@@ -705,6 +711,9 @@ void SkipDescriptionFields(BaseDecoder *decoder) {
     }
     case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
       if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      break;
+    case DescriptionTargetKind::PROPERTY:
       if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
       break;
     default:
@@ -1704,6 +1713,10 @@ std::optional<RecoveryInfo> LoadWal(
                                                    PropertyId::FromUint(name_id_mapper->NameToId(data.property)),
                                                    data.description);
             break;
+          case DescriptionTargetKind::PROPERTY:
+            description_store->SetProperty(PropertyId::FromUint(name_id_mapper->NameToId(data.property)),
+                                           data.description);
+            break;
           default:
             throw RecoveryFailure(kInvalidWalErrorMessage);
         }
@@ -1732,6 +1745,9 @@ std::optional<RecoveryInfo> LoadWal(
           case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
             description_store->DeleteEdgeTypeProperty(EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)),
                                                       PropertyId::FromUint(name_id_mapper->NameToId(data.property)));
+            break;
+          case DescriptionTargetKind::PROPERTY:
+            description_store->DeleteProperty(PropertyId::FromUint(name_id_mapper->NameToId(data.property)));
             break;
           default:
             throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -2098,6 +2114,9 @@ void EncodeDescriptionKindFields(BaseEncoder &encoder, NameIdMapper &name_id_map
       break;
     case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
       encoder.WriteString(name_id_mapper.IdToName(edge_type.AsUint()));
+      encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+      break;
+    case DescriptionTargetKind::PROPERTY:
       encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
       break;
     default:

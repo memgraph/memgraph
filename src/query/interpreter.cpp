@@ -6017,6 +6017,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     for (auto const &prop : property_names)
                       dba.SetEdgeTypePropertyDescription(edge_type_name, prop, description);
                     break;
+                  case storage::DescriptionTargetKind::PROPERTY:
+                    for (auto const &prop : property_names) dba.SetPropertyDescription(prop, description);
+                    break;
                   case storage::DescriptionTargetKind::DATABASE:
                     if (database_name != current_db_name) {
                       throw QueryException("Cannot set description on database '{}' while using database '{}'.",
@@ -6053,6 +6056,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     break;
                   case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
                     for (auto const &prop : property_names) dba.DeleteEdgeTypePropertyDescription(edge_type_name, prop);
+                    break;
+                  case storage::DescriptionTargetKind::PROPERTY:
+                    for (auto const &prop : property_names) dba.DeletePropertyDescription(prop);
                     break;
                   case storage::DescriptionTargetKind::DATABASE:
                     if (database_name != current_db_name) {
@@ -6103,6 +6109,11 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                       rows.push_back({TypedValue{*desc}});
                   }
                   break;
+                case storage::DescriptionTargetKind::PROPERTY:
+                  for (auto const &prop : property_names) {
+                    if (auto desc = dba.GetPropertyDescription(prop)) rows.push_back({TypedValue{*desc}});
+                  }
+                  break;
                 case storage::DescriptionTargetKind::DATABASE: {
                   if (database_name != current_db_name) {
                     throw QueryException("Cannot show description of database '{}' while using database '{}'.",
@@ -6141,7 +6152,10 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   case storage::DescriptionTargetKind::DATABASE:
                     return "DATABASE";
                   case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                    return "LABEL_PROPERTY";
                   case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                    return "EDGE_TYPE_PROPERTY";
+                  case storage::DescriptionTargetKind::PROPERTY:
                     return "PROPERTY";
                 }
               };
@@ -6159,6 +6173,8 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     return join_labels(entry.labels) + '(' + dba.PropertyToName(entry.property) + ')';
                   case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
                     return dba.EdgeTypeToName(entry.edge_type) + '(' + dba.PropertyToName(entry.property) + ')';
+                  case storage::DescriptionTargetKind::PROPERTY:
+                    return dba.PropertyToName(entry.property);
                   case storage::DescriptionTargetKind::DATABASE:
                     return db_name;
                 }

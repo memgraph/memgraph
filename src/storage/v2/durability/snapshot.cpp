@@ -9880,6 +9880,11 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           description_store->SetEdgeTypeProperty(et, prop, read_string("edge-type-property description"));
           break;
         }
+        case DescriptionTargetKind::PROPERTY: {
+          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+          description_store->SetProperty(prop, read_string("property description"));
+          break;
+        }
         case DescriptionTargetKind::DATABASE:
           description_store->SetDatabase(read_string("database description"));
           break;
@@ -11068,6 +11073,10 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
           break;
         case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
           snapshot.WriteString(id_to_name(entry.edge_type));
+          snapshot.WriteString(id_to_name(entry.property));
+          snapshot.WriteString(entry.description);
+          break;
+        case DescriptionTargetKind::PROPERTY:
           snapshot.WriteString(id_to_name(entry.property));
           snapshot.WriteString(entry.description);
           break;

@@ -1040,6 +1040,16 @@ class DbAccessor final {
     return accessor_->GetEdgeTypePropertyDescription(edge_type_name, prop_name);
   }
 
+  void SetPropertyDescription(std::string_view prop_name, std::string_view desc) {
+    accessor_->SetPropertyDescription(prop_name, desc);
+  }
+
+  bool DeletePropertyDescription(std::string_view prop_name) { return accessor_->DeletePropertyDescription(prop_name); }
+
+  std::optional<std::string> GetPropertyDescription(std::string_view prop_name) const {
+    return accessor_->GetPropertyDescription(prop_name);
+  }
+
   void SetDatabaseDescription(std::string_view desc) { accessor_->SetDatabaseDescription(desc); }
 
   bool DeleteDatabaseDescription() { return accessor_->DeleteDatabaseDescription(); }

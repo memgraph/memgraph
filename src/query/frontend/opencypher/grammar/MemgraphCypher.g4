@@ -907,7 +907,8 @@ showDescriptions
 descriptionTarget
     : LABEL ':' labelName ( ':' labelName )*
     | EDGE TYPE ':' labelName
-    | PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
-    | PROPERTY EDGE TYPE ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | LABEL PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE PROPERTY ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | PROPERTY propertyKeyName
     | DATABASE symbolicName
     ;

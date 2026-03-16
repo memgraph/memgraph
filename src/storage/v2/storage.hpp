@@ -767,6 +767,34 @@ class Storage {
                                                               storage_->NameToProperty(prop_name));
     }
 
+    void SetPropertyDescription(std::string_view prop_name, std::string_view desc) {
+      auto prop = storage_->NameToProperty(prop_name);
+      storage_->description_store_.SetProperty(prop, desc);
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                          DescriptionTargetKind::PROPERTY,
+                                          std::vector<LabelId>{},
+                                          EdgeTypeId{},
+                                          prop,
+                                          std::string{desc});
+    }
+
+    bool DeletePropertyDescription(std::string_view prop_name) {
+      auto prop = storage_->NameToProperty(prop_name);
+      bool deleted = storage_->description_store_.DeleteProperty(prop);
+      if (deleted) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                            DescriptionTargetKind::PROPERTY,
+                                            std::vector<LabelId>{},
+                                            EdgeTypeId{},
+                                            prop);
+      }
+      return deleted;
+    }
+
+    std::optional<std::string> GetPropertyDescription(std::string_view prop_name) const {
+      return storage_->description_store_.GetProperty(storage_->NameToProperty(prop_name));
+    }
+
     void SetDatabaseDescription(std::string_view desc) {
       storage_->description_store_.SetDatabase(desc);
       transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
