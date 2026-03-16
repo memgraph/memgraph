@@ -42,6 +42,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -643,7 +644,8 @@ int main(int argc, char **argv) {
 
 #endif
 
-  memgraph::dbms::DbmsHandler dbms_handler(db_config);
+  memgraph::metrics::PrometheusMetrics prometheus_metrics;
+  memgraph::dbms::DbmsHandler dbms_handler(db_config, &prometheus_metrics);
 
   // singleton replication state
   // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
@@ -848,7 +850,7 @@ int main(int argc, char **argv) {
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
   spdlog::trace("Metrics server created.");
   // TODO: replace hardcoded port 9092 with FLAGS_metrics_port once old metrics server is removed
-  memgraph::glue::PrometheusServerT prometheus_server{{"localhost", 9092}, &dbms_handler, &context};
+  memgraph::glue::PrometheusServerT prometheus_server{{"localhost", 9092}, &prometheus_metrics, &context};
   spdlog::trace("Prometheus metrics server created.");
 #endif
 

@@ -12,4 +12,4 @@
 #include "glue/PrometheusServerT.hpp"
 
 template class memgraph::communication::http::Server<memgraph::http::PrometheusRequestHandler,
-                                                     memgraph::dbms::DbmsHandler>;
+                                                     memgraph::metrics::PrometheusMetrics>;
