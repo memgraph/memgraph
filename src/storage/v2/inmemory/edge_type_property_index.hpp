@@ -11,6 +11,10 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
 #include <cstdint>
 #include <map>
 #include <utility>
@@ -182,10 +186,11 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     explicit IndividualIndex() : skiplist{} {}
 
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
 
     utils::SkipListDb<Entry> skiplist;
     IndexStatus status{};
+    prometheus::Gauge *gauge_{nullptr};
   };
 
   // TODO: change to map of maps as in label property index
@@ -273,6 +278,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp);
 
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
+
   void RunGC();
 
  private:
@@ -284,6 +291,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   bool InstallIndividualIndex_(EdgeTypeId edge_type, PropertyId property, std::shared_ptr<IndividualIndex> entry,
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
 
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};
   utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{

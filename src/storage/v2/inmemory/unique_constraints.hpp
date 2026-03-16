@@ -11,6 +11,10 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
 #include <memory>
 #include <optional>
 #include <variant>
@@ -69,10 +73,11 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     explicit IndividualConstraint() : skiplist{} {}
 
     ~IndividualConstraint();
-    void Publish(uint64_t commit_timestamp);
+    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
 
     utils::SkipListDb<Entry> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
+    prometheus::Gauge *gauge_{nullptr};
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
@@ -136,10 +141,6 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// Publishes a constraint after validation, making it visible at the given commit timestamp.
   bool PublishConstraint(LabelId label, const std::set<PropertyId> &properties, uint64_t commit_timestamp);
 
-  /// Drops a constraint. Returns the evicted IndividualConstraint so the caller
-  /// can reinstall it via RestoreConstraint on abort, alongside the deletion
-  /// status. {SUCCESS, ptr} on success; {NOT_FOUND/EMPTY_PROPERTIES/..., nullptr}
-  /// otherwise.
   struct DropResult {
     DeletionStatus status;
     IndividualConstraintPtr evicted;
@@ -151,6 +152,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// has been reclaimed by a concurrent CREATE (constraint DDL runs under
   /// READ_ONLY/UNIQUE, which does not serialize peers).
   void RestoreConstraint(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr evicted);
+
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
   /// Validates the given vertex against unique constraints before committing.
   /// This method should be called while commit lock is active with
@@ -180,6 +183,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   auto InstallConstraint_(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr ptr)
       -> IndividualConstraintPtr;
 
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

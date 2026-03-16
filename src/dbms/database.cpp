@@ -74,7 +74,6 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
       plan_cache_{FLAGS_query_plan_cache_max_size},
       counters_storage_{std::make_unique<metrics::Counter[]>(metrics::CounterEnd())},
       histograms_storage_{std::make_unique<metrics::Histogram[]>(metrics::HistogramEnd())},
-      prometheus_metrics_{prometheus_metrics},
       counters{counters_storage_.get()},
       histograms{histograms_storage_.get()} {
   const memory::DbArenaScope db_arena_scope{this, memory::DbArenaScope::Type::FORCE};
@@ -103,22 +102,21 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                            &db_embedding_memory_tracker_);
   }
 
-  if (prometheus_metrics_) {
-    metric_handles_ = prometheus_metrics_->AddDatabase(storage_->name(), [s = storage_.get()] {
-      auto const info = s->GetBaseInfo();
-      return metrics::StorageSnapshot{
-          .vertex_count = info.vertex_count,
-          .edge_count = info.edge_count,
-          .disk_usage = info.disk_usage,
-          .memory_res = info.memory_res,
-      };
-    });
-  }
+  metric_handles_ = metrics::Metrics().AddDatabase(storage_->name(), [s = storage_.get()] {
+    auto const info = s->GetBaseInfo();
+    return metrics::StorageSnapshot{
+        .vertex_count = info.vertex_count,
+        .edge_count = info.edge_count,
+        .disk_usage = info.disk_usage,
+        .memory_res = info.memory_res,
+    };
+  });
+  storage_->SetMetricHandles(metric_handles_);
 }
 
 Database::~Database() {
-  if (prometheus_metrics_ && metric_handles_) {
-    prometheus_metrics_->RemoveDatabase(metric_handles_);
+  if (metric_handles_) {
+    metrics::Metrics().RemoveDatabase(metric_handles_);
   }
 }
 
@@ -157,6 +155,9 @@ storage::ttl::TTL &Database::ttl() { return storage_->ttl_; }
 DatabaseInfo Database::GetInfo() const {
   DatabaseInfo info;
   info.storage_info = storage_->GetInfo();
+  metrics::Metrics().global.peak_memory_res_bytes->Set(static_cast<double>(info.storage_info.memory_res));
+  info.storage_info.peak_memory_res =
+      static_cast<uint64_t>(metrics::Metrics().global.peak_memory_res_bytes->Value());
   info.triggers = trigger_store_->GetTriggerInfo().size();
   info.streams = streams_->GetStreamInfo().size();
   info.db_memory_tracked = DbMemoryUsage();

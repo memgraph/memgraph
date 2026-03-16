@@ -363,14 +363,14 @@ int main(int argc, char **argv) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
       mem_log_scheduler.SetInterval(std::chrono::seconds(3));
-      mem_log_scheduler.Run("Memory check", [] {
+      mem_log_scheduler.Run("Memory check", [peak_gauge = memgraph::metrics::Metrics().global.peak_memory_res_bytes] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn(memgraph::utils::MessageWithLink(
               "Running out of available RAM, only {} MB left.", *free_ram / 1024, "https://memgr.ph/ram"));
 
         auto memory_res = memgraph::utils::GetMemoryRES();
-        memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
+        peak_gauge->Set(static_cast<double>(memory_res));
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -958,7 +958,7 @@ int main(int argc, char **argv) {
                                                    &bolt_server_context};
   spdlog::trace("Metrics server created.");
   // TODO: replace hardcoded port 9092 with FLAGS_metrics_port once old metrics server is removed
-  memgraph::glue::PrometheusServerT prometheus_server{{"localhost", 9092}, &prometheus_metrics, &context};
+  memgraph::glue::PrometheusServerT prometheus_server{{"localhost", 9092}, &memgraph::metrics::Metrics(), &context};
   spdlog::trace("Prometheus metrics server created.");
 #endif
 

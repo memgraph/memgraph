@@ -11,6 +11,14 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 #include <functional>
 #include <memory>
 #include <storage/v2/constraints/type_constraints_kind.hpp>
@@ -49,6 +57,7 @@ class TypeConstraints {
 
     TypeConstraintKind type;
     ConstraintStatus status{};
+    prometheus::Gauge *gauge_{nullptr};
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
@@ -107,6 +116,8 @@ class TypeConstraints {
 
   void DropGraphClearConstraints();
 
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
+
   /// Returns constraints for a specific label, used for registration in property store
   auto GetTypeConstraintsForLabel(LabelId label) const -> absl::flat_hash_map<PropertyId, TypeConstraintKind>;
 
@@ -118,6 +129,7 @@ class TypeConstraints {
   // (property, type) entry to l2p_ (RegisterConstraint defers that to PublishConstraint).
   bool InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr, bool restore_l2p);
 
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

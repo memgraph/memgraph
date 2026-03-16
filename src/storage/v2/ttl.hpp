@@ -29,6 +29,10 @@ namespace memgraph::storage {
 class Storage;
 }  // namespace memgraph::storage
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 namespace memgraph::storage {
 
 struct InterpreterContext;
@@ -229,11 +233,14 @@ class TTL final {
    */
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
 
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) { metric_handles_ = metric_handles; }
+
  private:
   utils::Scheduler ttl_;  //!< background thread
   TtlInfo info_{};        //!< configuration
   bool enabled_{false};   //!< feature enabler
   Storage *storage_ptr_{};
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 
   // User-defined function to check if this is a main instance
   // Returns true if this is a main instance, false if replica
@@ -269,6 +276,10 @@ class TTL final {
 namespace memgraph::storage {
 class Storage;
 }  // namespace memgraph::storage
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage::ttl {
 
@@ -325,6 +336,8 @@ class TTL final {
                    std::optional<std::chrono::system_clock::time_point> = std::nullopt) {}
 
   void SetUserCheck(std::function<bool()>) {}
+
+  void SetMetricHandles(metrics::DatabaseMetricHandles *) {}
 
   bool Restore() { return false; }
 };

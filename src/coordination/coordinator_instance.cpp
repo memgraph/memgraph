@@ -38,11 +38,11 @@
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
-#include "utils/event_counter.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "utils/exponential_backoff.hpp"
 #include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
-#include "utils/metrics_timer.hpp"
+#include "utils/on_scope_exit.hpp"
 
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
@@ -69,26 +69,6 @@ auto FindReplicationInstance(std::string_view replication_instance_name,
   return std::nullopt;
 }
 }  // namespace
-
-namespace memgraph::metrics {
-// Counters
-extern const Event SuccessfulFailovers;
-extern const Event RaftFailedFailovers;
-extern const Event NoAliveInstanceFailedFailovers;
-extern const Event BecomeLeaderSuccess;
-extern const Event FailedToBecomeLeader;
-extern const Event ShowInstance;
-extern const Event ShowInstances;
-extern const Event DemoteInstance;
-extern const Event UnregisterReplInstance;
-extern const Event RemoveCoordInstance;
-// Histogram
-extern const Event InstanceSuccCallback_us;
-extern const Event InstanceFailCallback_us;
-extern const Event ChooseMostUpToDateInstance_us;
-extern const Event GetHistories_us;
-extern const Event DataFailover_us;
-}  // namespace memgraph::metrics
 
 namespace memgraph::coordination {
 namespace {
@@ -346,7 +326,7 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
 }
 
 auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
-  metrics::IncrementCounter(metrics::ShowInstance);
+  metrics::Metrics().global.show_instance->Increment();
   auto const curr_leader_id = raft_state_->GetLeaderId();
   auto const my_context = raft_state_->GetMyCoordinatorInstanceAux();
   std::string const role = std::invoke([curr_leader_id, my_id = raft_state_->GetMyCoordinatorId()] {
@@ -361,7 +341,7 @@ auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
-  metrics::IncrementCounter(metrics::ShowInstances);
+  metrics::Metrics().global.show_instances->Increment();
   if (auto const leader_results = ShowInstancesAsLeader(); leader_results.has_value()) {
     return *leader_results;
   }
@@ -413,7 +393,7 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
           if (expected == CoordinatorStatus::FOLLOWER) {
             spdlog::trace(
                 "Reconcile cluster state finished successfully but coordinator in the meantime became follower.");
-            metrics::IncrementCounter(metrics::FailedToBecomeLeader);
+            metrics::Metrics().global.failed_to_become_leader->Increment();
             return ReconcileClusterStateStatus::NOT_LEADER_ANYMORE;
           }
           // We should never get into such state, but we log it for observability.
@@ -421,23 +401,23 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
           return result;
         }
         spdlog::trace("Reconcile cluster state finished successfully. Leader is ready now.");
-        metrics::IncrementCounter(metrics::BecomeLeaderSuccess);
+        metrics::Metrics().global.become_leader_success->Increment();
         return result;
       }
       case FAIL:
         spdlog::trace("ReconcileClusterState_ failed!");
-        metrics::IncrementCounter(metrics::FailedToBecomeLeader);
+        metrics::Metrics().global.failed_to_become_leader->Increment();
         break;
       case SHUTTING_DOWN:
         spdlog::trace("Stopping reconciliation as coordinator is shutting down.");
-        metrics::IncrementCounter(metrics::FailedToBecomeLeader);
+        metrics::Metrics().global.failed_to_become_leader->Increment();
         return result;
       case NOT_LEADER_ANYMORE:
         [[fallthrough]];
       case LEADER_FAILED:
         [[fallthrough]];
       case LEADER_NOT_FOUND: {
-        metrics::IncrementCounter(metrics::FailedToBecomeLeader);
+        metrics::Metrics().global.failed_to_become_leader->Increment();
         MG_ASSERT(false, "Invalid status handling. Crashing the database.");
       }
     }
@@ -551,11 +531,15 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
 void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_release); }
 
 auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
-  utils::MetricsTimer const timer{metrics::DataFailover_us};
+  auto const _t0 = std::chrono::high_resolution_clock::now();
+  utils::OnScopeExit const _timer{[&] {
+    metrics::Metrics().global.data_failover_seconds->Observe(
+        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+  }};
   auto const maybe_most_up_to_date_instance = GetInstanceForFailover();
   if (!maybe_most_up_to_date_instance) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
-    metrics::IncrementCounter(metrics::NoAliveInstanceFailedFailovers);
+    metrics::Metrics().global.no_alive_instance_failed_failovers->Increment();
     return FailoverStatus::NO_INSTANCE_ALIVE;
   }
 
@@ -586,11 +570,11 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
 
   if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     spdlog::error("Aborting failover. Writing to Raft failed.");
-    metrics::IncrementCounter(metrics::RaftFailedFailovers);
+    metrics::Metrics().global.raft_failed_failovers->Increment();
     return FailoverStatus::RAFT_FAILURE;
   }
 
-  metrics::IncrementCounter(metrics::SuccessfulFailovers);
+  metrics::Metrics().global.successful_failovers->Increment();
   return FailoverStatus::SUCCESS;
 }
 
@@ -687,7 +671,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
 }
 
 auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus {
-  metrics::IncrementCounter(metrics::DemoteInstance);
+  metrics::Metrics().global.demote_instance->Increment();
   auto lock = std::lock_guard{coord_instance_lock_};
 
   if (auto const res = ForwardToLeader<DemoteInstanceRpc, DemoteInstanceCoordinatorStatus>(std::string{instance_name});
@@ -839,7 +823,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
-  metrics::IncrementCounter(metrics::UnregisterReplInstance);
+  metrics::Metrics().global.unregister_repl_instance->Increment();
 
   if (auto const res =
           ForwardToLeader<UnregisterInstanceRpc, UnregisterInstanceCoordinatorStatus>(std::string{instance_name});
@@ -909,7 +893,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 }
 
 auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus {
-  metrics::IncrementCounter(metrics::RemoveCoordInstance);
+  metrics::Metrics().global.remove_coord_instance->Increment();
   if (auto const res = ForwardToLeader<RemoveCoordinatorRpc, RemoveCoordinatorInstanceStatus>(coordinator_id);
       res.has_value()) {
     return *res;
@@ -1139,7 +1123,11 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
 }
 
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state) {
-  utils::MetricsTimer const timer{metrics::InstanceSuccCallback_us};
+  auto const _t0 = std::chrono::high_resolution_clock::now();
+  utils::OnScopeExit const _timer{[&] {
+    metrics::Metrics().global.instance_succ_callback_seconds->Observe(
+        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+  }};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     spdlog::trace("Leader is not ready, not executing instance success callback.");
@@ -1293,7 +1281,11 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 }
 
 void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name) {
-  utils::MetricsTimer const timer{metrics::InstanceFailCallback_us};
+  auto const _t0 = std::chrono::high_resolution_clock::now();
+  utils::OnScopeExit const _timer{[&] {
+    metrics::Metrics().global.instance_fail_callback_seconds->Observe(
+        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+  }};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     spdlog::trace("Leader is not ready, not executing instance fail callback.");
@@ -1336,7 +1328,11 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name) {
 auto CoordinatorInstance::ChooseMostUpToDateInstance(
     std::map<std::string, replication_coordination_glue::InstanceInfo> const &instances_info)
     -> std::optional<std::string> {
-  utils::MetricsTimer const timer{metrics::ChooseMostUpToDateInstance_us};
+  auto const _t0 = std::chrono::high_resolution_clock::now();
+  utils::OnScopeExit const _timer{[&] {
+    metrics::Metrics().global.choose_most_up_to_date_instance_seconds->Observe(
+        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+  }};
 
   // Find the instance with the largest system committed timestamp
   auto const largest_sys_ts_instance = std::ranges::max_element(instances_info, [](auto const &lhs, auto const &rhs) {
@@ -1490,7 +1486,11 @@ auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::s
 }
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {
-  utils::MetricsTimer const timer{metrics::GetHistories_us};
+  auto const _t0 = std::chrono::high_resolution_clock::now();
+  utils::OnScopeExit const _timer{[&] {
+    metrics::Metrics().global.get_histories_seconds->Observe(
+        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+  }};
 
   if (repl_instances_.empty()) {
     return std::nullopt;

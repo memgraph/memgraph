@@ -3068,7 +3068,8 @@ struct PullPlan {
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
                     std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
-                    memory::ArenaPool *db_arena_pool = nullptr
+                    memory::ArenaPool *db_arena_pool = nullptr,
+                    metrics::DatabaseMetricHandles *metric_handles = nullptr
 #ifdef MG_ENTERPRISE
                     ,
                     std::optional<size_t> parallel_execution = std::nullopt,
@@ -3111,14 +3112,15 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                    TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
                    FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   utils::PriorityThreadPool *worker_pool, memory::ArenaPool *db_arena_pool
+                   utils::PriorityThreadPool *worker_pool, memory::ArenaPool *db_arena_pool,
+                   metrics::DatabaseMetricHandles *metric_handles
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
 #endif
                    )
     : plan_(plan),
-      cursor_(plan->plan().MakeCursor(execution_memory)),
+      cursor_(plan->plan().MakeCursor(execution_memory, metric_handles)),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit),
       query_logger_(query_logger)
@@ -3578,9 +3580,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
                                               hops_limit,
                                               interpreter_context->worker_pool,
-                                              db_arena_pool
+                                              db_arena_pool,
+                                              (*current_db.db_acc_)->metric_handles()
 #ifdef MG_ENTERPRISE
-                                              ,
+                                                  ,
                                               parallel_execution,
                                               user_resource
 #endif
@@ -3802,9 +3805,10 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
                                         hops_limit,
                                         interpreter_context->worker_pool,
-                                        db_arena_pool
+                                        db_arena_pool,
+                                        db_acc->metric_handles()
 #ifdef MG_ENTERPRISE
-                                        ,
+                                            ,
                                         parallel_execution,
                                         user_resource
 #endif
@@ -6734,7 +6738,8 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
                        .priority = utils::Priority::HIGH};
 }
 
-PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
+PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
+                                       InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -6985,37 +6990,43 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         throw QueryRuntimeException(license::LicenseCheckErrorToString(
             license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "SHOW METRICS INFO"));
       }
-#else
-      throw EnterpriseOnlyException();
-#endif
+      auto *db_handler = interpreter_context->dbms_handler;
+      std::optional<std::string> target_db;
+      switch (info_query->database_specification_) {
+        case DatabaseInfoQuery::DatabaseSpecification::NONE:
+          break;
+        case DatabaseInfoQuery::DatabaseSpecification::CURRENT:
+          if (!current_db.db_acc_) {
+            throw QueryRuntimeException("No current database for SHOW METRICS INFO ON CURRENT");
+          }
+          target_db = (*current_db.db_acc_)->name();
+          break;
+        case DatabaseInfoQuery::DatabaseSpecification::DATABASE:
+          target_db = info_query->database_;
+          break;
+      }
+      if (target_db) {
+        // Validate the database exists
+        if (!db_handler->Get(*target_db)) {
+          throw QueryRuntimeException("Database '{}' does not exist.", *target_db);
+        }
+      }
       header = {"name", "type", "metric type", "value"};
-      handler = [storage = current_db.db_acc_->get()->storage()] {
-        auto const info = storage->GetBaseInfo();
-        auto const metrics_info = memgraph::storage::Storage::GetMetrics();
+      handler = [target_db = std::move(target_db)] {
+        std::vector<metrics::MetricInfo> metric_rows;
+        if (target_db) {
+          auto result = metrics::Metrics().GetDbMetricsInfo(*target_db);
+          if (!result) {
+            throw QueryRuntimeException("{}", result.error());
+          }
+          metric_rows = std::move(*result);
+        } else {
+          metric_rows = metrics::Metrics().GetGlobalMetricsInfo();
+        }
         std::vector<std::vector<TypedValue>> results;
-        results.push_back({TypedValue("VertexCount"),
-                           TypedValue("General"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.vertex_count))});
-        results.push_back({TypedValue("EdgeCount"),
-                           TypedValue("General"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.edge_count))});
-        results.push_back(
-            {TypedValue("AverageDegree"), TypedValue("General"), TypedValue("Gauge"), TypedValue(info.average_degree)});
-        results.push_back({TypedValue("MemoryRes"),
-                           TypedValue("Memory"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.memory_res))});
-        results.push_back({TypedValue("DiskUsage"),
-                           TypedValue("Memory"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.disk_usage))});
-        for (const auto &metric : metrics_info) {
-          results.push_back({TypedValue(metric.name),
-                             TypedValue(metric.type),
-                             TypedValue(metric.event_type),
-                             TypedValue(static_cast<int64_t>(metric.value))});
+        results.reserve(metric_rows.size());
+        for (auto const &m : metric_rows) {
+          results.push_back({TypedValue(m.name), TypedValue(m.type), TypedValue(m.metric_type), TypedValue(m.value)});
         }
         std::ranges::sort(results, [](auto const &record_1, auto const &record_2) {
           auto const key_1 = std::tie(record_1[1].ValueString(), record_1[2].ValueString(), record_1[0].ValueString());
@@ -7024,7 +7035,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         });
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
-
+#else
+      throw EnterpriseOnlyException();
+#endif
       break;
     }
     case DatabaseInfoQuery::InfoType::VECTOR_INDEX: {
@@ -9593,7 +9606,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                         current_db_.db_acc_,
                                         &query_execution->notifications);
     } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+      prepared_query = PrepareDatabaseInfoQuery(
+          std::move(parsed_query), in_explicit_transaction_, current_db_, interpreter_context_);
     } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
       prepared_query = PrepareSystemInfoQuery(std::move(parsed_query),
                                               in_explicit_transaction_,

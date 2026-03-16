@@ -940,7 +940,8 @@ StorageInfo DiskStorage::GetBaseInfo() {
   info.memory_res = utils::GetMemoryRES();
   memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
   info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
-  info.unreleased_delta_objects = memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects);
+  info.unreleased_delta_objects =
+      metric_handles_ ? static_cast<uint64_t>(metric_handles_->unreleased_delta_objects->Value()) : 0;
 
   info.disk_usage = GetDiskSpaceUsage();
   return info;
@@ -2499,7 +2500,8 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           std::move(active_indices),
           std::move(active_constraints),
           {},
-          std::nullopt};
+          std::nullopt,
+          metric_handles_ ? metric_handles_->unreleased_delta_objects : nullptr};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }

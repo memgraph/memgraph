@@ -11,6 +11,10 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
 #include <span>
 
 #include "memory/db_arena_fwd.hpp"
@@ -68,11 +72,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         : permutations_helper(std::move(permutations_helper)), skiplist{} {}
 
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
 
     PropertiesPermutationHelper const permutations_helper;
     utils::SkipListDb<EntryT> skiplist{};
     IndexStatus status{};
+    prometheus::Gauge *gauge_{nullptr};
   };
 
   struct Compare {
@@ -469,6 +474,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   template <typename EntryT>
   auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
       -> std::shared_ptr<IndividualIndex<EntryT>>;
+
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

@@ -11,6 +11,10 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
 #include <map>
 #include <utility>
 
@@ -164,10 +168,11 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     explicit IndividualIndex() : skip_list_{} {}
 
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
 
     utils::SkipListDb<Entry> skip_list_;
     IndexStatus status_{};
+    prometheus::Gauge *gauge_{nullptr};
   };
 
  private:
@@ -244,6 +249,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   void RestoreIndex(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> evicted,
                     ActiveIndicesUpdater const &updater);
 
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
+
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
   void DropGraphClearIndices() override;
@@ -261,6 +268,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   bool InstallIndividualIndex_(EdgeTypeId edge_type, std::shared_ptr<IndividualIndex> entry,
                                ActiveIndicesUpdater const &updater, bool register_in_all_indices);
 
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer const>()};
 
