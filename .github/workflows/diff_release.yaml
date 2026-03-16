@@ -514,7 +514,7 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           --enable-monitoring \
-          --monitoring-host $MONITORING_HOST
+          --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
           --service-name $SERVICE_NAME \
