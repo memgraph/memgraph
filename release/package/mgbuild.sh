@@ -1054,6 +1054,7 @@ copy_memgraph() {
 ##################### TESTS ######################
 ##################################################
 test_memgraph() {
+  local test_name="$1"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_VENV="source ve3/bin/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
@@ -1064,14 +1065,18 @@ test_memgraph() {
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
 
   if [[ "$enable_monitoring" == "true" ]]; then
+    if [[ -z "$service_name" ]]; then
+      service_name="$test_name"
+      echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+    fi
     start_monitoring
   fi
 
   trap stop_monitoring EXIT INT TERM
 
   # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
-  echo "Running $1 test on $build_container..."
-  case "$1" in
+  echo "Running $test_name test on $build_container..."
+  case "$test_name" in
     unit)
       if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
         docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$(nproc)'
@@ -2073,9 +2078,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # only allow monitoring if all variables are set
-if [[ "$enable_monitoring" == "true" && (-z "$monitoring_host" || -z "$cluster_id" || -z "$cluster_env" || -z "$service_name") ]]; then
+if [[ "$enable_monitoring" == "true" && (-z "$monitoring_host" || -z "$cluster_id" || -z "$cluster_env") ]]; then
   echo -e "Error: Monitoring is enabled but not all monitoring variables are set"
-  echo -e "Provide --monitoring-host, --cluster-id, --cluster-env and --service-name"
+  echo -e "Provide --monitoring-host, --cluster-id and --cluster-env"
   exit 1
 fi
 

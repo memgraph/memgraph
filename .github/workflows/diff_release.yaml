@@ -56,7 +56,7 @@ env:
   MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
   MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
   MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
-  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.run_attempt }}"
   CLUSTER_ENV: "ci-diff-release"
 
 jobs:
@@ -457,8 +457,6 @@ jobs:
     name: "Stress tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
-    env:
-      SERVICE_NAME: "release-stress"
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -517,7 +515,6 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          --service-name $SERVICE_NAME \
           test-memgraph stress-plain
 
 
@@ -533,7 +530,6 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          --service-name $SERVICE_NAME \
           test-memgraph stress-ssl
 
       - name: Run durability test (plain)
@@ -548,7 +544,6 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          --service-name $SERVICE_NAME \
           test-memgraph durability
 
       - name: Run durability test (large)
@@ -563,7 +558,6 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          --service-name $SERVICE_NAME \
           test-memgraph durability-large
 
       - name: Copy stress and durability test logs
