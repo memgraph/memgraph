@@ -104,7 +104,7 @@ env:
   MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
   MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
   CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
-  CLUSTER_ENV: "ci-mage--${{ inputs.arch }}"
+  CLUSTER_ENV: "ci-mage-${{ inputs.arch }}"
 
 jobs:
   BuildAndPush:

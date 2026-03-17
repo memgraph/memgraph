@@ -1594,7 +1594,7 @@ test_mage() {
 
   if [[ "$enable_monitoring" == "true" ]]; then
     if [[ -z "$service_name" ]]; then
-      service_name="$test_name"
+      service_name="mage-$test_name"
       echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
     fi
     start_monitoring
