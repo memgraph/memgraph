@@ -187,22 +187,18 @@ class Yield : public memgraph::query::plan::LogicalOperator {
 
     memgraph::query::plan::PullAwaitable DoPull(memgraph::query::Frame &frame,
                                                 memgraph::query::ExecutionContext &context) override {
-      if (pull_index_ < self_->values_.size()) {
+      while (true) {
+        if (pull_index_ == self_->values_.size()) {
+          if (!co_await input_cursor_->Pull(frame, context)) co_return false;
+          pull_index_ = 0;
+        }
         for (size_t i = 0; i < self_->values_[pull_index_].size(); ++i) {
           auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, context.evaluation_context.memory);
           frame_writer.Write(self_->modified_symbols_[i], self_->values_[pull_index_][i]);
         }
         pull_index_++;
-        co_return true;
+        co_yield true;
       }
-      if (!co_await input_cursor_->Pull(frame, context)) co_return false;
-      pull_index_ = 0;
-      for (size_t i = 0; i < self_->values_[pull_index_].size(); ++i) {
-        auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, context.evaluation_context.memory);
-        frame_writer.Write(self_->modified_symbols_[i], self_->values_[pull_index_][i]);
-      }
-      pull_index_++;
-      co_return true;
     }
 
     void Reset() override {
