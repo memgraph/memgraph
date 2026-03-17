@@ -12,7 +12,7 @@
 #pragma once
 
 #include <cstdio>  // Ensure EOF macro is defined
-#include "frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast.hpp"
 #pragma push_macro("EOF")  // hide EOF for antlr headers
 #include <support/Any.h>
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
