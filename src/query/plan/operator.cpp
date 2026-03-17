@@ -2435,8 +2435,9 @@ class ExpandVariableCursor : public Cursor {
       // We only yield true if we satisfy the lower bound.
       auto const &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
       if (expand_is_valid && static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_) {
-        co_yield true;
+        co_return true;  // one-shot helper: called in a loop from DoPull, must terminate after each result
       }
+      expand_is_valid = false;
     }
   }
 };
