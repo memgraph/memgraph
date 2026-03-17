@@ -854,14 +854,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::IS_MAIN;
   }
 
-  auto curr_main = std::ranges::find_if(repl_instances_, is_current_main);
-  // If there is no main in the cluster, the replica cannot be unregistered. We would commit the state without replica
-  // in Raft but the in-memory state would still contain it.
-  if (curr_main == repl_instances_.end()) {
-    return UnregisterInstanceCoordinatorStatus::NO_MAIN;
-  }
-
-  auto old_data_instances = raft_state_->GetDataInstancesContext();
+  auto const old_data_instances = raft_state_->GetDataInstancesContext();
   // Intentional copy
   auto new_data_instances = old_data_instances;
   auto const [first, last] = std::ranges::remove_if(new_data_instances, [instance_name](auto const &data_instance) {
@@ -877,26 +870,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
-  auto const name_matches = [instance_name](auto const &instance) { return instance.InstanceName() == instance_name; };
-
-  // The network could be down or the request could fail because of some strange reason. In that case, we try to bring
-  // back old raft state
-  if (curr_main->SendRpc<UnregisterReplicaRpc>(instance_name)) {
-    std::erase_if(repl_instances_, name_matches);
-    return UnregisterInstanceCoordinatorStatus::SUCCESS;
-  }
-
-  // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const delta_state_revert{.data_instances_ = std::move(old_data_instances)};
-
-  if (!raft_state_->AppendClusterUpdate(delta_state_revert)) {
-    LOG_FATAL(
-        "Coordinator instances cannot be brought into the consistent state before unregistration started. Please "
-        "restart coordinators with fresh data directory and reconnect the cluster. Data on main and replicas will be "
-        "preserved.");
-  }
-
-  return UnregisterInstanceCoordinatorStatus::RPC_FAILED;
+  return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
 auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus {
@@ -1136,8 +1110,24 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       main_num_txns_cache_ = *instance_state.inner_state.main_num_txns;
     }
 
+    // Use this information for checking the number of committed txns and also to figure out if some replica got deleted
     if (instance_state.inner_state.replicas_num_txns.has_value()) {
-      replicas_num_txns_cache_ = *instance_state.inner_state.replicas_num_txns;
+      auto const data_instances = raft_state_->GetDataInstancesContext();
+
+      // Handle the case when data instance was unregistered
+      for (auto const &[replica_name, replica_data] : *instance_state.inner_state.replicas_num_txns) {
+        if (std::ranges::find(data_instances, replica_name, [](auto const &context) {
+              return context.config.instance_name;
+            }) != std::ranges::end(data_instances)) {
+          replicas_num_txns_cache_.insert_or_assign(replica_name, replica_data);
+        } else if (instance.SendRpc<UnregisterReplicaRpc>(replica_name)) {
+          auto const data_name_matches = [&replica_name](auto const &instance) {
+            return instance.InstanceName() == replica_name;
+          };
+          std::erase_if(repl_instances_, data_name_matches);
+          replicas_num_txns_cache_.erase(replica_name);
+        }
+      }
     }
 
     // According to raft, this is the current MAIN
