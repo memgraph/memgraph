@@ -181,9 +181,19 @@ def test_schema_info_description_enrichment(connect):
     knows_edge = next(e for e in schema["edges"] if e["type"] == "KNOWS")
     assert knows_edge["description"] == "Person knows person"
 
-    # Edge type property description
+    # Edge type property description (global edge-type-property)
     since_prop = next(p for p in knows_edge["properties"] if p["key"] == "since")
     assert since_prop["description"] == "Year they met"
+
+    # Pattern-property takes priority over edge-type-property
+    cursor.execute(
+        'SET DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since) "Year they met (pattern)";'
+    )
+    cursor.execute("SHOW SCHEMA INFO;")
+    schema2 = json.loads(cursor.fetchall()[0][0])
+    knows_edge2 = next(e for e in schema2["edges"] if e["type"] == "KNOWS")
+    since_prop2 = next(p for p in knows_edge2["properties"] if p["key"] == "since")
+    assert since_prop2["description"] == "Year they met (pattern)"
 
     # LIVES_IN has no description (no pattern or global set)
     lives_in_edge = next(e for e in schema["edges"] if e["type"] == "LIVES_IN")

@@ -6037,6 +6037,11 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
                     dba.SetEdgeTypePatternDescription(from_label_names, edge_type_name, to_label_names, description);
                     break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+                    for (auto const &prop : property_names)
+                      dba.SetEdgeTypePatternPropertyDescription(
+                          from_label_names, edge_type_name, to_label_names, prop, description);
+                    break;
                 }
                 return QueryHandlerResult::COMMIT;
               },
@@ -6081,6 +6086,11 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     break;
                   case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
                     dba.DeleteEdgeTypePatternDescription(from_label_names, edge_type_name, to_label_names);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+                    for (auto const &prop : property_names)
+                      dba.DeleteEdgeTypePatternPropertyDescription(
+                          from_label_names, edge_type_name, to_label_names, prop);
                     break;
                 }
                 return QueryHandlerResult::COMMIT;
@@ -6144,6 +6154,13 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     rows.push_back({TypedValue{*desc}});
                   break;
                 }
+                case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+                  for (auto const &prop : property_names) {
+                    if (auto desc = dba.GetEdgeTypePatternPropertyDescription(
+                            from_label_names, edge_type_name, to_label_names, prop))
+                      rows.push_back({TypedValue{*desc}});
+                  }
+                  break;
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
@@ -6180,6 +6197,8 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     return "property";
                   case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
                     return "edge type";
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+                    return "edge type property";
                 }
               };
               auto labels_to_list = [&](auto const &labels) {
@@ -6209,7 +6228,8 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   case storage::DescriptionTargetKind::PROPERTY:
                     prop_col = TypedValue{dba.PropertyToName(entry.property)};
                     break;
-                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN: {
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
                     auto labels_str = [&](auto const &ids) {
                       auto names = ids | rv::transform([&](auto id) { return ":" + dba.LabelToName(id); }) |
                                    r::to<std::vector>();
@@ -6219,6 +6239,9 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                                                        labels_str(entry.from_labels),
                                                        dba.EdgeTypeToName(entry.edge_type),
                                                        labels_str(entry.to_labels))};
+                    if (entry.kind == storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY) {
+                      prop_col = TypedValue{dba.PropertyToName(entry.property)};
+                    }
                     break;
                   }
                   case storage::DescriptionTargetKind::DATABASE:
@@ -8075,8 +8098,10 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           }
           for (auto &prop : edge["properties"]) {
             auto prop_id = name_to_property(prop["key"].get<std::string>());
-            if (auto desc = desc_store.GetEdgeTypeProperty(et_id, prop_id)) {
+            if (auto desc = desc_store.GetEdgeTypePatternProperty(from_ids, et_id, to_ids, prop_id)) {
               prop["description"] = *desc;
+            } else if (auto desc2 = desc_store.GetEdgeTypeProperty(et_id, prop_id)) {
+              prop["description"] = *desc2;
             } else if (auto gdesc = desc_store.GetProperty(prop_id)) {
               prop["description"] = *gdesc;
             }

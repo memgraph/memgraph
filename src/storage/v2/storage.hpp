@@ -837,6 +837,57 @@ class Storage {
           ResolveLabels(from_label_names), storage_->NameToEdgeType(edge_type_name), ResolveLabels(to_label_names));
     }
 
+    void SetEdgeTypePatternPropertyDescription(std::span<std::string const> from_label_names,
+                                               std::string_view edge_type_name,
+                                               std::span<std::string const> to_label_names, std::string_view prop_name,
+                                               std::string_view desc) {
+      auto from_labels = ResolveLabels(from_label_names);
+      auto edge_type = storage_->NameToEdgeType(edge_type_name);
+      auto to_labels = ResolveLabels(to_label_names);
+      auto prop = storage_->NameToProperty(prop_name);
+      storage_->description_store_.SetEdgeTypePatternProperty(from_labels, edge_type, to_labels, prop, desc);
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                          DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY,
+                                          std::vector<LabelId>{},
+                                          edge_type,
+                                          prop,
+                                          std::string{desc},
+                                          std::move(from_labels),
+                                          std::move(to_labels));
+    }
+
+    bool DeleteEdgeTypePatternPropertyDescription(std::span<std::string const> from_label_names,
+                                                  std::string_view edge_type_name,
+                                                  std::span<std::string const> to_label_names,
+                                                  std::string_view prop_name) {
+      auto from_labels = ResolveLabels(from_label_names);
+      auto edge_type = storage_->NameToEdgeType(edge_type_name);
+      auto to_labels = ResolveLabels(to_label_names);
+      auto prop = storage_->NameToProperty(prop_name);
+      auto deleted =
+          storage_->description_store_.DeleteEdgeTypePatternProperty(from_labels, edge_type, to_labels, prop);
+      if (deleted) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                            DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY,
+                                            std::vector<LabelId>{},
+                                            edge_type,
+                                            prop,
+                                            std::move(from_labels),
+                                            std::move(to_labels));
+      }
+      return deleted;
+    }
+
+    std::optional<std::string> GetEdgeTypePatternPropertyDescription(std::span<std::string const> from_label_names,
+                                                                     std::string_view edge_type_name,
+                                                                     std::span<std::string const> to_label_names,
+                                                                     std::string_view prop_name) const {
+      return storage_->description_store_.GetEdgeTypePatternProperty(ResolveLabels(from_label_names),
+                                                                     storage_->NameToEdgeType(edge_type_name),
+                                                                     ResolveLabels(to_label_names),
+                                                                     storage_->NameToProperty(prop_name));
+    }
+
     void SetDatabaseDescription(std::string_view desc) {
       storage_->description_store_.SetDatabase(desc);
       transaction_.md_deltas.emplace_back(MetadataDelta::description_set,

@@ -914,6 +914,7 @@ edgeTypePattern
 
 descriptionTarget
     : LABEL ':' labelName ( ':' labelName )*
+    | EDGE TYPE PROPERTY edgeTypePattern '(' propertyKeyName ( ',' propertyKeyName )* ')'
     | EDGE TYPE edgeTypePattern
     | EDGE TYPE ':' labelName
     | LABEL PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'

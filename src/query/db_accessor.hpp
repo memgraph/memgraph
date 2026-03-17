@@ -1066,6 +1066,25 @@ class DbAccessor final {
     return accessor_->GetEdgeTypePatternDescription(from_labels, edge_type_name, to_labels);
   }
 
+  void SetEdgeTypePatternPropertyDescription(std::span<std::string const> from_labels, std::string_view edge_type_name,
+                                             std::span<std::string const> to_labels, std::string_view prop_name,
+                                             std::string_view desc) {
+    accessor_->SetEdgeTypePatternPropertyDescription(from_labels, edge_type_name, to_labels, prop_name, desc);
+  }
+
+  bool DeleteEdgeTypePatternPropertyDescription(std::span<std::string const> from_labels,
+                                                std::string_view edge_type_name, std::span<std::string const> to_labels,
+                                                std::string_view prop_name) {
+    return accessor_->DeleteEdgeTypePatternPropertyDescription(from_labels, edge_type_name, to_labels, prop_name);
+  }
+
+  std::optional<std::string> GetEdgeTypePatternPropertyDescription(std::span<std::string const> from_labels,
+                                                                   std::string_view edge_type_name,
+                                                                   std::span<std::string const> to_labels,
+                                                                   std::string_view prop_name) const {
+    return accessor_->GetEdgeTypePatternPropertyDescription(from_labels, edge_type_name, to_labels, prop_name);
+  }
+
   void SetDatabaseDescription(std::string_view desc) { accessor_->SetDatabaseDescription(desc); }
 
   bool DeleteDatabaseDescription() { return accessor_->DeleteDatabaseDescription(); }

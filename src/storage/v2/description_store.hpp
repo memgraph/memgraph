@@ -30,7 +30,8 @@ enum class DescriptionTargetKind : uint8_t {
   LABEL_PROPERTY,
   EDGE_TYPE_PROPERTY,
   PROPERTY,
-  EDGE_TYPE_PATTERN
+  EDGE_TYPE_PATTERN,
+  EDGE_TYPE_PATTERN_PROPERTY
 };
 
 struct DescriptionEntry {
@@ -125,6 +126,27 @@ class DescriptionStore {
     return it->second;
   }
 
+  using EdgeTypePatternPropertyKey = std::tuple<std::vector<LabelId>, EdgeTypeId, std::vector<LabelId>, PropertyId>;
+
+  void SetEdgeTypePatternProperty(std::span<LabelId const> from_labels, EdgeTypeId edge_type,
+                                  std::span<LabelId const> to_labels, PropertyId prop, std::string_view desc) {
+    edge_type_pattern_property_descriptions_[{SortedIds(from_labels), edge_type, SortedIds(to_labels), prop}] = desc;
+  }
+
+  bool DeleteEdgeTypePatternProperty(std::span<LabelId const> from_labels, EdgeTypeId edge_type,
+                                     std::span<LabelId const> to_labels, PropertyId prop) {
+    return edge_type_pattern_property_descriptions_.erase(
+               {SortedIds(from_labels), edge_type, SortedIds(to_labels), prop}) > 0;
+  }
+
+  std::optional<std::string> GetEdgeTypePatternProperty(std::span<LabelId const> from_labels, EdgeTypeId edge_type,
+                                                        std::span<LabelId const> to_labels, PropertyId prop) const {
+    auto it =
+        edge_type_pattern_property_descriptions_.find({SortedIds(from_labels), edge_type, SortedIds(to_labels), prop});
+    if (it == edge_type_pattern_property_descriptions_.end()) return std::nullopt;
+    return it->second;
+  }
+
   void SetDatabase(std::string_view desc) { database_description_ = desc; }
 
   bool DeleteDatabase() {
@@ -140,7 +162,7 @@ class DescriptionStore {
     const auto size = label_descriptions_.size() + edge_type_descriptions_.size() +
                       label_property_descriptions_.size() + edge_type_property_descriptions_.size() +
                       property_descriptions_.size() + edge_type_pattern_descriptions_.size() +
-                      (database_description_ ? 1 : 0);
+                      edge_type_pattern_property_descriptions_.size() + (database_description_ ? 1 : 0);
     result.reserve(size);
 
     for (auto const &[ids, desc] : label_descriptions_) {
@@ -174,6 +196,15 @@ class DescriptionStore {
                         .from_labels = from,
                         .to_labels = to});
     }
+    for (auto const &[key, desc] : edge_type_pattern_property_descriptions_) {
+      auto const &[from, et, to, prop] = key;
+      result.push_back({.kind = DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY,
+                        .edge_type = et,
+                        .property = prop,
+                        .description = desc,
+                        .from_labels = from,
+                        .to_labels = to});
+    }
     if (database_description_) {
       result.push_back({.kind = DescriptionTargetKind::DATABASE, .description = *database_description_});
     }
@@ -183,7 +214,8 @@ class DescriptionStore {
   size_t Size() const {
     return label_descriptions_.size() + edge_type_descriptions_.size() + label_property_descriptions_.size() +
            edge_type_property_descriptions_.size() + property_descriptions_.size() +
-           edge_type_pattern_descriptions_.size() + (database_description_ ? 1 : 0);
+           edge_type_pattern_descriptions_.size() + edge_type_pattern_property_descriptions_.size() +
+           (database_description_ ? 1 : 0);
   }
 
   void Clear() {
@@ -193,6 +225,7 @@ class DescriptionStore {
     edge_type_property_descriptions_.clear();
     property_descriptions_.clear();
     edge_type_pattern_descriptions_.clear();
+    edge_type_pattern_property_descriptions_.clear();
     database_description_.reset();
   }
 
@@ -209,6 +242,7 @@ class DescriptionStore {
   std::map<std::pair<EdgeTypeId, PropertyId>, std::string> edge_type_property_descriptions_;
   std::map<PropertyId, std::string> property_descriptions_;
   std::map<EdgeTypePatternKey, std::string> edge_type_pattern_descriptions_;
+  std::map<EdgeTypePatternPropertyKey, std::string> edge_type_pattern_property_descriptions_;
   std::optional<std::string> database_description_;
 };
 

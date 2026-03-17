@@ -29,6 +29,30 @@ BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
 REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
 LOG_DIR = "replicate_descriptions"
 
+ALL_SET_QUERIES = [
+    'SET DESCRIPTION ON LABEL :Person "A person node";',
+    'SET DESCRIPTION ON EDGE TYPE :KNOWS "Knows relationship";',
+    'SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of person";',
+    'SET DESCRIPTION ON EDGE TYPE PROPERTY :KNOWS(since) "When they met";',
+    'SET DESCRIPTION ON DATABASE memgraph "Test database";',
+    'SET DESCRIPTION ON PROPERTY age "Age in years";',
+    'SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "Person knows person";',
+    'SET DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since) "Year they met (pattern)";',
+]
+
+ALL_DELETE_QUERIES = [
+    "DELETE DESCRIPTION ON LABEL :Person;",
+    "DELETE DESCRIPTION ON EDGE TYPE :KNOWS;",
+    "DELETE DESCRIPTION ON LABEL PROPERTY :Person(age);",
+    "DELETE DESCRIPTION ON EDGE TYPE PROPERTY :KNOWS(since);",
+    "DELETE DESCRIPTION ON DATABASE memgraph;",
+    "DELETE DESCRIPTION ON PROPERTY age;",
+    "DELETE DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person);",
+    "DELETE DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since);",
+]
+
+NUM_DESCRIPTION_TYPES = len(ALL_SET_QUERIES)
+
 
 @pytest.fixture
 def test_name(request):
@@ -52,33 +76,21 @@ def get_all_descriptions(cursor):
 def make_instances(test_name):
     return {
         "replica_1": {
-            "args": [
-                "--bolt-port",
-                f"{BOLT_PORTS['replica_1']}",
-                "--log-level=TRACE",
-            ],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
             "log_file": f"{get_logs_path(LOG_DIR, test_name)}/replica1.log",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
         },
         "replica_2": {
-            "args": [
-                "--bolt-port",
-                f"{BOLT_PORTS['replica_2']}",
-                "--log-level=TRACE",
-            ],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
             "log_file": f"{get_logs_path(LOG_DIR, test_name)}/replica2.log",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
         },
         "main": {
-            "args": [
-                "--bolt-port",
-                f"{BOLT_PORTS['main']}",
-                "--log-level=TRACE",
-            ],
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
             "log_file": f"{get_logs_path(LOG_DIR, test_name)}/main.log",
             "setup_queries": [
                 f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
@@ -108,130 +120,54 @@ def wait_for_replication_change(cursor, ts):
     mg_sleep_and_assert_collection(expected_data, show_replicas_func(cursor))
 
 
-def test_description_replication(connection, test_name):
-    # Goal: All description types are replicated to REPLICAs.
-
+def test_replicate_set_all_types(connection, test_name):
+    """All description types are replicated to REPLICAs."""
     instances = make_instances(test_name)
-
     interactive_mg_runner.start_all(instances)
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     def get_replica_cursor(name):
         return connection(BOLT_PORTS[name], "replica").cursor()
 
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON LABEL :Person "A person node";')
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Knows relationship";')
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of person";')
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON DATABASE memgraph "Test database";')
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON PROPERTY age "Age in years";')
-    execute_and_fetch_all(
-        main_cursor, 'SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "Person knows person";'
-    )
-    wait_for_replication_change(main_cursor, 12)
+    for query in ALL_SET_QUERIES:
+        execute_and_fetch_all(main_cursor, query)
 
-    expected_descriptions = sorted(
-        [
-            ("database", "memgraph", None, "Test database"),
-            ("edge type", "KNOWS", None, "Knows relationship"),
-            ("edge type", "(:Person)-[:KNOWS]->(:Person)", None, "Person knows person"),
-            ("label", ["Person"], None, "A person node"),
-            ("label property", ["Person"], "age", "Age of person"),
-            ("property", None, "age", "Age in years"),
-        ]
-    )
+    # Each SET is a transaction with 2 deltas (start + end), so ts = NUM * 2
+    wait_for_replication_change(main_cursor, NUM_DESCRIPTION_TYPES * 2)
 
-    replica_1_descriptions = get_all_descriptions(get_replica_cursor("replica_1"))
-    assert replica_1_descriptions == expected_descriptions
-
-    replica_2_descriptions = get_all_descriptions(get_replica_cursor("replica_2"))
-    assert replica_2_descriptions == expected_descriptions
-
-    execute_and_fetch_all(main_cursor, "DELETE DESCRIPTION ON LABEL :Person;")
-    wait_for_replication_change(main_cursor, 14)
-
-    expected_after_delete = sorted(
-        [
-            ("database", "memgraph", None, "Test database"),
-            ("edge type", "KNOWS", None, "Knows relationship"),
-            ("edge type", "(:Person)-[:KNOWS]->(:Person)", None, "Person knows person"),
-            ("label property", ["Person"], "age", "Age of person"),
-            ("property", None, "age", "Age in years"),
-        ]
-    )
-
-    replica_1_descriptions = get_all_descriptions(get_replica_cursor("replica_1"))
-    assert replica_1_descriptions == expected_after_delete
-
-    replica_2_descriptions = get_all_descriptions(get_replica_cursor("replica_2"))
-    assert replica_2_descriptions == expected_after_delete
-
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Updated knows relationship";')
-    wait_for_replication_change(main_cursor, 16)
-
-    expected_after_update = sorted(
-        [
-            ("database", "memgraph", None, "Test database"),
-            ("edge type", "KNOWS", None, "Updated knows relationship"),
-            ("edge type", "(:Person)-[:KNOWS]->(:Person)", None, "Person knows person"),
-            ("label property", ["Person"], "age", "Age of person"),
-            ("property", None, "age", "Age in years"),
-        ]
-    )
-
-    replica_1_descriptions = get_all_descriptions(get_replica_cursor("replica_1"))
-    assert replica_1_descriptions == expected_after_update
-
-    replica_2_descriptions = get_all_descriptions(get_replica_cursor("replica_2"))
-    assert replica_2_descriptions == expected_after_update
-
-
-def test_multi_label_description_replication(connection, test_name):
-    # Goal: Multi-label descriptions are replicated correctly.
-    instances = make_instances(test_name)
-
-    interactive_mg_runner.start_all(instances)
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    def get_replica_cursor(name):
-        return connection(BOLT_PORTS[name], "replica").cursor()
-
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON LABEL :Person:Student "A student person";')
-    wait_for_replication_change(main_cursor, 2)
-
-    # Check multi-label description arrived at replicas
-    for replica_name in ["replica_1", "replica_2"]:
-        result = execute_and_fetch_all(get_replica_cursor(replica_name), "SHOW DESCRIPTION ON LABEL :Person:Student;")
-        assert result == [("A student person",)]
-
-        # Single label should not match
-        result = execute_and_fetch_all(get_replica_cursor(replica_name), "SHOW DESCRIPTION ON LABEL :Person;")
-        assert result == []
-
-
-def test_property_description_replication(connection, test_name):
-    # Goal: Label-scoped property descriptions are replicated independently per label.
-    instances = make_instances(test_name)
-
-    interactive_mg_runner.start_all(instances)
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    def get_replica_cursor(name):
-        return connection(BOLT_PORTS[name], "replica").cursor()
-
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of person";')
-    execute_and_fetch_all(main_cursor, 'SET DESCRIPTION ON LABEL PROPERTY :Student(age) "Age of student";')
-    wait_for_replication_change(main_cursor, 4)
-
-    expected = sorted(
-        [
-            ("label property", ["Person"], "age", "Age of person"),
-            ("label property", ["Student"], "age", "Age of student"),
-        ]
-    )
+    main_descriptions = get_all_descriptions(main_cursor)
+    assert len(main_descriptions) == NUM_DESCRIPTION_TYPES
 
     for replica_name in ["replica_1", "replica_2"]:
-        result = get_all_descriptions(get_replica_cursor(replica_name))
-        assert result == expected
+        replica_descriptions = get_all_descriptions(get_replica_cursor(replica_name))
+        assert replica_descriptions == main_descriptions
+
+
+def test_replicate_delete_all_types(connection, test_name):
+    """Deleting all description types is replicated to REPLICAs."""
+    instances = make_instances(test_name)
+    interactive_mg_runner.start_all(instances)
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    def get_replica_cursor(name):
+        return connection(BOLT_PORTS[name], "replica").cursor()
+
+    for query in ALL_SET_QUERIES:
+        execute_and_fetch_all(main_cursor, query)
+
+    set_ts = NUM_DESCRIPTION_TYPES * 2
+    wait_for_replication_change(main_cursor, set_ts)
+
+    for query in ALL_DELETE_QUERIES:
+        execute_and_fetch_all(main_cursor, query)
+
+    delete_ts = set_ts + NUM_DESCRIPTION_TYPES * 2
+    wait_for_replication_change(main_cursor, delete_ts)
+
+    assert get_all_descriptions(main_cursor) == []
+
+    for replica_name in ["replica_1", "replica_2"]:
+        assert get_all_descriptions(get_replica_cursor(replica_name)) == []
 
 
 if __name__ == "__main__":

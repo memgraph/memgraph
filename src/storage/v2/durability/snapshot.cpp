@@ -9893,6 +9893,15 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
               from_labels, et, to_labels, read_string("edge type pattern description"));
           break;
         }
+        case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
+          auto from_labels = read_label_ids();
+          auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
+          auto to_labels = read_label_ids();
+          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+          description_store->SetEdgeTypePatternProperty(
+              from_labels, et, to_labels, prop, read_string("edge type pattern property description"));
+          break;
+        }
         case DescriptionTargetKind::DATABASE:
           description_store->SetDatabase(read_string("database description"));
           break;
@@ -11092,6 +11101,13 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
           write_label_names(entry.from_labels);
           snapshot.WriteString(id_to_name(entry.edge_type));
           write_label_names(entry.to_labels);
+          snapshot.WriteString(entry.description);
+          break;
+        case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+          write_label_names(entry.from_labels);
+          snapshot.WriteString(id_to_name(entry.edge_type));
+          write_label_names(entry.to_labels);
+          snapshot.WriteString(id_to_name(entry.property));
           snapshot.WriteString(entry.description);
           break;
         case DescriptionTargetKind::DATABASE:

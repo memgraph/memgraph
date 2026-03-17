@@ -4295,6 +4295,20 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
     for (auto *property : ctx->propertyKeyName()) {
       description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
     }
+  } else if (ctx->EDGE() && ctx->PROPERTY() && ctx->edgeTypePattern()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY;
+    auto *pattern = ctx->edgeTypePattern();
+    auto pattern_nodes = pattern->edgeTypePatternNode();
+    for (auto *label : pattern_nodes[0]->labelName()) {
+      description_query->from_labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+    description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(pattern->labelName()->accept(this)));
+    for (auto *label : pattern_nodes[1]->labelName()) {
+      description_query->to_labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+    for (auto *property : ctx->propertyKeyName()) {
+      description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
+    }
   } else if (ctx->EDGE() && ctx->PROPERTY()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY;
     description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));

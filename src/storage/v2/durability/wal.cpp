@@ -658,7 +658,8 @@ auto ReadDescriptionFields(BaseDecoder *decoder) {
       fields.property = *std::move(prop);
       break;
     }
-    case DescriptionTargetKind::EDGE_TYPE_PATTERN: {
+    case DescriptionTargetKind::EDGE_TYPE_PATTERN:
+    case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
       auto from_count = decoder->ReadUint();
       if (!from_count) throw RecoveryFailure(kInvalidWalErrorMessage);
       fields.from_labels.reserve(*from_count);
@@ -677,6 +678,11 @@ auto ReadDescriptionFields(BaseDecoder *decoder) {
         auto string = decoder->ReadString();
         if (!string) throw RecoveryFailure(kInvalidWalErrorMessage);
         fields.to_labels.emplace_back(*std::move(string));
+      }
+      if (kind == DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY) {
+        auto prop = decoder->ReadString();
+        if (!prop) throw RecoveryFailure(kInvalidWalErrorMessage);
+        fields.property = *std::move(prop);
       }
       break;
     }
@@ -744,7 +750,8 @@ void SkipDescriptionFields(BaseDecoder *decoder) {
     case DescriptionTargetKind::PROPERTY:
       if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
       break;
-    case DescriptionTargetKind::EDGE_TYPE_PATTERN: {
+    case DescriptionTargetKind::EDGE_TYPE_PATTERN:
+    case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
       auto from_count = decoder->ReadUint();
       if (!from_count) throw RecoveryFailure(kInvalidWalErrorMessage);
       for (uint64_t i = 0; i < *from_count; ++i) {
@@ -754,6 +761,9 @@ void SkipDescriptionFields(BaseDecoder *decoder) {
       auto to_count = decoder->ReadUint();
       if (!to_count) throw RecoveryFailure(kInvalidWalErrorMessage);
       for (uint64_t i = 0; i < *to_count; ++i) {
+        if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      }
+      if (kind == DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY) {
         if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
       }
       break;
@@ -1766,6 +1776,14 @@ std::optional<RecoveryInfo> LoadWal(
                                                   resolve_labels(data.to_labels),
                                                   data.description);
             break;
+          case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+            description_store->SetEdgeTypePatternProperty(
+                resolve_labels(data.from_labels),
+                EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)),
+                resolve_labels(data.to_labels),
+                PropertyId::FromUint(name_id_mapper->NameToId(data.property)),
+                data.description);
+            break;
           default:
             throw RecoveryFailure(kInvalidWalErrorMessage);
         }
@@ -1802,6 +1820,13 @@ std::optional<RecoveryInfo> LoadWal(
             description_store->DeleteEdgeTypePattern(resolve_labels(data.from_labels),
                                                      EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)),
                                                      resolve_labels(data.to_labels));
+            break;
+          case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+            description_store->DeleteEdgeTypePatternProperty(
+                resolve_labels(data.from_labels),
+                EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)),
+                resolve_labels(data.to_labels),
+                PropertyId::FromUint(name_id_mapper->NameToId(data.property)));
             break;
           default:
             throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -2184,6 +2209,18 @@ void EncodeDescriptionKindFields(BaseEncoder &encoder, NameIdMapper &name_id_map
       for (auto id : to_labels) {
         encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
       }
+      break;
+    case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+      encoder.WriteUint(from_labels.size());
+      for (auto id : from_labels) {
+        encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
+      }
+      encoder.WriteString(name_id_mapper.IdToName(edge_type.AsUint()));
+      encoder.WriteUint(to_labels.size());
+      for (auto id : to_labels) {
+        encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
+      }
+      encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
       break;
     default:
       throw RecoveryFailure(kInvalidWalErrorMessage);

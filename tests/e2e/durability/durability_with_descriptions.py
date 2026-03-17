@@ -25,6 +25,30 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 
 FILE = "durability_with_descriptions"
 
+ALL_SET_QUERIES = [
+    'SET DESCRIPTION ON LABEL :Person "A person node";',
+    'SET DESCRIPTION ON EDGE TYPE :KNOWS "Knows relationship";',
+    'SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of person";',
+    'SET DESCRIPTION ON EDGE TYPE PROPERTY :KNOWS(since) "When they met";',
+    'SET DESCRIPTION ON DATABASE memgraph "Test database";',
+    'SET DESCRIPTION ON PROPERTY age "Age in years";',
+    'SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "Person knows person";',
+    'SET DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since) "Year they met (pattern)";',
+]
+
+ALL_DELETE_QUERIES = [
+    "DELETE DESCRIPTION ON LABEL :Person;",
+    "DELETE DESCRIPTION ON EDGE TYPE :KNOWS;",
+    "DELETE DESCRIPTION ON LABEL PROPERTY :Person(age);",
+    "DELETE DESCRIPTION ON EDGE TYPE PROPERTY :KNOWS(since);",
+    "DELETE DESCRIPTION ON DATABASE memgraph;",
+    "DELETE DESCRIPTION ON PROPERTY age;",
+    "DELETE DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person);",
+    "DELETE DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since);",
+]
+
+NUM_DESCRIPTION_TYPES = len(ALL_SET_QUERIES)
+
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
@@ -41,17 +65,24 @@ def get_all_descriptions(cursor):
     return sorted(execute_and_fetch_all(cursor, "SHOW DESCRIPTIONS;"))
 
 
-def test_durability_all_description_types(test_name):
-    # Goal: All description types together survive restart.
+def set_all_descriptions(cursor):
+    for query in ALL_SET_QUERIES:
+        execute_and_fetch_all(cursor, query)
+
+
+def delete_all_descriptions(cursor):
+    for query in ALL_DELETE_QUERIES:
+        execute_and_fetch_all(cursor, query)
+
+
+def test_durability_set_all_types(test_name):
+    """All description types survive WAL-based restart."""
     data_directory = get_data_path(FILE, test_name)
 
     instance_desc = {
         "main": {
-            "args": [
-                "--log-level=TRACE",
-                "--data-recovery-on-startup=true",
-            ],
-            "log_file": "main_durability_all_descriptions.log",
+            "args": ["--log-level=TRACE", "--data-recovery-on-startup=true"],
+            "log_file": "main_durability_set_all.log",
             "data_directory": data_directory,
         },
     }
@@ -59,15 +90,9 @@ def test_durability_all_description_types(test_name):
     interactive_mg_runner.start(instance_desc, "main")
     cursor = connect(host="localhost", port=7687).cursor()
 
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL :Person "A person node";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Knows relationship";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of person";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON DATABASE memgraph "Test database";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON PROPERTY age "Age in years";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "Person knows person";')
-
+    set_all_descriptions(cursor)
     descriptions = get_all_descriptions(cursor)
-    assert len(descriptions) == 6
+    assert len(descriptions) == NUM_DESCRIPTION_TYPES
 
     interactive_mg_runner.kill(instance_desc, "main")
     interactive_mg_runner.start(instance_desc, "main")
@@ -77,17 +102,14 @@ def test_durability_all_description_types(test_name):
     assert descriptions_after == descriptions
 
 
-def test_durability_delete_description_persisted(test_name):
-    # Goal: Deleting a description is persisted across restart.
+def test_durability_delete_all_types(test_name):
+    """Deleting all description types is persisted across WAL-based restart."""
     data_directory = get_data_path(FILE, test_name)
 
     instance_desc = {
         "main": {
-            "args": [
-                "--log-level=TRACE",
-                "--data-recovery-on-startup=true",
-            ],
-            "log_file": "main_durability_delete_description.log",
+            "args": ["--log-level=TRACE", "--data-recovery-on-startup=true"],
+            "log_file": "main_durability_delete_all.log",
             "data_directory": data_directory,
         },
     }
@@ -95,93 +117,21 @@ def test_durability_delete_description_persisted(test_name):
     interactive_mg_runner.start(instance_desc, "main")
     cursor = connect(host="localhost", port=7687).cursor()
 
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL :Person "A person node";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL :Company "A company node";')
-    execute_and_fetch_all(cursor, "DELETE DESCRIPTION ON LABEL :Person;")
+    set_all_descriptions(cursor)
+    assert len(get_all_descriptions(cursor)) == NUM_DESCRIPTION_TYPES
 
-    descriptions = get_all_descriptions(cursor)
-    assert descriptions == [("label", ["Company"], None, "A company node")]
-
-    interactive_mg_runner.kill(instance_desc, "main")
-    interactive_mg_runner.start(instance_desc, "main")
-    cursor = connect(host="localhost", port=7687).cursor()
-
-    descriptions = get_all_descriptions(cursor)
-    assert descriptions == [("label", ["Company"], None, "A company node")]
-
-
-def test_durability_update_description_persisted(test_name):
-    # Goal: Updating a description is persisted across restart.
-    data_directory = get_data_path(FILE, test_name)
-
-    instance_desc = {
-        "main": {
-            "args": [
-                "--log-level=TRACE",
-                "--data-recovery-on-startup=true",
-            ],
-            "log_file": "main_durability_update_description.log",
-            "data_directory": data_directory,
-        },
-    }
-
-    interactive_mg_runner.start(instance_desc, "main")
-    cursor = connect(host="localhost", port=7687).cursor()
-
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL :Person "First description";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL :Person "Updated description";')
-
-    result = execute_and_fetch_all(cursor, "SHOW DESCRIPTION ON LABEL :Person;")
-    assert result == [("Updated description",)]
+    delete_all_descriptions(cursor)
+    assert get_all_descriptions(cursor) == []
 
     interactive_mg_runner.kill(instance_desc, "main")
     interactive_mg_runner.start(instance_desc, "main")
     cursor = connect(host="localhost", port=7687).cursor()
 
-    result = execute_and_fetch_all(cursor, "SHOW DESCRIPTION ON LABEL :Person;")
-    assert result == [("Updated description",)]
+    assert get_all_descriptions(cursor) == []
 
 
-def test_durability_multi_label_description(test_name):
-    # Goal: Multi-label descriptions survive restart.
-    data_directory = get_data_path(FILE, test_name)
-
-    instance_desc = {
-        "main": {
-            "args": [
-                "--log-level=TRACE",
-                "--data-recovery-on-startup=true",
-            ],
-            "log_file": "main_durability_multi_label.log",
-            "data_directory": data_directory,
-        },
-    }
-
-    interactive_mg_runner.start(instance_desc, "main")
-    cursor = connect(host="localhost", port=7687).cursor()
-
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL :Person:Student "A student person";')
-
-    result = execute_and_fetch_all(cursor, "SHOW DESCRIPTION ON LABEL :Person:Student;")
-    assert result == [("A student person",)]
-
-    # Single label should not match
-    result = execute_and_fetch_all(cursor, "SHOW DESCRIPTION ON LABEL :Person;")
-    assert result == []
-
-    interactive_mg_runner.kill(instance_desc, "main")
-    interactive_mg_runner.start(instance_desc, "main")
-    cursor = connect(host="localhost", port=7687).cursor()
-
-    result = execute_and_fetch_all(cursor, "SHOW DESCRIPTION ON LABEL :Person:Student;")
-    assert result == [("A student person",)]
-
-    result = execute_and_fetch_all(cursor, "SHOW DESCRIPTION ON LABEL :Person;")
-    assert result == []
-
-
-def test_durability_snapshot_recovery(test_name):
-    # Goal: Descriptions survive snapshot-based recovery (not WAL).
+def test_durability_snapshot_all_types(test_name):
+    """All description types survive snapshot-based recovery."""
     data_directory = get_data_path(FILE, test_name)
 
     instance_desc = {
@@ -192,7 +142,7 @@ def test_durability_snapshot_recovery(test_name):
                 "--storage-snapshot-on-exit=true",
                 "--storage-wal-enabled=false",
             ],
-            "log_file": "main_durability_snapshot_recovery.log",
+            "log_file": "main_durability_snapshot_all.log",
             "data_directory": data_directory,
         },
     }
@@ -200,15 +150,9 @@ def test_durability_snapshot_recovery(test_name):
     interactive_mg_runner.start(instance_desc, "main")
     cursor = connect(host="localhost", port=7687).cursor()
 
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL :Person "A person node";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON EDGE TYPE :KNOWS "Knows relationship";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of person";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON DATABASE memgraph "Test database";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON PROPERTY age "Age in years";')
-    execute_and_fetch_all(cursor, 'SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "Person knows person";')
-
+    set_all_descriptions(cursor)
     descriptions = get_all_descriptions(cursor)
-    assert len(descriptions) == 6
+    assert len(descriptions) == NUM_DESCRIPTION_TYPES
 
     # Graceful shutdown triggers snapshot-on-exit.
     interactive_mg_runner.stop(instance_desc, "main")

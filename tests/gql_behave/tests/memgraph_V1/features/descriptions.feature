@@ -381,6 +381,31 @@ Feature: Server-side descriptions
             """
         Then the result should be empty
 
+    Scenario: Set and show edge type pattern property description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since) "Year they met"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since)
+            """
+        Then the result should be:
+            | description     |
+            | 'Year they met' |
+        When executing query:
+            """
+            DELETE DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since)
+            """
+        Then the result should be empty
+
     Scenario: Show description on label with no description returns empty
         Given an empty graph
         When executing query:
