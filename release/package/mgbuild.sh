@@ -1571,7 +1571,17 @@ package_mage_docker() {
 }
 
 test_mage() {
-  # TODO: move other tests into this function like the test_memgraph function
+  local test_name="$1"
+
+  if [[ "$enable_monitoring" == "true" ]]; then
+    if [[ -z "$service_name" ]]; then
+      service_name="$test_name"
+      echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+    fi
+    start_monitoring
+  fi
+
+  trap stop_monitoring EXIT INT TERM
 
   function create_e2e_test_env() {
     cd $PROJECT_ROOT/mage

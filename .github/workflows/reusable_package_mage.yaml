@@ -100,6 +100,11 @@ env:
   MEMGRAPH_DOWNLOAD_LINK: ${{ inputs.memgraph_download_link }}
   VERSION: "${{ inputs.version }}"
   CI_BRANCH: "${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}"
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-mage"
 
 jobs:
   BuildAndPush:
@@ -484,6 +489,10 @@ jobs:
             --arch $ARCH \
             --build-type $BUILD_TYPE \
             --cugraph $CUGRAPH \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e
 
       - name: Wait for e2e Docker images to be available
@@ -501,6 +510,10 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e-correctness \
             --memgraph-port $MEMGRAPH_PORT \
             --neo4j-port $NEO4J_PORT \
@@ -518,6 +531,10 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-mage e2e-migration \
             --mage-container $MAGE_CONTAINER \
             --mysql-container $MYSQL_CONTAINER \
