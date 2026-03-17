@@ -49,7 +49,7 @@ struct BasePromise {
     bool await_ready() const noexcept { return false; }
 
     std::coroutine_handle<> await_suspend(std::coroutine_handle<>) const noexcept {
-      return continuation ? continuation : std::noop_coroutine();
+      return continuation;  // always non-null: set by RunPullToCompletion or await_suspend before resumption
     }
 
     void await_resume() const noexcept {}
@@ -66,7 +66,7 @@ struct BasePromise {
     bool await_ready() const noexcept { return false; }
 
     std::coroutine_handle<> await_suspend(std::coroutine_handle<>) const noexcept {
-      return continuation ? continuation : std::noop_coroutine();
+      return continuation;  // always non-null: set by RunPullToCompletion or await_suspend before resumption
     }
 
     void await_resume() const noexcept {}
@@ -189,7 +189,7 @@ class PullAwaitable {
   struct ResumeAwaitable {
     std::coroutine_handle<promise_type> handle_{nullptr};
 
-    bool await_ready() const noexcept { return !handle_ || handle_.done(); }
+    bool await_ready() const noexcept { return handle_.done(); }
 
     std::coroutine_handle<> await_suspend(std::coroutine_handle<> parent) const noexcept {
       handle_.promise().continuation_ = parent;
@@ -197,10 +197,11 @@ class PullAwaitable {
     }
 
     bool await_resume() const {
-      auto &p = handle_.promise();
-      if (p.local_exception_) std::rethrow_exception(p.local_exception_);
-      if (!handle_ || handle_.done()) return false;
-      return p.result_;
+      if (handle_.done()) {
+        handle_.promise().RethrowIfException();
+        return false;
+      }
+      return handle_.promise().result_;
     }
 
     [[nodiscard]] std::coroutine_handle<promise_type> GetHandle() const noexcept { return handle_; }
