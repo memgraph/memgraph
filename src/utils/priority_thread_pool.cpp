@@ -216,8 +216,11 @@ void PriorityThreadPool::RescheduleTaskOnWorker(uint16_t worker_id, TaskSignatur
   DMG_ASSERT(
       worker_id < workers_.size(), "worker_id {} out of range (num mixed workers {})", worker_id, workers_.size());
   Worker *const w = workers_[worker_id].get();
-  const TaskID id = w->last_task_.load(std::memory_order_acquire);
-  DMG_ASSERT(id != 0, "RescheduleTaskOnWorker called with no active task on worker {}", worker_id);
+  TaskID id = w->last_task_.load(std::memory_order_acquire);
+  if (id == 0) {
+    // If no task is currently active, treat it as a new LOW priority task
+    id = task_id_.fetch_sub(1, std::memory_order_acq_rel);
+  }
   w->push(std::move(task), id, /*pinned=*/true);
 }
 

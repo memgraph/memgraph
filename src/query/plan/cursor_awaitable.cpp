@@ -31,7 +31,9 @@ PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ct
   decltype(awaitable.GetHandle()) handle;
 
   if (resume_from) {
-    resume_from.resume();
+    if (!resume_from.done()) {
+      resume_from.resume();
+    }
     if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
       return PullRunResult::Yielded();
     }
@@ -59,15 +61,10 @@ PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ct
   awaitable.RethrowIfException();
   return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
 }
-
 PullRunResult RunPullToCompletion(PullAwaitable::ResumeAwaitable &ra, ExecutionContext &ctx) {
   if (ra.Done()) return PullRunResult::Done();
 
-  // Root generator's continuation must be noop so that co_yield transfers control
-  // back to this function (via symmetric transfer → noop_coroutine → resume returns).
-  ra.GetHandle().promise().continuation_ = std::noop_coroutine();
-
-  // Determine which handle to resume: either the scheduler-yielded inner handle,
+  // Determined which handle to resume: either the scheduler-yielded inner handle,
   // or the root generator itself.
   std::coroutine_handle<> resume_target;
   if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
@@ -76,7 +73,9 @@ PullRunResult RunPullToCompletion(PullAwaitable::ResumeAwaitable &ra, ExecutionC
     resume_target = ra.GetHandle();
   }
 
-  resume_target.resume();
+  if (resume_target && !resume_target.done()) {
+    resume_target.resume();
+  }
 
   if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
     return PullRunResult::Yielded();

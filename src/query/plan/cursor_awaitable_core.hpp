@@ -37,7 +37,7 @@ struct PullRunResult {
 /// handle after resumption, before any frame is destroyed.
 struct BasePromise {
   bool result_{false};
-  std::coroutine_handle<> continuation_{nullptr};
+  std::coroutine_handle<> continuation_{std::noop_coroutine()};
   std::exception_ptr local_exception_{nullptr};
 
   static constexpr std::suspend_always initial_suspend() noexcept { return {}; }
