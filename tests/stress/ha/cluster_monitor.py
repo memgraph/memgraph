@@ -11,7 +11,7 @@ import threading
 import time
 from typing import Any
 
-from ha_common import Protocol, QueryType, execute_and_fetch
+from ha_common import COORDINATOR_INSTANCES, Protocol, QueryType, execute_and_fetch, get_instance_names
 
 
 class ClusterMonitor:
@@ -20,10 +20,17 @@ class ClusterMonitor:
     Accepts a list of coordinators and falls back to the next one if a
     query fails, so monitoring survives coordinator restarts/failovers.
 
+    When ``verify_up=True``, each instance is probed directly via BOLT:
+    coordinators with ``SHOW COORDINATOR SETTINGS;`` and data instances
+    with ``RETURN 1;``.  The list of instances to probe comes from the
+    ``instances`` constructor argument, or from ``get_instance_names()``
+    if not provided.
+
     Usage::
 
         monitor = ClusterMonitor(
             coordinators=["coord_1", "coord_2", "coord_3"],
+            instances=["coord_1", "coord_2", "coord_3", "instance_1", "instance_2", "instance_3"],
             show_replicas=True,
             show_instances=True,
             verify_up=True,
@@ -40,6 +47,7 @@ class ClusterMonitor:
     def __init__(
         self,
         coordinators: list[str] | str = "coord_1",
+        instances: list[str] | None = None,
         show_replicas: bool = False,
         show_instances: bool = False,
         verify_up: bool = False,
@@ -51,6 +59,7 @@ class ClusterMonitor:
         if isinstance(coordinators, str):
             coordinators = [coordinators]
         self._coordinators = coordinators
+        self._instances = instances
         self._show_replicas = show_replicas
         self._show_instances = show_instances
         self._verify_up = verify_up
@@ -161,16 +170,16 @@ class ClusterMonitor:
 
     def _verify_up_loop(self) -> None:
         while not self._stop_event.is_set():
-            try:
-                coord, rows = self._query("SHOW INSTANCES;", protocol=Protocol.BOLT)
-                for row in rows:
-                    name = row.get("name", "unknown")
-                    alive = row.get("alive", row.get("is_alive", None))
-                    if alive is False:
-                        print(f"\n  FATAL: Instance '{name}' is DOWN! (via {coord})")
-                        os._exit(1)
-            except Exception as e:
-                print(f"\n[HEALTH CHECK ERROR] {e}")
+            instances = self._instances if self._instances is not None else get_instance_names()
+            for instance in instances:
+                if self._stop_event.is_set():
+                    break
+                query = "SHOW COORDINATOR SETTINGS;" if instance in COORDINATOR_INSTANCES else "RETURN 1;"
+                try:
+                    execute_and_fetch(instance, query, protocol=Protocol.BOLT, auth=self._auth)
+                except Exception as e:
+                    print(f"\n  FATAL: Instance '{instance}' is DOWN! {e}")
+                    os._exit(1)
             self._stop_event.wait(self._interval)
 
     def _storage_info_loop(self) -> None:
