@@ -1106,22 +1106,44 @@ jobs:
           --arch $ARCH \
           copy --binary --use-make-install --dest-dir build
 
-      - name: Run unit tests for Jepsen code
-        run: |
-          cd tests/jepsen
-          ./run.sh unit-tests --binary ../../build/memgraph
-
-      - name: Start Jepsen monitoring
+      - name: Start Jepsen monitoring (unit-tests)
         if: ${{ env.MONITORING_HOST != '' }}
         run: |
-          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}" \
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-unit" \
           TARGET_DOCKER_NETWORK="jepsen_jepsen" \
           MONITORING_SERVER_HOST="$MONITORING_HOST" \
           MONITORING_USERNAME="$MONITORING_USERNAME" \
           MONITORING_PASSWORD="$MONITORING_PASSWORD" \
           CLUSTER_ID="release-jepsen-${{ github.run_id }}" \
           CLUSTER_ENV="ci-jepsen" \
-          SERVICE_NAME="memgraph-release-jepsen" \
+          SERVICE_NAME="jepsen-unit-tests" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
+
+      - name: Run unit tests for Jepsen code
+        run: |
+          cd tests/jepsen
+          ./run.sh unit-tests --binary ../../build/memgraph
+
+      - name: Stop Jepsen monitoring (unit-tests)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-unit" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
+
+      - name: Start Jepsen monitoring (bank)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-bank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="release-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="jepsen-bank" \
           ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
       - name: Run replication bank test
@@ -1134,6 +1156,28 @@ jobs:
           --ignore-run-stderr-logs \
           --nodes-no 5
 
+      - name: Stop Jepsen monitoring (bank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-bank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
+
+      - name: Start Jepsen monitoring (large)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-large" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="release-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="jepsen-large" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
+
       - name: Run replication large test
         run: |
           cd tests/jepsen
@@ -1143,6 +1187,28 @@ jobs:
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
           --nodes-no 5
+
+      - name: Stop Jepsen monitoring (large)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-large" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
+
+      - name: Start Jepsen monitoring (habank)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-habank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="release-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="jepsen-habank" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
       - name: Run HA bank test
         run: |
@@ -1155,6 +1221,15 @@ jobs:
           --nodes-no 6 \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME
+
+      - name: Stop Jepsen monitoring (habank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-habank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
 
       - name: Process Jepsen results
         continue-on-error: true
@@ -1178,15 +1253,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
-
-      - name: Stop Jepsen monitoring
-        if: ${{ always() && env.MONITORING_HOST != '' }}
-        continue-on-error: true
-        run: |
-          cd tools/ci/monitoring
-          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}" \
-          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
-          ./down.sh
 
       - name: Clean up Docker
         if: always()
