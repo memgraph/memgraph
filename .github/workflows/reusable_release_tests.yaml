@@ -1133,7 +1133,9 @@ jobs:
           --run-args "--workload bank --nodes-config resources/replication-config.edn --time-limit 120 --concurrency 5" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
-          --nodes-no 5
+          --nodes-no 5 \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME
 
       - name: Collect monitoring logs (bank)
         if: ${{ always() && env.MONITORING_HOST != '' }}
@@ -1186,7 +1188,9 @@ jobs:
           --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 60 --concurrency 5" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
-          --nodes-no 5
+          --nodes-no 5 \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME
 
       - name: Collect monitoring logs (large)
         if: ${{ always() && env.MONITORING_HOST != '' }}
