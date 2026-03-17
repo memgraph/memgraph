@@ -11,13 +11,13 @@
 
 #pragma once
 
-#include <cstdio>  // Ensure EOF macro is defined
-#include "query/frontend/ast/ast.hpp"
+#include <cstdio>          // Ensure EOF macro is defined
 #pragma push_macro("EOF")  // hide EOF for antlr headers
 #include <support/Any.h>
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #pragma pop_macro("EOF")  // bring EOF back
 
+#include "query/frontend/ast/ast.hpp"
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
