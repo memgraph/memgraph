@@ -501,6 +501,8 @@ jobs:
 
       - name: Run end-to-end tests
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
+        env:
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -523,6 +525,7 @@ jobs:
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         env:
           PYTHONPATH: "$PWD/tests/e2e"
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -544,6 +547,7 @@ jobs:
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         env:
           PYTHONPATH: "$PWD/e2e"
+          TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
