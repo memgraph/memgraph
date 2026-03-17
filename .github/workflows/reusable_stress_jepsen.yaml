@@ -117,32 +117,10 @@ jobs:
         run: |
           ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --binary --use-make-install --dest-dir build
 
-      - name: Start Jepsen monitoring (unit-tests)
-        if: ${{ env.MONITORING_HOST != '' }}
-        run: |
-          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-unit" \
-          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
-          MONITORING_SERVER_HOST="$MONITORING_HOST" \
-          MONITORING_USERNAME="$MONITORING_USERNAME" \
-          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
-          CLUSTER_ID="stress-jepsen-${{ github.run_id }}" \
-          CLUSTER_ENV="ci-jepsen" \
-          SERVICE_NAME="jepsen-unit-tests" \
-          ./tools/ci/monitoring/start_jepsen_monitoring.sh
-
       - name: Run unit tests for Jepsen code
         run: |
           cd tests/jepsen
           ./run.sh unit-tests --binary ../../build/memgraph
-
-      - name: Stop Jepsen monitoring (unit-tests)
-        if: ${{ always() && env.MONITORING_HOST != '' }}
-        continue-on-error: true
-        run: |
-          cd tools/ci/monitoring
-          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-unit" \
-          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
-          ./down.sh
 
       - name: Start Jepsen monitoring (workload)
         if: ${{ env.MONITORING_HOST != '' }}
