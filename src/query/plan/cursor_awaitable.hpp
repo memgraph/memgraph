@@ -28,14 +28,19 @@ class YieldPointAwaitable {
   struct Awaiter {
     ExecutionContext *ctx_{nullptr};
     utils::ResettableCounter *maybe_check_{nullptr};
+    AbortReason abort_reason_{AbortReason::NO_ABORT};
 
-    bool await_ready() {
-      if (!ctx_ || !maybe_check_) return true;
+    // noexcept so the compiler can inline this into every co_await AbortCheck call site.
+    // Abort is deferred to await_resume() to keep this path throw-free.
+    [[clang::always_inline]] bool await_ready() noexcept {
+      if (!ctx_ || !maybe_check_) [[unlikely]]
+        return true;
       auto result = ctx_->stopping_context.CheckAbortOrYield(*maybe_check_);
-      if (result.action == StopOrYieldResult::Action::Abort) {
-        throw HintedAbortError(result.abort_reason);
+      if (result.action == StopOrYieldResult::Action::Abort) [[unlikely]] {
+        abort_reason_ = result.abort_reason;
+        return true;  // don't suspend; await_resume() will throw
       }
-      if (result.action == StopOrYieldResult::Action::Yield) {
+      if (result.action == StopOrYieldResult::Action::Yield) [[unlikely]] {
         return false;
       }
       return true;
@@ -46,7 +51,10 @@ class YieldPointAwaitable {
       *ctx_->suspended_task_handle_ptr = h;
     }
 
-    void await_resume() const noexcept {}
+    void await_resume() const {
+      if (abort_reason_ != AbortReason::NO_ABORT) [[unlikely]]
+        throw HintedAbortError(abort_reason_);
+    }
   };
 
   YieldPointAwaitable(ExecutionContext &ctx, utils::ResettableCounter &maybe_check) noexcept

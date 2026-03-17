@@ -15,11 +15,6 @@
 
 namespace memgraph::query::plan {
 
-PullAwaitable::ResumeAwaitable Cursor::Pull(Frame &f, ExecutionContext &ctx) {
-  if (!gen_) gen_ = DoPull(f, ctx);
-  return gen_->Resume();
-}
-
 void Cursor::Reset() { gen_.reset(); }
 
 PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ctx) {
