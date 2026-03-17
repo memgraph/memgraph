@@ -57,13 +57,6 @@ DedicatedArenaResource::~DedicatedArenaResource() {
 #endif
 }
 
-void DedicatedArenaResource::Reclaim() const {
-#if USE_JEMALLOC
-  const std::string key = "arena." + std::to_string(arena_id_) + ".purge";
-  je_mallctl(key.c_str(), nullptr, nullptr, nullptr, 0);
-#endif
-}
-
 void *DedicatedArenaResource::do_allocate(size_t bytes, size_t alignment) {
 #if USE_JEMALLOC
   void *p = je_mallocx(bytes, alloc_flags_ | MALLOCX_ALIGN(alignment));
