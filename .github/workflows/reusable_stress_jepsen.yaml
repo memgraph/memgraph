@@ -44,6 +44,9 @@ env:
   BUILD_TYPE: 'RelWithDebInfo'
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
   OS: 'debian-12'
   TOOLCHAIN: 'v7'
   NODES_NO: 6
@@ -114,6 +117,19 @@ jobs:
         run: |
           ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --binary --use-make-install --dest-dir build
 
+      - name: Start Jepsen monitoring
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="stress-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="memgraph-jepsen-stress" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
+
       - name: Run unit tests for Jepsen code
         run: |
           cd tests/jepsen
@@ -176,6 +192,15 @@ jobs:
         run: |
           cd tests/jepsen
           ./run.sh cluster-refresh --nodes-no $NODES_NO
+
+      - name: Stop Jepsen monitoring
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
 
       - name: Stop mgbuild container
         if: always()
