@@ -659,7 +659,7 @@ template <typename Symbol>
 auto PatternCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision,
                                                         InstrAddr innermost, EClassReg eclass_reg,
                                                         InstrAddr eclass_exhaust) -> InstrAddr {
-  auto const vars_before_parents = seen_vars_.size();
+  auto const bindings_before = seen_vars_.size();
   EClassReg current_eclass_reg = eclass_reg;
   std::optional<EClassReg> verify_child_reg;
 
@@ -717,7 +717,8 @@ auto PatternCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &p
   // is fully determined before the parent chain. Multiple parent paths from the
   // same eclass would yield duplicates — skip them and advance to the next eclass.
   // For shared-var (JoinVar) entries, eclass_exhaust == backtrack, so this is a no-op.
-  if (seen_vars_.size() == vars_before_parents) {
+  auto const has_new_bindings = (seen_vars_.size() != bindings_before);
+  if (!has_new_bindings) {
     return eclass_exhaust;
   }
 
@@ -729,10 +730,18 @@ auto PatternCompiler<Symbol>::emit_enode_verify_fragment(Pattern<Symbol> const &
                                                          InstrAddr innermost, EClassReg eclass_reg) -> InstrAddr {
   return std::visit(utils::Overloaded{
                         [&](SymbolWithChildren<Symbol> const &sym) {
+                          auto const bindings_before = seen_vars_.size();
                           auto structure = emit_symbol_structure(pattern, sym, eclass_reg, innermost);
-                          // For root entries (no parent walk), use innermost from structure.
-                          // For non-root entries, use parent_traversal (the enode loop position).
-                          return decision.path_to_root.empty() ? structure.innermost : structure.parent_traversal;
+                          auto const has_new_bindings = (seen_vars_.size() != bindings_before);
+                          // For root entries (no parent walk), always use innermost to enumerate
+                          // all child combinations. For non-root entries with no new bindings, the
+                          // verify is purely existential — use parent_traversal to skip duplicate
+                          // tuples from equivalent enodes. When the subtree introduces new bindings,
+                          // inner enode alternatives can produce distinct tuples, so use innermost.
+                          if (decision.path_to_root.empty() || has_new_bindings) {
+                            return structure.innermost;
+                          }
+                          return structure.parent_traversal;
                         },
                         [&](auto const &) { return innermost; },
                     },

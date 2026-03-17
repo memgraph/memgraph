@@ -864,6 +864,52 @@ void ValidateBindingOrder(Reporter &r, std::span<Instruction const> code, Compil
                 bc);
 }
 
+/// Yield backward Jump must not skip over BindSlot loops.
+/// The Jump may target a NextX directly or a MarkSeen trampoline that precedes
+/// a NextX. We resolve to the effective NextX, then check that every BindSlot
+/// between it and Yield backtracks to an address <= the effective NextX.
+/// A violation means an inner loop introduces new bindings that the Jump skips.
+template <typename Reporter>
+void ValidateYieldJumpCoversBindSlots(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+  // Resolve a Yield Jump target to its effective NextX address.
+  // The target may be a MarkSeen trampoline: MarkSeen → NextX or MarkSeen → Jump → NextX.
+  auto resolve_target = [&](uint16_t target) -> uint16_t {
+    if (target < code.size() && code[target].op == VMOp::MarkSeen) {
+      auto next = target + 1;
+      if (next < code.size()) {
+        if (is_next_op(code[next].op)) return next;
+        if (code[next].op == VMOp::Jump) return code[next].target;
+      }
+    }
+    return target;
+  };
+
+  for (std::size_t i = 0; i < code.size(); ++i) {
+    if (code[i].op != VMOp::Yield) continue;
+    if (i + 1 >= code.size() || code[i + 1].op != VMOp::Jump) continue;
+
+    auto jump_target = code[i + 1].target;
+    // Only check backward jumps (the normal Yield loop-back)
+    if (jump_target > i) continue;
+
+    auto effective_target = resolve_target(jump_target);
+
+    for (auto j = effective_target + 1; j < i; ++j) {
+      if (code[j].op == VMOp::BindSlot) {
+        r.expect_true(code[j].target <= effective_target,
+                      "Yield backward Jump at {} targets {} (effective {}) but BindSlot at {} backtracks to {} -- "
+                      "the Jump skips an inner loop that introduces new bindings\nBytecode:\n{}",
+                      i + 1,
+                      jump_target,
+                      effective_target,
+                      j,
+                      code[j].target,
+                      bc);
+      }
+    }
+  }
+}
+
 // ============================================================================
 // Aggregate validator
 // ============================================================================
@@ -905,6 +951,7 @@ void ValidateBytecodeInvariants(Reporter &r, CompiledPattern<Symbol> const &comp
   // Phase 4: yield / binding
   ValidateYieldStructure(r, code, bc);
   ValidateSlotUsage(r, code, bc);
+  ValidateYieldJumpCoversBindSlots(r, code, bc);
   // Phase 5: instruction-pair invariants
   ValidateCheckSymbolArityPaired(r, code, bc);
   ValidateCheckEClassEq(r, code, bc);
