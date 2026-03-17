@@ -3150,16 +3150,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         graveyard.pop_front();
       }
     });
-
-    // LIGHT EDGE POOL RECLAIM: DedicatedArenaResource::Reclaim() calls
-    // arena.X.purge which is thread-safe in jemalloc and only reclaims
-    // extents where every block is free.  Concurrent transactions allocating
-    // new edges do so in extents with available blocks, which jemalloc will
-    // not purge, so there is no correctness concern under the shared lock.
-    // Always reclaiming after graveyard drain keeps RSS bounded even under
-    // heavy reader load that would prevent the exclusive lock from being
-    // acquired.
-    light_edge_pool_->Reclaim();
   }
 }
 
@@ -4378,10 +4368,6 @@ void InMemoryStorage::ClearLightEdges() {
     }
     graveyard.clear();
   });
-  // Every pool block was freed above; return fully-empty chunks to upstream.
-  // Safe: caller holds engine_lock_ + gc_lock_ (Clear) or gc_lock_ with
-  // exclusive transaction access (DropGraph) — no concurrent alloc/dealloc.
-  light_edge_pool_->Reclaim();
 }
 
 void InMemoryStorage::Clear() {

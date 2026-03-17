@@ -22,10 +22,6 @@ namespace memgraph::memory {
 /// Per-thread caches keep the hot path lock-free; cross-thread frees are
 /// handled transparently by jemalloc.
 ///
-/// Reclaim() purges unused extents back to the OS (equivalent to the old
-/// SingleSizePoolResource::Reclaim()).  The destructor destroys the entire
-/// arena and returns all memory immediately.
-///
 /// When jemalloc is disabled (ASAN/TSAN builds) the class falls back to
 /// operator new / operator delete, providing the same pmr interface with no
 /// pooling.
@@ -38,10 +34,6 @@ class DedicatedArenaResource final : public std::pmr::memory_resource {
   DedicatedArenaResource &operator=(const DedicatedArenaResource &) = delete;
   DedicatedArenaResource(DedicatedArenaResource &&) = delete;
   DedicatedArenaResource &operator=(DedicatedArenaResource &&) = delete;
-
-  /// Hint the OS to reclaim unused pages.  Safe to call from any thread while
-  /// no allocations are in flight (same precondition as the old Reclaim()).
-  void Reclaim() const;
 
  protected:
   void *do_allocate(size_t bytes, size_t alignment) override;
