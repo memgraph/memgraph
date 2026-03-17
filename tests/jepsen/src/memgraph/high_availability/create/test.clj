@@ -295,22 +295,25 @@
                                      (assoc op :type :info :value {:str "Failed to obtain connection towards write server."})
 
                                      (utils/strict-sync-replica-down? e)
-                                     (assoc op :type :ok :value {:str "STRICT_SYNC replica is down."})
+                                     (assoc op :type :info :value {:str "STRICT_SYNC replica is down."})
 
                                      (utils/sync-replica-down? e)
-                                     (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
+                                     (assoc op :type :info :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
+
+                                     (utils/asked-to-abort-shutdown? e)
+                                     (assoc op :type :info :value {:str "Transaction was asked to abort because of the shutdown."})
 
                                      (utils/main-became-replica? e)
-                                     (assoc op :type :ok :value {:str "Cannot commit because instance is not main anymore."})
+                                     (assoc op :type :info :value {:str "Cannot commit because instance is not main anymore."})
 
                                      (utils/main-unwriteable? e)
-                                     (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
+                                     (assoc op :type :info :value {:str "Cannot commit because main is currently non-writeable."})
 
                                      (utils/unique-constraint-violated? e)
-                                     (assoc op :type :ok :value {:str "Unique constraint was violated."})
+                                     (assoc op :type :info :value {:str "Unique constraint was violated."})
 
                                      (utils/cannot-get-shared-access? e)
-                                     (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
+                                     (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
 
                                      (or (utils/query-forbidden-on-replica? e)
                                          (utils/query-forbidden-on-main? e))

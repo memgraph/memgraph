@@ -182,16 +182,19 @@
                           (catch org.neo4j.driver.exceptions.ClientException e
                             (cond
                               (utils/sync-replica-down? e)
-                              (assoc op :type :ok :value {:str "Nodes updated. SYNC replica is down."})
+                              (assoc op :type :info :value {:str "Nodes updated. SYNC replica is down."})
+
+                              (utils/asked-to-abort-shutdown? e)
+                              (assoc op :type :info :value {:str "Transaction was asked to abort because of the shutdown."})
 
                               (utils/main-became-replica? e)
-                              (assoc op :type :ok :value {:str "Cannot commit because instance is not main anymore."})
+                              (assoc op :type :info :value {:str "Cannot commit because instance is not main anymore."})
 
                               (utils/main-unwriteable? e)
-                              (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
+                              (assoc op :type :info :value {:str "Cannot commit because main is currently non-writeable."})
 
                               (utils/cannot-get-shared-access? e)
-                              (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
+                              (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
 
                               (or (utils/query-forbidden-on-replica? e)
                                   (utils/query-forbidden-on-main? e))
@@ -222,10 +225,13 @@
                               (catch org.neo4j.driver.exceptions.ClientException e
                                 (cond
                                   (utils/sync-replica-down? e)
-                                  (assoc op :type :ok :value {:str "TTL edges created. SYNC replica is down."})
+                                  (assoc op :type :info :value {:str "TTL edges created. SYNC replica is down."})
 
                                   (utils/cannot-get-shared-access? e)
-                                  (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
+                                  (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
+
+                                  (utils/asked-to-abort-shutdown? e)
+                                  (assoc op :type :info :value {:str "Transaction was asked to abort because of the shutdown."})
 
                                   (utils/main-became-replica? e)
                                   (assoc op :type :info :value {:str "Cannot commit because instance is not main anymore."})
@@ -264,10 +270,13 @@
                               (catch org.neo4j.driver.exceptions.ClientException e
                                 (cond
                                   (utils/sync-replica-down? e)
-                                  (assoc op :type :ok :value {:str "Edges deleted. SYNC replica is down."})
+                                  (assoc op :type :info :value {:str "Edges deleted. SYNC replica is down."})
+
+                                  (utils/asked-to-abort-shutdown? e)
+                                  (assoc op :type :info :value {:str "Transaction was asked to abort because of the shutdown."})
 
                                   (utils/cannot-get-shared-access? e)
-                                  (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
+                                  (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
 
                                   (utils/main-became-replica? e)
                                   (assoc op :type :info :value {:str "Cannot commit because instance is not main anymore."})
@@ -366,10 +375,13 @@
                                 (catch org.neo4j.driver.exceptions.TransientException e
                                   (cond
                                     (utils/sync-replica-down? e)
-                                    (assoc op :type :ok :value {:str "SYNC replica is down during import."})
+                                    (assoc op :type :info :value {:str "SYNC replica is down during import."})
+
+                                    (utils/asked-to-abort-shutdown? e)
+                                    (assoc op :type :info :value {:str "Transaction was asked to abort because of the shutdown."})
 
                                     (utils/cannot-get-shared-access? e)
-                                    (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
+                                    (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
 
                                     (utils/conflicting-txns? e)
                                     (assoc op :type :info :value {:str "Conflicting txns"})

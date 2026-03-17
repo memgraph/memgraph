@@ -78,6 +78,12 @@
   [f]
   {:type :info :f f})
 
+
+(defn asked-to-abort-shutdown?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Cannot commit because of the ongoing shutdown"))
+
 (defn not-main-anymore?
   "Accepts exception e as argument."
   [e]
