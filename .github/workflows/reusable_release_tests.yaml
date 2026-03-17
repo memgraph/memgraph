@@ -1111,6 +1111,19 @@ jobs:
           cd tests/jepsen
           ./run.sh unit-tests --binary ../../build/memgraph
 
+      - name: Start Jepsen monitoring
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="release-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="memgraph-release-jepsen" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
+
       - name: Run replication bank test
         run: |
           cd tests/jepsen
@@ -1165,6 +1178,15 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+      - name: Stop Jepsen monitoring
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
 
       - name: Clean up Docker
         if: always()
