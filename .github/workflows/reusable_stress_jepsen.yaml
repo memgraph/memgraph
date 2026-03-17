@@ -117,23 +117,52 @@ jobs:
         run: |
           ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --binary --use-make-install --dest-dir build
 
-      - name: Start Jepsen monitoring
+      - name: Start Jepsen monitoring (unit-tests)
         if: ${{ env.MONITORING_HOST != '' }}
         run: |
-          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}" \
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-unit" \
           TARGET_DOCKER_NETWORK="jepsen_jepsen" \
           MONITORING_SERVER_HOST="$MONITORING_HOST" \
           MONITORING_USERNAME="$MONITORING_USERNAME" \
           MONITORING_PASSWORD="$MONITORING_PASSWORD" \
           CLUSTER_ID="stress-jepsen-${{ github.run_id }}" \
           CLUSTER_ENV="ci-jepsen" \
-          SERVICE_NAME="memgraph-jepsen-stress" \
+          SERVICE_NAME="jepsen-unit-tests" \
           ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
       - name: Run unit tests for Jepsen code
         run: |
           cd tests/jepsen
           ./run.sh unit-tests --binary ../../build/memgraph
+
+      - name: Stop Jepsen monitoring (unit-tests)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-unit" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
+
+      - name: Start Jepsen monitoring (workload)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          if [[ "${{ inputs.mt }}" == "true" ]]; then
+            SERVICE_NAME="jepsen-ha-mt"
+            COMPOSE_SUFFIX="ha-mt"
+          else
+            SERVICE_NAME="jepsen-hacreate"
+            COMPOSE_SUFFIX="hacreate"
+          fi
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-${COMPOSE_SUFFIX}" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="stress-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="$SERVICE_NAME" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
       - name: Run Jepsen workload
         env:
@@ -193,12 +222,17 @@ jobs:
           cd tests/jepsen
           ./run.sh cluster-refresh --nodes-no $NODES_NO
 
-      - name: Stop Jepsen monitoring
+      - name: Stop Jepsen monitoring (workload)
         if: ${{ always() && env.MONITORING_HOST != '' }}
         continue-on-error: true
         run: |
+          if [[ "${{ inputs.mt }}" == "true" ]]; then
+            COMPOSE_SUFFIX="ha-mt"
+          else
+            COMPOSE_SUFFIX="hacreate"
+          fi
           cd tools/ci/monitoring
-          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}" \
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-${COMPOSE_SUFFIX}" \
           TARGET_DOCKER_NETWORK="jepsen_jepsen" \
           ./down.sh
 
