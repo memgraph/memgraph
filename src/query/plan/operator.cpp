@@ -387,9 +387,7 @@ uint64_t ComputeProfilingKey(const T *obj) {
 // impact on performance for the expected (non-abort) case.
 thread_local auto maybe_check_abort = utils::ResettableCounter{20};
 
-inline YieldPointAwaitable AbortCheck(ExecutionContext &context) {
-  return YieldPointAwaitable(context, maybe_check_abort);
-}
+inline YieldPointAwaitable AbortCheck(ExecutionContext &context) { return {context, maybe_check_abort}; }
 
 std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType> &labels,
                                              ExpressionEvaluator &evaluator, DbAccessor *dba) {
@@ -2583,7 +2581,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       co_await AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
-      if (current_length > upper_bound) co_return false;
+      if (static_cast<int64_t>(current_length) > upper_bound) co_return false;
 
       for (const auto &vertex : source_frontier) {
         if (context.hops_limit.IsLimitReached()) break;
@@ -2649,7 +2647,7 @@ class STShortestPathCursor : public query::plan::Cursor {
 
       // Bottom-up step (expansion from the sink).
       ++current_length;
-      if (current_length > upper_bound) co_return false;
+      if (static_cast<int64_t>(current_length) > upper_bound) co_return false;
 
       // When expanding from the sink we have to be careful which edge
       // endpoint we pass to `should_expand`, because everything is
@@ -3802,14 +3800,14 @@ class KShortestPathsCursor : public Cursor {
           co_await AbortCheck(context);
           if (context.hops_limit.IsLimitReached()) co_return false;
 
-          auto &source_tv = frame[self_.input_symbol_];
-          auto &target_tv = frame[self_.common_.node_symbol];
+          const auto &source_tv = frame[self_.input_symbol_];
+          const auto &target_tv = frame[self_.common_.node_symbol];
 
           // It is possible that source or sink vertex is Null due to optional matching.
           if (source_tv.IsNull() || target_tv.IsNull()) continue;
 
-          auto &source_vertex = source_tv.ValueVertex();
-          auto &target_vertex = target_tv.ValueVertex();
+          const auto &source_vertex = source_tv.ValueVertex();
+          const auto &target_vertex = target_tv.ValueVertex();
 
           // Skip if source and target are the same vertex
           if (source_vertex == target_vertex) continue;
@@ -11176,7 +11174,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
   }
 
   void Reset() override {
-    Cursor::Reset();
+    ParallelBranchCursor::Reset();
     for (const auto &cursor : branch_cursors_) cursor->Reset();
     initialized_ = false;
     main_aggregation_ = nullptr;
@@ -11450,7 +11448,6 @@ PullAwaitable Skip::SkipCursor::DoPull(Frame &frame, ExecutionContext &context) 
     if (shared_quota_ && shared_quota_->Decrement() > 0) continue;
     shared_quota_.reset();  // consumed all quota, reset the shared quota
     co_yield true;
-    continue;
   }
   shared_quota_.reset();  // Important to release any remaining resource for other threads
   co_return false;

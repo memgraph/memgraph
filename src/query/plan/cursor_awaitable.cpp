@@ -61,6 +61,7 @@ PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ct
   awaitable.RethrowIfException();
   return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
 }
+
 PullRunResult RunPullToCompletion(PullAwaitable::ResumeAwaitable &ra, ExecutionContext &ctx) {
   if (ra.Done()) return PullRunResult::Done();
 

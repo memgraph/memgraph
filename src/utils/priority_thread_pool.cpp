@@ -186,7 +186,7 @@ void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Prio
     Priority priority;
 
     void Run() {
-      bool yielded = (*task)();
+      const bool yielded = (*task)();
       if (!yielded) return;
       auto *sig = WorkerYieldRegistry::GetCurrentYieldSignal();
       if (sig && sig->load(std::memory_order_acquire)) {
@@ -200,7 +200,8 @@ void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Prio
     }
   };
 
-  ResumableWrapper w{std::make_shared<ResumableTaskSignature>(std::move(task)), this, priority};
+  ResumableWrapper w{
+      .task = std::make_shared<ResumableTaskSignature>(std::move(task)), .pool = this, .priority = priority};
   ScheduledAddTask([w]() mutable { w.Run(); }, priority);
 }
 
@@ -227,7 +228,7 @@ void PriorityThreadPool::RescheduleTaskOnWorker(uint16_t worker_id, TaskSignatur
 void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id, bool pinned) {
   {
     auto l = std::unique_lock{mtx_};
-    Work w{id, std::move(new_task), pinned};
+    Work w{.id = id, .work = std::move(new_task), .pinned = pinned};
     (pinned ? work_pinned_ : work_).push(std::move(w));
     // TODO thing about atomic ordering and if this can be missed or requested when not needed
     // Only request a yield when the worker is actively running a task. If it is idle it will

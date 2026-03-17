@@ -73,6 +73,6 @@ class YieldPointAwaitable {
 PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ctx);
 
 /// Generator-aware variant: resumes the root generator one step (one row or exhaustion).
-PullRunResult RunPullToCompletion(PullAwaitable::ResumeAwaitable &awaitable, ExecutionContext &ctx);
+PullRunResult RunPullToCompletion(PullAwaitable::ResumeAwaitable &ra, ExecutionContext &ctx);
 
 }  // namespace memgraph::query::plan
