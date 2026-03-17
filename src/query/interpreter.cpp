@@ -3107,6 +3107,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
     // Only do lookahead when we streamed exactly n results; we need one more pull to set has_more.
     // When we broke because the cursor returned false (no more rows), we must not pull again.
+    // Always reset first: if we broke early (cursor exhausted or no limit), there are no unsent results.
+    has_unsent_results_ = false;
     if (n && i == *n) {
       auto pr = pull_result();
       if (!pr.has_value()) {

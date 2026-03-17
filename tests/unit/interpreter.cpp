@@ -170,7 +170,12 @@ TYPED_TEST(InterpreterTest, MultiplePulls) {
 
 // Full flow: pool (with WorkerYieldRegistry) runs interpreter Pull; external thread triggers
 // yield; continuation runs on pool until query completes. Verifies scheduler + PullPlan yield path.
+// InMemory only: DiskStorage triggers repeated "edge-type index not supported" warnings for each
+// MATCH iteration and is too slow for the 300-node × 3000-iteration dataset.
 TYPED_TEST(InterpreterTest, YieldFlowPoolInterpreterPull) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Yield test is storage-agnostic; skip slow/noisy DiskStorage variant";
+  }
   // Create data so MATCH has work to do and can hit yield points
   this->Interpret("UNWIND range(1, 300) AS i CREATE () RETURN i");
   auto [stream, qid] = this->Prepare("UNWIND range(1, 3000) AS i MATCH (n) RETURN count(n)");
