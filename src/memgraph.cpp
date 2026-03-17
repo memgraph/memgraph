@@ -843,8 +843,9 @@ int main(int argc, char **argv) {
 
 // TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
+  memgraph::dbms::Database *const main_db = db_acc.operator->();
   memgraph::glue::MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, main_db, &context};
   spdlog::trace("Metrics server created.");
 #endif
 

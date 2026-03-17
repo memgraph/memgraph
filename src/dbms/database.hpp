@@ -13,6 +13,7 @@
 
 #include <memory>
 #include <optional>
+#include <shared_mutex>
 
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
@@ -117,11 +118,17 @@ class Database {
    * @return DatabaseInfo
    */
   DatabaseInfo GetInfo() const {
+    auto const guard = std::shared_lock{storage_swap_lock_};
     DatabaseInfo info;
     info.storage_info = storage_->GetInfo();
     info.triggers = trigger_store_.GetTriggerInfo().size();
     info.streams = streams_.GetStreamInfo().size();
     return info;
+  }
+
+  storage::StorageInfo GetBaseInfo() const {
+    auto const guard = std::shared_lock{storage_swap_lock_};
+    return storage_->GetBaseInfo();
   }
 
   /**
@@ -186,6 +193,7 @@ class Database {
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};  //!< Thread pool for executing after commit triggers
   query::stream::Streams streams_;                  //!< Streams associated with the storage
+  mutable std::shared_mutex storage_swap_lock_;
 
   // TODO: Move to a better place
   query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
