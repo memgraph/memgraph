@@ -273,7 +273,8 @@ def _test_online(test_dir: Path, db: Memgraph):
 
 def _test_standalone(test_file: Path):
     """
-    Run a standalone Python test script via pytest subprocess.
+    Run a self-contained Python test script via pytest subprocess.
+    These scripts manage their own connections and cleanup.
     """
     result = subprocess.run(
         ["python3", "-m", "pytest", str(test_file), "-v"],
