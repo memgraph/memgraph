@@ -486,6 +486,8 @@ jobs:
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         env:
           TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -509,6 +511,8 @@ jobs:
         env:
           PYTHONPATH: "$PWD/tests/e2e"
           TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -531,6 +535,8 @@ jobs:
         env:
           PYTHONPATH: "$PWD/e2e"
           TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
+          MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
+          MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
