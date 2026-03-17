@@ -305,6 +305,14 @@ static auto const kCompilerCases = std::vector<CompilerTestCase>{
            TestPattern::build(Op::F2, {Var{kVarY}, Var{kVarB}})};
      }},
 
+    // --- Join: deep entry with subtree bindings ---
+    {"Join_DeepEntrySubtreeBinding",                                              // Bind(?w,?x,?y), F(?x=G(H(?z)))
+     [] {
+       return std::vector{
+           TestPattern::build(Op::Bind, {Var{kVarW}, Var{kVarX}, Var{kVarY}}),
+           TestPattern::build(Op::F, {BoundSym(kVarX, Op::G, Sym(Op::H, Var{kVarZ}))})};
+     }},
+
     // Deep
     {"Deep_NestedNeg35",                                                           // Neg(Neg(...Neg(?x)...)) depth 35
      [] {

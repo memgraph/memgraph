@@ -676,6 +676,29 @@ auto const kMatchingCases = std::to_array<MatchingTestCase>({
 // Multi-Pattern: Concurrent Iteration
 // ============================================================================
 
+// Non-root entry where enode verify subtree introduces new bindings via nested
+// IterENodes. Pattern A (Bind, 3 vars) is the anchor. Pattern B (F, 2 vars)
+// enters at G via JoinVar{?x}. EnodeVerify for G(H(?z)) must iterate all H
+// enodes in the merged eclass to enumerate distinct ?z values.
+{Multi | Join | BoundSym_ | ParentChain | Merge | Nesting, "EnodeVerifySubtreeBinding", [](auto &t) -> MatchingExpected {
+  auto a = t.leaf(Op::A);
+  auto b = t.leaf(Op::B);
+  auto c = t.leaf(Op::C);
+  auto d = t.leaf(Op::D);
+  auto h_a = t.node(Op::H, a);       // H(A)
+  auto h_b = t.node(Op::H, b);       // H(B)
+  t.merge(h_a, h_b);                        // merged eclass M_h has enodes H(A), H(B)
+  auto g = t.node(Op::G, h_a);       // G(M_h)
+  t.node(Op::Bind, c, g, d);                // Bind(C, G(...), D) — pattern A root
+  t.node(Op::F, g);                         // F(G(...)) — pattern B root
+  // Pattern A: Bind(?w, ?x, ?y) — 3 vars, anchor
+  // Pattern B: F(?x=G(H(?z))) — 2 vars, enters at G via JoinVar
+  t.use_patterns(TestPattern::build(Op::Bind, {Var{kVarW}, Var{kVarX}, Var{kVarY}}),
+                 TestPattern::build(Op::F, {BoundSym(kVarX, Op::G, Sym(Op::H, Var{kVarZ}))}));
+  return {{{{kVarW, c}, {kVarX, g}, {kVarY, d}, {kVarZ, a}},
+           {{kVarW, c}, {kVarX, g}, {kVarY, d}, {kVarZ, b}}}};
+}},
+
 {Multi | Concurrent, "SameSymbol", [](auto &t) -> MatchingExpected {
   auto a = t.leaf(Op::A);
   auto b = t.leaf(Op::B);
