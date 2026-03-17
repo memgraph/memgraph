@@ -1135,6 +1135,26 @@ jobs:
           --ignore-run-stderr-logs \
           --nodes-no 5
 
+      - name: Collect monitoring logs (bank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          LOG_DIR="build/monitoring/bank"
+          mkdir -p "$LOG_DIR"
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-bank"
+          docker logs "${COMPOSE_PROJECT_NAME}-vmagent" > "$LOG_DIR/vmagent.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-mg-exporter" > "$LOG_DIR/mg-exporter.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-vector" > "$LOG_DIR/vector.log" 2>&1 || true
+
+      - name: Upload monitoring logs (bank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Jepsen Monitoring Logs Bank-${{ env.OS }}"
+          path: build/monitoring/bank
+          if-no-files-found: warn
+
       - name: Stop Jepsen monitoring (bank)
         if: ${{ always() && env.MONITORING_HOST != '' }}
         continue-on-error: true
@@ -1167,6 +1187,26 @@ jobs:
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
           --nodes-no 5
+
+      - name: Collect monitoring logs (large)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          LOG_DIR="build/monitoring/large"
+          mkdir -p "$LOG_DIR"
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-large"
+          docker logs "${COMPOSE_PROJECT_NAME}-vmagent" > "$LOG_DIR/vmagent.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-mg-exporter" > "$LOG_DIR/mg-exporter.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-vector" > "$LOG_DIR/vector.log" 2>&1 || true
+
+      - name: Upload monitoring logs (large)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Jepsen Monitoring Logs Large-${{ env.OS }}"
+          path: build/monitoring/large
+          if-no-files-found: warn
 
       - name: Stop Jepsen monitoring (large)
         if: ${{ always() && env.MONITORING_HOST != '' }}
