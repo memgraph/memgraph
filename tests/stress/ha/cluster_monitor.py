@@ -11,7 +11,7 @@ import threading
 import time
 from typing import Any
 
-from ha_common import Protocol, QueryType, execute_and_fetch
+from ha_common import COORDINATOR_INSTANCES, Protocol, QueryType, execute_and_fetch, get_instance_names
 
 
 class ClusterMonitor:
@@ -225,15 +225,30 @@ class ClusterMonitor:
         return all_ready
 
     def verify_instances_up(self) -> bool:
-        """Check that all instances are alive. Returns True if all up."""
-        coord, rows = self._query("SHOW INSTANCES;", protocol=Protocol.BOLT)
-        print(f"[verify_instances_up via {coord}]")
+        """Check that all instances are reachable by connecting to them directly via BOLT.
+
+        Coordinators are queried with SHOW COORDINATOR SETTINGS;
+        Data instances are queried with RETURN 1;
+        Instance lists are derived from get_instance_names() and COORDINATOR_INSTANCES.
+        """
+        all_instances = get_instance_names()
+        coordinators = [i for i in all_instances if i in COORDINATOR_INSTANCES]
+        data_instances = [i for i in all_instances if i not in COORDINATOR_INSTANCES]
+
         all_up = True
-        for row in rows:
-            name = row.get("name", "unknown")
-            alive = row.get("alive", row.get("is_alive", None))
-            if alive is False:
-                print(f"ERROR: Instance '{name}' is DOWN!")
+        for coord in coordinators:
+            try:
+                execute_and_fetch(coord, "SHOW COORDINATOR SETTINGS;", protocol=Protocol.BOLT, auth=self._auth)
+                print(f"  [verify_instances_up] {coord} is UP")
+            except Exception as e:
+                print(f"  [verify_instances_up] ERROR: coordinator '{coord}' is DOWN: {e}")
+                all_up = False
+        for instance in data_instances:
+            try:
+                execute_and_fetch(instance, "RETURN 1;", protocol=Protocol.BOLT, auth=self._auth)
+                print(f"  [verify_instances_up] {instance} is UP")
+            except Exception as e:
+                print(f"  [verify_instances_up] ERROR: data instance '{instance}' is DOWN: {e}")
                 all_up = False
         if all_up:
             print("All instances are up!")
