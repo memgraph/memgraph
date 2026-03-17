@@ -1,4 +1,5 @@
 import os
+import subprocess
 from pathlib import Path
 from typing import Dict, List
 
@@ -41,6 +42,8 @@ class TestConstants:
     EXPORT_TEST_E2E_PLACEHOLDER_FILENAME = "_exportfile"
     EXPORT_TEST_E2E_OUTPUT_FILE = "/home/memgraph/_exported_data"
     EXPORT_TEST_SUBDIR_PREFIX = "test_export"
+    STANDALONE_TEST_PREFIX = "test_"
+    STANDALONE_TEST_SUFFIX = ".py"
 
 
 def _node_to_dict(data):
@@ -98,6 +101,20 @@ def prepare_tests():
             continue
 
         for test_or_group_dir in module_test_dir.iterdir():
+            # Standalone Python test scripts (test_*.py)
+            if (
+                test_or_group_dir.is_file()
+                and test_or_group_dir.name.startswith(TestConstants.STANDALONE_TEST_PREFIX)
+                and test_or_group_dir.name.endswith(TestConstants.STANDALONE_TEST_SUFFIX)
+            ):
+                tests.append(
+                    pytest.param(
+                        test_or_group_dir,
+                        id=f"{module_test_dir.stem}-{test_or_group_dir.stem}",
+                    )
+                )
+                continue
+
             if not test_or_group_dir.is_dir():
                 continue
 
@@ -254,8 +271,26 @@ def _test_online(test_dir: Path, db: Memgraph):
             _execute_cyphers(cleanup_cyphers.splitlines(), db)
 
 
+def _test_standalone(test_file: Path):
+    """
+    Run a standalone Python test script via pytest subprocess.
+    """
+    result = subprocess.run(
+        ["python3", "-m", "pytest", str(test_file), "-v"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        pytest.fail(f"Standalone test {test_file.name} failed:\n" f"{result.stdout}\n{result.stderr}")
+
+
 @pytest.mark.parametrize("test_dir", tests)
 def test_end2end(test_dir: Path, db: Memgraph):
+    # Standalone Python test scripts run in a subprocess
+    if test_dir.is_file() and test_dir.suffix == ".py":
+        _test_standalone(test_dir)
+        return
+
     db.drop_database()
 
     if test_dir.name.startswith(TestConstants.EXPORT_TEST_SUBDIR_PREFIX):
