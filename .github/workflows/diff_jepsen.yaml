@@ -93,6 +93,7 @@ jobs:
       - name: Start Jepsen monitoring (bank)
         if: ${{ env.MONITORING_HOST != '' }}
         run: |
+          JEPSEN_NODE_COUNT=5 \
           COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-bank" \
           TARGET_DOCKER_NETWORK="jepsen_jepsen" \
           MONITORING_SERVER_HOST="$MONITORING_HOST" \
@@ -125,6 +126,7 @@ jobs:
       - name: Start Jepsen monitoring (large)
         if: ${{ env.MONITORING_HOST != '' }}
         run: |
+          JEPSEN_NODE_COUNT=5 \
           COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-large" \
           TARGET_DOCKER_NETWORK="jepsen_jepsen" \
           MONITORING_SERVER_HOST="$MONITORING_HOST" \
@@ -157,6 +159,7 @@ jobs:
       - name: Start Jepsen monitoring (habank)
         if: ${{ env.MONITORING_HOST != '' }}
         run: |
+          JEPSEN_NODE_COUNT=6 \
           COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-habank" \
           TARGET_DOCKER_NETWORK="jepsen_jepsen" \
           MONITORING_SERVER_HOST="$MONITORING_HOST" \
