@@ -88,14 +88,6 @@ jobs:
       - name: Start Jepsen monitoring
         if: ${{ env.MONITORING_HOST != '' }}
         run: |
-          JEPSEN_NODES="$(docker ps --format '{{.Names}}' | awk '/^jepsen-n[0-9]+$/' | sort -V | paste -sd, -)"
-          if [[ -z "$JEPSEN_NODES" ]]; then
-            echo "No Jepsen node containers found, cannot start monitoring."
-            exit 1
-          fi
-          METRICS_TARGETS="$(echo "$JEPSEN_NODES" | awk -F, '{for (i=1; i<=NF; i++) printf "%s%s:9091", (i==1?"":","), $i}')"
-          LOG_WS_TARGETS="$(echo "$JEPSEN_NODES" | awk -F, '{for (i=1; i<=NF; i++) printf "%s%s:7444", (i==1?"":","), $i}')"
-          cd tools/ci/monitoring
           COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}" \
           TARGET_DOCKER_NETWORK="jepsen_jepsen" \
           MONITORING_SERVER_HOST="$MONITORING_HOST" \
@@ -104,9 +96,7 @@ jobs:
           CLUSTER_ID="diff-jepsen-${{ github.run_id }}" \
           CLUSTER_ENV="ci-jepsen" \
           SERVICE_NAME="memgraph-jepsen" \
-          MEMGRAPH_METRICS_TARGETS="$METRICS_TARGETS" \
-          MEMGRAPH_LOG_WS_TARGETS="$LOG_WS_TARGETS" \
-          ./up.sh
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
       - name: Run unit tests for Jepsen code
         run: |
