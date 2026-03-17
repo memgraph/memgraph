@@ -3151,13 +3151,15 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       }
     });
 
-    // LIGHT EDGE POOL RECLAIM: when aggressive GC holds main_lock_ uniquely,
-    // no transaction accessor is alive (all hold main_lock_ shared for their
-    // full duration), so no concurrent pool Allocate/Deallocate is possible.
-    // Reclaim fully-empty chunks back to the upstream allocator.
-    if (main_guard.owns_lock()) {
-      light_edge_pool_->Reclaim();
-    }
+    // LIGHT EDGE POOL RECLAIM: DedicatedArenaResource::Reclaim() calls
+    // arena.X.purge which is thread-safe in jemalloc and only reclaims
+    // extents where every block is free.  Concurrent transactions allocating
+    // new edges do so in extents with available blocks, which jemalloc will
+    // not purge, so there is no correctness concern under the shared lock.
+    // Always reclaiming after graveyard drain keeps RSS bounded even under
+    // heavy reader load that would prevent the exclusive lock from being
+    // acquired.
+    light_edge_pool_->Reclaim();
   }
 }
 
