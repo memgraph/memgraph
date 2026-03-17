@@ -47,6 +47,8 @@ env:
   MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
   MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
   MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-stress-jepsen"
   OS: 'debian-12'
   TOOLCHAIN: 'v7'
   NODES_NO: 6
@@ -137,8 +139,8 @@ jobs:
           MONITORING_SERVER_HOST="$MONITORING_HOST" \
           MONITORING_USERNAME="$MONITORING_USERNAME" \
           MONITORING_PASSWORD="$MONITORING_PASSWORD" \
-          CLUSTER_ID="stress-jepsen-${{ github.run_id }}" \
-          CLUSTER_ENV="ci-jepsen" \
+          CLUSTER_ID="$CLUSTER_ID" \
+          CLUSTER_ENV="$CLUSTER_ENV" \
           SERVICE_NAME="$SERVICE_NAME" \
           ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
