@@ -75,7 +75,7 @@ class Cursor {
  public:
   /// Non-virtual. Lazily creates the generator coroutine on first call (via DoPull),
   /// then resumes it on every subsequent call. Returns a lightweight ResumeAwaitable.
-  [[clang::always_inline]] PullAwaitable::ResumeAwaitable Pull(Frame &f, ExecutionContext &ctx) {
+  PullAwaitable::ResumeAwaitable Pull(Frame &f, ExecutionContext &ctx) {
     if (!gen_) [[unlikely]]
       gen_ = DoPull(f, ctx);
     return gen_->Resume();

@@ -32,7 +32,7 @@ class YieldPointAwaitable {
 
     // noexcept so the compiler can inline this into every co_await AbortCheck call site.
     // Abort is deferred to await_resume() to keep this path throw-free.
-    [[clang::always_inline]] bool await_ready() noexcept {
+    bool await_ready() noexcept {
       if (!ctx_ || !maybe_check_) [[unlikely]]
         return true;
       auto result = ctx_->stopping_context.CheckAbortOrYield(*maybe_check_);
