@@ -76,6 +76,7 @@
                   (catch Exception e
                     (if (or (utils/sync-replica-down? e)
                             (utils/main-reached-rpc-timeout? e)
+                            (utils/asked-to-abort-shutdown? e)
                             (utils/cannot-get-shared-access? e))
                       (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected. Here we return ok because
                       ; data will still get replicated since Memgraph doesn't have SYNC replication by the book.
