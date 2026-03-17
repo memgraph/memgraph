@@ -7,7 +7,7 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - default
-      - mgbuild_network
+      - target_network
     volumes:
       - ./generated/mg-exporter.yaml:/etc/mg-exporter/config.yaml:ro
     environment:
@@ -40,7 +40,7 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME}-vector
     restart: unless-stopped
     networks:
-      - mgbuild_network
+      - target_network
     volumes:
       - ./generated/vector.yaml:/etc/vector/vector.yaml:ro
       - vector_data:/tmp/vector-data
@@ -53,5 +53,6 @@ volumes:
   vector_data:
 
 networks:
-  mgbuild_network:
+  target_network:
     external: true
+    name: ${TARGET_DOCKER_NETWORK:-mgbuild_network}
