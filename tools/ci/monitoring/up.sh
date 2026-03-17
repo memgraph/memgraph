@@ -8,6 +8,7 @@ SCRIPT_DIR="$(
 GENERATED_DIR="${SCRIPT_DIR}/generated"
 MANIFESTS_DIR="${SCRIPT_DIR}/manifests"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
+HOST_NETWORK_COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.host-network.yml"
 mkdir -p "${GENERATED_DIR}"
 
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-memgraph-monitoring}"
@@ -28,6 +29,7 @@ CLUSTER_ENV="${CLUSTER_ENV:-ci-standalone-victoria}"
 SERVICE_NAME="${SERVICE_NAME:-memgraph}"
 MONITORING_USERNAME="${MONITORING_USERNAME:-${CI_MONITORING_USER:-}}"
 MONITORING_PASSWORD="${MONITORING_PASSWORD:-${CI_MONITORING_PASSWORD:-}}"
+MONITORING_USE_HOST_NETWORK="${MONITORING_USE_HOST_NETWORK:-false}"
 
 if [[ -z "${REMOTE_WRITE_URL}" || -z "${VLOGS_PUSH_URL}" ]]; then
   if [[ -z "${MONITORING_SERVER_HOST}" ]]; then
@@ -55,6 +57,13 @@ else
 fi
 
 COMPOSE_CMD=(docker compose)
+COMPOSE_FILES=(-f "${COMPOSE_FILE}")
+if [[ "${MONITORING_USE_HOST_NETWORK}" == "true" ]]; then
+  COMPOSE_FILES+=(-f "${HOST_NETWORK_COMPOSE_FILE}")
+  MG_EXPORTER_SCRAPE_TARGET="127.0.0.1:9115"
+else
+  MG_EXPORTER_SCRAPE_TARGET="mg-exporter:9115"
+fi
 
 MG_EXPORTER_CONFIG="${GENERATED_DIR}/mg-exporter.yaml"
 VMAGENT_SCRAPE_CONFIG="${GENERATED_DIR}/vmagent-scrape.yml"
@@ -184,7 +193,7 @@ fi
 export COMPOSE_PROJECT_NAME REMOTE_WRITE_URL VLOGS_INSERT_ENDPOINT MG_EXPORTER_DEPLOYMENT_TYPE
 export MEMGRAPH_METRICS_HOST MEMGRAPH_METRICS_PORT CLUSTER_ID CLUSTER_ENV SERVICE_NAME
 export VECTOR_SOURCES_BLOCK VECTOR_PREPROCESS_BLOCK VECTOR_ENRICH_INPUTS
-export VMAGENT_AUTH_ARGS VLOGS_AUTH_BLOCK
+export VMAGENT_AUTH_ARGS VLOGS_AUTH_BLOCK MG_EXPORTER_SCRAPE_TARGET
 
 envsubst < "${MANIFESTS_DIR}/vmagent-scrape.yml.tmpl" > "${VMAGENT_SCRAPE_CONFIG}"
 envsubst < "${MANIFESTS_DIR}/vector.yaml.tmpl" > "${VECTOR_CONFIG}"
@@ -192,7 +201,7 @@ envsubst < "${MANIFESTS_DIR}/vector.yaml.tmpl" > "${VECTOR_CONFIG}"
 echo "==> Starting monitoring stack (${COMPOSE_PROJECT_NAME})"
 "${COMPOSE_CMD[@]}" \
   --project-name "${COMPOSE_PROJECT_NAME}" \
-  -f "${COMPOSE_FILE}" \
+  "${COMPOSE_FILES[@]}" \
   up -d
 
 echo
@@ -213,6 +222,6 @@ echo "  ${VMAGENT_SCRAPE_CONFIG}"
 echo "  ${VECTOR_CONFIG}"
 echo
 echo "Quick checks:"
-echo "  ${COMPOSE_CMD[*]} --project-name ${COMPOSE_PROJECT_NAME} -f ${COMPOSE_FILE} ps"
-echo "  ${COMPOSE_CMD[*]} --project-name ${COMPOSE_PROJECT_NAME} -f ${COMPOSE_FILE} logs --tail=100 vmagent"
-echo "  ${COMPOSE_CMD[*]} --project-name ${COMPOSE_PROJECT_NAME} -f ${COMPOSE_FILE} logs --tail=100 vector"
+echo "  ${COMPOSE_CMD[*]} --project-name ${COMPOSE_PROJECT_NAME} ${COMPOSE_FILES[*]} ps"
+echo "  ${COMPOSE_CMD[*]} --project-name ${COMPOSE_PROJECT_NAME} ${COMPOSE_FILES[*]} logs --tail=100 vmagent"
+echo "  ${COMPOSE_CMD[*]} --project-name ${COMPOSE_PROJECT_NAME} ${COMPOSE_FILES[*]} logs --tail=100 vector"

@@ -1,0 +1,11 @@
+services:
+  mg-exporter:
+    network_mode: host
+    networks: []
+
+  vmagent:
+    network_mode: host
+
+  vector:
+    network_mode: host
+    networks: []
