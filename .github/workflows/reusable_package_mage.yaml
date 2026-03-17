@@ -475,6 +475,8 @@ jobs:
             --network $MEMGRAPH_NETWORK \
             --name $MAGE_CONTAINER \
             -p $MEMGRAPH_PORT:$MEMGRAPH_PORT \
+            -p 7444:7444 \
+            -p 9091:9091 \
             -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
             -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
             ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG \
