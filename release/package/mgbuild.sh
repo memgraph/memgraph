@@ -1080,9 +1080,29 @@ test_memgraph() {
     done <<< "$monitoring_targets_output"
   }
 
+  resolve_docker_ha_monitoring_targets() {
+    local monitoring_targets_output
+    monitoring_targets_output="$("$PROJECT_ROOT/tests/stress/ha/docker/deployment/deployment.sh" monitoring-targets host.docker.internal)"
+
+    while IFS='=' read -r key value; do
+      case "$key" in
+        MEMGRAPH_METRICS_TARGETS)
+          [[ -n "$value" && -z "${MEMGRAPH_METRICS_TARGETS:-}" ]] && export MEMGRAPH_METRICS_TARGETS="$value"
+        ;;
+        MEMGRAPH_LOG_WS_TARGETS)
+          [[ -n "$value" && -z "${MEMGRAPH_LOG_WS_TARGETS:-}" ]] && export MEMGRAPH_LOG_WS_TARGETS="$value"
+        ;;
+      esac
+    done <<< "$monitoring_targets_output"
+
+    [[ -z "${TARGET_DOCKER_NETWORK:-}" ]] && export TARGET_DOCKER_NETWORK="bridge"
+  }
+
   if [[ "$enable_monitoring" == "true" ]]; then
     if [[ "$test_name" == "stress-native-ha" ]]; then
       resolve_native_ha_monitoring_targets
+    elif [[ "$test_name" == "stress-docker-ha" ]]; then
+      resolve_docker_ha_monitoring_targets
     fi
     if [[ -z "$service_name" ]]; then
       service_name="$test_name"
