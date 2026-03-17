@@ -351,6 +351,36 @@ Feature: Server-side descriptions
             | description type | label                             | property | description           |
             | 'edge type'      | '(:Person)-[:KNOWS]->(:Person)'  | null     | 'person knows person' |
 
+    Scenario: Set and show multi-label edge type pattern description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student) "Employee mentors student"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student)
+            """
+        Then the result should be:
+            | description                |
+            | 'Employee mentors student' |
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE (:Person)-[:MENTORS]->(:Person)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            DELETE DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student)
+            """
+        Then the result should be empty
+
     Scenario: Show description on label with no description returns empty
         Given an empty graph
         When executing query:

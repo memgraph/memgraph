@@ -6210,16 +6210,15 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     prop_col = TypedValue{dba.PropertyToName(entry.property)};
                     break;
                   case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN: {
-                    std::string pattern = "(";
-                    for (auto const &label : entry.from_labels) {
-                      pattern += ":" + dba.LabelToName(label);
-                    }
-                    pattern += ")-[:" + dba.EdgeTypeToName(entry.edge_type) + "]->(";
-                    for (auto const &label : entry.to_labels) {
-                      pattern += ":" + dba.LabelToName(label);
-                    }
-                    pattern += ")";
-                    label_col = TypedValue{pattern};
+                    auto labels_str = [&](auto const &ids) {
+                      auto names = ids | rv::transform([&](auto id) { return ":" + dba.LabelToName(id); }) |
+                                   r::to<std::vector>();
+                      return std::accumulate(names.begin(), names.end(), std::string{});
+                    };
+                    label_col = TypedValue{fmt::format("({})-[:{}]->({})",
+                                                       labels_str(entry.from_labels),
+                                                       dba.EdgeTypeToName(entry.edge_type),
+                                                       labels_str(entry.to_labels))};
                     break;
                   }
                   case storage::DescriptionTargetKind::DATABASE:
@@ -8025,20 +8024,21 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       {
         auto const &desc_store = storage->description_store_;
 
-        auto name_to_label = [&](std::string const &name) {
+        auto name_to_label = [&](std::string_view name) {
           return storage::LabelId::FromUint(storage->name_id_mapper_->NameToId(name));
         };
-        auto name_to_edge_type = [&](std::string const &name) {
+        auto name_to_edge_type = [&](std::string_view name) {
           return storage::EdgeTypeId::FromUint(storage->name_id_mapper_->NameToId(name));
         };
-        auto name_to_property = [&](std::string const &name) {
+        auto name_to_property = [&](std::string_view name) {
           return storage::PropertyId::FromUint(storage->name_id_mapper_->NameToId(name));
         };
 
         for (auto &node : json["nodes"]) {
           std::vector<storage::LabelId> label_ids;
+          label_ids.reserve(node["labels"].size());
           for (auto const &label_name : node["labels"]) {
-            label_ids.push_back(name_to_label(label_name.get<std::string>()));
+            label_ids.emplace_back(name_to_label(label_name.get<std::string>()));
           }
           std::ranges::sort(label_ids);
           if (auto desc = desc_store.GetLabel(label_ids)) {
@@ -8048,7 +8048,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
             auto prop_id = name_to_property(prop["key"].get<std::string>());
             if (auto desc = desc_store.GetLabelProperty(label_ids, prop_id)) {
               prop["description"] = *desc;
-            } else if (auto gdesc = desc_store.GetProperty(prop_id)) {
+            } else if (auto gdesc = desc_store.GetProperty(prop_id)) {  // Fallback to global property description
               prop["description"] = *gdesc;
             }
           }
@@ -8058,11 +8058,13 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           auto et_id = name_to_edge_type(edge["type"].get<std::string>());
           std::vector<storage::LabelId> from_ids;
           std::vector<storage::LabelId> to_ids;
+          to_ids.reserve(edge["end_node_labels"].size());
+          from_ids.reserve(edge["start_node_labels"].size());
           for (auto const &name : edge["start_node_labels"]) {
-            from_ids.push_back(name_to_label(name.get<std::string>()));
+            from_ids.emplace_back(name_to_label(name.get<std::string>()));
           }
           for (auto const &name : edge["end_node_labels"]) {
-            to_ids.push_back(name_to_label(name.get<std::string>()));
+            to_ids.emplace_back(name_to_label(name.get<std::string>()));
           }
           std::ranges::sort(from_ids);
           std::ranges::sort(to_ids);

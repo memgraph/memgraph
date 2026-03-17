@@ -133,5 +133,62 @@ def test_list_types_schema_info(connect):
     assert prop["types"][0]["count"] == 1
 
 
+def test_schema_info_description_enrichment(connect):
+    cursor = connect.cursor()
+
+    # Create data
+    cursor.execute(
+        """CREATE
+            (a:Person {name: 'Alice', age: 30}),
+            (b:Person {name: 'Bob', age: 25}),
+            (c:City {name: 'Zagreb'}),
+            (a)-[:KNOWS {since: 2020}]->(b),
+            (a)-[:LIVES_IN]->(c);"""
+    )
+
+    # Set descriptions: label, edge type, edge type pattern, label-property, global property, edge-type-property
+    cursor.execute('SET DESCRIPTION ON LABEL :Person "A person node";')
+    cursor.execute('SET DESCRIPTION ON EDGE TYPE :KNOWS "Knows relationship";')
+    cursor.execute('SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "Person knows person";')
+    cursor.execute('SET DESCRIPTION ON LABEL PROPERTY :Person(name) "Full name";')
+    cursor.execute('SET DESCRIPTION ON PROPERTY age "Age in years";')
+    cursor.execute('SET DESCRIPTION ON EDGE TYPE PROPERTY :KNOWS(since) "Year they met";')
+
+    cursor.execute("SHOW SCHEMA INFO;")
+    schema = json.loads(cursor.fetchall()[0][0])
+
+    # Find Person node
+    person_node = next(n for n in schema["nodes"] if n["labels"] == ["Person"])
+    assert person_node["description"] == "A person node"
+
+    # Label-property description takes priority
+    name_prop = next(p for p in person_node["properties"] if p["key"] == "name")
+    assert name_prop["description"] == "Full name"
+
+    # Global property fallback
+    age_prop = next(p for p in person_node["properties"] if p["key"] == "age")
+    assert age_prop["description"] == "Age in years"
+
+    # City node has no description set
+    city_node = next(n for n in schema["nodes"] if n["labels"] == ["City"])
+    assert "description" not in city_node
+
+    # City name property has no label-property or global description
+    city_name_prop = next(p for p in city_node["properties"] if p["key"] == "name")
+    assert "description" not in city_name_prop
+
+    # Edge type pattern takes priority over global edge type
+    knows_edge = next(e for e in schema["edges"] if e["type"] == "KNOWS")
+    assert knows_edge["description"] == "Person knows person"
+
+    # Edge type property description
+    since_prop = next(p for p in knows_edge["properties"] if p["key"] == "since")
+    assert since_prop["description"] == "Year they met"
+
+    # LIVES_IN has no description (no pattern or global set)
+    lives_in_edge = next(e for e in schema["edges"] if e["type"] == "LIVES_IN")
+    assert "description" not in lives_in_edge
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

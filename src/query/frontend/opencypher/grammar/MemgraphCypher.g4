@@ -904,8 +904,12 @@ showDescriptions
     : SHOW DESCRIPTIONS
     ;
 
+edgeTypePatternNode
+    : '(' ( ':' labelName )+ ')'
+    ;
+
 edgeTypePattern
-    : '(' ':' labelName ')' '-' '[' ':' labelName ']' '-' '>' '(' ':' labelName ')'
+    : edgeTypePatternNode '-' '[' ':' labelName ']' '-' '>' edgeTypePatternNode
     ;
 
 descriptionTarget
