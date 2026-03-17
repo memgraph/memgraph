@@ -61,6 +61,9 @@ struct ProtocolMessageHeader {
 inline auto LoadMessageHeader(slk::Reader *reader) -> std::expected<ProtocolMessageHeader, utils::RpcError> {
   ProtocolMessageHeader header;
   slk::Load(&header.protocol_version, reader);
+  if (auto err = reader->GetError(); err.has_value()) {
+    return std::unexpected{*err};
+  }
   switch (header.protocol_version) {
     case V1:
     case V2:

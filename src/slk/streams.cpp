@@ -26,7 +26,8 @@ bool Builder::IsEmpty() const { return pos_ == 0; }
 void Builder::Save(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
   while (size > 0 && !error_) {
-    FlushSegment(false);
+    // NOLINTNEXTLINE(bugprone-unused-return-value)
+    FlushSegment(false);  // we check error_ that's why it is ok to use ignore [[nodiscard]]
     if (error_) return;
 
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
@@ -94,7 +95,8 @@ void Builder::SaveFooter(uint64_t const total_size) {
   memcpy(segment_.data() + total_size, &kFooter, sizeof(SegmentSize));
 }
 
-auto Builder::FlushSegment(bool const final_segment, bool const force_flush) -> BuilderWriteFunction::result_type {
+[[nodiscard]] auto Builder::FlushSegment(bool const final_segment, bool const force_flush)
+    -> BuilderWriteFunction::result_type {
   if (error_) return std::unexpected(*error_);
   if (!force_flush && !final_segment && pos_ < kSegmentMaxDataSize) return {};
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
