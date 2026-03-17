@@ -29,7 +29,7 @@ def _load_config_from_env():
     config["keytab"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_KEYTAB", "")
     config["service_principal"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_SERVICE_PRINCIPAL", "")
     config["realm"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_REALM", "")
-    config["username_field"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_USERNAME_FIELD", "principal")
+    config["username_field"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_USERNAME_FIELD", "name")
     config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING", ""))
     return config
 

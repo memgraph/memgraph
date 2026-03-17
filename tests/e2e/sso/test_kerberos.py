@@ -5,8 +5,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# gssapi is not installed in the test environment; inject a mock module
-# so kerberos.py can be imported and tested without a real KDC.
 mock_gssapi = ModuleType("gssapi")
 mock_gssapi.Name = MagicMock()
 mock_gssapi.NameType = MagicMock()
