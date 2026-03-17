@@ -14,8 +14,13 @@ COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-jepsen-monitoring-${GITHUB_RUN_ID:
 CLUSTER_ID="${CLUSTER_ID:-diff-jepsen-${GITHUB_RUN_ID:-local}}"
 CLUSTER_ENV="${CLUSTER_ENV:-ci-jepsen}"
 SERVICE_NAME="${SERVICE_NAME:-memgraph-jepsen}"
+JEPSEN_NODE_COUNT="${JEPSEN_NODE_COUNT:-}"
 
-JEPSEN_NODES="$(docker ps --format '{{.Names}}' | awk '/^jepsen-n[0-9]+$/' | sort -V | paste -sd, -)"
+if [[ -n "${JEPSEN_NODE_COUNT}" ]]; then
+  JEPSEN_NODES="$(docker ps --format '{{.Names}}' | awk '/^jepsen-n[0-9]+$/' | sort -V | head -n "${JEPSEN_NODE_COUNT}" | paste -sd, -)"
+else
+  JEPSEN_NODES="$(docker ps --format '{{.Names}}' | awk '/^jepsen-n[0-9]+$/' | sort -V | paste -sd, -)"
+fi
 if [[ -z "${JEPSEN_NODES}" ]]; then
   echo "No Jepsen node containers found, cannot start monitoring." >&2
   exit 1
