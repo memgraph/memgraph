@@ -1095,7 +1095,7 @@ test_memgraph() {
       esac
     done <<< "$monitoring_targets_output"
 
-    [[ -z "${TARGET_DOCKER_NETWORK:-}" ]] && export TARGET_DOCKER_NETWORK="bridge"
+    export MONITORING_USE_HOST_NETWORK="true"
   }
 
   if [[ "$enable_monitoring" == "true" ]]; then
