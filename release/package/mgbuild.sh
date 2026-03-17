@@ -1064,7 +1064,26 @@ test_memgraph() {
   local EXPORT_AWS_SECRET_KEY="export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
 
+  resolve_native_ha_monitoring_targets() {
+    local monitoring_targets_output
+    monitoring_targets_output="$(docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR/tests/stress/ha/native/deployment && ./deployment.sh monitoring-targets \"$build_container\"")"
+
+    while IFS='=' read -r key value; do
+      case "$key" in
+        MEMGRAPH_METRICS_TARGETS)
+          [[ -n "$value" && -z "${MEMGRAPH_METRICS_TARGETS:-}" ]] && export MEMGRAPH_METRICS_TARGETS="$value"
+        ;;
+        MEMGRAPH_LOG_WS_TARGETS)
+          [[ -n "$value" && -z "${MEMGRAPH_LOG_WS_TARGETS:-}" ]] && export MEMGRAPH_LOG_WS_TARGETS="$value"
+        ;;
+      esac
+    done <<< "$monitoring_targets_output"
+  }
+
   if [[ "$enable_monitoring" == "true" ]]; then
+    if [[ "$test_name" == "stress-native-ha" ]]; then
+      resolve_native_ha_monitoring_targets
+    fi
     if [[ -z "$service_name" ]]; then
       service_name="$test_name"
       echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
@@ -1935,10 +1954,15 @@ build_ssl() {
 }
 
 start_monitoring() {
+  local metrics_targets="${MEMGRAPH_METRICS_TARGETS:-$build_container:9091}"
+  local log_ws_targets="${MEMGRAPH_LOG_WS_TARGETS:-$build_container:7444}"
+
   echo -e "${GREEN_BOLD}Setting up monitoring...${RESET}"
   echo -e "${GREEN_BOLD}Cluster id: ${RED_BOLD}$cluster_id${RESET}"
   echo -e "${GREEN_BOLD}Cluster env: ${RED_BOLD}$cluster_env${RESET}"
   echo -e "${GREEN_BOLD}Service name: ${RED_BOLD}$service_name${RESET}"
+  echo -e "${GREEN_BOLD}Metrics targets: ${RED_BOLD}$metrics_targets${RESET}"
+  echo -e "${GREEN_BOLD}Log websocket targets: ${RED_BOLD}$log_ws_targets${RESET}"
 
   # start the monitoring stack
   cd $PROJECT_ROOT/tools/ci/monitoring
@@ -1946,8 +1970,8 @@ start_monitoring() {
   CLUSTER_ID=$cluster_id \
   CLUSTER_ENV=$cluster_env \
   SERVICE_NAME=$service_name \
-  MEMGRAPH_METRICS_TARGETS=$build_container:9091 \
-  MEMGRAPH_LOG_WS_TARGETS=$build_container:7444 \
+  MEMGRAPH_METRICS_TARGETS=$metrics_targets \
+  MEMGRAPH_LOG_WS_TARGETS=$log_ws_targets \
   ./up.sh
 }
 
