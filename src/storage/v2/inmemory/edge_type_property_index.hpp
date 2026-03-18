@@ -246,7 +246,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   void DropGraphClearIndices() override;
 
-  auto GetActiveIndices() const -> std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> override;
 
   auto RegisterIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater) -> bool;
   auto PopulateIndex(EdgeTypeId edge_type, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,

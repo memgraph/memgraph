@@ -39,7 +39,7 @@ class LabelIndex {
   using ActiveIndices = LabelIndexActiveIndices;
   using AbortProcessor = LabelIndexAbortProcessor;
 
-  virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
+  virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
 };
 
 struct LabelIndexAbortProcessor {

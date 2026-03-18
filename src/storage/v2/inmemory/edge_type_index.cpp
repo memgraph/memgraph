@@ -411,8 +411,8 @@ EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::ActiveIndices::GetAbortProc
   return AbortProcessor{edge_type_filter};
 }
 
-auto InMemoryEdgeTypeIndex::GetActiveIndices() const -> std::unique_ptr<EdgeTypeIndex::ActiveIndices> {
-  return std::make_unique<ActiveIndices>(index_.WithReadLock(std::identity{}));
+auto InMemoryEdgeTypeIndex::GetActiveIndices() const -> std::shared_ptr<EdgeTypeIndex::ActiveIndices> {
+  return std::make_shared<ActiveIndices>(index_.WithReadLock(std::identity{}));
 }
 
 auto InMemoryEdgeTypeIndex::GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex> {

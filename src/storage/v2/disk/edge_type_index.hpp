@@ -38,7 +38,7 @@ class DiskEdgeTypeIndex : public EdgeTypeIndex {
 
   void DropGraphClearIndices() override;
 
-  auto GetActiveIndices() const -> std::unique_ptr<EdgeTypeIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<EdgeTypeIndex::ActiveIndices> override;
 };
 
 }  // namespace memgraph::storage

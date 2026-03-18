@@ -42,7 +42,7 @@ class DiskEdgePropertyIndex : public EdgePropertyIndex {
 
   void DropGraphClearIndices() override;
 
-  auto GetActiveIndices() const -> std::unique_ptr<EdgePropertyIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<EdgePropertyIndex::ActiveIndices> override;
 };
 
 }  // namespace memgraph::storage

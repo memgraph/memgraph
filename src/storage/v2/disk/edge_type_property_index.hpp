@@ -41,8 +41,8 @@ class DiskEdgeTypePropertyIndex : public EdgeTypePropertyIndex {
 
   void DropGraphClearIndices() override;
 
-  auto GetActiveIndices() const -> std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> override {
-    return std::make_unique<ActiveIndices>();
+  auto GetActiveIndices() const -> std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> override {
+    return std::make_shared<ActiveIndices>();
   }
 };
 

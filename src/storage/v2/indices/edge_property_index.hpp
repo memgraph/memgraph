@@ -81,7 +81,7 @@ class EdgePropertyIndex {
 
   virtual void DropGraphClearIndices() = 0;
 
-  virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
+  virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
 };
 
 }  // namespace memgraph::storage

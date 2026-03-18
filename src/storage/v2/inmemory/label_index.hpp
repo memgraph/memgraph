@@ -204,7 +204,7 @@ class InMemoryLabelIndex : public LabelIndex {
     std::shared_ptr<IndexContainer const> index_container_;
   };
 
-  auto GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;
 
   auto RegisterIndex(LabelId, ActiveIndicesUpdater const &updater) -> bool;
   auto PopulateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,

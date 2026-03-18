@@ -223,8 +223,8 @@ RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvsto
 
 auto DiskLabelPropertyIndex::GetInfo() const -> std::set<DiskLabelPropertyIndex::LabelProperty> { return index_; }
 
-auto DiskLabelPropertyIndex::GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> {
-  return std::make_unique<DiskLabelPropertyIndex::ActiveIndices>(index_);
+auto DiskLabelPropertyIndex::GetActiveIndices() const -> std::shared_ptr<LabelPropertyIndex::ActiveIndices> {
+  return std::make_shared<DiskLabelPropertyIndex::ActiveIndices>(index_);
 }
 
 auto DiskLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(

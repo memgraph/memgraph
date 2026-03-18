@@ -292,7 +292,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     std::shared_ptr<IndexContainer const> index_container_;
   };
 
-  auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<LabelPropertyIndex::ActiveIndices> override;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
