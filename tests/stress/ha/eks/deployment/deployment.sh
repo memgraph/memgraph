@@ -584,6 +584,9 @@ print_deployment_summary() {
 stop_memgraph() {
     log_info "Stopping Memgraph HA Deployment..."
 
+    # Collect logs before removing pods
+    collect_logs
+
     # Uninstall Helm release
     if helm list -q | grep -q "^${HELM_RELEASE_NAME}$"; then
         log_info "Uninstalling Helm release: $HELM_RELEASE_NAME"
@@ -699,6 +702,29 @@ upgrade_memgraph() {
     eval "$helm_cmd"
 
     wait_for_pods
+}
+
+collect_logs() {
+    local dest_dir="${1:-stress_logs}"
+    mkdir -p "$dest_dir"
+    log_info "Collecting pod logs to $dest_dir/..."
+
+    local pods
+    pods=$(kubectl get pods --no-headers -o custom-columns=":metadata.name" 2>/dev/null | grep "^memgraph-") || pods=""
+
+    if [[ -z "$pods" ]]; then
+        log_warn "No memgraph pods found to collect logs from"
+        return 0
+    fi
+
+    while IFS= read -r pod; do
+        [[ -z "$pod" ]] && continue
+        log_info "  $pod -> $dest_dir/${pod}.log"
+        kubectl logs "$pod" > "$dest_dir/${pod}.log" 2>&1 || true
+        kubectl logs "$pod" --previous > "$dest_dir/${pod}.previous.log" 2>&1 || true
+    done <<< "$pods"
+
+    log_info "Logs collected."
 }
 
 show_logs() {
@@ -1051,6 +1077,7 @@ print_usage() {
     echo "  upgrade [flags]     - Upgrade Helm release with optional flags"
     echo "  restart             - Restart all Memgraph pods (scale down/up)"
     echo "  restart <instance>  - Restart a single instance (delete pod)"
+    echo "  collect-logs [dir]  - Collect pod logs to dir (default: stress_logs)"
     echo "  export-metrics [f]  - Export Prometheus metrics to JSON file"
     echo "  get-ip <service>    - Get external IP for a LoadBalancer service"
     echo "  wait-ip <service>   - Wait for external IP and return it"
@@ -1131,6 +1158,9 @@ case "$1" in
         ;;
     wait-ip)
         wait_service_ip "$2" "$3"
+        ;;
+    collect-logs)
+        collect_logs "$2"
         ;;
     logs)
         show_logs "$2"

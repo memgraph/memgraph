@@ -423,6 +423,14 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
 
+      - name: Upload stress test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-logs-eks-ha
+          path: tests/stress/stress_logs/
+          if-no-files-found: warn
+
       - name: Clean up Docker
         if: always()
         run: |
