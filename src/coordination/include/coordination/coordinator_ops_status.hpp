@@ -123,6 +123,7 @@ enum class DemoteInstanceCoordinatorStatus : uint8_t {
   NOT_COORDINATOR,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
+  ALREADY_REPLICA
 };
 
 enum class ReconcileClusterStateStatus : uint8_t {

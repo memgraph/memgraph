@@ -506,7 +506,7 @@ auto RaftState::YieldLeadership() const -> void { raft_server_->yield_leadership
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
-auto RaftState::AppendClusterUpdate(CoordinatorClusterStateDelta const &delta_state) const -> bool {
+auto RaftState::AppendClusterUpdateAndWaitForCommit(CoordinatorClusterStateDelta const &delta_state) const -> bool {
   auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
@@ -515,10 +515,17 @@ auto RaftState::AppendClusterUpdate(CoordinatorClusterStateDelta const &delta_st
   }
   spdlog::trace("Request for updating cluster state accepted.");
 
+  // Block until all coordinators committed. This has a consequence if one of coordinators crashed between accepting
+  // entries and committing them and if that one is needed for majority, the other coordinator will block here until the
+  // crashed coordinator comes back.
+  res->get();
+
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to update cluster state. Error code {}", static_cast<int>(res->get_result_code()));
     return false;
   }
+
+  spdlog::trace("Log is committed");
 
   return true;
 }

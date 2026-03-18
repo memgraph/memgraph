@@ -607,6 +607,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
             "find out what happened!");
+      case ALREADY_REPLICA:
+        throw QueryRuntimeException("Instance {} is already a replica!", instance_name);
       case SUCCESS:
         break;
     }
