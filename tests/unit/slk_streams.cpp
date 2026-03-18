@@ -646,18 +646,16 @@ TEST(CheckStreamStatus, FirstFileMaskNotAffectedByCheck) {
   // The metadata check should NOT apply when remaining_file_size is not set (first file case).
   // This verifies backward compatibility with WholeFileInSegment-style buffers.
   std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder(
-      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
-        for (size_t i = 0; i < size; ++i) {
-          buffer.push_back(data[i]);
-        }
-        return {};
-      });
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) {
+      buffer.push_back(data[i]);
+    }
+  });
 
   auto const input = GetRandomData(5);
   builder.PrepareForFileSending();
-  ASSERT_TRUE(builder.SaveFileBuffer(input.data(), input.size()).has_value());
-  ASSERT_TRUE(builder.Finalize().has_value());
+  builder.SaveFileBuffer(input.data(), input.size());
+  builder.Finalize();
 
   // Without remaining_file_size, the mask check is not applied — should still return NEW_FILE
   auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());
