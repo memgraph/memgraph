@@ -78,6 +78,12 @@ start_memgraph() {
     # Merge default flags with user-provided flags (overrides defaults)
     FINAL_FLAGS=$(merge_flags "$@")
 
+    # Ensure port 7687 is free before starting
+    if nc -z 127.0.0.1 7687; then
+        echo "ERROR: Port 7687 is already in use. A lingering Memgraph process might be running."
+        exit 1
+    fi
+
     CMD="$MEMGRAPH_BINARY $FINAL_FLAGS"
     echo "Executing: $CMD"
 
@@ -102,7 +108,7 @@ stop_memgraph() {
 
     echo "Waiting for Memgraph to stop..."
     for ((i=1; i<=graceful_timeout_sec; i++)); do
-        if ! kill -0 "$MG_PID" 2>/dev/null; then
+        if ! nc -z 127.0.0.1 7687 2>/dev/null; then
             echo "Memgraph has stopped."
             rm -f memgraph.pid
             clean_data_directory
@@ -111,10 +117,17 @@ stop_memgraph() {
         sleep 1
     done
 
-    echo "Warning: Memgraph process $MG_PID is still running after ${graceful_timeout_sec} seconds. Force killing..."
+    echo "Force killing..."
     kill -9 "$MG_PID" 2>/dev/null || true
 
-    echo "Warning: Memgraph process $MG_PID may still be in D-state (kernel I/O), continuing anyway."
+    # Check if port is still in use after SIGKILL
+    sleep 2
+    if nc -z 127.0.0.1 7687 2>/dev/null; then
+        echo "ERROR: Port 7687 is still in use after SIGKILL. Aborting."
+        exit 1
+    fi
+
+    echo "Memgraph has been force-killed."
     rm -f memgraph.pid
     clean_data_directory
 }
