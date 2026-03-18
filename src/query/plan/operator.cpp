@@ -6633,18 +6633,19 @@ class AggregateCursor : public Cursor {
     const auto &path = path_value.ValuePath();
     const auto &path_vertices = path.vertices();
     if (path_vertices.size() < 2) {
-      for (const auto &v : path_vertices) {
-        projected_graph.InsertVertex(v);
+      if (!path_vertices.empty()) {
+        projected_graph.InsertVertex(path_vertices.front());
       }
       return;
     }
 
-    for (const auto &v : path_vertices) {
-      projected_graph.InsertVertex(v);
-    }
-
+    // Only insert endpoints — intermediate vertices are not part of the projected graph.
+    // This matches Neo4j GDS behavior: virtual edges represent derived relationships
+    // between source and target nodes, not the full path topology.
     const auto &from = path_vertices.front();
     const auto &to = path_vertices.back();
+    projected_graph.InsertVertex(from);
+    projected_graph.InsertVertex(to);
 
     // Dedup: skip if a virtual edge between the same (from, to) with same type already exists
     for (const auto &existing : projected_graph.virtual_edges()) {
