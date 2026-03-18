@@ -11,12 +11,12 @@ env:
 
 storage:
   data:
-    libPVCSize: "50Gi"
+    libPVCSize: "10Gi"
     libStorageAccessMode: "ReadWriteOnce"
     # By default the name of the storage class isn't set which means that the default storage class will be used.
     # If you set any name, such storage class must exist.
     libStorageClassName: gp3
-    logPVCSize: "10Gi"
+    logPVCSize: "5Gi"
     logStorageAccessMode: "ReadWriteOnce"
     logStorageClassName: gp3
     ## Create a Persistant Volume Claim for core dumps.
@@ -30,7 +30,7 @@ storage:
     # By default the name of the storage class isn't set which means that the default storage class will be used.
     # If you set any name, such storage class must exist.
     libStorageClassName: gp3
-    logPVCSize: "10Gi"
+    logPVCSize: "5Gi"
     logStorageAccessMode: "ReadWriteOnce"
     logStorageClassName: gp3
     ## Create a Persistant Volume Claim for core dumps.
