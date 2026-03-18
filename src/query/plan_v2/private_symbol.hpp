@@ -26,7 +26,39 @@ enum struct symbol : std::uint8_t {
   Output,
   NamedOutput,
   ParamLookup,
+  // Arithmetic operators (binary)
+  Add,
+  Sub,
+  Mul,
+  Div,
+  Mod,
+  Exp,
+  // Comparison operators (binary)
+  Eq,
+  Neq,
+  Lt,
+  Lte,
+  Gt,
+  Gte,
+  // Boolean operators
+  And,
+  Or,
+  Xor,
+  Not,
+  // Unary operators
+  UnaryMinus,
+  UnaryPlus,
 };
+
+/// Classification predicates for symbol categories
+template <symbol S>
+constexpr bool is_binary_op_v =
+    S == symbol::Add || S == symbol::Sub || S == symbol::Mul || S == symbol::Div || S == symbol::Mod ||
+    S == symbol::Exp || S == symbol::Eq || S == symbol::Neq || S == symbol::Lt || S == symbol::Lte || S == symbol::Gt ||
+    S == symbol::Gte || S == symbol::And || S == symbol::Or || S == symbol::Xor;
+
+template <symbol S>
+constexpr bool is_unary_op_v = S == symbol::Not || S == symbol::UnaryMinus || S == symbol::UnaryPlus;
 
 }  // namespace memgraph::query::plan::v2
 

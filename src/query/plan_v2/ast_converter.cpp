@@ -317,15 +317,9 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(UnaryMinusOperator & /*unary_minus_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(UnaryMinusOperator & /*unary_minus_operator*/) override { return true; }
 
-  bool PreVisit(UnaryPlusOperator & /*unary_plus_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(UnaryPlusOperator & /*unary_plus_operator*/) override { return true; }
 
   bool PreVisit(IfOperator & /*if_operator*/) override {
     MG_ASSERT(false, "not implemented yet");
@@ -352,85 +346,37 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(GreaterEqualOperator & /*greater_equal_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(GreaterEqualOperator & /*greater_equal_operator*/) override { return true; }
 
-  bool PreVisit(LessEqualOperator & /*less_equal_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(LessEqualOperator & /*less_equal_operator*/) override { return true; }
 
-  bool PreVisit(GreaterOperator & /*greater_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(GreaterOperator & /*greater_operator*/) override { return true; }
 
-  bool PreVisit(LessOperator & /*less_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(LessOperator & /*less_operator*/) override { return true; }
 
-  bool PreVisit(EqualOperator & /*equal_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(EqualOperator & /*equal_operator*/) override { return true; }
 
-  bool PreVisit(NotEqualOperator & /*not_equal_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(NotEqualOperator & /*not_equal_operator*/) override { return true; }
 
-  bool PreVisit(ExponentiationOperator & /*exponentiation_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(ExponentiationOperator & /*exponentiation_operator*/) override { return true; }
 
-  bool PreVisit(ModOperator & /*mod_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(ModOperator & /*mod_operator*/) override { return true; }
 
-  bool PreVisit(DivisionOperator & /*division_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(DivisionOperator & /*division_operator*/) override { return true; }
 
-  bool PreVisit(MultiplicationOperator & /*multiplication_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(MultiplicationOperator & /*multiplication_operator*/) override { return true; }
 
-  bool PreVisit(SubtractionOperator & /*subtraction_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(SubtractionOperator & /*subtraction_operator*/) override { return true; }
 
-  bool PreVisit(AdditionOperator & /*addition_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(AdditionOperator & /*addition_operator*/) override { return true; }
 
-  bool PreVisit(NotOperator & /*not_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(NotOperator & /*not_operator*/) override { return true; }
 
-  bool PreVisit(AndOperator & /*and_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(AndOperator & /*and_operator*/) override { return true; }
 
-  bool PreVisit(XorOperator & /*xor_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(XorOperator & /*xor_operator*/) override { return true; }
 
-  bool PreVisit(OrOperator & /*or_operator*/) override {
-    MG_ASSERT(false, "not implemented yet");
-    return true;
-  }
+  bool PreVisit(OrOperator & /*or_operator*/) override { return true; }
 
   bool PreVisit(CypherUnion & /*cypher_union*/) override {
     MG_ASSERT(false, "not implemented yet");
@@ -516,9 +462,17 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
 
   bool PostVisit(IsNullOperator & /*is_null_operator*/) override { return true; }
 
-  bool PostVisit(UnaryMinusOperator & /*unary_minus_operator*/) override { return true; }
+  bool PostVisit(UnaryMinusOperator & /*unary_minus_operator*/) override {
+    auto operand = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeUnaryMinus(operand));
+    return true;
+  }
 
-  bool PostVisit(UnaryPlusOperator & /*unary_plus_operator*/) override { return true; }
+  bool PostVisit(UnaryPlusOperator & /*unary_plus_operator*/) override {
+    auto operand = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeUnaryPlus(operand));
+    return true;
+  }
 
   bool PostVisit(IfOperator & /*if_operator*/) override { return true; }
 
@@ -530,37 +484,116 @@ struct AstConverterVisitor : HierarchicalTreeVisitor {
 
   bool PostVisit(RangeOperator & /*range_operator*/) override { return true; }
 
-  bool PostVisit(GreaterEqualOperator & /*greater_equal_operator*/) override { return true; }
+  bool PostVisit(GreaterEqualOperator & /*greater_equal_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeGte(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(LessEqualOperator & /*less_equal_operator*/) override { return true; }
+  bool PostVisit(LessEqualOperator & /*less_equal_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeLte(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(GreaterOperator & /*greater_operator*/) override { return true; }
+  bool PostVisit(GreaterOperator & /*greater_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeGt(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(LessOperator & /*less_operator*/) override { return true; }
+  bool PostVisit(LessOperator & /*less_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeLt(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(EqualOperator & /*equal_operator*/) override { return true; }
+  bool PostVisit(EqualOperator & /*equal_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeEq(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(NotEqualOperator & /*not_equal_operator*/) override { return true; }
+  bool PostVisit(NotEqualOperator & /*not_equal_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeNeq(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(ExponentiationOperator & /*exponentiation_operator*/) override { return true; }
+  bool PostVisit(ExponentiationOperator & /*exponentiation_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeExp(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(ModOperator & /*mod_operator*/) override { return true; }
+  bool PostVisit(ModOperator & /*mod_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeMod(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(DivisionOperator & /*division_operator*/) override { return true; }
+  bool PostVisit(DivisionOperator & /*division_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeDiv(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(MultiplicationOperator & /*multiplication_operator*/) override { return true; }
+  bool PostVisit(MultiplicationOperator & /*multiplication_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeMul(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(SubtractionOperator & /*subtraction_operator*/) override { return true; }
+  bool PostVisit(SubtractionOperator & /*subtraction_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeSub(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(AdditionOperator & /*addition_operator*/) override { return true; }
+  bool PostVisit(AdditionOperator & /*addition_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeAdd(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(NotOperator & /*not_operator*/) override { return true; }
+  bool PostVisit(NotOperator & /*not_operator*/) override {
+    auto operand = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeNot(operand));
+    return true;
+  }
 
-  bool PostVisit(AndOperator & /*and_operator*/) override { return true; }
+  bool PostVisit(AndOperator & /*and_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeAnd(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(XorOperator & /*xor_operator*/) override { return true; }
+  bool PostVisit(XorOperator & /*xor_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeXor(lhs, rhs));
+    return true;
+  }
 
-  bool PostVisit(OrOperator & /*or_operator*/) override { return true; }
+  bool PostVisit(OrOperator & /*or_operator*/) override {
+    auto rhs = PopStack();
+    auto lhs = PopStack();
+    builder_stack_.emplace_back(egraph_.MakeOr(lhs, rhs));
+    return true;
+  }
 
   bool PostVisit(CypherUnion & /*cypher_union*/) override { return true; }
 

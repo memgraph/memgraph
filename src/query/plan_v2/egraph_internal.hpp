@@ -67,6 +67,24 @@ inline constexpr symbol_flags symbol_traits_table[] = {
     with_children,                  // Output
     with_children | disambiguated,  // NamedOutput
     disambiguated,                  // ParamLookup
+    with_children,                  // Add
+    with_children,                  // Sub
+    with_children,                  // Mul
+    with_children,                  // Div
+    with_children,                  // Mod
+    with_children,                  // Exp
+    with_children,                  // Eq
+    with_children,                  // Neq
+    with_children,                  // Lt
+    with_children,                  // Lte
+    with_children,                  // Gt
+    with_children,                  // Gte
+    with_children,                  // And
+    with_children,                  // Or
+    with_children,                  // Xor
+    with_children,                  // Not
+    with_children,                  // UnaryMinus
+    with_children,                  // UnaryPlus
 };
 
 template <symbol S>

@@ -255,5 +255,276 @@ TEST_F(InlineRewriteTest, FixedPoint) {
   EXPECT_TRUE(result2.saturated());
 }
 
+// =======================================================================
+// Operator construction tests
+// =======================================================================
+
+class OperatorConstructionTest : public ::testing::Test {
+ protected:
+  egraph eg_;
+};
+
+// Binary operators produce distinct eclasses for different operands
+TEST_F(OperatorConstructionTest, BinaryOperatorsDistinct) {
+  auto lit1 = eg_.MakeLiteral(storage::ExternalPropertyValue{1});
+  auto lit2 = eg_.MakeLiteral(storage::ExternalPropertyValue{2});
+  auto lit3 = eg_.MakeLiteral(storage::ExternalPropertyValue{3});
+
+  auto add12 = eg_.MakeAdd(lit1, lit2);
+  auto add13 = eg_.MakeAdd(lit1, lit3);
+  auto sub12 = eg_.MakeSub(lit1, lit2);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  // Different operands or different operator → different eclasses
+  EXPECT_NE(core.find(internal::to_core_id(add12)), core.find(internal::to_core_id(add13)));
+  EXPECT_NE(core.find(internal::to_core_id(add12)), core.find(internal::to_core_id(sub12)));
+}
+
+// Hash-consing: same operator + same children → same eclass
+TEST_F(OperatorConstructionTest, HashConsing) {
+  auto lit1 = eg_.MakeLiteral(storage::ExternalPropertyValue{1});
+  auto lit2 = eg_.MakeLiteral(storage::ExternalPropertyValue{2});
+
+  auto add_a = eg_.MakeAdd(lit1, lit2);
+  auto add_b = eg_.MakeAdd(lit1, lit2);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  // Same operation, same operands → same eclass
+  EXPECT_EQ(core.find(internal::to_core_id(add_a)), core.find(internal::to_core_id(add_b)));
+}
+
+// Operand order matters: Add(1,2) != Add(2,1)
+TEST_F(OperatorConstructionTest, OperandOrderMatters) {
+  auto lit1 = eg_.MakeLiteral(storage::ExternalPropertyValue{1});
+  auto lit2 = eg_.MakeLiteral(storage::ExternalPropertyValue{2});
+
+  auto add12 = eg_.MakeAdd(lit1, lit2);
+  auto add21 = eg_.MakeAdd(lit2, lit1);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  EXPECT_NE(core.find(internal::to_core_id(add12)), core.find(internal::to_core_id(add21)));
+}
+
+// Unary operators
+TEST_F(OperatorConstructionTest, UnaryOperators) {
+  auto lit = eg_.MakeLiteral(storage::ExternalPropertyValue{5});
+
+  auto neg = eg_.MakeUnaryMinus(lit);
+  auto pos = eg_.MakeUnaryPlus(lit);
+  auto not_op = eg_.MakeNot(lit);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  // Different unary operators → different eclasses
+  EXPECT_NE(core.find(internal::to_core_id(neg)), core.find(internal::to_core_id(pos)));
+  EXPECT_NE(core.find(internal::to_core_id(neg)), core.find(internal::to_core_id(not_op)));
+}
+
+// Nested operators create correct tree
+TEST_F(OperatorConstructionTest, NestedOperators) {
+  auto lit1 = eg_.MakeLiteral(storage::ExternalPropertyValue{1});
+  auto lit2 = eg_.MakeLiteral(storage::ExternalPropertyValue{2});
+  auto lit3 = eg_.MakeLiteral(storage::ExternalPropertyValue{3});
+
+  // (1 + 2) * 3
+  auto add = eg_.MakeAdd(lit1, lit2);
+  auto mul = eg_.MakeMul(add, lit3);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  // All distinct
+  EXPECT_NE(core.find(internal::to_core_id(add)), core.find(internal::to_core_id(mul)));
+  EXPECT_NE(core.find(internal::to_core_id(lit1)), core.find(internal::to_core_id(add)));
+  EXPECT_NE(core.find(internal::to_core_id(lit3)), core.find(internal::to_core_id(mul)));
+}
+
+// All comparison operators produce distinct eclasses
+TEST_F(OperatorConstructionTest, ComparisonOperatorsDistinct) {
+  auto lit1 = eg_.MakeLiteral(storage::ExternalPropertyValue{1});
+  auto lit2 = eg_.MakeLiteral(storage::ExternalPropertyValue{2});
+
+  auto eq = eg_.MakeEq(lit1, lit2);
+  auto neq = eg_.MakeNeq(lit1, lit2);
+  auto lt = eg_.MakeLt(lit1, lit2);
+  auto lte = eg_.MakeLte(lit1, lit2);
+  auto gt = eg_.MakeGt(lit1, lit2);
+  auto gte = eg_.MakeGte(lit1, lit2);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  auto ids = std::vector{eq, neq, lt, lte, gt, gte};
+  for (std::size_t i = 0; i < ids.size(); ++i) {
+    for (std::size_t j = i + 1; j < ids.size(); ++j) {
+      EXPECT_NE(core.find(internal::to_core_id(ids[i])), core.find(internal::to_core_id(ids[j])))
+          << "Operators at index " << i << " and " << j << " should be distinct";
+    }
+  }
+}
+
+// Boolean operators produce distinct eclasses
+TEST_F(OperatorConstructionTest, BooleanOperatorsDistinct) {
+  auto t = eg_.MakeLiteral(storage::ExternalPropertyValue{true});
+  auto f = eg_.MakeLiteral(storage::ExternalPropertyValue{false});
+
+  auto and_op = eg_.MakeAnd(t, f);
+  auto or_op = eg_.MakeOr(t, f);
+  auto xor_op = eg_.MakeXor(t, f);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  EXPECT_NE(core.find(internal::to_core_id(and_op)), core.find(internal::to_core_id(or_op)));
+  EXPECT_NE(core.find(internal::to_core_id(and_op)), core.find(internal::to_core_id(xor_op)));
+  EXPECT_NE(core.find(internal::to_core_id(or_op)), core.find(internal::to_core_id(xor_op)));
+}
+
+// =======================================================================
+// Inline rewrite through operators
+// =======================================================================
+
+class InlineThroughOperatorTest : public ::testing::Test {
+ protected:
+  egraph eg_;
+};
+
+// Bind(Once, sym, Literal(1)) + Add(Identifier(sym), Literal(2))
+// → Identifier should be merged with Literal(1)
+TEST_F(InlineThroughOperatorTest, InlineThroughAdd) {
+  auto once = eg_.MakeOnce();
+  auto sym = eg_.MakeSymbol(0, "a");
+  auto lit1 = eg_.MakeLiteral(storage::ExternalPropertyValue{1});
+  [[maybe_unused]] auto bind = eg_.MakeBind(once, sym, lit1);
+
+  auto ident = eg_.MakeIdentifier(sym);
+  auto lit2 = eg_.MakeLiteral(storage::ExternalPropertyValue{2});
+  [[maybe_unused]] auto add = eg_.MakeAdd(ident, lit2);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  auto result = ApplyAllRewrites(eg_);
+  EXPECT_GE(result.rewrites_applied, 1);
+  EXPECT_TRUE(result.saturated());
+
+  // Identifier(sym) should be merged with Literal(1)
+  EXPECT_EQ(core.find(internal::to_core_id(ident)), core.find(internal::to_core_id(lit1)));
+}
+
+// Inline through unary minus: Bind(Once, sym, Lit(5)) + UnaryMinus(Identifier(sym))
+TEST_F(InlineThroughOperatorTest, InlineThroughUnaryMinus) {
+  auto once = eg_.MakeOnce();
+  auto sym = eg_.MakeSymbol(0, "a");
+  auto lit = eg_.MakeLiteral(storage::ExternalPropertyValue{5});
+  [[maybe_unused]] auto bind = eg_.MakeBind(once, sym, lit);
+
+  auto ident = eg_.MakeIdentifier(sym);
+  [[maybe_unused]] auto neg = eg_.MakeUnaryMinus(ident);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  auto result = ApplyAllRewrites(eg_);
+  EXPECT_GE(result.rewrites_applied, 1);
+  EXPECT_TRUE(result.saturated());
+
+  EXPECT_EQ(core.find(internal::to_core_id(ident)), core.find(internal::to_core_id(lit)));
+}
+
+// Inline same variable used twice: Add(Identifier(sym), Identifier(sym))
+TEST_F(InlineThroughOperatorTest, InlineSameVarBothSides) {
+  auto once = eg_.MakeOnce();
+  auto sym = eg_.MakeSymbol(0, "a");
+  auto lit = eg_.MakeLiteral(storage::ExternalPropertyValue{1});
+  [[maybe_unused]] auto bind = eg_.MakeBind(once, sym, lit);
+
+  auto ident = eg_.MakeIdentifier(sym);
+  [[maybe_unused]] auto add = eg_.MakeAdd(ident, ident);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  auto result = ApplyAllRewrites(eg_);
+  EXPECT_GE(result.rewrites_applied, 1);
+  EXPECT_TRUE(result.saturated());
+
+  // Identifier merged with literal
+  EXPECT_EQ(core.find(internal::to_core_id(ident)), core.find(internal::to_core_id(lit)));
+}
+
+// Inline through comparison: Bind + Lt(Identifier, Literal)
+TEST_F(InlineThroughOperatorTest, InlineThroughComparison) {
+  auto once = eg_.MakeOnce();
+  auto sym = eg_.MakeSymbol(0, "a");
+  auto lit1 = eg_.MakeLiteral(storage::ExternalPropertyValue{1});
+  [[maybe_unused]] auto bind = eg_.MakeBind(once, sym, lit1);
+
+  auto ident = eg_.MakeIdentifier(sym);
+  auto lit2 = eg_.MakeLiteral(storage::ExternalPropertyValue{2});
+  [[maybe_unused]] auto lt = eg_.MakeLt(ident, lit2);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  auto result = ApplyAllRewrites(eg_);
+  EXPECT_GE(result.rewrites_applied, 1);
+  EXPECT_TRUE(result.saturated());
+
+  EXPECT_EQ(core.find(internal::to_core_id(ident)), core.find(internal::to_core_id(lit1)));
+}
+
+// Inline through boolean: Bind + And(Identifier, Literal)
+TEST_F(InlineThroughOperatorTest, InlineThroughBoolean) {
+  auto once = eg_.MakeOnce();
+  auto sym = eg_.MakeSymbol(0, "a");
+  auto lit_t = eg_.MakeLiteral(storage::ExternalPropertyValue{true});
+  [[maybe_unused]] auto bind = eg_.MakeBind(once, sym, lit_t);
+
+  auto ident = eg_.MakeIdentifier(sym);
+  auto lit_f = eg_.MakeLiteral(storage::ExternalPropertyValue{false});
+  [[maybe_unused]] auto and_op = eg_.MakeAnd(ident, lit_f);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  auto result = ApplyAllRewrites(eg_);
+  EXPECT_GE(result.rewrites_applied, 1);
+  EXPECT_TRUE(result.saturated());
+
+  EXPECT_EQ(core.find(internal::to_core_id(ident)), core.find(internal::to_core_id(lit_t)));
+}
+
+// Nested: Bind(Once, sym, Lit(1)) + Mul(Add(Identifier(sym), Lit(2)), Lit(3))
+TEST_F(InlineThroughOperatorTest, InlineThroughNestedOperators) {
+  auto once = eg_.MakeOnce();
+  auto sym = eg_.MakeSymbol(0, "a");
+  auto lit1 = eg_.MakeLiteral(storage::ExternalPropertyValue{1});
+  [[maybe_unused]] auto bind = eg_.MakeBind(once, sym, lit1);
+
+  auto ident = eg_.MakeIdentifier(sym);
+  auto lit2 = eg_.MakeLiteral(storage::ExternalPropertyValue{2});
+  auto lit3 = eg_.MakeLiteral(storage::ExternalPropertyValue{3});
+  auto add = eg_.MakeAdd(ident, lit2);
+  [[maybe_unused]] auto mul = eg_.MakeMul(add, lit3);
+
+  auto &impl = internal::get_impl(eg_);
+  auto &core = impl.egraph_;
+
+  auto result = ApplyAllRewrites(eg_);
+  EXPECT_GE(result.rewrites_applied, 1);
+  EXPECT_TRUE(result.saturated());
+
+  // Identifier should be merged with Literal(1) even when deeply nested
+  EXPECT_EQ(core.find(internal::to_core_id(ident)), core.find(internal::to_core_id(lit1)));
+}
+
 }  // namespace
 }  // namespace memgraph::query::plan::v2

@@ -43,6 +43,32 @@ struct egraph {
   auto MakeOutputs(eclass input, std::vector<eclass> named_outputs) -> eclass;
   auto MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> eclass;
 
+  // Arithmetic operators
+  auto MakeAdd(eclass lhs, eclass rhs) -> eclass;
+  auto MakeSub(eclass lhs, eclass rhs) -> eclass;
+  auto MakeMul(eclass lhs, eclass rhs) -> eclass;
+  auto MakeDiv(eclass lhs, eclass rhs) -> eclass;
+  auto MakeMod(eclass lhs, eclass rhs) -> eclass;
+  auto MakeExp(eclass lhs, eclass rhs) -> eclass;
+
+  // Comparison operators
+  auto MakeEq(eclass lhs, eclass rhs) -> eclass;
+  auto MakeNeq(eclass lhs, eclass rhs) -> eclass;
+  auto MakeLt(eclass lhs, eclass rhs) -> eclass;
+  auto MakeLte(eclass lhs, eclass rhs) -> eclass;
+  auto MakeGt(eclass lhs, eclass rhs) -> eclass;
+  auto MakeGte(eclass lhs, eclass rhs) -> eclass;
+
+  // Boolean operators
+  auto MakeAnd(eclass lhs, eclass rhs) -> eclass;
+  auto MakeOr(eclass lhs, eclass rhs) -> eclass;
+  auto MakeXor(eclass lhs, eclass rhs) -> eclass;
+  auto MakeNot(eclass operand) -> eclass;
+
+  // Unary operators
+  auto MakeUnaryMinus(eclass operand) -> eclass;
+  auto MakeUnaryPlus(eclass operand) -> eclass;
+
  private:
   struct impl;
   std::unique_ptr<impl> pimpl_;
