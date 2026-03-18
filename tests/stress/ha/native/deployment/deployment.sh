@@ -54,7 +54,7 @@ DEFAULT_COORD_FLAGS=(
     "--also-log-to-stderr=true"
     "--bolt-server-name-for-init=Neo4j/"
     "--log-file="
-    "--log-level=WARNING"
+    "--log-level=TRACE"
     "--telemetry-enabled=false"
 )
 
