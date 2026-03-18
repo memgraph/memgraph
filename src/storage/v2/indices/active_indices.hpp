@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "utils/rw_lock.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
