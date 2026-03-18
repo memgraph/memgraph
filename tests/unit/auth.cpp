@@ -72,6 +72,29 @@ class V1Auth : public ::testing::Test {
   std::optional<Auth> auth{};
 };
 
+class V3Auth : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    fs::remove_all(work_folder);
+    fs::copy(source_folder, work_folder, fs::copy_options::recursive);
+    memgraph::license::global_license_checker.EnableTesting();
+    {
+      memgraph::kvstore::KVStore store{work_folder};
+      auto version = store.Get("version");
+      ASSERT_TRUE(version.has_value()) << "Expected version key in kvstore";
+      ASSERT_EQ(*version, "V3") << "Expected on-disk store to be V3 before migration";
+    }
+    auth.emplace(work_folder, auth_config);
+  }
+
+  void TearDown() override { fs::remove_all(work_folder); }
+
+  fs::path source_folder{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v3"};
+  fs::path work_folder{fs::temp_directory_path() / "MG_tests_unit_auth_v3"};
+  Auth::Config auth_config{};
+  std::optional<Auth> auth{};
+};
+
 class V2Auth : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -2362,6 +2385,88 @@ TEST_F(V2Auth, MigrationTestV2ToV3) {
             static_cast<uint64_t>(FineGrainedPermission::CREATE | FineGrainedPermission::DELETE |
                                   FineGrainedPermission::SET_PROPERTY | FineGrainedPermission::READ));
   ASSERT_TRUE(role1_edge_perms.GetRules().empty());
+}
+
+TEST_F(V3Auth, MigrationTestV3ToV4) {
+  ASSERT_TRUE(auth->HasUsers());
+  ASSERT_FALSE(auth->AllRoles().empty());
+
+  // user1: no fine-grained permissions of their own — check user-level only (role perms are separate)
+  auto const user1 = auth->GetUser("user1");
+  ASSERT_TRUE(user1);
+  auto const u1_label = user1->GetUserFineGrainedAccessLabelPermissions();
+  ASSERT_FALSE(u1_label.GetGlobalGrants().has_value());
+  ASSERT_FALSE(u1_label.GetGlobalDenies().has_value());
+  ASSERT_TRUE(u1_label.GetRules().empty());
+  auto const u1_edge = user1->GetUserFineGrainedAccessEdgeTypePermissions();
+  ASSERT_FALSE(u1_edge.GetGlobalGrants().has_value());
+  ASSERT_FALSE(u1_edge.GetGlobalDenies().has_value());
+  ASSERT_TRUE(u1_edge.GetRules().empty());
+
+  // user2: label global_permission=0 (NOTHING) -> deny all; edge unset
+  auto const user2 = auth->GetUser("user2");
+  ASSERT_TRUE(user2);
+  auto const u2_label = user2->GetUserFineGrainedAccessLabelPermissions();
+  ASSERT_FALSE(u2_label.GetGlobalGrants().has_value());
+  ASSERT_TRUE(u2_label.GetGlobalDenies().has_value());
+  ASSERT_EQ(u2_label.GetGlobalDenies().value(), static_cast<uint64_t>(kAllLabelPermissions));
+  ASSERT_TRUE(u2_label.GetRules().empty());
+  auto const u2_edge = user2->GetUserFineGrainedAccessEdgeTypePermissions();
+  ASSERT_FALSE(u2_edge.GetGlobalGrants().has_value());
+  ASSERT_FALSE(u2_edge.GetGlobalDenies().has_value());
+  ASSERT_TRUE(u2_edge.GetRules().empty());
+
+  // user3: label global_permission=3 (READ|UPDATE) -> UPDATE expands for labels
+  //        edge global_permission=1 (READ) -> unchanged
+  auto const user3 = auth->GetUser("user3");
+  ASSERT_TRUE(user3);
+  auto const u3_label = user3->GetUserFineGrainedAccessLabelPermissions();
+  ASSERT_TRUE(u3_label.GetGlobalGrants().has_value());
+  ASSERT_EQ(u3_label.GetGlobalGrants().value(),
+            static_cast<uint64_t>(FineGrainedPermission::READ | FineGrainedPermission::SET_PROPERTY |
+                                  FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL |
+                                  FineGrainedPermission::DELETE_EDGE | FineGrainedPermission::CREATE_EDGE));
+  ASSERT_FALSE(u3_label.GetGlobalDenies().has_value());
+  ASSERT_TRUE(u3_label.GetRules().empty());
+  auto const u3_edge = user3->GetUserFineGrainedAccessEdgeTypePermissions();
+  ASSERT_TRUE(u3_edge.GetGlobalGrants().has_value());
+  ASSERT_EQ(u3_edge.GetGlobalGrants().value(), static_cast<uint64_t>(FineGrainedPermission::READ));
+  ASSERT_FALSE(u3_edge.GetGlobalDenies().has_value());
+  ASSERT_TRUE(u3_edge.GetRules().empty());
+
+  // role1: label per-entity rule granted=0 (NOTHING) -> deny all rule; edge unset
+  auto const role1 = auth->GetRole("role1");
+  ASSERT_TRUE(role1);
+  auto const &r1_label = role1->GetFineGrainedAccessLabelPermissions();
+  ASSERT_FALSE(r1_label.GetGlobalGrants().has_value());
+  ASSERT_FALSE(r1_label.GetGlobalDenies().has_value());
+  ASSERT_EQ(r1_label.GetRules().size(), 1);
+  ASSERT_EQ(r1_label.GetRules()[0].denies, kAllLabelPermissions);
+  ASSERT_EQ(r1_label.GetRules()[0].grants, FineGrainedPermission::NONE);
+  auto const &r1_edge = role1->GetFineGrainedAccessEdgeTypePermissions();
+  ASSERT_FALSE(r1_edge.GetGlobalGrants().has_value());
+  ASSERT_FALSE(r1_edge.GetGlobalDenies().has_value());
+  ASSERT_TRUE(r1_edge.GetRules().empty());
+
+  // role2: label global_permission=27 (READ|UPDATE|CREATE|DELETE) -> UPDATE expands
+  //        edge per-entity rule granted=3 (READ|UPDATE=SET_PROPERTY) -> granted=READ|SET_PROPERTY, denied=0
+  auto const role2 = auth->GetRole("role2");
+  ASSERT_TRUE(role2);
+  auto const &r2_label = role2->GetFineGrainedAccessLabelPermissions();
+  ASSERT_TRUE(r2_label.GetGlobalGrants().has_value());
+  ASSERT_EQ(r2_label.GetGlobalGrants().value(),
+            static_cast<uint64_t>(FineGrainedPermission::READ | FineGrainedPermission::SET_PROPERTY |
+                                  FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL |
+                                  FineGrainedPermission::DELETE_EDGE | FineGrainedPermission::CREATE_EDGE |
+                                  FineGrainedPermission::CREATE | FineGrainedPermission::DELETE));
+  ASSERT_FALSE(r2_label.GetGlobalDenies().has_value());
+  ASSERT_TRUE(r2_label.GetRules().empty());
+  auto const &r2_edge = role2->GetFineGrainedAccessEdgeTypePermissions();
+  ASSERT_FALSE(r2_edge.GetGlobalGrants().has_value());
+  ASSERT_FALSE(r2_edge.GetGlobalDenies().has_value());
+  ASSERT_EQ(r2_edge.GetRules().size(), 1);
+  ASSERT_EQ(r2_edge.GetRules()[0].grants, FineGrainedPermission::READ | FineGrainedPermission::SET_PROPERTY);
+  ASSERT_EQ(r2_edge.GetRules()[0].denies, FineGrainedPermission::NONE);
 }
 
 TEST_F(AuthWithStorage, MultiTenantRoleManagement) {
