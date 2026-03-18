@@ -130,6 +130,13 @@ Indices::Indices(const Config &config, StorageMode storage_mode)
       edge_property_index_ = std::make_unique<DiskEdgePropertyIndex>();
     }
   });
+  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
+    ai = std::make_shared<ActiveIndices>(label_index_->GetActiveIndices(),
+                                         label_property_index_->GetActiveIndices(),
+                                         edge_type_index_->GetActiveIndices(),
+                                         edge_type_property_index_->GetActiveIndices(),
+                                         edge_property_index_->GetActiveIndices());
+  });
 }
 
 Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_indices) const {
