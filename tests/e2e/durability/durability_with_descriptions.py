@@ -62,7 +62,8 @@ def test_name(request):
 
 
 def get_all_descriptions(cursor):
-    return sorted(execute_and_fetch_all(cursor, "SHOW DESCRIPTIONS;"))
+    results = execute_and_fetch_all(cursor, "SHOW DESCRIPTIONS;")
+    return sorted(results, key=lambda row: tuple(str(col) for col in row))
 
 
 def set_all_descriptions(cursor):

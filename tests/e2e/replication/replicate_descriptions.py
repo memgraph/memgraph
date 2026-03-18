@@ -70,7 +70,8 @@ def show_replicas_func(cursor):
 
 
 def get_all_descriptions(cursor):
-    return sorted(execute_and_fetch_all(cursor, "SHOW DESCRIPTIONS;"))
+    results = execute_and_fetch_all(cursor, "SHOW DESCRIPTIONS;")
+    return sorted(results, key=lambda row: tuple(str(col) for col in row))
 
 
 def make_instances(test_name):
