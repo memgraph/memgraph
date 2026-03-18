@@ -111,6 +111,9 @@ struct Indices {
   std::unique_ptr<EdgeTypeIndex> edge_type_index_;
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   std::unique_ptr<EdgePropertyIndex> edge_property_index_;
+  /// Centralized snapshot of active indices, shared by transactions via shared_ptr.
+  /// Lock ordering: individual index lock (e.g. index_.WithLock) → active_indices_.WithLock.
+  /// The ActiveIndicesUpdater is always called from within an individual index lock.
   ActiveIndicesStore active_indices_;
 
   TextIndex text_index_;
