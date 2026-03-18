@@ -194,7 +194,7 @@ std::string PermissionLevelToString(PermissionLevel level) {
 }
 
 #ifdef MG_ENTERPRISE
-std::string FineGrainedPermissionToString(uint64_t const permission) {
+std::string FineGrainedPermissionToString(uint64_t const permission, bool const is_label) {
   if (permission == 0) {
     return "";
   }
@@ -206,23 +206,37 @@ std::string FineGrainedPermissionToString(uint64_t const permission) {
   if (permission & FineGrainedPermission::READ) {
     permissions.emplace_back("READ");
   }
-  if (permission & FineGrainedPermission::SET_LABEL) {
-    permissions.emplace_back("SET LABEL");
+
+  static constexpr uint64_t kUpdateLabelMask = static_cast<uint64_t>(FineGrainedPermission::SET_LABEL) |
+                                               static_cast<uint64_t>(FineGrainedPermission::REMOVE_LABEL) |
+                                               static_cast<uint64_t>(FineGrainedPermission::SET_PROPERTY) |
+                                               static_cast<uint64_t>(FineGrainedPermission::DELETE_EDGE) |
+                                               static_cast<uint64_t>(FineGrainedPermission::CREATE_EDGE);
+
+  if (is_label && (permission & kUpdateLabelMask) == kUpdateLabelMask) {
+    permissions.emplace_back("UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE)");
+  } else if (!is_label && (permission & FineGrainedPermission::SET_PROPERTY)) {
+    permissions.emplace_back("UPDATE(SET PROPERTY)");
+  } else {
+    if (permission & FineGrainedPermission::SET_LABEL) {
+      permissions.emplace_back("SET LABEL");
+    }
+    if (permission & FineGrainedPermission::REMOVE_LABEL) {
+      permissions.emplace_back("REMOVE LABEL");
+    }
+    if (permission & FineGrainedPermission::SET_PROPERTY) {
+      permissions.emplace_back("SET PROPERTY");
+    }
+    if (permission & FineGrainedPermission::DELETE_EDGE) {
+      permissions.emplace_back("DELETE EDGE");
+    }
+    if (permission & FineGrainedPermission::CREATE_EDGE) {
+      permissions.emplace_back("CREATE EDGE");
+    }
   }
-  if (permission & FineGrainedPermission::REMOVE_LABEL) {
-    permissions.emplace_back("REMOVE LABEL");
-  }
-  if (permission & FineGrainedPermission::SET_PROPERTY) {
-    permissions.emplace_back("SET PROPERTY");
-  }
+
   if (permission & FineGrainedPermission::DELETE) {
     permissions.emplace_back("DELETE");
-  }
-  if (permission & FineGrainedPermission::DELETE_EDGE) {
-    permissions.emplace_back("DELETE EDGE");
-  }
-  if (permission & FineGrainedPermission::CREATE_EDGE) {
-    permissions.emplace_back("CREATE EDGE");
   }
 
   return utils::Join(permissions, ", ");
