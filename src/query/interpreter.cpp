@@ -1551,7 +1551,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::SHOW_ROLE_FOR_USER:
-      callback.header = {"role", "builtin"};
+      callback.header = {"role"};
       callback.fn = [auth,
                      username,
                      database_specification = auth_query->database_specification_
@@ -1605,8 +1605,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         }
         std::vector<std::vector<TypedValue>> rows;
         rows.reserve(rolenames.size());
-        for (auto &&[rolename, is_builtin] : rolenames) {
-          rows.emplace_back(std::vector<TypedValue>{TypedValue(rolename), TypedValue(is_builtin)});
+        for (auto &&[rolename, _] : rolenames) {
+          rows.emplace_back(std::vector<TypedValue>{TypedValue(rolename)});
         }
         return rows;
       };
