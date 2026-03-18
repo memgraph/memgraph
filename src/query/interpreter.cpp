@@ -957,8 +957,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case COULD_NOT_PROMOTE_TO_MAIN:
         throw QueryRuntimeException(
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
-      case ENABLE_WRITING_FAILED:
-        throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
