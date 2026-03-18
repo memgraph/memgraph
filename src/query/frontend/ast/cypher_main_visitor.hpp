@@ -17,6 +17,8 @@
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #pragma pop_macro("EOF")  // bring EOF back
 
+#include "auth/models.hpp"
+
 #include "query/frontend/ast/ast_storage.hpp"
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
@@ -561,6 +563,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitUserOrRoleName(MemgraphCypher::UserOrRoleNameContext *ctx) override;
 
   /**
+   * @return std::pair<std::string, auth::UserOrRoleType>
+   */
+  antlrcpp::Any visitUserOrRole(MemgraphCypher::UserOrRoleContext *ctx) override;
+
+  /**
    * @return AuthQuery*
    */
   antlrcpp::Any visitCreateRole(MemgraphCypher::CreateRoleContext *ctx) override;
@@ -689,6 +696,10 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AuthQuery*
    */
   antlrcpp::Any visitClearRole(MemgraphCypher::ClearRoleContext *ctx) override;
+
+  antlrcpp::Any visitGrantRole(MemgraphCypher::GrantRoleContext *ctx) override;
+
+  antlrcpp::Any visitRevokeRole(MemgraphCypher::RevokeRoleContext *ctx) override;
 
   void extractPrivilege(AuthQuery *auth, antlropencypher::MemgraphCypher::PrivilegeContext *privilege);
 
