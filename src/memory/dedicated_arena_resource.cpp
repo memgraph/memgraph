@@ -39,6 +39,17 @@ DedicatedArenaResource::DedicatedArenaResource() {
   // defeating the purpose of a dedicated arena entirely.
   alloc_flags_ = MALLOCX_ARENA(arena_id_) | MALLOCX_TCACHE_NONE;
   InstallTrackingHooksOnArena(arena_id_);
+  // Disable automatic purging for this arena: freed pages stay in jemalloc's
+  // dirty-page cache and are immediately reused by the next allocation instead
+  // of being returned to the OS via madvise/munmap.  This eliminates the rapid
+  // munmap/mmap churn that occurs under heavy edge alloc/free workloads
+  // (graveyard drain followed immediately by new edge allocations), at the cost
+  // of higher steady-state RSS for the light-edge pool.
+  ssize_t no_decay = -1;
+  const std::string dirty_key = "arena." + std::to_string(arena_id_) + ".dirty_decay_ms";
+  const std::string muzzy_key = "arena." + std::to_string(arena_id_) + ".muzzy_decay_ms";
+  je_mallctl(dirty_key.c_str(), nullptr, nullptr, &no_decay, sizeof(no_decay));
+  je_mallctl(muzzy_key.c_str(), nullptr, nullptr, &no_decay, sizeof(no_decay));
 #endif
 }
 
