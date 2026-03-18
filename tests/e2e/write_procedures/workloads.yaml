@@ -39,3 +39,9 @@ workloads:
     proc: "tests/e2e/write_procedures/procedures/"
     args: ["write_procedures/serialization_error_handling.py"]
     <<: *in_memory_cluster
+
+  - name: "Virtual edges in graph projections"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/write_procedures/procedures/"
+    args: ["write_procedures/virtual_edges.py"]
+    <<: *in_memory_cluster
