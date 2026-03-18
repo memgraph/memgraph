@@ -22,6 +22,9 @@ env:
   BUILD_TYPE: 'RelWithDebInfo'
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
   OS: 'debian-12'
   TOOLCHAIN: 'v7'
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
@@ -87,6 +90,20 @@ jobs:
           cd tests/jepsen
           ./run.sh unit-tests --binary ../../build/memgraph
 
+      - name: Start Jepsen monitoring (bank)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          JEPSEN_NODE_COUNT=5 \
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-bank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="diff-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="jepsen-bank" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
+
       - name: Run replication bank test
         run: |
           cd tests/jepsen
@@ -95,7 +112,52 @@ jobs:
           --run-args "--workload bank --nodes-config resources/replication-config.edn --time-limit 120 --concurrency 5" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
-          --nodes-no 5
+          --nodes-no 5 \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME
+
+      - name: Collect monitoring logs (bank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          LOG_DIR="build/monitoring/bank"
+          mkdir -p "$LOG_DIR"
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-bank"
+          docker logs "${COMPOSE_PROJECT_NAME}-vmagent" > "$LOG_DIR/vmagent.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-mg-exporter" > "$LOG_DIR/mg-exporter.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-vector" > "$LOG_DIR/vector.log" 2>&1 || true
+
+      - name: Upload monitoring logs (bank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Jepsen Monitoring Logs Bank${{ env.RUN_ID }}"
+          path: build/monitoring/bank
+          if-no-files-found: warn
+
+      - name: Stop Jepsen monitoring (bank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-bank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
+
+      - name: Start Jepsen monitoring (large)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          JEPSEN_NODE_COUNT=5 \
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-large" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="diff-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="jepsen-large" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
       - name: Run replication large test
         run: |
@@ -105,7 +167,52 @@ jobs:
           --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 60 --concurrency 5" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
-          --nodes-no 5
+          --nodes-no 5 \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME
+
+      - name: Collect monitoring logs (large)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          LOG_DIR="build/monitoring/large"
+          mkdir -p "$LOG_DIR"
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-large"
+          docker logs "${COMPOSE_PROJECT_NAME}-vmagent" > "$LOG_DIR/vmagent.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-mg-exporter" > "$LOG_DIR/mg-exporter.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-vector" > "$LOG_DIR/vector.log" 2>&1 || true
+
+      - name: Upload monitoring logs (large)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Jepsen Monitoring Logs Large${{ env.RUN_ID }}"
+          path: build/monitoring/large
+          if-no-files-found: warn
+
+      - name: Stop Jepsen monitoring (large)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-large" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
+
+      - name: Start Jepsen monitoring (habank)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          JEPSEN_NODE_COUNT=6 \
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-habank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="diff-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="jepsen-habank" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
       - name: Run HA bank test
         run: |
@@ -118,6 +225,15 @@ jobs:
           --nodes-no 6 \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME
+
+      - name: Stop Jepsen monitoring (habank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-habank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
 
       - name: Process Jepsen results
         continue-on-error: true

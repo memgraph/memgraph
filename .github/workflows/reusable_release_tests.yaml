@@ -50,6 +50,11 @@ env:
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-release-tests"
 
 jobs:
   community_build:
@@ -305,6 +310,10 @@ jobs:
           --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph drivers
 
       - name: Run HA driver tests
@@ -316,6 +325,10 @@ jobs:
           --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph drivers-high-availability
 
       - name: Run cppcheck and clang-format
@@ -327,6 +340,10 @@ jobs:
           --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph cppcheck-and-clang-format
 
       - name: Save cppcheck and clang-format errors
@@ -414,6 +431,10 @@ jobs:
           --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph integration
 
       - name: Stop mgbuild container
@@ -493,6 +514,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph gql-behave
 
 
@@ -604,6 +629,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph gql-behave
 
       - name: Save quality assurance status
@@ -845,6 +874,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph e2e
 
       - name: Ensure localstack is down
@@ -937,6 +970,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph stress-plain
 
       - name: Run stress test (SSL)
@@ -947,6 +984,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph stress-ssl
 
       - name: Run durability test (plain)
@@ -957,6 +998,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph durability
 
       - name: Run durability test (large)
@@ -967,6 +1012,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph durability-large
 
       - name: Copy stress and durability test logs
@@ -1062,6 +1111,20 @@ jobs:
           cd tests/jepsen
           ./run.sh unit-tests --binary ../../build/memgraph
 
+      - name: Start Jepsen monitoring (bank)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          JEPSEN_NODE_COUNT=5 \
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-bank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="release-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="jepsen-bank" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
+
       - name: Run replication bank test
         run: |
           cd tests/jepsen
@@ -1070,7 +1133,52 @@ jobs:
           --run-args "--workload bank --nodes-config resources/replication-config.edn --time-limit 120 --concurrency 5" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
-          --nodes-no 5
+          --nodes-no 5 \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME
+
+      - name: Collect monitoring logs (bank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          LOG_DIR="build/monitoring/bank"
+          mkdir -p "$LOG_DIR"
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-bank"
+          docker logs "${COMPOSE_PROJECT_NAME}-vmagent" > "$LOG_DIR/vmagent.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-mg-exporter" > "$LOG_DIR/mg-exporter.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-vector" > "$LOG_DIR/vector.log" 2>&1 || true
+
+      - name: Upload monitoring logs (bank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Jepsen Monitoring Logs Bank-${{ env.OS }}"
+          path: build/monitoring/bank
+          if-no-files-found: warn
+
+      - name: Stop Jepsen monitoring (bank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-bank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
+
+      - name: Start Jepsen monitoring (large)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          JEPSEN_NODE_COUNT=5 \
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-large" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="release-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="jepsen-large" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
       - name: Run replication large test
         run: |
@@ -1080,7 +1188,52 @@ jobs:
           --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 60 --concurrency 5" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
-          --nodes-no 5
+          --nodes-no 5 \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME
+
+      - name: Collect monitoring logs (large)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          LOG_DIR="build/monitoring/large"
+          mkdir -p "$LOG_DIR"
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-large"
+          docker logs "${COMPOSE_PROJECT_NAME}-vmagent" > "$LOG_DIR/vmagent.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-mg-exporter" > "$LOG_DIR/mg-exporter.log" 2>&1 || true
+          docker logs "${COMPOSE_PROJECT_NAME}-vector" > "$LOG_DIR/vector.log" 2>&1 || true
+
+      - name: Upload monitoring logs (large)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Jepsen Monitoring Logs Large-${{ env.OS }}"
+          path: build/monitoring/large
+          if-no-files-found: warn
+
+      - name: Stop Jepsen monitoring (large)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-large" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
+
+      - name: Start Jepsen monitoring (habank)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          JEPSEN_NODE_COUNT=6 \
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-habank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="release-jepsen-${{ github.run_id }}" \
+          CLUSTER_ENV="ci-jepsen" \
+          SERVICE_NAME="jepsen-habank" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
       - name: Run HA bank test
         run: |
@@ -1093,6 +1246,15 @@ jobs:
           --nodes-no 6 \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME
+
+      - name: Stop Jepsen monitoring (habank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-habank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
 
       - name: Process Jepsen results
         continue-on-error: true
@@ -1184,6 +1346,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph stress-large
 
       - name: Copy stress test logs
@@ -1286,6 +1452,10 @@ jobs:
             --arch $ARCH \
             --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
             --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            --enable-monitoring \
+            --monitoring-host $MONITORING_HOST \
+            --cluster-id $CLUSTER_ID \
+            --cluster-env $CLUSTER_ENV \
             test-memgraph query_modules_e2e
 
       - name: Stop mgbuild container
