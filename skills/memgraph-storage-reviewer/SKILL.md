@@ -343,6 +343,25 @@ while (current != nullptr) {
 ### 7. Verify Actual Code Paths, Not Assumed Ones
 If code has multiple branches (normal vs interleaved, hot vs cold path), verify which path the concern applies to. A concern valid for one path may be impossible in another due to different invariants.
 
+### 8. Container Membership Is Often the Invariant
+In this codebase, *which list/container* an entry lives in frequently encodes a safety invariant, not just storage. Before flagging UAFs or stale-reference bugs against a long-lived object, ask: "what does its current container guarantee?"
+
+Examples:
+- A `GCDeltas` entry in `committed_transactions_`/`waiting_gc_deltas_` has all its head deltas **still linked** to their owning Vertex/Edge. Once moved to `unlinked_undo_buffers`, those deltas are unlinked and `prev` becomes dead state that GC never reads again.
+- An edge cannot be queued into `current_deleted_edges` until its delta is unlinked, which requires its containing entry to leave `committed_transactions_`. So edges referenced by `prev.edge` in `committed_transactions_` entries are alive.
+
+**Before flagging a dangling-pointer bug**: identify the container the referenced object lives in and the container the referencing object lives in. The transition rules between containers usually *are* the lifetime proof.
+
+### 9. Don't Assume Partial-Entry Processing
+Several batch-processing loops in storage (notably GC Phase 1's outer loop over `linked_undo_buffers`) are **all-or-nothing per entry**, not per-element. The gating check happens at the entry level before the inner loop starts; entries that pass are fully processed and moved; entries that fail are wholly deferred. The splice-back at the end of such loops handles wholly-skipped entries, not half-processed ones.
+
+**Before constructing a "partially processed and put back" scenario**: confirm there's an actual code path that exits the inner loop with some elements processed and others not. The presence of a `continue` inside a nested `while(true)` does not by itself imply this; see truth #10.
+
+### 10. `continue` After Re-reading Atomic State Is a One-Shot Resync, Not a Spinloop
+A common pattern: read an atomic field, take a lock based on its value, verify the field still matches under the lock, `continue` if not. This is **not** an unbounded retry; it resynchronizes with a writer that holds the same lock. After the writer releases, the atomic reflects the new state and the re-read either falls through to a different branch or proceeds. Watch for the paired invariant: the writer typically flips *two* fields under the lock (e.g., `delta.prev` type and `object->delta`), so observing one mismatch implies the other has also moved.
+
+**Before flagging an infinite loop or "stuck for-loop" scenario**: check what the lock-holding writer does, and whether the field the loop re-reads is changed by that writer. If yes, the loop progresses; if no, it really is stuck (and you've found a different bug).
+
 ## Communication Style
 
 - Be direct and specific about issues

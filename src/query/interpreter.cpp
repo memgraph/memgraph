@@ -3503,7 +3503,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                 cypher_query,
                                 parsed_query.parameters,
                                 plan_cache,
-                                dba);
+                                dba,
+                                interpreter.query_planner_context());
 
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
   for (const auto &hint : hints) {
@@ -3620,7 +3621,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
                                              cypher_query,
                                              parsed_inner_query.parameters,
                                              plan_cache,
-                                             dba);
+                                             dba,
+                                             interpreter.query_planner_context());
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
@@ -3729,7 +3731,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                              cypher_query,
                                              parsed_inner_query.parameters,
                                              plan_cache,
-                                             dba);
+                                             dba,
+                                             interpreter.query_planner_context());
 
 #ifdef MG_ENTERPRISE
   CheckParallelExecution(parallel_execution, cypher_query_plan->plan(), interpreter_context, notifications, dba);
@@ -4018,7 +4021,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
   std::vector<LPIndex> label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
-  // Stats are keyed by (label, properties) only — `IndexOrder` does not affect
+  // Stats are keyed by (label, properties) only; `IndexOrder` does not affect
   // count/chi-squared/avg_degree. Collapse entries that differ only in order
   // so we don't perform a redundant full vertex scan when both ASC and DESC
   // indexes exist on the same key.
@@ -4133,7 +4136,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   auto label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
   // `DeleteLabelPropertyIndexStats` is keyed by label and wipes every
-  // (label, properties) entry in one call — collapse to unique labels so
+  // (label, properties) entry in one call; collapse to unique labels so
   // repeated entries (different property combos, or ASC/DESC pairs) don't
   // produce redundant replicated metadata deltas.
   auto unique_labels =
@@ -6576,7 +6579,7 @@ auto TransactionStatusToString(TransactionStatus status) -> char const * {
 
 // Glue: maps the runtime TransactionStatus to the grammar-level filter enum.
 // States that have no user-visible filter keyword (IDLE, VERIFYING, TERMINATED)
-// return nullopt — they are not selectable via SHOW … TRANSACTIONS.
+// return nullopt - they are not selectable via SHOW … TRANSACTIONS.
 auto ToStatusFilter(TransactionStatus status) -> std::optional<TransactionQueueQuery::StatusFilter> {
   using SF = TransactionQueueQuery::StatusFilter;
   switch (status) {
@@ -6636,7 +6639,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
            TypedValue(std::to_string(transaction_id.value())),
            TypedValue(typed_queries),
            TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
-      // metadata_ is safe to read — we hold CAS protection (status is VERIFYING,
+      // metadata_ is safe to read - we hold CAS protection (status is VERIFYING,
       // cleanup paths spin-wait before modifying fields)
       std::map<std::string, TypedValue> metadata_tv;
       if (interpreter->metadata_) {
@@ -10013,13 +10016,13 @@ void Interpreter::Abort() {
       // Retry CAS from the current expected value (compare_exchange_weak already updated expected)
       continue;
     }
-    // VERIFYING or other transient states — wait for ShowTransactions/TerminateTransactions to restore
+    // VERIFYING or other transient states - wait for ShowTransactions/TerminateTransactions to restore
     expected = TransactionStatus::ACTIVE;
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
   // Cleanup: transition to IDLE, then clear fields.
-  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_ROLLBACK
+  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING - it will restore STARTED_ROLLBACK
   // when done reading, allowing us to proceed.
   const utils::OnScopeExit clean_status([this]() {
     auto expected = TransactionStatus::STARTED_ROLLBACK;
@@ -10029,11 +10032,11 @@ void Interpreter::Abort() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         continue;
       }
-      // Unexpected state — force IDLE to avoid deadlock
+      // Unexpected state - force IDLE to avoid deadlock
       transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
       break;
     }
-    // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
+    // Status is now IDLE - no concurrent ShowTransactions reader will access our fields
     current_transaction_.reset();
     metadata_ = std::nullopt;
   });
@@ -10231,7 +10234,7 @@ void Interpreter::Commit() {
       // What we are trying to do is set the transaction back to IDLE
       // We cannot simply put it to IDLE, since the status is used as a synchronization method and we have to follow
       // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
-      // ShowTransactions may also CAS us to VERIFYING — the CAS loop naturally spin-waits on that.
+      // ShowTransactions may also CAS us to VERIFYING - the CAS loop naturally spin-waits on that.
       auto expected = TransactionStatus::ACTIVE;
       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
         if (expected == TransactionStatus::TERMINATED) {
@@ -10240,7 +10243,7 @@ void Interpreter::Commit() {
         expected = TransactionStatus::ACTIVE;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
-      // Status is now IDLE — safe to clear fields
+      // Status is now IDLE - safe to clear fields
       current_transaction_.reset();
     });
 
@@ -10288,7 +10291,7 @@ void Interpreter::Commit() {
   }
 
   // Clean transaction status on exit.
-  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_COMMITTING
+  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING - it will restore STARTED_COMMITTING
   // when done reading, allowing us to proceed.
   const utils::OnScopeExit clean_status([this]() {
     auto expected = TransactionStatus::STARTED_COMMITTING;
@@ -10298,11 +10301,11 @@ void Interpreter::Commit() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         continue;
       }
-      // Unexpected state — force IDLE to avoid deadlock
+      // Unexpected state - force IDLE to avoid deadlock
       transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
       break;
     }
-    // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
+    // Status is now IDLE - no concurrent ShowTransactions reader will access our fields
     current_transaction_.reset();
   });
 

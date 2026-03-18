@@ -313,7 +313,7 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options []",
+        "Experimental features to be used, comma-separated. Options [planner-v2]",
     ),
     "experimental_config": (
         "",

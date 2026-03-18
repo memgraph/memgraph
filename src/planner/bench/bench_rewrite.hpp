@@ -16,10 +16,6 @@
 
 namespace memgraph::planner::bench {
 
-// ============================================================================
-// Rewrite-Specific Types
-// ============================================================================
-
 namespace rewrite = core::rewrite;
 
 using rewrite::Match;
@@ -31,16 +27,12 @@ using TestRewriter = rewrite::Rewriter<Op, NoAnalysis>;
 using TestRuleContext = rewrite::RuleContext<Op, NoAnalysis>;
 using TestRewriteContext = rewrite::RewriteContext<Op, NoAnalysis>;
 
-// ============================================================================
-// Rule Builders
-// ============================================================================
-
 using pattern::dsl::Var;
 
 inline auto RuleDoubleNeg() {
   return TestRewriteRule::Builder{"double_neg"}
       .pattern(PatternDoubleNeg())
-      .apply([](TestRuleContext &ctx, Match const &m) { ctx.merge(m[kRootDoubleNeg], m[kX]); });
+      .apply([](TestRuleContext &ctx, Match const &m) { ctx.merge(m[kVarDoubleNegRoot], m[kVarX]); });
 }
 
 inline auto RuleNoOp() {
@@ -49,56 +41,39 @@ inline auto RuleNoOp() {
 
 inline auto RuleMergeAddMul() {
   return TestRewriteRule::Builder{"merge_add_mul"}
-      .pattern(TestPattern::build(kRootAdd, Op::Add, {Var{kX}, Var{kY}}), "add")
-      .pattern(TestPattern::build(kRootMul, Op::Mul, {Var{kX}, Var{kY}}), "mul")
-      .apply([](TestRuleContext &ctx, Match const &m) { ctx.merge(m[kRootAdd], m[kRootMul]); });
+      .pattern(TestPattern::build(kVarAddRoot, Op::Add, {Var{kVarX}, Var{kVarY}}), "add")
+      .pattern(TestPattern::build(kVarMulRoot, Op::Mul, {Var{kVarX}, Var{kVarY}}), "mul")
+      .apply([](TestRuleContext &ctx, Match const &m) { ctx.merge(m[kVarAddRoot], m[kVarMulRoot]); });
 }
 
 inline auto RuleThreePattern() {
   return TestRewriteRule::Builder{"three"}
-      .pattern(TestPattern::build(kRootAdd, Op::Add, {Var{kX}, Var{kY}}), "add")
-      .pattern(TestPattern::build(kRootMul, Op::Mul, {Var{kX}, Var{kZ}}), "mul")
-      .pattern(TestPattern::build(kRootNeg, Op::Neg, {Var{kX}}), "neg")
+      .pattern(TestPattern::build(kVarAddRoot, Op::Add, {Var{kVarX}, Var{kVarY}}), "add")
+      .pattern(TestPattern::build(kVarMulRoot, Op::Mul, {Var{kVarX}, Var{kVarZ}}), "mul")
+      .pattern(TestPattern::build(kVarNegRoot, Op::Neg, {Var{kVarX}}), "neg")
       .apply([](TestRuleContext &, Match const &) {});
 }
 
 inline auto RuleCartesian() {
   return TestRewriteRule::Builder{"cartesian"}
-      .pattern(TestPattern::build(kRootAdd, Op::Add, {Var{kX}, Var{kY}}), "add")
-      .pattern(TestPattern::build(Op::Neg, {Var{kZ}}), "neg")
+      .pattern(TestPattern::build(kVarAddRoot, Op::Add, {Var{kVarX}, Var{kVarY}}), "add")
+      .pattern(TestPattern::build(Op::Neg, {Var{kVarZ}}), "neg")
       .apply([](TestRuleContext &, Match const &) {});
 }
 
 inline auto RuleWideJoin() {
   return TestRewriteRule::Builder{"wide"}
-      .pattern(TestPattern::build(kRootAdd, Op::Add, {Var{kX}, Var{kY}}), "add")
-      .pattern(TestPattern::build(kRootMul, Op::Mul, {Var{kX}, Var{kZ}}), "mul")
+      .pattern(TestPattern::build(kVarAddRoot, Op::Add, {Var{kVarX}, Var{kVarY}}), "add")
+      .pattern(TestPattern::build(kVarMulRoot, Op::Mul, {Var{kVarX}, Var{kVarZ}}), "mul")
       .apply([](TestRuleContext &, Match const &) {});
 }
 
-// ============================================================================
-// Rewriter Fixture Base
-// ============================================================================
-
-class RewriterFixtureBase : public benchmark::Fixture {
+class RewriterFixtureBase : public MatcherFixtureBase {
  protected:
-  TestEGraph egraph_;
-  std::unique_ptr<TestMatcherIndex> matcher_;
   std::unique_ptr<TestRewriter> rewriter_;
   TestRewriteContext rewrite_context_{egraph_};
 
-  void ResetEGraph() { egraph_ = TestEGraph{}; }
-
-  void CreateMatcher() { matcher_ = std::make_unique<TestMatcherIndex>(egraph_); }
-
   void CreateRewriter(TestRuleSet const &rules) { rewriter_ = std::make_unique<TestRewriter>(egraph_, rules); }
-
-  template <typename BuilderFn>
-  void SetupGraphAndMatcher(BuilderFn &&build_fn) {
-    ResetEGraph();
-    build_fn(egraph_);
-    CreateMatcher();
-  }
 
   template <typename BuilderFn>
   void SetupGraphAndRewriter(BuilderFn &&build_fn, TestRuleSet const &rules) {

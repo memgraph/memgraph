@@ -21,9 +21,9 @@ import rollbear.strong_type;
 export namespace memgraph::planner::core {
 
 using EClassId = strong::type<uint32_t, struct EClassId_, strong::regular, strong::formattable, strong::hashable,
-                              strong::ordered, strong::ostreamable>;
+                              strong::ordered, strong::strongly_ordered, strong::ostreamable>;
 using ENodeId = strong::type<uint32_t, struct ENodeId_, strong::regular, strong::formattable, strong::hashable,
-                             strong::ordered, strong::ostreamable>;
+                             strong::ordered, strong::strongly_ordered, strong::ostreamable>;
 
 // Provide hash_value for boost::hash ADL lookup
 inline std::size_t hash_value(const EClassId &id) { return std::hash<EClassId>{}(id); }

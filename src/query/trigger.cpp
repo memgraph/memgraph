@@ -22,6 +22,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan_v2/frontend/egraph_converter.hpp"
 #include "query/query_user.hpp"
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
@@ -201,11 +202,13 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     std::ranges::transform(
         identifiers, std::back_inserter(predefined_identifiers), [](auto &identifier) { return &identifier.first; });
 
+    plan::v2::QueryPlannerContext planner_context;
     auto logical_plan = MakeLogicalPlan(std::move(ast_storage),
                                         utils::Downcast<CypherQuery>(parsed_statements_.query),
                                         parsed_statements_.parameters,
                                         db_accessor,
-                                        predefined_identifiers);
+                                        predefined_identifiers,
+                                        planner_context);
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }

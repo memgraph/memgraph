@@ -35,6 +35,29 @@ class QueryException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(QueryException)
 };
 
+/// Thrown when a query reaches a code path that is recognised but
+/// deliberately not yet implemented (e.g. a Cypher feature the v2 planner
+/// doesn't cover yet).  Distinct from a generic QueryException so callers
+/// can catch it as a class of error and the message has a uniform shape.
+class NotYetImplemented final : public QueryException {
+ public:
+  explicit NotYetImplemented(std::string_view feature)
+      : QueryException(fmt::format("{} is not implemented yet.", feature)) {}
+  SPECIALIZE_GET_EXCEPTION_NAME(NotYetImplemented)
+};
+
+/// Thrown when an internal planner invariant is violated.  Distinct from a
+/// generic QueryException so the Bolt layer can surface it as a DatabaseError
+/// (the client can do nothing; retrying will fail the same way) rather than
+/// a ClientError.  Inherits QueryException only so the existing
+/// catch-and-rewrap sites in glue continue to fire; the rewrap dispatch
+/// recognises this type and maps it to the DatabaseError classification.
+class PlannerBug final : public QueryException {
+ public:
+  using QueryException::QueryException;
+  SPECIALIZE_GET_EXCEPTION_NAME(PlannerBug)
+};
+
 /**
  * @brief Thrown when a USING PERIODIC COMMIT batch fails with a fatal error
  * (e.g. constraint violation). The storage layer has already aborted the

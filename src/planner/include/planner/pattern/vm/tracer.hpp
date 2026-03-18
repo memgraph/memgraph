@@ -17,7 +17,10 @@
 #include <iterator>
 #include <span>
 #include <string>
+#include <variant>
 #include <vector>
+
+#include <boost/container/small_vector.hpp>
 
 #include "planner/pattern/vm/instruction.hpp"
 
@@ -47,7 +50,7 @@ struct VMStats {
 
 /// Tracer interface for VM execution debugging.
 ///
-/// All methods receive raw typed values — implementations decide how to
+/// All methods receive raw typed values - implementations decide how to
 /// capture or format them.  The pc parameter is the program counter of the
 /// instruction that triggered the event.
 struct VMTracer {
@@ -142,8 +145,97 @@ struct NullTracer final : VMTracer {
   void on_halt(std::size_t, std::size_t) override {}
 };
 
-/// Recording tracer - captures execution trace for testing
+/// Recording tracer - captures execution trace for testing.
+///
+/// Event payloads are stored as typed values; `details()` formats lazily.
+/// Tests record many events but inspect only a few; eager formatting was
+/// the dominant allocation cost.
 struct RecordingTracer final : VMTracer {
+  struct InstructionPayload {
+    Instruction instr;
+  };
+
+  struct CountPayload {
+    std::size_t count;
+  };
+
+  struct RemainingPayload {
+    std::size_t remaining;
+  };
+
+  struct BindPayload {
+    std::size_t slot;
+    EClassId value;
+  };
+
+  struct BindDuplicatePayload {
+    std::size_t slot;
+    EClassId value;
+  };
+
+  struct SymbolFailPayload {
+    ENodeId enode;
+    std::size_t expected_sym_idx;
+  };
+
+  struct ArityFailPayload {
+    ENodeId enode;
+    std::size_t expected;
+    std::size_t actual;
+  };
+
+  struct SlotFailPayload {
+    std::size_t slot;
+    EClassId expected;
+    EClassId actual;
+  };
+
+  struct EClassFailPayload {
+    EClassId lhs;
+    EClassId rhs;
+  };
+
+  struct SymbolPassPayload {
+    ENodeId enode;
+    std::size_t sym_idx;
+  };
+
+  struct ArityPassPayload {
+    ENodeId enode;
+    std::size_t arity;
+  };
+
+  struct SlotPassPayload {
+    std::size_t slot;
+    EClassId value;
+  };
+
+  struct EClassPassPayload {
+    EClassId value;
+  };
+
+  struct MarkSeenPayload {
+    std::size_t slot;
+    EClassId value;
+  };
+
+  struct BacktrackPayload {
+    std::size_t target;
+  };
+
+  struct YieldPayload {
+    boost::container::small_vector<EClassId, 8> slots;
+  };
+
+  struct HaltPayload {
+    std::size_t total_instructions;
+  };
+
+  using Payload = std::variant<InstructionPayload, CountPayload, RemainingPayload, BindPayload, BindDuplicatePayload,
+                               SymbolFailPayload, ArityFailPayload, SlotFailPayload, EClassFailPayload,
+                               SymbolPassPayload, ArityPassPayload, SlotPassPayload, EClassPassPayload, MarkSeenPayload,
+                               BacktrackPayload, YieldPayload, HaltPayload>;
+
   struct Event {
     enum class Type {
       Instruction,
@@ -159,93 +251,134 @@ struct RecordingTracer final : VMTracer {
     };
     Type type;
     std::size_t pc{0};
-    std::string details;
+    Payload payload;
+
+    template <typename P>
+    Event(Type t, std::size_t pc_, P &&p) : type{t}, pc{pc_}, payload{std::forward<P>(p)} {}
+
+    [[nodiscard]] auto details() const -> std::string {
+      return std::visit(
+          [](auto const &p) -> std::string {
+            using T = std::decay_t<decltype(p)>;
+            if constexpr (std::is_same_v<T, InstructionPayload>) {
+              return std::format("{} dst={} src={} arg={} target={}",
+                                 op_name(p.instr.op),
+                                 p.instr.dst,
+                                 p.instr.src,
+                                 p.instr.arg,
+                                 p.instr.target);
+            } else if constexpr (std::is_same_v<T, CountPayload>) {
+              return std::format("count={}", p.count);
+            } else if constexpr (std::is_same_v<T, RemainingPayload>) {
+              return std::format("remaining={}", p.remaining);
+            } else if constexpr (std::is_same_v<T, BindPayload>) {
+              return std::format("slot={} value={}", p.slot, p.value);
+            } else if constexpr (std::is_same_v<T, BindDuplicatePayload>) {
+              return std::format("duplicate binding: slot={} value={}", p.slot, p.value);
+            } else if constexpr (std::is_same_v<T, SymbolFailPayload>) {
+              return std::format("symbol mismatch: enode={} expected_sym={}", p.enode, p.expected_sym_idx);
+            } else if constexpr (std::is_same_v<T, ArityFailPayload>) {
+              return std::format("arity mismatch: enode={} expected={} actual={}", p.enode, p.expected, p.actual);
+            } else if constexpr (std::is_same_v<T, SlotFailPayload>) {
+              return std::format("slot mismatch: slot={} expected={} actual={}", p.slot, p.expected, p.actual);
+            } else if constexpr (std::is_same_v<T, EClassFailPayload>) {
+              return std::format("eclass mismatch: lhs={} rhs={}", p.lhs, p.rhs);
+            } else if constexpr (std::is_same_v<T, SymbolPassPayload>) {
+              return std::format("symbol match: enode={} sym={}", p.enode, p.sym_idx);
+            } else if constexpr (std::is_same_v<T, ArityPassPayload>) {
+              return std::format("arity match: enode={} arity={}", p.enode, p.arity);
+            } else if constexpr (std::is_same_v<T, SlotPassPayload>) {
+              return std::format("slot match: slot={} value={}", p.slot, p.value);
+            } else if constexpr (std::is_same_v<T, EClassPassPayload>) {
+              return std::format("eclass match: value={}", p.value);
+            } else if constexpr (std::is_same_v<T, MarkSeenPayload>) {
+              return std::format("slot={} value={}", p.slot, p.value);
+            } else if constexpr (std::is_same_v<T, BacktrackPayload>) {
+              return std::format("target={}", p.target);
+            } else if constexpr (std::is_same_v<T, YieldPayload>) {
+              std::string r = "slots=[";
+              for (std::size_t i = 0; i < p.slots.size(); ++i) {
+                if (i > 0) r += ", ";
+                std::format_to(std::back_inserter(r), "{}", p.slots[i]);
+              }
+              r += ']';
+              return r;
+            } else if constexpr (std::is_same_v<T, HaltPayload>) {
+              return std::format("total={}", p.total_instructions);
+            }
+          },
+          payload);
+    }
   };
 
   std::vector<Event> events;
 
   void on_instruction(std::size_t pc, Instruction const &instr) override {
-    events.push_back(
-        {Event::Type::Instruction,
-         pc,
-         std::format(
-             "{} dst={} src={} arg={} target={}", op_name(instr.op), instr.dst, instr.src, instr.arg, instr.target)});
+    events.emplace_back(Event::Type::Instruction, pc, InstructionPayload{instr});
   }
 
   void on_iter_start(std::size_t pc, std::size_t count) override {
-    events.push_back({Event::Type::IterStart, pc, std::format("count={}", count)});
+    events.emplace_back(Event::Type::IterStart, pc, CountPayload{count});
   }
 
   void on_iter_advance(std::size_t pc, std::size_t remaining) override {
-    events.push_back({Event::Type::IterAdvance, pc, std::format("remaining={}", remaining)});
+    events.emplace_back(Event::Type::IterAdvance, pc, RemainingPayload{remaining});
   }
 
   void on_bind(std::size_t pc, std::size_t slot, EClassId value) override {
-    events.push_back({Event::Type::Bind, pc, std::format("slot={} value={}", slot, value)});
+    events.emplace_back(Event::Type::Bind, pc, BindPayload{slot, value});
   }
 
   void on_bind_duplicate(std::size_t pc, std::size_t slot, EClassId value) override {
-    events.push_back({Event::Type::CheckFail, pc, std::format("duplicate binding: slot={} value={}", slot, value)});
+    events.emplace_back(Event::Type::CheckFail, pc, BindDuplicatePayload{slot, value});
   }
 
   void on_check_symbol_fail(std::size_t pc, ENodeId enode, std::size_t expected_sym_idx) override {
-    events.push_back({Event::Type::CheckFail,
-                      pc,
-                      std::format("symbol mismatch: enode={} expected_sym={}", enode, expected_sym_idx)});
+    events.emplace_back(Event::Type::CheckFail, pc, SymbolFailPayload{enode, expected_sym_idx});
   }
 
   void on_check_arity_fail(std::size_t pc, ENodeId enode, std::size_t expected, std::size_t actual) override {
-    events.push_back({Event::Type::CheckFail,
-                      pc,
-                      std::format("arity mismatch: enode={} expected={} actual={}", enode, expected, actual)});
+    events.emplace_back(Event::Type::CheckFail, pc, ArityFailPayload{enode, expected, actual});
   }
 
   void on_check_slot_fail(std::size_t pc, std::size_t slot, EClassId expected, EClassId actual) override {
-    events.push_back({Event::Type::CheckFail,
-                      pc,
-                      std::format("slot mismatch: slot={} expected={} actual={}", slot, expected, actual)});
+    events.emplace_back(Event::Type::CheckFail, pc, SlotFailPayload{slot, expected, actual});
   }
 
   void on_check_eclass_eq_fail(std::size_t pc, EClassId lhs, EClassId rhs) override {
-    events.push_back({Event::Type::CheckFail, pc, std::format("eclass mismatch: lhs={} rhs={}", lhs, rhs)});
+    events.emplace_back(Event::Type::CheckFail, pc, EClassFailPayload{lhs, rhs});
   }
 
   void on_check_symbol_pass(std::size_t pc, ENodeId enode, std::size_t sym_idx) override {
-    events.push_back({Event::Type::CheckPass, pc, std::format("symbol match: enode={} sym={}", enode, sym_idx)});
+    events.emplace_back(Event::Type::CheckPass, pc, SymbolPassPayload{enode, sym_idx});
   }
 
   void on_check_arity_pass(std::size_t pc, ENodeId enode, std::size_t arity) override {
-    events.push_back({Event::Type::CheckPass, pc, std::format("arity match: enode={} arity={}", enode, arity)});
+    events.emplace_back(Event::Type::CheckPass, pc, ArityPassPayload{enode, arity});
   }
 
   void on_check_slot_pass(std::size_t pc, std::size_t slot, EClassId value) override {
-    events.push_back({Event::Type::CheckPass, pc, std::format("slot match: slot={} value={}", slot, value)});
+    events.emplace_back(Event::Type::CheckPass, pc, SlotPassPayload{slot, value});
   }
 
   void on_check_eclass_eq_pass(std::size_t pc, EClassId value) override {
-    events.push_back({Event::Type::CheckPass, pc, std::format("eclass match: value={}", value)});
+    events.emplace_back(Event::Type::CheckPass, pc, EClassPassPayload{value});
   }
 
   void on_mark_seen(std::size_t pc, std::size_t slot, EClassId value) override {
-    events.push_back({Event::Type::MarkSeen, pc, std::format("slot={} value={}", slot, value)});
+    events.emplace_back(Event::Type::MarkSeen, pc, MarkSeenPayload{slot, value});
   }
 
   void on_backtrack(std::size_t pc, std::size_t target) override {
-    events.push_back({Event::Type::Backtrack, pc, std::format("target={}", target)});
+    events.emplace_back(Event::Type::Backtrack, pc, BacktrackPayload{target});
   }
 
   void on_yield(std::size_t pc, std::span<EClassId const> slots) override {
-    std::string result = "slots=[";
-    for (std::size_t i = 0; i < slots.size(); ++i) {
-      if (i > 0) result += ", ";
-      std::format_to(std::back_inserter(result), "{}", slots[i]);
-    }
-    result += ']';
-    events.push_back({Event::Type::Yield, pc, std::move(result)});
+    events.emplace_back(Event::Type::Yield, pc, YieldPayload{{slots.begin(), slots.end()}});
   }
 
   void on_halt(std::size_t pc, std::size_t total_instructions) override {
-    events.push_back({Event::Type::Halt, pc, std::format("total={}", total_instructions)});
+    events.emplace_back(Event::Type::Halt, pc, HaltPayload{total_instructions});
   }
 
   void clear() { events.clear(); }
@@ -255,34 +388,34 @@ struct RecordingTracer final : VMTracer {
     for (auto const &e : events) {
       switch (e.type) {
         case Event::Type::Instruction:
-          os << "[" << e.pc << "] " << e.details << "\n";
+          os << "[" << e.pc << "] " << e.details() << "\n";
           break;
         case Event::Type::IterStart:
-          os << "    -> iter_start " << e.details << "\n";
+          os << "    -> iter_start " << e.details() << "\n";
           break;
         case Event::Type::IterAdvance:
-          os << "    -> iter_advance " << e.details << "\n";
+          os << "    -> iter_advance " << e.details() << "\n";
           break;
         case Event::Type::Bind:
-          os << "    -> bind " << e.details << "\n";
+          os << "    -> bind " << e.details() << "\n";
           break;
         case Event::Type::CheckPass:
-          os << "    -> PASS " << e.details << "\n";
+          os << "    -> PASS " << e.details() << "\n";
           break;
         case Event::Type::CheckFail:
-          os << "    -> FAIL " << e.details << "\n";
+          os << "    -> FAIL " << e.details() << "\n";
           break;
         case Event::Type::MarkSeen:
-          os << "    -> mark_seen " << e.details << "\n";
+          os << "    -> mark_seen " << e.details() << "\n";
           break;
         case Event::Type::Backtrack:
-          os << "    -> BACKTRACK " << e.details << "\n";
+          os << "    -> BACKTRACK " << e.details() << "\n";
           break;
         case Event::Type::Yield:
-          os << "    -> YIELD " << e.details << "\n";
+          os << "    -> YIELD " << e.details() << "\n";
           break;
         case Event::Type::Halt:
-          os << "=== HALT " << e.details << " ===\n";
+          os << "=== HALT " << e.details() << " ===\n";
           break;
       }
     }

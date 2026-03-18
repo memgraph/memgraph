@@ -16,7 +16,7 @@
 /// Validators are parameterized on a Reporter policy so they work in both
 /// gtest (EXPECT_*/ASSERT_*) and fuzzer (log + abort) contexts.
 ///
-/// Reporter concept — methods take (condition args..., fmt::format_string, format_args...):
+/// Reporter concept - methods take (condition args..., fmt::format_string, format_args...):
 ///   void expect_true(bool, fmt_str, args...)
 ///   void expect_eq(a, b, fmt_str, args...)
 ///   void expect_lt(a, b, fmt_str, args...)
@@ -38,10 +38,43 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 #include "planner/pattern/vm/compiled_matcher.hpp"
 #include "planner/pattern/vm/instruction.hpp"
 #include "planner/pattern/vm/tracer.hpp"
+
+namespace memgraph::planner::core::pattern::vm {
+
+// ============================================================================
+// LazyDisassembly: defers `disassemble()` until a failure message is rendered
+// ============================================================================
+//
+// Holding code+symbols by reference lets the formatter call `disassemble()`
+// only when a fmt argument is actually rendered, i.e. on the failure path.
+// The happy path skips disassembly entirely.
+template <typename Symbol>
+struct LazyDisassembly {
+  std::span<Instruction const> code;
+  std::span<Symbol const> symbols;
+
+  friend auto operator<<(std::ostream &os, LazyDisassembly const &d) -> std::ostream & {
+    return os << disassemble(d.code, d.symbols);
+  }
+};
+
+}  // namespace memgraph::planner::core::pattern::vm
+
+template <typename Symbol, typename Char>
+struct fmt::formatter<memgraph::planner::core::pattern::vm::LazyDisassembly<Symbol>, Char>
+    : fmt::formatter<std::string, Char> {
+  template <typename FormatContext>
+  auto format(memgraph::planner::core::pattern::vm::LazyDisassembly<Symbol> const &d, FormatContext &ctx) const {
+    return fmt::formatter<std::string, Char>::format(
+        memgraph::planner::core::pattern::vm::disassemble(d.code, d.symbols), ctx);
+  }
+};
 
 namespace memgraph::planner::core::pattern::vm {
 
@@ -175,7 +208,7 @@ inline auto collect_register_usage(std::span<Instruction const> code) -> RegUsag
 }
 
 // ============================================================================
-// CompiledMatcherInfo — lightweight metadata for validators
+// CompiledMatcherInfo - lightweight metadata for validators
 // ============================================================================
 
 struct CompiledMatcherInfo {
@@ -193,7 +226,7 @@ struct CompiledMatcherInfo {
 
 /// Non-empty bytecode ending with Halt.
 template <typename Reporter>
-void ValidateCodeStructure(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateCodeStructure(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   if (!r.assert_true(!code.empty(), "Bytecode must not be empty")) return;
   r.expect_eq(
       code.back().op, VMOp::Halt, "Last instruction must be Halt, got {}\nBytecode:\n{}", op_name(code.back().op), bc);
@@ -202,7 +235,7 @@ void ValidateCodeStructure(Reporter &r, std::span<Instruction const> code, std::
 /// All jump/backtrack targets in bounds, no unpatched 0xFFFF placeholders.
 /// Must pass before any validator that indexes code[target].
 template <typename Reporter>
-void ValidateJumpTargetsInBounds(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateJumpTargetsInBounds(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (!has_backtrack_target(code[i].op) && code[i].op != VMOp::Jump) continue;
     r.expect_lt(code[i].target,
@@ -225,7 +258,7 @@ void ValidateJumpTargetsInBounds(Reporter &r, std::span<Instruction const> code,
 /// Symbol table, slot, and register index bounds.
 template <typename Reporter>
 void ValidateIndexBounds(Reporter &r, std::span<Instruction const> code, CompiledMatcherInfo const &info,
-                         std::string_view bc) {
+                         auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     auto const &instr = code[i];
 
@@ -311,7 +344,7 @@ void ValidateIndexBounds(Reporter &r, std::span<Instruction const> code, Compile
 
 /// Backtrack targets point to NextX, MarkSeen, or Halt.
 template <typename Reporter>
-void ValidateBacktracksToNextOrHalt(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateBacktracksToNextOrHalt(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (!has_backtrack_target(code[i].op)) continue;
     auto target = code[i].target;
@@ -327,7 +360,7 @@ void ValidateBacktracksToNextOrHalt(Reporter &r, std::span<Instruction const> co
 
 /// Jump semantics: backward→NextX/MarkSeen, forward→skips over NextX/MarkSeen.
 template <typename Reporter>
-void ValidateJumpTargetSemantics(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateJumpTargetSemantics(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (code[i].op != VMOp::Jump) continue;
     auto target = code[i].target;
@@ -358,7 +391,7 @@ void ValidateJumpTargetSemantics(Reporter &r, std::span<Instruction const> code,
 
 /// NextX nesting: inner loops backtrack earlier, outermost backtracks to Halt.
 template <typename Reporter>
-void ValidateNextBacktracksEarlierOrHalt(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateNextBacktracksEarlierOrHalt(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (!is_next_op(code[i].op)) continue;
     auto target = code[i].target;
@@ -387,7 +420,7 @@ void ValidateNextBacktracksEarlierOrHalt(Reporter &r, std::span<Instruction cons
 
 /// BindSlot/CheckSlot never target MarkSeen (MarkSeen is for inner exhaustion, not binding failure).
 template <typename Reporter>
-void ValidateBindSlotCheckSlotSkipMarkSeen(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateBindSlotCheckSlotSkipMarkSeen(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (code[i].op != VMOp::BindSlot && code[i].op != VMOp::CheckSlot) continue;
     auto target = code[i].target;
@@ -407,7 +440,7 @@ void ValidateBindSlotCheckSlotSkipMarkSeen(Reporter &r, std::span<Instruction co
 
 /// Every IterX has exactly one matching NextX with the same dst register, and vice versa.
 template <typename Reporter>
-void ValidateIterationPairing(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateIterationPairing(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   struct IterInfo {
     VMOp expected_next;
     uint8_t dst;
@@ -453,7 +486,7 @@ void ValidateIterationPairing(Reporter &r, std::span<Instruction const> code, st
 
 /// IterX immediately followed by forward Jump (loop-entry skip pattern).
 template <typename Reporter>
-void ValidateIterFollowedByJump(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateIterFollowedByJump(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (!is_iter_op(code[i].op)) continue;
     if (!r.assert_lt(i + 1, code.size(), "{} at {} is the last instruction\nBytecode:\n{}", op_name(code[i].op), i, bc))
@@ -477,7 +510,7 @@ void ValidateIterFollowedByJump(Reporter &r, std::span<Instruction const> code, 
 
 /// IterENodes.target must be 0 (e-classes always have >= 1 e-node).
 template <typename Reporter>
-void ValidateIterENodesTargetUnused(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateIterENodesTargetUnused(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (code[i].op == VMOp::IterENodes) {
       r.expect_eq(code[i].target,
@@ -496,7 +529,7 @@ void ValidateIterENodesTargetUnused(Reporter &r, std::span<Instruction const> co
 
 /// Exactly 1 Yield if any BindSlot exists, 0 otherwise. Yield followed by backward Jump.
 template <typename Reporter>
-void ValidateYieldStructure(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateYieldStructure(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   bool has_bindings = false;
   int yield_count = 0;
   for (auto const &instr : code) {
@@ -540,7 +573,7 @@ void ValidateYieldStructure(Reporter &r, std::span<Instruction const> code, std:
 /// but only reached after BindSlot at runtime via loop-back). Their slot validity
 /// is checked by ValidateBindingOrder via the binding_order metadata.
 template <typename Reporter>
-void ValidateSlotUsage(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateSlotUsage(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   std::set<uint8_t> bound_slots;
 
   // CheckSlot must appear after BindSlot for that slot in linear program order
@@ -572,7 +605,7 @@ void ValidateSlotUsage(Reporter &r, std::span<Instruction const> code, std::stri
 
 /// CheckSymbol immediately followed by CheckArity with same src register.
 template <typename Reporter>
-void ValidateCheckSymbolArityPaired(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateCheckSymbolArityPaired(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (code[i].op != VMOp::CheckSymbol) continue;
     if (!r.assert_lt(i + 1, code.size(), "CheckSymbol at {} is the last instruction\nBytecode:\n{}", i, bc)) return;
@@ -598,7 +631,7 @@ void ValidateCheckSymbolArityPaired(Reporter &r, std::span<Instruction const> co
 
 /// CheckEClassEq: preceded by LoadChild, dst != src.
 template <typename Reporter>
-void ValidateCheckEClassEq(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateCheckEClassEq(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (code[i].op != VMOp::CheckEClassEq) continue;
     if (!r.assert_gt(i, std::size_t{0}, "CheckEClassEq cannot be first instruction\nBytecode:\n{}", bc)) return;
@@ -614,7 +647,7 @@ void ValidateCheckEClassEq(Reporter &r, std::span<Instruction const> code, std::
 
 /// GetENodeEClass immediately followed by BindSlot or IterParents.
 template <typename Reporter>
-void ValidateGetENodeEClassUsage(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateGetENodeEClassUsage(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (code[i].op != VMOp::GetENodeEClass) continue;
     if (!r.assert_lt(i + 1, code.size(), "GetENodeEClass at {} is the last instruction\nBytecode:\n{}", i, bc)) return;
@@ -629,7 +662,7 @@ void ValidateGetENodeEClassUsage(Reporter &r, std::span<Instruction const> code,
 
 /// MarkSeen must not be on IterENodes loops.
 template <typename Reporter>
-void ValidateMarkSeenNotOnENodeLoop(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateMarkSeenNotOnENodeLoop(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (code[i].op != VMOp::MarkSeen) continue;
     if (!r.assert_lt(i + 1, code.size(), "MarkSeen at {} is the last instruction\nBytecode:\n{}", i, bc)) return;
@@ -659,7 +692,7 @@ void ValidateMarkSeenNotOnENodeLoop(Reporter &r, std::span<Instruction const> co
 
 /// Registers: contiguous [0,N), every producer consumed, every consumer produced, defined before read.
 template <typename Reporter>
-void ValidateRegisters(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
+void ValidateRegisters(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   auto usage = collect_register_usage(code);
 
   // Contiguous indices
@@ -696,8 +729,8 @@ void ValidateRegisters(Reporter &r, std::span<Instruction const> code, std::stri
                   bc);
 
   // Liveness: defined before read
-  std::set<uint8_t> defined_eclass;
-  std::set<uint8_t> defined_enode;
+  boost::unordered_flat_set<uint8_t> defined_eclass;
+  boost::unordered_flat_set<uint8_t> defined_enode;
 
   for (std::size_t i = 0; i < code.size(); ++i) {
     auto const &instr = code[i];
@@ -734,8 +767,8 @@ void ValidateRegisters(Reporter &r, std::span<Instruction const> code, std::stri
 
 /// Sibling LoadChild from the same enode register must not be separated by IterENodes.
 template <typename Reporter>
-void ValidateSiblingLoadsNotInNestedLoop(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
-  std::map<uint8_t, std::vector<std::size_t>> loads_by_src;
+void ValidateSiblingLoadsNotInNestedLoop(Reporter &r, std::span<Instruction const> code, auto const &bc) {
+  boost::unordered_flat_map<uint8_t, std::vector<std::size_t>> loads_by_src;
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (code[i].op == VMOp::LoadChild) loads_by_src[code[i].src].push_back(i);
   }
@@ -758,8 +791,8 @@ void ValidateSiblingLoadsNotInNestedLoop(Reporter &r, std::span<Instruction cons
 
 /// Eclass-level parent joins must appear before the enode loop for that register.
 template <typename Reporter>
-void ValidateEclassJoinsBeforeEnodeLoop(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
-  std::set<uint8_t> eclass_level_regs;
+void ValidateEclassJoinsBeforeEnodeLoop(Reporter &r, std::span<Instruction const> code, auto const &bc) {
+  boost::unordered_flat_set<uint8_t> eclass_level_regs;
   for (auto const &instr : code) {
     if (instr.op == VMOp::IterSymbolEClasses || instr.op == VMOp::IterAllEClasses) {
       eclass_level_regs.insert(instr.dst);
@@ -801,12 +834,12 @@ void ValidateEclassJoinsBeforeEnodeLoop(Reporter &r, std::span<Instruction const
 /// binding_order: valid indices, no duplicates, slot_to_order is inverse, matches BindSlot emission order.
 template <typename Reporter>
 void ValidateBindingOrder(Reporter &r, std::span<Instruction const> code, CompiledMatcherInfo const &info,
-                          std::string_view bc) {
+                          auto const &bc) {
   auto const &binding_order = info.binding_order;
   auto const &slot_to_order = info.slot_to_order;
 
   // Valid indices, no duplicates
-  std::set<SlotIdx> seen;
+  boost::unordered_flat_set<SlotIdx> seen;
   for (std::size_t i = 0; i < binding_order.size(); ++i) {
     r.expect_lt(value_of(binding_order[i]),
                 info.num_slots,
@@ -837,7 +870,7 @@ void ValidateBindingOrder(Reporter &r, std::span<Instruction const> code, Compil
 
   // Matches BindSlot emission order
   std::vector<SlotIdx> code_order;
-  std::set<uint8_t> seen_in_code;
+  boost::unordered_flat_set<uint8_t> seen_in_code;
   for (auto const &instr : code) {
     if (instr.op == VMOp::BindSlot && !seen_in_code.contains(instr.arg)) {
       code_order.emplace_back(instr.arg);
@@ -864,26 +897,26 @@ void ValidateBindingOrder(Reporter &r, std::span<Instruction const> code, Compil
                 bc);
 }
 
+// Resolve a Yield Jump target to its effective NextX address.
+// The target may be a MarkSeen trampoline: MarkSeen → NextX or MarkSeen → Jump → NextX.
+inline auto ResolveYieldJumpTarget(std::span<Instruction const> code, uint16_t target) -> uint16_t {
+  if (target < code.size() && code[target].op == VMOp::MarkSeen) {
+    auto next = target + 1;
+    if (next < code.size()) {
+      if (is_next_op(code[next].op)) return next;
+      if (code[next].op == VMOp::Jump) return code[next].target;
+    }
+  }
+  return target;
+}
+
 /// Yield backward Jump must not skip over BindSlot loops.
 /// The Jump may target a NextX directly or a MarkSeen trampoline that precedes
 /// a NextX. We resolve to the effective NextX, then check that every BindSlot
 /// between it and Yield backtracks to an address <= the effective NextX.
 /// A violation means an inner loop introduces new bindings that the Jump skips.
 template <typename Reporter>
-void ValidateYieldJumpCoversBindSlots(Reporter &r, std::span<Instruction const> code, std::string_view bc) {
-  // Resolve a Yield Jump target to its effective NextX address.
-  // The target may be a MarkSeen trampoline: MarkSeen → NextX or MarkSeen → Jump → NextX.
-  auto resolve_target = [&](uint16_t target) -> uint16_t {
-    if (target < code.size() && code[target].op == VMOp::MarkSeen) {
-      auto next = target + 1;
-      if (next < code.size()) {
-        if (is_next_op(code[next].op)) return next;
-        if (code[next].op == VMOp::Jump) return code[next].target;
-      }
-    }
-    return target;
-  };
-
+void ValidateYieldJumpCoversBindSlots(Reporter &r, std::span<Instruction const> code, auto const &bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     if (code[i].op != VMOp::Yield) continue;
     if (i + 1 >= code.size() || code[i + 1].op != VMOp::Jump) continue;
@@ -892,7 +925,7 @@ void ValidateYieldJumpCoversBindSlots(Reporter &r, std::span<Instruction const> 
     // Only check backward jumps (the normal Yield loop-back)
     if (jump_target > i) continue;
 
-    auto effective_target = resolve_target(jump_target);
+    auto effective_target = ResolveYieldJumpTarget(code, jump_target);
 
     for (auto j = effective_target + 1; j < i; ++j) {
       if (code[j].op == VMOp::BindSlot) {
@@ -928,7 +961,7 @@ void ValidateYieldJumpCoversBindSlots(Reporter &r, std::span<Instruction const> 
 template <typename Reporter, typename Symbol>
 void ValidateBytecodeInvariants(Reporter &r, CompiledMatcher<Symbol> const &compiled) {
   auto code = compiled.code();
-  auto bc = disassemble(code, compiled.symbols());
+  auto bc = LazyDisassembly<Symbol>{code, compiled.symbols()};
   auto info = CompiledMatcherInfo{.num_symbols = compiled.symbols().size(),
                                   .num_slots = compiled.num_slots(),
                                   .num_eclass_regs = compiled.num_eclass_regs(),

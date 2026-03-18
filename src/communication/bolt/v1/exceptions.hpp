@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -61,10 +61,21 @@ class VerboseError : public utils::BasicException {
     TRANSIENT_ERROR,
   };
 
+  /// Plain-message constructor: caller already has the formatted message.
+  /// Use this when the message is a runtime string (e.g. an exception
+  /// `what()`).  Prefer this over the variadic form unless you specifically
+  /// need fmt-style placeholder substitution.
+  VerboseError(Classification classification, std::string_view category, std::string_view title,
+               std::string_view message)
+      : BasicException(std::string{message}),
+        code_(fmt::format("Memgraph.{}.{}.{}", ClassificationToString(classification), category, title)) {}
+
+  /// Format-string constructor: takes a compile-time fmt::format_string and
+  /// runtime args, like fmt::format.
   template <class... Args>
-  VerboseError(Classification classification, const std::string &category, const std::string &title,
-               const std::string &format, Args &&...args)
-      : BasicException(format, std::forward<Args>(args)...),
+  VerboseError(Classification classification, std::string_view category, std::string_view title,
+               fmt::format_string<Args...> fmt, Args &&...args)
+      : BasicException(fmt, std::forward<Args>(args)...),
         code_(fmt::format("Memgraph.{}.{}.{}", ClassificationToString(classification), category, title)) {}
 
   const std::string &code() const noexcept { return code_; }
