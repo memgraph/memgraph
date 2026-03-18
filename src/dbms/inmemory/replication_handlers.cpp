@@ -35,6 +35,7 @@
 import memgraph.utils.fnv;
 
 using memgraph::storage::Delta;
+using memgraph::storage::DescriptionTargetKind;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;
 using memgraph::storage::LabelIndexStats;
@@ -667,6 +668,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           &storage->enum_store_,
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
           &storage->ttl_,
+          &storage->description_store_,
           snapshot_observer_info);
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
@@ -1876,6 +1878,73 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 #else
           spdlog::trace("TTL operation is not supported in community edition");
 #endif
+        },
+        [&](WalDescriptionSet const &data) {
+          spdlog::trace("   Delta {}. Set description (kind={})", current_delta_idx, static_cast<int>(data.kind));
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          switch (data.kind) {
+            case DescriptionTargetKind::DATABASE:
+              transaction->SetDatabaseDescription(data.description);
+              break;
+            case DescriptionTargetKind::LABEL:
+              transaction->SetLabelDescription(data.labels, data.description);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE:
+              transaction->SetEdgeTypeDescription(data.edge_type, data.description);
+              break;
+            case DescriptionTargetKind::LABEL_PROPERTY:
+              transaction->SetLabelPropertyDescription(data.labels, data.property, data.description);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+              transaction->SetEdgeTypePropertyDescription(data.edge_type, data.property, data.description);
+              break;
+            case DescriptionTargetKind::PROPERTY:
+              transaction->SetPropertyDescription(data.property, data.description);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE_PATTERN:
+              transaction->SetEdgeTypePatternDescription(
+                  data.from_labels, data.edge_type, data.to_labels, data.description);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+              transaction->SetEdgeTypePatternPropertyDescription(
+                  data.from_labels, data.edge_type, data.to_labels, data.property, data.description);
+              break;
+            default:
+              break;
+          }
+        },
+        [&](WalDescriptionDelete const &data) {
+          spdlog::trace("   Delta {}. Delete description (kind={})", current_delta_idx, static_cast<int>(data.kind));
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          switch (data.kind) {
+            case DescriptionTargetKind::DATABASE:
+              transaction->DeleteDatabaseDescription();
+              break;
+            case DescriptionTargetKind::LABEL:
+              transaction->DeleteLabelDescription(data.labels);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE:
+              transaction->DeleteEdgeTypeDescription(data.edge_type);
+              break;
+            case DescriptionTargetKind::LABEL_PROPERTY:
+              transaction->DeleteLabelPropertyDescription(data.labels, data.property);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+              transaction->DeleteEdgeTypePropertyDescription(data.edge_type, data.property);
+              break;
+            case DescriptionTargetKind::PROPERTY:
+              transaction->DeletePropertyDescription(data.property);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE_PATTERN:
+              transaction->DeleteEdgeTypePatternDescription(data.from_labels, data.edge_type, data.to_labels);
+              break;
+            case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+              transaction->DeleteEdgeTypePatternPropertyDescription(
+                  data.from_labels, data.edge_type, data.to_labels, data.property);
+              break;
+            default:
+              break;
+          }
         },
     };
 

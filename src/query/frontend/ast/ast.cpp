@@ -353,7 +353,10 @@ constexpr utils::TypeInfo query::CreateSnapshotQuery::kType{
     .id = utils::TypeId::AST_CREATE_SNAPSHOT_QUERY, .name = "CreateSnapshotQuery", .superclass = &query::Query::kType};
 
 constexpr utils::TypeInfo query::ParameterQuery::kType{
-    .id=utils::TypeId::AST_PARAMETER_QUERY, .name="ParameterQuery", .superclass=&query::Query::kType};
+    .id = utils::TypeId::AST_PARAMETER_QUERY, .name = "ParameterQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::DescriptionQuery::kType{
+    .id = utils::TypeId::AST_DESCRIPTION_QUERY, .name = "DescriptionQuery", .superclass = &query::Query::kType};
 
 constexpr utils::TypeInfo query::RecoverSnapshotQuery::kType{.id = utils::TypeId::AST_RECOVER_SNAPSHOT_QUERY,
                                                              .name = "RecoverSnapshotQuery",

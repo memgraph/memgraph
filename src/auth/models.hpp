@@ -61,6 +61,7 @@ enum class Permission : uint64_t {
   PROFILE_RESTRICTION    = 1U << 27U,
   PARALLEL_EXECUTION     = 1U << 28U,
   SERVER_SIDE_PARAMETERS = 1U << 29U,
+  SERVER_SIDE_DESCRIPTIONS = 1U << 30U,
 };
 // clang-format on
 

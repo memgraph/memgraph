@@ -5974,6 +5974,292 @@ PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_expl
       },
       .rw_type = RWType::NONE};
 }
+
+PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  MG_ASSERT(current_db.db_acc_, "Description query expects a current DB");
+  auto *desc_query = utils::Downcast<DescriptionQuery>(parsed_query.query);
+  MG_ASSERT(desc_query);
+
+  auto kind = desc_query->target_kind_;
+  auto description = std::move(desc_query->description_);
+  auto edge_type_name = std::move(desc_query->edge_type_.name);
+  auto label_names = desc_query->labels_ | rv::transform([](auto const &label) { return label.name; }) | r::to_vector;
+  auto property_names =
+      desc_query->properties_ | rv::transform([](auto const &property) { return property.name; }) | r::to_vector;
+  auto from_label_names =
+      desc_query->from_labels_ | rv::transform([](auto const &label) { return label.name; }) | r::to_vector;
+  auto to_label_names =
+      desc_query->to_labels_ | rv::transform([](auto const &label) { return label.name; }) | r::to_vector;
+  auto database_name = std::move(desc_query->database_name_);
+  auto current_db_name = current_db.db_acc_->get()->name();
+
+  switch (desc_query->action_) {
+    case DescriptionQuery::Action::SET:
+      return {.header = {},
+              .privileges = std::move(parsed_query.required_privileges),
+              .query_handler = [dba = *current_db.execution_db_accessor_,
+                                kind,
+                                label_names = std::move(label_names),
+                                edge_type_name = std::move(edge_type_name),
+                                property_names = std::move(property_names),
+                                from_label_names = std::move(from_label_names),
+                                to_label_names = std::move(to_label_names),
+                                description = std::move(description),
+                                database_name = std::move(database_name),
+                                current_db_name](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable
+                  -> std::optional<QueryHandlerResult> {
+                switch (kind) {
+                  case storage::DescriptionTargetKind::LABEL:
+                    dba.SetLabelDescription(label_names, description);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE:
+                    dba.SetEdgeTypeDescription(edge_type_name, description);
+                    break;
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                    for (auto const &prop : property_names)
+                      dba.SetLabelPropertyDescription(label_names, prop, description);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                    for (auto const &prop : property_names)
+                      dba.SetEdgeTypePropertyDescription(edge_type_name, prop, description);
+                    break;
+                  case storage::DescriptionTargetKind::PROPERTY:
+                    for (auto const &prop : property_names) dba.SetPropertyDescription(prop, description);
+                    break;
+                  case storage::DescriptionTargetKind::DATABASE:
+                    if (database_name != current_db_name) {
+                      throw QueryException("Cannot set description on database '{}' while using database '{}'.",
+                                           database_name,
+                                           current_db_name);
+                    }
+                    dba.SetDatabaseDescription(description);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
+                    dba.SetEdgeTypePatternDescription(from_label_names, edge_type_name, to_label_names, description);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+                    for (auto const &prop : property_names)
+                      dba.SetEdgeTypePatternPropertyDescription(
+                          from_label_names, edge_type_name, to_label_names, prop, description);
+                    break;
+                }
+                return QueryHandlerResult::COMMIT;
+              },
+              .rw_type = RWType::W};
+
+    case DescriptionQuery::Action::DELETE:
+      return {.header = {},
+              .privileges = std::move(parsed_query.required_privileges),
+              .query_handler = [dba = *current_db.execution_db_accessor_,
+                                kind,
+                                label_names = std::move(label_names),
+                                edge_type_name = std::move(edge_type_name),
+                                property_names = std::move(property_names),
+                                from_label_names = std::move(from_label_names),
+                                to_label_names = std::move(to_label_names),
+                                database_name = std::move(database_name),
+                                current_db_name](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable
+                  -> std::optional<QueryHandlerResult> {
+                switch (kind) {
+                  case storage::DescriptionTargetKind::LABEL:
+                    dba.DeleteLabelDescription(label_names);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE:
+                    dba.DeleteEdgeTypeDescription(edge_type_name);
+                    break;
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                    for (auto const &prop : property_names) dba.DeleteLabelPropertyDescription(label_names, prop);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                    for (auto const &prop : property_names) dba.DeleteEdgeTypePropertyDescription(edge_type_name, prop);
+                    break;
+                  case storage::DescriptionTargetKind::PROPERTY:
+                    for (auto const &prop : property_names) dba.DeletePropertyDescription(prop);
+                    break;
+                  case storage::DescriptionTargetKind::DATABASE:
+                    if (database_name != current_db_name) {
+                      throw QueryException("Cannot delete description on database '{}' while using database '{}'.",
+                                           database_name,
+                                           current_db_name);
+                    }
+                    dba.DeleteDatabaseDescription();
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
+                    dba.DeleteEdgeTypePatternDescription(from_label_names, edge_type_name, to_label_names);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+                    for (auto const &prop : property_names)
+                      dba.DeleteEdgeTypePatternPropertyDescription(
+                          from_label_names, edge_type_name, to_label_names, prop);
+                    break;
+                }
+                return QueryHandlerResult::COMMIT;
+              },
+              .rw_type = RWType::W};
+
+    case DescriptionQuery::Action::SHOW:
+      return PreparedQuery{
+          .header = {"description"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [dba = *current_db.execution_db_accessor_,
+                            kind,
+                            label_names = std::move(label_names),
+                            edge_type_name = std::move(edge_type_name),
+                            property_names = std::move(property_names),
+                            from_label_names = std::move(from_label_names),
+                            to_label_names = std::move(to_label_names),
+                            database_name = std::move(database_name),
+                            current_db_name,
+                            pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                               AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+            if (!pull_plan) {
+              std::vector<std::vector<TypedValue>> rows;
+              switch (kind) {
+                case storage::DescriptionTargetKind::LABEL: {
+                  if (auto desc = dba.GetLabelDescription(label_names)) rows.push_back({TypedValue{*desc}});
+                  break;
+                }
+                case storage::DescriptionTargetKind::EDGE_TYPE: {
+                  if (auto desc = dba.GetEdgeTypeDescription(edge_type_name)) rows.push_back({TypedValue{*desc}});
+                  break;
+                }
+                case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                  for (auto const &prop : property_names) {
+                    if (auto desc = dba.GetLabelPropertyDescription(label_names, prop))
+                      rows.push_back({TypedValue{*desc}});
+                  }
+                  break;
+                case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                  for (auto const &prop : property_names) {
+                    if (auto desc = dba.GetEdgeTypePropertyDescription(edge_type_name, prop))
+                      rows.push_back({TypedValue{*desc}});
+                  }
+                  break;
+                case storage::DescriptionTargetKind::PROPERTY:
+                  for (auto const &prop : property_names) {
+                    if (auto desc = dba.GetPropertyDescription(prop)) rows.push_back({TypedValue{*desc}});
+                  }
+                  break;
+                case storage::DescriptionTargetKind::DATABASE: {
+                  if (database_name != current_db_name) {
+                    throw QueryException("Cannot show description of database '{}' while using database '{}'.",
+                                         database_name,
+                                         current_db_name);
+                  }
+                  if (auto desc = dba.GetDatabaseDescription()) rows.push_back({TypedValue{*desc}});
+                  break;
+                }
+                case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN: {
+                  if (auto desc = dba.GetEdgeTypePatternDescription(from_label_names, edge_type_name, to_label_names))
+                    rows.push_back({TypedValue{*desc}});
+                  break;
+                }
+                case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+                  for (auto const &prop : property_names) {
+                    if (auto desc = dba.GetEdgeTypePatternPropertyDescription(
+                            from_label_names, edge_type_name, to_label_names, prop))
+                      rows.push_back({TypedValue{*desc}});
+                  }
+                  break;
+              }
+              pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+            }
+            if (pull_plan->Pull(stream, n)) return QueryHandlerResult::COMMIT;
+            return std::nullopt;
+          },
+          .rw_type = RWType::NONE};
+
+    case DescriptionQuery::Action::SHOW_ALL:
+      return PreparedQuery{
+          .header = {"type", "label", "start_node_labels", "end_node_labels", "property", "description"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [dba = *current_db.execution_db_accessor_,
+                            db_name = current_db.db_acc_->get()->name(),
+                            pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                               AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+            if (!pull_plan) {
+              auto entries = dba.GetAllDescriptions();
+              std::vector<std::vector<TypedValue>> rows;
+              rows.reserve(entries.size());
+              auto kind_to_str = [](storage::DescriptionTargetKind k) -> std::string_view {
+                switch (k) {
+                  case storage::DescriptionTargetKind::LABEL:
+                    return "label";
+                  case storage::DescriptionTargetKind::EDGE_TYPE:
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
+                    return "edge type";
+                  case storage::DescriptionTargetKind::DATABASE:
+                    return "database";
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                    return "label property";
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+                    return "edge type property";
+                  case storage::DescriptionTargetKind::PROPERTY:
+                    return "property";
+                }
+              };
+              auto ids_to_list = [&](auto const &ids) {
+                auto result = ids | rv::transform([&](auto id) { return TypedValue{dba.LabelToName(id)}; }) |
+                              r::to<std::vector<TypedValue>>();
+                return TypedValue{std::move(result)};
+              };
+              for (auto const &entry : entries) {
+                auto type_col = TypedValue{std::string{kind_to_str(entry.kind)}};
+                TypedValue label_col;
+                TypedValue start_col;
+                TypedValue end_col;
+                TypedValue prop_col;
+                switch (entry.kind) {
+                  case storage::DescriptionTargetKind::LABEL:
+                    label_col = ids_to_list(entry.labels);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE:
+                    label_col = TypedValue{dba.EdgeTypeToName(entry.edge_type)};
+                    break;
+                  case storage::DescriptionTargetKind::LABEL_PROPERTY:
+                    label_col = ids_to_list(entry.labels);
+                    prop_col = TypedValue{dba.PropertyToName(entry.property)};
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                    label_col = TypedValue{dba.EdgeTypeToName(entry.edge_type)};
+                    prop_col = TypedValue{dba.PropertyToName(entry.property)};
+                    break;
+                  case storage::DescriptionTargetKind::PROPERTY:
+                    prop_col = TypedValue{dba.PropertyToName(entry.property)};
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
+                    label_col = TypedValue{dba.EdgeTypeToName(entry.edge_type)};
+                    start_col = ids_to_list(entry.from_labels);
+                    end_col = ids_to_list(entry.to_labels);
+                    break;
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+                    label_col = TypedValue{dba.EdgeTypeToName(entry.edge_type)};
+                    start_col = ids_to_list(entry.from_labels);
+                    end_col = ids_to_list(entry.to_labels);
+                    prop_col = TypedValue{dba.PropertyToName(entry.property)};
+                    break;
+                  case storage::DescriptionTargetKind::DATABASE:
+                    label_col = TypedValue{std::string{db_name}};
+                    break;
+                }
+                rows.push_back({std::move(type_col),
+                                std::move(label_col),
+                                std::move(start_col),
+                                std::move(end_col),
+                                std::move(prop_col),
+                                TypedValue{entry.description}});
+              }
+              pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+            }
+            if (pull_plan->Pull(stream, n)) return QueryHandlerResult::COMMIT;
+            return std::nullopt;
+          },
+          .rw_type = RWType::NONE};
+  }
+  throw utils::NotYetImplemented("Unknown DescriptionQuery action");
+}
+
 }  // namespace
 
 // NOTE: Strings must match the ones in grammar
@@ -7756,6 +8042,72 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       json.emplace("enums", std::move(enums));
 
+      // Enrich with descriptions
+      {
+        auto const &desc_store = storage->description_store_;
+
+        auto name_to_label = [&](std::string_view name) {
+          return storage::LabelId::FromUint(storage->name_id_mapper_->NameToId(name));
+        };
+        auto name_to_edge_type = [&](std::string_view name) {
+          return storage::EdgeTypeId::FromUint(storage->name_id_mapper_->NameToId(name));
+        };
+        auto name_to_property = [&](std::string_view name) {
+          return storage::PropertyId::FromUint(storage->name_id_mapper_->NameToId(name));
+        };
+
+        for (auto &node : json["nodes"]) {
+          std::vector<storage::LabelId> label_ids;
+          label_ids.reserve(node["labels"].size());
+          for (auto const &label_name : node["labels"]) {
+            label_ids.emplace_back(name_to_label(label_name.get<std::string>()));
+          }
+          std::ranges::sort(label_ids);
+          if (auto desc = desc_store.GetLabel(label_ids)) {
+            node["description"] = *desc;
+          }
+          for (auto &prop : node["properties"]) {
+            auto prop_id = name_to_property(prop["key"].get<std::string>());
+            if (auto desc = desc_store.GetLabelProperty(label_ids, prop_id)) {
+              prop["description"] = *desc;
+            } else if (auto gdesc = desc_store.GetProperty(prop_id)) {  // Fallback to global property description
+              prop["description"] = *gdesc;
+            }
+          }
+        }
+
+        for (auto &edge : json["edges"]) {
+          auto et_id = name_to_edge_type(edge["type"].get<std::string>());
+          std::vector<storage::LabelId> from_ids;
+          std::vector<storage::LabelId> to_ids;
+          to_ids.reserve(edge["end_node_labels"].size());
+          from_ids.reserve(edge["start_node_labels"].size());
+          for (auto const &name : edge["start_node_labels"]) {
+            from_ids.emplace_back(name_to_label(name.get<std::string>()));
+          }
+          for (auto const &name : edge["end_node_labels"]) {
+            to_ids.emplace_back(name_to_label(name.get<std::string>()));
+          }
+          std::ranges::sort(from_ids);
+          std::ranges::sort(to_ids);
+          if (auto desc = desc_store.GetEdgeTypePattern(from_ids, et_id, to_ids)) {
+            edge["description"] = *desc;
+          } else if (auto gdesc = desc_store.GetEdgeType(et_id)) {
+            edge["description"] = *gdesc;
+          }
+          for (auto &prop : edge["properties"]) {
+            auto prop_id = name_to_property(prop["key"].get<std::string>());
+            if (auto desc = desc_store.GetEdgeTypePatternProperty(from_ids, et_id, to_ids, prop_id)) {
+              prop["description"] = *desc;
+            } else if (auto desc2 = desc_store.GetEdgeTypeProperty(et_id, prop_id)) {
+              prop["description"] = *desc2;
+            } else if (auto gdesc = desc_store.GetProperty(prop_id)) {
+              prop["description"] = *gdesc;
+            }
+          }
+        }
+      }
+
       // Pack json into query result
       schema.push_back(std::vector<TypedValue>{TypedValue(json.dump())});
     } else {
@@ -8209,6 +8561,14 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(CoordinatorQuery & /*unused*/) override {}
 
   void Visit(ParameterQuery & /*unused*/) override {}
+
+  void Visit(DescriptionQuery &desc_query) override {
+    if (desc_query.action_ == DescriptionQuery::Action::SET || desc_query.action_ == DescriptionQuery::Action::DELETE) {
+      accessor_type_ = storage::StorageAccessType::UNIQUE;
+    } else {
+      accessor_type_ = storage::StorageAccessType::READ;
+    }
+  }
 
   // No database access required (but need current database)
   void Visit(SystemInfoQuery & /*unused*/) override {}
@@ -8762,6 +9122,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
     } else if (utils::Downcast<UserProfileQuery>(parsed_query.query)) {
       prepared_query = PrepareUserProfileQuery(std::move(parsed_query), interpreter_context_, this);
+    } else if (utils::Downcast<DescriptionQuery>(parsed_query.query)) {
+      prepared_query = PrepareDescriptionQuery(std::move(parsed_query), current_db_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

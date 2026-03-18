@@ -119,6 +119,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
     add_case(TTL_OPERATION);
+    add_case(DESCRIPTION_SET);
+    add_case(DESCRIPTION_DELETE);
     default:
       LOG_FATAL("Unknown MetadataDelta::Action");
   }
@@ -362,7 +364,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
         [this](Gid edge_gid) { return FindEdge(edge_gid); },
         name(),
-        &ttl_);
+        &ttl_,
+        &description_store_);
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -3332,6 +3335,33 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         });
         break;
       }
+      case MetadataDelta::Action::DESCRIPTION_SET: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionSet(encoder,
+                                           *mem_storage->name_id_mapper_,
+                                           md_delta.description_op.kind,
+                                           md_delta.description_op.labels,
+                                           md_delta.description_op.edge_type,
+                                           md_delta.description_op.property,
+                                           md_delta.description_op.description,
+                                           md_delta.description_op.from_labels,
+                                           md_delta.description_op.to_labels);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_DELETE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionDelete(encoder,
+                                              *mem_storage->name_id_mapper_,
+                                              md_delta.description_op.kind,
+                                              md_delta.description_op.labels,
+                                              md_delta.description_op.edge_type,
+                                              md_delta.description_op.property,
+                                              md_delta.description_op.from_labels,
+                                              md_delta.description_op.to_labels);
+        });
+        break;
+      }
     }
   }
   // A single transaction will always be fully-contained in a single WAL file.
@@ -3820,7 +3850,8 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
                                           config_,
                                           &enum_store_,
                                           config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-                                          &ttl_);
+                                          &ttl_,
+                                          &description_store_);
     spdlog::debug("Snapshot recovered successfully");
     // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
     // This snapshot creates a new state and cannot have any WALs associated with it at this point
@@ -4356,6 +4387,7 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->vertices_.clear();
   mem_storage->edges_.clear();
   mem_storage->edge_count_.store(0, std::memory_order_release);
+  mem_storage->description_store_.Clear();
 
   memory::PurgeUnusedMemory();
 }

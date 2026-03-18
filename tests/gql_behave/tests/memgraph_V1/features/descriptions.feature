@@ -1,0 +1,415 @@
+Feature: Server-side descriptions
+
+    Scenario: Set and show label description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON LABEL :Person "A person node"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON LABEL :Person
+            """
+        Then the result should be:
+            | description     |
+            | 'A person node' |
+
+    Scenario: Set and show edge type description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE :KNOWS "Knows relationship"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE :KNOWS
+            """
+        Then the result should be:
+            | description          |
+            | 'Knows relationship' |
+
+    Scenario: Set and show label-scoped property description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of the person"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON LABEL PROPERTY :Person(age)
+            """
+        Then the result should be:
+            | description         |
+            | 'Age of the person' |
+
+    Scenario: Show all descriptions
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON LABEL :Person "A person node"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SET DESCRIPTION ON LABEL PROPERTY :Person(name) "Name of the person"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | type             | label        | start_node_labels | end_node_labels | property | description          |
+            | 'label'          | ['Person']   | null              | null            | null     | 'A person node'      |
+            | 'label property' | ['Person']   | null              | null            | 'name'   | 'Name of the person' |
+
+    Scenario: Delete description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON LABEL :Person "A person node"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            DELETE DESCRIPTION ON LABEL :Person
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be empty
+
+    Scenario: Update description with SET
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON LABEL :Person "First description"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SET DESCRIPTION ON LABEL :Person "Updated description"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON LABEL :Person
+            """
+        Then the result should be:
+            | description           |
+            | 'Updated description' |
+
+    Scenario: Multi-label description is stored as a single combo entry
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON LABEL :Person:Student "A student person"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON LABEL :Person:Student
+            """
+        Then the result should be:
+            | description        |
+            | 'A student person' |
+        When executing query:
+            """
+            SHOW DESCRIPTION ON LABEL :Person
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | type             | label                  | start_node_labels | end_node_labels | property | description        |
+            | 'label'          | ['Person', 'Student']  | null              | null            | null     | 'A student person' |
+
+    Scenario: Label-scoped property descriptions are independent per label
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON LABEL PROPERTY :Person(age) "Age of the person"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SET DESCRIPTION ON LABEL PROPERTY :Student(age) "Age of the student"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON LABEL PROPERTY :Person(age)
+            """
+        Then the result should be:
+            | description         |
+            | 'Age of the person' |
+        When executing query:
+            """
+            SHOW DESCRIPTION ON LABEL PROPERTY :Student(age)
+            """
+        Then the result should be:
+            | description          |
+            | 'Age of the student' |
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | type             | label        | start_node_labels | end_node_labels | property | description          |
+            | 'label property' | ['Person']   | null              | null            | 'age'    | 'Age of the person'  |
+            | 'label property' | ['Student']  | null              | null            | 'age'    | 'Age of the student' |
+
+    Scenario: Multi-label property description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON LABEL PROPERTY :Person:Student(age) "Age of a student person"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON LABEL PROPERTY :Person:Student(age)
+            """
+        Then the result should be:
+            | description               |
+            | 'Age of a student person' |
+        When executing query:
+            """
+            SHOW DESCRIPTION ON LABEL PROPERTY :Person(age)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | type             | label                  | start_node_labels | end_node_labels | property | description               |
+            | 'label property' | ['Person', 'Student']  | null              | null            | 'age'    | 'Age of a student person' |
+        When executing query:
+            """
+            DELETE DESCRIPTION ON LABEL PROPERTY :Person:Student(age)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be empty
+
+    Scenario: Set and show database description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON DATABASE memgraph "The main graph database"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON DATABASE memgraph
+            """
+        Then the result should be:
+            | description              |
+            | 'The main graph database' |
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | type             | label      | start_node_labels | end_node_labels | property | description               |
+            | 'database'       | 'memgraph' | null              | null            | null     | 'The main graph database' |
+
+    Scenario: Set and show edge-type-scoped property description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE PROPERTY :KNOWS(since) "Year the relationship started"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE PROPERTY :KNOWS(since)
+            """
+        Then the result should be:
+            | description                       |
+            | 'Year the relationship started'   |
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | type                  | label   | start_node_labels | end_node_labels | property | description                     |
+            | 'edge type property'  | 'KNOWS' | null              | null            | 'since'  | 'Year the relationship started' |
+
+    Scenario: Setting description on wrong database throws error
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON DATABASE other_db "Some description"
+            """
+        Then an error should be raised
+
+    Scenario: Deleting description on wrong database throws error
+        Given an empty graph
+        When executing query:
+            """
+            DELETE DESCRIPTION ON DATABASE other_db
+            """
+        Then an error should be raised
+
+    Scenario: Showing description on wrong database throws error
+        Given an empty graph
+        When executing query:
+            """
+            SHOW DESCRIPTION ON DATABASE other_db
+            """
+        Then an error should be raised
+
+    Scenario: Set and show global property description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY age "Age in years"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON PROPERTY age
+            """
+        Then the result should be:
+            | description    |
+            | 'Age in years' |
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | type             | label | start_node_labels | end_node_labels | property | description    |
+            | 'property'       | null  | null              | null            | 'age'    | 'Age in years' |
+        When executing query:
+            """
+            DELETE DESCRIPTION ON PROPERTY age
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be empty
+
+    Scenario: Set and show edge type pattern description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location) "city is a location"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location)
+            """
+        Then the result should be:
+            | description           |
+            | 'city is a location'  |
+
+    Scenario: Delete edge type pattern description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location) "city is a location"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            DELETE DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location)
+            """
+        Then the result should be empty
+
+    Scenario: Edge type pattern description in SHOW DESCRIPTIONS
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE (:Person)-[:KNOWS]->(:Person) "person knows person"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTIONS
+            """
+        Then the result should be:
+            | type             | label   | start_node_labels | end_node_labels | property | description           |
+            | 'edge type'      | 'KNOWS' | ['Person']        | ['Person']      | null     | 'person knows person' |
+
+    Scenario: Set and show multi-label edge type pattern description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student) "Employee mentors student"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student)
+            """
+        Then the result should be:
+            | description                |
+            | 'Employee mentors student' |
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE (:Person)-[:MENTORS]->(:Person)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            DELETE DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student)
+            """
+        Then the result should be empty
+
+    Scenario: Set and show edge type pattern property description
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since) "Year they met"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since)
+            """
+        Then the result should be:
+            | description     |
+            | 'Year they met' |
+        When executing query:
+            """
+            DELETE DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since)
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since)
+            """
+        Then the result should be empty
+
+    Scenario: Show description on label with no description returns empty
+        Given an empty graph
+        When executing query:
+            """
+            SHOW DESCRIPTION ON LABEL :Unknown
+            """
+        Then the result should be empty

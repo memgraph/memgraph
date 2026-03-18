@@ -692,6 +692,9 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
+    case Marker::SECTION_DESCRIPTIONS:
+    case Marker::DELTA_DESCRIPTION_SET:
+    case Marker::DELTA_DESCRIPTION_DELETE:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return std::nullopt;
@@ -846,6 +849,9 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
+    case Marker::SECTION_DESCRIPTIONS:
+    case Marker::DELTA_DESCRIPTION_SET:
+    case Marker::DELTA_DESCRIPTION_DELETE:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return false;
