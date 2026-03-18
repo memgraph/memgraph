@@ -18,6 +18,7 @@
 #include "query/hops_limit.hpp"
 #include "query/typed_value.hpp"
 #include "query/vertex_accessor.hpp"
+#include "query/virtual_edge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -101,6 +102,9 @@ class SubgraphVertexAccessor final {
   }
 
   VertexAccessor GetVertexAccessor() const;
+
+  std::vector<VirtualEdge> VirtualOutEdges() const;
+  std::vector<VirtualEdge> VirtualInEdges() const;
 };
 }  // namespace memgraph::query
 

@@ -24,7 +24,18 @@ class Aggregation : public memgraph::query::BinaryOperator {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Op { COUNT, MIN, MAX, SUM, AVG, COLLECT_LIST, COLLECT_MAP, PROJECT_PATH, PROJECT_LISTS };
+  enum class Op {
+    COUNT,
+    MIN,
+    MAX,
+    SUM,
+    AVG,
+    COLLECT_LIST,
+    COLLECT_MAP,
+    PROJECT_PATH,
+    PROJECT_LISTS,
+    PROJECT_PATH_OPTIONS
+  };
 
   Aggregation() = default;
 
@@ -37,7 +48,8 @@ class Aggregation : public memgraph::query::BinaryOperator {
   static constexpr std::string_view kProject = "PROJECT";
 
   static std::string OpToString(Op op) {
-    static constexpr std::array op_strings = {kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject};
+    static constexpr std::array op_strings = {
+        kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject, kProject};
     return std::string{op_strings[static_cast<int>(op)]};
   }
 
