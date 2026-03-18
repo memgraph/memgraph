@@ -25,35 +25,15 @@ struct ActiveIndicesUpdater;
 struct Transaction;
 struct Vertex;
 
+struct EdgeTypeIndexActiveIndices;
+struct EdgeTypeIndexAbortProcessor;
+using EdgeTypeIndexAbortableInfo = std::map<EdgeTypeId, std::vector<std::tuple<Vertex *, Vertex *, Edge *>>>;
+
 class EdgeTypeIndex {
  public:
-  using AbortableInfo = std::map<EdgeTypeId, std::vector<std::tuple<Vertex *, Vertex *, Edge *>>>;
-
-  struct AbortProcessor {
-    explicit AbortProcessor(std::span<EdgeTypeId const> edge_types);
-
-    void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
-
-    AbortableInfo cleanup_collection_;
-  };
-
-  struct ActiveIndices {
-    virtual ~ActiveIndices() = default;
-
-    virtual void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                                      const Transaction &tx) = 0;
-
-    virtual auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t = 0;
-
-    virtual bool IndexReady(EdgeTypeId edge_type) const = 0;
-    virtual bool IndexRegistered(EdgeTypeId edge_type) const = 0;
-
-    virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> = 0;
-
-    virtual auto GetAbortProcessor() const -> AbortProcessor = 0;
-
-    virtual void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) = 0;
-  };
+  using AbortableInfo = EdgeTypeIndexAbortableInfo;
+  using AbortProcessor = EdgeTypeIndexAbortProcessor;
+  using ActiveIndices = EdgeTypeIndexActiveIndices;
 
   EdgeTypeIndex() = default;
 
@@ -69,6 +49,32 @@ class EdgeTypeIndex {
   virtual void DropGraphClearIndices() = 0;
 
   virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
+};
+
+struct EdgeTypeIndexAbortProcessor {
+  explicit EdgeTypeIndexAbortProcessor(std::span<EdgeTypeId const> edge_types);
+
+  void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
+
+  EdgeTypeIndexAbortableInfo cleanup_collection_;
+};
+
+struct EdgeTypeIndexActiveIndices {
+  virtual ~EdgeTypeIndexActiveIndices() = default;
+
+  virtual void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                                    const Transaction &tx) = 0;
+
+  virtual auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t = 0;
+
+  virtual bool IndexReady(EdgeTypeId edge_type) const = 0;
+  virtual bool IndexRegistered(EdgeTypeId edge_type) const = 0;
+
+  virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> = 0;
+
+  virtual auto GetAbortProcessor() const -> EdgeTypeIndexAbortProcessor = 0;
+
+  virtual void AbortEntries(EdgeTypeIndexAbortableInfo const &info, uint64_t start_timestamp) = 0;
 };
 
 }  // namespace memgraph::storage
