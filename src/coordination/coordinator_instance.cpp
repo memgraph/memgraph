@@ -466,7 +466,6 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     spdlog::trace("Stopped state check for instance {}.", repl_instance.InstanceName());
   });
   auto lock = std::unique_lock{coord_instance_lock_};
-  spdlog::trace("Acquired lock in the reconciliation cluster state reset thread {}.", std::this_thread::get_id());
   repl_instances_.clear();
 
   auto const raft_state_data_instances = raft_state_->GetDataInstancesContext();
@@ -593,7 +592,7 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
                                                  // NOLINTNEXTLINE
                                                  .current_main_uuid_ = new_main_uuid};
 
-  if (!raft_state_->AppendClusterUpdateAndWaitForCommit(delta_state)) {
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     spdlog::error("Aborting failover. Writing to Raft failed.");
     metrics::IncrementCounter(metrics::RaftFailedFailovers);
     return FailoverStatus::RAFT_FAILURE;
@@ -612,8 +611,6 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
       res.has_value()) {
     return *res;
   }
-
-  spdlog::trace("Acquired lock to set replication instance to main in thread {}.", std::this_thread::get_id());
 
   // The coordinator could be in LEADER_NOT_READY state because it restarted and before the restart user called
   // `DEMOTE instance <instance_name>`. The cluster is without the main instance which will forbid
@@ -657,7 +654,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
                                                  // NOLINTNEXTLINE
                                                  .current_main_uuid_ = new_main_uuid};
 
-  if (!raft_state_->AppendClusterUpdateAndWaitForCommit(delta_state)) {
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     spdlog::error("Aborting setting instance to main. Writing to Raft failed.");
     return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
   }
@@ -721,9 +718,9 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   }
 
   // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances_cache)};
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = data_instances_cache};
 
-  if (!raft_state_->AppendClusterUpdateAndWaitForCommit(delta_state)) {
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     spdlog::error("Aborting demoting instance. Writing to Raft failed.");
     return DemoteInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
@@ -813,7 +810,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances)};
 
-  if (!raft_state_->AppendClusterUpdateAndWaitForCommit(delta_state)) {
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     spdlog::error("Aborting instance registration. Writing to Raft failed.");
     repl_instances_.pop_back();
     return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
@@ -840,7 +837,6 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   }
 
   auto lock = std::lock_guard{coord_instance_lock_};
-  spdlog::trace("Acquired lock to unregister instance in thread {} 1st time", std::this_thread::get_id());
 
   auto maybe_instance = FindReplicationInstance(instance_name, repl_instances_);
   if (!maybe_instance) {
@@ -858,9 +854,14 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::IS_MAIN;
   }
 
-  auto const old_data_instances = raft_state_->GetDataInstancesContext();
-  // Intentional copy
-  auto new_data_instances = old_data_instances;
+  auto curr_main = std::ranges::find_if(repl_instances_, is_current_main);
+  // If there is no main in the cluster, the replica cannot be unregistered. We would commit the state without replica
+  // in Raft but the in-memory state would still contain it.
+  if (curr_main == repl_instances_.end()) {
+    return UnregisterInstanceCoordinatorStatus::NO_MAIN;
+  }
+
+  auto new_data_instances = raft_state_->GetDataInstancesContext();
   auto const [first, last] = std::ranges::remove_if(new_data_instances, [instance_name](auto const &data_instance) {
     return data_instance.config.instance_name == instance_name;
   });
@@ -870,8 +871,16 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(new_data_instances)};
 
   // Append new cluster state. We may need to restore old state if something goes wrong.
-  if (!raft_state_->AppendClusterUpdateAndWaitForCommit(delta_state)) {
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
+  }
+
+  auto const name_matches = [instance_name](auto const &instance) { return instance.InstanceName() == instance_name; };
+
+  // Even if RPC fails, this is still a success from user's perspective because we will retry this operation in the
+  // reconciliation loop
+  if (curr_main->SendRpc<UnregisterReplicaRpc>(instance_name)) {
+    std::erase_if(repl_instances_, name_matches);
   }
 
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
@@ -917,7 +926,7 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
   CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = std::move(coordinator_instances_context)};
 
   // If we managed to remove it from the NuRaft configuration but not to our app logs. If this fails, not good.
-  if (!raft_state_->AppendClusterUpdateAndWaitForCommit(delta_state)) {
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     LOG_FATAL("Couldn't append application log when removing coordinator {} from the cluster. ", coordinator_id);
   }
 
@@ -1007,7 +1016,7 @@ auto CoordinatorInstance::AddNewCoordinator(
   CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = coordinator_instances_context};
 
   // If we managed to add the instance to the NuRaft configuration but not to our app logs that is a fatal failure
-  if (!raft_state_->AppendClusterUpdateAndWaitForCommit(delta_state)) {
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     LOG_FATAL(
         "Couldn't append application log when adding coordinator {} to the cluster. Please restart your instance "
         "with "
@@ -1038,7 +1047,7 @@ auto CoordinatorInstance::AddSelfCoordinator(
   CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = coordinator_instances_context};
 
   // Not a fatal failure when adding myself
-  if (!raft_state_->AppendClusterUpdateAndWaitForCommit(delta_state)) {
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     spdlog::error(
         "Couldn't append application log when adding coordinator {} to the cluster. Please retry the operation.",
         config.coordinator_id);
@@ -1084,7 +1093,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     return SetCoordinatorSettingStatus::INVALID_ARGUMENT;
   }
 
-  if (!raft_state_->AppendClusterUpdateAndWaitForCommit(delta_state)) {
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     spdlog::error("Aborting the update of coordinator setting {}. Writing to Raft failed.", setting_name);
     return SetCoordinatorSettingStatus::RAFT_LOG_ERROR;
   }
@@ -1621,7 +1630,7 @@ auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> Up
     CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = std::move(coordinator_instances_context)};
 
     // If we managed to add it to the NuRaft configuration but not to our app logs.
-    if (!raft_state_->AppendClusterUpdateAndWaitForCommit(delta_state)) {
+    if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
       spdlog::error("Couldn't append application log when updating the config for the coordinator {}.", coord_id);
       return UpdateConfigStatus::RAFT_FAILURE;
     }
@@ -1657,7 +1666,7 @@ auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> Up
     CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances_context)};
 
     // If we managed to add it to the NuRaft configuration but not to our app logs.
-    if (!raft_state_->AppendClusterUpdateAndWaitForCommit(delta_state)) {
+    if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
       spdlog::error("Couldn't append application log when updating the config for the repl instance {}.",
                     instance_name);
       return UpdateConfigStatus::RAFT_FAILURE;

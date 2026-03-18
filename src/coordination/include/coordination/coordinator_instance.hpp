@@ -63,21 +63,11 @@ class CoordinatorInstance {
   // If writing to raft succeeds, we know what everything up to that point passed so all good.
   [[nodiscard]] auto RegisterReplicationInstance(DataInstanceConfig const &config) -> RegisterInstanceCoordinatorStatus;
 
-  // Here we reverse logic from RegisterReplicationInstance. 1st we write to raft log, and then we try to unregister
-  // replication instance from in-memory structures. If raft passes and some of rpc actions or deletions fails, user
-  // should repeat the action. Instance will be deleted twice from raft log but since that action is idempotent, no
-  // failure will actually happen.
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
 
-  // Here we don't rely on reconciliation loop, we immediately send required RPC messages to the current main
-  // and replicas and then at the end write to the Raft log. If RPC fails, nothing yet happened so no problem.
-  // If writing to Raft log fails, reconciliation loop will sort that out
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view new_main_name) -> SetInstanceToMainCoordinatorStatus;
 
-  // If user demotes main to replica, cluster will be without main instance. User should then call
-  // TryVerifyOrCorrectClusterState or SetReplicationInstanceToMain. The logic here is that as long as we didn't set
-  // uuid for the whole cluster, actions will be reverted on instances on the next state check.
   [[nodiscard]] auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
 
   [[nodiscard]] auto TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus;
