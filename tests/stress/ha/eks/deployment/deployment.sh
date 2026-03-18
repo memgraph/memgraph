@@ -305,7 +305,7 @@ install_memgraph_ha() {
     fi
 
     # Build helm install command with values file
-    local helm_cmd="helm install $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE"
+    local helm_cmd="helm install $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE --timeout 15m"
 
     # Override full image (repo:tag) if MEMGRAPH_IMAGE is set
     if [[ -n "${MEMGRAPH_IMAGE:-}" ]]; then
@@ -671,7 +671,7 @@ upgrade_memgraph() {
     fi
 
     # Build helm upgrade command with values file
-    local helm_cmd="helm upgrade $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE"
+    local helm_cmd="helm upgrade $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE --timeout 15m"
 
     # Override full image (repo:tag) if MEMGRAPH_IMAGE is set
     if [[ -n "${MEMGRAPH_IMAGE:-}" ]]; then
