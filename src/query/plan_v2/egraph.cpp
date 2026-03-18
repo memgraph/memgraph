@@ -55,6 +55,46 @@ auto egraph::MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> 
   return pimpl_->Make<symbol::NamedOutput>(name, sym, expr);
 }
 
+// Arithmetic operators
+auto egraph::MakeAdd(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Add>(lhs, rhs); }
+
+auto egraph::MakeSub(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Sub>(lhs, rhs); }
+
+auto egraph::MakeMul(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Mul>(lhs, rhs); }
+
+auto egraph::MakeDiv(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Div>(lhs, rhs); }
+
+auto egraph::MakeMod(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Mod>(lhs, rhs); }
+
+auto egraph::MakeExp(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Exp>(lhs, rhs); }
+
+// Comparison operators
+auto egraph::MakeEq(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Eq>(lhs, rhs); }
+
+auto egraph::MakeNeq(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Neq>(lhs, rhs); }
+
+auto egraph::MakeLt(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Lt>(lhs, rhs); }
+
+auto egraph::MakeLte(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Lte>(lhs, rhs); }
+
+auto egraph::MakeGt(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Gt>(lhs, rhs); }
+
+auto egraph::MakeGte(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Gte>(lhs, rhs); }
+
+// Boolean operators
+auto egraph::MakeAnd(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::And>(lhs, rhs); }
+
+auto egraph::MakeOr(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Or>(lhs, rhs); }
+
+auto egraph::MakeXor(eclass lhs, eclass rhs) -> eclass { return pimpl_->Make<symbol::Xor>(lhs, rhs); }
+
+auto egraph::MakeNot(eclass operand) -> eclass { return pimpl_->Make<symbol::Not>(operand); }
+
+// Unary operators
+auto egraph::MakeUnaryMinus(eclass operand) -> eclass { return pimpl_->Make<symbol::UnaryMinus>(operand); }
+
+auto egraph::MakeUnaryPlus(eclass operand) -> eclass { return pimpl_->Make<symbol::UnaryPlus>(operand); }
+
 // ========================================================================
 // Internal accessor implementations
 // ========================================================================

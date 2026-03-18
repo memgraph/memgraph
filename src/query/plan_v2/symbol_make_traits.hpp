@@ -159,6 +159,30 @@ struct symbol_make_traits<symbol::NamedOutput> {
   }
 };
 
+/// Binary operator: no storage, just two children
+template <symbol S>
+  requires(is_binary_op_v<S>)
+struct symbol_make_traits<S> {
+  struct storage_type {};
+
+  template <typename Emplacer>
+  static auto make(storage_type & /*s*/, Emplacer &&emplace, eclass lhs, eclass rhs) -> eclass {
+    return emplace(lhs, rhs);
+  }
+};
+
+/// Unary operator: no storage, just one child
+template <symbol S>
+  requires(is_unary_op_v<S>)
+struct symbol_make_traits<S> {
+  struct storage_type {};
+
+  template <typename Emplacer>
+  static auto make(storage_type & /*s*/, Emplacer &&emplace, eclass operand) -> eclass {
+    return emplace(operand);
+  }
+};
+
 // ========================================================================
 // Combined storage using inheritance (like the overloads trick)
 // ========================================================================
@@ -169,7 +193,11 @@ struct combined_storage : Ts... {};
 template <symbol... Ss>
 using symbol_storage_for = combined_storage<typename symbol_make_traits<Ss>::storage_type...>;
 
-using symbol_storage = symbol_storage_for<symbol::Once, symbol::Symbol, symbol::Literal, symbol::ParamLookup,
-                                          symbol::Bind, symbol::Identifier, symbol::Output, symbol::NamedOutput>;
+using symbol_storage =
+    symbol_storage_for<symbol::Once, symbol::Symbol, symbol::Literal, symbol::ParamLookup, symbol::Bind,
+                       symbol::Identifier, symbol::Output, symbol::NamedOutput, symbol::Add, symbol::Sub, symbol::Mul,
+                       symbol::Div, symbol::Mod, symbol::Exp, symbol::Eq, symbol::Neq, symbol::Lt, symbol::Lte,
+                       symbol::Gt, symbol::Gte, symbol::And, symbol::Or, symbol::Xor, symbol::Not, symbol::UnaryMinus,
+                       symbol::UnaryPlus>;
 
 }  // namespace memgraph::query::plan::v2

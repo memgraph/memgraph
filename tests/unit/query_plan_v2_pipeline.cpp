@@ -44,6 +44,32 @@ std::string DescribeExpression(Expression *expr) {
   if (auto *ident = utils::Downcast<Identifier>(expr)) {
     return ident->name_;
   }
+
+  // Binary operators
+  auto describe_binary = [](const char *op, BinaryOperator *bin) -> std::string {
+    return "(" + DescribeExpression(bin->expression1_) + " " + op + " " + DescribeExpression(bin->expression2_) + ")";
+  };
+  if (auto *op = utils::Downcast<AdditionOperator>(expr)) return describe_binary("+", op);
+  if (auto *op = utils::Downcast<SubtractionOperator>(expr)) return describe_binary("-", op);
+  if (auto *op = utils::Downcast<MultiplicationOperator>(expr)) return describe_binary("*", op);
+  if (auto *op = utils::Downcast<DivisionOperator>(expr)) return describe_binary("/", op);
+  if (auto *op = utils::Downcast<ModOperator>(expr)) return describe_binary("%", op);
+  if (auto *op = utils::Downcast<ExponentiationOperator>(expr)) return describe_binary("^", op);
+  if (auto *op = utils::Downcast<EqualOperator>(expr)) return describe_binary("=", op);
+  if (auto *op = utils::Downcast<NotEqualOperator>(expr)) return describe_binary("<>", op);
+  if (auto *op = utils::Downcast<LessOperator>(expr)) return describe_binary("<", op);
+  if (auto *op = utils::Downcast<LessEqualOperator>(expr)) return describe_binary("<=", op);
+  if (auto *op = utils::Downcast<GreaterOperator>(expr)) return describe_binary(">", op);
+  if (auto *op = utils::Downcast<GreaterEqualOperator>(expr)) return describe_binary(">=", op);
+  if (auto *op = utils::Downcast<AndOperator>(expr)) return describe_binary("AND", op);
+  if (auto *op = utils::Downcast<OrOperator>(expr)) return describe_binary("OR", op);
+  if (auto *op = utils::Downcast<XorOperator>(expr)) return describe_binary("XOR", op);
+
+  // Unary operators
+  if (auto *op = utils::Downcast<NotOperator>(expr)) return "(NOT " + DescribeExpression(op->expression_) + ")";
+  if (auto *op = utils::Downcast<UnaryMinusOperator>(expr)) return "(-" + DescribeExpression(op->expression_) + ")";
+  if (auto *op = utils::Downcast<UnaryPlusOperator>(expr)) return "(+" + DescribeExpression(op->expression_) + ")";
+
   return expr->GetTypeInfo().name;
 }
 
@@ -304,6 +330,233 @@ INSTANTIATE_TEST_SUITE_P(
             .query = "WITH 1 AS a RETURN a AS a;",
             .expected_details = {"Produce {a`0:1}", "Produce {a`1:1}", "Once"},
             .min_rewrites = 1,
+            .should_saturate = true,
+        }
+    ),
+    TestCaseName
+);
+
+// --- Expression operator pipeline round-trip tests ---
+
+INSTANTIATE_TEST_SUITE_P(
+    ArithmeticOperators,
+    PlannerV2PipelineTest,
+    ::testing::Values(
+        PipelineTestCase{
+            .name = "Addition",
+            .query = "RETURN 1 + 2 AS r;",
+            .expected_details = {"Produce {r`0:(1 + 2)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "Subtraction",
+            .query = "RETURN 5 - 3 AS r;",
+            .expected_details = {"Produce {r`0:(5 - 3)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "Multiplication",
+            .query = "RETURN 2 * 3 AS r;",
+            .expected_details = {"Produce {r`0:(2 * 3)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "Division",
+            .query = "RETURN 6 / 2 AS r;",
+            .expected_details = {"Produce {r`0:(6 / 2)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "Modulo",
+            .query = "RETURN 7 % 3 AS r;",
+            .expected_details = {"Produce {r`0:(7 % 3)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "Exponentiation",
+            .query = "RETURN 2 ^ 3 AS r;",
+            .expected_details = {"Produce {r`0:(2 ^ 3)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "NestedArithmetic",
+            .query = "RETURN 1 + 2 * 3 AS r;",
+            .expected_details = {"Produce {r`0:(1 + (2 * 3))}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        }
+    ),
+    TestCaseName
+);
+
+INSTANTIATE_TEST_SUITE_P(
+    ComparisonOperators,
+    PlannerV2PipelineTest,
+    ::testing::Values(
+        PipelineTestCase{
+            .name = "Equal",
+            .query = "RETURN 1 = 2 AS r;",
+            .expected_details = {"Produce {r`0:(1 = 2)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "NotEqual",
+            .query = "RETURN 1 <> 2 AS r;",
+            .expected_details = {"Produce {r`0:(1 <> 2)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "LessThan",
+            .query = "RETURN 1 < 2 AS r;",
+            .expected_details = {"Produce {r`0:(1 < 2)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "GreaterEqual",
+            .query = "RETURN 1 >= 2 AS r;",
+            .expected_details = {"Produce {r`0:(1 >= 2)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        }
+    ),
+    TestCaseName
+);
+
+INSTANTIATE_TEST_SUITE_P(
+    BooleanOperators,
+    PlannerV2PipelineTest,
+    ::testing::Values(
+        PipelineTestCase{
+            .name = "And",
+            .query = "RETURN true AND false AS r;",
+            .expected_details = {"Produce {r`0:(true AND false)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "Or",
+            .query = "RETURN true OR false AS r;",
+            .expected_details = {"Produce {r`0:(true OR false)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "Xor",
+            .query = "RETURN true XOR false AS r;",
+            .expected_details = {"Produce {r`0:(true XOR false)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "Not",
+            .query = "RETURN NOT true AS r;",
+            .expected_details = {"Produce {r`0:(NOT true)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "ComparisonWithBoolean",
+            .query = "RETURN 1 < 2 AND 3 > 1 AS r;",
+            .expected_details = {"Produce {r`0:((1 < 2) AND (3 > 1))}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        }
+    ),
+    TestCaseName
+);
+
+INSTANTIATE_TEST_SUITE_P(
+    UnaryOperators,
+    PlannerV2PipelineTest,
+    ::testing::Values(
+        PipelineTestCase{
+            .name = "UnaryMinus",
+            .query = "RETURN -5 AS r;",
+            .expected_details = {"Produce {r`0:(-5)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "UnaryMinusOnExpression",
+            .query = "RETURN -(1 + 2) AS r;",
+            .expected_details = {"Produce {r`0:(-(1 + 2))}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        }
+    ),
+    TestCaseName
+);
+
+INSTANTIATE_TEST_SUITE_P(
+    InlineWithOperators,
+    PlannerV2PipelineTest,
+    ::testing::Values(
+        PipelineTestCase{
+            .name = "InlineThroughAdd",
+            .query = "WITH 1 AS a RETURN a + 2 AS r;",
+            .expected_details = {"Produce {r`0:(1 + 2)}", "Produce {a`1:1}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "InlineThroughNested",
+            .query = "WITH 1 AS a, 2 AS b RETURN a + b AS r;",
+            .expected_details = {"Produce {r`1:(1 + 2)}", "Produce {a`0:1, b`2:2}", "Once"},
+            .min_rewrites = 2,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "InlineThroughComparison",
+            .query = "WITH 1 AS a RETURN a < 2 AS r;",
+            .expected_details = {"Produce {r`0:(1 < 2)}", "Produce {a`1:1}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "InlineSameVarBothSides",
+            .query = "WITH 1 AS a RETURN a + a AS r;",
+            .expected_details = {"Produce {r`0:(1 + 1)}", "Produce {a`1:1}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "InlineThroughUnaryMinus",
+            .query = "WITH 5 AS a RETURN -a AS r;",
+            .expected_details = {"Produce {r`0:(-5)}", "Produce {a`1:5}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        // TODO: chained inline through operators - b should be inlined to (a + 2)
+        // then a should be inlined to 1, yielding ((1 + 2) * 3)
+        PipelineTestCase{
+            .name = "InlineChainedWithOperators",
+            .query = "WITH 1 AS a WITH a + 2 AS b RETURN b * 3 AS r;",
+            .expected_details = {"Produce {r`2:(b * 3)}", "Produce {a`1:1, b`0:b}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        }
+    ),
+    TestCaseName
+);
+
+INSTANTIATE_TEST_SUITE_P(
+    SharedSubexpressions,
+    PlannerV2PipelineTest,
+    ::testing::Values(
+        PipelineTestCase{
+            .name = "SameExpressionTwoOutputs",
+            .query = "RETURN 1 + 2 AS a, 1 + 2 AS b;",
+            .expected_details = {"Produce {a`1:(1 + 2), b`0:(1 + 2)}", "Once"},
+            .min_rewrites = 0,
             .should_saturate = true,
         }
     ),

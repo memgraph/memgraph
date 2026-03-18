@@ -81,6 +81,24 @@ struct Builder {
       X(Output);
       X(NamedOutput);
       X(ParamLookup);
+      X(Add);
+      X(Sub);
+      X(Mul);
+      X(Div);
+      X(Mod);
+      X(Exp);
+      X(Eq);
+      X(Neq);
+      X(Lt);
+      X(Lte);
+      X(Gt);
+      X(Gte);
+      X(And);
+      X(Or);
+      X(Xor);
+      X(Not);
+      X(UnaryMinus);
+      X(UnaryPlus);
     }
 #undef X
   }
@@ -160,6 +178,97 @@ struct Builder {
   auto Build(utils::tag_value<symbol::ParamLookup> /*tag*/, enode_ref node, children_ref /*children*/) -> BuildResult {
     auto const dis = node.disambiguator();
     return ast_storage_.Create<ParameterLookup>(dis);
+  }
+
+  // Binary operator helpers
+  template <typename AstOp>
+  auto BuildBinaryOp(children_ref children) -> BuildResult {
+    auto const &lhs = ExtractAndValidate<Expression *, 0>(children);
+    auto const &rhs = ExtractAndValidate<Expression *, 1>(children);
+    return ast_storage_.Create<AstOp>(lhs, rhs);
+  }
+
+  // Unary operator helpers
+  template <typename AstOp>
+  auto BuildUnaryOp(children_ref children) -> BuildResult {
+    auto const &operand = ExtractAndValidate<Expression *, 0>(children);
+    return ast_storage_.Create<AstOp>(operand);
+  }
+
+  // Arithmetic operators
+  auto Build(utils::tag_value<symbol::Add> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<AdditionOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Sub> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<SubtractionOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Mul> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<MultiplicationOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Div> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<DivisionOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Mod> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<ModOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Exp> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<ExponentiationOperator>(children);
+  }
+
+  // Comparison operators
+  auto Build(utils::tag_value<symbol::Eq> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<EqualOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Neq> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<NotEqualOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Lt> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<LessOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Lte> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<LessEqualOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Gt> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<GreaterOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Gte> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<GreaterEqualOperator>(children);
+  }
+
+  // Boolean operators
+  auto Build(utils::tag_value<symbol::And> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<AndOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Or> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<OrOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Xor> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildBinaryOp<XorOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::Not> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildUnaryOp<NotOperator>(children);
+  }
+
+  // Unary operators
+  auto Build(utils::tag_value<symbol::UnaryMinus> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildUnaryOp<UnaryMinusOperator>(children);
+  }
+
+  auto Build(utils::tag_value<symbol::UnaryPlus> /*tag*/, enode_ref /*node*/, children_ref children) -> BuildResult {
+    return BuildUnaryOp<UnaryPlusOperator>(children);
   }
 
   Builder(std::map<storage::ExternalPropertyValue, uint64_t> const &literal_store,
