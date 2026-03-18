@@ -26,6 +26,7 @@ namespace memgraph::query {
 
 struct CreateUserResult {
   bool created;
+  bool first_user;
   bool builtin_roles_created;
 };
 

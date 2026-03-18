@@ -1148,7 +1148,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           runtime_notifications->emplace_back(
               SeverityLevel::INFO,
               NotificationCode::CREATE_USER,
-              fmt::format("User '{}' created. No roles or privileges assigned.", username));
+              result.first_user
+                  ? fmt::format("User '{}' created with full access to all data and privileges, and no roles assigned.",
+                                username)
+                  : fmt::format("User '{}' created. No roles or privileges assigned.", username));
         }
         return std::vector<std::vector<TypedValue>>{};
       };

@@ -403,7 +403,7 @@ query::CreateUserResult AuthQueryHandler::CreateUser(const std::string &username
       builtin_roles_created = locked_auth->CreateBuiltinRoles(system_tx);
       locked_auth->InitialiseFirstUser(*new_user, system_tx);
     }
-    return {.created = new_user.has_value(), .builtin_roles_created = builtin_roles_created};
+    return {.created = new_user.has_value(), .first_user = first_user, .builtin_roles_created = builtin_roles_created};
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }

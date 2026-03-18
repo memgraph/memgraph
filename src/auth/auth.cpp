@@ -1187,8 +1187,7 @@ bool Auth::RemoveRole(const std::string &rolename_orig, bool force, system::Tran
         if (!json_data.is_array()) continue;
         for (auto const &role_name : json_data) {
           if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
-            auto username = it->first.substr(kRoleLinkPrefix.size());
-            throw AuthException("Cannot delete role '{}': it is assigned to user '{}'.", rolename, username);
+            throw AuthException("Cannot delete role '{}' as it is assigned to one or more users.", rolename);
           }
         }
       } catch (AuthException const &) {
@@ -1207,7 +1206,7 @@ bool Auth::RemoveRole(const std::string &rolename_orig, bool force, system::Tran
         for (auto const &role_name : role_names) {
           if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
             throw AuthException(
-                "Cannot delete role '{}': it is assigned to user '{}' on database '{}'.", rolename, username, db_name);
+                "Cannot delete role '{}': it is assigned to one or more users on database '{}'.", rolename, db_name);
           }
         }
       }
