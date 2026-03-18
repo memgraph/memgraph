@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,7 @@ class DiskEdgeTypeIndex : public EdgeTypeIndex {
     auto GetAbortProcessor() const -> AbortProcessor override;
   };
 
-  bool DropIndex(EdgeTypeId edge_type) override;
+  bool DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) override;
 
   void DropGraphClearIndices() override;
 

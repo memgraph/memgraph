@@ -113,7 +113,14 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
         };
         return std::make_unique<DefaultDatabaseProtector>();
       }} {
-  RefreshActiveIndicesCache();
+  // Initialize active indices cache
+  indices_.active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
+    ai = std::make_shared<ActiveIndices>(indices_.label_index_->GetActiveIndices(),
+                                         indices_.label_property_index_->GetActiveIndices(),
+                                         indices_.edge_type_index_->GetActiveIndices(),
+                                         indices_.edge_type_property_index_->GetActiveIndices(),
+                                         indices_.edge_property_index_->GetActiveIndices());
+  });
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 

@@ -107,12 +107,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   // TODO: direct Publish...should it be for a particular timestamp?
   bool CreateIndexOnePass(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                          ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  bool RegisterIndex(LabelId label, PropertiesPaths const &properties);
+  bool RegisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater);
 
   auto PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                     ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
@@ -294,7 +296,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
-  bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) override;
+  bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
+                 ActiveIndicesUpdater const &updater) override;
 
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ClearIndexStats();
 

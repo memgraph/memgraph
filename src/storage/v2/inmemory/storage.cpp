@@ -36,6 +36,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
@@ -375,7 +376,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
           info->last_durable_timestamp,
           timestamp_,
           info->num_committed_txns);
-      RefreshActiveIndicesCache();
     }
 
     if (config_.track_label_counts) {
@@ -1789,23 +1789,22 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  if (!mem_label_property_index->RegisterIndex(label, properties)) {
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  if (!mem_label_property_index->RegisterIndex(label, properties, updater)) {
     return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
-  // refresh active indices cache before releasing read only lock
-  storage_->RefreshActiveIndicesCache();
   DowngradeToReadIfValid();
-  if (auto result = TryPopulateIndex([&] {
-        return mem_label_property_index->PopulateIndex(label,
-                                                       properties,
-                                                       in_memory->vertices_.access(),
-                                                       std::nullopt,
-                                                       std::nullopt,
-                                                       &transaction_,
-                                                       std::move(cancel_check));
-      });
-      !result) {
-    return result;
+  if (!mem_label_property_index
+           ->PopulateIndex(label,
+                           properties,
+                           in_memory->vertices_.access(),
+                           std::nullopt,
+                           updater,
+                           std::nullopt,
+                           &transaction_,
+                           std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
@@ -1831,18 +1830,16 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
             "Create index requires a unique or read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
-  if (!mem_edge_type_index->RegisterIndex(edge_type)) {
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  if (!mem_edge_type_index->RegisterIndex(edge_type, updater)) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  // refresh active indices cache before releasing read only lock
-  storage_->RefreshActiveIndicesCache();
   DowngradeToReadIfValid();
-  if (auto result = TryPopulateIndex([&] {
-        return mem_edge_type_index->PopulateIndex(
-            edge_type, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check));
-      });
-      !result) {
-    return result;
+  if (!mem_edge_type_index
+           ->PopulateIndex(
+               edge_type, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
@@ -1866,18 +1863,21 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-  if (!mem_edge_type_property_index->RegisterIndex(edge_type, property)) {
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  if (!mem_edge_type_property_index->RegisterIndex(edge_type, property, updater)) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  // refresh active indices cache before releasing read only lock
-  storage_->RefreshActiveIndicesCache();
   DowngradeToReadIfValid();
-  if (auto result = TryPopulateIndex([&] {
-        return mem_edge_type_property_index->PopulateIndex(
-            edge_type, property, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check));
-      });
-      !result) {
-    return result;
+  if (!mem_edge_type_property_index
+           ->PopulateIndex(edge_type,
+                           property,
+                           in_memory->vertices_.access(),
+                           updater,
+                           std::nullopt,
+                           &transaction_,
+                           std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
@@ -1901,18 +1901,16 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-  if (!mem_edge_property_index->RegisterIndex(property)) {
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  if (!mem_edge_property_index->RegisterIndex(property, updater)) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  // refresh active indices cache before releasing read only lock
-  storage_->RefreshActiveIndicesCache();
   DowngradeToReadIfValid();
-  if (auto result = TryPopulateIndex([&] {
-        return mem_edge_property_index->PopulateIndex(
-            property, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check));
-      });
-      !result) {
-    return result;
+  if (!mem_edge_property_index
+           ->PopulateIndex(
+               property, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
@@ -1936,7 +1934,6 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   if (!was_dropped) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  storage_->RefreshActiveIndicesCache();
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1951,14 +1948,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
 
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto was_dropped =
-      storage_->invalidator_->invalidate_now([&] { return mem_label_property_index->DropIndex(label, properties); });
+  auto was_dropped = storage_->invalidator_->invalidate_now(
+      [&] { return mem_label_property_index->DropIndex(label, properties, updater); });
   if (!was_dropped) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  storage_->RefreshActiveIndicesCache();
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
@@ -1972,12 +1969,13 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
             "Dropping edge-type index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_edge_type_index->DropIndex(edge_type); });
+  auto was_dropped =
+      storage_->invalidator_->invalidate_now([&] { return mem_edge_type_index->DropIndex(edge_type, updater); });
   if (!was_dropped) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  storage_->RefreshActiveIndicesCache();
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
   return {};
 }
@@ -1994,13 +1992,13 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
   // Done inside the wrapper to ensure plan cache invalidation is safe
   auto was_dropped = storage_->invalidator_->invalidate_now(
-      [&] { return mem_edge_type_property_index->DropIndex(edge_type, property); });
+      [&] { return mem_edge_type_property_index->DropIndex(edge_type, property, updater); });
   if (!was_dropped) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  storage_->RefreshActiveIndicesCache();
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
@@ -2018,12 +2016,12 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
   auto was_dropped =
-      storage_->invalidator_->invalidate_now([&] { return mem_edge_property_index->DropIndex(property); });
+      storage_->invalidator_->invalidate_now([&] { return mem_edge_property_index->DropIndex(property, updater); });
   if (!was_dropped) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  storage_->RefreshActiveIndicesCache();
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
@@ -3876,8 +3874,6 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
                                                            recovery_info,
                                                            recovered_snapshot.indices_constraints,
                                                            config_.salient.items.properties_on_edges);
-    RefreshActiveIndicesCache();
-
     spdlog::trace("Successfully recovered from snapshot {}", local_path);
 
     // Destroying current wal file

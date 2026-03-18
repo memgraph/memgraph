@@ -13,12 +13,16 @@
 
 #include <memory>
 
+#include "storage/v2/indices/edge_property_index.hpp"
+#include "storage/v2/indices/edge_type_index.hpp"
+#include "storage/v2/indices/edge_type_property_index.hpp"
+#include "storage/v2/indices/label_index.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
-struct LabelIndexActiveIndices;
 struct ActiveIndices;
 using ActiveIndicesPtr = std::shared_ptr<ActiveIndices const>;
 using ActiveIndicesStore = utils::Synchronized<ActiveIndicesPtr, utils::WritePrioritizedRWLock>;
@@ -27,8 +31,10 @@ struct ActiveIndicesUpdater {
   explicit ActiveIndicesUpdater(ActiveIndicesStore &active_indices) : active_indices_(active_indices) {}
 
   void operator()(std::shared_ptr<LabelIndexActiveIndices> const &x) const;
-
-  // TODO: more call operators
+  void operator()(std::shared_ptr<LabelPropertyIndex::ActiveIndices> const &x) const;
+  void operator()(std::shared_ptr<EdgeTypeIndex::ActiveIndices> const &x) const;
+  void operator()(std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> const &x) const;
+  void operator()(std::shared_ptr<EdgePropertyIndex::ActiveIndices> const &x) const;
 
  private:
   ActiveIndicesStore &active_indices_;

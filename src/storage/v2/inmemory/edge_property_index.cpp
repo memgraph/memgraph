@@ -14,6 +14,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -175,17 +176,18 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
 }  // namespace
 
 bool InMemoryEdgePropertyIndex::CreateIndexOnePass(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                                                   ActiveIndicesUpdater const &updater,
                                                    std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto res = RegisterIndex(property);
+  auto res = RegisterIndex(property, updater);
   if (!res) return false;
-  auto res2 = PopulateIndex(property, std::move(vertices), snapshot_info);
+  auto res2 = PopulateIndex(property, std::move(vertices), updater, snapshot_info);
   if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
   return PublishIndex(property, 0);
 }
 
-bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property) {
+bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property, ActiveIndicesUpdater const &updater) {
   return index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     auto const &indices = indices_container->indices_;
     {
@@ -205,11 +207,13 @@ bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property) {
       all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
     });
     indices_container = new_container;
+    updater(std::make_shared<ActiveIndices>(indices_container));
     return true;
   });
 }
 
 auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                                              ActiveIndicesUpdater const &updater,
                                               std::optional<SnapshotObserverInfo> const &snapshot_info,
                                               Transaction const *tx, CheckCancelFunction cancel_check)
     -> std::expected<void, IndexPopulateError> {
@@ -236,10 +240,10 @@ auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipLi
           vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     }
   } catch (const PopulateCancel &) {
-    DropIndex(property);
+    DropIndex(property, updater);
     return std::unexpected{IndexPopulateError::Cancellation};
   } catch (const utils::OutOfMemoryException &) {
-    DropIndex(property);
+    DropIndex(property, updater);
     throw;
   }
   return {};
@@ -263,7 +267,7 @@ InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() {
   }
 }
 
-bool InMemoryEdgePropertyIndex::DropIndex(PropertyId property) {
+bool InMemoryEdgePropertyIndex::DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) {
   auto const result = index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     {
       auto const it = indices_container->indices_.find(property);
@@ -277,6 +281,7 @@ bool InMemoryEdgePropertyIndex::DropIndex(PropertyId property) {
       }
     }
     indices_container = new_container;
+    updater(std::make_shared<ActiveIndices>(indices_container));
     return true;
   });
   CleanupAllIndicies();
