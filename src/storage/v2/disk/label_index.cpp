@@ -190,9 +190,11 @@ bool DiskLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &update
     }
   }
 
-  auto res = CommitWithTimestamp(disk_transaction.get(), 0);
+  if (!CommitWithTimestamp(disk_transaction.get(), 0)) {
+    return false;
+  }
   updater(GetActiveIndices());
-  return res;
+  return true;
 }
 
 bool DiskLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const { return index_.contains(label); }
