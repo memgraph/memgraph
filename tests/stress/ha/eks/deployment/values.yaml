@@ -11,7 +11,7 @@ env:
 
 storage:
   data:
-    libPVCSize: "10Gi"
+    libPVCSize: "50Gi"
     libStorageAccessMode: "ReadWriteOnce"
     # By default the name of the storage class isn't set which means that the default storage class will be used.
     # If you set any name, such storage class must exist.
@@ -25,7 +25,7 @@ storage:
     coreDumpsStorageSize: 10Gi
     coreDumpsMountPath: /var/core/memgraph
   coordinators:
-    libPVCSize: "10Gi"
+    libPVCSize: "5Gi"
     libStorageAccessMode: "ReadWriteOnce"
     # By default the name of the storage class isn't set which means that the default storage class will be used.
     # If you set any name, such storage class must exist.
@@ -218,7 +218,6 @@ data:
   - "--log-file=/var/log/memgraph/memgraph.log"
   - "--data-directory=/var/lib/memgraph/mg_data"
   - "--storage-snapshot-on-exit=false"
-  - "--storage-snapshot-interval-sec=0"
   - "--telemetry-enabled=false"
 
 
@@ -234,7 +233,6 @@ data:
   - "--log-file=/var/log/memgraph/memgraph.log"
   - "--data-directory=/var/lib/memgraph/mg_data"
   - "--storage-snapshot-on-exit=false"
-  - "--storage-snapshot-interval-sec=0"
   - "--telemetry-enabled=false"
 
 coordinators:
