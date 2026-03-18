@@ -2879,7 +2879,8 @@ struct PullPlan {
                     storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr
+                    std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
+                    metrics::DatabaseMetricHandles *metric_handles = nullptr
 #ifdef MG_ENTERPRISE
                     ,
                     std::optional<size_t> parallel_execution = std::nullopt,
@@ -2922,14 +2923,14 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                    TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
                    FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   utils::PriorityThreadPool *worker_pool
+                   utils::PriorityThreadPool *worker_pool, metrics::DatabaseMetricHandles *metric_handles
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
 #endif
                    )
     : plan_(plan),
-      cursor_(plan->plan().MakeCursor(execution_memory)),
+      cursor_(plan->plan().MakeCursor(execution_memory, metric_handles)),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit),
       query_logger_(query_logger)
@@ -3386,9 +3387,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
                                               hops_limit,
-                                              interpreter_context->worker_pool
+                                              interpreter_context->worker_pool,
+                                              (*current_db.db_acc_)->metric_handles()
 #ifdef MG_ENTERPRISE
-                                              ,
+                                                  ,
                                               parallel_execution,
                                               user_resource
 #endif
@@ -3608,9 +3610,10 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         memory_limit,
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
                                         hops_limit,
-                                        interpreter_context->worker_pool
+                                        interpreter_context->worker_pool,
+                                        db_acc->metric_handles()
 #ifdef MG_ENTERPRISE
-                                        ,
+                                            ,
                                         parallel_execution,
                                         user_resource
 #endif
