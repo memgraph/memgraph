@@ -17,18 +17,20 @@ if [[ ! -x "$MEMGRAPH_BINARY" ]]; then
     exit 1
 fi
 DATA_DIR="stress_data"
+LOG_DIR="${LOG_DIR:-stress_logs}"
 
 # Default flags for Memgraph
 DEFAULT_FLAGS=(
     "--also-log-to-stderr=true"
     "--bolt-server-name-for-init=Neo4j/"
     "--data-directory=$DATA_DIR"
-    "--log-file="
+    "--log-file=$LOG_DIR/memgraph.log"
     "--log-level=TRACE"
     "--query-execution-timeout-sec=1200"
     "--storage-snapshot-interval-sec=300"
     "--storage-properties-on-edges=true"
     "--storage-wal-enabled=true"
+    "--storage-snapshot-on-exit=false"
     "--telemetry-enabled=false"
 )
 
@@ -79,37 +81,42 @@ start_memgraph() {
     CMD="$MEMGRAPH_BINARY $FINAL_FLAGS"
     echo "Executing: $CMD"
 
-    $CMD &  # Run the command
+    mkdir -p "$LOG_DIR"
+    $CMD &
     MG_PID=$!
     echo $MG_PID > memgraph.pid
     wait_for_server 7687
 }
 
 stop_memgraph() {
-    if [[ -f "memgraph.pid" ]]; then
-        MG_PID=$(cat memgraph.pid)
-        echo "Stopping Memgraph Standalone (PID: $MG_PID)..."
+    local graceful_timeout_sec=60
 
-        kill $MG_PID
-
-        # Loop to check if Memgraph has fully stopped
-        for i in {1..10}; do  # Wait up to 10 seconds
-            if ! kill -0 $MG_PID 2>/dev/null; then
-                echo "Memgraph has stopped."
-                rm -f memgraph.pid
-
-                # Cleanup data directory after Memgraph stops
-                clean_data_directory
-                return
-            fi
-            echo "Waiting for Memgraph to stop..."
-            sleep 1
-        done
-
-        echo "Warning: Memgraph process $MG_PID is still running after 10 seconds."
-    else
+    if [[ ! -f "memgraph.pid" ]]; then
         echo "No running Memgraph process found."
+        return 0
     fi
+
+    MG_PID=$(cat memgraph.pid)
+    echo "Stopping Memgraph Standalone (PID: $MG_PID)..."
+    kill "$MG_PID" 2>/dev/null || true
+
+    echo "Waiting for Memgraph to stop..."
+    for ((i=1; i<=graceful_timeout_sec; i++)); do
+        if ! kill -0 "$MG_PID" 2>/dev/null; then
+            echo "Memgraph has stopped."
+            rm -f memgraph.pid
+            clean_data_directory
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "Warning: Memgraph process $MG_PID is still running after ${graceful_timeout_sec} seconds. Force killing..."
+    kill -9 "$MG_PID" 2>/dev/null || true
+
+    echo "Warning: Memgraph process $MG_PID may still be in D-state (kernel I/O), continuing anyway."
+    rm -f memgraph.pid
+    clean_data_directory
 }
 
 wait_for_server() {
