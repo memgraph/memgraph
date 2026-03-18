@@ -6171,7 +6171,7 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
 
     case DescriptionQuery::Action::SHOW_ALL:
       return PreparedQuery{
-          .header = {"description type", "label", "property", "description"},
+          .header = {"type", "label", "start_node_labels", "end_node_labels", "property", "description"},
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [dba = *current_db.execution_db_accessor_,
                             db_name = current_db.db_acc_->get()->name(),
@@ -6186,39 +6186,39 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                   case storage::DescriptionTargetKind::LABEL:
                     return "label";
                   case storage::DescriptionTargetKind::EDGE_TYPE:
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
                     return "edge type";
                   case storage::DescriptionTargetKind::DATABASE:
                     return "database";
                   case storage::DescriptionTargetKind::LABEL_PROPERTY:
                     return "label property";
                   case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
                     return "edge type property";
                   case storage::DescriptionTargetKind::PROPERTY:
                     return "property";
-                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
-                    return "edge type";
-                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
-                    return "edge type property";
                 }
               };
-              auto labels_to_list = [&](auto const &labels) {
-                auto result = labels | rv::transform([&](auto id) { return TypedValue{dba.LabelToName(id)}; }) |
+              auto ids_to_list = [&](auto const &ids) {
+                auto result = ids | rv::transform([&](auto id) { return TypedValue{dba.LabelToName(id)}; }) |
                               r::to<std::vector<TypedValue>>();
                 return TypedValue{std::move(result)};
               };
               for (auto const &entry : entries) {
-                auto type = TypedValue{std::string{kind_to_str(entry.kind)}};
+                auto type_col = TypedValue{std::string{kind_to_str(entry.kind)}};
                 TypedValue label_col;
+                TypedValue start_col;
+                TypedValue end_col;
                 TypedValue prop_col;
                 switch (entry.kind) {
                   case storage::DescriptionTargetKind::LABEL:
-                    label_col = labels_to_list(entry.labels);
+                    label_col = ids_to_list(entry.labels);
                     break;
                   case storage::DescriptionTargetKind::EDGE_TYPE:
                     label_col = TypedValue{dba.EdgeTypeToName(entry.edge_type)};
                     break;
                   case storage::DescriptionTargetKind::LABEL_PROPERTY:
-                    label_col = labels_to_list(entry.labels);
+                    label_col = ids_to_list(entry.labels);
                     prop_col = TypedValue{dba.PropertyToName(entry.property)};
                     break;
                   case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
@@ -6229,27 +6229,26 @@ PreparedQuery PrepareDescriptionQuery(ParsedQuery parsed_query, CurrentDB &curre
                     prop_col = TypedValue{dba.PropertyToName(entry.property)};
                     break;
                   case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN:
-                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
-                    auto labels_str = [&](auto const &ids) {
-                      auto names = ids | rv::transform([&](auto id) { return ":" + dba.LabelToName(id); }) |
-                                   r::to<std::vector>();
-                      return std::accumulate(names.begin(), names.end(), std::string{});
-                    };
-                    label_col = TypedValue{fmt::format("({})-[:{}]->({})",
-                                                       labels_str(entry.from_labels),
-                                                       dba.EdgeTypeToName(entry.edge_type),
-                                                       labels_str(entry.to_labels))};
-                    if (entry.kind == storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY) {
-                      prop_col = TypedValue{dba.PropertyToName(entry.property)};
-                    }
+                    label_col = TypedValue{dba.EdgeTypeToName(entry.edge_type)};
+                    start_col = ids_to_list(entry.from_labels);
+                    end_col = ids_to_list(entry.to_labels);
                     break;
-                  }
+                  case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+                    label_col = TypedValue{dba.EdgeTypeToName(entry.edge_type)};
+                    start_col = ids_to_list(entry.from_labels);
+                    end_col = ids_to_list(entry.to_labels);
+                    prop_col = TypedValue{dba.PropertyToName(entry.property)};
+                    break;
                   case storage::DescriptionTargetKind::DATABASE:
                     label_col = TypedValue{std::string{db_name}};
                     break;
                 }
-                rows.push_back(
-                    {std::move(type), std::move(label_col), std::move(prop_col), TypedValue{entry.description}});
+                rows.push_back({std::move(type_col),
+                                std::move(label_col),
+                                std::move(start_col),
+                                std::move(end_col),
+                                std::move(prop_col),
+                                TypedValue{entry.description}});
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }

@@ -62,9 +62,9 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description type | label        | property | description          |
-            | 'label'          | ['Person']   | null     | 'A person node'      |
-            | 'label property' | ['Person']   | 'name'   | 'Name of the person' |
+            | type             | label        | start_node_labels | end_node_labels | property | description          |
+            | 'label'          | ['Person']   | null              | null            | null     | 'A person node'      |
+            | 'label property' | ['Person']   | null              | null            | 'name'   | 'Name of the person' |
 
     Scenario: Delete description
         Given an empty graph
@@ -128,8 +128,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description type | label                  | property | description        |
-            | 'label'          | ['Person', 'Student']  | null     | 'A student person' |
+            | type             | label                  | start_node_labels | end_node_labels | property | description        |
+            | 'label'          | ['Person', 'Student']  | null              | null            | null     | 'A student person' |
 
     Scenario: Label-scoped property descriptions are independent per label
         Given an empty graph
@@ -162,9 +162,9 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description type | label        | property | description          |
-            | 'label property' | ['Person']   | 'age'    | 'Age of the person'  |
-            | 'label property' | ['Student']  | 'age'    | 'Age of the student' |
+            | type             | label        | start_node_labels | end_node_labels | property | description          |
+            | 'label property' | ['Person']   | null              | null            | 'age'    | 'Age of the person'  |
+            | 'label property' | ['Student']  | null              | null            | 'age'    | 'Age of the student' |
 
     Scenario: Multi-label property description
         Given an empty graph
@@ -190,8 +190,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description type | label                  | property | description               |
-            | 'label property' | ['Person', 'Student']  | 'age'    | 'Age of a student person' |
+            | type             | label                  | start_node_labels | end_node_labels | property | description               |
+            | 'label property' | ['Person', 'Student']  | null              | null            | 'age'    | 'Age of a student person' |
         When executing query:
             """
             DELETE DESCRIPTION ON LABEL PROPERTY :Person:Student(age)
@@ -222,8 +222,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description type | label      | property | description               |
-            | 'database'       | 'memgraph' | null     | 'The main graph database' |
+            | type             | label      | start_node_labels | end_node_labels | property | description               |
+            | 'database'       | 'memgraph' | null              | null            | null     | 'The main graph database' |
 
     Scenario: Set and show edge-type-scoped property description
         Given an empty graph
@@ -244,8 +244,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description type      | label   | property | description                     |
-            | 'edge type property'  | 'KNOWS' | 'since'  | 'Year the relationship started' |
+            | type                  | label   | start_node_labels | end_node_labels | property | description                     |
+            | 'edge type property'  | 'KNOWS' | null              | null            | 'since'  | 'Year the relationship started' |
 
     Scenario: Setting description on wrong database throws error
         Given an empty graph
@@ -290,8 +290,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description type | label | property | description    |
-            | 'property'       | null  | 'age'    | 'Age in years' |
+            | type             | label | start_node_labels | end_node_labels | property | description    |
+            | 'property'       | null  | null              | null            | 'age'    | 'Age in years' |
         When executing query:
             """
             DELETE DESCRIPTION ON PROPERTY age
@@ -348,8 +348,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description type | label                             | property | description           |
-            | 'edge type'      | '(:Person)-[:KNOWS]->(:Person)'  | null     | 'person knows person' |
+            | type             | label   | start_node_labels | end_node_labels | property | description           |
+            | 'edge type'      | 'KNOWS' | ['Person']        | ['Person']      | null     | 'person knows person' |
 
     Scenario: Set and show multi-label edge type pattern description
         Given an empty graph
