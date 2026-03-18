@@ -70,8 +70,9 @@ class CoordinatorInstance {
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
 
-  // The logic here is that as long as we didn't set uuid for the whole cluster, actions will be reverted on
-  // instances on the next state check.
+  // Here we don't rely on reconciliation loop, we immediately send required RPC messages to the current main
+  // and replicas and then at the end write to the Raft log. If RPC fails, nothing yet happened so no problem.
+  // If writing to Raft log fails, reconciliation loop will sort that out
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view new_main_name) -> SetInstanceToMainCoordinatorStatus;
 
   // If user demotes main to replica, cluster will be without main instance. User should then call

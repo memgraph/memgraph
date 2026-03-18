@@ -626,55 +626,49 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
   }
 
-  auto const is_new_main = [new_main_name](auto const &instance) { return instance.InstanceName() == new_main_name; };
-  auto new_main = std::ranges::find_if(repl_instances_, is_new_main);
+  auto data_instances = raft_state_->GetDataInstancesContext();
+  auto main_data_instance = std::ranges::find_if(data_instances, [new_main_name](auto const &data_instance) {
+    return data_instance.config.instance_name == new_main_name;
+  });
 
-  if (new_main == repl_instances_.end()) {
+  if (main_data_instance == std::ranges::end(data_instances)) {
     spdlog::error("Instance {} not registered. Please register it using REGISTER INSTANCE query.", new_main_name);
     return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
+  // Update new role
+  main_data_instance->status = ReplicationRole::MAIN;
 
   auto const new_main_uuid = utils::UUID{};
+  auto const is_new_main_connector = [new_main_name](auto const &instance) {
+    return instance.InstanceName() == new_main_name;
+  };
+  auto new_main_connector = std::ranges::find_if(repl_instances_, is_new_main_connector);
+  // we already checked if instance exists in Raft log
+  DMG_ASSERT(new_main_connector != std::ranges::end(repl_instances_),
+             "Inconsistency between connectors and Raft state");
 
+  // TODO: (andi) This could be sent in parallel
   for (auto const &instance : repl_instances_) {
-    if (!is_new_main(instance)) {
+    if (!is_new_main_connector(instance)) {
       // Even if swapping doesn't succeed here, we will do it again in the callbacks.
       instance.SendSwapAndUpdateUUID(new_main_uuid);
     }
   }
 
-  auto const data_instances_cache = raft_state_->GetDataInstancesContext();
-
   auto repl_clients_info =
-      data_instances_cache |
+      data_instances |
       ranges::views::filter([&](auto const &instance) { return instance.config.instance_name != new_main_name; }) |
       ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
       ranges::to<ReplicationClientsInfo>();
 
-  if (!new_main->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info))) {
+  if (!new_main_connector->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info))) {
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
 
-  if (!new_main->SendRpc<EnableWritingOnMainRpc>()) {
-    return SetInstanceToMainCoordinatorStatus::ENABLE_WRITING_FAILED;
-  }
-
-  auto data_instances = raft_state_->GetDataInstancesContext();
-
-  auto const not_main_raft = [new_main_name](auto &&instance) {
-    return instance.config.instance_name != new_main_name;
-  };
-  // replicas already have status replica
-  for (auto &data_instance : data_instances | ranges::views::filter(not_main_raft)) {
+  // Update UUID for all replicas and new main
+  for (auto &data_instance : data_instances) {
     data_instance.instance_uuid = new_main_uuid;
   }
-
-  auto main_data_instance = std::ranges::find_if(data_instances, [new_main_name](auto &&data_instance) {
-    return data_instance.config.instance_name == new_main_name;
-  });
-
-  main_data_instance->instance_uuid = new_main_uuid;
-  main_data_instance->status = ReplicationRole::MAIN;
 
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),

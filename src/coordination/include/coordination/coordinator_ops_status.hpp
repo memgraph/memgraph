@@ -55,7 +55,6 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   RAFT_LOG_ERROR,
   COULD_NOT_PROMOTE_TO_MAIN,
   SUCCESS,
-  ENABLE_WRITING_FAILED,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
 };
