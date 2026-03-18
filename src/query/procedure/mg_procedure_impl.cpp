@@ -2985,6 +2985,7 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
               v->graph->impl);
         } else if (it->virtual_in_ && *it->virtual_in_it_ != it->virtual_in_->end()) {
           auto *sub = std::get_if<memgraph::query::SubgraphDbAccessor *>(&v->graph->impl);
+          MG_ASSERT(sub, "Virtual edges should only exist in subgraph context");
           const auto &ve = **it->virtual_in_it_;
           it->current_e.emplace(ve,
                                 memgraph::query::SubgraphVertexAccessor(ve.From(), (*sub)->getGraph()),
@@ -3058,6 +3059,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
               v->graph->impl);
         } else if (it->virtual_out_ && *it->virtual_out_it_ != it->virtual_out_->end()) {
           auto *sub = std::get_if<memgraph::query::SubgraphDbAccessor *>(&v->graph->impl);
+          MG_ASSERT(sub, "Virtual edges should only exist in subgraph context");
           const auto &ve = **it->virtual_out_it_;
           it->current_e.emplace(ve,
                                 memgraph::query::SubgraphVertexAccessor(ve.From(), (*sub)->getGraph()),
@@ -3105,6 +3107,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
             return nullptr;
           }
           auto *sub = std::get_if<memgraph::query::SubgraphDbAccessor *>(&it->source_vertex.graph->impl);
+          MG_ASSERT(sub, "Virtual edges should only exist in subgraph context");
           const auto &ve = **virt_it;
           it->current_e.emplace(ve,
                                 memgraph::query::SubgraphVertexAccessor(ve.From(), (*sub)->getGraph()),
@@ -3136,6 +3139,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
             auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
             if (virt && virt_it && *virt_it != virt->end()) {
               auto *sub = std::get_if<memgraph::query::SubgraphDbAccessor *>(&it->source_vertex.graph->impl);
+              MG_ASSERT(sub, "Virtual edges should only exist in subgraph context");
               const auto &ve = **virt_it;
               it->current_e.emplace(ve,
                                     memgraph::query::SubgraphVertexAccessor(ve.From(), (*sub)->getGraph()),
@@ -3419,8 +3423,7 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
                   return NewRawMgpObject<mgp_properties_iterator>(memory, e->from.graph, std::move(*maybe_props));
                 },
                 [&](const memgraph::query::VirtualEdge &ve) {
-                  // Virtual edges have their own property map, convert it
-                  std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props = ve.Properties();
+                  auto props = ve.Properties();
                   return NewRawMgpObject<mgp_properties_iterator>(memory, e->from.graph, std::move(props));
                 }},
             e->impl);

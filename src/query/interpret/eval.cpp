@@ -17,6 +17,24 @@
 
 namespace memgraph::query {
 
+namespace {
+TypedValue GraphEdgesToTypedValue(const Graph &graph, utils::MemoryResource *memory) {
+  utils::pmr::vector<TypedValue> edges(memory);
+  edges.reserve(graph.edges().size() + graph.virtual_edges().size());
+  for (const auto &e : graph.edges()) {
+    edges.push_back(TypedValue(e, memory));
+  }
+  for (const auto &ve : graph.virtual_edges()) {
+    TypedValue::TMap ve_map(memory);
+    ve_map.emplace("from", TypedValue(ve.From(), memory));
+    ve_map.emplace("to", TypedValue(ve.To(), memory));
+    ve_map.emplace("type", TypedValue(ve.EdgeTypeName(), memory));
+    edges.push_back(TypedValue(std::move(ve_map), memory));
+  }
+  return {std::move(edges), memory};
+}
+}  // namespace
+
 int64_t EvaluateInt(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what) {
   TypedValue value = expr->Accept(eval);
   try {
@@ -223,20 +241,7 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
         vertices.emplace_back(v);
       }
       result.emplace(TypedValue::TString("nodes", ctx_->memory), TypedValue(std::move(vertices), ctx_->memory));
-
-      utils::pmr::vector<TypedValue> edges(ctx_->memory);
-      edges.reserve(graph.edges().size() + graph.virtual_edges().size());
-      for (const auto &e : graph.edges()) {
-        edges.emplace_back(e);
-      }
-      for (const auto &ve : graph.virtual_edges()) {
-        TypedValue::TMap ve_map(ctx_->memory);
-        ve_map.emplace("from", TypedValue(ve.From(), ctx_->memory));
-        ve_map.emplace("to", TypedValue(ve.To(), ctx_->memory));
-        ve_map.emplace("type", TypedValue(ve.EdgeTypeName(), ctx_->memory));
-        edges.emplace_back(TypedValue(std::move(ve_map), ctx_->memory));
-      }
-      result.emplace(TypedValue::TString("edges", ctx_->memory), TypedValue(std::move(edges), ctx_->memory));
+      result.emplace(TypedValue::TString("edges", ctx_->memory), GraphEdgesToTypedValue(graph, ctx_->memory));
 
       return {result, ctx_->memory};
     }
@@ -406,19 +411,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       return TypedValue(vertices, ctx_->memory);
     }
     if (prop_name == "edges") {
-      utils::pmr::vector<TypedValue> edges(ctx_->memory);
-      edges.reserve(graph.edges().size() + graph.virtual_edges().size());
-      for (const auto &e : graph.edges()) {
-        edges.emplace_back(TypedValue(e, ctx_->memory));
-      }
-      for (const auto &ve : graph.virtual_edges()) {
-        TypedValue::TMap ve_map(ctx_->memory);
-        ve_map.emplace("from", TypedValue(ve.From(), ctx_->memory));
-        ve_map.emplace("to", TypedValue(ve.To(), ctx_->memory));
-        ve_map.emplace("type", TypedValue(ve.EdgeTypeName(), ctx_->memory));
-        edges.emplace_back(TypedValue(std::move(ve_map), ctx_->memory));
-      }
-      return TypedValue(edges, ctx_->memory);
+      return GraphEdgesToTypedValue(graph, ctx_->memory);
     }
     return std::nullopt;
   };

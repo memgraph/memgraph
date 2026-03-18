@@ -6658,7 +6658,7 @@ class AggregateCursor : public Cursor {
                                   kMaxVirtualEdges);
     }
 
-    projected_graph.InsertVirtualEdge(VirtualEdge(from, to, std::string(edge_type_name)));
+    projected_graph.InsertVirtualEdge(VirtualEdge(from, to, std::move(edge_type_name)));
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
