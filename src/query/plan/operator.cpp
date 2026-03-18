@@ -2581,7 +2581,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       co_await AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
-      if (static_cast<int64_t>(current_length) > upper_bound) co_return false;
+      if (std::cmp_greater(current_length, upper_bound)) co_return false;
 
       for (const auto &vertex : source_frontier) {
         if (context.hops_limit.IsLimitReached()) break;
@@ -2647,7 +2647,7 @@ class STShortestPathCursor : public query::plan::Cursor {
 
       // Bottom-up step (expansion from the sink).
       ++current_length;
-      if (static_cast<int64_t>(current_length) > upper_bound) co_return false;
+      if (std::cmp_greater(current_length, upper_bound)) co_return false;
 
       // When expanding from the sink we have to be careful which edge
       // endpoint we pass to `should_expand`, because everything is
@@ -2912,7 +2912,6 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
 
       co_yield true;
-      continue;
     }
   }
 
@@ -3226,7 +3225,6 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         frame_writer.Write(self_.total_weight_.value(), current_weight);
         yielded_vertices_.insert(current_vertex);
         co_yield true;
-        continue;
       }
     }
   }
@@ -4147,7 +4145,7 @@ class KShortestPathsCursor : public Cursor {
       co_await AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
-      if (current_length > upper_bound_) {
+      if (std::cmp_greater(current_length, upper_bound_)) {
         *result = PathInfo(evaluator.GetMemoryResource());
         co_return true;
       }
@@ -4203,7 +4201,7 @@ class KShortestPathsCursor : public Cursor {
 
       // Bottom-up step (expansion from the target).
       ++current_length;
-      if (current_length > upper_bound_) {
+      if (std::cmp_greater(current_length, upper_bound_)) {
         *result = PathInfo(evaluator.GetMemoryResource());
         co_return true;
       }
@@ -5096,7 +5094,7 @@ PullAwaitable SetProperty::SetPropertyCursor::DoPull(Frame &frame, ExecutionCont
                                   context.user_or_role,
                                   context.triggering_user);
     TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
-    TypedValue rhs = self_.rhs_->Accept(evaluator);
+    const TypedValue rhs = self_.rhs_->Accept(evaluator);
 
     switch (lhs.type()) {
       case TypedValue::Type::Vertex: {
@@ -7342,7 +7340,6 @@ class UnwindCursor : public Cursor {
 
       frame_writer.Write(self_.output_symbol_, std::move(*input_value_it_++));
       co_yield true;
-      continue;
     }
   }
 
@@ -8213,7 +8210,7 @@ class CallProcedureCursor : public Cursor {
         if (call_initializer) call_initializer = false;
 
         if (result_.error_msg) {
-          memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+          const memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
           throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
         }
         result_row_it_ = result_.rows.begin();
@@ -8303,7 +8300,7 @@ class CallValidateProcedureCursor : public Cursor {
         using TString = std::remove_cvref_t<decltype(message.ValueString())>;
         using TElement = std::remove_cvref_t<decltype(message_args.ValueList()[0])>;
 
-        utils::JStringFormatter<TString, TElement> formatter;
+        const utils::JStringFormatter<TString, TElement> formatter;
 
         try {
           const auto &msg = formatter.FormatString(message.ValueString(), message_args.ValueList());

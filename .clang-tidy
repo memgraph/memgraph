@@ -35,7 +35,8 @@ Checks: '-*,
          -bugprone-unchecked-optional-access,
          -bugprone-nondeterministic-pointer-iteration-order,
          -clang-analyzer-optin.core.EnumCastOutOfRange,
-         -readability-redundant-member-init'
+         -readability-redundant-member-init,
+         -readability-static-accessed-through-instance'
 WarningsAsErrors: ''
 HeaderFilterRegex: '(^|/)(src|mage/cpp)/'
 ExcludeHeaderFilterRegex: '.*/_deps/.*|.*/libs/.*'

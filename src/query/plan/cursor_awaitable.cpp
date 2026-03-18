@@ -31,6 +31,14 @@ PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ct
   decltype(awaitable.GetHandle()) handle;
 
   if (resume_from) {
+    // The caller may have driven the yielded coroutine directly (e.g. scheduler
+    // called stored_handle.resume() itself).  If the chain ran to completion
+    // during that external resume, resume_from now points to a destroyed child
+    // frame — never call .done() on it.  Check the owning awaitable first.
+    if (awaitable.Done()) {
+      awaitable.RethrowIfException();
+      return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
+    }
     if (!resume_from.done()) {
       resume_from.resume();
     }

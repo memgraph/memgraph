@@ -101,14 +101,18 @@ class PullAwaitable {
     std::coroutine_handle<promise_type> child_handle_{nullptr};
     bool immediate_ready_{false};
     bool immediate_value_{false};
+    /// true only when the handle was moved in from a temporary PullAwaitable
+    /// (operator co_await() &&).  In the lvalue case the PullAwaitable retains
+    /// ownership and its own destructor will call destroy().
+    bool owns_handle_{false};
 
     ~Awaiter() {
-      // The child handle was moved here from the PullAwaitable (operator co_await &&).
-      // The child's ~PullAwaitable() therefore won't destroy it.  We must: if the
-      // child ran to completion (done), destroy its frame now.  If it is still
-      // suspended (parent being torn down mid-yield), leave it — the frame will be
-      // cleaned up by PullPlan::suspended_handle_ on interpreter teardown.
-      if (child_handle_ && child_handle_.done()) {
+      // Only destroy when we exclusively own the handle (rvalue co_await path)
+      // and the child ran to completion.  If the child is still suspended, leave
+      // it — PullPlan::suspended_handle_ handles teardown on interpreter exit.
+      // In the lvalue co_await path (owns_handle_=false) the originating
+      // PullAwaitable still holds the handle and will destroy it.
+      if (owns_handle_ && child_handle_ && child_handle_.done()) {
         child_handle_.destroy();
       }
     }
@@ -160,13 +164,13 @@ class PullAwaitable {
     return *this;
   }
 
-  /// co_await for lvalues: shared ownership of the handle logic.
-  auto operator co_await() & noexcept { return Awaiter{handle_, immediate_ready_, immediate_value_}; }
+  /// co_await for lvalues: PullAwaitable retains ownership; Awaiter must not destroy.
+  auto operator co_await() & noexcept { return Awaiter{handle_, immediate_ready_, immediate_value_, false}; }
 
   /// co_await for rvalues (temporaries): move the handle into the awaiter
   /// so it isn't destroyed by ~PullAwaitable() before the coroutine resumes.
   auto operator co_await() && noexcept {
-    return Awaiter{std::exchange(handle_, nullptr), immediate_ready_, immediate_value_};
+    return Awaiter{std::exchange(handle_, nullptr), immediate_ready_, immediate_value_, true};
   }
 
   [[nodiscard]] std::coroutine_handle<promise_type> GetHandle() const noexcept { return handle_; }
