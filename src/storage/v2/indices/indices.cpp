@@ -130,7 +130,7 @@ Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_i
                         .edge_type_property_ = active_indices.edge_type_properties_->GetAbortProcessor(),
                         .edge_property_ = active_indices.edge_property_->GetAbortProcessor(),
                         .vector_ = vector_index_.GetAbortProcessor(),
-                        .vector_edge_ = vector_edge_index_.Analysis()};
+                        .vector_edge_ = vector_edge_index_.GetAbortProcessor()};
 }
 
 void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
@@ -173,7 +173,8 @@ void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, Prop
 }
 
 bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) {
-  return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property);
+  auto vec_interesting = vector_edge_.p2et.contains(property);
+  return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property) || vec_interesting;
 }
 
 void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp,
@@ -184,5 +185,6 @@ void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_in
   active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, start_timestamp);
   active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, start_timestamp);
   indices.vector_index_.AbortEntries(&indices, name_id_mapper, vector_.cleanup_collection);
+  indices.vector_edge_index_.AbortEntries(&indices, name_id_mapper, vector_edge_.cleanup_collection);
 }
 }  // namespace memgraph::storage

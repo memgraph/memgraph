@@ -66,7 +66,7 @@ struct Indices {
     // TODO: point? Nothing to abort, it gets built in Commit
     // TODO: text?
     VectorIndex::AbortProcessor vector_;
-    VectorEdgeIndex::IndexStats vector_edge_;
+    VectorEdgeIndex::AbortProcessor vector_edge_;
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);

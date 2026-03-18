@@ -1245,6 +1245,8 @@ std::optional<RecoveryInfo> LoadWal(
         }
 
         edge->properties.SetProperty(property_id, property_value);
+        VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
+            property_id, property_value, &*edge, indices_constraints->indices.vector_edge_indices, name_id_mapper);
       },
       [&](WalTransactionStart const &data) {
         should_commit = data.commit.value_or(true);
@@ -1491,22 +1493,22 @@ std::optional<RecoveryInfo> LoadWal(
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind);
-        indices_constraints->indices.vector_edge_indices.emplace_back(data.index_name,
-                                                                      edge_type_id,
-                                                                      property_id,
-                                                                      unum_metric_kind,
-                                                                      data.dimension,
-                                                                      data.resize_coefficient,
-                                                                      data.capacity,
-                                                                      scalar_kind);
+        indices_constraints->indices.vector_edge_indices.emplace_back(
+            VectorEdgeIndexRecoveryInfo{.spec = VectorEdgeIndexSpec{.index_name = data.index_name,
+                                                                    .edge_type_id = edge_type_id,
+                                                                    .property = property_id,
+                                                                    .metric_kind = unum_metric_kind,
+                                                                    .dimension = data.dimension,
+                                                                    .resize_coefficient = data.resize_coefficient,
+                                                                    .capacity = data.capacity,
+                                                                    .scalar_kind = scalar_kind},
+                                        .index_entries = {}});
       },
       [&](WalVectorIndexDrop const &data) {
         VectorIndexRecovery::UpdateOnIndexDrop(
             data.index_name, name_id_mapper, indices_constraints->indices.vector_indices, vertex_acc);
-        indices_constraints->indices.vector_edge_indices.erase(
-            r::remove_if(indices_constraints->indices.vector_edge_indices,
-                         [&](const auto &recovery_info) { return recovery_info.index_name == data.index_name; }),
-            indices_constraints->indices.vector_edge_indices.end());
+        VectorEdgeIndexRecovery::UpdateOnIndexDrop(
+            data.index_name, name_id_mapper, indices_constraints->indices.vector_edge_indices, vertex_acc);
       },
       [&](WalTtlOperation const &data) {
         switch (data.operation_type) {
