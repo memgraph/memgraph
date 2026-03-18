@@ -23,6 +23,8 @@
 
 namespace memgraph::storage {
 
+using LabelIds = std::vector<LabelId>;
+
 enum class DescriptionTargetKind : uint8_t {
   DATABASE,
   LABEL,
@@ -36,12 +38,12 @@ enum class DescriptionTargetKind : uint8_t {
 
 struct DescriptionEntry {
   DescriptionTargetKind kind;
-  std::vector<LabelId> labels;
+  LabelIds labels;
   EdgeTypeId edge_type{};
   PropertyId property{};
   std::string description;
-  std::vector<LabelId> from_labels;
-  std::vector<LabelId> to_labels;
+  LabelIds from_labels;
+  LabelIds to_labels;
 };
 
 class DescriptionStore {
@@ -107,7 +109,9 @@ class DescriptionStore {
     return it->second;
   }
 
-  using EdgeTypePatternKey = std::tuple<std::vector<LabelId>, EdgeTypeId, std::vector<LabelId>>;
+  using LabelPropertyKey = std::pair<LabelIds, PropertyId>;
+  using EdgeTypePropertyKey = std::pair<EdgeTypeId, PropertyId>;
+  using EdgeTypePatternKey = std::tuple<LabelIds, EdgeTypeId, LabelIds>;
 
   void SetEdgeTypePattern(std::span<LabelId const> from_labels, EdgeTypeId edge_type,
                           std::span<LabelId const> to_labels, std::string_view desc) {
@@ -126,7 +130,7 @@ class DescriptionStore {
     return it->second;
   }
 
-  using EdgeTypePatternPropertyKey = std::tuple<std::vector<LabelId>, EdgeTypeId, std::vector<LabelId>, PropertyId>;
+  using EdgeTypePatternPropertyKey = std::tuple<LabelIds, EdgeTypeId, LabelIds, PropertyId>;
 
   void SetEdgeTypePatternProperty(std::span<LabelId const> from_labels, EdgeTypeId edge_type,
                                   std::span<LabelId const> to_labels, PropertyId prop, std::string_view desc) {
@@ -230,16 +234,16 @@ class DescriptionStore {
   }
 
  private:
-  static std::vector<LabelId> SortedIds(std::span<LabelId const> labels) {
-    std::vector<LabelId> ids(labels.begin(), labels.end());
+  static LabelIds SortedIds(std::span<LabelId const> labels) {
+    LabelIds ids(labels.begin(), labels.end());
     std::ranges::sort(ids);
     return ids;
   }
 
-  std::map<std::vector<LabelId>, std::string> label_descriptions_;
+  std::map<LabelIds, std::string> label_descriptions_;
   std::map<EdgeTypeId, std::string> edge_type_descriptions_;
-  std::map<std::pair<std::vector<LabelId>, PropertyId>, std::string> label_property_descriptions_;
-  std::map<std::pair<EdgeTypeId, PropertyId>, std::string> edge_type_property_descriptions_;
+  std::map<LabelPropertyKey, std::string> label_property_descriptions_;
+  std::map<EdgeTypePropertyKey, std::string> edge_type_property_descriptions_;
   std::map<PropertyId, std::string> property_descriptions_;
   std::map<EdgeTypePatternKey, std::string> edge_type_pattern_descriptions_;
   std::map<EdgeTypePatternPropertyKey, std::string> edge_type_pattern_property_descriptions_;
