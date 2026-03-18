@@ -73,8 +73,8 @@ void DiskEdgePropertyIndex::DropGraphClearIndices() {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
 }
 
-std::unique_ptr<EdgePropertyIndex::ActiveIndices> DiskEdgePropertyIndex::GetActiveIndices() const {
-  return std::make_unique<ActiveIndices>();
+std::shared_ptr<EdgePropertyIndex::ActiveIndices> DiskEdgePropertyIndex::GetActiveIndices() const {
+  return std::make_shared<ActiveIndices>();
 }
 
 }  // namespace memgraph::storage

@@ -238,8 +238,8 @@ bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId p
   return result;
 }
 
-auto InMemoryEdgeTypePropertyIndex::GetActiveIndices() const -> std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> {
-  return std::make_unique<ActiveIndices>(index_.WithReadLock(std::identity{}));
+auto InMemoryEdgeTypePropertyIndex::GetActiveIndices() const -> std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> {
+  return std::make_shared<ActiveIndices>(index_.WithReadLock(std::identity{}));
 }
 
 auto InMemoryEdgeTypePropertyIndex::PopulateIndex(EdgeTypeId edge_type, PropertyId property,

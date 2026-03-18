@@ -198,8 +198,8 @@ auto InMemoryLabelIndex::PopulateIndex(
   return {};
 }
 
-auto InMemoryLabelIndex::GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> {
-  return std::make_unique<ActiveIndices>(index_.WithReadLock(std::identity{}));
+auto InMemoryLabelIndex::GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> {
+  return std::make_shared<ActiveIndices>(index_.WithReadLock(std::identity{}));
 }
 
 bool InMemoryLabelIndex::CreateIndexOnePass(

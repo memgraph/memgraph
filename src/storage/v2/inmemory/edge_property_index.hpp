@@ -256,7 +256,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
 
   void RunGC();
 
-  auto GetActiveIndices() const -> std::unique_ptr<EdgePropertyIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<EdgePropertyIndex::ActiveIndices> override;
 
  private:
   auto GetIndividualIndex(PropertyId property) const -> std::shared_ptr<IndividualIndex>;

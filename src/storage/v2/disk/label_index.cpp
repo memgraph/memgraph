@@ -57,8 +57,8 @@ DiskLabelIndex::DiskLabelIndex(const Config &config) {
       kvstore_->options_, rocksdb::TransactionDBOptions(), config.disk.label_index_directory, &kvstore_->db_));
 }
 
-auto DiskLabelIndex::GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> {
-  return std::make_unique<DiskLabelIndex::ActiveIndices>(index_);
+auto DiskLabelIndex::GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> {
+  return std::make_shared<DiskLabelIndex::ActiveIndices>(index_);
 }
 
 void DiskLabelIndex::ActiveIndices::AbortEntries(AbortableInfo const &, uint64_t start_timestamp) {}

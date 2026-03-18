@@ -75,7 +75,7 @@ class EdgeTypePropertyIndex {
     virtual void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) = 0;
   };
 
-  virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
+  virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
 
   EdgeTypePropertyIndex() = default;
 

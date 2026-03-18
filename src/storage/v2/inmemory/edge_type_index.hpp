@@ -232,7 +232,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   void RunGC();
 
-  auto GetActiveIndices() const -> std::unique_ptr<EdgeTypeIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<EdgeTypeIndex::ActiveIndices> override;
 
  private:
   void CleanupAllIndices();

@@ -95,7 +95,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void DropGraphClearIndices() override {};
 
-  auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<LabelPropertyIndex::ActiveIndices> override;
 
  private:
   std::set<LabelProperty> index_;

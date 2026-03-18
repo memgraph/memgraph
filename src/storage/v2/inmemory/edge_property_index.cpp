@@ -522,8 +522,8 @@ void InMemoryEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::A
   }
 }
 
-std::unique_ptr<EdgePropertyIndex::ActiveIndices> InMemoryEdgePropertyIndex::GetActiveIndices() const {
-  return std::make_unique<ActiveIndices>(index_.WithReadLock(std::identity{}));
+std::shared_ptr<EdgePropertyIndex::ActiveIndices> InMemoryEdgePropertyIndex::GetActiveIndices() const {
+  return std::make_shared<ActiveIndices>(index_.WithReadLock(std::identity{}));
 }
 
 auto InMemoryEdgePropertyIndex::GetIndividualIndex(PropertyId property) const -> std::shared_ptr<IndividualIndex> {
