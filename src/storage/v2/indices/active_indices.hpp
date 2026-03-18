@@ -43,8 +43,8 @@ struct ActiveIndices {
       : label_{std::move(label)},
         label_properties_{std::move(label_properties)},
         edge_type_{std::move(edge_type)},
-        edge_type_properties_(std::move(edge_type_properties)),
-        edge_property_(std::move(edge_property)) {}
+        edge_type_properties_{std::move(edge_type_properties)},
+        edge_property_{std::move(edge_property)} {}
 
   bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
     // label
