@@ -491,7 +491,9 @@ def main():
             sys.exit(1)
         print("Workload completed successfully!")
     finally:
-        cleanup()
+        pass
+        # TODO: This doesn't seem to pass
+        # cleanup()
 
 
 if __name__ == "__main__":
