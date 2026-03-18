@@ -889,12 +889,12 @@ def test_auth_replication(connection, test_name):
         partial(show_privileges_func, user_or_role="role3"),
         {
             (
-                "SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE, CREATE EDGE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
                 "GRANT",
                 "LABEL PERMISSION GRANTED TO ROLE",
             ),
             (
-                "SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE, CREATE EDGE ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY",
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY",
                 "GRANT",
                 "LABEL PERMISSION GRANTED TO ROLE",
             ),
@@ -904,12 +904,12 @@ def test_auth_replication(connection, test_name):
         partial(show_privileges_func, user_or_role="user3b"),
         {
             (
-                "SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE, CREATE EDGE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
                 "GRANT",
                 "LABEL PERMISSION GRANTED TO ROLE",
             ),
             (
-                "SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE, CREATE EDGE ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY",
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY",
                 "GRANT",
                 "LABEL PERMISSION GRANTED TO ROLE",
             ),
@@ -922,7 +922,7 @@ def test_auth_replication(connection, test_name):
         partial(show_privileges_func, user_or_role="role3"),
         {
             (
-                "SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE, CREATE EDGE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
                 "GRANT",
                 "LABEL PERMISSION GRANTED TO ROLE",
             )
@@ -932,7 +932,7 @@ def test_auth_replication(connection, test_name):
         partial(show_privileges_func, user_or_role="user3b"),
         {
             (
-                "SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE, CREATE EDGE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
                 "GRANT",
                 "LABEL PERMISSION GRANTED TO ROLE",
             )
