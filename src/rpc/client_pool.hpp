@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include <utility>
 
 #include "rpc/client.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::rpc {
 
@@ -29,17 +30,16 @@ class ClientPool {
   ClientPool(io::network::Endpoint endpoint, communication::ClientContext *context)
       : endpoint_(std::move(endpoint)), context_(context) {}
 
-  template <class TRequestResponse, class... Args>
-  typename TRequestResponse::Response Call(Args &&...args) {
+  template <rpc::IsRpc Rpc, class... Args>
+  auto Call(Args &&...args) -> std::expected<typename Rpc::Response, utils::RpcError> {
     return WithUnusedClient(
-        [&](const auto &client) { return client->template Call<TRequestResponse>(std::forward<Args>(args)...); });
+        [&](const auto &client) { return client->template Call<Rpc>(std::forward<Args>(args)...); });
   }
 
-  template <class TRequestResponse, class... Args>
-  typename TRequestResponse::Response CallWithLoad(Args &&...args) {
-    return WithUnusedClient([&](const auto &client) {
-      return client->template CallWithLoad<TRequestResponse>(std::forward<Args>(args)...);
-    });
+  template <rpc::IsRpc Rpc, class... Args>
+  auto CallWithLoad(Args &&...args) -> std::expected<typename Rpc::Response, utils::RpcError> {
+    return WithUnusedClient(
+        [&](const auto &client) { return client->template CallWithLoad<Rpc>(std::forward<Args>(args)...); });
   }
 
  private:

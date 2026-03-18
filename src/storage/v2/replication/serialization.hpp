@@ -42,9 +42,9 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
-  void WriteFileBuffer(const uint8_t *buffer, size_t buffer_size);
+  auto WriteFileBuffer(const uint8_t *buffer, size_t buffer_size) -> slk::BuilderWriteFunction::result_type;
 
-  void WriteFileData(utils::InputFile *file);
+  auto WriteFileData(utils::InputFile *file) -> slk::BuilderWriteFunction::result_type;
 
   bool WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write);
 

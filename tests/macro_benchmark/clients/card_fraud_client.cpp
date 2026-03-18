@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 
 #include "gflags/gflags.h"
 
+#include "communication/init.hpp"
 #include "utils/rw_lock.hpp"
 
 #include "long_running_common.hpp"
@@ -68,7 +69,8 @@ class CardFraudClient : public TestClient {
     auto result = Execute(
         "MATCH (t:Transaction {fraud_reported: true}) "
         "RETURN t.id as id",
-        {}, "GetFraudulentTransactions");
+        {},
+        "GetFraudulentTransactions");
     MG_ASSERT(result, "Read-only query should not fail!");
   }
 
@@ -84,7 +86,8 @@ class CardFraudClient : public TestClient {
         "MATCH (t:Transaction {fraud_reported: true}) "
         "WITH COLLECT(t.id) as ids "
         "RETURN head(ids)",
-        {}, "HeavyRead");
+        {},
+        "HeavyRead");
     MG_ASSERT(result, "Read-only query should not fail");
   }
 
@@ -101,7 +104,8 @@ class CardFraudClient : public TestClient {
         "WHERE connected_frauds > 1 "
         "RETURN pos, connected_frauds "
         "ORDER BY connected_frauds DESC LIMIT $pos_limit",
-        {{"pos_limit", pos_limit}}, "GetCompromisedPos");
+        {{"pos_limit", pos_limit}},
+        "GetCompromisedPos");
     MG_ASSERT(result, "Read-only query should not fail");
   }
 
@@ -117,7 +121,8 @@ class CardFraudClient : public TestClient {
         "MATCH (t:Transaction {id: "
         "$tx_id})-[:Using]->(:Card)<-[:Using]-(:Transaction)-[:At]->(p:Pos) "
         "SET p.connected_frauds = p.connected_frauds + 1",
-        {{"tx_id", tx_id}}, "UpdateFraudScores");
+        {{"tx_id", tx_id}},
+        "UpdateFraudScores");
     if (!result) {
       spdlog::warn("`UpdateFraudScores` failed too many times!");
     }
@@ -129,7 +134,8 @@ class CardFraudClient : public TestClient {
         "RETURN p, p.connected_frauds "
         "ORDER BY p.connected_frauds DESC "
         "LIMIT $pos_limit",
-        {{"pos_limit", pos_limit}}, "GetCompromisedPosInc");
+        {{"pos_limit", pos_limit}},
+        "GetCompromisedPosInc");
     MG_ASSERT(result, "Read-only query should not fail");
   }
 
@@ -154,7 +160,8 @@ class CardFraudClient : public TestClient {
         "MATCH (p:Pos {id: $pos_id}), (c:Card {id: $card_id}) "
         "CREATE (c)<-[:Using]-(t:Transaction {id: $tx_id, fraud_reported: "
         "$is_fraud})-[:At]->(p) RETURN t",
-        {{"pos_id", pos_id}, {"card_id", card_id}, {"tx_id", tx_id}, {"is_fraud", is_fraud}}, "CreateTransaction");
+        {{"pos_id", pos_id}, {"card_id", card_id}, {"tx_id", tx_id}, {"is_fraud", is_fraud}},
+        "CreateTransaction");
 
     if (!result) {
       spdlog::warn("`CreateTransaction` failed too many times!");
@@ -164,7 +171,9 @@ class CardFraudClient : public TestClient {
     MG_ASSERT(result->records.size() == 1,
               "Failed to create transaction: (:Card {{id: {}}})<-(:Transaction "
               "{{id: {}}})->(:Pos {{id: {}}})",
-              card_id, tx_id, pos_id);
+              card_id,
+              tx_id,
+              pos_id);
 
     num_transactions++;
   }
@@ -231,7 +240,8 @@ class CardFraudClient : public TestClient {
       auto result = Execute(
           "MATCH (t:Transaction) WHERE t.id < $id_limit "
           "DETACH DELETE t RETURN count(1)",
-          {{"id_limit", id_limit}}, "TransactionCleanup");
+          {{"id_limit", id_limit}},
+          "TransactionCleanup");
       int64_t deleted = 0;
       if (result) {
         deleted = result->records[0][0].ValueInt();
@@ -244,7 +254,10 @@ class CardFraudClient : public TestClient {
                 "Number of transactions after deletion doesn't match: "
                 "before = {}, after = {}, reported deleted = {}, actual = "
                 "{}",
-                num_transactions, num_transactions_db, deleted, num_transactions - num_transactions_db);
+                num_transactions,
+                num_transactions_db,
+                deleted,
+                num_transactions - num_transactions_db);
       num_transactions = num_transactions_db;
     }
 

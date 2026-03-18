@@ -36,7 +36,6 @@ using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
-using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
 using memgraph::storage::Config;
@@ -335,7 +334,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcNoTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SnapshotRpc>(UUID{}, UUID{});
-  EXPECT_NO_THROW(stream.SendAndWaitProgress());
+  ASSERT_TRUE(stream.value().SendAndWaitProgress().has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, SnapshotRpcProgress) {
@@ -372,7 +371,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcProgress) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SnapshotRpc>(UUID{}, UUID{});
-  EXPECT_NO_THROW(stream.SendAndWaitProgress());
+  ASSERT_TRUE(stream.value().SendAndWaitProgress().has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
@@ -407,7 +406,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SnapshotRpc>(UUID{}, UUID{});
-  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+  ASSERT_EQ(stream.value().SendAndWaitProgress().error(), memgraph::utils::RpcError::TIMEOUT_ERROR);
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedNoVertices) {

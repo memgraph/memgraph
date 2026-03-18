@@ -11,9 +11,12 @@
 
 #pragma once
 
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "rpc/messages.hpp"
+#include "slk/serialization.hpp"
 #include "utils/typeinfo.hpp"
 
 struct SumReqV1 {

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,7 @@
 
 #pragma once
 
-#include <algorithm>
-#include <atomic>
 #include <chrono>
-#include <memory>
 #include <mutex>
 #include <span>
 #include <string_view>
@@ -314,7 +311,7 @@ class Session final {
       // This function guarantees that all data will be written to the socket
       // even if the socket is non-blocking. It will use a non-busy wait to send
       // all data.
-      return socket_.Write(data, len, have_more);
+      return socket_.Write(data, len, have_more).has_value();
     }
   }
 
