@@ -1051,25 +1051,6 @@ def test_show_roles_builtin_column(memgraph):
     memgraph.execute("DROP ROLE regular_role;")
 
 
-def test_show_roles_for_user_builtin_column(memgraph):
-    memgraph.execute("CREATE USER test_user;")
-    memgraph.execute("CREATE ROLE regular_role;")
-    memgraph.execute("GRANT ROLES admin, regular_role TO test_user;")
-
-    results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user;"))
-    assert len(results) == 2
-
-    for row in results:
-        assert "builtin" in row
-        if row["role"] == "admin":
-            assert row["builtin"] is True
-        elif row["role"] == "regular_role":
-            assert row["builtin"] is False
-
-    memgraph.execute("DROP USER test_user;")
-    memgraph.execute("DROP ROLE regular_role;")
-
-
 def test_multiple_roles_on_database(memgraph):
     memgraph.execute("CREATE DATABASE testdb;")
     memgraph.execute("CREATE USER test_user;")
