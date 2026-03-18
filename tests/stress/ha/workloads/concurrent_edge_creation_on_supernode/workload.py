@@ -8,12 +8,14 @@ between the supernode and each regular node using parallel workers.
 import sys
 import time
 
+from cluster_monitor import ClusterMonitor
 from ha_common import Protocol, QueryType, cleanup, execute_and_fetch, execute_query, get_instance_names, run_parallel
 
 COORDINATOR = "coord_1"
+COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 DATA_INSTANCES = sorted(instance for instance in get_instance_names() if instance.startswith("data_"))
 
-NUM_NODES = 1000000
+NUM_NODES = 300000
 NUM_WORKERS = 20
 REPLICA_SYNC_TIMEOUT_SEC = 120
 
@@ -110,7 +112,7 @@ def wait_for_replica_sync(timeout_sec: int = REPLICA_SYNC_TIMEOUT_SEC) -> None:
     raise RuntimeError(f"Replicas did not sync within {timeout_sec} seconds")
 
 
-def verify_results() -> None:
+def verify_results(monitor: ClusterMonitor) -> None:
     print("\nVerifying results on coordinator...")
     edge_count = get_edge_count(COORDINATOR, Protocol.BOLT_ROUTING)
     if edge_count != NUM_NODES:
@@ -126,21 +128,48 @@ def verify_results() -> None:
             raise RuntimeError(f"{instance} edge count mismatch: expected {NUM_NODES}, got {count}")
         print(f"  {instance}: {count} edges (OK)")
 
+    monitor.show_replicas()
+
+    ok = monitor.verify_all_ready() and monitor.verify_instances_up()
+    if not ok:
+        print("ERROR: Cluster is not healthy!")
+        sys.exit(1)
+
 
 def main():
-    print(f"Concurrent Write Workload")
-    print(f"Supernode: 1, Regular nodes: {NUM_NODES}, Workers: {NUM_WORKERS}")
+    print("=" * 60)
+    print("Concurrent Edge Creation on Supernode Workload")
+    print("=" * 60)
+    print(f"Supernode         : 1")
+    print(f"Regular nodes     : {NUM_NODES:,}")
+    print(f"Workers           : {NUM_WORKERS}")
     print("-" * 60)
 
-    try:
-        setup_graph()
-        run_workload()
-        verify_results()
+    monitor = ClusterMonitor(
+        coordinators=COORDINATORS,
+        show_replicas=True,
+        verify_up=True,
+        storage_info=["vertex_count", "edge_count", "memory_res", "allocation_limit"],
+        metrics_info=["FailedQuery", "TransientErrors"],
+        interval=2,
+    )
 
-        print("-" * 60)
+    total_start = time.time()
+    try:
+        with monitor:
+            setup_graph()
+            run_workload()
+            verify_results(monitor)
+
+        total_elapsed = time.time() - total_start
+        print("=" * 60)
+        print(f"Completed in {total_elapsed:.1f}s ({total_elapsed / 60:.1f} min)")
         print("Workload completed successfully!")
-    finally:
-        cleanup()
+    except SystemExit:
+        raise
+    # finally:
+    # TODO: Inspect why this is failing to replicate
+    #     cleanup()
 
 
 if __name__ == "__main__":

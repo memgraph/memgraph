@@ -1,7 +1,8 @@
 memgraph:
   deployment:
     externally_managed: false
-  args: [] # Any additional flags you need
+  args:
+    - "--memory-limit=4000"
 
 general:
   verbose: false
@@ -13,7 +14,6 @@ dataset:
 customWorkloads:
   tests:
     - name: supernode-edge-abort
-      memgraph_args: ["--memory-limit=4000"]
       querying:
         host: "localhost"
         port: 7687

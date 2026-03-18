@@ -15,7 +15,6 @@ target_sources(mg-flags
         memory_limit.hpp
         replication.hpp
         run_time_configurable.hpp
-        storage_access.hpp
         storage_mode.hpp
         scheduler.hpp
 
@@ -32,7 +31,6 @@ target_sources(mg-flags
         memory_limit.cpp
         replication.cpp
         run_time_configurable.cpp
-        storage_access.cpp
         storage_mode.cpp
         scheduler.cpp
 )

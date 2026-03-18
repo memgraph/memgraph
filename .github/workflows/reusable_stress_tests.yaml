@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: ''
+      ref:
+        description: 'Branch or tag to checkout'
+        required: false
+        type: string
+        default: ''
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -46,6 +51,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -106,6 +112,14 @@ jobs:
           --arch $ARCH \
           copy --logs-dir /home/mg/memgraph/tests/stress --dest-dir build/stress/logs
 
+      - name: Upload stress test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-logs-native-standalone
+          path: build/stress/logs/
+          if-no-files-found: warn
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -136,6 +150,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -231,6 +246,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -312,6 +328,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -405,6 +422,14 @@ jobs:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
           AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
+
+      - name: Upload stress test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-logs-eks-ha
+          path: tests/stress/stress_logs/
+          if-no-files-found: warn
 
       - name: Clean up Docker
         if: always()

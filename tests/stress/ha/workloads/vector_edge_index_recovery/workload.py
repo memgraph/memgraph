@@ -175,7 +175,9 @@ def run_iterations(worker_id: int, num_iterations: int, db_name: str) -> dict:
     """Randomly create or delete edges per iteration in db_name."""
     created = 0
     deleted = 0
-    for _ in range(num_iterations):
+    for i in range(num_iterations):
+        if i > 0 and i % 1000 == 0:
+            print(f"  [Worker {worker_id}/{db_name}] {i:,} / {num_iterations:,} iterations")
         if random.random() < 0.5:
             execute_query(
                 COORDINATOR,
