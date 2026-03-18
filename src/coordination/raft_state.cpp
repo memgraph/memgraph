@@ -506,22 +506,35 @@ auto RaftState::YieldLeadership() const -> void { raft_server_->yield_leadership
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
-auto RaftState::AppendClusterUpdateAndWaitForCommit(CoordinatorClusterStateDelta const &delta_state) const -> bool {
+// If operation passed successfully we know that this coordinator committed the log and that the log is
+// replicated on the majority of coordinators
+auto RaftState::AppendLogAndWaitForCommit(CoordinatorClusterStateDelta const &delta_state) const -> bool {
   auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
+    // Most probable reason is that the coordinator is not the leader
     spdlog::error("Failed to accept request for updating cluster state.");
     return false;
   }
   spdlog::trace("Request for updating cluster state accepted.");
 
-  // Block until all coordinators committed. This has a consequence if one of coordinators crashed between accepting
-  // entries and committing them and if that one is needed for majority, the other coordinator will block here until the
-  // crashed coordinator comes back.
-  res->get();
+  // Block until the majority appends log.
+  // Coordinator could get blocked if the log successfully replicated but never committed and we don't want to block
+  // the user query
+  // The problem here is we don't know whether the majority was reached or not so we cannot say to users whether they
+  // should repeat the operation or not
+  constexpr auto kCommitTimeout = std::chrono::seconds{10};
+  auto const start = std::chrono::steady_clock::now();
+  while (!res->has_result()) {
+    if (std::chrono::steady_clock::now() - start > kCommitTimeout) {
+      spdlog::error("Timeout of 10s reached during log replication");
+      return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  }
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to update cluster state. Error code {}", static_cast<int>(res->get_result_code()));
+    spdlog::warn("Failed to update cluster state. Error code {}", static_cast<int>(res->get_result_code()));
     return false;
   }
 

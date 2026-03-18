@@ -39,7 +39,6 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   IS_MAIN,
   NO_MAIN,
   NOT_COORDINATOR,
-  RPC_FAILED,
   NOT_LEADER,
   RAFT_LOG_ERROR,
   LEADER_NOT_FOUND,
