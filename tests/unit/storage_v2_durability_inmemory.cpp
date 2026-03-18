@@ -3628,6 +3628,13 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   uint64_t wal_seq_num{0};
   memgraph::utils::UUID uuid;
   memgraph::storage::Indices indices{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+  indices.active_indices_.WithLock([&](memgraph::storage::ActiveIndicesPtr &ai) {
+    ai = std::make_shared<memgraph::storage::ActiveIndices>(indices.label_index_->GetActiveIndices(),
+                                                            indices.label_property_index_->GetActiveIndices(),
+                                                            indices.edge_type_index_->GetActiveIndices(),
+                                                            indices.edge_type_property_index_->GetActiveIndices(),
+                                                            indices.edge_property_index_->GetActiveIndices());
+  });
   memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   memgraph::storage::ReplicationStorageState repl_storage_state;
   memgraph::storage::EnumStore enum_store;

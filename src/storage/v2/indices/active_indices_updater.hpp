@@ -19,12 +19,13 @@ struct ActiveIndicesUpdater {
   explicit ActiveIndicesUpdater(ActiveIndicesStore &active_indices) : active_indices_(active_indices) {}
 
   void operator()(std::shared_ptr<LabelIndexActiveIndices> const &x) const;
-  void operator()(std::shared_ptr<LabelPropertyIndex::ActiveIndices> const &x) const;
-  void operator()(std::shared_ptr<EdgeTypeIndex::ActiveIndices> const &x) const;
-  void operator()(std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> const &x) const;
-  void operator()(std::shared_ptr<EdgePropertyIndex::ActiveIndices> const &x) const;
+  void operator()(std::shared_ptr<LabelPropertyIndexActiveIndices> const &x) const;
+  void operator()(std::shared_ptr<EdgeTypeIndexActiveIndices> const &x) const;
+  void operator()(std::shared_ptr<EdgeTypePropertyIndexActiveIndices> const &x) const;
+  void operator()(std::shared_ptr<EdgePropertyIndexActiveIndices> const &x) const;
 
  private:
   ActiveIndicesStore &active_indices_;
 };
+
 }  // namespace memgraph::storage

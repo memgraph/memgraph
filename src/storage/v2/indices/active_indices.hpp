@@ -36,11 +36,11 @@ struct IndicesCollection {
 struct ActiveIndices {
   ActiveIndices() = delete;  // to avoid nullptr
 
-  explicit ActiveIndices(std::shared_ptr<LabelIndex::ActiveIndices> label,
-                         std::shared_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
-                         std::shared_ptr<EdgeTypeIndex::ActiveIndices> edge_type,
-                         std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties,
-                         std::shared_ptr<EdgePropertyIndex::ActiveIndices> edge_property)
+  explicit ActiveIndices(std::shared_ptr<LabelIndexActiveIndices> label,
+                         std::shared_ptr<LabelPropertyIndexActiveIndices> label_properties,
+                         std::shared_ptr<EdgeTypeIndexActiveIndices> edge_type,
+                         std::shared_ptr<EdgeTypePropertyIndexActiveIndices> edge_type_properties,
+                         std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property)
       : label_{std::move(label)},
         label_properties_{std::move(label_properties)},
         edge_type_{std::move(edge_type)},
@@ -76,11 +76,11 @@ struct ActiveIndices {
     return true;
   }
 
-  std::shared_ptr<LabelIndex::ActiveIndices> label_;
-  std::shared_ptr<LabelPropertyIndex::ActiveIndices> label_properties_;
-  std::shared_ptr<EdgeTypeIndex::ActiveIndices> edge_type_;
-  std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties_;
-  std::shared_ptr<EdgePropertyIndex::ActiveIndices> edge_property_;
+  std::shared_ptr<LabelIndexActiveIndices> label_;
+  std::shared_ptr<LabelPropertyIndexActiveIndices> label_properties_;
+  std::shared_ptr<EdgeTypeIndexActiveIndices> edge_type_;
+  std::shared_ptr<EdgeTypePropertyIndexActiveIndices> edge_type_properties_;
+  std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property_;
 };
 
 using ActiveIndicesPtr = std::shared_ptr<ActiveIndices const>;

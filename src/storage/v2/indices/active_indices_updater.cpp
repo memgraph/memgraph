@@ -21,14 +21,14 @@ void memgraph::storage::ActiveIndicesUpdater::operator()(std::shared_ptr<LabelIn
 }
 
 void memgraph::storage::ActiveIndicesUpdater::operator()(
-    std::shared_ptr<LabelPropertyIndex::ActiveIndices> const &x) const {
+    std::shared_ptr<LabelPropertyIndexActiveIndices> const &x) const {
   active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
     MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
     ai = std::make_shared<ActiveIndices>(ai->label_, x, ai->edge_type_, ai->edge_type_properties_, ai->edge_property_);
   });
 }
 
-void memgraph::storage::ActiveIndicesUpdater::operator()(std::shared_ptr<EdgeTypeIndex::ActiveIndices> const &x) const {
+void memgraph::storage::ActiveIndicesUpdater::operator()(std::shared_ptr<EdgeTypeIndexActiveIndices> const &x) const {
   active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
     MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
     ai = std::make_shared<ActiveIndices>(
@@ -37,7 +37,7 @@ void memgraph::storage::ActiveIndicesUpdater::operator()(std::shared_ptr<EdgeTyp
 }
 
 void memgraph::storage::ActiveIndicesUpdater::operator()(
-    std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> const &x) const {
+    std::shared_ptr<EdgeTypePropertyIndexActiveIndices> const &x) const {
   active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
     MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
     ai = std::make_shared<ActiveIndices>(ai->label_, ai->label_properties_, ai->edge_type_, x, ai->edge_property_);
@@ -45,7 +45,7 @@ void memgraph::storage::ActiveIndicesUpdater::operator()(
 }
 
 void memgraph::storage::ActiveIndicesUpdater::operator()(
-    std::shared_ptr<EdgePropertyIndex::ActiveIndices> const &x) const {
+    std::shared_ptr<EdgePropertyIndexActiveIndices> const &x) const {
   active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
     MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
     ai = std::make_shared<ActiveIndices>(
