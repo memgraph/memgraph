@@ -13,6 +13,7 @@
 #include <rocksdb/utilities/transaction.h>
 
 #include "storage/v2/disk/label_index.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
@@ -189,7 +190,9 @@ bool DiskLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &update
     }
   }
 
-  return CommitWithTimestamp(disk_transaction.get(), 0);
+  auto res = CommitWithTimestamp(disk_transaction.get(), 0);
+  updater(GetActiveIndices());
+  return res;
 }
 
 bool DiskLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const { return index_.contains(label); }

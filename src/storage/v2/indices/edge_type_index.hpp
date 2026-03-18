@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 
 namespace memgraph::storage {
 
+struct ActiveIndicesUpdater;
 struct Transaction;
 struct Vertex;
 
@@ -63,7 +64,7 @@ class EdgeTypeIndex {
 
   virtual ~EdgeTypeIndex() = default;
 
-  virtual bool DropIndex(EdgeTypeId edge_type) = 0;
+  virtual bool DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) = 0;
 
   virtual void DropGraphClearIndices() = 0;
 

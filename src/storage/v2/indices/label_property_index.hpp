@@ -21,6 +21,8 @@
 
 namespace memgraph::storage {
 
+struct ActiveIndicesUpdater;
+
 /** Representation for a range of property values, which may be:
  * - BOUNDED: including only values between a lower and upper bounds. By setting
  *            both bounds to the same inclusive value, BOUNDED can also be used
@@ -238,7 +240,8 @@ class LabelPropertyIndex {
 
   virtual ~LabelPropertyIndex() = default;
 
-  virtual bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) = 0;
+  virtual bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
+                         ActiveIndicesUpdater const &updater) = 0;
   virtual void DropGraphClearIndices() = 0;
   virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
 };

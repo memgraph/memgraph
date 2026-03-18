@@ -11,6 +11,7 @@
 
 #include "storage/v2/disk//edge_import_mode_cache.hpp"
 
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -48,8 +49,9 @@ bool EdgeImportModeCache::CreateIndex(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  bool const res =
-      mem_label_property_index->CreateIndexOnePass(label, {{property}}, vertices_.access(), parallel_exec_info);
+  auto updater = ActiveIndicesUpdater{in_memory_indices_.active_indices_};
+  bool const res = mem_label_property_index->CreateIndexOnePass(
+      label, {{property}}, vertices_.access(), parallel_exec_info, updater);
   if (!res) return false;
   scanned_label_properties_.insert({label, property});
   return true;

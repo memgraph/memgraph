@@ -11,6 +11,7 @@
 
 #include "storage/v2/inmemory/label_index.hpp"
 
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"

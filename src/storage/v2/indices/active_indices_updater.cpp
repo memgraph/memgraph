@@ -12,8 +12,59 @@
 #include "storage/v2/indices/active_indices.hpp"
 
 void memgraph::storage::ActiveIndicesUpdater::operator()(std::shared_ptr<LabelIndexActiveIndices> const &x) const {
-  active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> ai) {
-    ai = std::make_shared<ActiveIndices>(
-        std::move(x), ai->label_properties_, ai->edge_type_, ai->edge_type_properties_, ai->edge_property_);
+  active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
+    if (ai) {
+      ai = std::make_shared<ActiveIndices>(
+          std::move(x), ai->label_properties_, ai->edge_type_, ai->edge_type_properties_, ai->edge_property_);
+    } else {
+      ai = std::make_shared<ActiveIndices>(std::move(x), nullptr, nullptr, nullptr, nullptr);
+    }
+  });
+}
+
+void memgraph::storage::ActiveIndicesUpdater::operator()(
+    std::shared_ptr<LabelPropertyIndex::ActiveIndices> const &x) const {
+  active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
+    if (ai) {
+      ai = std::make_shared<ActiveIndices>(
+          ai->label_, std::move(x), ai->edge_type_, ai->edge_type_properties_, ai->edge_property_);
+    } else {
+      ai = std::make_shared<ActiveIndices>(nullptr, std::move(x), nullptr, nullptr, nullptr);
+    }
+  });
+}
+
+void memgraph::storage::ActiveIndicesUpdater::operator()(std::shared_ptr<EdgeTypeIndex::ActiveIndices> const &x) const {
+  active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
+    if (ai) {
+      ai = std::make_shared<ActiveIndices>(
+          ai->label_, ai->label_properties_, std::move(x), ai->edge_type_properties_, ai->edge_property_);
+    } else {
+      ai = std::make_shared<ActiveIndices>(nullptr, nullptr, std::move(x), nullptr, nullptr);
+    }
+  });
+}
+
+void memgraph::storage::ActiveIndicesUpdater::operator()(
+    std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> const &x) const {
+  active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
+    if (ai) {
+      ai = std::make_shared<ActiveIndices>(
+          ai->label_, ai->label_properties_, ai->edge_type_, std::move(x), ai->edge_property_);
+    } else {
+      ai = std::make_shared<ActiveIndices>(nullptr, nullptr, nullptr, std::move(x), nullptr);
+    }
+  });
+}
+
+void memgraph::storage::ActiveIndicesUpdater::operator()(
+    std::shared_ptr<EdgePropertyIndex::ActiveIndices> const &x) const {
+  active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
+    if (ai) {
+      ai = std::make_shared<ActiveIndices>(
+          ai->label_, ai->label_properties_, ai->edge_type_, ai->edge_type_properties_, std::move(x));
+    } else {
+      ai = std::make_shared<ActiveIndices>(nullptr, nullptr, nullptr, nullptr, std::move(x));
+    }
   });
 }

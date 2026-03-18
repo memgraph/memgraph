@@ -211,10 +211,12 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
+                          ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  bool RegisterIndex(EdgeTypeId edge_type);
+  bool RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater);
   auto PopulateIndex(EdgeTypeId insert_function, utils::SkipList<Vertex>::Accessor vertices,
+                     ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
@@ -222,7 +224,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   bool PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp);
 
   /// Returns false if there was no index to drop
-  bool DropIndex(EdgeTypeId edge_type) override;
+  bool DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) override;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 

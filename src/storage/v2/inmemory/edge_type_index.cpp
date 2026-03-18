@@ -13,6 +13,7 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
@@ -114,10 +115,11 @@ inline void AdvanceUntilValid_(auto &index_iterator, const auto &end_iterator, E
 }  // namespace
 
 bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
+                                               ActiveIndicesUpdater const &updater,
                                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto res = RegisterIndex(edge_type);
+  auto res = RegisterIndex(edge_type, updater);
   if (!res) return false;
-  auto res2 = PopulateIndex(edge_type, std::move(vertices), snapshot_info);
+  auto res2 = PopulateIndex(edge_type, std::move(vertices), updater, snapshot_info);
   if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
@@ -125,6 +127,7 @@ bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::Skip
 }
 
 auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
+                                          ActiveIndicesUpdater const &updater,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info,
                                           Transaction const *tx, CheckCancelFunction cancel_check)
     -> std::expected<void, IndexPopulateError> {
@@ -151,16 +154,16 @@ auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipList<
           vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     }
   } catch (const PopulateCancel &) {
-    DropIndex(edge_type);
+    DropIndex(edge_type, updater);
     return std::unexpected{IndexPopulateError::Cancellation};
   } catch (const utils::OutOfMemoryException &) {
-    DropIndex(edge_type);
+    DropIndex(edge_type, updater);
     throw;
   }
   return {};
 }
 
-bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type) {
+bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) {
   return index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     auto const &indices = indices_container->indices_;
     {
@@ -181,6 +184,7 @@ bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type) {
       all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
     });
     indices_container = new_container;
+    updater(std::make_shared<ActiveIndices>(indices_container));
     return true;
   });
 }
@@ -203,7 +207,7 @@ InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() {
   }
 }
 
-bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type) {
+bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) {
   auto const result = index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     {
       auto const it = indices_container->indices_.find(edge_type);
@@ -217,6 +221,7 @@ bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type) {
       }
     }
     indices_container = new_container;
+    updater(std::make_shared<ActiveIndices>(indices_container));
     return true;
   });
   CleanupAllIndices();

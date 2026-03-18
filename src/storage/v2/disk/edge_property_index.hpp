@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@ namespace memgraph::storage {
 
 class DiskEdgePropertyIndex : public EdgePropertyIndex {
  public:
-  bool DropIndex(PropertyId property) override;
+  bool DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) override;
 
   struct ActiveIndices : EdgePropertyIndex::ActiveIndices {
     void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,

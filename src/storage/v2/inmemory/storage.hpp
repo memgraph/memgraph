@@ -182,20 +182,6 @@ class InMemoryStorage final : public Storage {
                                                     TransactionReplication &replicating_txn,
                                                     CommitArgs const &commit_args);
 
-    template <typename PopulateFn>
-    auto TryPopulateIndex(PopulateFn &&populate_fn) -> std::expected<void, StorageIndexDefinitionError> {
-      try {
-        if (!populate_fn().has_value()) {
-          storage_->RefreshActiveIndicesCache();
-          return std::unexpected{IndexDefinitionCancelationError{}};
-        }
-      } catch (...) {
-        storage_->RefreshActiveIndicesCache();
-        throw;
-      }
-      return {};
-    }
-
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
     InMemoryAccessor &operator=(const InMemoryAccessor &) = delete;

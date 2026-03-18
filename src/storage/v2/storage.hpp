@@ -798,20 +798,6 @@ class Storage {
   /// Thread-safe: uses atomic load
   auto GetActiveIndices() const -> ActiveIndicesPtr { return indices_.active_indices_.WithReadLock(std::identity{}); }
 
-  /// Rebuilds and atomically updates the active indices snapshot
-  /// Should be called after index create/drop operations complete
-  void RefreshActiveIndicesCache() {
-    indices_.active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> ai) {
-      // TODO: lock order incorrect here
-      //       RefreshActiveIndicesCache should be depricated
-      ai = std::make_shared<ActiveIndices>(indices_.label_index_->GetActiveIndices(),
-                                           indices_.label_property_index_->GetActiveIndices(),
-                                           indices_.edge_type_index_->GetActiveIndices(),
-                                           indices_.edge_type_property_index_->GetActiveIndices(),
-                                           indices_.edge_property_index_->GetActiveIndices());
-    });
-  }
-
   auto GetActiveConstraints() const -> ActiveConstraints {
     return ActiveConstraints{constraints_.existence_constraints_->GetActiveConstraints(),
                              constraints_.unique_constraints_->GetActiveConstraints(),
@@ -864,10 +850,6 @@ class Storage {
   Indices indices_;
   Constraints constraints_;
   PlanInvalidatorPtr invalidator_;
-
-  // /// Snapshot of active indices for concurrent access
-  // /// Updated atomically after index create/drop operations
-  // ActiveIndicesStore active_indices_;
 
   // Datastructures to provide fast retrieval of node-label and
   // edge-type related metadata.

@@ -15,7 +15,7 @@
 
 namespace memgraph::storage {
 
-bool DiskEdgePropertyIndex::DropIndex(PropertyId /*property*/) {
+bool DiskEdgePropertyIndex::DropIndex(PropertyId /*property*/, ActiveIndicesUpdater const & /*updater*/) {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
   return true;
 }

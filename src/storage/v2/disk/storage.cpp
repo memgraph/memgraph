@@ -41,6 +41,7 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/modified_edge.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
@@ -2151,7 +2152,10 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
     return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
-  storage_->RefreshActiveIndicesCache();
+  {
+    auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+    updater(disk_label_index->GetActiveIndices());
+  }
 
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
@@ -2183,7 +2187,10 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
     return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
-  storage_->RefreshActiveIndicesCache();
+  {
+    auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+    updater(disk_label_property_index->GetActiveIndices());
+  }
 
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
@@ -2223,8 +2230,6 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
     return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
-  storage_->RefreshActiveIndicesCache();
-
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
   storage_->invalidator_->invalidate_now(always_invalidate_plan_cache);
@@ -2249,11 +2254,10 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  if (!disk_label_property_index->DropIndex(label, properties)) {
+  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  if (!disk_label_property_index->DropIndex(label, properties, updater)) {
     return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
-
-  storage_->RefreshActiveIndicesCache();
 
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
