@@ -3654,6 +3654,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
           storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP, is_distinct));
     }
     if (upper_function_name == Aggregation::kProject) {
+      if (dynamic_cast<MapLiteral *>(expressions[1])) {
+        return static_cast<Expression *>(storage_->Create<Aggregation>(
+            expressions[0], expressions[1], Aggregation::Op::PROJECT_PATH_OPTIONS, is_distinct));
+      }
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], expressions[1], Aggregation::Op::PROJECT_LISTS, is_distinct));
     }
