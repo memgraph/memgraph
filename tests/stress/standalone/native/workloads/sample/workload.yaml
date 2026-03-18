@@ -13,6 +13,5 @@ dataset:
 customWorkloads:
   tests:
     - name: sample-workload
-      memgraph_args: []
       script: "standalone/native/workloads/sample/workload.py"
       timeout_min: 5

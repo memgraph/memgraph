@@ -583,6 +583,10 @@ int main(int argc, char **argv) {
   using memgraph::coordination::CoordinatorInstanceInitConfig;
   using memgraph::coordination::CoordinatorState;
   using memgraph::coordination::ReplicationInstanceInitConfig;
+
+  // coordinator_state must be declared before repl_state because in initialization repl state needs coordinator state —
+  // but DataInstanceManagementServer must be explicitly shut down before repl_state destruction (done in shutdown
+  // lambda)
   std::shared_ptr<CoordinatorState> coordinator_state{};
   auto const is_valid_data_instance =
       coordination_setup.management_port && !coordination_setup.coordinator_port && !coordination_setup.coordinator_id;
@@ -863,6 +867,15 @@ int main(int argc, char **argv) {
     if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server
     server.Shutdown();
+
+// DataInstanceManagementServer needs to be closed before replication state because some RPCs require access to
+// replication state
+#ifdef MG_ENTERPRISE
+    if (coordinator_state && coordinator_state->IsDataInstance()) {
+      coordinator_state->GetDataInstanceManagementServer().Shutdown();
+    }
+#endif
+
     // Don't replicate on shutdown anymore
     {
       auto locked_repl_state = repl_state.Lock();

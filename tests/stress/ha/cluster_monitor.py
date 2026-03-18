@@ -11,7 +11,7 @@ import threading
 import time
 from typing import Any
 
-from ha_common import Protocol, QueryType, execute_and_fetch
+from ha_common import COORDINATOR_INSTANCES, Protocol, QueryType, execute_and_fetch, get_instance_names
 
 
 class ClusterMonitor:
@@ -44,7 +44,9 @@ class ClusterMonitor:
         show_instances: bool = False,
         verify_up: bool = False,
         storage_info: list[str] | None = None,
+        metrics_info: list[str] | None = None,
         interval: float = 5.0,
+        auth: tuple[str, str] = ("", ""),
     ):
         if isinstance(coordinators, str):
             coordinators = [coordinators]
@@ -53,7 +55,9 @@ class ClusterMonitor:
         self._show_instances = show_instances
         self._verify_up = verify_up
         self._storage_fields = storage_info or []
+        self._metrics_fields = metrics_info or []
         self._interval = interval
+        self._auth = auth
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
 
@@ -68,7 +72,7 @@ class ClusterMonitor:
         last_err = None
         for coord in candidates:
             try:
-                return coord, execute_and_fetch(coord, query, protocol=protocol, query_type=query_type)
+                return coord, execute_and_fetch(coord, query, protocol=protocol, query_type=query_type, auth=self._auth)
             except Exception as e:
                 last_err = e
         raise last_err  # type: ignore[misc]
@@ -99,6 +103,14 @@ class ClusterMonitor:
             self._threads.append(t)
             print(
                 f"[ClusterMonitor] STORAGE INFO worker started (fields: {self._storage_fields}, interval: {self._interval}s)"
+            )
+
+        if self._metrics_fields:
+            t = threading.Thread(target=self._metrics_info_loop, daemon=True)
+            t.start()
+            self._threads.append(t)
+            print(
+                f"[ClusterMonitor] METRICS worker started (fields: {self._metrics_fields}, interval: {self._interval}s)"
             )
 
         print(f"[ClusterMonitor] Using coordinators: {self._coordinators}")
@@ -172,6 +184,17 @@ class ClusterMonitor:
                 print(f"\n[STORAGE INFO ERROR] {e}")
             self._stop_event.wait(self._interval)
 
+    def _metrics_info_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                coord, rows = self._query("SHOW METRICS;")
+                info = {row["name"]: row["value"] for row in rows if "name" in row}
+                parts = [f"{f}={info.get(f, '?')}" for f in self._metrics_fields]
+                print(f"\n[METRICS @ {time.strftime('%H:%M:%S')} via {coord}] {' '.join(parts)}")
+            except Exception as e:
+                print(f"\n[METRICS ERROR] {e}")
+            self._stop_event.wait(self._interval)
+
     # -- One-shot verification (call after workload) --------------------------
 
     def show_replicas(self) -> None:
@@ -202,15 +225,30 @@ class ClusterMonitor:
         return all_ready
 
     def verify_instances_up(self) -> bool:
-        """Check that all instances are alive. Returns True if all up."""
-        coord, rows = self._query("SHOW INSTANCES;", protocol=Protocol.BOLT)
-        print(f"[verify_instances_up via {coord}]")
+        """Check that all instances are reachable by connecting to them directly via BOLT.
+
+        Coordinators are queried with SHOW COORDINATOR SETTINGS;
+        Data instances are queried with RETURN 1;
+        Instance lists are derived from get_instance_names() and COORDINATOR_INSTANCES.
+        """
+        all_instances = get_instance_names()
+        coordinators = [i for i in all_instances if i in COORDINATOR_INSTANCES]
+        data_instances = [i for i in all_instances if i not in COORDINATOR_INSTANCES]
+
         all_up = True
-        for row in rows:
-            name = row.get("name", "unknown")
-            alive = row.get("alive", row.get("is_alive", None))
-            if alive is False:
-                print(f"ERROR: Instance '{name}' is DOWN!")
+        for coord in coordinators:
+            try:
+                execute_and_fetch(coord, "SHOW COORDINATOR SETTINGS;", protocol=Protocol.BOLT, auth=self._auth)
+                print(f"  [verify_instances_up] {coord} is UP")
+            except Exception as e:
+                print(f"  [verify_instances_up] ERROR: coordinator '{coord}' is DOWN: {e}")
+                all_up = False
+        for instance in data_instances:
+            try:
+                execute_and_fetch(instance, "RETURN 1;", protocol=Protocol.BOLT, auth=self._auth)
+                print(f"  [verify_instances_up] {instance} is UP")
+            except Exception as e:
+                print(f"  [verify_instances_up] ERROR: data instance '{instance}' is DOWN: {e}")
                 all_up = False
         if all_up:
             print("All instances are up!")

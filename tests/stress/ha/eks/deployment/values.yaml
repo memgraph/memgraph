@@ -214,8 +214,12 @@ data:
   - "--bolt-port=7687"
   - "--also-log-to-stderr"
   - "--log-level=TRACE"
+  - "--logger-type=async"
   - "--log-file=/var/log/memgraph/memgraph.log"
   - "--data-directory=/var/lib/memgraph/mg_data"
+  - "--storage-snapshot-on-exit=false"
+  - "--telemetry-enabled=false"
+
 
 - id: "1"
   restoreDataFromSnapshot: false
@@ -225,8 +229,11 @@ data:
   - "--bolt-port=7687"
   - "--also-log-to-stderr"
   - "--log-level=TRACE"
+  - "--logger-type=async"
   - "--log-file=/var/log/memgraph/memgraph.log"
   - "--data-directory=/var/lib/memgraph/mg_data"
+  - "--storage-snapshot-on-exit=false"
+  - "--telemetry-enabled=false"
 
 coordinators:
 - id: "1"

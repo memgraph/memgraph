@@ -49,6 +49,8 @@ memgraph:
   deployment:
     # If true, cluster is managed externally (e.g., EKS) - skip start/stop.
     # If false, CI will run <deployment_type>/deployment/deployment.sh start/stop.
+    # Note: if externally_managed is true, any args or env vars under 'memgraph'
+    # will be ignored (a warning is printed but execution continues).
     externally_managed: false
   args:
     # Additional memgraph arguments that are passed. Overrides the arguments from the
@@ -98,9 +100,6 @@ Custom workloads can be defined using either **inline workers** or a **custom Py
 customWorkloads:
   tests:
     - name: <string>  # Unique workload name.
-      memgraph_args: []
-      # Additional Memgraph arguments specific to the workload.
-      # Doesn't apply for K8s as they use values file.
       import:
         queries: ["<Cypher Query>"]  # Queries to execute for data import.
       querying:
@@ -126,7 +125,6 @@ Instead of defining workers inline, you can specify a Python script that handles
 customWorkloads:
   tests:
     - name: <string>  # Unique workload name.
-      memgraph_args: []  # Additional Memgraph arguments.
       script: "<path>"  # Path to Python script (relative to stress/ directory or absolute).
       timeout_min: <int>  # Maximum execution time in minutes.
 ```
