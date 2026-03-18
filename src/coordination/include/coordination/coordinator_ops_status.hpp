@@ -53,7 +53,6 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   NOT_COORDINATOR,
   NOT_LEADER,
   RAFT_LOG_ERROR,
-  COULD_NOT_PROMOTE_TO_MAIN,
   SUCCESS,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
@@ -117,7 +116,6 @@ enum class UpdateConfigStatus : uint8_t {
 enum class DemoteInstanceCoordinatorStatus : uint8_t {
   NO_INSTANCE_WITH_NAME = 0,
   NOT_LEADER,
-  RPC_FAILED,
   RAFT_LOG_ERROR,
   SUCCESS,
   NOT_COORDINATOR,

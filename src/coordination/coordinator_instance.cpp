@@ -659,6 +659,9 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
+  // Once the Raft log is committed, from the user's perspective, instance is successfully promoted
+  // We try to send RPCs immediately and if these ones fail, we will repeat the process in the reconciliation loop
+
   // TODO: (andi) This could be sent in parallel
   for (auto const &instance : repl_instances_) {
     if (!is_new_main_connector(instance)) {
@@ -674,10 +677,8 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
       ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
       ranges::to<ReplicationClientsInfo>();
 
-  if (!new_main_connector->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info))) {
-    return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
-  }
-
+  // Even if RPC here failed, we will do it again in the callback
+  new_main_connector->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info));
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }
 
@@ -713,10 +714,6 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
 
   data_instance->status = ReplicationRole::REPLICA;
 
-  if (!repl_instance->SendRpc<DemoteMainToReplicaRpc>(data_instance->config.replication_client_info)) {
-    return DemoteInstanceCoordinatorStatus::RPC_FAILED;
-  }
-
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances_cache)};
 
@@ -725,6 +722,9 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
     return DemoteInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
+  // We don't check error code here because from the user's perspective, it is only important that the Raft log is
+  // committed
+  repl_instance->SendRpc<DemoteMainToReplicaRpc>(data_instance->config.replication_client_info);
   return DemoteInstanceCoordinatorStatus::SUCCESS;
 }
 
@@ -855,14 +855,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::IS_MAIN;
   }
 
-  auto curr_main = std::ranges::find_if(repl_instances_, is_current_main);
-  // If there is no main in the cluster, the replica cannot be unregistered. We would commit the state without replica
-  // in Raft but the in-memory state would still contain it.
-  if (curr_main == repl_instances_.end()) {
-    return UnregisterInstanceCoordinatorStatus::NO_MAIN;
-  }
-
-  auto old_data_instances = raft_state_->GetDataInstancesContext();
+  auto const old_data_instances = raft_state_->GetDataInstancesContext();
   // Intentional copy
   auto new_data_instances = old_data_instances;
   auto const [first, last] = std::ranges::remove_if(new_data_instances, [instance_name](auto const &data_instance) {
@@ -1137,8 +1130,24 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       main_num_txns_cache_ = *instance_state.inner_state.main_num_txns;
     }
 
+    // Use this information for checking the number of committed txns and also to figure out if some replica got deleted
     if (instance_state.inner_state.replicas_num_txns.has_value()) {
-      replicas_num_txns_cache_ = *instance_state.inner_state.replicas_num_txns;
+      auto const data_instances = raft_state_->GetDataInstancesContext();
+
+      // Handle the case when data instance was unregistered
+      for (auto const &[replica_name, replica_data] : *instance_state.inner_state.replicas_num_txns) {
+        if (std::ranges::find(data_instances, replica_name, [](auto const &context) {
+              return context.config.instance_name;
+            }) != std::ranges::end(data_instances)) {
+          replicas_num_txns_cache_.insert_or_assign(replica_name, replica_data);
+        } else if (instance.SendRpc<UnregisterReplicaRpc>(replica_name)) {
+          auto const data_name_matches = [&replica_name](auto const &instance) {
+            return instance.InstanceName() == replica_name;
+          };
+          std::erase_if(repl_instances_, data_name_matches);
+          replicas_num_txns_cache_.erase(replica_name);
+        }
+      }
     }
 
     // According to raft, this is the current MAIN

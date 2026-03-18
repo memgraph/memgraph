@@ -597,9 +597,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't demote instance to replica since raft server couldn't append the log. "
             "Coordinator may not be leader anymore!");
-      case RPC_FAILED:
-        throw QueryRuntimeException(
-            "Couldn't demote instance to replica because current main instance couldn't unregister replica!");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -956,9 +953,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       }
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't promote instance since raft server couldn't append the log!");
-      case COULD_NOT_PROMOTE_TO_MAIN:
-        throw QueryRuntimeException(
-            "Couldn't set replica instance to main! Check coordinator and replica for more logs");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
