@@ -73,9 +73,11 @@ struct ExpressionRange {
 /// the iteration mechanism.
 class Cursor {
  public:
-  /// Non-virtual. Lazily creates the generator coroutine on first call (via DoPull),
+  /// Lazily creates the generator coroutine on first call (via DoPull),
   /// then resumes it on every subsequent call. Returns a lightweight ResumeAwaitable.
-  PullAwaitable::ResumeAwaitable Pull(Frame &f, ExecutionContext &ctx) {
+  /// Virtual so shared cursors (e.g. ScanParallelCursor) can override to create a
+  /// fresh generator per call instead of reusing a single persistent one.
+  virtual PullAwaitable::ResumeAwaitable Pull(Frame &f, ExecutionContext &ctx) {
     if (!gen_) [[unlikely]]
       gen_ = DoPull(f, ctx);
     return gen_->Resume();

@@ -9880,51 +9880,58 @@ class ScanParallelCursor : public Cursor {
   ScanParallelCursor(const ScanParallel &self, utils::MemoryResource *mem, TChunksFun get_chunks)
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), get_chunks_(std::move(get_chunks)) {}
 
+  // ScanParallelCursor is shared across all parallel branches: each branch calls Pull()
+  // with its own frame/context. The base Cursor::Pull() reuses a single persistent gen_,
+  // but that bakes the first caller's frame reference into the coroutine. Override Pull()
+  // to always create a fresh one-shot coroutine so each call gets the correct frame.
+  PullAwaitable::ResumeAwaitable Pull(Frame &f, ExecutionContext &ctx) override {
+    gen_ = DoPull(f, ctx);
+    return gen_->Resume();
+  }
+
   PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
-    size_t index = 0;
-    uint64_t current_batch = 0;
 
     // Use the actual co_return type from get_chunks_ (can be VerticesChunkedIterable or EdgesChunkedIterable)
     using ChunksType = std::invoke_result_t<TChunksFun, Frame &, ExecutionContext &>;
     std::shared_ptr<ChunksType> chunks;
+    size_t index = 0;
+    uint64_t current_batch = 0;
 
-    while (true) {
-      {
-        const std::unique_lock lock(mutex_);
-        if (all_pulled_) co_return false;  // Everything was pulled
-        if (index_ == 0 || index_ >= self_.num_threads_) {
-          if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
-          chunks_.reset();
-          const bool res = co_await input_cursor_->Pull(*frame_, context);
-          if (!res) {
-            all_pulled_ = true;
-            co_return false;
-          }
-          index_ = 0;
-          ++batch_version_;  // New input batch - caches need to be cleared
-          chunks_ = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
+    {
+      const std::unique_lock lock(mutex_);
+      if (all_pulled_) co_return false;  // Everything was pulled
+      if (index_ == 0 || index_ >= self_.num_threads_) {
+        if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+        chunks_.reset();
+        const bool res = co_await input_cursor_->Pull(*frame_, context);
+        if (!res) {
+          all_pulled_ = true;
+          co_return false;
         }
-        current_batch = batch_version_;
-        frame = *frame_;  // Copy the filled frame
-        chunks = chunks_;
-        index = index_++;
+        index_ = 0;
+        ++batch_version_;  // New input batch - caches need to be cleared
+        chunks_ = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
       }
+      current_batch = batch_version_;
+      frame = *frame_;  // Copy the filled frame
+      chunks = chunks_;
+      index = index_++;
+    }
 
-      // Clear caches if this branch hasn't seen this batch yet.
-      // This is critical for correctness: when UNWIND produces a new value, each branch
-      // must re-evaluate expressions like "IN [0, multiplier]" with the new value.
-      // Each branch's FrameChangeCollector tracks the last batch it saw.
-      if (context.frame_change_collector) {
-        context.frame_change_collector->ClearCachesIfBatchChanged(current_batch);
-      }
+    // Clear caches if this branch hasn't seen this batch yet.
+    // This is critical for correctness: when UNWIND produces a new value, each branch
+    // must re-evaluate expressions like "IN [0, multiplier]" with the new value.
+    // Each branch's FrameChangeCollector tracks the last batch it saw.
+    if (context.frame_change_collector) {
+      context.frame_change_collector->ClearCachesIfBatchChanged(current_batch);
+    }
 
-      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-      ParallelStateOnFrame::PushToFrame(
-          frame_writer, context.evaluation_context.memory, self_.state_symbol_, chunks, index);
-      co_yield true;
-    }  // while (true)
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    ParallelStateOnFrame::PushToFrame(
+        frame_writer, context.evaluation_context.memory, self_.state_symbol_, chunks, index);
+    co_yield true;
     co_return false;
   }
 
