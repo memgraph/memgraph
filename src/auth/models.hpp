@@ -127,7 +127,7 @@ std::string PermissionLevelToString(PermissionLevel level);
 
 #ifdef MG_ENTERPRISE
 // Function that converts a label permission bitmask to its string representation.
-std::string FineGrainedPermissionToString(uint64_t permission);
+std::string FineGrainedPermissionToString(uint64_t permission, bool is_label);
 
 #endif
 
