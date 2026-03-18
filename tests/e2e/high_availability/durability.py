@@ -252,7 +252,6 @@ def test_snapshots_on_replica(test_name):
     snapshot_dir_instance_2 = f"{data_dir_instance_2}/snapshots"
 
     # There can be more than one snapshot because SystemRecoveryRpc changes storage UUID
-    # --storage-snapshot-on-exit=false
     def checker_func(num_snapshot_files):
         return num_snapshot_files >= 1
 
