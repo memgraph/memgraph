@@ -42,6 +42,7 @@ struct FineGrainedPermissionForPrivilegeResult {
 #ifdef MG_ENTERPRISE
   uint64_t permission_bitmask;
   memgraph::auth::PermissionLevel grant_or_deny;
+  bool is_label;
 #endif
   std::string description;
 };
@@ -213,6 +214,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{.permission = entity_name,
                                                                                .permission_bitmask = permission_bitmask,
                                                                                .grant_or_deny = grant_or_deny,
+                                                                               .is_label = (permission_type == "LABEL"),
                                                                                .description = permission_description});
   };
 
@@ -280,7 +282,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivil
   }
   grants.reserve(privileges.size());
   for (const auto &permission : privileges) {
-    auto const permission_types = memgraph::auth::FineGrainedPermissionToString(permission.permission_bitmask);
+    auto const permission_types =
+        memgraph::auth::FineGrainedPermissionToString(permission.permission_bitmask, permission.is_label);
     auto const combined_privilege = fmt::format("{} ON {}", permission_types, permission.permission);
 
     auto const *effective = (permission.grant_or_deny == memgraph::auth::PermissionLevel::DENY) ? "DENY" : "GRANT";
