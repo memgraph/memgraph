@@ -21,6 +21,7 @@
 #include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "glue/auth_global.hpp"
+#include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "utils/file.hpp"
 
@@ -51,14 +52,22 @@ class AuthWithStorage : public ::testing::Test {
 class V1Auth : public ::testing::Test {
  protected:
   void SetUp() override {
-    memgraph::utils::EnsureDir(test_folder);
+    fs::remove_all(work_folder);
+    fs::copy(source_folder, work_folder, fs::copy_options::recursive);
     memgraph::license::global_license_checker.EnableTesting();
-    auth.emplace(test_folder, auth_config);
+    {
+      memgraph::kvstore::KVStore store{work_folder};
+      auto version = store.Get("version");
+      ASSERT_TRUE(version.has_value()) << "Expected version key in kvstore";
+      ASSERT_EQ(*version, "V1") << "Expected on-disk store to be V1 before migration";
+    }
+    auth.emplace(work_folder, auth_config);
   }
 
-  void TearDown() override {}
+  void TearDown() override { fs::remove_all(work_folder); }
 
-  fs::path test_folder{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v1"};
+  fs::path source_folder{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v1"};
+  fs::path work_folder{fs::temp_directory_path() / "mg_tests_unit_auth_v1"};
   Auth::Config auth_config{};
   std::optional<Auth> auth{};
 };
@@ -66,14 +75,22 @@ class V1Auth : public ::testing::Test {
 class V2Auth : public ::testing::Test {
  protected:
   void SetUp() override {
-    memgraph::utils::EnsureDir(test_folder);
+    fs::remove_all(work_folder);
+    fs::copy(source_folder, work_folder, fs::copy_options::recursive);
     memgraph::license::global_license_checker.EnableTesting();
-    auth.emplace(test_folder, auth_config);
+    {
+      memgraph::kvstore::KVStore store{work_folder};
+      auto version = store.Get("version");
+      ASSERT_TRUE(version.has_value()) << "Expected version key in kvstore";
+      ASSERT_EQ(*version, "V2") << "Expected on-disk store to be V2 before migration";
+    }
+    auth.emplace(work_folder, auth_config);
   }
 
-  void TearDown() override {}
+  void TearDown() override { fs::remove_all(work_folder); }
 
-  fs::path test_folder{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v2"};
+  fs::path source_folder{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v2"};
+  fs::path work_folder{fs::temp_directory_path() / "mg_tests_unit_auth_v2"};
   Auth::Config auth_config{};
   std::optional<Auth> auth{};
 };
