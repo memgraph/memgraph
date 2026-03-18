@@ -489,7 +489,7 @@ def test_manual_roles_recovery(connection, test_name):
     mg_sleep_and_assert(expected_data, show_roles_func(cursor_replica_2))
 
     # 3/
-    expected_data = {("role2", False), ("role3", False), ("role8", False)}
+    expected_data = {("role2",), ("role3",), ("role8",)}
     mg_sleep_and_assert(
         expected_data,
         show_role_for_user_func(cursor_replica_1, "user2"),
@@ -755,10 +755,10 @@ def test_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "CREATE USER user3")
     execute_and_fetch_all(cursor_main, "CREATE ROLE role3")
     execute_and_fetch_all(cursor_main, "SET ROLE FOR user3 TO role3")
-    check(partial(show_role_for_user_func, username="user3"), {("role3", False)})
+    check(partial(show_role_for_user_func, username="user3"), {("role3",)})
     execute_and_fetch_all(cursor_main, "CREATE USER user3b")
     execute_and_fetch_all(cursor_main, "SET ROLE FOR user3b TO role3")
-    check(partial(show_role_for_user_func, username="user3b"), {("role3", False)})
+    check(partial(show_role_for_user_func, username="user3b"), {("role3",)})
     check(
         partial(show_users_for_role_func, rolename="role3"),
         {
@@ -772,7 +772,7 @@ def test_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "CREATE ROLE role5")
     execute_and_fetch_all(cursor_main, "CREATE USER user5")
     execute_and_fetch_all(cursor_main, "SET ROLE FOR user5 TO role3, role4, role5")
-    check(partial(show_role_for_user_func, username="user5"), {("role3", False), ("role4", False), ("role5", False)})
+    check(partial(show_role_for_user_func, username="user5"), {("role3",), ("role4",), ("role5",)})
     check(
         partial(show_users_for_role_func, rolename="role3"),
         {
@@ -1298,7 +1298,7 @@ def test_user_profile_replication(connection, test_name):
     check(
         partial(show_role_for_user_func, username="user1"),
         {
-            ("role1", False),
+            ("role1",),
         },
     )
 
