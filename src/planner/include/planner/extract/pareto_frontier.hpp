@@ -92,6 +92,20 @@ struct ParetoFrontier {
     alts.resize(max_alts);
   }
 
+  /// Flat-map: for each alternative, produce zero or more new alternatives via a callback,
+  /// collect into a new frontier, then prune. This is the general pattern for conditional
+  /// transformations (e.g., Bind alive/dead branching).
+  /// @param fn  (Alt const&) -> void, calls `emit(Alt)` to produce output alternatives.
+  template <typename Fn>
+  static auto flat_map(ParetoFrontier const &input, Fn &&fn) -> ParetoFrontier {
+    auto result = ParetoFrontier{};
+    for (auto const &alt : input.alts) {
+      fn(alt, [&](Alt &&out) { result.alts.push_back(std::move(out)); });
+    }
+    result.prune();
+    return result;
+  }
+
   /// Union two frontiers from different enodes in the same eclass, then prune.
   static auto merge(ParetoFrontier const &a, ParetoFrontier const &b) -> ParetoFrontier {
     auto result = ParetoFrontier{};

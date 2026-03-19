@@ -98,31 +98,22 @@ struct PlanCostModel {
         auto sym_eclass = current.children()[1];
         auto sym_cost = min_cost(sym_frontier);
 
-        auto result = CostResult{};
-        for (auto const &input_alt : input_frontier.alts) {
+        return CostFrontier::flat_map(input_frontier, [&](auto const &input_alt, auto emit) {
           if (input_alt.required.contains(sym_eclass)) {
             // Alive: sym is needed — must pay sym+expr costs
             for (auto const &expr_alt : expr_frontier.alts) {
               auto required = input_alt.required;
               required.erase(sym_eclass);
               required.insert(expr_alt.required.begin(), expr_alt.required.end());
-              result.alts.push_back({
-                  .cost = input_alt.cost + sym_cost + expr_alt.cost,
-                  .required = std::move(required),
-                  .enode_id = enode_id,
-              });
+              emit({.cost = input_alt.cost + sym_cost + expr_alt.cost,
+                    .required = std::move(required),
+                    .enode_id = enode_id});
             }
           } else {
             // Dead: sym not needed — skip sym+expr cost entirely
-            result.alts.push_back({
-                .cost = input_alt.cost,
-                .required = input_alt.required,
-                .enode_id = enode_id,
-            });
+            emit({.cost = input_alt.cost, .required = input_alt.required, .enode_id = enode_id});
           }
-        }
-        result.prune();
-        return result;
+        });
       }
 
       // Binary operators: combine lhs × rhs + 1
