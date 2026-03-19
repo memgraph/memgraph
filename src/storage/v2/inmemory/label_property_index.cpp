@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
@@ -509,17 +510,21 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
                                               uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(label, properties);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  auto *gauge = metric_handles_ ? metric_handles_->active_label_property_indices : nullptr;
+  index->Publish(commit_timestamp, gauge);
   return true;
 }
 
-void InMemoryLabelPropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryLabelPropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
+  gauge_ = gauge;
+  if (gauge_) gauge_->Increment();
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
 }
 
 InMemoryLabelPropertyIndex::IndividualIndex::~IndividualIndex() {
   if (status.IsReady()) {
+    if (gauge_) gauge_->Decrement();
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   }
 }
@@ -555,7 +560,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
   };
 
   for (auto &[props, index] : it->second | rv::filter(relevant_index)) {
-    auto &[permutations_helper, skiplist, status] = *index;
+    auto &[permutations_helper, skiplist, status, gauge] = *index;
     auto values = permutations_helper.Extract(vertex_after_update->properties);
     if (r::any_of(values, [](auto &&val) { return !val.IsNull(); })) {
       auto acc = skiplist.access();
