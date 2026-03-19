@@ -544,6 +544,22 @@ INSTANTIATE_TEST_SUITE_P(
             .expected_details = {"Produce {r`1:((1 + 2) * 3)}", "Once"},  // dead store: both Binds eliminated
             .min_rewrites = 0,
             .should_saturate = true,
+        },
+        // Same symbol used in multiple outputs — both inline to Literal(1)
+        PipelineTestCase{
+            .name = "MultipleUsesOfSameSymbol",
+            .query = "WITH 1 AS x RETURN x AS a, x AS b;",
+            .expected_details = {"Produce {a`1:1, b`0:1}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        // Triple chained aliases — all three binds eliminated
+        PipelineTestCase{
+            .name = "TripleChainedAliases",
+            .query = "WITH 1 AS a WITH a AS b WITH b AS c RETURN c;",
+            .expected_details = {"Produce {c`2:1}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
         }
     ),
     TestCaseName
