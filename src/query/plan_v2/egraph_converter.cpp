@@ -11,33 +11,266 @@
 
 #include "query/plan_v2/egraph_converter.hpp"
 
+#include <limits>
+
+#include <boost/container/flat_set.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
 
 #include "planner/extract/extractor.hpp"
+#include "planner/extract/pareto_frontier.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan_v2/egraph_internal.hpp"
+#include "utils/tag.hpp"
 
 namespace memgraph::query::plan::v2 {
 
-struct CostModel {
-  struct CostResult {
-    double cost{};
-    double cardinality{};
+// ============================================================================
+// Plan extraction cost model — Pareto frontier with symbol demand tracking
+// ============================================================================
+namespace {
 
-    friend auto operator<(CostResult const &lhs, CostResult const &rhs) { return lhs.cost < rhs.cost; }
-  };
+using SymbolSet = boost::container::flat_set<planner::core::EClassId>;
 
-  static auto operator()(planner::core::ENode<symbol> const & /*current*/, std::span<CostResult const> children)
-      -> CostResult {
-    // TODO: build a better cost calculator
-    auto children_sum =
-        std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val.cost; });
-    return {.cost = 1.0 + children_sum, .cardinality = 1.0};
+struct Alternative {
+  double cost;
+  SymbolSet required;               // Symbols that MUST be bound by ancestors
+  planner::core::ENodeId enode_id;  // Which enode achieves this alternative
+
+  auto dominated_by(Alternative const &other) const -> bool {
+    return other.cost <= cost && std::ranges::includes(required, other.required);
   }
 };
 
-// TODO: make a concept to check cost model is valid
-//  static_assert(some_concept<CostModel>);
+struct AlternativeDominance {
+  auto operator()(Alternative const &a, Alternative const &b) const -> bool { return a.dominated_by(b); }
+};
+
+using CostFrontier = planner::core::extract::ParetoFrontier<Alternative, AlternativeDominance>;
+
+// Convenience: combine two frontiers with cost summation and required-set union.
+auto CombineAlts(double extra_cost, planner::core::ENodeId enode_id) {
+  return [extra_cost, enode_id](Alternative const &l, Alternative const &r) -> Alternative {
+    auto required = l.required;
+    required.insert(r.required.begin(), r.required.end());
+    return {.cost = extra_cost + l.cost + r.cost, .required = std::move(required), .enode_id = enode_id};
+  };
+}
+
+// Convenience: stamp enode_id on an existing alternative.
+auto StampENode(planner::core::ENodeId enode_id) {
+  return [enode_id](Alternative &alt) { alt.enode_id = enode_id; };
+}
+
+[[nodiscard]] auto min_cost(CostFrontier const &f) -> double {
+  auto it = std::ranges::min_element(f.alts, {}, &Alternative::cost);
+  return it != f.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
+}
+
+struct PlanCostModel {
+  // Tag auto-detected: CostResult is a ParetoFrontier → pareto_frontier_tag
+  // merge auto-provided: ParetoFrontier::merge (union + prune)
+  using CostResult = CostFrontier;
+
+  auto operator()(planner::core::ENode<symbol> const &current, planner::core::ENodeId enode_id,
+                  std::span<CostResult const> children) const -> CostResult {
+    switch (current.symbol()) {
+      // Leaf nodes: single alternative, no demand
+      case symbol::Once:
+      case symbol::Literal:
+      case symbol::Symbol:
+      case symbol::ParamLookup:
+        return CostResult{{{.cost = 1.0, .required = {}, .enode_id = enode_id}}};
+
+      // Identifier: demands its symbol child to be bound
+      case symbol::Identifier: {
+        auto sym_eclass = current.children()[0];
+        auto child_cost = children.empty() ? 0.0 : min_cost(children[0]);
+        return CostResult{{{.cost = 1.0 + child_cost, .required = {sym_eclass}, .enode_id = enode_id}}};
+      }
+
+      // Bind: alive if sym demanded, dead otherwise
+      case symbol::Bind: {
+        auto const &input_frontier = children[0];
+        auto const &sym_frontier = children[1];
+        auto const &expr_frontier = children[2];
+        auto sym_eclass = current.children()[1];
+        auto sym_cost = min_cost(sym_frontier);
+
+        auto result = CostResult{};
+        for (auto const &input_alt : input_frontier.alts) {
+          if (input_alt.required.contains(sym_eclass)) {
+            // Alive: sym is needed — must pay sym+expr costs
+            for (auto const &expr_alt : expr_frontier.alts) {
+              auto required = input_alt.required;
+              required.erase(sym_eclass);
+              required.insert(expr_alt.required.begin(), expr_alt.required.end());
+              result.alts.push_back({
+                  .cost = input_alt.cost + sym_cost + expr_alt.cost,
+                  .required = std::move(required),
+                  .enode_id = enode_id,
+              });
+            }
+          } else {
+            // Dead: sym not needed — skip sym+expr cost entirely
+            result.alts.push_back({
+                .cost = input_alt.cost,
+                .required = input_alt.required,
+                .enode_id = enode_id,
+            });
+          }
+        }
+        result.prune();
+        return result;
+      }
+
+      // Binary operators: combine lhs × rhs + 1
+      case symbol::Add:
+      case symbol::Sub:
+      case symbol::Mul:
+      case symbol::Div:
+      case symbol::Mod:
+      case symbol::Exp:
+      case symbol::Eq:
+      case symbol::Neq:
+      case symbol::Lt:
+      case symbol::Lte:
+      case symbol::Gt:
+      case symbol::Gte:
+      case symbol::And:
+      case symbol::Or:
+      case symbol::Xor:
+        return CostFrontier::combine(children[0], children[1], CombineAlts(1.0, enode_id));
+
+      // Unary operators: pass through child + 1
+      case symbol::Not:
+      case symbol::UnaryMinus:
+      case symbol::UnaryPlus: {
+        auto result = children[0];
+        for (auto &alt : result.alts) {
+          alt.cost += 1.0;
+          alt.enode_id = enode_id;
+        }
+        return result;
+      }
+
+      // Output: fold input × named_output₁ × named_output₂ × ...
+      case symbol::Output:
+        return CostFrontier::combine_all(children, CombineAlts(0.0, enode_id), StampENode(enode_id));
+
+      // NamedOutput: combine sym × expr + 1
+      case symbol::NamedOutput:
+        return CostFrontier::combine(children[0], children[1], CombineAlts(1.0, enode_id));
+    }
+    __builtin_unreachable();
+  }
+
+  static auto min_cost(CostResult const &f) -> double { return ::memgraph::query::plan::v2::min_cost(f); }
+
+  static auto resolve(CostResult const &frontier) -> planner::core::ENodeId {
+    return std::ranges::min_element(frontier.alts, {}, &Alternative::cost)->enode_id;
+  }
+};
+
+/// Context-aware top-down resolution of demand frontiers.
+/// Propagates a "provided" set (symbols bound by Bind ancestors) to ensure
+/// child selections are consistent with parent alive/dead decisions.
+auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
+                          std::unordered_map<planner::core::EClassId,
+                                             planner::core::extract::EClassFrontier<CostFrontier>> const &frontier_map,
+                          planner::core::EClassId root) {
+  using Traits = planner::core::extract::CostModelTraits<PlanCostModel>;
+  using EClassId = planner::core::EClassId;
+  using Selection = planner::core::extract::Selection<Traits::CostType>;
+
+  auto resolved = std::unordered_map<EClassId, Selection>{};
+
+  // Pick cheapest alt whose required ⊆ provided. Falls back to global min if none compatible.
+  auto pick_compatible = [](CostFrontier const &frontier, SymbolSet const &provided) -> Alternative const & {
+    Alternative const *best = nullptr;
+    for (auto const &alt : frontier.alts) {
+      if (std::ranges::includes(provided, alt.required)) {
+        if (!best || alt.cost < best->cost) {
+          best = &alt;
+        }
+      }
+    }
+    if (best) return *best;
+    // Fallback: shouldn't happen with correct bottom-up computation
+    return *std::ranges::min_element(frontier.alts, {}, &Alternative::cost);
+  };
+
+  auto resolve_recursive = [&](this auto const &self, EClassId eclass_id, SymbolSet const &provided) -> void {
+    if (resolved.contains(eclass_id)) return;
+
+    auto it = frontier_map.find(eclass_id);
+    assert(it != frontier_map.end() && it->second.frontier.has_value());
+
+    auto const &frontier = *it->second.frontier;
+    auto const &chosen = pick_compatible(frontier, provided);
+    resolved[eclass_id] = Selection{chosen.enode_id, chosen.cost};
+
+    auto const &enode = egraph.get_enode(chosen.enode_id);
+    auto const &children = enode.children();
+
+    if (enode.symbol() == symbol::Bind && children.size() == 3) {
+      auto input_eclass = children[0];
+      auto sym_eclass = children[1];
+      auto expr_eclass = children[2];
+
+      // Re-derive alive/dead given the provided context
+      auto input_it = frontier_map.find(input_eclass);
+      assert(input_it != frontier_map.end() && input_it->second.frontier.has_value());
+      auto const &input_frontier = *input_it->second.frontier;
+
+      auto sym_it = frontier_map.find(sym_eclass);
+      auto sym_cost = min_cost(*sym_it->second.frontier);
+
+      auto expr_it = frontier_map.find(expr_eclass);
+      auto const &expr_frontier = *expr_it->second.frontier;
+
+      // Alive: input alt must have sym in required, required ⊆ provided ∪ {sym}
+      auto alive_provided = provided;
+      alive_provided.insert(sym_eclass);
+
+      auto best_alive_cost = std::numeric_limits<double>::infinity();
+      for (auto const &input_alt : input_frontier.alts) {
+        if (input_alt.required.contains(sym_eclass) && std::ranges::includes(alive_provided, input_alt.required)) {
+          for (auto const &expr_alt : expr_frontier.alts) {
+            if (std::ranges::includes(provided, expr_alt.required)) {
+              best_alive_cost = std::min(best_alive_cost, input_alt.cost + sym_cost + expr_alt.cost);
+            }
+          }
+        }
+      }
+
+      // Dead: input alt must NOT have sym in required, required ⊆ provided
+      auto best_dead_cost = std::numeric_limits<double>::infinity();
+      for (auto const &input_alt : input_frontier.alts) {
+        if (!input_alt.required.contains(sym_eclass) && std::ranges::includes(provided, input_alt.required)) {
+          best_dead_cost = std::min(best_dead_cost, input_alt.cost);
+        }
+      }
+
+      // Alive wins if strictly cheaper; ties go to dead (less work)
+      if (best_alive_cost < best_dead_cost) {
+        self(input_eclass, alive_provided);
+      } else {
+        self(input_eclass, provided);
+      }
+      self(sym_eclass, provided);
+      self(expr_eclass, provided);
+    } else {
+      for (auto child : children) {
+        self(child, provided);
+      }
+    }
+  };
+
+  resolve_recursive(root, SymbolSet{});
+  return resolved;
+}
+
+}  // namespace
 
 // We can build operators or expressions
 // Operators -> used once in the build
@@ -301,9 +534,25 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
     -> std::tuple<std::unique_ptr<LogicalOperator>, double, AstStorage> {
   auto const &impl = internal::get_impl(e);
 
-  /// STAGE: Extraction from EGraph using CostModel
+  /// STAGE: Multi-alt extraction from EGraph using PlanCostModel
   auto const true_root = internal::to_core_id(root);
-  auto const selection = planner::core::extract::Extractor{impl.egraph_, CostModel{}}.Extract(true_root);
+  namespace extract = planner::core::extract;
+  auto frontier_map = std::unordered_map<planner::core::EClassId, extract::EClassFrontier<PlanCostModel::CostResult>>{};
+  extract::ComputeFrontiers(impl.egraph_, PlanCostModel{}, true_root, frontier_map);
+  auto resolved = ResolvePlanSelection(impl.egraph_, frontier_map, true_root);
+  auto in_degree = extract::CollectDependencies(impl.egraph_, resolved, true_root);
+  auto const selection = extract::TopologicalSort(impl.egraph_, resolved, std::move(in_degree));
+
+  /// STAGE: Demand analysis — determine which symbols are read by selected Identifier enodes
+  /// The multi-alt extractor makes demand-aware choices, but the builder still needs
+  /// the required set to detect dead Binds during reconstruction.
+  auto required_symbols = std::unordered_set<planner::core::EClassId>{};
+  for (auto const &[eclass_id, enode_id] : selection) {
+    auto const &enode = impl.egraph_.get_enode(enode_id);
+    if (enode.symbol() == symbol::Identifier) {
+      required_symbols.insert(enode.children()[0]);
+    }
+  }
 
   /// STAGE: Build selected (LogicalOperator, Expression *, Symbol, NamedExpression *, etc)
   auto builder = Builder{impl.storage<symbol::Literal>().store,
@@ -320,6 +569,14 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   auto children_refs = std::vector<child_ref>{};
   for (auto [eclass_id, enode_id] : std::views::reverse(selection)) {
     auto const &enode = impl.egraph_.get_enode(enode_id);
+
+    // Dead store elimination: if this Bind's symbol is not required by any
+    // selected Identifier, skip the Produce and pass through the input operator.
+    if (enode.symbol() == symbol::Bind && !required_symbols.contains(enode.children()[1])) {
+      build_cache[eclass_id] = build_cache.at(enode.children()[0]);
+      continue;
+    }
+
     children_refs.clear();
     children_refs.reserve(enode.children().size());
     std::ranges::copy(enode.children() | std::views::transform(cache_lookup), std::back_inserter(children_refs));
