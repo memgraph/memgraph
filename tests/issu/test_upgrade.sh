@@ -502,17 +502,17 @@ resolve_main_data_pod() {
 wait_memgraph_pods_ready 300s
 
 echo "All pods became ready"
-kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
+run_coordinator_query_with_retry 'SHOW INSTANCES;'
 
 kubectl wait --for=condition=complete job/cluster-setup --timeout=300s 2>/dev/null || true
 
 # --- Pre-upgrade setup ---
-kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
+run_coordinator_query_with_retry 'SHOW INSTANCES;'
 echo "Initialized cluster"
 
 echo "Waiting for cluster to become writable (MAIN elected)..."
 for i in $(seq 1 90); do
-  out="$(kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole" 2>/dev/null || true)"
+  out="$(run_coordinator_query_with_retry 'SHOW INSTANCES;' 1 0 2>/dev/null || true)"
 
   if echo "$out" | grep -q '"coordinator_1"' \
     && echo "$out" | grep -q '"coordinator_2"' \
@@ -527,7 +527,7 @@ for i in $(seq 1 90); do
   sleep 2
 done
 
-kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
+run_coordinator_query_with_retry 'SHOW INSTANCES;'
 
 
 kubectl cp $auth_pre_upgrade_file memgraph-data-0-0:/var/lib/memgraph/auth_pre_upgrade.cypherl
