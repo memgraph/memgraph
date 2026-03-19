@@ -1024,10 +1024,10 @@ TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
   auto const &shared_frontier = *frontier_map.at(shared_class);
   ASSERT_EQ(shared_frontier.alts.size(), 2);
 
-  // Context-aware resolver with first-visitor-wins caching (the bug).
-  // Mimics ResolvePlanSelection's pattern: at certain enodes, the resolver
-  // adjusts the provided set for specific children.
+  // Context-aware resolver with re-resolve on incompatible re-visit.
+  // Mimics the fixed ResolvePlanSelection pattern.
   auto resolved = std::unordered_map<EClassId, std::pair<ENodeId, double>>{};
+  auto resolved_required = std::unordered_map<EClassId, std::set<int>>{};
 
   auto pick_best_compatible = [](TestDemandCostResult const &frontier,
                                  std::set<int> const &provided) -> TestDemandAlt const * {
@@ -1044,11 +1044,22 @@ TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
   //   Left child gets provided={1} (mimics alive Bind providing a symbol)
   //   Right child gets provided={} (no extra symbols)
   auto resolve = [&](this auto const &self, EClassId id, std::set<int> const &provided) -> void {
-    if (resolved.contains(id)) return;  // ← first-visitor-wins cache
+    if (auto existing = resolved.find(id); existing != resolved.end()) {
+      // DAG re-visit: check if cached selection is compatible with this context
+      if (std::ranges::includes(provided, resolved_required[id])) return;  // still feasible
+      // Incompatible: re-resolve with more restrictive provided
+      auto const &frontier = *frontier_map.at(id);
+      auto const *chosen = pick_best_compatible(frontier, provided);
+      ASSERT_NE(chosen, nullptr);
+      existing->second = {chosen->enode_id, chosen->cost};
+      resolved_required[id] = chosen->required;
+      return;
+    }
     auto const &frontier = *frontier_map.at(id);
     auto const *chosen = pick_best_compatible(frontier, provided);
     ASSERT_NE(chosen, nullptr);
     resolved[id] = {chosen->enode_id, chosen->cost};
+    resolved_required[id] = chosen->required;
     auto const &enode = egraph.get_enode(chosen->enode_id);
     auto const &children = enode.children();
 
@@ -1066,26 +1077,15 @@ TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
   resolve(root_class, {});
 
   // Left was visited first with provided={1}.
-  // Its child (Shared) was resolved with provided={1} → picks {cost=1, req={1}}.
-  auto const &[shared_enode, shared_cost] = resolved.at(shared_class);
-  ASSERT_EQ(shared_cost, 1.0);  // Locked in by Left's visit
-
-  // BUG: Right then visits Shared, but resolved.contains(shared_class) → true.
-  // Right gets the cached {cost=1, req={1}} — but Right's context is provided={}.
-  // req={1} is UNSATISFIED in Right's context.
+  // Its child (Shared) was initially resolved with provided={1} → picks {cost=1, req={1}}.
   //
-  // The correct behavior for Right would be {cost=2, req={}}.
-  // A context-keyed resolver would store separate selections per (eclass, provided).
+  // Right then visits Shared with provided={}. The cached {cost=1, req={1}} is INCOMPATIBLE
+  // (req={1} ⊄ provided={}). The resolver re-resolves with provided={} → picks {cost=2, req={}}.
+  auto const &[shared_enode, shared_cost] = resolved.at(shared_class);
+  ASSERT_EQ(shared_cost, 2.0);  // Re-resolved to the conservative (no-demand) alt
 
-  // Verify: Right itself was resolved (its children include Shared which was cached)
-  ASSERT_TRUE(resolved.contains(right_class));
-
-  // Verify the inconsistency: Shared's selection has req={1}, but Right provides {}.
-  // The cached alt is the one with required={1} (cost=1), which is infeasible for Right.
-  auto const &shared_alt_chosen =
-      *std::ranges::find_if(shared_frontier.alts, [&](auto const &alt) { return alt.cost == shared_cost; });
-  ASSERT_FALSE(shared_alt_chosen.required.empty()) << "Shared eclass resolved to alt with unsatisfied demand — "
-                                                      "infeasible for Right's context (provided={})";
+  // Verify: the final selection has empty required — feasible for ALL visiting contexts
+  ASSERT_TRUE(resolved_required[shared_class].empty());
 }
 
 TEST(Extract_MultiAlt, CyclicEClass) {

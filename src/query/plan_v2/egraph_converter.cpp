@@ -192,6 +192,8 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
   using Selection = planner::core::extract::Selection<Traits::CostType>;
 
   auto resolved = std::unordered_map<EClassId, Selection>{};
+  // Track the required set of each resolved eclass for DAG compatibility checks.
+  auto resolved_required = std::unordered_map<EClassId, SymbolSet>{};
 
   // Pick cheapest alt whose required ⊆ provided.
   auto pick_compatible = [](CostFrontier const &frontier, SymbolSet const &provided) -> Alternative const & {
@@ -212,7 +214,20 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
   };
 
   auto resolve_recursive = [&](this auto const &self, EClassId eclass_id, SymbolSet const &provided) -> void {
-    if (resolved.contains(eclass_id)) return;
+    if (auto existing = resolved.find(eclass_id); existing != resolved.end()) {
+      // DAG: this eclass was already resolved from a different parent.
+      // Check if the cached selection is compatible with this parent's provided set.
+      if (std::ranges::includes(provided, resolved_required[eclass_id])) return;  // still feasible
+      // Incompatible: the cached alt demands symbols this parent doesn't provide.
+      // Re-resolve with the more restrictive provided set. Children keep their
+      // cached selections (they don't depend on the parent's provided for non-Bind nodes).
+      auto it = frontier_map.find(eclass_id);
+      assert(it != frontier_map.end() && it->second.has_value());
+      auto const &chosen = pick_compatible(*it->second, provided);
+      existing->second = Selection{chosen.enode_id, chosen.cost};
+      resolved_required[eclass_id] = chosen.required;
+      return;
+    }
 
     auto it = frontier_map.find(eclass_id);
     assert(it != frontier_map.end() && it->second.has_value());
@@ -220,6 +235,7 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
     auto const &frontier = *it->second;
     auto const &chosen = pick_compatible(frontier, provided);
     resolved[eclass_id] = Selection{chosen.enode_id, chosen.cost};
+    resolved_required[eclass_id] = chosen.required;
 
     auto const &enode = egraph.get_enode(chosen.enode_id);
     auto const &children = enode.children();
