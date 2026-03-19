@@ -673,9 +673,29 @@ struct TestDemandCostResult {
   }
 
   void prune() {
-    std::erase_if(alts, [this](TestDemandAlt const &a) {
-      return std::ranges::any_of(alts, [&a](TestDemandAlt const &b) { return &a != &b && a.dominated_by(b); });
-    });
+    auto const n = alts.size();
+    auto dominated = std::vector<bool>(n, false);
+    for (size_t i = 0; i < n; ++i) {
+      if (dominated[i]) continue;
+      for (size_t j = i + 1; j < n; ++j) {
+        if (dominated[j]) continue;
+        if (alts[i].dominated_by(alts[j])) {
+          dominated[i] = true;
+          break;
+        }
+        if (alts[j].dominated_by(alts[i])) {
+          dominated[j] = true;
+        }
+      }
+    }
+    size_t write = 0;
+    for (size_t read = 0; read < n; ++read) {
+      if (!dominated[read]) {
+        if (write != read) alts[write] = std::move(alts[read]);
+        ++write;
+      }
+    }
+    alts.resize(write);
   }
 
   static auto merge(TestDemandCostResult const &a, TestDemandCostResult const &b) -> TestDemandCostResult {
