@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "storage/v2/indices/active_indices.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
@@ -112,9 +113,15 @@ struct Indices {
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   std::unique_ptr<EdgePropertyIndex> edge_property_index_;
   /// Centralized snapshot of active indices, shared by transactions via shared_ptr.
-  /// Lock ordering: individual index lock (e.g. index_.WithLock) → active_indices_.WithLock.
-  /// The ActiveIndicesUpdater is always called from within an individual index lock.
+  /// Lock ordering:
+  ///   - engine_lock_ → active_indices_.WithReadLock (in CreateTransaction)
+  ///   - individual index lock (e.g. index_.WithLock) → active_indices_.WithLock (in RegisterIndex/DropIndex)
+  /// The ActiveIndicesUpdater is always called from within an individual index lock
+  /// (exception: DiskStorage CreateIndex, which is serialized via UNIQUE access mode).
   ActiveIndicesStore active_indices_;
+
+  /// Factory method to create an updater bound to this Indices' active_indices_ store.
+  ActiveIndicesUpdater MakeUpdater() { return ActiveIndicesUpdater{active_indices_}; }
 
   TextIndex text_index_;
   TextEdgeIndex text_edge_index_;

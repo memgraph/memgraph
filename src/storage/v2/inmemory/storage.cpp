@@ -1752,7 +1752,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
   if (!mem_label_index->RegisterIndex(label, updater)) {
     return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
@@ -1789,7 +1789,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
   if (!mem_label_property_index->RegisterIndex(label, properties, updater)) {
     return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
@@ -1830,7 +1830,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
             "Create index requires a unique or read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
   if (!mem_edge_type_index->RegisterIndex(edge_type, updater)) {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -1863,7 +1863,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
   if (!mem_edge_type_property_index->RegisterIndex(edge_type, property, updater)) {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -1901,7 +1901,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
   if (!mem_edge_property_index->RegisterIndex(property, updater)) {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -1927,7 +1927,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
             "Dropping label index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
 
   // Done inside the wrapper to ensure plan cache invalidation is safe
   auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_label_index->DropIndex(label, updater); });
@@ -1948,7 +1948,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
 
   // Done inside the wrapper to ensure plan cache invalidation is safe
   auto was_dropped = storage_->invalidator_->invalidate_now(
@@ -1969,7 +1969,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
             "Dropping edge-type index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
   // Done inside the wrapper to ensure plan cache invalidation is safe
   auto was_dropped =
       storage_->invalidator_->invalidate_now([&] { return mem_edge_type_index->DropIndex(edge_type, updater); });
@@ -1992,7 +1992,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
   // Done inside the wrapper to ensure plan cache invalidation is safe
   auto was_dropped = storage_->invalidator_->invalidate_now(
       [&] { return mem_edge_type_property_index->DropIndex(edge_type, property, updater); });
@@ -2016,7 +2016,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
   auto was_dropped =
       storage_->invalidator_->invalidate_now([&] { return mem_edge_property_index->DropIndex(property, updater); });
   if (!was_dropped) {

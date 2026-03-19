@@ -2153,7 +2153,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
   }
 
   {
-    auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+    auto updater = storage_->indices_.MakeUpdater();
     updater(disk_label_index->GetActiveIndices());
   }
 
@@ -2188,7 +2188,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
   }
 
   {
-    auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+    auto updater = storage_->indices_.MakeUpdater();
     updater(disk_label_property_index->GetActiveIndices());
   }
 
@@ -2225,7 +2225,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
   if (!disk_label_index->DropIndex(label, updater)) {
     return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
@@ -2254,7 +2254,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  auto updater = ActiveIndicesUpdater{storage_->indices_.active_indices_};
+  auto updater = storage_->indices_.MakeUpdater();
   if (!disk_label_property_index->DropIndex(label, properties, updater)) {
     return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
