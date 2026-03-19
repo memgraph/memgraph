@@ -122,6 +122,32 @@ version_lt() {
   [[ "$first" == "$a" && "$a" != "$b" ]]
 }
 
+version_gte() {
+  local a="$1" b="$2"
+  ! version_lt "$a" "$b"
+}
+
+HA_39_MIGRATION_CUTOFF_VERSION="3.9.0"
+
+requires_ha_39_migration() {
+  local from_tag="$1"
+  local to_tag="$2"
+  local from_v to_v
+
+  from_v="$(extract_version_from_tag "$from_tag")"
+  to_v="$(extract_version_from_tag "$to_tag")"
+
+  if [[ -z "$from_v" || -z "$to_v" ]]; then
+    return 1
+  fi
+
+  if version_lt "$from_v" "$HA_39_MIGRATION_CUTOFF_VERSION" && version_gte "$to_v" "$HA_39_MIGRATION_CUTOFF_VERSION"; then
+    return 0
+  fi
+
+  return 1
+}
+
 # Main entry: echoes "new" or "old"; returns 0 for "new", 1 for "old"
 behavior_for_tag() {
   local tag="${1:?docker tag required}"
@@ -157,6 +183,12 @@ behavior_for_tag() {
 
 auth_pre_upgrade_file=$(behavior_for_tag "$LAST_TAG")
 echo -e "${GREEN}Using auth_pre_upgrade_file: ${auth_pre_upgrade_file}${NC}"
+if requires_ha_39_migration "$LAST_TAG" "$NEXT_TAG"; then
+  NEED_HA_39_COORDINATOR_RESET=true
+  echo -e "${YELLOW}Detected upgrade crossing ${HA_39_MIGRATION_CUTOFF_VERSION}: coordinator data reset + cluster reconnect will be performed.${NC}"
+else
+  NEED_HA_39_COORDINATOR_RESET=false
+fi
 
 # --- Banner ---
 echo -e "${GREEN}Starting ISSU test:${NC}"
@@ -414,6 +446,59 @@ wait_memgraph_pods_ready() {
   done
 }
 
+run_coordinator_query_with_retry() {
+  local query="$1"
+  local attempts="${2:-60}"
+  local sleep_s="${3:-2}"
+  local out
+  local i
+
+  for i in $(seq 1 "$attempts"); do
+    if out="$(printf '%s\n' "$query" | kubectl exec -i memgraph-coordinator-1-0 -- mgconsole 2>&1)"; then
+      [[ -n "$out" ]] && echo "$out"
+      return 0
+    fi
+
+    echo "Coordinator query failed (attempt $i/$attempts). Retrying in ${sleep_s}s..."
+    echo "$out"
+    sleep "$sleep_s"
+  done
+
+  echo "Failed to execute coordinator query after ${attempts} attempts: $query" >&2
+  return 1
+}
+
+resolve_main_data_pod() {
+  local show_instances_out
+  local main_instance
+
+  show_instances_out="$(run_coordinator_query_with_retry 'SHOW INSTANCES;' 20 2)"
+  main_instance="$(
+    awk -F'|' '
+      /"instance_[0-9]+"/ && /"main"/ {
+        gsub(/"/, "", $2)
+        gsub(/^[ \t]+|[ \t]+$/, "", $2)
+        print $2
+        exit
+      }
+    ' <<<"$show_instances_out"
+  )"
+
+  case "$main_instance" in
+    instance_1) echo "memgraph-data-0-0" ;;
+    instance_2) echo "memgraph-data-1-0" ;;
+    *)
+      if [[ "$NEED_HA_39_COORDINATOR_RESET" == "true" ]]; then
+        echo "Could not resolve current main instance; defaulting to memgraph-data-0-0 after 3.9 reconnect." >&2
+        echo "memgraph-data-0-0"
+      else
+        echo "Could not resolve current main instance; defaulting to memgraph-data-1-0." >&2
+        echo "memgraph-data-1-0"
+      fi
+      ;;
+  esac
+}
+
 wait_memgraph_pods_ready 300s
 
 echo "All pods became ready"
@@ -476,35 +561,59 @@ kubectl scale statefulset memgraph-data-0 --replicas=1
 wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-data-0-0 passed successfully"
 
-echo "Deleting pod memgraph-coordinator-3-0 which serves as follower"
-kubectl delete pod memgraph-coordinator-3-0
-wait_memgraph_pods_ready 90s
-echo "Upgrade of pod memgraph-coordinator-3-0 passed successfully"
+if [[ "$NEED_HA_39_COORDINATOR_RESET" == "true" ]]; then
+  echo "Running coordinator reset flow required by the 3.9 HA migration"
+  for coord_pod in memgraph-coordinator-1-0 memgraph-coordinator-2-0 memgraph-coordinator-3-0; do
+    echo "Cleaning coordinator data directory on ${coord_pod}"
+    kubectl exec "${coord_pod}" -- bash -c "rm -rf /var/lib/memgraph/mg_data/*"
+  done
 
-echo "Deleting pod memgraph-coordinator-2-0 which serves as follower"
-kubectl delete pod memgraph-coordinator-2-0
-wait_memgraph_pods_ready 90s
-echo "Upgrade of pod memgraph-coordinator-2-0 passed successfully"
+  for coord_pod in memgraph-coordinator-3-0 memgraph-coordinator-2-0 memgraph-coordinator-1-0; do
+    echo "Restarting ${coord_pod} after coordinator data cleanup"
+    kubectl delete pod "${coord_pod}"
+    wait_memgraph_pods_ready 90s
+    echo "Restart of ${coord_pod} passed successfully"
+  done
 
-echo "Deleting pod memgraph-coordinator-1-0 which serves as leader"
-kubectl delete pod memgraph-coordinator-1-0
-wait_memgraph_pods_ready 90s
-echo "Upgrade of pod memgraph-coordinator-1-0 passed successfully"
+  echo "Reconnecting cluster after coordinator reset"
+  run_coordinator_query_with_retry 'REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "memgraph-data-0.default.svc.cluster.local:7687", "management_server": "memgraph-data-0.default.svc.cluster.local:10000", "replication_server": "memgraph-data-0.default.svc.cluster.local:20000"};'
+  run_coordinator_query_with_retry 'REGISTER INSTANCE instance_2 WITH CONFIG {"bolt_server": "memgraph-data-1.default.svc.cluster.local:7687", "management_server": "memgraph-data-1.default.svc.cluster.local:10000", "replication_server": "memgraph-data-1.default.svc.cluster.local:20000"};'
+  run_coordinator_query_with_retry 'ADD COORDINATOR 1 WITH CONFIG {"bolt_server": "memgraph-coordinator-1.default.svc.cluster.local:7687", "coordinator_server": "memgraph-coordinator-1.default.svc.cluster.local:12000", "management_server": "memgraph-coordinator-1.default.svc.cluster.local:10000"};'
+  run_coordinator_query_with_retry 'ADD COORDINATOR 2 WITH CONFIG {"bolt_server": "memgraph-coordinator-2.default.svc.cluster.local:7687", "coordinator_server": "memgraph-coordinator-2.default.svc.cluster.local:12000", "management_server": "memgraph-coordinator-2.default.svc.cluster.local:10000"};'
+  run_coordinator_query_with_retry 'ADD COORDINATOR 3 WITH CONFIG {"bolt_server": "memgraph-coordinator-3.default.svc.cluster.local:7687", "coordinator_server": "memgraph-coordinator-3.default.svc.cluster.local:12000", "management_server": "memgraph-coordinator-3.default.svc.cluster.local:10000"};'
+  run_coordinator_query_with_retry 'SET INSTANCE instance_1 TO MAIN;'
+else
+  echo "Deleting pod memgraph-coordinator-3-0 which serves as follower"
+  kubectl delete pod memgraph-coordinator-3-0
+  wait_memgraph_pods_ready 90s
+  echo "Upgrade of pod memgraph-coordinator-3-0 passed successfully"
 
-kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
+  echo "Deleting pod memgraph-coordinator-2-0 which serves as follower"
+  kubectl delete pod memgraph-coordinator-2-0
+  wait_memgraph_pods_ready 90s
+  echo "Upgrade of pod memgraph-coordinator-2-0 passed successfully"
 
+  echo "Deleting pod memgraph-coordinator-1-0 which serves as leader"
+  kubectl delete pod memgraph-coordinator-1-0
+  wait_memgraph_pods_ready 90s
+  echo "Upgrade of pod memgraph-coordinator-1-0 passed successfully"
+fi
+
+run_coordinator_query_with_retry 'SHOW INSTANCES;'
 
 # --- Post-upgrade verification ---
-kubectl cp post_upgrade_mg.cypherl  memgraph-data-1-0:/var/lib/memgraph/post_upgrade_mg.cypherl
-kubectl cp post_upgrade_db1.cypherl memgraph-data-1-0:/var/lib/memgraph/post_upgrade_db1.cypherl
+POST_UPGRADE_TARGET_POD="$(resolve_main_data_pod)"
+echo -e "${GREEN}Running post-upgrade tests on main data pod: ${POST_UPGRADE_TARGET_POD}${NC}"
+kubectl cp post_upgrade_mg.cypherl  "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_mg.cypherl"
+kubectl cp post_upgrade_db1.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_db1.cypherl"
 echo "Running post-upgrade tests on database 'memgraph'"
-kubectl exec memgraph-data-1-0 -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_mg.cypherl  --username=system_admin_user --password=admin_password"
+kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_mg.cypherl  --username=system_admin_user --password=admin_password"
 echo "Running post-upgrade tests on database 'db1'"
-kubectl exec memgraph-data-1-0 -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_db1.cypherl --username=tenant1_admin_user --password=t1_admin_pass"
+kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_db1.cypherl --username=tenant1_admin_user --password=t1_admin_pass"
 
 echo "Running auth post-upgrade tests"
-kubectl cp auth_post_upgrade.cypherl memgraph-data-1-0:/var/lib/memgraph/auth_post_upgrade.cypherl
-kubectl exec memgraph-data-1-0 -- bash -c "mgconsole < /var/lib/memgraph/auth_post_upgrade.cypherl --username=system_admin_user --password=admin_password"
+kubectl cp auth_post_upgrade.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/auth_post_upgrade.cypherl"
+kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/auth_post_upgrade.cypherl --username=system_admin_user --password=admin_password"
 
 # --- Optional routing tests ---
 if [[ "$TEST_ROUTING" == "true" ]]; then
@@ -522,6 +631,3 @@ else
 fi
 
 echo "Test successfully finished!"
-# Cleanup handled by trap:
-# - Always uninstall helm & delete PVCs
-# - Only delete StorageClass and Minikube if --debug=true
