@@ -1439,26 +1439,13 @@ double ToDouble(const TypedValue &value) {
 
 namespace {
 
-// Three-way comparison returning optional ordering (nullopt = incomparable)
-std::optional<int> TypedValueCmp(const TypedValue &a, const TypedValue &b) {
-  TypedValue less = a < b;
-  if (less.IsNull()) return std::nullopt;
-  if (less.ValueBool()) return -1;
-  TypedValue greater = b < a;
-  if (greater.IsNull()) return std::nullopt;
-  if (greater.ValueBool()) return 1;
-  return 0;
-}
-
 // Helper for list comparison - returns null TypedValue if incomparable
 TypedValue ListLess(const TypedValue::TVector &list_a, const TypedValue::TVector &list_b,
                     utils::MemoryResource *alloc) {
   const auto min_size = std::min(list_a.size(), list_b.size());
   for (size_t i = 0; i < min_size; ++i) {
-    auto cmp = TypedValueCmp(list_a[i], list_b[i]);
-    if (!cmp) return TypedValue(alloc);
-    if (*cmp < 0) return TypedValue(true, alloc);
-    if (*cmp > 0) return TypedValue(false, alloc);
+    TypedValue eq = list_a[i] == list_b[i];
+    if (!eq.IsBool() || !eq.ValueBool()) return list_a[i] < list_b[i];
   }
   return TypedValue(list_a.size() < list_b.size(), alloc);
 }
@@ -1492,32 +1479,19 @@ TypedValue PathLess(const Path &path_a, const Path &path_b, utils::MemoryResourc
 }
 
 TypedValue MapLess(const TypedValue::TMap &map_a, const TypedValue::TMap &map_b, utils::MemoryResource *alloc) {
-  if (map_a.size() != map_b.size()) {
-    // Still need to check for nulls before comparing by size
-    for (const auto &[k, v] : map_a) {
-      if (v.IsNull()) return TypedValue(alloc);
-    }
-    for (const auto &[k, v] : map_b) {
-      if (v.IsNull()) return TypedValue(alloc);
-    }
-    return TypedValue(map_a.size() < map_b.size(), alloc);
-  }
-  // Same size - compare keys and values in single pass, checking nulls as we go
   auto it_a = map_a.begin();
   auto it_b = map_b.begin();
-  while (it_a != map_a.end()) {
-    if (it_a->second.IsNull() || it_b->second.IsNull()) return TypedValue(alloc);
+  const auto min_size = std::min(map_a.size(), map_b.size());
+  for (size_t i = 0; i < min_size; ++i) {
     auto key_cmp = it_a->first <=> it_b->first;
     if (key_cmp < 0) return TypedValue(true, alloc);
     if (key_cmp > 0) return TypedValue(false, alloc);
-    auto val_cmp = TypedValueCmp(it_a->second, it_b->second);
-    if (!val_cmp) return TypedValue(alloc);
-    if (*val_cmp < 0) return TypedValue(true, alloc);
-    if (*val_cmp > 0) return TypedValue(false, alloc);
+    TypedValue eq = it_a->second == it_b->second;
+    if (!eq.IsBool() || !eq.ValueBool()) return it_a->second < it_b->second;
     ++it_a;
     ++it_b;
   }
-  return TypedValue(false, alloc);
+  return TypedValue(map_a.size() < map_b.size(), alloc);
 }
 
 }  // namespace
@@ -1629,23 +1603,14 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Edge:
       return TypedValue(a.ValueEdge() == b.ValueEdge(), a.alloc_);
     case TypedValue::Type::List: {
-      // We are not compatible with neo4j at this point. In neo4j 2 = [2]
-      // compares
-      // to true. That is not the end of unselfishness of developers at neo4j so
-      // they allow us to use as many braces as we want to get to the truth in
-      // list comparison, so [[2]] = [[[[[[2]]]]]] compares to true in neo4j as
-      // well. Because, why not?
-      // At memgraph we prefer sanity so [1,2] = [1,2] compares to true and
-      // 2 = [2] compares to false.
       const auto &list_a = a.ValueList();
       const auto &list_b = b.ValueList();
       if (list_a.size() != list_b.size()) return TypedValue(false, a.alloc_);
-      // two arrays are considered equal (by neo) if all their
-      // elements are bool-equal. this means that:
-      //    [1] == [null] -> false
-      //    [null] == [null] -> true
-      // in that sense array-comparison never results in Null
-      return TypedValue(std::equal(list_a.begin(), list_a.end(), list_b.begin(), TypedValue::BoolEqual{}), a.alloc_);
+      for (size_t i = 0; i < list_a.size(); ++i) {
+        TypedValue eq = list_a[i] == list_b[i];
+        if (!eq.IsBool() || !eq.ValueBool()) return eq;
+      }
+      return TypedValue(true, a.alloc_);
     }
     case TypedValue::Type::Map: {
       const auto &map_a = a.ValueMap();
