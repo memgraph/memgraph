@@ -272,14 +272,19 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
-        std::visit(
-            utils::Overloaded{
-                [this, property, new_type = ExtendedPropertyType{value}](SchemaInfo::VertexModifyingAccessor &acc) {
-                  acc.SetProperty(
-                      edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, ExtendedPropertyType{});
-                },
-                [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-            *schema_acc);
+        std::visit(utils::Overloaded{[this, property, new_type = ExtendedPropertyType{value}](
+                                         SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(  // NOLINT(clang-analyzer-core.CallAndMessage)
+                                           edge_,
+                                           edge_type_,
+                                           from_vertex_,
+                                           to_vertex_,
+                                           property,
+                                           new_type,
+                                           ExtendedPropertyType{});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
       }
     }
     // TODO If the current implementation is too slow there is an InitProperties option
