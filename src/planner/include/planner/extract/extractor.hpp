@@ -43,6 +43,8 @@ namespace memgraph::planner::core::extract {
 /// Default CostResult for simple cost models. Wraps a scalar cost with enode metadata.
 template <typename T>
 struct DefaultCostResult {
+  using cost_t = T;
+
   T cost;
   ENodeId enode_id;
 
@@ -52,16 +54,22 @@ struct DefaultCostResult {
 
   static auto resolve(DefaultCostResult const &r) -> ENodeId { return r.enode_id; }
 
-  static auto min_cost(DefaultCostResult const &r) -> T { return r.cost; }
+  static auto min_cost(DefaultCostResult const &r) -> cost_t { return r.cost; }
 };
 
 /// CostResult contract — enforced at compile time.
-/// Every CostResult type must provide merge, resolve, and min_cost as static methods.
+/// Every CostResult type must provide:
+///   cost_t          — the scalar cost type (must be totally_ordered)
+///   merge(a, b)     — combine frontiers
+///   resolve(r)      — pick the best enode
+///   min_cost(r)     — extract the comparable cost
 template <typename CR>
 concept CostResultType = requires(CR const &a, CR const &b) {
+  typename CR::cost_t;
+  requires std::totally_ordered<typename CR::cost_t>;
   { CR::merge(a, b) } -> std::convertible_to<CR>;
   { CR::resolve(a) } -> std::convertible_to<ENodeId>;
-  requires std::totally_ordered<decltype(CR::min_cost(a))>;
+  { CR::min_cost(a) } -> std::convertible_to<typename CR::cost_t>;
 };
 
 static_assert(CostResultType<DefaultCostResult<double>>);
@@ -152,7 +160,7 @@ template <typename Symbol, typename Analysis, typename CostResult>
   requires CostResultType<CostResult>
 auto ResolveSelection(EGraph<Symbol, Analysis> const &egraph,
                       std::unordered_map<EClassId, EClassFrontier<CostResult>> const &frontier_map, EClassId root) {
-  using CostType = decltype(CostResult::min_cost(std::declval<CostResult const &>()));
+  using CostType = typename CostResult::cost_t;
 
   auto resolved = std::unordered_map<EClassId, Selection<CostType>>{};
   auto to_visit = std::vector{root};

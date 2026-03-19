@@ -160,6 +160,7 @@ template <typename Derived, typename Alt, typename DominanceFn>
 struct CostResultBase : ParetoFrontier<Alt, DominanceFn> {
   using Base = ParetoFrontier<Alt, DominanceFn>;
   using Base::Base;
+  using cost_t = decltype(Alt::cost);
 
   CostResultBase() = default;
 
@@ -168,19 +169,16 @@ struct CostResultBase : ParetoFrontier<Alt, DominanceFn> {
 
   CostResultBase(std::initializer_list<Alt> init) : Base{std::vector<Alt>(init)} {}
 
-  static auto resolve_with_cost(Derived const &f)
-      -> std::pair<decltype(std::declval<Alt const &>().enode_id), decltype(std::declval<Alt const &>().cost)> {
+  static auto resolve_with_cost(Derived const &f) -> std::pair<decltype(Alt::enode_id), cost_t> {
     auto it = std::ranges::min_element(f.alts, {}, &Alt::cost);
     assert(it != f.alts.end() && "resolve_with_cost called on empty frontier");
     return {it->enode_id, it->cost};
   }
 
-  static auto resolve(Derived const &f) -> decltype(std::declval<Alt const &>().enode_id) {
-    return resolve_with_cost(f).first;
-  }
+  static auto resolve(Derived const &f) -> decltype(Alt::enode_id) { return resolve_with_cost(f).first; }
 
-  static auto min_cost(Derived const &f) -> decltype(std::declval<Alt const &>().cost) {
-    if (f.alts.empty()) return std::numeric_limits<decltype(std::declval<Alt const &>().cost)>::infinity();
+  static auto min_cost(Derived const &f) -> cost_t {
+    if (f.alts.empty()) return std::numeric_limits<cost_t>::infinity();
     return resolve_with_cost(f).second;
   }
 };
