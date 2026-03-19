@@ -956,6 +956,47 @@ TEST(ParetoFrontier_Prune, TransitiveDominance) {
   ASSERT_EQ(frontier_reversed.alts[0].enode_id, ENodeId{0}) << "Only A should survive regardless of input order";
 }
 
+TEST(ParetoFrontier_Prune, BeamLimit) {
+  // 10 Pareto-incomparable alternatives: each has a unique required set (disjoint),
+  // so no dominance pruning occurs. Costs increase from 1.0 to 10.0.
+  auto frontier = TestFrontier{.alts = {}};
+  for (int i = 0; i < 10; ++i) {
+    frontier.alts.push_back({.cost = static_cast<double>(i + 1),
+                             .required = {static_cast<uint16_t>(i + 100)},  // disjoint required sets
+                             .enode_id = ENodeId{static_cast<uint32_t>(i)}});
+  }
+
+  // Verify prune alone doesn't reduce (all are Pareto-incomparable)
+  frontier.prune();
+  ASSERT_EQ(frontier.alts.size(), 10) << "Dominance pruning should not remove any (all incomparable)";
+
+  // Apply beam limit of 5 — should keep the 5 cheapest
+  frontier.beam(5, [](TestDemandAlt const &a) { return a.cost; });
+  ASSERT_EQ(frontier.alts.size(), 5) << "Beam limit should reduce to 5 alternatives";
+
+  // Verify the survivors are the 5 cheapest (costs 1..5)
+  auto costs = std::vector<double>{};
+  for (auto const &alt : frontier.alts) {
+    costs.push_back(alt.cost);
+  }
+  std::sort(costs.begin(), costs.end());
+  ASSERT_EQ(costs, (std::vector<double>{1.0, 2.0, 3.0, 4.0, 5.0}));
+}
+
+TEST(ParetoFrontier_Prune, BeamLimitNoEffectWhenSmall) {
+  // 3 Pareto-incomparable alternatives, beam limit of 10 — should not reduce.
+  auto frontier = TestFrontier{.alts = {
+                                   {.cost = 1.0, .required = {1, 2}, .enode_id = ENodeId{0}},
+                                   {.cost = 2.0, .required = {3}, .enode_id = ENodeId{1}},
+                                   {.cost = 3.0, .required = {4}, .enode_id = ENodeId{2}},
+                               }};
+  frontier.prune();
+  ASSERT_EQ(frontier.alts.size(), 3) << "All three are Pareto-incomparable";
+
+  frontier.beam(10, [](TestDemandAlt const &a) { return a.cost; });
+  ASSERT_EQ(frontier.alts.size(), 3) << "Beam limit of 10 should not reduce 3 alternatives";
+}
+
 TEST(Extract_MultiAlt, SingleAlternative_BehavesLikeSingleBest) {
   // Multi-alt with a single alternative per enode should produce the same result
   // as single-best extraction
@@ -1262,6 +1303,131 @@ TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
 
   // Verify: the final selection has empty required — feasible for ALL visiting contexts
   ASSERT_TRUE(resolved_required[shared_class].empty());
+}
+
+TEST(Extract_MultiAlt, DAGResolution_CascadesToChildren) {
+  // 3-level diamond demonstrating the cascade bug:
+  //   Root(B) → Left(B,{Shared}), Right(B,{Shared})
+  //   Shared(A,{Leaf}) — demand-aware: has alts with req={1} and req={}
+  //   Leaf(A)          — demand-aware: {cost=1,req={1}} and {cost=2,req={}}
+  //
+  // Root provides {1} to Left, {} to Right.
+  //
+  // 1. Left visits Shared with provided={1} → picks cheap alt with req={1}.
+  //    Shared visits Leaf with provided={1} → Leaf picks {cost=1,req={1}}.
+  // 2. Right visits Shared with provided={} → req={1} not subset of {}, re-resolves to req={}.
+  //    BUG: returns without visiting Leaf. Leaf keeps stale {cost=1,req={1}}.
+  //    FIX: cascade to children → Leaf re-resolves to {cost=2,req={}}.
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
+  auto [shared_class, shared_node, shared_new] = egraph.emplace(symbol::A, {leaf_class});
+  auto [left_class, left_node, left_new] = egraph.emplace(symbol::B, {shared_class}, 1);
+  auto [right_class, right_node, right_new] = egraph.emplace(symbol::B, {shared_class}, 2);
+  auto [root_class, root_node, root_new] = egraph.emplace(symbol::B, {left_class, right_class});
+
+  // Compute frontiers bottom-up
+  using CM = DemandAwareMultiAltCostModel;
+  std::unordered_map<EClassId, EClassFrontier<CM::CostResult>> frontier_map;
+  ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
+
+  // Verify both Shared and Leaf have two non-dominated alternatives
+  auto const &shared_frontier = *frontier_map.at(shared_class);
+  ASSERT_EQ(shared_frontier.alts.size(), 2);
+  auto const &leaf_frontier = *frontier_map.at(leaf_class);
+  ASSERT_EQ(leaf_frontier.alts.size(), 2);
+
+  // Context-aware resolver — WITHOUT cascade fix (reproduces the bug).
+  auto resolved = std::unordered_map<EClassId, std::pair<ENodeId, double>>{};
+  auto resolved_required = std::unordered_map<EClassId, std::set<int>>{};
+
+  auto pick_best_compatible = [](TestFrontier const &frontier, std::set<int> const &provided) -> TestDemandAlt const * {
+    TestDemandAlt const *best = nullptr;
+    for (auto const &alt : frontier.alts) {
+      if (std::ranges::includes(provided, alt.required)) {
+        if (!best || alt.cost < best->cost) best = &alt;
+      }
+    }
+    return best;
+  };
+
+  auto resolve_no_cascade = [&](this auto const &self, EClassId id, std::set<int> const &provided) -> void {
+    if (auto existing = resolved.find(id); existing != resolved.end()) {
+      if (std::ranges::includes(provided, resolved_required[id])) return;
+      auto const &frontier = *frontier_map.at(id);
+      auto const *chosen = pick_best_compatible(frontier, provided);
+      ASSERT_NE(chosen, nullptr);
+      existing->second = {chosen->enode_id, chosen->cost};
+      resolved_required[id] = chosen->required;
+      // BUG: no cascade to children
+      return;
+    }
+    auto const &frontier = *frontier_map.at(id);
+    auto const *chosen = pick_best_compatible(frontier, provided);
+    ASSERT_NE(chosen, nullptr);
+    resolved[id] = {chosen->enode_id, chosen->cost};
+    resolved_required[id] = chosen->required;
+    auto const &enode = egraph.get_enode(chosen->enode_id);
+    auto const &children = enode.children();
+    if (id == root_class && children.size() == 2) {
+      self(children[0], {1});
+      self(children[1], {});
+    } else {
+      for (auto child : children) {
+        self(child, provided);
+      }
+    }
+  };
+
+  resolve_no_cascade(root_class, {});
+
+  // Shared was re-resolved to req={} — correct
+  ASSERT_TRUE(resolved_required[shared_class].empty());
+  // BUG: Leaf still has stale req={1} from Left's context
+  ASSERT_EQ(resolved_required[leaf_class], std::set<int>{1});
+
+  // Now resolve WITH the cascade fix
+  resolved.clear();
+  resolved_required.clear();
+
+  auto resolve_with_cascade = [&](this auto const &self, EClassId id, std::set<int> const &provided) -> void {
+    if (auto existing = resolved.find(id); existing != resolved.end()) {
+      if (std::ranges::includes(provided, resolved_required[id])) return;
+      auto const &frontier = *frontier_map.at(id);
+      auto const *chosen = pick_best_compatible(frontier, provided);
+      ASSERT_NE(chosen, nullptr);
+      existing->second = {chosen->enode_id, chosen->cost};
+      resolved_required[id] = chosen->required;
+      // FIX: cascade to children of the new selection
+      auto const &enode = egraph.get_enode(chosen->enode_id);
+      for (auto child : enode.children()) {
+        self(child, provided);
+      }
+      return;
+    }
+    auto const &frontier = *frontier_map.at(id);
+    auto const *chosen = pick_best_compatible(frontier, provided);
+    ASSERT_NE(chosen, nullptr);
+    resolved[id] = {chosen->enode_id, chosen->cost};
+    resolved_required[id] = chosen->required;
+    auto const &enode = egraph.get_enode(chosen->enode_id);
+    auto const &children = enode.children();
+    if (id == root_class && children.size() == 2) {
+      self(children[0], {1});
+      self(children[1], {});
+    } else {
+      for (auto child : children) {
+        self(child, provided);
+      }
+    }
+  };
+
+  resolve_with_cascade(root_class, {});
+
+  // Shared re-resolved to req={} — same as before
+  ASSERT_TRUE(resolved_required[shared_class].empty());
+  // FIX: Leaf is now re-resolved to {cost=2,req={}} via cascade
+  ASSERT_EQ(resolved.at(leaf_class).second, 2.0);
+  ASSERT_TRUE(resolved_required[leaf_class].empty());
 }
 
 TEST(Extract_MultiAlt, CyclicEClass) {
