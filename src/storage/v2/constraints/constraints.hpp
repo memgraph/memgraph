@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
@@ -29,6 +30,8 @@ struct Constraints {
   ~Constraints() = default;
 
   void DropGraphClearConstraints() const;
+
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
   std::unique_ptr<ExistenceConstraints> existence_constraints_;
   std::unique_ptr<UniqueConstraints> unique_constraints_;

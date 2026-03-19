@@ -17,6 +17,7 @@
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -740,7 +741,7 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_index_info);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
+  if (storage_->metric_handles_) storage_->metric_handles_->active_text_indices->Increment();
   return {};
 }
 
@@ -761,7 +762,7 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::text_edge_index_create, text_edge_index_info);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
+  if (storage_->metric_handles_) storage_->metric_handles_->active_text_edge_indices->Increment();
   return {};
 }
 
@@ -776,8 +777,18 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
+  if (storage_->metric_handles_) storage_->metric_handles_->active_text_indices->Decrement();
   return {};
+}
+
+}  // namespace memgraph::storage
+
+namespace memgraph::storage {
+
+void Storage::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  indices_.SetMetricHandles(metric_handles);
+  constraints_.SetMetricHandles(metric_handles);
 }
 
 }  // namespace memgraph::storage

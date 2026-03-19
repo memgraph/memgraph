@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/constraints/type_constraints.hpp"
+#include "metrics/prometheus_metrics.hpp"
 
 #include <optional>
 #include <set>
@@ -51,6 +52,7 @@ namespace {
 
 TypeConstraints::IndividualConstraint::~IndividualConstraint() {
   if (status.IsReady()) {
+    if (gauge_) gauge_->Decrement();
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTypeConstraints);
   }
 }
@@ -199,6 +201,8 @@ void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, Type
 
   // Commit status in-place (shared_ptr allows modification without copy-on-write)
   constraint->status.Commit(commit_timestamp);
+  constraint->gauge_ = metric_handles_ ? metric_handles_->active_type_constraints : nullptr;
+  if (constraint->gauge_) constraint->gauge_->Increment();
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTypeConstraints);
 }
 
