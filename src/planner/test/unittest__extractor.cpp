@@ -647,6 +647,121 @@ TEST(Extract_Basic, IntegrationNestedEquivalence) {
 }
 
 // ========================================
+// Extract_Safety Tests
+// ========================================
+// These tests verify defensive paths in ComputeFrontiers:
+//   - best_alt() returns nullptr on empty frontier
+//   - resolve() asserts non-null
+//   - pick_compatible fallback asserts in ResolvePlanSelection
+// The key scenarios are eclasses where ALL enodes are cyclic (no leaf escape),
+// causing ComputeFrontiers to return nullopt and erase the sentinel from frontier_map.
+
+TEST(Extract_Safety, ComputeFrontiers_FullyCyclicReturnsNullopt) {
+  // Build an egraph where an intermediate eclass has NO non-cyclic enode.
+  //
+  //   merged_class = merge(LITERAL(1), ADD(y_class, zero_class))
+  //   y_class      = A(merged_class)
+  //
+  // When computing y_class:
+  //   - Its only enode A(merged_class) recurses into merged_class which is
+  //     already "in progress" -> returns nullopt (cycle detected).
+  //   - ALL enodes of y_class are cyclic -> sentinel erased, returns nullopt.
+  //
+  // Verify:
+  //   1. ComputeFrontiers on merged_class succeeds (LITERAL leaf provides an escape).
+  //   2. frontier_map does NOT contain y_class (fully cyclic, erased).
+  //   3. frontier_map DOES contain merged_class and zero_class.
+
+  auto egraph = EGraph<symbol, analysis>{};
+
+  auto [x_class, x_node, x_new] = egraph.emplace(symbol::LITERAL, 1);
+  auto [y_class, y_node, y_new] = egraph.emplace(symbol::A, {x_class});
+  auto [zero_class, zero_node, zero_new] = egraph.emplace(symbol::LITERAL, 0);
+  auto [plus_class, plus_node, plus_new] = egraph.emplace(symbol::ADD, {y_class, zero_class});
+
+  auto [merged_class, _] = egraph.merge(x_class, plus_class);
+  auto ctx = ProcessingContext<symbol>{};
+  egraph.rebuild(ctx);
+
+  FrontierMap<UniformCostModel> frontiers;
+  auto cost = ComputeFrontiers(egraph, UniformCostModel{}, merged_class, frontiers);
+
+  // merged_class has LITERAL(1) as a leaf escape - should succeed
+  ASSERT_TRUE(cost.has_value());
+  ASSERT_EQ(cost->cost, 1.0);  // LITERAL leaf cost
+
+  // y_class is fully cyclic (its only enode A(merged_class) is a cycle)
+  // ComputeFrontiers should have erased its sentinel - NOT present in frontier_map
+  EXPECT_FALSE(frontiers.contains(y_class)) << "Fully cyclic y_class should not be in frontier_map";
+
+  // merged_class and zero_class should be present
+  EXPECT_TRUE(frontiers.contains(merged_class));
+  EXPECT_TRUE(frontiers.contains(zero_class));
+
+  // The selected enode for merged_class should be the leaf (x_node), not the cyclic ADD
+  EXPECT_EQ(frontier_enode<UniformCostModel>(frontiers, merged_class), x_node);
+}
+
+TEST(Extract_Safety, ComputeFrontiers_CyclicChildCostsCached) {
+  // Verify that when an enode has a cyclic child, the non-cyclic children's
+  // costs are still computed and cached in frontier_map.
+  //
+  // Build:
+  //   leaf_c  = LITERAL(42)          - non-cyclic leaf
+  //   leaf_d  = LITERAL(99)          - non-cyclic leaf
+  //   b_class = A(leaf_d)            - will become cyclic via merge
+  //   root    = ADD(b_class, leaf_c) - has one cyclic child (b_class) and one non-cyclic (leaf_c)
+  //   merge(b_class, root)           - makes b_class cyclic: {A(leaf_d), ADD(b_class, leaf_c)}
+  //
+  // After merge, b_class contains:
+  //   A(leaf_d)              - references leaf_d (non-cyclic) -> cost = 1+1 = 2
+  //   ADD(b_class, leaf_c)   - references b_class itself (cyclic!) -> skipped
+  //
+  // Computing from b_class:
+  //   b_class "in progress"
+  //   -> Try A(leaf_d): compute leaf_d -> cost=1, cached. A cost=2. Not cyclic.
+  //   -> Try ADD(b_class, leaf_c): compute b_class -> in-progress (cycle!).
+  //       But we continue processing leaf_c -> cost=1, cached.
+  //       ADD is skipped because of cyclic child.
+  //   -> b_class frontier = {A(leaf_d), cost=2}
+  //
+  // Key assertion: leaf_c is cached even though it was a sibling of the cyclic child.
+
+  auto egraph = EGraph<symbol, analysis>{};
+
+  auto [leaf_c_class, leaf_c_node, leaf_c_new] = egraph.emplace(symbol::LITERAL, 42);
+  auto [leaf_d_class, leaf_d_node, leaf_d_new] = egraph.emplace(symbol::LITERAL, 99);
+  auto [b_class, b_node, b_new] = egraph.emplace(symbol::A, {leaf_d_class});
+  auto [root_class, root_node, root_new] = egraph.emplace(symbol::ADD, {b_class, leaf_c_class});
+
+  // Merge b_class with root_class - b_class now has ADD(b_class, leaf_c) creating cycle
+  auto [merged, _] = egraph.merge(b_class, root_class);
+  auto ctx = ProcessingContext<symbol>{};
+  egraph.rebuild(ctx);
+
+  FrontierMap<UniformCostModel> frontiers;
+  auto cost = ComputeFrontiers(egraph, UniformCostModel{}, merged, frontiers);
+
+  // merged has A(leaf_d) as non-cyclic escape
+  ASSERT_TRUE(cost.has_value());
+  ASSERT_EQ(cost->cost, 2.0);  // 1 (A) + 1 (leaf_d)
+
+  // Key: leaf_c should be cached even though it was encountered while processing
+  // the cyclic ADD enode. The "continue processing remaining children" logic
+  // ensures non-cyclic siblings are still computed.
+  EXPECT_TRUE(frontiers.contains(leaf_c_class)) << "Non-cyclic sibling leaf_c should be cached in frontier_map";
+  EXPECT_EQ(frontier_cost<UniformCostModel>(frontiers, leaf_c_class), 1.0);
+
+  // leaf_d should also be cached (child of the non-cyclic A enode)
+  EXPECT_TRUE(frontiers.contains(leaf_d_class));
+  EXPECT_EQ(frontier_cost<UniformCostModel>(frontiers, leaf_d_class), 1.0);
+
+  // merged should be present with the A enode selected (not the cyclic ADD)
+  EXPECT_TRUE(frontiers.contains(merged));
+  EXPECT_EQ(frontier_enode<UniformCostModel>(frontiers, merged), b_node);
+}
+
+// ========================================
 // Multi-Alt Extraction Tests
 // ========================================
 
@@ -663,6 +778,12 @@ struct TestDemandAlt {
     return other.cost <= cost && std::ranges::includes(required, other.required);
   }
 };
+
+struct TestDominance {
+  auto operator()(TestDemandAlt const &a, TestDemandAlt const &b) const -> bool { return a.dominated_by(b); }
+};
+
+using TestFrontier = ParetoFrontier<TestDemandAlt, TestDominance>;
 
 struct TestDemandCostResult {
   std::vector<TestDemandAlt> alts;
@@ -768,6 +889,106 @@ static_assert(!ParetoCostModel<UniformCostModel>);
 static_assert(!ParetoCostModel<SymbolCostModel>);
 
 }  // namespace
+
+// ========================================
+// ParetoFrontier::prune() Direct Tests
+// ========================================
+
+TEST(ParetoFrontier_Prune, EmptyFrontier) {
+  auto frontier = TestFrontier{.alts = {}};
+  frontier.prune();
+  ASSERT_TRUE(frontier.alts.empty());
+}
+
+TEST(ParetoFrontier_Prune, SingleElement) {
+  auto frontier = TestFrontier{.alts = {{.cost = 5.0, .required = {1}, .enode_id = ENodeId{0}}}};
+  frontier.prune();
+  ASSERT_EQ(frontier.alts.size(), 1);
+  ASSERT_EQ(frontier.alts[0].cost, 5.0);
+}
+
+TEST(ParetoFrontier_Prune, NoneDominated) {
+  // Three Pareto-incomparable alts: lower cost always requires more demands.
+  auto frontier = TestFrontier{.alts = {
+                                   {.cost = 1.0, .required = {1, 2}, .enode_id = ENodeId{0}},  // cheapest, most demands
+                                   {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // medium
+                                   {.cost = 3.0, .required = {}, .enode_id = ENodeId{2}},      // expensive, no demands
+                               }};
+  frontier.prune();
+  ASSERT_EQ(frontier.alts.size(), 3) << "All three Pareto-incomparable alts should survive";
+}
+
+TEST(ParetoFrontier_Prune, AllDominatedByOne) {
+  // Alt B (cost=1, req={}) dominates both A (cost=2, req={1}) and C (cost=3, req={2}).
+  // dominated_by checks: other.cost <= cost && required ⊇ other.required
+  // A.dominated_by(B): B.cost=1 <= 2 && {1} ⊇ {} → true
+  // C.dominated_by(B): B.cost=1 <= 3 && {2} ⊇ {} → true
+  auto frontier = TestFrontier{.alts = {
+                                   {.cost = 2.0, .required = {1}, .enode_id = ENodeId{0}},  // A: dominated by B
+                                   {.cost = 1.0, .required = {}, .enode_id = ENodeId{1}},   // B: dominator
+                                   {.cost = 3.0, .required = {2}, .enode_id = ENodeId{2}},  // C: dominated by B
+                               }};
+  frontier.prune();
+  ASSERT_EQ(frontier.alts.size(), 1);
+  ASSERT_EQ(frontier.alts[0].enode_id, ENodeId{1}) << "Only the dominator (B) should survive";
+}
+
+TEST(ParetoFrontier_Prune, DuplicateAlternatives) {
+  // Two alts with identical cost and required but different enode_id.
+  // Neither dominates the other because dominated_by uses strict <=
+  // for cost and subset-or-equal for required — both conditions hold symmetrically.
+  // So a.dominated_by(b) is true AND b.dominated_by(a) is true.
+  // In the prune algorithm, whichever is tested first as "i" will dominate the other
+  // via the j-loop. The first alt (lower index) marks the second as dominated.
+  // Result: only the first alt (by input order) survives.
+  auto frontier = TestFrontier{.alts = {
+                                   {.cost = 2.0, .required = {1}, .enode_id = ENodeId{0}},
+                                   {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},
+                               }};
+  frontier.prune();
+  // When both dominate each other, the algorithm processes i=0 first:
+  //   j=1: DominanceFn(alts[0], alts[1]) → true (0 dominated by 1) → mark 0, break
+  // Then i=1 survives. So the SECOND alt wins (the one that dominates i=0).
+  // Actually let's trace carefully:
+  //   i=0, j=1: DominanceFn{}(alts[0], alts[1]) checks alts[0].dominated_by(alts[1])
+  //     = alts[1].cost <= alts[0].cost && alts[0].required ⊇ alts[1].required
+  //     = 2.0 <= 2.0 && {1} ⊇ {1} → true → dominated[0] = true, break
+  //   i=1: not dominated → survives
+  // Result: the second alt (enode_id=1) survives.
+  ASSERT_EQ(frontier.alts.size(), 1) << "One of the duplicates should be pruned";
+  ASSERT_EQ(frontier.alts[0].enode_id, ENodeId{1}) << "Second alt survives (first is marked dominated)";
+}
+
+TEST(ParetoFrontier_Prune, TransitiveDominance) {
+  // A dominates B, B dominates C. After prune, only A survives.
+  // A: cost=1, req={}
+  // B: cost=2, req={1}    — A dominates B: A.cost<=B.cost && B.req ⊇ A.req → 1<=2 && {1}⊇{} → true
+  // C: cost=3, req={1,2}  — B dominates C: B.cost<=C.cost && C.req ⊇ B.req → 2<=3 && {1,2}⊇{1} → true
+  //                        — A dominates C: 1<=3 && {1,2}⊇{} → true (transitivity)
+  // The break optimization: when i=1 (B) is checked, it gets marked dominated by i=0 (A)
+  // in the i=0 loop, so B is skipped. C is also marked dominated in the i=0 loop.
+  auto frontier = TestFrontier{.alts = {
+                                   {.cost = 1.0, .required = {}, .enode_id = ENodeId{0}},      // A
+                                   {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // B
+                                   {.cost = 3.0, .required = {1, 2}, .enode_id = ENodeId{2}},  // C
+                               }};
+  frontier.prune();
+  ASSERT_EQ(frontier.alts.size(), 1);
+  ASSERT_EQ(frontier.alts[0].enode_id, ENodeId{0}) << "Only A should survive (dominates B and C)";
+
+  // Also test with reversed input order to exercise the break optimization path.
+  // When C is at index 0: i=0(C), j=1(B): C.dominated_by(B) → true → dominated[0]=true, break
+  // Then i=1(B), j=2(A): B.dominated_by(A) → true → dominated[1]=true, break
+  // Then i=2(A): survives.
+  auto frontier_reversed = TestFrontier{.alts = {
+                                            {.cost = 3.0, .required = {1, 2}, .enode_id = ENodeId{2}},  // C
+                                            {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // B
+                                            {.cost = 1.0, .required = {}, .enode_id = ENodeId{0}},      // A
+                                        }};
+  frontier_reversed.prune();
+  ASSERT_EQ(frontier_reversed.alts.size(), 1);
+  ASSERT_EQ(frontier_reversed.alts[0].enode_id, ENodeId{0}) << "Only A should survive regardless of input order";
+}
 
 TEST(Extract_MultiAlt, SingleAlternative_BehavesLikeSingleBest) {
   // Multi-alt with a single alternative per enode should produce the same result
