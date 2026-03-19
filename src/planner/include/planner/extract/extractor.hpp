@@ -151,13 +151,21 @@ struct CostModelTraits<CostModel, single_best_tag> {
   static auto merge(CostResult const &a, CostResult const &b) -> CostResult { return CostResult::merge(a, b); }
 
   static auto resolve(CostResult const &r) -> ENodeId { return r.enode_id; }
+
+  template <typename ENodeT>
+  static auto invoke(CostModel const &cost_model, ENodeT const &enode, ENodeId enode_id,
+                     std::vector<CostResult> const &children_frontiers) -> CostResult {
+    auto raw_costs = std::vector<CostType>{};
+    raw_costs.reserve(children_frontiers.size());
+    for (auto const &c : children_frontiers) raw_costs.push_back(c.cost);
+    return CostResult{cost_model(enode, std::span<CostType const>{raw_costs}), enode_id};
+  }
 };
 
 template <typename CostModel>
   requires ParetoCostModel<CostModel>
 struct CostModelTraits<CostModel, pareto_frontier_tag> {
   using CostResult = CostModel::CostResult;
-  // TODO: can we select CostType better, can it be communicated via CostModel or CostResult?
   using CostType = decltype(CostModel::min_cost(std::declval<CostResult const &>()));
 
   static auto min_cost(CostResult const &r) -> CostType { return CostModel::min_cost(r); }
@@ -165,6 +173,12 @@ struct CostModelTraits<CostModel, pareto_frontier_tag> {
   static auto merge(CostResult const &a, CostResult const &b) -> CostResult { return CostResult::merge(a, b); }
 
   static auto resolve(CostResult const &r) -> ENodeId { return CostModel::resolve(r); }
+
+  template <typename ENodeT>
+  static auto invoke(CostModel const &cost_model, ENodeT const &enode, ENodeId enode_id,
+                     std::vector<CostResult> const &children_frontiers) -> CostResult {
+    return cost_model(enode, enode_id, children_frontiers);
+  }
 };
 
 // ============================================================================
@@ -217,19 +231,7 @@ auto ComputeFrontiers(
     }
     if (has_cyclic_child) continue;
 
-    // Invoke: pareto models take (enode, enode_id, children_frontiers),
-    // single_best models take (enode, children_costs) and result is wrapped with enode_id.
-    CostResult enode_frontier = [&] {
-      // TODO: can we have a trait that will dispatch to the right cost model execution? Then we don't need this lambda
-      if constexpr (std::is_same_v<cost_model_tag_t<CostModel>, pareto_frontier_tag>) {
-        return cost_model(enode, enode_id, children_frontiers);
-      } else {
-        auto raw_costs = std::vector<typename CostModel::CostResult>{};
-        raw_costs.reserve(children_frontiers.size());
-        for (auto const &c : children_frontiers) raw_costs.push_back(c.cost);
-        return CostResult{cost_model(enode, raw_costs), enode_id};
-      }
-    }();
+    auto enode_frontier = Traits::invoke(cost_model, enode, enode_id, children_frontiers);
 
     // TODO: monadic, transform + or_else
     if (!merged_frontier) {
