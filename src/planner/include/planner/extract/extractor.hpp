@@ -32,62 +32,6 @@ struct Selection {
   std::optional<CostResult> cost_result;
 };
 
-// TODO: decouple, calculated cost useful for debugging and for making the
-// selection. But later phases only need the selection that was made.
-template <typename Symbol, typename Analysis, typename CostModel>
-auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_model, EClassId eclass_id,
-                  std::unordered_map<EClassId, Selection<typename CostModel::CostResult>> &enode_selection)
-    -> std::optional<typename CostModel::CostResult> {
-  using CostResult = CostModel::CostResult;
-
-  assert(!egraph.needs_rebuild() && "to avoid internal cost of getting canonical looking up we should");
-
-  if (auto const it = enode_selection.find(eclass_id); it != enode_selection.end()) {
-    // If cost is nullopt, we're currently processing this e-class (cycle
-    // detected) If cost is set, we've already computed it
-    return it->second.cost_result;
-  }
-
-  auto const &eclass = egraph.eclass(eclass_id);
-
-  // Mark this e-class as "in progress" with infinity cost to detect cycles
-  auto [it2, _] = enode_selection.emplace(eclass_id, Selection<CostResult>(eclass.representative(), std::nullopt));
-
-  auto best_node = std::optional<Selection<CostResult>>{};
-
-  for (auto const &enode_id : eclass.nodes()) {
-    auto &enode = egraph.get_enode(enode_id);
-    auto children_costs = std::vector<CostResult>{};
-    auto has_cyclic_child = false;
-    for (auto child : enode.children()) {
-      auto cost = ProcessCosts(egraph, cost_model, child, enode_selection);
-      if (!cost) {
-        has_cyclic_child = true;
-        // N.B. intentionally no break — continue processing remaining children
-        // so their costs are computed and cached for other extraction paths
-      } else {
-        children_costs.emplace_back(*cost);
-      }
-    }
-    if (has_cyclic_child) continue;
-
-    auto current_cost = cost_model(enode, children_costs);
-    if (!best_node || current_cost < *best_node->cost_result) {
-      best_node = Selection<CostResult>{enode_id, current_cost};
-    }
-  }
-
-  // Update with the actual computed cost
-  if (best_node) {
-    it2->second = *best_node;
-    return best_node->cost_result;
-  }
-
-  // Remove infinite cycle case
-  enode_selection.erase(it2);
-  return std::nullopt;
-}
-
 // ============================================================================
 // CostModelTraits — tag-dispatched defaults for cost models
 // ============================================================================
