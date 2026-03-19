@@ -221,13 +221,18 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
       assert(resolved_required.contains(eclass_id) && "resolved and resolved_required must be written together");
       if (std::ranges::includes(provided, resolved_required.at(eclass_id))) return;  // still feasible
       // Incompatible: the cached alt demands symbols this parent doesn't provide.
-      // Re-resolve with the more restrictive provided set. Children keep their
-      // cached selections (they don't depend on the parent's provided for non-Bind nodes).
+      // Re-resolve with the more restrictive provided set, then cascade to children
+      // so they are also re-resolved with the new context.
       auto it = frontier_map.find(eclass_id);
       assert(it != frontier_map.end() && it->second.has_value());
       auto const &chosen = pick_compatible(*it->second, provided);
       existing->second = Selection{chosen.enode_id, chosen.cost};
       resolved_required[eclass_id] = chosen.required;
+      // Cascade: visit children of the new selection so stale cached values are updated.
+      auto const &enode = egraph.get_enode(chosen.enode_id);
+      for (auto child : enode.children()) {
+        self(child, provided);
+      }
       return;
     }
 

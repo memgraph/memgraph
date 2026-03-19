@@ -78,6 +78,20 @@ struct ParetoFrontier {
     alts.resize(write);
   }
 
+  /// Beam limit: after pruning, if the frontier still exceeds max_alts,
+  /// keep only the top-N alternatives by the given cost projection (beam search).
+  /// This is a principled approximation — we keep the cheapest alternatives.
+  /// @param max_alts  Maximum number of alternatives to keep. 0 means no limit.
+  /// @param proj      Projection from Alt to a comparable cost value.
+  template <typename CostProjection>
+  void beam(size_t max_alts, CostProjection &&proj) {
+    if (max_alts == 0 || alts.size() <= max_alts) return;
+    std::partial_sort(alts.begin(), alts.begin() + max_alts, alts.end(), [&](Alt const &a, Alt const &b) {
+      return proj(a) < proj(b);
+    });
+    alts.resize(max_alts);
+  }
+
   /// Union two frontiers from different enodes in the same eclass, then prune.
   static auto merge(ParetoFrontier const &a, ParetoFrontier const &b) -> ParetoFrontier {
     auto result = ParetoFrontier{};
