@@ -239,7 +239,7 @@ bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId p
 }
 
 auto InMemoryEdgeTypePropertyIndex::GetActiveIndices() const -> std::shared_ptr<EdgeTypePropertyIndex::ActiveIndices> {
-  return std::make_shared<ActiveIndices>(index_.WithReadLock(std::identity{}));
+  return std::make_shared<ActiveIndices>(index_.ReadCopy());
 }
 
 auto InMemoryEdgeTypePropertyIndex::PopulateIndex(EdgeTypeId edge_type, PropertyId property,
@@ -302,7 +302,7 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
                                                           std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
   CleanupAllIndices();
-  auto all_indices = all_indices_.WithReadLock(std::identity{});
+  auto all_indices = all_indices_.ReadCopy();
 
   for (auto &[index, property] : *all_indices) {
     if (token.stop_requested()) return;
@@ -472,7 +472,7 @@ void InMemoryEdgeTypePropertyIndex::RunGC() {
   CleanupAllIndices();
 
   // For each skip_list remaining, run GC
-  auto cpy = all_indices_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.ReadCopy();
   for (auto &entry : *cpy) {
     entry.index_->skiplist.run_gc();
   }

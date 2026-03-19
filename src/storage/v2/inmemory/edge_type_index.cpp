@@ -255,7 +255,7 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
 
   CleanupAllIndices();
 
-  auto cpy = all_indices_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.ReadCopy();
   for (auto &et_index : *cpy) {
     if (token.stop_requested()) return;
 
@@ -368,7 +368,7 @@ void InMemoryEdgeTypeIndex::RunGC() {
   CleanupAllIndices();
 
   // For each skip_list remaining, run GC
-  auto cpy = all_indices_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.ReadCopy();
   for (auto &index : *cpy) {
     index->skip_list_.run_gc();
   }
@@ -412,7 +412,7 @@ EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::ActiveIndices::GetAbortProc
 }
 
 auto InMemoryEdgeTypeIndex::GetActiveIndices() const -> std::shared_ptr<EdgeTypeIndex::ActiveIndices> {
-  return std::make_shared<ActiveIndices>(index_.WithReadLock(std::identity{}));
+  return std::make_shared<ActiveIndices>(index_.ReadCopy());
 }
 
 auto InMemoryEdgeTypeIndex::GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex> {
