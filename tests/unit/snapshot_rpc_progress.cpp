@@ -23,6 +23,7 @@
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -40,6 +41,8 @@ using memgraph::rpc::Client;
 using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
+using memgraph::storage::ActiveIndices;
+using memgraph::storage::ActiveIndicesPtr;
 using memgraph::storage::ActiveIndicesStore;
 using memgraph::storage::ActiveIndicesUpdater;
 using memgraph::storage::Config;
@@ -49,6 +52,7 @@ using memgraph::storage::EdgeRef;
 using memgraph::storage::EdgeTypeId;
 using memgraph::storage::ExistenceConstraints;
 using memgraph::storage::Gid;
+using memgraph::storage::InMemoryEdgePropertyIndex;
 using memgraph::storage::InMemoryEdgeTypeIndex;
 using memgraph::storage::InMemoryEdgeTypePropertyIndex;
 using memgraph::storage::InMemoryLabelIndex;
@@ -89,7 +93,10 @@ class SnapshotRpcProgressTest : public ::testing::Test {
   std::filesystem::path main_directory{std::filesystem::temp_directory_path() /
                                        "MG_test_unit_snapshot_rpc_progress_main"};
 
-  void SetUp() override { Clear(); }
+  void SetUp() override {
+    Clear();
+    InitActiveIndicesStore();
+  }
 
   void TearDown() override { Clear(); }
 
@@ -113,6 +120,16 @@ class SnapshotRpcProgressTest : public ::testing::Test {
 
   InMemoryStorage storage{main_conf};
   ActiveIndicesStore active_indices_store_;
+
+  void InitActiveIndicesStore() {
+    active_indices_store_.WithLock([](ActiveIndicesPtr &ai) {
+      ai = std::make_shared<ActiveIndices>(std::make_shared<InMemoryLabelIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryLabelPropertyIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>());
+    });
+  }
 };
 
 class MockedSnapshotObserver final : public Observer<void> {

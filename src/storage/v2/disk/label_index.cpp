@@ -172,7 +172,7 @@ void DiskLabelIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_label, V
 
 /// TODO: andi Here will come Bloom filter deletion
 bool DiskLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &updater) {
-  if (!(index_.erase(label) > 0)) {
+  if (!index_.contains(label)) {
     return false;
   }
   auto disk_transaction = CreateAllReadingRocksDBTransaction();
@@ -193,6 +193,7 @@ bool DiskLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &update
   if (!CommitWithTimestamp(disk_transaction.get(), 0)) {
     return false;
   }
+  index_.erase(label);
   updater(GetActiveIndices());
   return true;
 }

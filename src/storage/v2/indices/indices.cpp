@@ -56,14 +56,12 @@ void Indices::DropGraphClearIndices() {
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->DropGraphClearIndices();
-  active_indices_.WithLock([](ActiveIndicesPtr &ci) {
-    ci = std::make_shared<ActiveIndices>(std::make_shared<InMemoryLabelIndex::ActiveIndices>(),
-                                         std::make_shared<InMemoryLabelPropertyIndex::ActiveIndices>(),
-                                         std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
-                                         std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
-                                         std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>()
-
-    );
+  active_indices_.WithLock([&](ActiveIndicesPtr &ci) {
+    ci = std::make_shared<ActiveIndices>(label_index_->GetActiveIndices(),
+                                         label_property_index_->GetActiveIndices(),
+                                         edge_type_index_->GetActiveIndices(),
+                                         edge_type_property_index_->GetActiveIndices(),
+                                         edge_property_index_->GetActiveIndices());
   });
   point_index_.Clear();
   vector_index_.Clear();

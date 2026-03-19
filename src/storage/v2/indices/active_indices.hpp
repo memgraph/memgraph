@@ -47,6 +47,17 @@ struct ActiveIndices {
         edge_type_properties_{std::move(edge_type_properties)},
         edge_property_{std::move(edge_property)} {}
 
+  /// Factory methods that return a new ActiveIndices with one field replaced.
+  /// Keeps layout knowledge in one place and eliminates positional argument mistakes.
+  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithLabel(std::shared_ptr<LabelIndexActiveIndices> x) const;
+  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithLabelProperties(
+      std::shared_ptr<LabelPropertyIndexActiveIndices> x) const;
+  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithEdgeType(std::shared_ptr<EdgeTypeIndexActiveIndices> x) const;
+  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithEdgeTypeProperties(
+      std::shared_ptr<EdgeTypePropertyIndexActiveIndices> x) const;
+  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithEdgeProperty(
+      std::shared_ptr<EdgePropertyIndexActiveIndices> x) const;
+
   bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
     // label
     for ([[maybe_unused]] auto const &label : required_indices.label_) {

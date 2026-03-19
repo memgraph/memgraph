@@ -169,7 +169,8 @@ void DiskLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_
 
 bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
                                        ActiveIndicesUpdater const &updater) {
-  if (!(index_.erase({label, properties[0][0]}) > 0U)) return false;
+  if (!index_.contains({label, properties[0][0]})) return false;
+  index_.erase({label, properties[0][0]});
   updater(GetActiveIndices());
   return true;
 }

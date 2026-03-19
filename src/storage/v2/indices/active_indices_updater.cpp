@@ -8,47 +8,72 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/active_indices.hpp"
 #include "utils/logging.hpp"
 
-void memgraph::storage::ActiveIndicesUpdater::operator()(std::shared_ptr<LabelIndexActiveIndices> const &x) const {
-  active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
+namespace memgraph::storage {
+
+// ActiveIndices::With* factory methods — each returns a new snapshot with one field replaced.
+
+ActiveIndicesPtr ActiveIndices::WithLabel(std::shared_ptr<LabelIndexActiveIndices> x) const {
+  return std::make_shared<ActiveIndices>(
+      std::move(x), label_properties_, edge_type_, edge_type_properties_, edge_property_);
+}
+
+ActiveIndicesPtr ActiveIndices::WithLabelProperties(std::shared_ptr<LabelPropertyIndexActiveIndices> x) const {
+  return std::make_shared<ActiveIndices>(label_, std::move(x), edge_type_, edge_type_properties_, edge_property_);
+}
+
+ActiveIndicesPtr ActiveIndices::WithEdgeType(std::shared_ptr<EdgeTypeIndexActiveIndices> x) const {
+  return std::make_shared<ActiveIndices>(
+      label_, label_properties_, std::move(x), edge_type_properties_, edge_property_);
+}
+
+ActiveIndicesPtr ActiveIndices::WithEdgeTypeProperties(std::shared_ptr<EdgeTypePropertyIndexActiveIndices> x) const {
+  return std::make_shared<ActiveIndices>(label_, label_properties_, edge_type_, std::move(x), edge_property_);
+}
+
+ActiveIndicesPtr ActiveIndices::WithEdgeProperty(std::shared_ptr<EdgePropertyIndexActiveIndices> x) const {
+  return std::make_shared<ActiveIndices>(label_, label_properties_, edge_type_, edge_type_properties_, std::move(x));
+}
+
+// ActiveIndicesUpdater::operator() overloads — delegate to the With* factory methods.
+
+void ActiveIndicesUpdater::operator()(std::shared_ptr<LabelIndexActiveIndices> const &x) const {
+  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
     MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
-    ai = std::make_shared<ActiveIndices>(
-        x, ai->label_properties_, ai->edge_type_, ai->edge_type_properties_, ai->edge_property_);
+    ai = ai->WithLabel(x);
   });
 }
 
-void memgraph::storage::ActiveIndicesUpdater::operator()(
-    std::shared_ptr<LabelPropertyIndexActiveIndices> const &x) const {
-  active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
+void ActiveIndicesUpdater::operator()(std::shared_ptr<LabelPropertyIndexActiveIndices> const &x) const {
+  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
     MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
-    ai = std::make_shared<ActiveIndices>(ai->label_, x, ai->edge_type_, ai->edge_type_properties_, ai->edge_property_);
+    ai = ai->WithLabelProperties(x);
   });
 }
 
-void memgraph::storage::ActiveIndicesUpdater::operator()(std::shared_ptr<EdgeTypeIndexActiveIndices> const &x) const {
-  active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
+void ActiveIndicesUpdater::operator()(std::shared_ptr<EdgeTypeIndexActiveIndices> const &x) const {
+  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
     MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
-    ai = std::make_shared<ActiveIndices>(
-        ai->label_, ai->label_properties_, x, ai->edge_type_properties_, ai->edge_property_);
+    ai = ai->WithEdgeType(x);
   });
 }
 
-void memgraph::storage::ActiveIndicesUpdater::operator()(
-    std::shared_ptr<EdgeTypePropertyIndexActiveIndices> const &x) const {
-  active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
+void ActiveIndicesUpdater::operator()(std::shared_ptr<EdgeTypePropertyIndexActiveIndices> const &x) const {
+  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
     MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
-    ai = std::make_shared<ActiveIndices>(ai->label_, ai->label_properties_, ai->edge_type_, x, ai->edge_property_);
+    ai = ai->WithEdgeTypeProperties(x);
   });
 }
 
-void memgraph::storage::ActiveIndicesUpdater::operator()(
-    std::shared_ptr<EdgePropertyIndexActiveIndices> const &x) const {
-  active_indices_.WithLock([&](std::shared_ptr<ActiveIndices const> &ai) {
+void ActiveIndicesUpdater::operator()(std::shared_ptr<EdgePropertyIndexActiveIndices> const &x) const {
+  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
     MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
-    ai = std::make_shared<ActiveIndices>(
-        ai->label_, ai->label_properties_, ai->edge_type_, ai->edge_type_properties_, x);
+    ai = ai->WithEdgeProperty(x);
   });
 }
+
+}  // namespace memgraph::storage
