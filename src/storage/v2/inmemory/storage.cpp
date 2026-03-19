@@ -2584,6 +2584,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   auto trace_on_exit = utils::OnScopeExit{[&] {
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed());
     memgraph::metrics::Measure(memgraph::metrics::GCLatency_us, elapsed.count());
+    if (metric_handles_) metric_handles_->gc_latency_seconds->Observe(std::chrono::duration<double>(elapsed).count());
     spdlog::trace("Storage GC on '{}' finished [{}]. Duration: {:.3f}s",
                   name(),
                   periodic ? "periodic" : "forced",
@@ -2914,9 +2915,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
     }
   }
-  memgraph::metrics::Measure(
-      memgraph::metrics::GCSkiplistCleanupLatency_us,
-      std::chrono::duration_cast<std::chrono::microseconds>(skiplist_cleanup_timer.Elapsed()).count());
+  {
+    auto skiplist_elapsed = std::chrono::duration<double>(skiplist_cleanup_timer.Elapsed());
+    memgraph::metrics::Measure(memgraph::metrics::GCSkiplistCleanupLatency_us,
+                               std::chrono::duration_cast<std::chrono::microseconds>(skiplist_elapsed).count());
+    if (metric_handles_) metric_handles_->gc_skiplist_cleanup_latency_seconds->Observe(skiplist_elapsed.count());
+  }
 
   {
     auto guard = std::unique_lock{engine_lock_};
@@ -3781,8 +3785,12 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
     last_snapshot_digest_ = std::move(current_digest);
   }
 
-  memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
-                             std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  {
+    auto snapshot_elapsed = std::chrono::duration<double>(timer.Elapsed());
+    memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
+                               std::chrono::duration_cast<std::chrono::microseconds>(snapshot_elapsed).count());
+    if (metric_handles_) metric_handles_->snapshot_creation_latency_seconds->Observe(snapshot_elapsed.count());
+  }
 
   return *snapshot_path;
 }
