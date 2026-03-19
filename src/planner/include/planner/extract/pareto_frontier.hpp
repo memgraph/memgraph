@@ -15,7 +15,7 @@
 #include <cassert>
 #include <concepts>
 #include <limits>
-#include <span>
+#include <utility>
 #include <vector>
 
 namespace memgraph::planner::core::extract {
@@ -56,23 +56,32 @@ struct ParetoFrontier {
   /// moved-from elements (std::erase_if/remove_if moves elements during its pass).
   void prune() {
     auto const n = alts.size();
-    auto dominated = std::vector<bool>(n, false);
+    constexpr size_t kSmallSize = 64;
+    char small_buf[kSmallSize] = {};
+    std::vector<char> heap_buf;
+    char *dominated;
+    if (n <= kSmallSize) {
+      dominated = small_buf;
+    } else {
+      heap_buf.assign(n, 0);
+      dominated = heap_buf.data();
+    }
     for (size_t i = 0; i < n; ++i) {
-      if (dominated[i]) continue;
+      if (dominated[i] != 0) continue;
       for (size_t j = i + 1; j < n; ++j) {
-        if (dominated[j]) continue;
+        if (dominated[j] != 0) continue;
         if (DominanceFn{}(alts[i], alts[j])) {
-          dominated[i] = true;
+          dominated[i] = 1;
           break;
         }
         if (DominanceFn{}(alts[j], alts[i])) {
-          dominated[j] = true;
+          dominated[j] = 1;
         }
       }
     }
     size_t write = 0;
     for (size_t read = 0; read < n; ++read) {
-      if (!dominated[read]) {
+      if (dominated[read] == 0) {
         if (write != read) alts[write] = std::move(alts[read]);
         ++write;
       }
@@ -133,23 +142,21 @@ struct ParetoFrontier {
     result.prune();
     return result;
   }
+};
 
-  /// Left-fold combine over multiple frontiers.
-  template <typename CombineFn>
-  static auto combine_all(std::span<ParetoFrontier const> frontiers, CombineFn &&combine_fn) -> ParetoFrontier {
-    assert(!frontiers.empty());
-    auto result = frontiers[0];
-    for (size_t i = 1; i < frontiers.size(); ++i) {
-      result = combine(result, frontiers[i], combine_fn);
-    }
-    return result;
-  }
+/// Concept for alternatives usable with CostResultBase.
+/// Alt must have a totally_ordered `.cost` and an `.enode_id` field.
+template <typename Alt>
+concept ParetoAlt = requires(Alt const &a) {
+  { a.cost } -> std::totally_ordered;
+  { a.enode_id };
 };
 
 /// CRTP base for ParetoFrontier types that use min-cost as their resolve/min_cost strategy.
 /// Derived types get resolve(), min_cost(), and convenience constructors for free.
 /// Alt must have `.cost` (double-compatible) and `.enode_id` fields.
 template <typename Derived, typename Alt, typename DominanceFn>
+  requires ParetoAlt<Alt>
 struct CostResultBase : ParetoFrontier<Alt, DominanceFn> {
   using Base = ParetoFrontier<Alt, DominanceFn>;
   using Base::Base;
@@ -161,15 +168,20 @@ struct CostResultBase : ParetoFrontier<Alt, DominanceFn> {
 
   CostResultBase(std::initializer_list<Alt> init) : Base{std::vector<Alt>(init)} {}
 
-  static auto resolve(Derived const &f) -> decltype(std::declval<Alt const &>().enode_id) {
+  static auto resolve_with_cost(Derived const &f)
+      -> std::pair<decltype(std::declval<Alt const &>().enode_id), decltype(std::declval<Alt const &>().cost)> {
     auto it = std::ranges::min_element(f.alts, {}, &Alt::cost);
-    assert(it != f.alts.end() && "resolve called on empty frontier");
-    return it->enode_id;
+    assert(it != f.alts.end() && "resolve_with_cost called on empty frontier");
+    return {it->enode_id, it->cost};
+  }
+
+  static auto resolve(Derived const &f) -> decltype(std::declval<Alt const &>().enode_id) {
+    return resolve_with_cost(f).first;
   }
 
   static auto min_cost(Derived const &f) -> decltype(std::declval<Alt const &>().cost) {
-    auto it = std::ranges::min_element(f.alts, {}, &Alt::cost);
-    return it != f.alts.end() ? it->cost : std::numeric_limits<decltype(std::declval<Alt const &>().cost)>::infinity();
+    if (f.alts.empty()) return std::numeric_limits<decltype(std::declval<Alt const &>().cost)>::infinity();
+    return resolve_with_cost(f).second;
   }
 };
 

@@ -14,7 +14,9 @@
 #include <limits>
 
 #include <boost/container/flat_set.hpp>
+#include <boost/container/small_vector.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
 
 #include "planner/extract/extractor.hpp"
 #include "query/plan/operator.hpp"
@@ -28,7 +30,8 @@ namespace memgraph::query::plan::v2 {
 // ============================================================================
 namespace {
 
-using SymbolSet = boost::container::flat_set<planner::core::EClassId>;
+using SymbolSet = boost::container::flat_set<planner::core::EClassId, std::less<>,
+                                             boost::container::small_vector<planner::core::EClassId, 8>>;
 
 struct Alternative {
   double cost;
@@ -58,8 +61,9 @@ struct CostFrontier : planner::core::extract::CostResultBase<CostFrontier, Alter
 // Convenience: combine two frontiers with cost summation and required-set union.
 auto CombineAlts(double extra_cost, planner::core::ENodeId enode_id) {
   return [extra_cost, enode_id](Alternative const &l, Alternative const &r) -> Alternative {
-    auto required = l.required;
-    required.insert(r.required.begin(), r.required.end());
+    SymbolSet required;
+    required.reserve(l.required.size() + r.required.size());
+    std::ranges::set_union(l.required, r.required, std::inserter(required, required.end()));
     return {.cost = extra_cost + l.cost + r.cost, .required = std::move(required), .enode_id = enode_id};
   };
 }
@@ -85,7 +89,7 @@ struct PlanCostModel {
       }
 
       // Bind: alive if sym demanded, dead otherwise
-      // N.B. The alive/dead logic here is mirrored in ResolvePlanSelection's Bind branch.
+      // N.B. The alive/dead logic here is mirrored in PlanResolver's Bind branch.
       case symbol::Bind: {
         auto const &input_frontier = children[0];
         auto const &sym_frontier = children[1];
@@ -165,19 +169,24 @@ struct PlanCostModel {
 /// Context-aware top-down resolution of demand frontiers.
 /// Propagates a "provided" set (symbols bound by Bind ancestors) to ensure
 /// child selections are consistent with parent alive/dead decisions.
-auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
-                          std::unordered_map<planner::core::EClassId,
-                                             planner::core::extract::EClassFrontier<CostFrontier>> const &frontier_map,
-                          planner::core::EClassId root) {
+struct PlanResolver {
+  planner::core::EGraph<symbol, analysis> const &egraph;
+  std::unordered_map<planner::core::EClassId, planner::core::extract::EClassFrontier<CostFrontier>> const &frontier_map;
+
   using EClassId = planner::core::EClassId;
   using Selection = planner::core::extract::Selection<double>;
 
-  auto resolved = std::unordered_map<EClassId, Selection>{};
-  // Track the required set of each resolved eclass for DAG compatibility checks.
-  auto resolved_required = std::unordered_map<EClassId, SymbolSet>{};
+  std::unordered_map<EClassId, Selection> resolved;
+  std::unordered_map<EClassId, SymbolSet> resolved_required;
 
-  // Pick cheapest alt whose required ⊆ provided.
-  auto pick_compatible = [](CostFrontier const &frontier, SymbolSet const &provided) -> Alternative const & {
+  auto resolve(EClassId root) -> std::unordered_map<EClassId, Selection> {
+    resolve_impl(root, SymbolSet{});
+    return std::move(resolved);
+  }
+
+ private:
+  /// Pick cheapest alt whose required is a subset of provided.
+  auto pick_compatible(CostFrontier const &frontier, SymbolSet const &provided) -> Alternative const & {
     Alternative const *best = nullptr;
     for (auto const &alt : frontier.alts) {
       if (std::ranges::includes(provided, alt.required)) {
@@ -186,76 +195,71 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
         }
       }
     }
-    if (!best) {
-      // Fallback: shouldn't happen with correct bottom-up computation
-      auto it = std::ranges::min_element(frontier.alts, {}, &Alternative::cost);
-      assert(it != frontier.alts.end() && "pick_compatible called on empty frontier");
-      best = &*it;
-    }
+    assert(best && "pick_compatible: no compatible alternative found — bottom-up computation may be incorrect");
     return *best;
-  };
+  }
 
-  auto resolve_recursive = [&](this auto const &self, EClassId eclass_id, SymbolSet const &provided) -> void {
-    // Helper: Bind-specific child visitation with alive/dead logic.
-    // N.B. The alive/dead logic here mirrors PlanCostModel::operator() for symbol::Bind.
-    auto visit_bind_children =
-        [&](EClassId input_eclass, EClassId sym_eclass, EClassId expr_eclass, SymbolSet const &bind_provided) {
-          // Re-derive alive/dead given the provided context
-          auto input_it = frontier_map.find(input_eclass);
-          assert(input_it != frontier_map.end() && input_it->second.has_value());
-          auto const &input_frontier = *input_it->second;
+  /// Bind-specific child visitation with alive/dead logic.
+  /// N.B. The alive/dead logic here mirrors PlanCostModel::operator() for symbol::Bind.
+  void visit_bind_children(EClassId input_eclass, EClassId sym_eclass, EClassId expr_eclass,
+                           SymbolSet const &bind_provided) {
+    // Re-derive alive/dead given the provided context
+    auto input_it = frontier_map.find(input_eclass);
+    assert(input_it != frontier_map.end() && input_it->second.has_value());
+    auto const &input_frontier = *input_it->second;
 
-          auto sym_it = frontier_map.find(sym_eclass);
-          assert(sym_it != frontier_map.end() && sym_it->second.has_value());
-          auto sym_cost = CostFrontier::min_cost(*sym_it->second);
+    auto sym_it = frontier_map.find(sym_eclass);
+    assert(sym_it != frontier_map.end() && sym_it->second.has_value());
+    auto sym_cost = CostFrontier::min_cost(*sym_it->second);
 
-          auto expr_it = frontier_map.find(expr_eclass);
-          assert(expr_it != frontier_map.end() && expr_it->second.has_value());
-          auto const &expr_frontier = *expr_it->second;
+    auto expr_it = frontier_map.find(expr_eclass);
+    assert(expr_it != frontier_map.end() && expr_it->second.has_value());
+    auto const &expr_frontier = *expr_it->second;
 
-          // Alive: input alt must have sym in required, required ⊆ provided ∪ {sym}
-          auto alive_provided = bind_provided;
-          alive_provided.insert(sym_eclass);
+    // Alive: input alt must have sym in required, required ⊆ provided ∪ {sym}
+    auto alive_provided = bind_provided;
+    alive_provided.insert(sym_eclass);
 
-          auto best_alive_cost = std::numeric_limits<double>::infinity();
-          for (auto const &input_alt : input_frontier.alts) {
-            if (IsBindAlive(input_alt, sym_eclass) && std::ranges::includes(alive_provided, input_alt.required)) {
-              for (auto const &expr_alt : expr_frontier.alts) {
-                if (std::ranges::includes(bind_provided, expr_alt.required)) {
-                  best_alive_cost = std::min(best_alive_cost, input_alt.cost + sym_cost + expr_alt.cost);
-                }
-              }
-            }
+    auto best_alive_cost = std::numeric_limits<double>::infinity();
+    for (auto const &input_alt : input_frontier.alts) {
+      if (IsBindAlive(input_alt, sym_eclass) && std::ranges::includes(alive_provided, input_alt.required)) {
+        for (auto const &expr_alt : expr_frontier.alts) {
+          if (std::ranges::includes(bind_provided, expr_alt.required)) {
+            best_alive_cost = std::min(best_alive_cost, input_alt.cost + sym_cost + expr_alt.cost);
           }
+        }
+      }
+    }
 
-          // Dead: input alt must NOT have sym in required, required ⊆ provided
-          auto best_dead_cost = std::numeric_limits<double>::infinity();
-          for (auto const &input_alt : input_frontier.alts) {
-            if (!IsBindAlive(input_alt, sym_eclass) && std::ranges::includes(bind_provided, input_alt.required)) {
-              best_dead_cost = std::min(best_dead_cost, input_alt.cost);
-            }
-          }
+    // Dead: input alt must NOT have sym in required, required ⊆ provided
+    auto best_dead_cost = std::numeric_limits<double>::infinity();
+    for (auto const &input_alt : input_frontier.alts) {
+      if (!IsBindAlive(input_alt, sym_eclass) && std::ranges::includes(bind_provided, input_alt.required)) {
+        best_dead_cost = std::min(best_dead_cost, input_alt.cost);
+      }
+    }
 
-          // Alive wins if strictly cheaper; ties go to dead (less work)
-          if (best_alive_cost < best_dead_cost) {
-            // Alive: visit all three children (input with extra sym provided, sym, expr)
-            self(input_eclass, alive_provided);
-            // sym_eclass is a leaf Symbol with required={}; compatible with any provided set.
-            // We pass provided (not alive_provided) because Symbol doesn't need the symbol it defines.
-            self(sym_eclass, bind_provided);
-            self(expr_eclass, bind_provided);
-          } else {
-            // Dead: only visit input — sym and expr are unreachable.
-            // Erase any stale sym/expr entries from a prior alive resolution
-            // (cascade alive→dead transition).
-            resolved.erase(sym_eclass);
-            resolved.erase(expr_eclass);
-            resolved_required.erase(sym_eclass);
-            resolved_required.erase(expr_eclass);
-            self(input_eclass, bind_provided);
-          }
-        };
+    // Alive wins if strictly cheaper; ties go to dead (less work)
+    if (best_alive_cost < best_dead_cost) {
+      // Alive: visit all three children (input with extra sym provided, sym, expr)
+      resolve_impl(input_eclass, alive_provided);
+      // sym_eclass is a leaf Symbol with required={}; compatible with any provided set.
+      // We pass provided (not alive_provided) because Symbol doesn't need the symbol it defines.
+      resolve_impl(sym_eclass, bind_provided);
+      resolve_impl(expr_eclass, bind_provided);
+    } else {
+      // Dead: only visit input — sym and expr are unreachable.
+      // Erase any stale sym/expr entries from a prior alive resolution
+      // (cascade alive->dead transition).
+      resolved.erase(sym_eclass);
+      resolved.erase(expr_eclass);
+      resolved_required.erase(sym_eclass);
+      resolved_required.erase(expr_eclass);
+      resolve_impl(input_eclass, bind_provided);
+    }
+  }
 
+  void resolve_impl(EClassId eclass_id, SymbolSet const &provided) {
     if (auto existing = resolved.find(eclass_id); existing != resolved.end()) {
       // DAG: this eclass was already resolved from a different parent.
       // Check if the cached selection is compatible with this parent's provided set.
@@ -276,7 +280,7 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
         visit_bind_children(enode.children()[0], enode.children()[1], enode.children()[2], provided);
       } else {
         for (auto child : enode.children()) {
-          self(child, provided);
+          resolve_impl(child, provided);
         }
       }
       return;
@@ -297,14 +301,11 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
       visit_bind_children(children[0], children[1], children[2], provided);
     } else {
       for (auto child : children) {
-        self(child, provided);
+        resolve_impl(child, provided);
       }
     }
-  };
-
-  resolve_recursive(root, SymbolSet{});
-  return resolved;
-}
+  }
+};
 
 }  // namespace
 
@@ -576,18 +577,19 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   namespace extract = planner::core::extract;
   auto frontier_map = std::unordered_map<planner::core::EClassId, extract::EClassFrontier<CostFrontier>>{};
   extract::ComputeFrontiers(impl.egraph_, PlanCostModel{}, true_root, frontier_map);
-  auto resolved = ResolvePlanSelection(impl.egraph_, frontier_map, true_root);
+  auto resolver = PlanResolver{impl.egraph_, frontier_map};
+  auto resolved = resolver.resolve(true_root);
   auto in_degree = extract::CollectDependencies(impl.egraph_, resolved, true_root);
   auto const selection = extract::TopologicalSort(impl.egraph_, resolved, std::move(in_degree));
 
   /// STAGE: Build selected (LogicalOperator, Expression *, Symbol, NamedExpression *, etc)
-  /// Dead Binds are already handled: ResolvePlanSelection skips sym/expr children
+  /// Dead Binds are already handled: PlanResolver skips sym/expr children
   /// for dead Binds, so they're absent from the selection. CollectDependencies
   /// only walks resolved children, so dead Bind's sym/expr never enter the topo sort.
   auto builder = Builder{impl.storage<symbol::Literal>().store,
                          impl.storage<symbol::NamedOutput>().store,
                          impl.storage<symbol::Symbol>().store};
-  auto build_cache = std::map<planner::core::EClassId, BuildResult>{};
+  auto build_cache = boost::unordered_flat_map<planner::core::EClassId, BuildResult>{};
   auto const cache_lookup = [&](const planner::core::EClassId id) {
     auto const it = build_cache.find(id);
     DMG_ASSERT(it != build_cache.end(), "Building bottom up we should be able to find our child");
@@ -599,7 +601,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   for (auto [eclass_id, enode_id] : std::views::reverse(selection)) {
     auto const &enode = impl.egraph_.get_enode(enode_id);
 
-    // Dead Bind: sym/expr children were not resolved (skipped by ResolvePlanSelection).
+    // Dead Bind: sym/expr children were not resolved (skipped by PlanResolver).
     // Pass through the input operator directly.
     if (enode.symbol() == symbol::Bind) {
       assert(enode.children().size() == 3 && "Bind must have exactly 3 children");
@@ -621,6 +623,8 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   auto &result = *ptr;
 
   auto unique_result = result->Clone(&builder.ast_storage_);
-  return {std::move(unique_result), 0.0, std::move(builder.ast_storage_), std::move(builder.symbol_table_)};
+  // TODO: return real cost from resolved root once Selection::cost type stabilises
+  auto root_cost = resolved.contains(true_root) ? resolved[true_root].cost : 0.0;
+  return {std::move(unique_result), root_cost, std::move(builder.ast_storage_), std::move(builder.symbol_table_)};
 }
 }  // namespace memgraph::query::plan::v2

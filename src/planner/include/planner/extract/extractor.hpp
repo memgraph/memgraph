@@ -61,7 +61,7 @@ template <typename CR>
 concept CostResultType = requires(CR const &a, CR const &b) {
   { CR::merge(a, b) } -> std::convertible_to<CR>;
   { CR::resolve(a) } -> std::convertible_to<ENodeId>;
-  { CR::min_cost(a) } -> std::totally_ordered;
+  requires std::totally_ordered<decltype(CR::min_cost(a))>;
 };
 
 static_assert(CostResultType<DefaultCostResult<double>>);
@@ -72,6 +72,9 @@ using InDegreeMap = std::unordered_map<EClassId, int>;
 // ============================================================================
 // Extraction pipeline
 // ============================================================================
+// TODO: frontier_map and other std::unordered_map parameters could be switched
+// to boost::unordered_flat_map for better cache locality, but the type change
+// propagates through template signatures to all callers.
 
 /// Per-eclass frontier during cost propagation.
 /// nullopt means "in progress" (cycle detection).
@@ -82,7 +85,7 @@ using EClassFrontier = std::optional<CostResult>;
 template <typename CostType>
 struct Selection {
   ENodeId enode_id;
-  std::optional<CostType> cost;
+  CostType cost;
 };
 
 /// Bottom-up cost propagation. Calls cost_model(enode, enode_id, children) for each enode,
@@ -244,29 +247,5 @@ auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
   }
   return result;
 }
-
-/// Extracts the lowest-cost expression tree from an e-graph.
-/// CostModel must provide CostResult with merge/resolve/min_cost, and
-/// operator()(ENode const &, ENodeId, span<CostResult const>) -> CostResult.
-/// ResolverFn customizes top-down resolution (default: ResolveSelection).
-template <typename Symbol, typename Analysis, typename CostModel>
-struct Extractor {
-  Extractor(EGraph<Symbol, Analysis> const &egraph, CostModel cost_model)
-      : egraph_(egraph), cost_model_(std::move(cost_model)) {}
-
-  auto Extract(EClassId const root_id) -> std::vector<std::pair<EClassId, ENodeId>> {
-    using CostResult = typename CostModel::CostResult;
-    auto frontier_map = std::unordered_map<EClassId, EClassFrontier<CostResult>>{};
-    ComputeFrontiers(egraph_, cost_model_, root_id, frontier_map);
-    auto resolved = ResolveSelection<Symbol, Analysis, CostResult>(egraph_, frontier_map, root_id);
-    auto in_degree = CollectDependencies(egraph_, resolved, root_id);
-    return TopologicalSort(egraph_, resolved, std::move(in_degree));
-  }
-
- private:
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
-  EGraph<Symbol, Analysis> const &egraph_;
-  CostModel cost_model_;
-};
 
 }  // namespace memgraph::planner::core::extract

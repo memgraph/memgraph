@@ -63,11 +63,23 @@ struct SymbolCostModel {
   }
 };
 
+// Helper: replaces the removed Extractor struct. Runs the full pipeline.
+template <typename CostModel>
+auto Extract(EGraph<symbol, analysis> const &egraph, CostModel cost_model, EClassId root)
+    -> std::vector<std::pair<EClassId, ENodeId>> {
+  using CostResult = typename CostModel::CostResult;
+  auto frontier_map = std::unordered_map<EClassId, EClassFrontier<CostResult>>{};
+  ComputeFrontiers(egraph, cost_model, root, frontier_map);
+  auto resolved = ResolveSelection<symbol, analysis, CostResult>(egraph, frontier_map, root);
+  auto in_degree = CollectDependencies(egraph, resolved, root);
+  return TopologicalSort(egraph, resolved, std::move(in_degree));
+}
+
 TEST(Extract_Basic, BasicLeafExtraction) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [root_class, root_enode, root_new] = egraph.emplace(symbol::A);
-  auto extractor = Extractor{egraph, UniformCostModel{}};
-  auto extracted = extractor.Extract(root_class);
+  // using Extract helper
+  auto extracted = Extract(egraph, UniformCostModel{}, root_class);
   ASSERT_EQ(extracted.size(), 1);
   ASSERT_EQ(extracted[0].first, root_class);
   ASSERT_EQ(extracted[0].second, root_enode);
@@ -80,8 +92,8 @@ TEST(Extract_Basic, CheapestRootSelected) {
   auto [root, _] = egraph.merge(aclass, bclass);
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
-  auto extractor = Extractor{egraph, SymbolCostModel{1.0, 2.0}};
-  auto extracted = extractor.Extract(root);
+  // using Extract helper
+  auto extracted = Extract(egraph, SymbolCostModel{1.0, 2.0}, root);
   ASSERT_EQ(extracted.size(), 1);
   ASSERT_EQ(extracted[0].first, root);
   ASSERT_EQ(extracted[0].second, anode);
@@ -602,8 +614,8 @@ TEST(Extract_Basic, IntegrationComplexTree) {
   auto [mid_class, mid_node, mid_new] = egraph.emplace(symbol::A, {l1_class, l2_class});
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::B, {mid_class});
 
-  auto extractor = Extractor{egraph, UniformCostModel{}};
-  auto extracted = extractor.Extract(root_class);
+  // using Extract helper
+  auto extracted = Extract(egraph, UniformCostModel{}, root_class);
 
   ASSERT_EQ(extracted.size(), 4);
   // Verify root is first
@@ -618,8 +630,8 @@ TEST(Extract_Basic, IntegrationDiamondDAG) {
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
-  auto extractor = Extractor{egraph, UniformCostModel{}};
-  auto extracted = extractor.Extract(root_class);
+  // using Extract helper
+  auto extracted = Extract(egraph, UniformCostModel{}, root_class);
 
   ASSERT_EQ(extracted.size(), 4);
   // Verify shared node comes last
@@ -641,8 +653,8 @@ TEST(Extract_Basic, IntegrationNestedEquivalence) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  auto extractor = Extractor{egraph, SymbolCostModel{1.0, 5.0}};
-  auto extracted = extractor.Extract(root);
+  // using Extract helper
+  auto extracted = Extract(egraph, SymbolCostModel{1.0, 5.0}, root);
 
   ASSERT_EQ(extracted.size(), 2);
   // Should select cheaper A nodes at both levels
@@ -975,8 +987,8 @@ TEST(Extract_MultiAlt, SingleAlternative_BehavesLikeSingleBest) {
   auto [l2_class, l2_node, l2_new] = egraph.emplace(symbol::B);
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {l1_class, l2_class});
 
-  auto extractor = Extractor{egraph, SimpleMultiAltCostModel{}};
-  auto extracted = extractor.Extract(root_class);
+  // using Extract helper
+  auto extracted = Extract(egraph, SimpleMultiAltCostModel{}, root_class);
 
   ASSERT_EQ(extracted.size(), 3);
   ASSERT_EQ(extracted[0].first, root_class);
@@ -1003,8 +1015,8 @@ TEST(Extract_MultiAlt, TwoAlternatives_MergeFrontier) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  auto extractor = Extractor{egraph, DemandAwareMultiAltCostModel{}};
-  auto extracted = extractor.Extract(root);
+  // using Extract helper
+  auto extracted = Extract(egraph, DemandAwareMultiAltCostModel{}, root);
 
   ASSERT_EQ(extracted.size(), 1);
   // B has single alt {cost=1, req={}}, which dominates A's alternatives
@@ -1026,8 +1038,8 @@ TEST(Extract_MultiAlt, DemandPropagation) {
 
   auto [parent_class, parent_node, parent_new] = egraph.emplace(symbol::B, {child_class});
 
-  auto extractor = Extractor{egraph, DemandAwareMultiAltCostModel{}};
-  auto extracted = extractor.Extract(parent_class);
+  // using Extract helper
+  auto extracted = Extract(egraph, DemandAwareMultiAltCostModel{}, parent_class);
 
   ASSERT_EQ(extracted.size(), 2);
   ASSERT_EQ(extracted[0].first, parent_class);
@@ -1092,8 +1104,8 @@ TEST(Extract_MultiAlt, DiamondDAG_WithDemand) {
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B, {shared_class}, 2);  // disambiguator = 2
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::B, {left_class, right_class});
 
-  auto extractor = Extractor{egraph, DemandAwareMultiAltCostModel{}};
-  auto extracted = extractor.Extract(root_class);
+  // using Extract helper
+  auto extracted = Extract(egraph, DemandAwareMultiAltCostModel{}, root_class);
 
   // Should have 4 nodes: root, left, right, shared
   ASSERT_EQ(extracted.size(), 4);
@@ -1162,8 +1174,8 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
   ASSERT_DOUBLE_EQ(TestFrontier::min_cost(frontier), 1.0);
 
   // Full extraction should still work and select the min-cost alternative
-  auto extractor = Extractor{egraph, ThreeAltCostModel{}};
-  auto extracted = extractor.Extract(a_class);
+  // using Extract helper
+  auto extracted = Extract(egraph, ThreeAltCostModel{}, a_class);
   ASSERT_EQ(extracted.size(), 1);
   ASSERT_EQ(extracted[0].second, a_node);
 }
@@ -1483,8 +1495,8 @@ TEST(Extract_MultiAlt, CyclicEClass) {
   auto ctx = ProcessingContext<symbol>{};
   egraph.rebuild(ctx);
 
-  auto extractor = Extractor{egraph, SimpleMultiAltCostModel{}};
-  auto extracted = extractor.Extract(cyclic_class);
+  // using Extract helper
+  auto extracted = Extract(egraph, SimpleMultiAltCostModel{}, cyclic_class);
 
   // Should select the non-cyclic LITERAL node
   ASSERT_EQ(extracted.size(), 1);
