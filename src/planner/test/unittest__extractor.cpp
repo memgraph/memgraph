@@ -522,8 +522,8 @@ TEST(Extract_TopologicalSort, SingleNode) {
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
   std::unordered_map<EClassId, Selection<double>> cheapest_enode{};
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
-  auto in_degree = std::unordered_map<EClassId, int>{{leaf_class, 0}};
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
+  auto in_degree = CollectDependencies(egraph, cheapest_enode, leaf_class);
+  auto result = TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
 
   ASSERT_EQ(result.size(), 1);
   ASSERT_EQ(result[0].first, leaf_class);
@@ -540,11 +540,8 @@ TEST(Extract_TopologicalSort, LinearChainOrdering) {
   cheapest_enode[leaf_class] = {leaf_node, 1.0};
   cheapest_enode[mid_class] = {mid_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
-  std::unordered_map<EClassId, int> in_degree;
-  in_degree[root_class] = 0;
-  in_degree[mid_class] = 1;
-  in_degree[leaf_class] = 1;
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
+  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
+  auto result = TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
 
   ASSERT_EQ(result.size(), 3);
   // Order should be: root, mid, leaf
@@ -563,11 +560,8 @@ TEST(Extract_TopologicalSort, SimpleTreeOrdering) {
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
-  std::unordered_map<EClassId, int> in_degree;
-  in_degree[left_class] = 1;
-  in_degree[right_class] = 1;
-  in_degree[root_class] = 0;
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
+  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
+  auto result = TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
 
   ASSERT_EQ(result.size(), 3);
   // Root should come first
@@ -587,12 +581,8 @@ TEST(Extract_TopologicalSort, DiamondTopology) {
   cheapest_enode[left_class] = {left_node, 1.0};
   cheapest_enode[right_class] = {right_node, 1.0};
   cheapest_enode[root_class] = {root_node, 1.0};
-  std::unordered_map<EClassId, int> in_degree;
-  in_degree[left_class] = 1;
-  in_degree[right_class] = 1;
-  in_degree[shared_class] = 2;
-  in_degree[root_class] = 0;
-  auto result = TopologicalSort(egraph, cheapest_enode, in_degree);
+  auto in_degree = CollectDependencies(egraph, cheapest_enode, root_class);
+  auto result = TopologicalSort(egraph, cheapest_enode, std::move(in_degree));
 
   ASSERT_EQ(result.size(), 4);
   // Root comes first

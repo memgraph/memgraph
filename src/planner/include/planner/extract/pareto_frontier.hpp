@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <concepts>
 #include <span>
 #include <vector>
 
@@ -84,6 +85,7 @@ struct ParetoFrontier {
   /// @param max_alts  Maximum number of alternatives to keep. 0 means no limit.
   /// @param proj      Projection from Alt to a comparable cost value.
   template <typename CostProjection>
+    requires std::invocable<CostProjection, Alt const &>
   void beam(size_t max_alts, CostProjection &&proj) {
     if (max_alts == 0 || alts.size() <= max_alts) return;
     std::partial_sort(alts.begin(), alts.begin() + max_alts, alts.end(), [&](Alt const &a, Alt const &b) {

@@ -107,6 +107,9 @@ struct PlanCostModel {
         auto const &sym_frontier = children[1];
         auto const &expr_frontier = children[2];
         auto sym_eclass = current.children()[1];
+        // Symbol eclasses are always leaf nodes with a single alternative {cost=1, required={}}.
+        // If Symbol ever gains multiple alternatives, this must enumerate sym_frontier.alts
+        // in the Cartesian product alongside expr_frontier.alts.
         auto sym_cost = CostFrontier::min_cost(sym_frontier);
 
         return CostFrontier::flat_map(input_frontier, [&](auto const &input_alt, auto emit) {
@@ -287,6 +290,8 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
       if (best_alive_cost < best_dead_cost) {
         // Alive: visit all three children (input with extra sym provided, sym, expr)
         self(input_eclass, alive_provided);
+        // sym_eclass is a leaf Symbol with required={}; compatible with any provided set.
+        // We pass provided (not alive_provided) because Symbol doesn't need the symbol it defines.
         self(sym_eclass, provided);
         self(expr_eclass, provided);
       } else {
@@ -614,26 +619,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   if (!ptr) throw QueryException{"Root should be LogicalOperator"};
   auto &result = *ptr;
 
-  // TODO: make the rest of query plan root? use a shared_ptr (hence avoid this clone)
   auto unique_result = result->Clone(&builder.ast_storage_);
   return {std::move(unique_result), 0.0, std::move(builder.ast_storage_)};
-
-  // egraph extraction -> subgraph of the egraph (one Enode per EClass)
-  // start for a root
-  // must be able to handle cycles -> Extraction should have no cycles (cycles
-  // only useful to aid rewrites)
-
-  // Subgraph -> LogicalOperator + AST Expressions + Symbol table
-  // NOTE: we lost a NamedExpressions name when we did BIND for WITH
-  //       that shoudl be tracked for the enode (not the disambiguator)
-  //       so we can use it again when
-
-  // WITH 1 AS X, 1 AS Y WITH Y AS RES
-
-  //  (BIND (0) input_1 (SYM 0) (LITERAL 1))
-  //  (BIND (1) input_2 (SYM 1) (LITERAL 1))
-  //  (IDENT (SYM 1))
-
-  // $a=(IDENT X), (BIND _ X $b) -> MERGE $a, $b
 }
 }  // namespace memgraph::query::plan::v2

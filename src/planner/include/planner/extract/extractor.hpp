@@ -55,6 +55,20 @@ struct DefaultCostResult {
   static auto min_cost(DefaultCostResult const &r) -> T { return r.cost; }
 };
 
+/// CostResult contract — enforced at compile time.
+/// Every CostResult type must provide merge, resolve, and min_cost as static methods.
+template <typename CR>
+concept CostResultType = requires(CR const &a, CR const &b) {
+  { CR::merge(a, b) } -> std::convertible_to<CR>;
+  { CR::resolve(a) } -> std::convertible_to<ENodeId>;
+  { CR::min_cost(a) } -> std::totally_ordered;
+};
+
+static_assert(CostResultType<DefaultCostResult<double>>);
+
+/// In-degree map for topological sorting.
+using InDegreeMap = std::unordered_map<EClassId, int>;
+
 // ============================================================================
 // Extraction pipeline
 // ============================================================================
@@ -74,12 +88,13 @@ struct Selection {
 /// Bottom-up cost propagation. Calls cost_model(enode, enode_id, children) for each enode,
 /// merges results via CostResult::merge across enodes in the same eclass.
 template <typename Symbol, typename Analysis, typename CostModel>
+  requires CostResultType<typename CostModel::CostResult>
 auto ComputeFrontiers(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_model, EClassId eclass_id,
                       std::unordered_map<EClassId, EClassFrontier<typename CostModel::CostResult>> &frontier_map)
     -> std::optional<typename CostModel::CostResult> {
   using CostResult = typename CostModel::CostResult;
 
-  assert(!egraph.needs_rebuild() && "to avoid internal cost of getting canonical looking up we should");
+  assert(!egraph.needs_rebuild() && "egraph must be rebuilt before extraction");
 
   if (auto const it = frontier_map.find(eclass_id); it != frontier_map.end()) {
     return it->second;
@@ -131,6 +146,7 @@ auto ComputeFrontiers(EGraph<Symbol, Analysis> const &egraph, CostModel const &c
 /// Top-down resolution of frontiers into a Selection map.
 /// Walks from root, picks the best enode at each eclass via CostResult::resolve.
 template <typename Symbol, typename Analysis, typename CostResult>
+  requires CostResultType<CostResult>
 auto ResolveSelection(EGraph<Symbol, Analysis> const &egraph,
                       std::unordered_map<EClassId, EClassFrontier<CostResult>> const &frontier_map, EClassId root) {
   using CostType = decltype(CostResult::min_cost(std::declval<CostResult const &>()));
@@ -165,7 +181,7 @@ auto ResolveSelection(EGraph<Symbol, Analysis> const &egraph,
 template <typename Symbol, typename Analysis, typename CostResult>
 auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
                          std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection,
-                         const EClassId root) -> std::unordered_map<EClassId, int> {
+                         const EClassId root) -> InDegreeMap {
   auto in_degree = std::unordered_map<EClassId, int>{{root, 0}};
   auto bfs = std::vector{root};
   auto visited = std::unordered_set{root};
@@ -198,8 +214,8 @@ auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
 
 template <typename Symbol, typename Analysis, typename CostResult>
 auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
-                     std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection,
-                     std::unordered_map<EClassId, int> in_degree) -> std::vector<std::pair<EClassId, ENodeId>> {
+                     std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection, InDegreeMap in_degree)
+    -> std::vector<std::pair<EClassId, ENodeId>> {
   auto result = std::vector<std::pair<EClassId, ENodeId>>{};
   result.reserve(in_degree.size());
 
