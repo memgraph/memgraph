@@ -11,6 +11,7 @@
 
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include <expected>
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
@@ -34,6 +35,7 @@ namespace {
 
 ExistenceConstraints::IndividualConstraint::~IndividualConstraint() {
   if (status.IsReady()) {
+    if (gauge_) gauge_->Decrement();
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveExistenceConstraints);
   }
 }
@@ -98,6 +100,8 @@ bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property,
     return false;
   }
   constraint->status.Commit(commit_timestamp);
+  constraint->gauge_ = metric_handles_ ? metric_handles_->active_existence_constraints : nullptr;
+  if (constraint->gauge_) constraint->gauge_->Increment();
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveExistenceConstraints);
   return true;
 }

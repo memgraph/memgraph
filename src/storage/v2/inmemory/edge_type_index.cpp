@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
@@ -193,17 +194,21 @@ bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpd
 bool InMemoryEdgeTypeIndex::PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(edge_type);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  auto *gauge = metric_handles_ ? metric_handles_->active_edge_type_indices : nullptr;
+  index->Publish(commit_timestamp, gauge);
   return true;
 }
 
-void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status_.Commit(commit_timestamp);
+  gauge_ = gauge;
+  if (gauge_) gauge_->Increment();
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
 }
 
 InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() {
   if (status_.IsReady()) {
+    if (gauge_) gauge_->Decrement();
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
   }
 }
