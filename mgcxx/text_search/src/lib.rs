@@ -129,7 +129,14 @@ fn owned_value_to_json(val: OwnedValue) -> serde_json::Value {
         }
         other => match serde_json::to_value(&other) {
             Ok(v) => v,
-            Err(_) => serde_json::Value::Null,
+            Err(e) => {
+                log::error!(
+                    "Failed to serialize OwnedValue to JSON in owned_value_to_json: value={:?}, error={}",
+                    other,
+                    e
+                );
+                serde_json::Value::Null
+            }
         },
     }
 }
