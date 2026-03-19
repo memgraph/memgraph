@@ -200,7 +200,13 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   std::optional<ReturnType> current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   utils::AtomicMemoryBlock([this, &current_value, &property, &value, skip_duplicate_write, &schema_acc]() {
-    current_value.emplace(edge_.ptr->properties.GetProperty(property));
+    current_value.emplace(edge_.ptr->properties.GetProperty(
+        property,
+        IndexedPropertyDecoder<Edge>{.indices = &storage_->indices_,
+                                     .name_id_mapper = storage_->name_id_mapper_.get(),
+                                     .entity = edge_.ptr,
+                                     .from_vertex = from_vertex_,
+                                     .to_vertex = to_vertex_}));
     if (skip_duplicate_write && *current_value == value) {
       return;
     }

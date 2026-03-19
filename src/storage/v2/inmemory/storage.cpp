@@ -1372,10 +1372,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
                     if (edge_ref.ptr != edge) continue;
                     index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
-                    // Look up saved vector from the removed_vectors_cache (populated during UpdateOnSetProperty(null))
-                    auto saved_vec = storage_->indices_.vector_edge_index_.PopRemovedVector(edge->gid, prop_id);
                     index_abort_processor.vector_edge_.CollectOnPropertyChange(
-                        edge_type, prop_id, *current->property.value, saved_vec, from_vertex, to_vertex, edge);
+                        edge_type, prop_id, *current->property.value, from_vertex, to_vertex, edge);
                   }
                 }
 

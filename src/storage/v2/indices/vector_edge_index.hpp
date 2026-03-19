@@ -67,12 +67,7 @@ struct VectorEdgeIndexRecovery {
                                 utils::SkipList<Vertex>::Accessor &vertices);
 
   static void UpdateOnSetEdgeProperty(PropertyId property, const PropertyValue &value, const Edge *edge,
-                                      std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
-                                      NameIdMapper *name_id_mapper);
-
-  static utils::small_vector<float> ExtractVectorForRecovery(
-      const PropertyValue &value, const Edge *edge, const std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
-      NameIdMapper *name_id_mapper);
+                                      std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec);
 };
 
 /// @class VectorEdgeIndex
@@ -94,17 +89,14 @@ class VectorEdgeIndex {
       EdgeTypeId edge_type;
       Vertex *from_vertex;
       Vertex *to_vertex;
-      // Map from PropertyId to (old_PropertyValue, saved_vector).
-      // The saved_vector contains the actual float data since PropertyStore doesn't cache it.
-      std::map<PropertyId, std::pair<PropertyValue, utils::small_vector<float>>> properties;
+      std::map<PropertyId, PropertyValue> properties;
     };
 
     using AbortableInfo = std::map<Edge *, EdgeAbortInfo>;
     AbortableInfo cleanup_collection;
 
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, const PropertyValue &old_value,
-                                 const utils::small_vector<float> &saved_vector, Vertex *from_vertex, Vertex *to_vertex,
-                                 Edge *edge);
+                                 Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
   };
 
   struct EdgeIndexEntry {
@@ -162,7 +154,7 @@ class VectorEdgeIndex {
                                       const std::vector<float> &query_vector) const;
 
   /// @brief Aborts the entries in the vector edge index.
-  void AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, AbortProcessor::AbortableInfo &cleanup_collection);
+  void AbortEntries(AbortProcessor::AbortableInfo &cleanup_collection);
 
   /// @brief Removes edges from the index by GID.
   void RemoveEdges(std::list<Gid> const &deleted_edge_gids) const;
@@ -190,15 +182,16 @@ class VectorEdgeIndex {
   /// @brief Gets all edge types that have vector indices for the given property.
   std::unordered_map<EdgeTypeId, uint64_t> GetIndicesByProperty(PropertyId property) const;
 
-  /// @brief Pops a saved vector from the removed vectors cache (used during abort).
-  utils::small_vector<float> PopRemovedVector(Gid edge_gid, PropertyId property);
-
   /// @brief Serializes all vector edge indices to a durability encoder in one pass.
   void SerializeAllVectorEdgeIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids) const;
 
  private:
   /// @brief Sets up a new vector edge index structure without populating it.
   std::optional<uint64_t> SetupIndex(const VectorEdgeIndexSpec &spec, NameIdMapper *name_id_mapper);
+
+  /// @brief Adds a single edge to the index, converting its property to VectorIndexId.
+  void AddEdgeToIndex(uint64_t index_id, Edge *edge, Vertex *from_vertex, Vertex *to_vertex,
+                      std::optional<std::size_t> thread_id = std::nullopt);
 
   /// @brief Removes an edge from a vector index.
   void RemoveEdgeFromIndex(Edge *edge, Vertex *from_vertex, Vertex *to_vertex, uint64_t index_id);

@@ -185,6 +185,6 @@ void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_in
   active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, start_timestamp);
   active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, start_timestamp);
   indices.vector_index_.AbortEntries(&indices, name_id_mapper, vector_.cleanup_collection);
-  indices.vector_edge_index_.AbortEntries(&indices, name_id_mapper, vector_edge_.cleanup_collection);
+  indices.vector_edge_index_.AbortEntries(vector_edge_.cleanup_collection);
 }
 }  // namespace memgraph::storage

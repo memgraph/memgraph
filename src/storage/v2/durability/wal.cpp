@@ -1261,7 +1261,7 @@ std::optional<RecoveryInfo> LoadWal(
 
         edge->properties.SetProperty(property_id, property_value);
         VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
-            property_id, property_value, &*edge, indices_constraints->indices.vector_edge_indices, name_id_mapper);
+            property_id, property_value, &*edge, indices_constraints->indices.vector_edge_indices);
       },
       [&](WalTransactionStart const &data) {
         should_commit = data.commit.value_or(true);

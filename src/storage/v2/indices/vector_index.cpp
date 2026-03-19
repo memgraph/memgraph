@@ -159,16 +159,9 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
   auto property = vertex.properties.GetProperty(spec.property, decoder);
   if (property.IsNull()) return;
 
-  if (property.IsVectorIndexId()) {
-    // If property is a vector index id already, we add the index id to the list of already stored index ids.
-    property.ValueVectorIndexIds().push_back(index_id);
-  } else {
-    // If property is not a vector index id, we create a new vector index id and set it in the property store.
-    property = PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id},
-                                                              .vector = ListToVector(property)});
-  }
+  auto vector = RegisterIndexId(property, index_id);
   vertex.properties.SetProperty(spec.property, property);
-  UpdateVectorIndex(index_item.mg_index, spec, &vertex, property.ValueVectorIndexList(), thread_id);
+  UpdateVectorIndex(index_item.mg_index, spec, &vertex, vector, thread_id);
 }
 
 bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,
@@ -380,6 +373,7 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
       mg_index.index.export_keys(keys.data(), 0, size);
 
       std::vector<Entry> result;
+      result.reserve(size);
       std::vector<float> buffer(mg_index.index.dimensions());
       for (auto *vertex : keys) {
         if (vertex == nullptr || vertex->deleted()) continue;
@@ -710,17 +704,6 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
 
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, const Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
-  auto is_relevant = [&](const VectorIndexRecoveryInfo &ri) {
-    return ri.spec.property == property && r::contains(vertex->labels, ri.spec.label_id);
-  };
-
-  std::vector<VectorIndexRecoveryInfo *> matching;
-  matching.reserve(recovery_info_vec.size());
-  for (auto &ri : recovery_info_vec) {
-    if (is_relevant(ri)) matching.push_back(&ri);
-  }
-  if (matching.empty()) return;
-
   const auto vector = std::invoke([&]() {
     switch (value.type()) {
       case PropertyValue::Type::VectorIndexId:
@@ -737,8 +720,10 @@ void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const Propert
     }
   });
 
-  for (auto *matching_recovery_info : matching) {
-    matching_recovery_info->index_entries[vertex->gid] = vector;
+  for (auto &ri : recovery_info_vec) {
+    if (ri.spec.property == property && r::contains(vertex->labels, ri.spec.label_id)) {
+      ri.index_entries[vertex->gid] = vector;
+    }
   }
 }
 
