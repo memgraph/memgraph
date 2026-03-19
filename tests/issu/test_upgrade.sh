@@ -204,7 +204,19 @@ cleanup() {
   helm uninstall "$RELEASE" >/dev/null 2>&1 || true
 
   echo -e "${YELLOW}Deleting PVCs in the current namespace...${NC}"
-  kubectl delete pvc --all >/dev/null 2>&1 || true
+  # Avoid blocking forever when PVC protection waits on terminating pods.
+  kubectl delete pod --all --grace-period=0 --force --wait=false >/dev/null 2>&1 || true
+  kubectl delete pvc --all --wait=false >/dev/null 2>&1 || true
+
+  # Best-effort unstick for PVCs left in Terminating due to stale references.
+  stuck_pvcs="$(kubectl get pvc -o jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+  if [[ -n "$stuck_pvcs" ]]; then
+    while IFS= read -r pvc; do
+      [[ -z "$pvc" ]] && continue
+      kubectl patch pvc "$pvc" --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+    done <<< "$stuck_pvcs"
+  fi
+
   kubectl delete storageclass "$SC_NAME" --ignore-not-found >/dev/null 2>&1 || true
 
 
@@ -478,6 +490,9 @@ echo "Deleting pod memgraph-coordinator-1-0 which serves as leader"
 kubectl delete pod memgraph-coordinator-1-0
 wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-coordinator-1-0 passed successfully"
+
+kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
+
 
 # --- Post-upgrade verification ---
 kubectl cp post_upgrade_mg.cypherl  memgraph-data-1-0:/var/lib/memgraph/post_upgrade_mg.cypherl
