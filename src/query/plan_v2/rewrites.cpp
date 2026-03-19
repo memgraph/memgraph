@@ -20,9 +20,9 @@ namespace memgraph::query::plan::v2 {
 using planner::core::pattern::Match;
 using planner::core::pattern::Pattern;
 using planner::core::pattern::PatternVar;
-using planner::core::pattern::Wildcard;
 using planner::core::pattern::dsl::BoundSym;
 using planner::core::pattern::dsl::Var;
+using planner::core::pattern::dsl::Wildcard;
 
 // Rewrite types
 using planner::core::rewrite::Rewriter;
