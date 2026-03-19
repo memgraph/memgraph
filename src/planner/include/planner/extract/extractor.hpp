@@ -82,7 +82,7 @@ using EClassFrontier = std::optional<CostResult>;
 template <typename CostType>
 struct Selection {
   ENodeId enode_id;
-  std::optional<CostType> cost_result;
+  std::optional<CostType> cost;
 };
 
 /// Bottom-up cost propagation. Calls cost_model(enode, enode_id, children) for each enode,
@@ -180,8 +180,8 @@ auto ResolveSelection(EGraph<Symbol, Analysis> const &egraph,
 
 template <typename Symbol, typename Analysis, typename CostResult>
 auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
-                         std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection,
-                         const EClassId root) -> InDegreeMap {
+                         std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection, EClassId root)
+    -> InDegreeMap {
   auto in_degree = std::unordered_map<EClassId, int>{{root, 0}};
   auto bfs = std::vector{root};
   auto visited = std::unordered_set{root};

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cassert>
 #include <concepts>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -97,7 +98,7 @@ struct ParetoFrontier {
   /// Flat-map: for each alternative, produce zero or more new alternatives via a callback,
   /// collect into a new frontier, then prune. This is the general pattern for conditional
   /// transformations (e.g., Bind alive/dead branching).
-  /// @param fn  (Alt const&) -> void, calls `emit(Alt)` to produce output alternatives.
+  /// @param fn  (Alt const&, auto emit) -> void — calls emit(Alt&&) to produce output alternatives.
   template <typename Fn>
   static auto flat_map(ParetoFrontier const &input, Fn &&fn) -> ParetoFrontier {
     auto result = ParetoFrontier{};
@@ -142,6 +143,33 @@ struct ParetoFrontier {
       result = combine(result, frontiers[i], combine_fn);
     }
     return result;
+  }
+};
+
+/// CRTP base for ParetoFrontier types that use min-cost as their resolve/min_cost strategy.
+/// Derived types get resolve(), min_cost(), and convenience constructors for free.
+/// Alt must have `.cost` (double-compatible) and `.enode_id` fields.
+template <typename Derived, typename Alt, typename DominanceFn>
+struct CostResultBase : ParetoFrontier<Alt, DominanceFn> {
+  using Base = ParetoFrontier<Alt, DominanceFn>;
+  using Base::Base;
+
+  CostResultBase() = default;
+
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  CostResultBase(Base base) : Base(std::move(base)) {}
+
+  CostResultBase(std::initializer_list<Alt> init) : Base{std::vector<Alt>(init)} {}
+
+  static auto resolve(Derived const &f) -> decltype(std::declval<Alt const &>().enode_id) {
+    auto it = std::ranges::min_element(f.alts, {}, &Alt::cost);
+    assert(it != f.alts.end() && "resolve called on empty frontier");
+    return it->enode_id;
+  }
+
+  static auto min_cost(Derived const &f) -> decltype(std::declval<Alt const &>().cost) {
+    auto it = std::ranges::min_element(f.alts, {}, &Alt::cost);
+    return it != f.alts.end() ? it->cost : std::numeric_limits<decltype(std::declval<Alt const &>().cost)>::infinity();
   }
 };
 
