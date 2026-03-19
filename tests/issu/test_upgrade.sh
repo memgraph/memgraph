@@ -248,6 +248,14 @@ done
 minikube update-context -p "$PROFILE" >/dev/null 2>&1 || true
 kubectl config use-context "$PROFILE" >/dev/null 2>&1 || true
 
+ensure_minikube_storage_addons() {
+  echo -e "${GREEN}Ensuring Minikube storage addons are enabled...${NC}"
+  minikube addons disable storage-provisioner -p "$PROFILE" || true
+  minikube addons disable default-storageclass -p "$PROFILE" || true
+  minikube addons enable volumesnapshots -p "$PROFILE"
+  minikube addons enable csi-hostpath-driver -p "$PROFILE"
+}
+
 # --- Ensure Minikube with desired nodes ---
 echo -e "${GREEN}Ensuring Minikube cluster '${PROFILE}' with ${DESIRED_NODES} nodes...${NC}"
 
@@ -274,11 +282,10 @@ else
   minikube start -p "$PROFILE" --driver=docker --nodes="$DESIRED_NODES"
   minikube update-context -p "$PROFILE"
   kubectl config use-context "$PROFILE" >/dev/null 2>&1 || true
-  minikube addons disable storage-provisioner
-  minikube addons disable default-storageclass
-  minikube addons enable volumesnapshots
-  minikube addons enable csi-hostpath-driver
 fi
+
+# Always ensure addons even when reusing an existing cluster.
+ensure_minikube_storage_addons
 
 # --- Wait for cluster ready ---
 echo -e "${GREEN}Waiting for cluster to be ready...${NC}"
@@ -364,7 +371,7 @@ helm repo add memgraph https://memgraph.github.io/helm-charts
 
 # --- Helm install ---
 echo -e "${GREEN}Installing Helm chart...${NC}"
-helm install "$RELEASE" memgraph/memgraph-high-availability -f old_values.yaml
+helm install "$RELEASE" memgraph/memgraph-high-availability -f old_values.yaml --timeout 60s
 
 # --- Wait & verify resources ---
 echo -e "${GREEN}Waiting for resources to be created...${NC}"
