@@ -90,6 +90,7 @@ struct PlanCostModel {
       }
 
       // Bind: alive if sym demanded, dead otherwise
+      // N.B. The alive/dead logic here is mirrored in ResolvePlanSelection's Bind branch.
       case symbol::Bind: {
         auto const &input_frontier = children[0];
         auto const &sym_frontier = children[1];
@@ -241,6 +242,7 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
     auto const &children = enode.children();
 
     if (enode.symbol() == symbol::Bind && children.size() == 3) {
+      // N.B. The alive/dead logic here mirrors PlanCostModel::operator() for symbol::Bind.
       auto input_eclass = children[0];
       auto sym_eclass = children[1];
       auto expr_eclass = children[2];

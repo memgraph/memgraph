@@ -152,9 +152,10 @@ auto ComputeFrontiers(
 
   auto merged_frontier = std::optional<CostResult>{};
 
+  auto children_frontiers = std::vector<CostResult>{};
   for (auto const &enode_id : eclass.nodes()) {
     auto const &enode = egraph.get_enode(enode_id);
-    auto children_frontiers = std::vector<CostResult>{};
+    children_frontiers.clear();
     auto has_cyclic_child = false;
     for (auto child : enode.children()) {
       auto frontier = ComputeFrontiers(egraph, cost_model, child, frontier_map);
@@ -170,7 +171,6 @@ auto ComputeFrontiers(
 
     auto enode_frontier = Traits::invoke(cost_model, enode, enode_id, children_frontiers);
 
-    // TODO: monadic, transform + or_else
     if (!merged_frontier) {
       merged_frontier = std::move(enode_frontier);
     } else {
