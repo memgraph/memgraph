@@ -21,7 +21,7 @@ on:
         required: true
         default: amd
       check_flakiness:
-        type: integer
+        type: number
         description: Check for flakiness by running every selected job multiple times. Enter a number between 2 and 20.
         required: false
         default: 1
@@ -48,7 +48,17 @@ jobs:
         id: generate
         shell: bash
         run: |
-          RUN_NO_JSON=$(printf '[%s]\n' "$(seq -s, 1 "${{ inputs.check_flakiness }}")")
+          CHECK_FLAKINESS="${{ inputs.check_flakiness }}"
+          # Validate that check_flakiness is an integer between 2 and 20
+          if ! [[ "$CHECK_FLAKINESS" =~ ^[0-9]+$ ]]; then
+            echo "Error: 'check_flakiness' must be an integer between 2 and 20, but got '$CHECK_FLAKINESS'." >&2
+            exit 1
+          fi
+          if [ "$CHECK_FLAKINESS" -lt 2 ] || [ "$CHECK_FLAKINESS" -gt 20 ]; then
+            echo "Error: 'check_flakiness' must be between 2 and 20 (inclusive), but got '$CHECK_FLAKINESS'." >&2
+            exit 1
+          fi
+          RUN_NO_JSON=$(printf '[%s]\n' "$(seq -s, 1 "$CHECK_FLAKINESS")")
           echo "run_no=${RUN_NO_JSON}" >> "$GITHUB_OUTPUT"
 
   flakiness_test:
