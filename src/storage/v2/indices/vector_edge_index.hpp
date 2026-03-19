@@ -103,14 +103,6 @@ class VectorEdgeIndex {
     Vertex *from_vertex;
     Vertex *to_vertex;
     Edge *edge;
-
-    friend bool operator<(EdgeIndexEntry const &lhs, EdgeIndexEntry const &rhs) {
-      return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex) < std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex);
-    }
-
-    friend bool operator==(EdgeIndexEntry const &lhs, EdgeIndexEntry const &rhs) {
-      return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex) == std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex);
-    }
   };
 
   using VectorSearchEdgeResults = std::vector<std::tuple<EdgeIndexEntry, double, double>>;
@@ -157,7 +149,7 @@ class VectorEdgeIndex {
   void AbortEntries(AbortProcessor::AbortableInfo &cleanup_collection);
 
   /// @brief Removes edges from the index by GID.
-  void RemoveEdges(std::list<Gid> const &deleted_edge_gids) const;
+  void RemoveEdges(std::list<Gid> const &deleted_edge_gids);
 
   /// @brief Returns an abort processor snapshot used during transaction abort.
   AbortProcessor GetAbortProcessor() const;
@@ -172,9 +164,11 @@ class VectorEdgeIndex {
   bool IndexExists(std::string_view index_name) const;
 
   /// @brief Retrieves the vector from an edge index entry.
-  utils::small_vector<float> GetVectorPropertyFromEdgeIndex(Edge *edge, Vertex *from_vertex, Vertex *to_vertex,
-                                                            std::string_view index_name,
+  utils::small_vector<float> GetVectorPropertyFromEdgeIndex(Edge *edge, std::string_view index_name,
                                                             NameIdMapper *name_id_mapper) const;
+
+  /// @brief Looks up the endpoint vertices for an edge in any vector index.
+  std::pair<Vertex *, Vertex *> GetEdgeEndpoints(Edge *edge) const;
 
   /// @brief Gets all properties that have vector indices for the given edge type.
   std::unordered_map<PropertyId, uint64_t> GetIndicesByEdgeType(EdgeTypeId edge_type) const;
@@ -194,23 +188,10 @@ class VectorEdgeIndex {
                       std::optional<std::size_t> thread_id = std::nullopt);
 
   /// @brief Removes an edge from a vector index.
-  void RemoveEdgeFromIndex(Edge *edge, Vertex *from_vertex, Vertex *to_vertex, uint64_t index_id);
+  void RemoveEdgeFromIndex(Edge *edge, uint64_t index_id);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;
 };
 
 }  // namespace memgraph::storage
-
-namespace std {
-template <>
-struct hash<memgraph::storage::VectorEdgeIndex::EdgeIndexEntry> {
-  size_t operator()(const memgraph::storage::VectorEdgeIndex::EdgeIndexEntry &entry) const noexcept {
-    std::size_t seed = 0;
-    boost::hash_combine(seed, entry.from_vertex);
-    boost::hash_combine(seed, entry.to_vertex);
-    boost::hash_combine(seed, entry.edge);
-    return seed;
-  }
-};
-}  // namespace std

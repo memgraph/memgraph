@@ -824,11 +824,7 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       encoder->WriteMarker(Marker::DELTA_VERTEX_SET_PROPERTY);
       encoder->WriteUint(vertex->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
-      // The property value is the value that is currently stored in the
-      // vertex.
-      // TODO (mferencevic): Mitigate the memory allocation introduced here
-      // (with the `GetProperty` call). It is the only memory allocation in the
-      // entire WAL file writing logic.
+      // Use IndexedPropertyDecoder to resolve VectorIndexId vectors from vector index.
       auto property_value = vertex->properties.GetProperty(
           delta.property.key,
           IndexedPropertyDecoder<Vertex>{
@@ -877,28 +873,12 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
       encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
       encoder->WriteUint(edge->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
-      // The property value is the value that is currently stored in the
-      // edge. Use IndexedPropertyDecoder to resolve VectorIndexId vectors from uSearch.
-      {
-        auto *from_vertex = delta.property.out_vertex;
-        Vertex *to_vertex = nullptr;
-        if (from_vertex) {
-          for (const auto &edge_tuple : from_vertex->out_edges) {
-            if (std::get<kEdgeRefPos>(edge_tuple).ptr == edge) {
-              to_vertex = std::get<kVertexPos>(edge_tuple);
-              break;
-            }
-          }
-        }
-        auto property_value =
-            edge->properties.GetProperty(delta.property.key,
-                                         IndexedPropertyDecoder<Edge>{.indices = &storage->indices_,
-                                                                      .name_id_mapper = storage->name_id_mapper_.get(),
-                                                                      .entity = edge,
-                                                                      .from_vertex = from_vertex,
-                                                                      .to_vertex = to_vertex});
-        encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
-      }
+      // Use IndexedPropertyDecoder to resolve VectorIndexId vectors from vector index.
+      auto property_value = edge->properties.GetProperty(
+          delta.property.key,
+          IndexedPropertyDecoder<Edge>{
+              .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = edge});
+      encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
       encoder->WriteUint((*delta.property.out_vertex).gid.AsUint());
       // In-vertex GID for faster replica resolution (need only if edge was not created in this transaction)

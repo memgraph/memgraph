@@ -24,9 +24,6 @@ struct IndexedPropertyDecoder {
   Indices *indices;
   NameIdMapper *name_id_mapper;
   T *entity;
-  // Additional fields for Edge decoder (ignored for Vertex)
-  Vertex *from_vertex = nullptr;
-  Vertex *to_vertex = nullptr;
 
   void DecodeProperty(PropertyValue &value) const {
     switch (value.type()) {
@@ -36,7 +33,7 @@ struct IndexedPropertyDecoder {
               entity, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]), name_id_mapper);
         } else if constexpr (std::is_same_v<T, Edge>) {
           value.ValueVectorIndexList() = indices->vector_edge_index_.GetVectorPropertyFromEdgeIndex(
-              entity, from_vertex, to_vertex, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]), name_id_mapper);
+              entity, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]), name_id_mapper);
         }
         break;
       }

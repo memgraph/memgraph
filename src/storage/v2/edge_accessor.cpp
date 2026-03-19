@@ -202,11 +202,8 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   utils::AtomicMemoryBlock([this, &current_value, &property, &value, skip_duplicate_write, &schema_acc]() {
     current_value.emplace(edge_.ptr->properties.GetProperty(
         property,
-        IndexedPropertyDecoder<Edge>{.indices = &storage_->indices_,
-                                     .name_id_mapper = storage_->name_id_mapper_.get(),
-                                     .entity = edge_.ptr,
-                                     .from_vertex = from_vertex_,
-                                     .to_vertex = to_vertex_}));
+        IndexedPropertyDecoder<Edge>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
     if (skip_duplicate_write && *current_value == value) {
       return;
     }
@@ -417,11 +414,8 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
     deleted = edge_.ptr->deleted();
     value.emplace(edge_.ptr->properties.GetProperty(
         property,
-        IndexedPropertyDecoder<Edge>{.indices = &storage_->indices_,
-                                     .name_id_mapper = storage_->name_id_mapper_.get(),
-                                     .entity = edge_.ptr,
-                                     .from_vertex = from_vertex_,
-                                     .to_vertex = to_vertex_}));
+        IndexedPropertyDecoder<Edge>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
@@ -485,12 +479,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    properties =
-        edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{.indices = &storage_->indices_,
-                                                                      .name_id_mapper = storage_->name_id_mapper_.get(),
-                                                                      .entity = edge_.ptr,
-                                                                      .from_vertex = from_vertex_,
-                                                                      .to_vertex = to_vertex_});
+    properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
@@ -591,11 +581,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   // Decode any VectorIndexId properties to their vector representation
-  auto decoder = IndexedPropertyDecoder<Edge>{.indices = &storage_->indices_,
-                                              .name_id_mapper = storage_->name_id_mapper_.get(),
-                                              .entity = edge_.ptr,
-                                              .from_vertex = from_vertex_,
-                                              .to_vertex = to_vertex_};
+  auto decoder = IndexedPropertyDecoder<Edge>{
+      .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr};
   for (auto &[_, prop_value] : properties_map) {
     decoder.DecodeProperty(prop_value);
   }

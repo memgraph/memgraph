@@ -46,7 +46,7 @@ void Indices::RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &verti
   vector_index_.RemoveVertices(vertices_to_remove);
 }
 
-void Indices::RemoveEdgesFromVectorEdgeIndices(std::list<Gid> const &deleted_edge_gids) const {
+void Indices::RemoveEdgesFromVectorEdgeIndices(std::list<Gid> const &deleted_edge_gids) {
   vector_edge_index_.RemoveEdges(deleted_edge_gids);
 }
 
