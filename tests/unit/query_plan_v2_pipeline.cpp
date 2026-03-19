@@ -504,6 +504,16 @@ INSTANTIATE_TEST_SUITE_P(
             .expected_details = {"Produce {a`1:(1 + 2), b`0:(1 + 2)}", "Once"},
             .min_rewrites = 0,
             .should_saturate = true,
+        },
+        // Shared subexpression with Bind — after inline, Identifier(a) merges with
+        // Add(1,2). The return expression a + (1+2) becomes Add(merged, merged) where
+        // both children are the same eclass. This is a diamond DAG.
+        PipelineTestCase{
+            .name = "SharedSubexprWithBind",
+            .query = "WITH 1 + 2 AS a RETURN a + (1 + 2) AS r;",
+            .expected_details = {"Produce {r`0:((1 + 2) + (1 + 2))}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
         }
     ),
     TestCaseName

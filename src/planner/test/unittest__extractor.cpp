@@ -983,6 +983,46 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
   ASSERT_EQ(extracted[0].second, a_node);
 }
 
+// This test documents a known limitation: ResolveSelection picks min-cost at
+// each eclass independently. In a diamond DAG where a shared eclass has
+// non-dominated alternatives with different required sets, the resolution
+// picks the globally cheapest (which may have unsatisfied demands) for all
+// parents. Context-aware resolution (like ResolvePlanSelection) handles this
+// for Bind nodes, but the generic resolver does not propagate context.
+//
+// The fix would require context-keyed resolution: (EClassId, Context) → Selection
+// instead of just EClassId → Selection. Not needed yet because current query
+// patterns don't produce alive Binds with shared eclasses.
+TEST(Extract_MultiAlt, DISABLED_DiamondDAG_SharedEClassPicksMinCostRegardlessOfFeasibility) {
+  // Diamond DAG: Root(B) → Left(B, {shared}) and Right(B, {shared})
+  // Shared eclass has A alternatives: {cost=1,req={1}} and {cost=2,req={}}
+  // ResolveSelection picks cost=1 (req={1}) for the shared eclass.
+  // If "demand 1" is infeasible for one parent path, the selection is wrong.
+  //
+  // This test is DISABLED because the generic ResolveSelection is context-free
+  // by design. The plan-specific ResolvePlanSelection handles this for Bind nodes.
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [shared_class, shared_node, shared_new] = egraph.emplace(symbol::A);
+  auto [left_class, left_node, left_new] = egraph.emplace(symbol::B, {shared_class}, 1);
+  auto [right_class, right_node, right_new] = egraph.emplace(symbol::B, {shared_class}, 2);
+  auto [root_class, root_node, root_new] = egraph.emplace(symbol::B, {left_class, right_class});
+
+  // DemandAwareMultiAltCostModel: A produces {cost=1,req={1}} and {cost=2,req={}}
+  auto extractor = Extractor{egraph, DemandAwareMultiAltCostModel{}};
+  auto extracted = extractor.Extract(root_class);
+
+  ASSERT_EQ(extracted.size(), 4);
+  // The generic resolver picks min-cost at the shared eclass: {cost=1,req={1}}
+  // This is the "cheapest but demands something" alternative.
+  // If Left needs req={1} satisfied but Right doesn't provide it,
+  // the extraction is inconsistent for Right's subtree.
+  // With context-aware resolution, Right would pick {cost=2,req={}}.
+  auto shared_it = std::ranges::find_if(extracted, [&](auto const &p) { return p.first == shared_class; });
+  ASSERT_NE(shared_it, extracted.end());
+  // Currently picks shared_node (only enode in the eclass)
+  ASSERT_EQ(shared_it->second, shared_node);
+}
+
 TEST(Extract_MultiAlt, CyclicEClass) {
   // Multi-alt should handle cycles the same as single-best: skip cyclic enodes
   auto egraph = EGraph<symbol, analysis>{};
