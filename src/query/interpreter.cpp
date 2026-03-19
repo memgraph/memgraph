@@ -54,6 +54,7 @@
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/common.hpp"
@@ -308,22 +309,6 @@ void Sort(std::vector<TypedValue, K> &vec) {
   std::sort(vec.begin(), vec.end(), [](const TypedValue &lv, const TypedValue &rv) {
     return lv.ValueString() < rv.ValueString();
   });
-}
-
-void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
-  switch (type) {
-    case plan::ReadWriteTypeChecker::RWType::R:
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadQuery);
-      break;
-    case plan::ReadWriteTypeChecker::RWType::W:
-      memgraph::metrics::IncrementCounter(memgraph::metrics::WriteQuery);
-      break;
-    case plan::ReadWriteTypeChecker::RWType::RW:
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadWriteQuery);
-      break;
-    default:
-      break;
-  }
 }
 
 template <typename T>
@@ -2894,7 +2879,8 @@ struct PullPlan {
                     storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr
+                    std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
+                    metrics::DatabaseMetricHandles *metric_handles = nullptr
 #ifdef MG_ENTERPRISE
                     ,
                     std::optional<size_t> parallel_execution = std::nullopt,
@@ -2937,14 +2923,14 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                    TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
                    FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   utils::PriorityThreadPool *worker_pool
+                   utils::PriorityThreadPool *worker_pool, metrics::DatabaseMetricHandles *metric_handles
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
 #endif
                    )
     : plan_(plan),
-      cursor_(plan->plan().MakeCursor(execution_memory)),
+      cursor_(plan->plan().MakeCursor(execution_memory, metric_handles)),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit),
       query_logger_(query_logger)
@@ -3219,6 +3205,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         }
 
         memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions);
+        if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+          h->rollbacked_transactions->Increment();
 
         Abort();
         expect_rollback_ = false;
@@ -3399,9 +3387,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
                                               hops_limit,
-                                              interpreter_context->worker_pool
+                                              interpreter_context->worker_pool,
+                                              (*current_db.db_acc_)->metric_handles()
 #ifdef MG_ENTERPRISE
-                                              ,
+                                                  ,
                                               parallel_execution,
                                               user_resource
 #endif
@@ -3621,9 +3610,10 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         memory_limit,
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
                                         hops_limit,
-                                        interpreter_context->worker_pool
+                                        interpreter_context->worker_pool,
+                                        db_acc->metric_handles()
 #ifdef MG_ENTERPRISE
-                                        ,
+                                            ,
                                         parallel_execution,
                                         user_resource
 #endif
@@ -8166,6 +8156,8 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
+    if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+      h->failed_query->Increment();
     AbortCommand({});
     throw;
   }
@@ -8775,7 +8767,25 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     const auto rw_type = query_execution->prepared_query->rw_type;
     query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
 
-    UpdateTypeCount(rw_type);
+    switch (rw_type) {
+      case plan::ReadWriteTypeChecker::RWType::R:
+        memgraph::metrics::IncrementCounter(memgraph::metrics::ReadQuery);
+        if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+          h->read_query->Increment();
+        break;
+      case plan::ReadWriteTypeChecker::RWType::W:
+        memgraph::metrics::IncrementCounter(memgraph::metrics::WriteQuery);
+        if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+          h->write_query->Increment();
+        break;
+      case plan::ReadWriteTypeChecker::RWType::RW:
+        memgraph::metrics::IncrementCounter(memgraph::metrics::ReadWriteQuery);
+        if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+          h->read_write_query->Increment();
+        break;
+      default:
+        break;
+    }
 
     bool const write_query = IsQueryWrite(rw_type);
     if (write_query) {
@@ -8815,6 +8825,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
+    if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+      h->failed_query->Increment();
     AbortCommand(query_execution_ptr);
     throw;
   }
@@ -9204,9 +9216,11 @@ void Interpreter::Commit() {
         "Cannot commit transaction because the storage mode has changed from in-memory storage to on-disk storage.");
   }
 
-  utils::OnScopeExit update_metrics([]() {
+  auto *metric_handles = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr;
+  utils::OnScopeExit update_metrics([metric_handles]() {
     memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+    if (metric_handles) metric_handles->committed_transactions->Increment();
   });
 
   std::optional<TriggerContext> trigger_context = std::nullopt;

@@ -15,6 +15,7 @@
 #include <bitset>
 #include <ranges>
 #include <tuple>
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -309,12 +310,15 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 
 InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() {
   if (status.IsReady()) {
+    if (gauge_) gauge_->Decrement();
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveUniqueConstraints);
   }
 }
 
-void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp) {
+void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
+  gauge_ = gauge;
+  if (gauge_) gauge_->Increment();
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
 }
 
@@ -546,7 +550,8 @@ bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
                                                   uint64_t commit_timestamp) {
   auto constraint = GetIndividualConstraint(label, properties);
   if (!constraint) return false;
-  constraint->Publish(commit_timestamp);
+  auto *gauge = metric_handles_ ? metric_handles_->active_unique_constraints : nullptr;
+  constraint->Publish(commit_timestamp, gauge);
   return true;
 }
 

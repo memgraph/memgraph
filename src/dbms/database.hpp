@@ -17,7 +17,14 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/event_counter.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/gatekeeper.hpp"
+
+namespace memgraph::metrics {
+class PrometheusMetrics;
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
 
 namespace memgraph::dbms {
 
@@ -42,7 +49,8 @@ class Database {
    * @param database_protector_factory factory function to create database protectors for async operations
    */
   explicit Database(storage::Config config,
-                    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
+                    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
+                    metrics::PrometheusMetrics *prometheus_metrics = nullptr);
 
   /**
    * @brief Returns the raw storage pointer.
@@ -119,6 +127,11 @@ class Database {
   DatabaseInfo GetInfo() const {
     DatabaseInfo info;
     info.storage_info = storage_->GetInfo();
+    if (prometheus_metrics_) {
+      prometheus_metrics_->global.peak_memory_res_bytes->Set(static_cast<double>(info.storage_info.memory_res));
+      info.storage_info.peak_memory_res =
+          static_cast<uint64_t>(prometheus_metrics_->global.peak_memory_res_bytes->Value());
+    }
     info.triggers = trigger_store_.GetTriggerInfo().size();
     info.streams = streams_.GetStreamInfo().size();
     return info;
@@ -181,6 +194,12 @@ class Database {
     storage_->StopAllBackgroundTasks();
   }
 
+  ~Database();
+
+  metrics::DatabaseMetricHandles const *metric_handles() const { return metric_handles_; }
+
+  metrics::DatabaseMetricHandles *metric_handles() { return metric_handles_; }
+
  private:
   std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
@@ -189,6 +208,16 @@ class Database {
 
   // TODO: Move to a better place
   query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
+
+  std::unique_ptr<metrics::Counter[]> counters_storage_;
+  std::unique_ptr<metrics::Histogram[]> histograms_storage_;
+
+  metrics::PrometheusMetrics *prometheus_metrics_{nullptr};
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+
+ public:
+  metrics::EventCounters counters;
+  metrics::EventHistograms histograms;
 };
 
 }  // namespace memgraph::dbms

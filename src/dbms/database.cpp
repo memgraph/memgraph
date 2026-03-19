@@ -11,6 +11,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 
@@ -51,10 +52,16 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
-Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
+Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
+                   metrics::PrometheusMetrics *prometheus_metrics)
     : trigger_store_(config.durability.storage_directory / "triggers"),
       streams_{config.durability.storage_directory / "streams"},
-      plan_cache_{FLAGS_query_plan_cache_max_size} {
+      plan_cache_{FLAGS_query_plan_cache_max_size},
+      counters_storage_{std::make_unique<metrics::Counter[]>(metrics::CounterEnd())},
+      histograms_storage_{std::make_unique<metrics::Histogram[]>(metrics::HistogramEnd())},
+      prometheus_metrics_{prometheus_metrics},
+      counters{counters_storage_.get()},
+      histograms{histograms_storage_.get()} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
@@ -64,6 +71,25 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
         std::make_unique<storage::DiskStorage>(std::move(config), std::move(invalidator), database_protector_factory);
   } else {
     storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
+  }
+
+  if (prometheus_metrics_) {
+    metric_handles_ = prometheus_metrics_->AddDatabase(storage_->name(), [s = storage_.get()] {
+      auto const info = s->GetBaseInfo();
+      return metrics::StorageSnapshot{
+          .vertex_count = info.vertex_count,
+          .edge_count = info.edge_count,
+          .disk_usage = info.disk_usage,
+          .memory_res = info.memory_res,
+      };
+    });
+    storage_->SetMetricHandles(metric_handles_);
+  }
+}
+
+Database::~Database() {
+  if (prometheus_metrics_ && metric_handles_) {
+    prometheus_metrics_->RemoveDatabase(metric_handles_);
   }
 }
 
