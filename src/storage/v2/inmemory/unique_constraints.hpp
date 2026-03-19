@@ -11,6 +11,10 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
 #include <memory>
 #include <optional>
 #include <variant>
@@ -66,10 +70,11 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   // new writes can't happen during this time due to read only access
   struct IndividualConstraint {
     ~IndividualConstraint();
-    void Publish(uint64_t commit_timestamp);
+    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
 
     utils::SkipList<Entry> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
+    prometheus::Gauge *gauge_{nullptr};
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
@@ -126,6 +131,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// Publishes a constraint after validation, making it visible at the given commit timestamp.
   bool PublishConstraint(LabelId label, const std::set<PropertyId> &properties, uint64_t commit_timestamp);
 
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override { metric_handles_ = metric_handles; }
+
   auto DropConstraint(LabelId label, const std::set<PropertyId> &properties) -> DeletionStatus override;
 
   /// Validates the given vertex against unique constraints before committing.
@@ -150,6 +157,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
  private:
   auto GetIndividualConstraint(const LabelId label, const std::set<PropertyId> &properties) const
       -> IndividualConstraintPtr;
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

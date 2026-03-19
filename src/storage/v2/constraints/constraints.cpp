@@ -34,6 +34,12 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode) {
   });
 }
 
+void Constraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  existence_constraints_->SetMetricHandles(metric_handles);
+  unique_constraints_->SetMetricHandles(metric_handles);
+  type_constraints_->SetMetricHandles(metric_handles);
+}
+
 void Constraints::DropGraphClearConstraints() const {
   // DROP GRAPH can only happen for IN_MEMORY so it safe to assume this cast
   static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->DropGraphClearConstraints();
