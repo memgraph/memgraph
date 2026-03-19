@@ -192,7 +192,7 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
 
   auto resolved = std::unordered_map<EClassId, Selection>{};
 
-  // Pick cheapest alt whose required ⊆ provided. Falls back to global min if none compatible.
+  // Pick cheapest alt whose required ⊆ provided.
   auto pick_compatible = [](CostFrontier const &frontier, SymbolSet const &provided) -> Alternative const & {
     Alternative const *best = nullptr;
     for (auto const &alt : frontier.alts) {
@@ -202,9 +202,12 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
         }
       }
     }
-    if (best) return *best;
-    // Fallback: shouldn't happen with correct bottom-up computation
-    return *std::ranges::min_element(frontier.alts, {}, &Alternative::cost);
+    if (!best) {
+      // Fallback: shouldn't happen with correct bottom-up computation
+      best = best_alt(frontier);
+      assert(best && "pick_compatible called on empty frontier");
+    }
+    return *best;
   };
 
   auto resolve_recursive = [&](this auto const &self, EClassId eclass_id, SymbolSet const &provided) -> void {
