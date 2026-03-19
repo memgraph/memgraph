@@ -218,7 +218,8 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
     if (auto existing = resolved.find(eclass_id); existing != resolved.end()) {
       // DAG: this eclass was already resolved from a different parent.
       // Check if the cached selection is compatible with this parent's provided set.
-      if (std::ranges::includes(provided, resolved_required[eclass_id])) return;  // still feasible
+      assert(resolved_required.contains(eclass_id) && "resolved and resolved_required must be written together");
+      if (std::ranges::includes(provided, resolved_required.at(eclass_id))) return;  // still feasible
       // Incompatible: the cached alt demands symbols this parent doesn't provide.
       // Re-resolve with the more restrictive provided set. Children keep their
       // cached selections (they don't depend on the parent's provided for non-Bind nodes).

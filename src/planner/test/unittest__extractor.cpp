@@ -785,63 +785,27 @@ struct TestDominance {
 
 using TestFrontier = ParetoFrontier<TestDemandAlt, TestDominance>;
 
-struct TestDemandCostResult {
-  std::vector<TestDemandAlt> alts;
-
-  auto min_cost() const -> double {
-    const auto it = std::ranges::min_element(alts, {}, &TestDemandAlt::cost);
-    return it != alts.end() ? it->cost : std::numeric_limits<double>::infinity();
-  }
-
-  void prune() {
-    auto const n = alts.size();
-    auto dominated = std::vector<bool>(n, false);
-    for (size_t i = 0; i < n; ++i) {
-      if (dominated[i]) continue;
-      for (size_t j = i + 1; j < n; ++j) {
-        if (dominated[j]) continue;
-        if (alts[i].dominated_by(alts[j])) {
-          dominated[i] = true;
-          break;
-        }
-        if (alts[j].dominated_by(alts[i])) {
-          dominated[j] = true;
-        }
-      }
-    }
-    size_t write = 0;
-    for (size_t read = 0; read < n; ++read) {
-      if (!dominated[read]) {
-        if (write != read) alts[write] = std::move(alts[read]);
-        ++write;
-      }
-    }
-    alts.resize(write);
-  }
-
-  static auto merge(TestDemandCostResult const &a, TestDemandCostResult const &b) -> TestDemandCostResult {
-    auto result = TestDemandCostResult{};
-    result.alts.insert(result.alts.end(), a.alts.begin(), a.alts.end());
-    result.alts.insert(result.alts.end(), b.alts.begin(), b.alts.end());
-    result.prune();
-    return result;
-  }
-};
+auto min_cost(TestFrontier const &f) -> double {
+  auto it = std::ranges::min_element(f.alts, {}, &TestDemandAlt::cost);
+  return it != f.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
+}
 
 // Simple multi-alt cost model: each enode produces a single alternative with cost=1,
 // required={} and the enode_id. This should behave identically to single-best extraction.
 struct SimpleMultiAltCostModel {
-  using cost_model_tag = pareto_frontier_tag;
-  using CostResult = TestDemandCostResult;
+  using CostResult = TestFrontier;
 
   static auto operator()(ENode<symbol> const & /*current*/, ENodeId enode_id, std::span<CostResult const> children)
       -> CostResult {
     auto child_cost =
-        std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &c) { return acc + c.min_cost(); });
+        std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &c) { return acc + min_cost(c); });
     return CostResult{{{.cost = 1.0 + child_cost, .required = {}, .enode_id = enode_id}}};
   }
 
-  static auto min_cost(CostResult const &r) -> double { return r.min_cost(); }
+  static auto min_cost(CostResult const &r) -> double {
+    auto it = std::ranges::min_element(r.alts, {}, &TestDemandAlt::cost);
+    return it != r.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
+  }
 
   static auto resolve(CostResult const &frontier) -> ENodeId {
     return std::ranges::min_element(frontier.alts, {}, &TestDemandAlt::cost)->enode_id;
@@ -852,13 +816,12 @@ struct SimpleMultiAltCostModel {
 // one with empty required (cost=2) and one with required={1} (cost=1).
 // This tests Pareto frontier merging and resolution.
 struct DemandAwareMultiAltCostModel {
-  using cost_model_tag = pareto_frontier_tag;
-  using CostResult = TestDemandCostResult;
+  using CostResult = TestFrontier;
 
   static auto operator()(ENode<symbol> const &current, ENodeId enode_id, std::span<CostResult const> children)
       -> CostResult {
     auto child_cost =
-        std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &c) { return acc + c.min_cost(); });
+        std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &c) { return acc + min_cost(c); });
 
     if (current.symbol() == symbol::A) {
       // A produces two alternatives: cheap-with-demand and expensive-without
@@ -871,7 +834,10 @@ struct DemandAwareMultiAltCostModel {
     return CostResult{{{.cost = 1.0 + child_cost, .required = {}, .enode_id = enode_id}}};
   }
 
-  static auto min_cost(CostResult const &r) -> double { return r.min_cost(); }
+  static auto min_cost(CostResult const &r) -> double {
+    auto it = std::ranges::min_element(r.alts, {}, &TestDemandAlt::cost);
+    return it != r.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
+  }
 
   static auto resolve(CostResult const &frontier) -> ENodeId {
     return std::ranges::min_element(frontier.alts, {}, &TestDemandAlt::cost)->enode_id;
@@ -1098,7 +1064,7 @@ TEST(Extract_MultiAlt, DominatedPruning) {
   ASSERT_TRUE(has_no_demand_alt) << "Expected alternative with cost=2.0, required={}";
 
   // Min cost is 1.0 (the {1}-requiring alternative)
-  ASSERT_DOUBLE_EQ(frontier.min_cost(), 1.0);
+  ASSERT_DOUBLE_EQ(min_cost(frontier), 1.0);
 }
 
 TEST(Extract_MultiAlt, DiamondDAG_WithDemand) {
@@ -1139,12 +1105,12 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
   // We define a custom cost model inline.
   struct ThreeAltCostModel {
     using cost_model_tag = pareto_frontier_tag;
-    using CostResult = TestDemandCostResult;
+    using CostResult = TestFrontier;
 
     static auto operator()(ENode<symbol> const &current, ENodeId enode_id, std::span<CostResult const> children)
         -> CostResult {
       auto child_cost =
-          std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &c) { return acc + c.min_cost(); });
+          std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &c) { return acc + min_cost(c); });
 
       if (current.symbol() == symbol::A) {
         // A produces 3 Pareto-incomparable alternatives:
@@ -1161,7 +1127,10 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
       return CostResult{{{.cost = 1.0 + child_cost, .required = {}, .enode_id = enode_id}}};
     }
 
-    static auto min_cost(CostResult const &r) -> double { return r.min_cost(); }
+    static auto min_cost(CostResult const &r) -> double {
+      auto it = std::ranges::min_element(r.alts, {}, &TestDemandAlt::cost);
+      return it != r.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
+    }
 
     static auto resolve(CostResult const &frontier) -> ENodeId {
       return std::ranges::min_element(frontier.alts, {}, &TestDemandAlt::cost)->enode_id;
@@ -1195,7 +1164,7 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
   ASSERT_TRUE(has_alt_none) << "Expected alternative with cost=3.0, required={}";
 
   // Min cost should be 1.0
-  ASSERT_DOUBLE_EQ(frontier.min_cost(), 1.0);
+  ASSERT_DOUBLE_EQ(min_cost(frontier), 1.0);
 
   // Full extraction should still work and select the min-cost alternative
   auto extractor = Extractor{egraph, ThreeAltCostModel{}};
@@ -1204,31 +1173,18 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
   ASSERT_EQ(extracted[0].second, a_node);
 }
 
-// This test documents a known limitation: ResolveSelection picks min-cost at
-// each eclass independently. In a diamond DAG where a shared eclass has
-// non-dominated alternatives with different required sets, the resolution
-// picks the globally cheapest (which may have unsatisfied demands) for all
-// parents. Context-aware resolution (like ResolvePlanSelection) handles this
-// for Bind nodes, but the generic resolver does not propagate context.
-//
-// The fix would require context-keyed resolution: (EClassId, Context) → Selection
-// instead of just EClassId → Selection. Not needed yet because current query
-// patterns don't produce alive Binds with shared eclasses.
-// Demonstrates the first-visitor-wins DAG resolution bug using a context-aware
-// resolver directly at the extractor level.
+// Demonstrates the DAG resolution fix: when a shared eclass is visited from
+// two parents with different provided sets, the resolver re-resolves on
+// incompatible re-visit rather than using first-visitor-wins caching.
 //
 // Diamond DAG: Root(B) → Left(B, {Shared}), Right(B, {Shared})
 // Shared eclass (symbol A) has two non-dominated alternatives:
 //   {cost=1, req={1}}  — cheap but demands "1"
 //   {cost=2, req={}}   — expensive but no demands
 //
-// A context-aware resolver propagates a "provided" set top-down:
-//   Left provides {1}  → Shared should pick {cost=1, req={1}} (demands satisfied)
-//   Right provides {}   → Shared should pick {cost=2, req={}} (only feasible option)
-//
-// But the shared eclass is visited ONCE (first-visitor-wins caching).
-// Whichever parent visits first locks in the selection. This test shows
-// that the second parent gets a suboptimal or infeasible selection.
+// Left provides {1}, Right provides {}. Without the fix, Left locks in
+// {cost=1, req={1}} and Right gets an infeasible cached result. With the fix,
+// Right's visit triggers re-resolution to {cost=2, req={}} — feasible for all.
 TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [shared_class, shared_node, shared_new] = egraph.emplace(symbol::A);
@@ -1250,8 +1206,7 @@ TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
   auto resolved = std::unordered_map<EClassId, std::pair<ENodeId, double>>{};
   auto resolved_required = std::unordered_map<EClassId, std::set<int>>{};
 
-  auto pick_best_compatible = [](TestDemandCostResult const &frontier,
-                                 std::set<int> const &provided) -> TestDemandAlt const * {
+  auto pick_best_compatible = [](TestFrontier const &frontier, std::set<int> const &provided) -> TestDemandAlt const * {
     TestDemandAlt const *best = nullptr;
     for (auto const &alt : frontier.alts) {
       if (std::ranges::includes(provided, alt.required)) {
