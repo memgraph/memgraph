@@ -491,6 +491,20 @@ INSTANTIATE_TEST_SUITE_P(
             .expected_details = {"Produce {r`0:(-(1 + 2))}", "Once"},
             .min_rewrites = 0,
             .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "UnaryPlus",
+            .query = "RETURN +5 AS r;",
+            .expected_details = {"Produce {r`0:(+5)}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "UnaryPlusOnExpression",
+            .query = "RETURN +(1 + 2) AS r;",
+            .expected_details = {"Produce {r`0:(+(1 + 2))}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
         }
     ),
     TestCaseName
@@ -558,6 +572,42 @@ INSTANTIATE_TEST_SUITE_P(
             .name = "TripleChainedAliases",
             .query = "WITH 1 AS a WITH a AS b WITH b AS c RETURN c;",
             .expected_details = {"Produce {c`2:1}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        }
+    ),
+    TestCaseName
+);
+
+INSTANTIATE_TEST_SUITE_P(
+    InlineWithMiscOperators,
+    PlannerV2PipelineTest,
+    ::testing::Values(
+        PipelineTestCase{
+            .name = "InlineThroughXor",
+            .query = "WITH true AS a RETURN a XOR false AS r;",
+            .expected_details = {"Produce {r`0:(true XOR false)}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "InlineThroughMod",
+            .query = "WITH 7 AS a RETURN a % 3 AS r;",
+            .expected_details = {"Produce {r`0:(7 % 3)}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "InlineThroughExp",
+            .query = "WITH 2 AS a RETURN a ^ 3 AS r;",
+            .expected_details = {"Produce {r`0:(2 ^ 3)}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        PipelineTestCase{
+            .name = "InlineThroughUnaryPlus",
+            .query = "WITH 5 AS a RETURN +a AS r;",
+            .expected_details = {"Produce {r`0:(+5)}", "Once"},
             .min_rewrites = 1,
             .should_saturate = true,
         }
