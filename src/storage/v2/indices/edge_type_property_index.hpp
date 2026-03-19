@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,59 +22,28 @@
 
 namespace memgraph::storage {
 
+struct ActiveIndicesUpdater;
 struct Transaction;
 struct Vertex;
 struct Edge;
 
+struct EdgeTypePropertyIndexActiveIndices;
+struct EdgeTypePropertyIndexAbortProcessor;
+using EdgeTypePropertyIndexAbortableInfo =
+    std::map<std::pair<EdgeTypeId, PropertyId>, std::vector<std::tuple<Vertex *, Vertex *, Edge *, PropertyValue>>>;
+
 class EdgeTypePropertyIndex {
  public:
-  using AbortableInfo =
-      std::map<std::pair<EdgeTypeId, PropertyId>, std::vector<std::tuple<Vertex *, Vertex *, Edge *, PropertyValue>>>;
-
-  struct AbortProcessor {
-    explicit AbortProcessor(std::span<std::pair<EdgeTypeId, PropertyId> const> keys);
-
-    void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
-                                 Edge *edge, PropertyValue value);
-
-    bool IsInteresting(PropertyId id);
-
-    bool IsInteresting(EdgeTypeId edge_type, PropertyId property);
-
-    std::set<PropertyId> interesting_properties_;
-    AbortableInfo cleanup_collection_;
-  };
+  using AbortableInfo = EdgeTypePropertyIndexAbortableInfo;
+  using AbortProcessor = EdgeTypePropertyIndexAbortProcessor;
+  using ActiveIndices = EdgeTypePropertyIndexActiveIndices;
 
   struct IndexStats {
     std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
     std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
   };
 
-  struct ActiveIndices {
-    virtual ~ActiveIndices() = default;
-
-    virtual void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
-                                     PropertyId property, PropertyValue value, uint64_t timestamp) = 0;
-
-    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
-
-    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
-                                          const PropertyValue &value) const = 0;
-
-    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
-                                          const std::optional<utils::Bound<PropertyValue>> &lower,
-                                          const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
-
-    virtual bool IndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
-
-    virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> = 0;
-
-    virtual auto GetAbortProcessor() const -> AbortProcessor = 0;
-
-    virtual void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) = 0;
-  };
-
-  virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
+  virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
 
   EdgeTypePropertyIndex() = default;
 
@@ -85,9 +54,47 @@ class EdgeTypePropertyIndex {
 
   virtual ~EdgeTypePropertyIndex() = default;
 
-  virtual bool DropIndex(EdgeTypeId edge_type, PropertyId property) = 0;
+  virtual bool DropIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater) = 0;
 
   virtual void DropGraphClearIndices() = 0;
+};
+
+struct EdgeTypePropertyIndexAbortProcessor {
+  explicit EdgeTypePropertyIndexAbortProcessor(std::span<std::pair<EdgeTypeId, PropertyId> const> keys);
+
+  void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
+                               Edge *edge, PropertyValue value);
+
+  bool IsInteresting(PropertyId id);
+
+  bool IsInteresting(EdgeTypeId edge_type, PropertyId property);
+
+  std::set<PropertyId> interesting_properties_;
+  EdgeTypePropertyIndexAbortableInfo cleanup_collection_;
+};
+
+struct EdgeTypePropertyIndexActiveIndices {
+  virtual ~EdgeTypePropertyIndexActiveIndices() = default;
+
+  virtual void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
+                                   PropertyId property, PropertyValue value, uint64_t timestamp) = 0;
+
+  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                        const PropertyValue &value) const = 0;
+
+  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                        const std::optional<utils::Bound<PropertyValue>> &lower,
+                                        const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+
+  virtual bool IndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+  virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> = 0;
+
+  virtual auto GetAbortProcessor() const -> EdgeTypePropertyIndexAbortProcessor = 0;
+
+  virtual void AbortEntries(EdgeTypePropertyIndexAbortableInfo const &info, uint64_t start_timestamp) = 0;
 };
 
 }  // namespace memgraph::storage
