@@ -45,7 +45,31 @@ struct AlternativeDominance {
   auto operator()(Alternative const &a, Alternative const &b) const -> bool { return a.dominated_by(b); }
 };
 
-using CostFrontier = planner::core::extract::ParetoFrontier<Alternative, AlternativeDominance>;
+/// CostFrontier: ParetoFrontier with resolve/min_cost for the extraction contract.
+/// merge is inherited from ParetoFrontier (union + prune).
+struct CostFrontier : planner::core::extract::ParetoFrontier<Alternative, AlternativeDominance> {
+  using Base = planner::core::extract::ParetoFrontier<Alternative, AlternativeDominance>;
+  using Base::Base;
+
+  CostFrontier() = default;
+
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  CostFrontier(Base base) : Base(std::move(base)) {}
+
+  // Allow initializer_list construction: CostFrontier{{{alt1}, {alt2}}}
+  CostFrontier(std::initializer_list<Alternative> init) : Base{std::vector<Alternative>(init)} {}
+
+  static auto resolve(CostFrontier const &f) -> planner::core::ENodeId {
+    auto it = std::ranges::min_element(f.alts, {}, &Alternative::cost);
+    assert(it != f.alts.end() && "resolve called on empty frontier");
+    return it->enode_id;
+  }
+
+  static auto min_cost(CostFrontier const &f) -> double {
+    auto it = std::ranges::min_element(f.alts, {}, &Alternative::cost);
+    return it != f.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
+  }
+};
 
 // Convenience: combine two frontiers with cost summation and required-set union.
 auto CombineAlts(double extra_cost, planner::core::ENodeId enode_id) {
@@ -56,20 +80,7 @@ auto CombineAlts(double extra_cost, planner::core::ENodeId enode_id) {
   };
 }
 
-/// Find the cheapest alternative in a frontier. Returns nullptr if empty.
-[[nodiscard]] auto best_alt(CostFrontier const &f) -> Alternative const * {
-  auto it = std::ranges::min_element(f.alts, {}, &Alternative::cost);
-  return it != f.alts.end() ? &*it : nullptr;
-}
-
-[[nodiscard]] auto min_cost(CostFrontier const &f) -> double {
-  auto const *alt = best_alt(f);
-  return alt ? alt->cost : std::numeric_limits<double>::infinity();
-}
-
 struct PlanCostModel {
-  // Tag auto-detected: CostResult is a ParetoFrontier → pareto_frontier_tag
-  // merge auto-provided: ParetoFrontier::merge (union + prune)
   using CostResult = CostFrontier;
 
   auto operator()(planner::core::ENode<symbol> const &current, planner::core::ENodeId enode_id,
@@ -85,7 +96,7 @@ struct PlanCostModel {
       // Identifier: demands its symbol child to be bound
       case symbol::Identifier: {
         auto sym_eclass = current.children()[0];
-        auto child_cost = children.empty() ? 0.0 : min_cost(children[0]);
+        auto child_cost = children.empty() ? 0.0 : CostFrontier::min_cost(children[0]);
         return CostResult{{{.cost = 1.0 + child_cost, .required = {sym_eclass}, .enode_id = enode_id}}};
       }
 
@@ -96,7 +107,7 @@ struct PlanCostModel {
         auto const &sym_frontier = children[1];
         auto const &expr_frontier = children[2];
         auto sym_eclass = current.children()[1];
-        auto sym_cost = min_cost(sym_frontier);
+        auto sym_cost = CostFrontier::min_cost(sym_frontier);
 
         return CostFrontier::flat_map(input_frontier, [&](auto const &input_alt, auto emit) {
           if (input_alt.required.contains(sym_eclass)) {
@@ -162,14 +173,6 @@ struct PlanCostModel {
     }
     __builtin_unreachable();
   }
-
-  static auto min_cost(CostResult const &f) -> double { return ::memgraph::query::plan::v2::min_cost(f); }
-
-  static auto resolve(CostResult const &frontier) -> planner::core::ENodeId {
-    auto const *alt = best_alt(frontier);
-    assert(alt && "resolve called on empty frontier");
-    return alt->enode_id;
-  }
 };
 
 /// Context-aware top-down resolution of demand frontiers.
@@ -179,9 +182,8 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
                           std::unordered_map<planner::core::EClassId,
                                              planner::core::extract::EClassFrontier<CostFrontier>> const &frontier_map,
                           planner::core::EClassId root) {
-  using Traits = planner::core::extract::CostModelTraits<PlanCostModel>;
   using EClassId = planner::core::EClassId;
-  using Selection = planner::core::extract::Selection<Traits::CostType>;
+  using Selection = planner::core::extract::Selection<double>;
 
   auto resolved = std::unordered_map<EClassId, Selection>{};
   // Track the required set of each resolved eclass for DAG compatibility checks.
@@ -199,8 +201,9 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
     }
     if (!best) {
       // Fallback: shouldn't happen with correct bottom-up computation
-      best = best_alt(frontier);
-      assert(best && "pick_compatible called on empty frontier");
+      auto it = std::ranges::min_element(frontier.alts, {}, &Alternative::cost);
+      assert(it != frontier.alts.end() && "pick_compatible called on empty frontier");
+      best = &*it;
     }
     return *best;
   };
@@ -251,7 +254,7 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
 
       auto sym_it = frontier_map.find(sym_eclass);
       assert(sym_it != frontier_map.end() && sym_it->second.has_value());
-      auto sym_cost = min_cost(*sym_it->second);
+      auto sym_cost = CostFrontier::min_cost(*sym_it->second);
 
       auto expr_it = frontier_map.find(expr_eclass);
       assert(expr_it != frontier_map.end() && expr_it->second.has_value());
@@ -568,7 +571,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   /// STAGE: Multi-alt extraction from EGraph using PlanCostModel
   auto const true_root = internal::to_core_id(root);
   namespace extract = planner::core::extract;
-  auto frontier_map = std::unordered_map<planner::core::EClassId, extract::EClassFrontier<PlanCostModel::CostResult>>{};
+  auto frontier_map = std::unordered_map<planner::core::EClassId, extract::EClassFrontier<CostFrontier>>{};
   extract::ComputeFrontiers(impl.egraph_, PlanCostModel{}, true_root, frontier_map);
   auto resolved = ResolvePlanSelection(impl.egraph_, frontier_map, true_root);
   auto in_degree = extract::CollectDependencies(impl.egraph_, resolved, true_root);

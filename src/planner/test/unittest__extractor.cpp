@@ -37,23 +37,29 @@ auto Add(EGraph &egraph, EClassId left, EClassId right) {
   return egraph.emplace(symbol::ADD, {left, right});
 }
 
-// Simple cost models — CostModelTraits provides merge/resolve/min_cost defaults.
+// Simple cost models using DefaultCostResult<double>.
+// All models use the unified signature: (enode, enode_id, span<CostResult>) -> CostResult.
 struct UniformCostModel {
-  using CostResult = double;
+  using CostResult = DefaultCostResult<double>;
 
-  static auto operator()(ENode<symbol> const & /*current*/, std::span<CostResult const> children) -> CostResult {
-    return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+  static auto operator()(ENode<symbol> const & /*current*/, ENodeId enode_id, std::span<CostResult const> children)
+      -> CostResult {
+    auto child_sum = std::ranges::fold_left(
+        children, 0.0, [](double acc, CostResult const &c) { return acc + CostResult::min_cost(c); });
+    return CostResult{1.0 + child_sum, enode_id};
   }
 };
 
 struct SymbolCostModel {
-  using CostResult = double;
+  using CostResult = DefaultCostResult<double>;
   double a_cost;
   double b_cost;
 
-  auto operator()(ENode<symbol> const &current, std::span<CostResult const> children) const -> CostResult {
-    return (current.symbol() == symbol::A ? a_cost : b_cost) +
-           std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
+  auto operator()(ENode<symbol> const &current, ENodeId enode_id, std::span<CostResult const> children) const
+      -> CostResult {
+    auto child_sum = std::ranges::fold_left(
+        children, 0.0, [](double acc, CostResult const &c) { return acc + CostResult::min_cost(c); });
+    return CostResult{(current.symbol() == symbol::A ? a_cost : b_cost) + child_sum, enode_id};
   }
 };
 
@@ -85,35 +91,43 @@ TEST(Extract_Basic, CheapestRootSelected) {
 // Extract_Cost Tests
 // ========================================
 
-// Helper: for tests using CostResult=double, the traits CostResult is DefaultCostResult<double>.
-// These accessors keep test assertions readable.
+// Helper: wraps a simple (ENode -> double) cost function into a cost model.
+template <typename Fn>
+struct SimpleCostModel {
+  using CostResult = DefaultCostResult<double>;
+  Fn fn;
+
+  auto operator()(ENode<symbol> const &enode, ENodeId enode_id, std::span<CostResult const> children) const
+      -> CostResult {
+    auto child_sum = std::ranges::fold_left(
+        children, 0.0, [](double acc, CostResult const &c) { return acc + CostResult::min_cost(c); });
+    return CostResult{fn(enode) + child_sum, enode_id};
+  }
+};
+
+// Helper: keep test assertions readable.
 template <typename CostModel>
-using FrontierMap = std::unordered_map<EClassId, EClassFrontier<typename CostModelTraits<CostModel>::CostResult>>;
+using FrontierMap = std::unordered_map<EClassId, EClassFrontier<typename CostModel::CostResult>>;
 
 template <typename CostModel>
 auto frontier_cost(FrontierMap<CostModel> const &m, EClassId id) {
-  return CostModelTraits<CostModel>::min_cost(*m.at(id));
+  return CostModel::CostResult::min_cost(*m.at(id));
 }
 
 template <typename CostModel>
 auto frontier_enode(FrontierMap<CostModel> const &m, EClassId id) {
-  return CostModelTraits<CostModel>::resolve(*m.at(id));
+  return CostModel::CostResult::resolve(*m.at(id));
 }
 
 TEST(Extract_Cost, SingleLeafNode) {
-  struct CostModel {
-    using CostResult = double;
-
-    static auto operator()(ENode<symbol> const & /* current */, std::span<CostResult const> children) -> CostResult {
-      return 5.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
-    }
-  };
+  auto cost_model = SimpleCostModel{[](ENode<symbol> const &) { return 5.0; }};
+  using CostModel = decltype(cost_model);
 
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
 
   FrontierMap<CostModel> frontiers;
-  auto cost = ComputeFrontiers(egraph, CostModel{}, leaf_class, frontiers);
+  auto cost = ComputeFrontiers(egraph, cost_model, leaf_class, frontiers);
 
   ASSERT_TRUE(cost.has_value());
   ASSERT_EQ(cost->cost, 5.0);
@@ -123,13 +137,8 @@ TEST(Extract_Cost, SingleLeafNode) {
 }
 
 TEST(Extract_Cost, SimpleTree) {
-  struct CostModel {
-    using CostResult = double;
-
-    static auto operator()(ENode<symbol> const & /*current*/, std::span<CostResult const> children) -> CostResult {
-      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
-    }
-  };
+  auto cost_model = SimpleCostModel{[](ENode<symbol> const &) { return 1.0; }};
+  using CostModel = decltype(cost_model);
 
   auto egraph = EGraph<symbol, analysis>{};
   auto [left_class, left_node, left_new] = egraph.emplace(symbol::A);
@@ -137,7 +146,7 @@ TEST(Extract_Cost, SimpleTree) {
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
   FrontierMap<CostModel> frontiers;
-  auto cost = ComputeFrontiers(egraph, CostModel{}, root_class, frontiers);
+  auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
   // Cost should be: 1 (root) + 1 (left) + 1 (right) = 3
   ASSERT_TRUE(cost.has_value());
@@ -146,13 +155,8 @@ TEST(Extract_Cost, SimpleTree) {
 }
 
 TEST(Extract_Cost, DeepTree) {
-  struct CostModel {
-    using CostResult = double;
-
-    static auto operator()(ENode<symbol> const & /*current*/, std::span<CostResult const> children) -> CostResult {
-      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
-    }
-  };
+  auto cost_model = SimpleCostModel{[](ENode<symbol> const &) { return 1.0; }};
+  using CostModel = decltype(cost_model);
 
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::A);
@@ -160,7 +164,7 @@ TEST(Extract_Cost, DeepTree) {
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {mid_class});
 
   FrontierMap<CostModel> frontiers;
-  auto cost = ComputeFrontiers(egraph, CostModel{}, root_class, frontiers);
+  auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
   // Cost should be: 1 (root) + 1 (mid) + 1 (leaf) = 3
   ASSERT_TRUE(cost.has_value());
@@ -169,13 +173,8 @@ TEST(Extract_Cost, DeepTree) {
 }
 
 TEST(Extract_Cost, DiamondDAGSharedNode) {
-  struct CostModel {
-    using CostResult = double;
-
-    static auto operator()(ENode<symbol> const & /*current*/, std::span<CostResult const> children) -> CostResult {
-      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
-    }
-  };
+  auto cost_model = SimpleCostModel{[](ENode<symbol> const &) { return 1.0; }};
+  using CostModel = decltype(cost_model);
 
   auto egraph = EGraph<symbol, analysis>{};
   auto [shared_class, shared_node, shared_new] = egraph.emplace(symbol::A);
@@ -184,7 +183,7 @@ TEST(Extract_Cost, DiamondDAGSharedNode) {
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::A, {left_class, right_class});
 
   FrontierMap<CostModel> frontiers;
-  auto cost = ComputeFrontiers(egraph, CostModel{}, root_class, frontiers);
+  auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
   // Shared node should only be computed once via memoization
   // Cost: root=1 + (left=1+shared=1) + (right=1+shared=1) = 1+2+2 = 5
@@ -198,14 +197,8 @@ TEST(Extract_Cost, DiamondDAGSharedNode) {
 }
 
 TEST(Extract_Cost, VariableCostBySymbol) {
-  struct CostModel {
-    using CostResult = double;
-
-    static auto operator()(ENode<symbol> const &current, std::span<CostResult const> children) -> CostResult {
-      return (current.symbol() == symbol::A ? 2.0 : 5.0) +
-             std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
-    }
-  };
+  auto cost_model = SimpleCostModel{[](ENode<symbol> const &e) { return e.symbol() == symbol::A ? 2.0 : 5.0; }};
+  using CostModel = decltype(cost_model);
 
   auto egraph = EGraph<symbol, analysis>{};
   auto [aclass, anode, a_new] = egraph.emplace(symbol::A);
@@ -213,8 +206,8 @@ TEST(Extract_Cost, VariableCostBySymbol) {
 
   FrontierMap<CostModel> frontiers;
 
-  auto cost_a = ComputeFrontiers(egraph, CostModel{}, aclass, frontiers);
-  auto cost_b = ComputeFrontiers(egraph, CostModel{}, bclass, frontiers);
+  auto cost_a = ComputeFrontiers(egraph, cost_model, aclass, frontiers);
+  auto cost_b = ComputeFrontiers(egraph, cost_model, bclass, frontiers);
 
   ASSERT_TRUE(cost_a.has_value());
   ASSERT_TRUE(cost_b.has_value());
@@ -223,14 +216,8 @@ TEST(Extract_Cost, VariableCostBySymbol) {
 }
 
 TEST(Extract_Cost, SelectsCheapestAmongEquivalents) {
-  struct CostModel {
-    using CostResult = double;
-
-    static auto operator()(ENode<symbol> const &current, std::span<CostResult const> children) -> CostResult {
-      return (current.symbol() == symbol::A ? 1.0 : 10.0) +
-             std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
-    }
-  };
+  auto cost_model = SimpleCostModel{[](ENode<symbol> const &e) { return e.symbol() == symbol::A ? 1.0 : 10.0; }};
+  using CostModel = decltype(cost_model);
 
   auto egraph = EGraph<symbol, analysis>{};
   auto [aclass, anode, a_new] = egraph.emplace(symbol::A);
@@ -241,7 +228,7 @@ TEST(Extract_Cost, SelectsCheapestAmongEquivalents) {
 
   FrontierMap<CostModel> frontiers;
 
-  auto cost = ComputeFrontiers(egraph, CostModel{}, root, frontiers);
+  auto cost = ComputeFrontiers(egraph, cost_model, root, frontiers);
 
   ASSERT_TRUE(cost.has_value());
   ASSERT_EQ(cost->cost, 1.0);
@@ -250,14 +237,8 @@ TEST(Extract_Cost, SelectsCheapestAmongEquivalents) {
 }
 
 TEST(Extract_Cost, CostAccumulationWithVariableCosts) {
-  struct CostModel {
-    using CostResult = double;
-
-    static auto operator()(ENode<symbol> const &current, std::span<CostResult const> children) -> CostResult {
-      return (current.symbol() == symbol::A ? 2.0 : 3.0) +
-             std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
-    }
-  };
+  auto cost_model = SimpleCostModel{[](ENode<symbol> const &e) { return e.symbol() == symbol::A ? 2.0 : 3.0; }};
+  using CostModel = decltype(cost_model);
 
   auto egraph = EGraph<symbol, analysis>{};
   auto [leaf1_class, leaf1_node, leaf1_new] = egraph.emplace(symbol::A);
@@ -266,7 +247,7 @@ TEST(Extract_Cost, CostAccumulationWithVariableCosts) {
 
   FrontierMap<CostModel> frontiers;
 
-  auto cost = ComputeFrontiers(egraph, CostModel{}, root_class, frontiers);
+  auto cost = ComputeFrontiers(egraph, cost_model, root_class, frontiers);
 
   // Cost: 2 (root, symbol A) + 2 (leaf1, symbol A) + 3 (leaf2, symbol B) = 7
   ASSERT_TRUE(cost.has_value());
@@ -281,13 +262,8 @@ TEST(Extract_Cost, CyclicEGraphInfiniteCost) {
   // The 'ADD' node can't be the cheapest because it depends on itself
   // If all e-nodes in the e-class are cyclic, the cost should be infinite
 
-  struct CostModel {
-    using CostResult = double;
-
-    static auto operator()(ENode<symbol> const & /* current */, std::span<CostResult const> children) -> CostResult {
-      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
-    }
-  };
+  auto cost_model = SimpleCostModel{[](ENode<symbol> const &) { return 1.0; }};
+  using CostModel = decltype(cost_model);
 
   auto egraph = EGraph<symbol, analysis>{};
 
@@ -308,7 +284,7 @@ TEST(Extract_Cost, CyclicEGraphInfiniteCost) {
   FrontierMap<CostModel> frontiers;
 
   // Process the cyclic e-class
-  auto cost = ComputeFrontiers(egraph, CostModel{}, cyclic_class, frontiers);
+  auto cost = ComputeFrontiers(egraph, cost_model, cyclic_class, frontiers);
 
   // The cyclic 'ADD' node should have infinite cost (or very large)
   // The non-cyclic LITERAL node should be selected with cost 1
@@ -326,13 +302,8 @@ TEST(Extract_Cost, CyclicEGraphInfiniteCostComplex) {
   // The 'ADD' node can't be the cheapest because it depends on itself
   // If all e-nodes in the e-class are cyclic, the cost should be infinite
 
-  struct CostModel {
-    using CostResult = double;
-
-    static auto operator()(ENode<symbol> const & /* current */, std::span<CostResult const> children) -> CostResult {
-      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
-    }
-  };
+  auto cost_model = SimpleCostModel{[](ENode<symbol> const &) { return 1.0; }};
+  using CostModel = decltype(cost_model);
 
   auto egraph = EGraph<symbol, analysis>{};
 
@@ -355,7 +326,7 @@ TEST(Extract_Cost, CyclicEGraphInfiniteCostComplex) {
   FrontierMap<CostModel> frontiers;
 
   // Process the cyclic e-class
-  auto cost = ComputeFrontiers(egraph, CostModel{}, merged_class, frontiers);
+  auto cost = ComputeFrontiers(egraph, cost_model, merged_class, frontiers);
 
   // The cyclic 'ADD' node should have infinite cost (or very large)
   // The non-cyclic LITERAL node should be selected with cost 1
@@ -376,13 +347,8 @@ TEST(Extract_Cost, FullyCyclicEClassInfiniteCost) {
   // Both ADD nodes reference the e-class they're in, creating unavoidable
   // cycles
 
-  struct CostModel {
-    using CostResult = double;
-
-    static auto operator()(ENode<symbol> const & /* current */, std::span<CostResult const> children) -> CostResult {
-      return 1.0 + std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &val) { return acc + val; });
-    }
-  };
+  auto cost_model = SimpleCostModel{[](ENode<symbol> const &) { return 1.0; }};
+  using CostModel = decltype(cost_model);
 
   auto egraph = EGraph<symbol, analysis>{};
 
@@ -410,7 +376,7 @@ TEST(Extract_Cost, FullyCyclicEClassInfiniteCost) {
   // This should either:
   // 1. Return infinity/max double if all nodes are cyclic
   // 2. Select the original X node if it still exists in the e-class
-  auto cost = ComputeFrontiers(egraph, CostModel{}, fully_cyclic, frontiers);
+  auto cost = ComputeFrontiers(egraph, cost_model, fully_cyclic, frontiers);
 
   // After merges, the original x_node should still be selectable
   // It has cost 1 (no children), while the 'ADD' nodes have infinite cost
@@ -783,76 +749,61 @@ struct TestDominance {
   auto operator()(TestDemandAlt const &a, TestDemandAlt const &b) const -> bool { return a.dominated_by(b); }
 };
 
-using TestFrontier = ParetoFrontier<TestDemandAlt, TestDominance>;
+/// TestFrontier: ParetoFrontier with resolve/min_cost for the extraction contract.
+struct TestFrontier : ParetoFrontier<TestDemandAlt, TestDominance> {
+  using Base = ParetoFrontier<TestDemandAlt, TestDominance>;
+  using Base::Base;
 
-auto min_cost(TestFrontier const &f) -> double {
-  auto it = std::ranges::min_element(f.alts, {}, &TestDemandAlt::cost);
-  return it != f.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
-}
+  TestFrontier() = default;
+
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  TestFrontier(Base base) : Base(std::move(base)) {}
+
+  TestFrontier(std::initializer_list<TestDemandAlt> init) : Base{std::vector<TestDemandAlt>(init)} {}
+
+  static auto resolve(TestFrontier const &f) -> ENodeId {
+    auto it = std::ranges::min_element(f.alts, {}, &TestDemandAlt::cost);
+    assert(it != f.alts.end());
+    return it->enode_id;
+  }
+
+  static auto min_cost(TestFrontier const &f) -> double {
+    auto it = std::ranges::min_element(f.alts, {}, &TestDemandAlt::cost);
+    return it != f.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
+  }
+};
 
 // Simple multi-alt cost model: each enode produces a single alternative with cost=1,
 // required={} and the enode_id. This should behave identically to single-best extraction.
+// resolve/min_cost live on TestFrontier (the CostResult type).
+// These models only need to provide operator().
 struct SimpleMultiAltCostModel {
   using CostResult = TestFrontier;
 
   static auto operator()(ENode<symbol> const & /*current*/, ENodeId enode_id, std::span<CostResult const> children)
       -> CostResult {
-    auto child_cost =
-        std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &c) { return acc + min_cost(c); });
+    auto child_cost = std::ranges::fold_left(
+        children, 0.0, [](double acc, CostResult const &c) { return acc + CostResult::min_cost(c); });
     return CostResult{{{.cost = 1.0 + child_cost, .required = {}, .enode_id = enode_id}}};
-  }
-
-  static auto min_cost(CostResult const &r) -> double {
-    auto it = std::ranges::min_element(r.alts, {}, &TestDemandAlt::cost);
-    return it != r.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
-  }
-
-  static auto resolve(CostResult const &frontier) -> ENodeId {
-    return std::ranges::min_element(frontier.alts, {}, &TestDemandAlt::cost)->enode_id;
   }
 };
 
-// Multi-alt cost model where symbol A produces two alternatives:
-// one with empty required (cost=2) and one with required={1} (cost=1).
-// This tests Pareto frontier merging and resolution.
 struct DemandAwareMultiAltCostModel {
   using CostResult = TestFrontier;
 
   static auto operator()(ENode<symbol> const &current, ENodeId enode_id, std::span<CostResult const> children)
       -> CostResult {
-    auto child_cost =
-        std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &c) { return acc + min_cost(c); });
-
+    auto child_cost = std::ranges::fold_left(
+        children, 0.0, [](double acc, CostResult const &c) { return acc + CostResult::min_cost(c); });
     if (current.symbol() == symbol::A) {
-      // A produces two alternatives: cheap-with-demand and expensive-without
       return CostResult{{
           {.cost = 1.0 + child_cost, .required = {1}, .enode_id = enode_id},
           {.cost = 2.0 + child_cost, .required = {}, .enode_id = enode_id},
       }};
     }
-    // Other symbols: single alternative, no demand
     return CostResult{{{.cost = 1.0 + child_cost, .required = {}, .enode_id = enode_id}}};
   }
-
-  static auto min_cost(CostResult const &r) -> double {
-    auto it = std::ranges::min_element(r.alts, {}, &TestDemandAlt::cost);
-    return it != r.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
-  }
-
-  static auto resolve(CostResult const &frontier) -> ENodeId {
-    return std::ranges::min_element(frontier.alts, {}, &TestDemandAlt::cost)->enode_id;
-  }
 };
-
-// Verify tag classification and concept satisfaction
-static_assert(std::is_same_v<cost_model_tag_t<SimpleMultiAltCostModel>, pareto_frontier_tag>);
-static_assert(std::is_same_v<cost_model_tag_t<DemandAwareMultiAltCostModel>, pareto_frontier_tag>);
-static_assert(std::is_same_v<cost_model_tag_t<UniformCostModel>, single_best_tag>);
-static_assert(std::is_same_v<cost_model_tag_t<SymbolCostModel>, single_best_tag>);
-static_assert(ParetoCostModel<SimpleMultiAltCostModel>);
-static_assert(ParetoCostModel<DemandAwareMultiAltCostModel>);
-static_assert(!ParetoCostModel<UniformCostModel>);
-static_assert(!ParetoCostModel<SymbolCostModel>);
 
 }  // namespace
 
@@ -861,13 +812,13 @@ static_assert(!ParetoCostModel<SymbolCostModel>);
 // ========================================
 
 TEST(ParetoFrontier_Prune, EmptyFrontier) {
-  auto frontier = TestFrontier{.alts = {}};
+  auto frontier = TestFrontier{};
   frontier.prune();
   ASSERT_TRUE(frontier.alts.empty());
 }
 
 TEST(ParetoFrontier_Prune, SingleElement) {
-  auto frontier = TestFrontier{.alts = {{.cost = 5.0, .required = {1}, .enode_id = ENodeId{0}}}};
+  auto frontier = TestFrontier{{{.cost = 5.0, .required = {1}, .enode_id = ENodeId{0}}}};
   frontier.prune();
   ASSERT_EQ(frontier.alts.size(), 1);
   ASSERT_EQ(frontier.alts[0].cost, 5.0);
@@ -875,11 +826,11 @@ TEST(ParetoFrontier_Prune, SingleElement) {
 
 TEST(ParetoFrontier_Prune, NoneDominated) {
   // Three Pareto-incomparable alts: lower cost always requires more demands.
-  auto frontier = TestFrontier{.alts = {
-                                   {.cost = 1.0, .required = {1, 2}, .enode_id = ENodeId{0}},  // cheapest, most demands
-                                   {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // medium
-                                   {.cost = 3.0, .required = {}, .enode_id = ENodeId{2}},      // expensive, no demands
-                               }};
+  auto frontier = TestFrontier{{
+      {.cost = 1.0, .required = {1, 2}, .enode_id = ENodeId{0}},  // cheapest, most demands
+      {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // medium
+      {.cost = 3.0, .required = {}, .enode_id = ENodeId{2}},      // expensive, no demands
+  }};
   frontier.prune();
   ASSERT_EQ(frontier.alts.size(), 3) << "All three Pareto-incomparable alts should survive";
 }
@@ -889,11 +840,11 @@ TEST(ParetoFrontier_Prune, AllDominatedByOne) {
   // dominated_by checks: other.cost <= cost && required ⊇ other.required
   // A.dominated_by(B): B.cost=1 <= 2 && {1} ⊇ {} → true
   // C.dominated_by(B): B.cost=1 <= 3 && {2} ⊇ {} → true
-  auto frontier = TestFrontier{.alts = {
-                                   {.cost = 2.0, .required = {1}, .enode_id = ENodeId{0}},  // A: dominated by B
-                                   {.cost = 1.0, .required = {}, .enode_id = ENodeId{1}},   // B: dominator
-                                   {.cost = 3.0, .required = {2}, .enode_id = ENodeId{2}},  // C: dominated by B
-                               }};
+  auto frontier = TestFrontier{{
+      {.cost = 2.0, .required = {1}, .enode_id = ENodeId{0}},  // A: dominated by B
+      {.cost = 1.0, .required = {}, .enode_id = ENodeId{1}},   // B: dominator
+      {.cost = 3.0, .required = {2}, .enode_id = ENodeId{2}},  // C: dominated by B
+  }};
   frontier.prune();
   ASSERT_EQ(frontier.alts.size(), 1);
   ASSERT_EQ(frontier.alts[0].enode_id, ENodeId{1}) << "Only the dominator (B) should survive";
@@ -907,10 +858,10 @@ TEST(ParetoFrontier_Prune, DuplicateAlternatives) {
   // In the prune algorithm, whichever is tested first as "i" will dominate the other
   // via the j-loop. The first alt (lower index) marks the second as dominated.
   // Result: only the first alt (by input order) survives.
-  auto frontier = TestFrontier{.alts = {
-                                   {.cost = 2.0, .required = {1}, .enode_id = ENodeId{0}},
-                                   {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},
-                               }};
+  auto frontier = TestFrontier{{
+      {.cost = 2.0, .required = {1}, .enode_id = ENodeId{0}},
+      {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},
+  }};
   frontier.prune();
   // When both dominate each other, the algorithm processes i=0 first:
   //   j=1: DominanceFn(alts[0], alts[1]) → true (0 dominated by 1) → mark 0, break
@@ -933,11 +884,11 @@ TEST(ParetoFrontier_Prune, TransitiveDominance) {
   //                        — A dominates C: 1<=3 && {1,2}⊇{} → true (transitivity)
   // The break optimization: when i=1 (B) is checked, it gets marked dominated by i=0 (A)
   // in the i=0 loop, so B is skipped. C is also marked dominated in the i=0 loop.
-  auto frontier = TestFrontier{.alts = {
-                                   {.cost = 1.0, .required = {}, .enode_id = ENodeId{0}},      // A
-                                   {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // B
-                                   {.cost = 3.0, .required = {1, 2}, .enode_id = ENodeId{2}},  // C
-                               }};
+  auto frontier = TestFrontier{{
+      {.cost = 1.0, .required = {}, .enode_id = ENodeId{0}},      // A
+      {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // B
+      {.cost = 3.0, .required = {1, 2}, .enode_id = ENodeId{2}},  // C
+  }};
   frontier.prune();
   ASSERT_EQ(frontier.alts.size(), 1);
   ASSERT_EQ(frontier.alts[0].enode_id, ENodeId{0}) << "Only A should survive (dominates B and C)";
@@ -946,11 +897,11 @@ TEST(ParetoFrontier_Prune, TransitiveDominance) {
   // When C is at index 0: i=0(C), j=1(B): C.dominated_by(B) → true → dominated[0]=true, break
   // Then i=1(B), j=2(A): B.dominated_by(A) → true → dominated[1]=true, break
   // Then i=2(A): survives.
-  auto frontier_reversed = TestFrontier{.alts = {
-                                            {.cost = 3.0, .required = {1, 2}, .enode_id = ENodeId{2}},  // C
-                                            {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // B
-                                            {.cost = 1.0, .required = {}, .enode_id = ENodeId{0}},      // A
-                                        }};
+  auto frontier_reversed = TestFrontier{{
+      {.cost = 3.0, .required = {1, 2}, .enode_id = ENodeId{2}},  // C
+      {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}},     // B
+      {.cost = 1.0, .required = {}, .enode_id = ENodeId{0}},      // A
+  }};
   frontier_reversed.prune();
   ASSERT_EQ(frontier_reversed.alts.size(), 1);
   ASSERT_EQ(frontier_reversed.alts[0].enode_id, ENodeId{0}) << "Only A should survive regardless of input order";
@@ -959,7 +910,7 @@ TEST(ParetoFrontier_Prune, TransitiveDominance) {
 TEST(ParetoFrontier_Prune, BeamLimit) {
   // 10 Pareto-incomparable alternatives: each has a unique required set (disjoint),
   // so no dominance pruning occurs. Costs increase from 1.0 to 10.0.
-  auto frontier = TestFrontier{.alts = {}};
+  auto frontier = TestFrontier{};
   for (int i = 0; i < 10; ++i) {
     frontier.alts.push_back({.cost = static_cast<double>(i + 1),
                              .required = {static_cast<uint16_t>(i + 100)},  // disjoint required sets
@@ -985,11 +936,11 @@ TEST(ParetoFrontier_Prune, BeamLimit) {
 
 TEST(ParetoFrontier_Prune, BeamLimitNoEffectWhenSmall) {
   // 3 Pareto-incomparable alternatives, beam limit of 10 — should not reduce.
-  auto frontier = TestFrontier{.alts = {
-                                   {.cost = 1.0, .required = {1, 2}, .enode_id = ENodeId{0}},
-                                   {.cost = 2.0, .required = {3}, .enode_id = ENodeId{1}},
-                                   {.cost = 3.0, .required = {4}, .enode_id = ENodeId{2}},
-                               }};
+  auto frontier = TestFrontier{{
+      {.cost = 1.0, .required = {1, 2}, .enode_id = ENodeId{0}},
+      {.cost = 2.0, .required = {3}, .enode_id = ENodeId{1}},
+      {.cost = 3.0, .required = {4}, .enode_id = ENodeId{2}},
+  }};
   frontier.prune();
   ASSERT_EQ(frontier.alts.size(), 3) << "All three are Pareto-incomparable";
 
@@ -1105,7 +1056,7 @@ TEST(Extract_MultiAlt, DominatedPruning) {
   ASSERT_TRUE(has_no_demand_alt) << "Expected alternative with cost=2.0, required={}";
 
   // Min cost is 1.0 (the {1}-requiring alternative)
-  ASSERT_DOUBLE_EQ(min_cost(frontier), 1.0);
+  ASSERT_DOUBLE_EQ(TestFrontier::min_cost(frontier), 1.0);
 }
 
 TEST(Extract_MultiAlt, DiamondDAG_WithDemand) {
@@ -1145,20 +1096,13 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
   // Use symbol C and D to produce alternatives with different cost/demand tradeoffs.
   // We define a custom cost model inline.
   struct ThreeAltCostModel {
-    using cost_model_tag = pareto_frontier_tag;
     using CostResult = TestFrontier;
 
     static auto operator()(ENode<symbol> const &current, ENodeId enode_id, std::span<CostResult const> children)
         -> CostResult {
-      auto child_cost =
-          std::ranges::fold_left(children, 0.0, [](double acc, CostResult const &c) { return acc + min_cost(c); });
-
+      auto child_cost = std::ranges::fold_left(
+          children, 0.0, [](double acc, CostResult const &c) { return acc + CostResult::min_cost(c); });
       if (current.symbol() == symbol::A) {
-        // A produces 3 Pareto-incomparable alternatives:
-        // {cost=1, req={1,2}} - cheapest but needs both demands
-        // {cost=2, req={1}}   - medium cost, needs demand 1
-        // {cost=3, req={}}    - most expensive, no demands
-        // None dominates another because lower cost always requires more demands.
         return CostResult{{
             {.cost = 1.0 + child_cost, .required = {1, 2}, .enode_id = enode_id},
             {.cost = 2.0 + child_cost, .required = {1}, .enode_id = enode_id},
@@ -1166,15 +1110,6 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
         }};
       }
       return CostResult{{{.cost = 1.0 + child_cost, .required = {}, .enode_id = enode_id}}};
-    }
-
-    static auto min_cost(CostResult const &r) -> double {
-      auto it = std::ranges::min_element(r.alts, {}, &TestDemandAlt::cost);
-      return it != r.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
-    }
-
-    static auto resolve(CostResult const &frontier) -> ENodeId {
-      return std::ranges::min_element(frontier.alts, {}, &TestDemandAlt::cost)->enode_id;
     }
   };
 
@@ -1205,7 +1140,7 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
   ASSERT_TRUE(has_alt_none) << "Expected alternative with cost=3.0, required={}";
 
   // Min cost should be 1.0
-  ASSERT_DOUBLE_EQ(min_cost(frontier), 1.0);
+  ASSERT_DOUBLE_EQ(TestFrontier::min_cost(frontier), 1.0);
 
   // Full extraction should still work and select the min-cost alternative
   auto extractor = Extractor{egraph, ThreeAltCostModel{}};
