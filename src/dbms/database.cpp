@@ -128,6 +128,11 @@ storage::ttl::TTL &Database::ttl() { return storage_->ttl_; }
 DatabaseInfo Database::GetInfo() const {
   DatabaseInfo info;
   info.storage_info = storage_->GetInfo();
+  if (prometheus_metrics_) {
+    prometheus_metrics_->global.peak_memory_res_bytes->Set(static_cast<double>(info.storage_info.memory_res));
+    info.storage_info.peak_memory_res =
+        static_cast<uint64_t>(prometheus_metrics_->global.peak_memory_res_bytes->Value());
+  }
   info.triggers = trigger_store_->GetTriggerInfo().size();
   info.streams = streams_->GetStreamInfo().size();
   return info;

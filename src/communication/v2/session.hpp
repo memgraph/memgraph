@@ -47,20 +47,12 @@
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
 #include "communication/fmt.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/priority_thread_pool.hpp"
 #include "utils/variant_helpers.hpp"
 
 #include "flags/scheduler.hpp"
-
-namespace memgraph::metrics {
-extern const Event ActiveSessions;
-extern const Event ActiveTCPSessions;
-extern const Event ActiveSSLSessions;
-extern const Event ActiveWebSocketSessions;
-}  // namespace memgraph::metrics
 
 namespace memgraph::communication::v2 {
 
@@ -129,17 +121,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return false;
     }
 
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSessions);
+    session_context_->global_metric_handles->active_sessions->Increment();
 
     execution_active_ = true;
 
     if (std::holds_alternative<SSLSocket>(socket_)) {
       utils::OnScopeExit increment_counter(
-          [] { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSSLSessions); });
+          [this] { session_context_->global_metric_handles->active_ssl_sessions->Increment(); });
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoSSLHandshake(); });
     } else {
       utils::OnScopeExit increment_counter(
-          [] { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTCPSessions); });
+          [this] { session_context_->global_metric_handles->active_tcp_sessions->Increment(); });
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoFirstRead(); });
     }
     return true;
@@ -227,7 +219,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   template <class Body, class Allocator>
   void DoAccept(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>> req) {
     DMG_ASSERT(std::holds_alternative<WebSocket>(socket_), "DoAccept is only for WebSocket communication");
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveWebSocketSessions);
+    session_context_->global_metric_handles->active_websocket_sessions->Increment();
     auto &ws = std::get<WebSocket>(socket_);
 
     // Set suggested timeout settings for the websocket
@@ -447,38 +439,38 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     execution_active_ = false;
 
     std::visit(
-        utils::Overloaded{[this](WebSocket &ws) {
-                            ws.async_close(
-                                boost::beast::websocket::close_code::normal,
-                                boost::asio::bind_executor(
-                                    strand_, [shared_this = shared_from_this()](boost::beast::error_code ec) {
-                                      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveWebSocketSessions);
-                                      if (ec) {
-                                        shared_this->OnError(ec);
-                                      }
-                                    }));
-                          },
-                          [](auto &socket) {
-                            boost::system::error_code ec;
-                            socket.lowest_layer().shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
-                            if (ec) {
-                              spdlog::error("Session shutdown failed: {}", ec.what());
-                            }
-                            socket.lowest_layer().close(ec);
-                            if (ec) {
-                              spdlog::error("Session close failed: {}", ec.what());
-                            }
-                          }},
+        utils::Overloaded{
+            [this](WebSocket &ws) {
+              ws.async_close(
+                  boost::beast::websocket::close_code::normal,
+                  boost::asio::bind_executor(strand_, [shared_this = shared_from_this()](boost::beast::error_code ec) {
+                    shared_this->session_context_->global_metric_handles->active_websocket_sessions->Decrement();
+                    if (ec) {
+                      shared_this->OnError(ec);
+                    }
+                  }));
+            },
+            [](auto &socket) {
+              boost::system::error_code ec;
+              socket.lowest_layer().shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+              if (ec) {
+                spdlog::error("Session shutdown failed: {}", ec.what());
+              }
+              socket.lowest_layer().close(ec);
+              if (ec) {
+                spdlog::error("Session close failed: {}", ec.what());
+              }
+            }},
         socket_);
 
     // Update metrics
     if (ssl_context_) {
-      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSSLSessions);
+      session_context_->global_metric_handles->active_ssl_sessions->Decrement();
     } else {
-      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTCPSessions);
+      session_context_->global_metric_handles->active_tcp_sessions->Decrement();
     }
 
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSessions);
+    session_context_->global_metric_handles->active_sessions->Decrement();
   }
 
   void DoSSLHandshake() {
