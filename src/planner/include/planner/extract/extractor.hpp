@@ -100,8 +100,9 @@ struct Selection {
 /// merges results via CostResult::merge across enodes in the same eclass.
 template <typename Symbol, typename Analysis, typename CostModel>
   requires CostResultType<typename CostModel::CostResult>
-auto ComputeFrontiers(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_model, EClassId eclass_id,
-                      std::unordered_map<EClassId, EClassFrontier<typename CostModel::CostResult>> &frontier_map)
+[[nodiscard]] auto ComputeFrontiers(
+    EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_model, EClassId eclass_id,
+    std::unordered_map<EClassId, EClassFrontier<typename CostModel::CostResult>> &frontier_map)
     -> std::optional<typename CostModel::CostResult> {
   using CostResult = typename CostModel::CostResult;
 
@@ -158,8 +159,9 @@ auto ComputeFrontiers(EGraph<Symbol, Analysis> const &egraph, CostModel const &c
 /// Walks from root, picks the best enode at each eclass via CostResult::resolve.
 template <typename Symbol, typename Analysis, typename CostResult>
   requires CostResultType<CostResult>
-auto ResolveSelection(EGraph<Symbol, Analysis> const &egraph,
-                      std::unordered_map<EClassId, EClassFrontier<CostResult>> const &frontier_map, EClassId root) {
+[[nodiscard]] auto ResolveSelection(EGraph<Symbol, Analysis> const &egraph,
+                                    std::unordered_map<EClassId, EClassFrontier<CostResult>> const &frontier_map,
+                                    EClassId root) {
   using CostType = typename CostResult::cost_t;
 
   auto resolved = std::unordered_map<EClassId, Selection<CostType>>{};
@@ -190,9 +192,9 @@ auto ResolveSelection(EGraph<Symbol, Analysis> const &egraph,
 }
 
 template <typename Symbol, typename Analysis, typename CostResult>
-auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
-                         std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection, EClassId root)
-    -> InDegreeMap {
+[[nodiscard]] auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
+                                       std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection,
+                                       EClassId root) -> InDegreeMap {
   auto in_degree = std::unordered_map<EClassId, int>{{root, 0}};
   auto bfs = std::vector{root};
   auto visited = std::unordered_set{root};
@@ -224,15 +226,15 @@ auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
 }
 
 template <typename Symbol, typename Analysis, typename CostResult>
-auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
-                     std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection, InDegreeMap in_degree)
-    -> std::vector<std::pair<EClassId, ENodeId>> {
+[[nodiscard]] auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
+                                   std::unordered_map<EClassId, Selection<CostResult>> const &enode_selection,
+                                   InDegreeMap in_degree) -> std::vector<std::pair<EClassId, ENodeId>> {
   auto result = std::vector<std::pair<EClassId, ENodeId>>{};
   result.reserve(in_degree.size());
 
   auto queue = std::queue<EClassId>{};
-  for (auto const &p : in_degree)
-    if (p.second == 0) queue.emplace(p.first);
+  for (auto const &[eclass, degree] : in_degree)
+    if (degree == 0) queue.emplace(eclass);
 
   while (!queue.empty()) {
     auto current = queue.front();

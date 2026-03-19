@@ -33,20 +33,6 @@ namespace memgraph::planner::core::extract {
 /// Example:
 ///   using Frontier = ParetoFrontier<MyAlt,
 ///     [](MyAlt const &a, MyAlt const &b) { return b.cost <= a.cost && b.req ⊆ a.req; }>;
-// Forward declaration for trait detection.
-template <typename Alt, typename DominanceFn>
-struct ParetoFrontier;
-
-/// Detect whether T is a ParetoFrontier specialization.
-template <typename>
-struct is_pareto_frontier : std::false_type {};
-
-template <typename Alt, typename Dom>
-struct is_pareto_frontier<ParetoFrontier<Alt, Dom>> : std::true_type {};
-
-template <typename T>
-inline constexpr bool is_pareto_frontier_v = is_pareto_frontier<T>::value;
-
 template <typename Alt, typename DominanceFn>
 struct ParetoFrontier {
   std::vector<Alt> alts;
@@ -109,7 +95,7 @@ struct ParetoFrontier {
   /// transformations (e.g., Bind alive/dead branching).
   /// @param fn  (Alt const&, auto emit) -> void — calls emit(Alt&&) to produce output alternatives.
   template <typename Fn>
-  static auto flat_map(ParetoFrontier const &input, Fn &&fn) -> ParetoFrontier {
+  [[nodiscard]] static auto flat_map(ParetoFrontier const &input, Fn &&fn) -> ParetoFrontier {
     auto result = ParetoFrontier{};
     for (auto const &alt : input.alts) {
       fn(alt, [&](Alt &&out) { result.alts.push_back(std::move(out)); });
@@ -119,11 +105,11 @@ struct ParetoFrontier {
   }
 
   /// Union two frontiers from different enodes in the same eclass, then prune.
-  static auto merge(ParetoFrontier const &a, ParetoFrontier const &b) -> ParetoFrontier {
+  [[nodiscard]] static auto merge(ParetoFrontier const &a, ParetoFrontier const &b) -> ParetoFrontier {
     auto result = ParetoFrontier{};
     result.alts.reserve(a.alts.size() + b.alts.size());
-    result.alts.insert(result.alts.end(), a.alts.begin(), a.alts.end());
-    result.alts.insert(result.alts.end(), b.alts.begin(), b.alts.end());
+    result.alts.append_range(a.alts);
+    result.alts.append_range(b.alts);
     result.prune();
     return result;
   }
@@ -131,7 +117,8 @@ struct ParetoFrontier {
   /// Cartesian product of two frontiers. For each (l, r) pair, calls combine_fn(l, r)
   /// to produce a new alternative, then prunes the result.
   template <typename CombineFn>
-  static auto combine(ParetoFrontier const &lhs, ParetoFrontier const &rhs, CombineFn &&combine_fn) -> ParetoFrontier {
+  [[nodiscard]] static auto combine(ParetoFrontier const &lhs, ParetoFrontier const &rhs, CombineFn &&combine_fn)
+      -> ParetoFrontier {
     auto result = ParetoFrontier{};
     result.alts.reserve(lhs.alts.size() * rhs.alts.size());
     for (auto const &l : lhs.alts) {

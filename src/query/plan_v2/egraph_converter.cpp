@@ -12,6 +12,7 @@
 #include "query/plan_v2/egraph_converter.hpp"
 
 #include <limits>
+#include <utility>
 
 #include <boost/container/flat_set.hpp>
 #include <boost/container/small_vector.hpp>
@@ -44,7 +45,7 @@ struct Alternative {
 };
 
 struct AlternativeDominance {
-  auto operator()(Alternative const &a, Alternative const &b) const -> bool { return a.dominated_by(b); }
+  static auto operator()(Alternative const &a, Alternative const &b) -> bool { return a.dominated_by(b); }
 };
 
 /// Helper: a Bind is "alive" if the input alternative demands the symbol it defines.
@@ -162,7 +163,7 @@ struct PlanCostModel {
       case symbol::NamedOutput:
         return CostFrontier::combine(children[0], children[1], CombineAlts(1.0, enode_id));
     }
-    __builtin_unreachable();
+    std::unreachable();
   }
 };
 
@@ -576,7 +577,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   auto const true_root = internal::to_core_id(root);
   namespace extract = planner::core::extract;
   auto frontier_map = std::unordered_map<planner::core::EClassId, extract::EClassFrontier<CostFrontier>>{};
-  extract::ComputeFrontiers(impl.egraph_, PlanCostModel{}, true_root, frontier_map);
+  (void)extract::ComputeFrontiers(impl.egraph_, PlanCostModel{}, true_root, frontier_map);
   auto resolver = PlanResolver{impl.egraph_, frontier_map};
   auto resolved = resolver.resolve(true_root);
   auto in_degree = extract::CollectDependencies(impl.egraph_, resolved, true_root);
