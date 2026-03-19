@@ -92,12 +92,12 @@ using FrontierMap = std::unordered_map<EClassId, EClassFrontier<typename CostMod
 
 template <typename CostModel>
 auto frontier_cost(FrontierMap<CostModel> const &m, EClassId id) {
-  return CostModelTraits<CostModel>::min_cost(*m.at(id).frontier);
+  return CostModelTraits<CostModel>::min_cost(*m.at(id));
 }
 
 template <typename CostModel>
 auto frontier_enode(FrontierMap<CostModel> const &m, EClassId id) {
-  return CostModelTraits<CostModel>::resolve(*m.at(id).frontier);
+  return CostModelTraits<CostModel>::resolve(*m.at(id));
 }
 
 TEST(Extract_Cost, SingleLeafNode) {
@@ -862,8 +862,8 @@ TEST(Extract_MultiAlt, DominatedPruning) {
 
   auto it = frontier_map.find(merged);
   ASSERT_NE(it, frontier_map.end());
-  ASSERT_TRUE(it->second.frontier.has_value());
-  auto const &frontier = *it->second.frontier;
+  ASSERT_TRUE(it->second.has_value());
+  auto const &frontier = *it->second;
   // After pruning, exactly 2 non-dominated alternatives should survive:
   //   {cost=1, required={1}} and {cost=2, required={}}
   ASSERT_EQ(frontier.alts.size(), 2);
@@ -956,8 +956,8 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
 
   auto it = frontier_map.find(a_class);
   ASSERT_NE(it, frontier_map.end());
-  ASSERT_TRUE(it->second.frontier.has_value());
-  auto const &frontier = *it->second.frontier;
+  ASSERT_TRUE(it->second.has_value());
+  auto const &frontier = *it->second;
 
   // All 3 alternatives are Pareto-incomparable: none dominates another
   ASSERT_EQ(frontier.alts.size(), 3);
@@ -983,7 +983,7 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
   ASSERT_EQ(extracted[0].second, a_node);
 }
 
-TEST(Extract_MultiAlt, ProcessCosts_CyclicEClass) {
+TEST(Extract_MultiAlt, CyclicEClass) {
   // Multi-alt should handle cycles the same as single-best: skip cyclic enodes
   auto egraph = EGraph<symbol, analysis>{};
   auto [x_class, x_node, x_new] = egraph.emplace(symbol::LITERAL, 1);
