@@ -39,6 +39,7 @@
 #include "utils/synchronized_metadata_store.hpp"
 
 namespace memgraph::metrics {
+struct DatabaseMetricHandles;
 extern const Event SnapshotCreationLatency_us;
 
 extern const Event ActiveLabelIndices;
@@ -219,6 +220,8 @@ class Storage {
   virtual ~Storage() = default;
 
   std::string name() const { return config_.salient.name.str(); }
+
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
   auto name_view() const { return config_.salient.name.str_view(); }
 
@@ -852,6 +855,8 @@ class Storage {
 
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
+
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 
   Indices indices_;
   Constraints constraints_;

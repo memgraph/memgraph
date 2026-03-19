@@ -11,6 +11,7 @@
 
 #include "storage/v2/inmemory/label_index.hpp"
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
@@ -82,17 +83,21 @@ auto InMemoryLabelIndex::GetIndividualIndex(LabelId label) const -> std::shared_
 auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) -> bool {
   auto index = GetIndividualIndex(label);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  auto *gauge = metric_handles_ ? metric_handles_->active_label_indices : nullptr;
+  index->Publish(commit_timestamp, gauge);
   return true;
 }
 
-void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
+  gauge_ = gauge;
+  if (gauge_) gauge_->Increment();
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
 }
 
 InMemoryLabelIndex::IndividualIndex::~IndividualIndex() {
   if (status.IsReady()) {
+    if (gauge_) gauge_->Decrement();
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
   }
 }

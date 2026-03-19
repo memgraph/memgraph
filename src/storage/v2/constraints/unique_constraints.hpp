@@ -11,6 +11,10 @@
 
 #pragma once
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 #include <memory>
 #include <set>
 
@@ -32,6 +36,8 @@ class UniqueConstraints {
   UniqueConstraints &operator=(const UniqueConstraints &) = delete;
   UniqueConstraints &operator=(UniqueConstraints &&) = delete;
   virtual ~UniqueConstraints() = default;
+
+  virtual void SetMetricHandles(metrics::DatabaseMetricHandles * /*metric_handles*/) {}
 
   using ConstraintValue = std::vector<std::pair<std::vector<PropertyValue>, Vertex const *>>;
 

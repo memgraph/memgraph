@@ -14,6 +14,10 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 namespace memgraph::storage {
 
 class LabelIndex {
@@ -26,6 +30,8 @@ class LabelIndex {
   LabelIndex &operator=(LabelIndex &&) = delete;
 
   virtual ~LabelIndex() = default;
+
+  virtual void SetMetricHandles(metrics::DatabaseMetricHandles * /*metric_handles*/) {}
 
   virtual bool DropIndex(LabelId label) = 0;
   virtual void DropGraphClearIndices() = 0;
