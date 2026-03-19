@@ -199,7 +199,7 @@ auto InMemoryLabelIndex::PopulateIndex(
 }
 
 auto InMemoryLabelIndex::GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> {
-  return std::make_shared<ActiveIndices>(index_.WithReadLock(std::identity{}));
+  return std::make_shared<ActiveIndices>(index_.ReadCopy());
 }
 
 bool InMemoryLabelIndex::CreateIndexOnePass(
@@ -265,7 +265,7 @@ std::vector<LabelId> InMemoryLabelIndex::ActiveIndices::ListIndices(uint64_t sta
 void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   CleanupAllIndices();
   auto maybe_stop = utils::ResettableCounter(2048);
-  auto index_container = all_indices_.WithReadLock(std::identity{});
+  auto index_container = all_indices_.ReadCopy();
 
   for (auto &[index, label] : *index_container) {
     // before starting index, check if stop_requested
@@ -349,7 +349,7 @@ uint64_t InMemoryLabelIndex::ActiveIndices::ApproximateVertexCount(LabelId label
 
 void InMemoryLabelIndex::RunGC() {
   CleanupAllIndices();
-  auto cpy = all_indices_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.ReadCopy();
   for (auto &[index, _] : *cpy) {
     index->skiplist.run_gc();
   }

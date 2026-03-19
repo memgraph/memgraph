@@ -316,7 +316,7 @@ void InMemoryEdgePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_sta
 
   CleanupAllIndicies();
 
-  auto cpy = all_indices_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.ReadCopy();
 
   for (auto &[property_id, index] : *cpy) {
     if (token.stop_requested()) return;
@@ -459,7 +459,7 @@ void InMemoryEdgePropertyIndex::RunGC() {
   CleanupAllIndicies();
 
   // For each skip_list remaining, run GC
-  auto cpy = all_indices_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.ReadCopy();
   for (auto &[_, index] : *cpy) {
     index->skip_list_.run_gc();
   }
@@ -523,7 +523,7 @@ void InMemoryEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::A
 }
 
 std::shared_ptr<EdgePropertyIndex::ActiveIndices> InMemoryEdgePropertyIndex::GetActiveIndices() const {
-  return std::make_shared<ActiveIndices>(index_.WithReadLock(std::identity{}));
+  return std::make_shared<ActiveIndices>(index_.ReadCopy());
 }
 
 auto InMemoryEdgePropertyIndex::GetIndividualIndex(PropertyId property) const -> std::shared_ptr<IndividualIndex> {

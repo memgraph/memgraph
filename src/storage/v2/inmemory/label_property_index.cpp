@@ -804,7 +804,7 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
 
   CleanupAllIndices();
 
-  auto cpy = all_indices_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.ReadCopy();
 
   for (auto &[index, label_id, property_paths] : *cpy) {
     // before starting index, check if stop_requested
@@ -1039,7 +1039,7 @@ void InMemoryLabelPropertyIndex::RunGC() {
   // Remove indices that are not used by any txn
   CleanupAllIndices();
 
-  auto cpy = all_indices_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.ReadCopy();
   for (auto &[index, _1, _2] : *cpy) {
     index->skiplist.run_gc();
   }
@@ -1156,7 +1156,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> Lab
 }
 
 auto InMemoryLabelPropertyIndex::GetActiveIndices() const -> std::shared_ptr<LabelPropertyIndex::ActiveIndices> {
-  return std::make_shared<ActiveIndices>(index_.WithReadLock(std::identity{}));
+  return std::make_shared<ActiveIndices>(index_.ReadCopy());
 }
 
 void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {

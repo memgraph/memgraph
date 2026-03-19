@@ -795,7 +795,7 @@ class Storage {
   }
 
   /// Returns the current snapshot of active indices
-  auto GetActiveIndices() const -> ActiveIndicesPtr { return indices_.active_indices_.WithReadLock(std::identity{}); }
+  auto GetActiveIndices() const -> ActiveIndicesPtr { return indices_.active_indices_.ReadCopy(); }
 
   auto GetActiveConstraints() const -> ActiveConstraints {
     return ActiveConstraints{constraints_.existence_constraints_->GetActiveConstraints(),
