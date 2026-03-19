@@ -307,28 +307,28 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "WithLiteralReturnAlias",
             .query = "WITH 1 AS a RETURN a;",
-            .expected_details = {"Produce {a`0:1}", "Produce {a`1:1}", "Once"},
+            .expected_details = {"Produce {a`0:1}", "Once"},  // dead store: Bind for a eliminated
             .min_rewrites = 1,
             .should_saturate = true,
         },
         PipelineTestCase{
             .name = "WithMultipleLiterals",
             .query = "WITH 1 AS a, 2 AS b RETURN a, b;",
-            .expected_details = {"Produce {a`2:1, b`1:2}", "Produce {a`0:1, b`3:2}", "Once"},
+            .expected_details = {"Produce {a`2:1, b`1:2}", "Once"},  // dead store: both Binds eliminated
             .min_rewrites = 2,
             .should_saturate = true,
         },
         PipelineTestCase{
             .name = "ChainedAliases",
             .query = "WITH 1 AS a WITH a AS b RETURN b;",
-            .expected_details = {"Produce {b`1:1}", "Produce {a`0:1, b`2:1}", "Once"},
+            .expected_details = {"Produce {b`1:1}", "Once"},  // dead store: both Binds eliminated
             .min_rewrites = 1,
             .should_saturate = true,
         },
         PipelineTestCase{
             .name = "SameNameDifferentSymbols",
             .query = "WITH 1 AS a RETURN a AS a;",
-            .expected_details = {"Produce {a`0:1}", "Produce {a`1:1}", "Once"},
+            .expected_details = {"Produce {a`0:1}", "Once"},  // dead store: Bind for a eliminated
             .min_rewrites = 1,
             .should_saturate = true,
         }
@@ -503,44 +503,45 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "InlineThroughAdd",
             .query = "WITH 1 AS a RETURN a + 2 AS r;",
-            .expected_details = {"Produce {r`0:(1 + 2)}", "Produce {a`1:1}", "Once"},
+            .expected_details = {"Produce {r`0:(1 + 2)}", "Once"},  // dead store: Bind for a eliminated
             .min_rewrites = 1,
             .should_saturate = true,
         },
         PipelineTestCase{
             .name = "InlineThroughNested",
             .query = "WITH 1 AS a, 2 AS b RETURN a + b AS r;",
-            .expected_details = {"Produce {r`1:(1 + 2)}", "Produce {a`0:1, b`2:2}", "Once"},
+            .expected_details = {"Produce {r`1:(1 + 2)}", "Once"},  // dead store: both Binds eliminated
             .min_rewrites = 2,
             .should_saturate = true,
         },
         PipelineTestCase{
             .name = "InlineThroughComparison",
             .query = "WITH 1 AS a RETURN a < 2 AS r;",
-            .expected_details = {"Produce {r`0:(1 < 2)}", "Produce {a`1:1}", "Once"},
+            .expected_details = {"Produce {r`0:(1 < 2)}", "Once"},  // dead store: Bind for a eliminated
             .min_rewrites = 1,
             .should_saturate = true,
         },
         PipelineTestCase{
             .name = "InlineSameVarBothSides",
             .query = "WITH 1 AS a RETURN a + a AS r;",
-            .expected_details = {"Produce {r`0:(1 + 1)}", "Produce {a`1:1}", "Once"},
+            .expected_details = {"Produce {r`0:(1 + 1)}", "Once"},  // dead store: Bind for a eliminated
             .min_rewrites = 1,
             .should_saturate = true,
         },
         PipelineTestCase{
             .name = "InlineThroughUnaryMinus",
             .query = "WITH 5 AS a RETURN -a AS r;",
-            .expected_details = {"Produce {r`0:(-5)}", "Produce {a`1:5}", "Once"},
+            .expected_details = {"Produce {r`0:(-5)}", "Once"},  // dead store: Bind for a eliminated
             .min_rewrites = 1,
             .should_saturate = true,
         },
-        // TODO: chained inline through operators - b should be inlined to (a + 2)
-        // then a should be inlined to 1, yielding ((1 + 2) * 3)
+        // Chained: b = a + 2, r = b * 3. The DemandCostModel determines that full inlining
+        // (cost=8) is cheaper than keeping Bind_b alive (cost=11), because the Bind/Produce
+        // overhead exceeds the per-node savings of Identifier(b) over Add(1,2).
         PipelineTestCase{
             .name = "InlineChainedWithOperators",
             .query = "WITH 1 AS a WITH a + 2 AS b RETURN b * 3 AS r;",
-            .expected_details = {"Produce {r`2:(b * 3)}", "Produce {a`1:1, b`0:b}", "Once"},
+            .expected_details = {"Produce {r`1:((1 + 2) * 3)}", "Once"},  // dead store: both Binds eliminated
             .min_rewrites = 0,
             .should_saturate = true,
         }
@@ -557,6 +558,55 @@ INSTANTIATE_TEST_SUITE_P(
             .query = "RETURN 1 + 2 AS a, 1 + 2 AS b;",
             .expected_details = {"Produce {a`1:(1 + 2), b`0:(1 + 2)}", "Once"},
             .min_rewrites = 0,
+            .should_saturate = true,
+        }
+    ),
+    TestCaseName
+);
+// --- Dead store elimination tests ---
+
+INSTANTIATE_TEST_SUITE_P(
+    DeadStoreElimination,
+    PlannerV2PipelineTest,
+    ::testing::Values(
+        // Dead bind: unused variable — Bind eliminated entirely
+        PipelineTestCase{
+            .name = "UnusedVariable",
+            .query = "WITH 1 AS unused RETURN 2 AS r;",
+            .expected_details = {"Produce {r`0:2}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        },
+        // After inline, Identifier(a) is replaced by Literal(1) — Bind dead
+        PipelineTestCase{
+            .name = "InlinedVariableBindDead",
+            .query = "WITH 1 AS a RETURN a AS r;",
+            .expected_details = {"Produce {r`0:1}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        // Transitive: both Binds dead after inline propagation
+        PipelineTestCase{
+            .name = "TransitiveDeadBinds",
+            .query = "WITH 1 AS a WITH a AS b RETURN 2 AS r;",
+            .expected_details = {"Produce {r`1:2}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        // Partial: both binds dead after inline (Literal cheaper than Identifier)
+        PipelineTestCase{
+            .name = "PartialDeadBind",
+            .query = "WITH 1 AS a, 2 AS b RETURN a AS r;",
+            .expected_details = {"Produce {r`1:1}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        // Inlined expression: Bind dead since Literal replaces Identifier in Add
+        PipelineTestCase{
+            .name = "InlinedExpressionBindDead",
+            .query = "WITH 1 AS x RETURN x + 1 AS r;",
+            .expected_details = {"Produce {r`0:(1 + 1)}", "Once"},
+            .min_rewrites = 1,
             .should_saturate = true,
         }
     ),

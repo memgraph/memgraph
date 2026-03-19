@@ -11,15 +11,16 @@
 
 #pragma once
 
+#include <concepts>
 #include <functional>
-#include <numeric>
 #include <queue>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include <cassert>
-#include "utils/tag.hpp"
+
+#include "planner/extract/pareto_frontier.hpp"
 
 import memgraph.planner.core.egraph;
 
@@ -85,6 +86,204 @@ auto ProcessCosts(EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_
   // Remove infinite cycle case
   enode_selection.erase(it2);
   return std::nullopt;
+}
+
+// ============================================================================
+// CostModelTraits — tag-dispatched defaults for cost models
+// ============================================================================
+
+/// Cost model tags
+struct single_best_tag {};
+
+struct pareto_frontier_tag {};
+
+/// Resolve the tag:
+///   1. Explicit: model declares `using cost_model_tag = ...`
+///   2. Implicit: CostResult is a ParetoFrontier → pareto_frontier_tag
+///   3. Default:  single_best_tag
+template <typename CM, typename = void>
+struct cost_model_tag {
+  using type = std::conditional_t<is_pareto_frontier_v<typename CM::CostResult>, pareto_frontier_tag, single_best_tag>;
+};
+
+template <typename CM>
+struct cost_model_tag<CM, std::void_t<typename CM::cost_model_tag>> {
+  using type = CM::cost_model_tag;
+};
+
+template <typename CM>
+using cost_model_tag_t = cost_model_tag<CM>::type;
+
+/// Required interface for pareto_frontier_tag cost models.
+template <typename CM>
+concept ParetoCostModel = requires(typename CM::CostResult const &a) {
+  { CM::resolve(a) } -> std::convertible_to<ENodeId>;
+  { CM::min_cost(a) } -> std::totally_ordered;
+};
+
+/// Default CostResult wrapper for single_best models.
+/// Pairs the model's raw cost (e.g. double) with the enode that produced it.
+template <typename T>
+struct DefaultCostResult {
+  T cost;
+  ENodeId enode_id;
+
+  static auto merge(DefaultCostResult const &a, DefaultCostResult const &b) -> DefaultCostResult {
+    return a.cost <= b.cost ? a : b;
+  }
+};
+
+/// Provides defaults for cost model operations, like std::allocator_traits.
+/// merge always lives on CostResult (DefaultCostResult::merge or ParetoFrontier::merge).
+/// Dispatches on cost_model_tag_t:
+///   single_best_tag      — wraps CostResult, resolve returns enode_id
+///   pareto_frontier_tag  — resolve/min_cost delegate to model (concept-checked)
+template <typename CostModel, typename Tag = cost_model_tag_t<CostModel>>
+struct CostModelTraits;
+
+template <typename CostModel>
+struct CostModelTraits<CostModel, single_best_tag> {
+  using CostResult = DefaultCostResult<typename CostModel::CostResult>;
+  using CostType = CostModel::CostResult;
+
+  static auto min_cost(CostResult const &r) -> CostType { return r.cost; }
+
+  static auto merge(CostResult const &a, CostResult const &b) -> CostResult { return CostResult::merge(a, b); }
+
+  static auto resolve(CostResult const &r) -> ENodeId { return r.enode_id; }
+};
+
+template <typename CostModel>
+  requires ParetoCostModel<CostModel>
+struct CostModelTraits<CostModel, pareto_frontier_tag> {
+  using CostResult = CostModel::CostResult;
+  // TODO: can we select CostType better, can it be communicated via CostModel or CostResult?
+  using CostType = decltype(CostModel::min_cost(std::declval<CostResult const &>()));
+
+  static auto min_cost(CostResult const &r) -> CostType { return CostModel::min_cost(r); }
+
+  static auto merge(CostResult const &a, CostResult const &b) -> CostResult { return CostResult::merge(a, b); }
+
+  static auto resolve(CostResult const &r) -> ENodeId { return CostModel::resolve(r); }
+};
+
+// ============================================================================
+// Extraction (traits-based)
+// ============================================================================
+
+/// Per-eclass frontier during cost propagation.
+/// nullopt means "in progress" (cycle detection).
+template <typename CostResult>
+struct EClassFrontier {
+  std::optional<CostResult> frontier;
+};
+
+/// Bottom-up cost propagation using CostModelTraits.
+/// Works with any cost model: single_best keeps the cheapest, pareto_frontier merges.
+template <typename Symbol, typename Analysis, typename CostModel>
+auto ComputeFrontiers(
+    EGraph<Symbol, Analysis> const &egraph, CostModel const &cost_model, EClassId eclass_id,
+    std::unordered_map<EClassId, EClassFrontier<typename CostModelTraits<CostModel>::CostResult>> &frontier_map)
+    -> std::optional<typename CostModelTraits<CostModel>::CostResult> {
+  using Traits = CostModelTraits<CostModel>;
+  using CostResult = Traits::CostResult;
+
+  assert(!egraph.needs_rebuild() && "to avoid internal cost of getting canonical looking up we should");
+
+  if (auto const it = frontier_map.find(eclass_id); it != frontier_map.end()) {
+    return it->second.frontier;
+  }
+
+  auto const &eclass = egraph.eclass(eclass_id);
+
+  // Mark this e-class as "in progress" with nullopt frontier to detect cycles
+  frontier_map.emplace(eclass_id, EClassFrontier<CostResult>{std::nullopt});
+
+  auto merged_frontier = std::optional<CostResult>{};
+
+  for (auto const &enode_id : eclass.nodes()) {
+    auto const &enode = egraph.get_enode(enode_id);
+    auto children_frontiers = std::vector<CostResult>{};
+    auto has_cyclic_child = false;
+    for (auto child : enode.children()) {
+      auto frontier = ComputeFrontiers(egraph, cost_model, child, frontier_map);
+      if (!frontier) {
+        has_cyclic_child = true;
+        // N.B. intentionally no break — continue processing remaining children
+        // so their costs are computed and cached for other extraction paths
+      } else {
+        children_frontiers.emplace_back(*frontier);
+      }
+    }
+    if (has_cyclic_child) continue;
+
+    // Invoke: pareto models take (enode, enode_id, children_frontiers),
+    // single_best models take (enode, children_costs) and result is wrapped with enode_id.
+    CostResult enode_frontier = [&] {
+      // TODO: can we have a trait that will dispatch to the right cost model execution? Then we don't need this lambda
+      if constexpr (std::is_same_v<cost_model_tag_t<CostModel>, pareto_frontier_tag>) {
+        return cost_model(enode, enode_id, children_frontiers);
+      } else {
+        auto raw_costs = std::vector<typename CostModel::CostResult>{};
+        raw_costs.reserve(children_frontiers.size());
+        for (auto const &c : children_frontiers) raw_costs.push_back(c.cost);
+        return CostResult{cost_model(enode, raw_costs), enode_id};
+      }
+    }();
+
+    // TODO: monadic, transform + or_else
+    if (!merged_frontier) {
+      merged_frontier = std::move(enode_frontier);
+    } else {
+      merged_frontier = Traits::merge(*merged_frontier, enode_frontier);
+    }
+  }
+
+  if (merged_frontier) {
+    frontier_map[eclass_id].frontier = *merged_frontier;
+    return merged_frontier;
+  }
+
+  // All enodes cyclic — remove sentinel
+  frontier_map.erase(eclass_id);
+  return std::nullopt;
+}
+
+/// Top-down resolution of frontiers into a Selection map.
+/// Walks from root, at each eclass picks the best alternative via CostModelTraits::resolve.
+template <typename CostModel, typename Symbol, typename Analysis>
+auto ResolveSelection(
+    EGraph<Symbol, Analysis> const &egraph,
+    std::unordered_map<EClassId, EClassFrontier<typename CostModelTraits<CostModel>::CostResult>> const &frontier_map,
+    EClassId root) {
+  using Traits = CostModelTraits<CostModel>;
+  using CostType = Traits::CostType;
+
+  auto resolved = std::unordered_map<EClassId, Selection<CostType>>{};
+  auto to_visit = std::vector{root};
+  auto visited = std::unordered_set{root};
+
+  while (!to_visit.empty()) {
+    auto current = to_visit.back();
+    to_visit.pop_back();
+
+    auto it = frontier_map.find(current);
+    assert(it != frontier_map.end() && it->second.frontier.has_value());
+
+    auto const &frontier = *it->second.frontier;
+    auto enode_id = Traits::resolve(frontier);
+    resolved[current] = Selection<CostType>{enode_id, Traits::min_cost(frontier)};
+
+    auto const &enode = egraph.get_enode(enode_id);
+    for (auto child : enode.children()) {
+      if (!visited.contains(child)) {
+        to_visit.push_back(child);
+        visited.insert(child);
+      }
+    }
+  }
+
+  return resolved;
 }
 
 template <typename Symbol, typename Analysis, typename CostResult>
@@ -169,10 +368,12 @@ struct Extractor {
    *         valid for use with egraph.get_enode() until the next rebuild().
    */
   auto Extract(EClassId const root_id) -> std::vector<std::pair<EClassId, ENodeId>> {
-    auto enode_selection = std::unordered_map<EClassId, Selection<typename CostModel::CostResult>>{};
-    ProcessCosts(egraph_, cost_model_, root_id, enode_selection);
-    auto in_degree = CollectDependencies(egraph_, enode_selection, root_id);
-    return TopologicalSort(egraph_, enode_selection, std::move(in_degree));
+    using TraitsCostResult = CostModelTraits<CostModel>::CostResult;
+    auto frontier_map = std::unordered_map<EClassId, EClassFrontier<TraitsCostResult>>{};
+    ComputeFrontiers(egraph_, cost_model_, root_id, frontier_map);
+    auto resolved = ResolveSelection<CostModel>(egraph_, frontier_map, root_id);
+    auto in_degree = CollectDependencies(egraph_, resolved, root_id);
+    return TopologicalSort(egraph_, resolved, std::move(in_degree));
   }
 
  private:
