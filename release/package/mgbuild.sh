@@ -427,7 +427,7 @@ upload_conan_cache() {
 
 build_memgraph () {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env && rustup toolchain install $DEFAULT_RUST_VERSION && cd \"$MGBUILD_ROOT_DIR\" && rustup override set $DEFAULT_RUST_VERSION"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env && export RUSTUP_TOOLCHAIN=\"${DEFAULT_RUST_VERSION:-stable}\" && cd \"$MGBUILD_ROOT_DIR\""
   local container_build_dir="$MGBUILD_ROOT_DIR/build"
   local container_output_dir="$container_build_dir/output"
   local arm_flag=""
