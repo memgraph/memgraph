@@ -22,6 +22,8 @@ namespace memgraph::planner::core::extract {
 ///
 /// DominanceFn: (Alt const&, Alt const&) -> bool
 ///   Returns true if the first argument is dominated by the second.
+///   Must be transitive: if a is dominated by b and b is dominated by c,
+///   then a must be dominated by c. The prune() algorithm relies on this.
 ///
 /// CombineFn: (Alt const&, Alt const&) -> Alt
 ///   Produces a new alternative from two parent alternatives (Cartesian product element).
