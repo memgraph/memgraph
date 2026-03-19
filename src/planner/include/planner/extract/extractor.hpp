@@ -219,7 +219,9 @@ auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
 
     auto const &enode = egraph.get_enode(enode_id);
     for (EClassId child : enode.children()) {
-      if (--in_degree[child] == 0) {
+      auto deg_it = in_degree.find(child);
+      if (deg_it == in_degree.end()) continue;  // dead Bind child — not in resolved set
+      if (--deg_it->second == 0) {
         queue.emplace(child);
       }
     }
