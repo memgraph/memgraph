@@ -245,6 +245,8 @@ auto CollectDependencies(EGraph<Symbol, Analysis> const &egraph,
 
     auto const &enode = egraph.get_enode(enode_it->second.enode_id);
     for (auto child : enode.children()) {
+      // Only walk children that were resolved — dead Bind's sym/expr are skipped
+      if (!enode_selection.contains(child)) continue;
       // Count the in-degree, used for Kahn's topological sorting
       ++in_degree[child];
       // Only add to BFS if not already added
