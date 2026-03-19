@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -117,6 +117,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   inline bool Execute() { return Execute_(*this); }
 
+  memgraph::metrics::GlobalMetricHandles *GlobalMetricHandles() const { return global_metric_handles_; }
+
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);
 
@@ -139,6 +141,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::shared_ptr<memgraph::utils::UserResources> user_resource_;  // User-related resource monitoring
 #endif
   memgraph::auth::SynchedAuth *auth_;
+  memgraph::metrics::GlobalMetricHandles *global_metric_handles_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
   std::optional<ParseRes> parsed_res_;  // SessionHL corresponds to a single connection (we do not support out of order
                                         // execution, so a single query can be prepared/executed)
