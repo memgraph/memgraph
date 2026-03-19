@@ -21,6 +21,11 @@ on:
         required: false
         type: string
         default: ''
+      run_id:
+        description: 'Run ID'
+        required: false
+        type: string
+        default: ''
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -28,7 +33,7 @@ env:
 
 jobs:
   test:
-    name: ISSU Test
+    name: ISSU Test${{{ inputs.run_id != '' && inputs.run_id || ' - 1' }}}
     runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "ARM64", "Kubernetes"]') || fromJSON('["self-hosted", "X64", "Kubernetes"]') }}
     steps:
       - name: Checkout code

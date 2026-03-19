@@ -20,13 +20,35 @@ on:
         description: Image architecture (amd/arm)
         required: true
         default: amd
+      check_flakiness:
+        type: integer
+        description: Check for flakiness by running every selected job multiple times. Enter a number between 2 and 20.
+        required: false
+        default: 1
 
 jobs:
   single_test:
+    if: ${{ inputs.check_flakiness == 1 }}
     name: ISSU Test
     uses: ./.github/workflows/reusable_issu_test.yaml
     with:
       last_image: ${{ inputs.prev_image }}
       next_image: ${{ inputs.next_image }}
       arch: ${{ inputs.arch }}
+    secrets: inherit
+
+  flakiness_test:
+    if: ${{ inputs.check_flakiness > 1 }}
+    name: ISSU Test (Flakiness Check)
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        run_no: ${{ range(1, inputs.check_flakiness + 1) }}
+    uses: ./.github/workflows/reusable_issu_test.yaml
+    with:
+      last_image: ${{ inputs.prev_image }}
+      next_image: ${{ inputs.next_image }}
+      arch: ${{ inputs.arch }}
+      run_id: "${{ matrix.run_no }}"
     secrets: inherit
