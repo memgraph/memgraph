@@ -572,9 +572,12 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   auto in_degree = extract::CollectDependencies(impl.egraph_, resolved, true_root);
   auto const selection = extract::TopologicalSort(impl.egraph_, resolved, std::move(in_degree));
 
-  /// STAGE: Demand analysis — determine which symbols are read by selected Identifier enodes
-  /// The multi-alt extractor makes demand-aware choices, but the builder still needs
-  /// the required set to detect dead Binds during reconstruction.
+  /// STAGE: Demand analysis — determine which symbols are alive.
+  /// Scan the resolved selection for Identifier enodes. If an Identifier for
+  /// a symbol was selected (rather than the inlined expression), that symbol
+  /// is required and its Bind must stay alive. This bridges extraction
+  /// (which tracks demands via Pareto alternatives) and the builder (which
+  /// needs a simple set to skip dead Binds).
   auto required_symbols = std::unordered_set<planner::core::EClassId>{};
   for (auto const &[eclass_id, enode_id] : selection) {
     auto const &enode = impl.egraph_.get_enode(enode_id);
