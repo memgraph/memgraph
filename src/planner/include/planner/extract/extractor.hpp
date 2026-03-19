@@ -78,7 +78,6 @@ struct DefaultCostResult {
 };
 
 /// Provides defaults for cost model operations, like std::allocator_traits.
-/// merge always lives on CostResult (DefaultCostResult::merge or ParetoFrontier::merge).
 /// Dispatches on cost_model_tag_t:
 ///   single_best_tag      — wraps CostResult, resolve returns enode_id
 ///   pareto_frontier_tag  — resolve/min_cost delegate to model (concept-checked)
@@ -91,8 +90,6 @@ struct CostModelTraits<CostModel, single_best_tag> {
   using CostType = CostModel::CostResult;
 
   static auto min_cost(CostResult const &r) -> CostType { return r.cost; }
-
-  static auto merge(CostResult const &a, CostResult const &b) -> CostResult { return CostResult::merge(a, b); }
 
   static auto resolve(CostResult const &r) -> ENodeId { return r.enode_id; }
 
@@ -114,8 +111,6 @@ struct CostModelTraits<CostModel, pareto_frontier_tag> {
 
   static auto min_cost(CostResult const &r) -> CostType { return CostModel::min_cost(r); }
 
-  static auto merge(CostResult const &a, CostResult const &b) -> CostResult { return CostResult::merge(a, b); }
-
   static auto resolve(CostResult const &r) -> ENodeId { return CostModel::resolve(r); }
 
   template <typename ENodeT>
@@ -132,9 +127,7 @@ struct CostModelTraits<CostModel, pareto_frontier_tag> {
 /// Per-eclass frontier during cost propagation.
 /// nullopt means "in progress" (cycle detection).
 template <typename CostResult>
-struct EClassFrontier {
-  std::optional<CostResult> frontier;
-};
+using EClassFrontier = std::optional<CostResult>;
 
 /// Bottom-up cost propagation using CostModelTraits.
 /// Works with any cost model: single_best keeps the cheapest, pareto_frontier merges.
@@ -149,13 +142,13 @@ auto ComputeFrontiers(
   assert(!egraph.needs_rebuild() && "to avoid internal cost of getting canonical looking up we should");
 
   if (auto const it = frontier_map.find(eclass_id); it != frontier_map.end()) {
-    return it->second.frontier;
+    return it->second;
   }
 
   auto const &eclass = egraph.eclass(eclass_id);
 
   // Mark this e-class as "in progress" with nullopt frontier to detect cycles
-  frontier_map.emplace(eclass_id, EClassFrontier<CostResult>{std::nullopt});
+  frontier_map.emplace(eclass_id, std::nullopt);
 
   auto merged_frontier = std::optional<CostResult>{};
 
@@ -181,12 +174,12 @@ auto ComputeFrontiers(
     if (!merged_frontier) {
       merged_frontier = std::move(enode_frontier);
     } else {
-      merged_frontier = Traits::merge(*merged_frontier, enode_frontier);
+      merged_frontier = CostResult::merge(*merged_frontier, enode_frontier);
     }
   }
 
   if (merged_frontier) {
-    frontier_map[eclass_id].frontier = *merged_frontier;
+    frontier_map[eclass_id] = *merged_frontier;
     return merged_frontier;
   }
 
@@ -214,9 +207,9 @@ auto ResolveSelection(
     to_visit.pop_back();
 
     auto it = frontier_map.find(current);
-    assert(it != frontier_map.end() && it->second.frontier.has_value());
+    assert(it != frontier_map.end() && it->second.has_value());
 
-    auto const &frontier = *it->second.frontier;
+    auto const &frontier = *it->second;
     auto enode_id = Traits::resolve(frontier);
     resolved[current] = Selection<CostType>{enode_id, Traits::min_cost(frontier)};
 
@@ -304,7 +297,7 @@ auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
  */
 template <typename Symbol, typename Analysis, typename CostModel>
 struct Extractor {
-  Extractor(EGraph<Symbol, Analysis> const &egraph, CostModel &&cost_model)
+  Extractor(EGraph<Symbol, Analysis> const &egraph, CostModel cost_model)
       : egraph_(egraph), cost_model_(std::move(cost_model)) {}
 
   /**

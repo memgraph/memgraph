@@ -103,16 +103,11 @@ struct ParetoFrontier {
     return result;
   }
 
-  /// Left-fold combine over multiple frontiers. Stamps each intermediate with transform_fn
-  /// before combining with the next frontier.
-  template <typename CombineFn, typename TransformFn>
-  static auto combine_all(std::span<ParetoFrontier const> frontiers, CombineFn &&combine_fn, TransformFn &&transform_fn)
-      -> ParetoFrontier {
+  /// Left-fold combine over multiple frontiers.
+  template <typename CombineFn>
+  static auto combine_all(std::span<ParetoFrontier const> frontiers, CombineFn &&combine_fn) -> ParetoFrontier {
     assert(!frontiers.empty());
     auto result = frontiers[0];
-    for (auto &alt : result.alts) {
-      transform_fn(alt);
-    }
     for (size_t i = 1; i < frontiers.size(); ++i) {
       result = combine(result, frontiers[i], combine_fn);
     }

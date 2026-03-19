@@ -56,11 +56,6 @@ auto CombineAlts(double extra_cost, planner::core::ENodeId enode_id) {
   };
 }
 
-// Convenience: stamp enode_id on an existing alternative.
-auto StampENode(planner::core::ENodeId enode_id) {
-  return [enode_id](Alternative &alt) { alt.enode_id = enode_id; };
-}
-
 /// Find the cheapest alternative in a frontier. Returns nullptr if empty.
 [[nodiscard]] auto best_alt(CostFrontier const &f) -> Alternative const * {
   auto it = std::ranges::min_element(f.alts, {}, &Alternative::cost);
@@ -160,8 +155,14 @@ struct PlanCostModel {
       }
 
       // Output: fold input × named_output₁ × named_output₂ × ...
-      case symbol::Output:
-        return CostFrontier::combine_all(children, CombineAlts(0.0, enode_id), StampENode(enode_id));
+      case symbol::Output: {
+        auto result = children[0];
+        for (auto &alt : result.alts) alt.enode_id = enode_id;
+        for (size_t i = 1; i < children.size(); ++i) {
+          result = CostFrontier::combine(result, children[i], CombineAlts(0.0, enode_id));
+        }
+        return result;
+      }
 
       // NamedOutput: combine sym × expr + 1
       case symbol::NamedOutput:
@@ -214,9 +215,9 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
     if (resolved.contains(eclass_id)) return;
 
     auto it = frontier_map.find(eclass_id);
-    assert(it != frontier_map.end() && it->second.frontier.has_value());
+    assert(it != frontier_map.end() && it->second.has_value());
 
-    auto const &frontier = *it->second.frontier;
+    auto const &frontier = *it->second;
     auto const &chosen = pick_compatible(frontier, provided);
     resolved[eclass_id] = Selection{chosen.enode_id, chosen.cost};
 
@@ -230,16 +231,16 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
 
       // Re-derive alive/dead given the provided context
       auto input_it = frontier_map.find(input_eclass);
-      assert(input_it != frontier_map.end() && input_it->second.frontier.has_value());
-      auto const &input_frontier = *input_it->second.frontier;
+      assert(input_it != frontier_map.end() && input_it->second.has_value());
+      auto const &input_frontier = *input_it->second;
 
       auto sym_it = frontier_map.find(sym_eclass);
-      assert(sym_it != frontier_map.end() && sym_it->second.frontier.has_value());
-      auto sym_cost = min_cost(*sym_it->second.frontier);
+      assert(sym_it != frontier_map.end() && sym_it->second.has_value());
+      auto sym_cost = min_cost(*sym_it->second);
 
       auto expr_it = frontier_map.find(expr_eclass);
-      assert(expr_it != frontier_map.end() && expr_it->second.frontier.has_value());
-      auto const &expr_frontier = *expr_it->second.frontier;
+      assert(expr_it != frontier_map.end() && expr_it->second.has_value());
+      auto const &expr_frontier = *expr_it->second;
 
       // Alive: input alt must have sym in required, required ⊆ provided ∪ {sym}
       auto alive_provided = provided;
