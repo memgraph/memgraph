@@ -993,34 +993,99 @@ TEST(Extract_MultiAlt, ThreeNonDominatedAlternatives) {
 // The fix would require context-keyed resolution: (EClassId, Context) → Selection
 // instead of just EClassId → Selection. Not needed yet because current query
 // patterns don't produce alive Binds with shared eclasses.
-TEST(Extract_MultiAlt, DISABLED_DiamondDAG_SharedEClassPicksMinCostRegardlessOfFeasibility) {
-  // Diamond DAG: Root(B) → Left(B, {shared}) and Right(B, {shared})
-  // Shared eclass has A alternatives: {cost=1,req={1}} and {cost=2,req={}}
-  // ResolveSelection picks cost=1 (req={1}) for the shared eclass.
-  // If "demand 1" is infeasible for one parent path, the selection is wrong.
-  //
-  // This test is DISABLED because the generic ResolveSelection is context-free
-  // by design. The plan-specific ResolvePlanSelection handles this for Bind nodes.
+// Demonstrates the first-visitor-wins DAG resolution bug using a context-aware
+// resolver directly at the extractor level.
+//
+// Diamond DAG: Root(B) → Left(B, {Shared}), Right(B, {Shared})
+// Shared eclass (symbol A) has two non-dominated alternatives:
+//   {cost=1, req={1}}  — cheap but demands "1"
+//   {cost=2, req={}}   — expensive but no demands
+//
+// A context-aware resolver propagates a "provided" set top-down:
+//   Left provides {1}  → Shared should pick {cost=1, req={1}} (demands satisfied)
+//   Right provides {}   → Shared should pick {cost=2, req={}} (only feasible option)
+//
+// But the shared eclass is visited ONCE (first-visitor-wins caching).
+// Whichever parent visits first locks in the selection. This test shows
+// that the second parent gets a suboptimal or infeasible selection.
+TEST(Extract_MultiAlt, DAGResolution_FirstVisitorWins) {
   auto egraph = EGraph<symbol, analysis>{};
   auto [shared_class, shared_node, shared_new] = egraph.emplace(symbol::A);
   auto [left_class, left_node, left_new] = egraph.emplace(symbol::B, {shared_class}, 1);
   auto [right_class, right_node, right_new] = egraph.emplace(symbol::B, {shared_class}, 2);
   auto [root_class, root_node, root_new] = egraph.emplace(symbol::B, {left_class, right_class});
 
-  // DemandAwareMultiAltCostModel: A produces {cost=1,req={1}} and {cost=2,req={}}
-  auto extractor = Extractor{egraph, DemandAwareMultiAltCostModel{}};
-  auto extracted = extractor.Extract(root_class);
+  // Compute frontiers bottom-up
+  using CM = DemandAwareMultiAltCostModel;
+  std::unordered_map<EClassId, EClassFrontier<CM::CostResult>> frontier_map;
+  ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
 
-  ASSERT_EQ(extracted.size(), 4);
-  // The generic resolver picks min-cost at the shared eclass: {cost=1,req={1}}
-  // This is the "cheapest but demands something" alternative.
-  // If Left needs req={1} satisfied but Right doesn't provide it,
-  // the extraction is inconsistent for Right's subtree.
-  // With context-aware resolution, Right would pick {cost=2,req={}}.
-  auto shared_it = std::ranges::find_if(extracted, [&](auto const &p) { return p.first == shared_class; });
-  ASSERT_NE(shared_it, extracted.end());
-  // Currently picks shared_node (only enode in the eclass)
-  ASSERT_EQ(shared_it->second, shared_node);
+  // Verify shared eclass has both non-dominated alternatives
+  auto const &shared_frontier = *frontier_map.at(shared_class);
+  ASSERT_EQ(shared_frontier.alts.size(), 2);
+
+  // Context-aware resolver with first-visitor-wins caching (the bug).
+  // Mimics ResolvePlanSelection's pattern: at certain enodes, the resolver
+  // adjusts the provided set for specific children.
+  auto resolved = std::unordered_map<EClassId, std::pair<ENodeId, double>>{};
+
+  auto pick_best_compatible = [](TestDemandCostResult const &frontier,
+                                 std::set<int> const &provided) -> TestDemandAlt const * {
+    TestDemandAlt const *best = nullptr;
+    for (auto const &alt : frontier.alts) {
+      if (std::ranges::includes(provided, alt.required)) {
+        if (!best || alt.cost < best->cost) best = &alt;
+      }
+    }
+    return best;
+  };
+
+  // DFS resolver where the Root node provides different contexts per child:
+  //   Left child gets provided={1} (mimics alive Bind providing a symbol)
+  //   Right child gets provided={} (no extra symbols)
+  auto resolve = [&](this auto const &self, EClassId id, std::set<int> const &provided) -> void {
+    if (resolved.contains(id)) return;  // ← first-visitor-wins cache
+    auto const &frontier = *frontier_map.at(id);
+    auto const *chosen = pick_best_compatible(frontier, provided);
+    ASSERT_NE(chosen, nullptr);
+    resolved[id] = {chosen->enode_id, chosen->cost};
+    auto const &enode = egraph.get_enode(chosen->enode_id);
+    auto const &children = enode.children();
+
+    if (id == root_class && children.size() == 2) {
+      // Root provides different contexts per child (like an Output with alive Bind + NamedOutput)
+      self(children[0], {1});  // Left child: provided={1}
+      self(children[1], {});   // Right child: provided={}
+    } else {
+      for (auto child : children) {
+        self(child, provided);
+      }
+    }
+  };
+
+  resolve(root_class, {});
+
+  // Left was visited first with provided={1}.
+  // Its child (Shared) was resolved with provided={1} → picks {cost=1, req={1}}.
+  auto const &[shared_enode, shared_cost] = resolved.at(shared_class);
+  ASSERT_EQ(shared_cost, 1.0);  // Locked in by Left's visit
+
+  // BUG: Right then visits Shared, but resolved.contains(shared_class) → true.
+  // Right gets the cached {cost=1, req={1}} — but Right's context is provided={}.
+  // req={1} is UNSATISFIED in Right's context.
+  //
+  // The correct behavior for Right would be {cost=2, req={}}.
+  // A context-keyed resolver would store separate selections per (eclass, provided).
+
+  // Verify: Right itself was resolved (its children include Shared which was cached)
+  ASSERT_TRUE(resolved.contains(right_class));
+
+  // Verify the inconsistency: Shared's selection has req={1}, but Right provides {}.
+  // The cached alt is the one with required={1} (cost=1), which is infeasible for Right.
+  auto const &shared_alt_chosen =
+      *std::ranges::find_if(shared_frontier.alts, [&](auto const &alt) { return alt.cost == shared_cost; });
+  ASSERT_FALSE(shared_alt_chosen.required.empty()) << "Shared eclass resolved to alt with unsatisfied demand — "
+                                                      "infeasible for Right's context (provided={})";
 }
 
 TEST(Extract_MultiAlt, CyclicEClass) {
