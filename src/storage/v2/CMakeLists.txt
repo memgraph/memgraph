@@ -164,6 +164,7 @@ target_link_libraries(mg-storage-v2
     mg-utils
     mg-aws
     mg-flags
+    mg-metrics
     gflags
     abseil::abseil
     mg-rpc

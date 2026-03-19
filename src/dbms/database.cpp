@@ -88,6 +88,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
           .memory_res = info.memory_res,
       };
     });
+    storage_->SetMetricHandles(metric_handles_);
   }
 }
 

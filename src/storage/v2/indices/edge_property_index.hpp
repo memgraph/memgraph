@@ -12,6 +12,11 @@
 #pragma once
 
 #include <map>
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 #include <vector>
 
 #include "storage/v2/edge_ref.hpp"
@@ -49,6 +54,8 @@ class EdgePropertyIndex {
   EdgePropertyIndex &operator=(EdgePropertyIndex &&) = delete;
 
   virtual ~EdgePropertyIndex() = default;
+
+  virtual void SetMetricHandles(metrics::DatabaseMetricHandles * /*metric_handles*/) {}
 
   virtual bool DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) = 0;
 

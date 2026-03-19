@@ -13,6 +13,7 @@
 
 #include <memory>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
@@ -49,6 +50,8 @@ struct Indices {
   void RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
 
   void DropGraphClearIndices();
+
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
   /// Removes vertices from all vector indices. Must be called before
   /// the vertex is removed from the skip list (while the pointer is still valid).

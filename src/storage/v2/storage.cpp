@@ -17,6 +17,7 @@
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -751,9 +752,11 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   // create that gets rolled back.
   auto updater = storage_->indices_.MakeUpdater();
   auto &text_index = storage_->indices_.text_index_;
-  transaction_.commit_callbacks_.Add([&text_index, updater](uint64_t /*commit_ts*/) {
+  auto *metric_handles = storage_->metric_handles_;
+  transaction_.commit_callbacks_.Add([&text_index, updater, metric_handles](uint64_t /*commit_ts*/) {
     text_index.PublishActiveIndices(updater);
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
+    if (metric_handles) metric_handles->active_text_indices->Increment();
   });
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_index_info);
   return {};
@@ -778,9 +781,11 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   // Defer publication to commit time. See CreateTextIndex above.
   auto updater = storage_->indices_.MakeUpdater();
   auto &text_edge_index = storage_->indices_.text_edge_index_;
-  transaction_.commit_callbacks_.Add([&text_edge_index, updater](uint64_t /*commit_ts*/) {
+  auto *metric_handles = storage_->metric_handles_;
+  transaction_.commit_callbacks_.Add([&text_edge_index, updater, metric_handles](uint64_t /*commit_ts*/) {
     text_edge_index.PublishActiveIndices(updater);
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
+    if (metric_handles) metric_handles->active_text_edge_indices->Increment();
   });
   transaction_.md_deltas.emplace_back(MetadataDelta::text_edge_index_create, text_edge_index_info);
   return {};
@@ -790,31 +795,42 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
     const std::string &index_name) {
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
   auto updater = storage_->indices_.MakeUpdater();
+  auto *metric_handles = storage_->metric_handles_;
   if (storage_->indices_.text_index_.IndexExists(index_name)) {
     auto evicted = storage_->indices_.text_index_.DropIndex(index_name);
     auto &text_index = storage_->indices_.text_index_;
-    // Flip deferred_drop only on commit so an aborted DROP leaves the on-disk
-    // tantivy directory intact (other snapshots still alias the same data).
     transaction_.commit_callbacks_.Add(
-        [&text_index, updater, evicted = std::move(evicted)](uint64_t /*commit_ts*/) mutable {
+        [&text_index, updater, evicted = std::move(evicted), metric_handles](uint64_t /*commit_ts*/) mutable {
           evicted->deferred_drop = true;
           text_index.PublishActiveIndices(updater);
           memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
+          if (metric_handles) metric_handles->active_text_indices->Decrement();
         });
   } else if (storage_->indices_.text_edge_index_.IndexExists(index_name)) {
     auto evicted = storage_->indices_.text_edge_index_.DropIndex(index_name);
     auto &text_edge_index = storage_->indices_.text_edge_index_;
     transaction_.commit_callbacks_.Add(
-        [&text_edge_index, updater, evicted = std::move(evicted)](uint64_t /*commit_ts*/) mutable {
+        [&text_edge_index, updater, evicted = std::move(evicted), metric_handles](uint64_t /*commit_ts*/) mutable {
           evicted->deferred_drop = true;
           text_edge_index.PublishActiveIndices(updater);
           memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
+          if (metric_handles) metric_handles->active_text_edge_indices->Decrement();
         });
   } else {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
   return {};
+}
+
+}  // namespace memgraph::storage
+
+namespace memgraph::storage {
+
+void Storage::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  indices_.SetMetricHandles(metric_handles);
+  constraints_.SetMetricHandles(metric_handles);
 }
 
 }  // namespace memgraph::storage
