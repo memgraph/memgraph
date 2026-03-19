@@ -1,7 +1,7 @@
 name: ISSU Test
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.prev_image }}-${{ inputs.next_image }}-${{ inputs.arch }}
   cancel-in-progress: true
 
 on:
