@@ -1384,6 +1384,95 @@ TEST(Extract_MultiAlt, DAGResolution_CascadesToChildren) {
   ASSERT_TRUE(resolved_required[leaf_class].empty());
 }
 
+// Tests that when a cascade re-resolve switches a Bind-like node from alive to dead,
+// stale sym/expr children are erased from the resolved map. Without the erase, the
+// Builder would see the stale entries and treat the dead Bind as alive.
+TEST(Extract_MultiAlt, DAGResolution_AliveToDeadErasesStaleChildren) {
+  // 4-level structure simulating a Bind with sym and expr children:
+  //   Root(B) → Left(B, {BindLike}), Right(B, {BindLike})
+  //   BindLike(A, {Input, Sym, Expr})
+  //   Input(B), Sym(B), Expr(B) — all leaves
+  //
+  // DemandAwareMultiAltCostModel: A produces {cost=1,req={1}} and {cost=2,req={}}.
+  // Left provides {1} → BindLike picks req={1} → all 3 children resolved.
+  // Right provides {} → BindLike re-resolves to req={} → Sym/Expr should be ERASED.
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [input_class, input_node, input_new] = egraph.emplace(symbol::B);
+  auto [sym_class, sym_node, sym_new] = egraph.emplace(symbol::B, {}, 1);
+  auto [expr_class, expr_node, expr_new] = egraph.emplace(symbol::B, {}, 2);
+  auto [bind_class, bind_node, bind_new] = egraph.emplace(symbol::A, {input_class, sym_class, expr_class});
+  auto [left_class, left_node, left_new] = egraph.emplace(symbol::B, {bind_class}, 3);
+  auto [right_class, right_node, right_new] = egraph.emplace(symbol::B, {bind_class}, 4);
+  auto [root_class, root_node, root_new] = egraph.emplace(symbol::B, {left_class, right_class});
+
+  using CM = DemandAwareMultiAltCostModel;
+  std::unordered_map<EClassId, EClassFrontier<CM::CostResult>> frontier_map;
+  ComputeFrontiers(egraph, CM{}, root_class, frontier_map);
+
+  auto resolved = std::unordered_map<EClassId, std::pair<ENodeId, double>>{};
+  auto resolved_required = std::unordered_map<EClassId, std::set<int>>{};
+
+  auto pick_best_compatible = [](TestFrontier const &frontier, std::set<int> const &provided) -> TestDemandAlt const * {
+    TestDemandAlt const *best = nullptr;
+    for (auto const &alt : frontier.alts) {
+      if (std::ranges::includes(provided, alt.required)) {
+        if (!best || alt.cost < best->cost) best = &alt;
+      }
+    }
+    return best;
+  };
+
+  auto resolve = [&](this auto const &self, EClassId id, std::set<int> const &provided) -> void {
+    if (auto existing = resolved.find(id); existing != resolved.end()) {
+      if (std::ranges::includes(provided, resolved_required[id])) return;
+      auto const &frontier = *frontier_map.at(id);
+      auto const *chosen = pick_best_compatible(frontier, provided);
+      ASSERT_NE(chosen, nullptr);
+      existing->second = {chosen->enode_id, chosen->cost};
+      resolved_required[id] = chosen->required;
+      // Cascade + erase stale children if switching to no-demand alt
+      auto const &enode = egraph.get_enode(chosen->enode_id);
+      if (chosen->required.empty() && enode.children().size() == 3) {
+        // Dead-like: only visit first child, erase second and third
+        resolved.erase(enode.children()[1]);
+        resolved.erase(enode.children()[2]);
+        resolved_required.erase(enode.children()[1]);
+        resolved_required.erase(enode.children()[2]);
+        self(enode.children()[0], provided);
+      } else {
+        for (auto child : enode.children()) {
+          self(child, provided);
+        }
+      }
+      return;
+    }
+    auto const &frontier = *frontier_map.at(id);
+    auto const *chosen = pick_best_compatible(frontier, provided);
+    ASSERT_NE(chosen, nullptr);
+    resolved[id] = {chosen->enode_id, chosen->cost};
+    resolved_required[id] = chosen->required;
+    auto const &enode = egraph.get_enode(chosen->enode_id);
+    if (id == root_class && enode.children().size() == 2) {
+      self(enode.children()[0], {1});  // Left provides {1}
+      self(enode.children()[1], {});   // Right provides {}
+    } else {
+      for (auto child : enode.children()) {
+        self(child, provided);
+      }
+    }
+  };
+
+  resolve(root_class, {});
+
+  // BindLike was first resolved as alive (req={1}), then re-resolved as dead (req={}).
+  // After re-resolve, sym and expr should be ERASED from resolved.
+  ASSERT_TRUE(resolved_required[bind_class].empty()) << "BindLike should be re-resolved to no-demand";
+  ASSERT_FALSE(resolved.contains(sym_class)) << "Stale sym should be erased on alive→dead transition";
+  ASSERT_FALSE(resolved.contains(expr_class)) << "Stale expr should be erased on alive→dead transition";
+  // Input should still be resolved
+  ASSERT_TRUE(resolved.contains(input_class));
+}
+
 TEST(Extract_MultiAlt, CyclicEClass) {
   // Multi-alt should handle cycles the same as single-best: skip cyclic enodes
   auto egraph = EGraph<symbol, analysis>{};

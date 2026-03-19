@@ -245,7 +245,13 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
             self(sym_eclass, bind_provided);
             self(expr_eclass, bind_provided);
           } else {
-            // Dead: only visit input — sym and expr are unreachable
+            // Dead: only visit input — sym and expr are unreachable.
+            // Erase any stale sym/expr entries from a prior alive resolution
+            // (cascade alive→dead transition).
+            resolved.erase(sym_eclass);
+            resolved.erase(expr_eclass);
+            resolved_required.erase(sym_eclass);
+            resolved_required.erase(expr_eclass);
             self(input_eclass, bind_provided);
           }
         };
