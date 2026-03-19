@@ -48,10 +48,32 @@ struct ParetoFrontier {
   std::vector<Alt> alts;
 
   /// Remove alternatives dominated by any other alternative in the frontier.
+  /// Two-pass: first mark dominated indices, then erase. This avoids reading
+  /// moved-from elements (std::erase_if/remove_if moves elements during its pass).
   void prune() {
-    std::erase_if(alts, [this](Alt const &a) {
-      return std::ranges::any_of(alts, [&a](Alt const &b) { return &a != &b && DominanceFn{}(a, b); });
-    });
+    auto const n = alts.size();
+    auto dominated = std::vector<bool>(n, false);
+    for (size_t i = 0; i < n; ++i) {
+      if (dominated[i]) continue;
+      for (size_t j = i + 1; j < n; ++j) {
+        if (dominated[j]) continue;
+        if (DominanceFn{}(alts[i], alts[j])) {
+          dominated[i] = true;
+          break;
+        }
+        if (DominanceFn{}(alts[j], alts[i])) {
+          dominated[j] = true;
+        }
+      }
+    }
+    size_t write = 0;
+    for (size_t read = 0; read < n; ++read) {
+      if (!dominated[read]) {
+        if (write != read) alts[write] = std::move(alts[read]);
+        ++write;
+      }
+    }
+    alts.resize(write);
   }
 
   /// Union two frontiers from different enodes in the same eclass, then prune.

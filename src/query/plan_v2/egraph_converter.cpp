@@ -61,9 +61,15 @@ auto StampENode(planner::core::ENodeId enode_id) {
   return [enode_id](Alternative &alt) { alt.enode_id = enode_id; };
 }
 
-[[nodiscard]] auto min_cost(CostFrontier const &f) -> double {
+/// Find the cheapest alternative in a frontier. Returns nullptr if empty.
+[[nodiscard]] auto best_alt(CostFrontier const &f) -> Alternative const * {
   auto it = std::ranges::min_element(f.alts, {}, &Alternative::cost);
-  return it != f.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
+  return it != f.alts.end() ? &*it : nullptr;
+}
+
+[[nodiscard]] auto min_cost(CostFrontier const &f) -> double {
+  auto const *alt = best_alt(f);
+  return alt ? alt->cost : std::numeric_limits<double>::infinity();
 }
 
 struct PlanCostModel {
@@ -167,7 +173,9 @@ struct PlanCostModel {
   static auto min_cost(CostResult const &f) -> double { return ::memgraph::query::plan::v2::min_cost(f); }
 
   static auto resolve(CostResult const &frontier) -> planner::core::ENodeId {
-    return std::ranges::min_element(frontier.alts, {}, &Alternative::cost)->enode_id;
+    auto const *alt = best_alt(frontier);
+    assert(alt && "resolve called on empty frontier");
+    return alt->enode_id;
   }
 };
 
@@ -223,9 +231,11 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
       auto const &input_frontier = *input_it->second.frontier;
 
       auto sym_it = frontier_map.find(sym_eclass);
+      assert(sym_it != frontier_map.end() && sym_it->second.frontier.has_value());
       auto sym_cost = min_cost(*sym_it->second.frontier);
 
       auto expr_it = frontier_map.find(expr_eclass);
+      assert(expr_it != frontier_map.end() && expr_it->second.frontier.has_value());
       auto const &expr_frontier = *expr_it->second.frontier;
 
       // Alive: input alt must have sym in required, required ⊆ provided ∪ {sym}
