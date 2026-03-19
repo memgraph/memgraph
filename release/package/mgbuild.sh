@@ -78,7 +78,7 @@ DEFAULT_MGDEPS_CACHE_PORT="80"
 DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
-DEFAULT_RUST_VERSION="1.85"
+DEFAULT_RUST_VERSION="1.89"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
