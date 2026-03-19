@@ -38,8 +38,9 @@ namespace memgraph::storage {
 
 namespace {
 
-std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storage, Edge *edge, EdgeTypeId edge_type,
-                                                                 PropertyId property, const PropertyValue &value) {
+std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storage, Edge * /*edge*/,
+                                                                 EdgeTypeId edge_type, PropertyId property,
+                                                                 const PropertyValue &value) {
   if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
   if (storage->indices_.vector_edge_index_.Empty()) return std::nullopt;
   auto indices_by_et = storage->indices_.vector_edge_index_.GetIndicesByEdgeType(edge_type);
@@ -241,6 +242,15 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
 
+  if (!storage_->indices_.vector_edge_index_.Empty()) {
+    for (auto &[property_id, property_value] : properties) {
+      if (auto converted =
+              TryConvertToVectorEdgeIndexProperty(storage_, edge_.ptr, edge_type_, property_id, property_value)) {
+        property_value = std::move(*converted);
+      }
+    }
+  }
+
   // This needs to happen before locking the object
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
 
@@ -282,6 +292,15 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
     std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
+
+  if (!storage_->indices_.vector_edge_index_.Empty()) {
+    for (auto &[property_id, property_value] : properties) {
+      if (auto converted =
+              TryConvertToVectorEdgeIndexProperty(storage_, edge_.ptr, edge_type_, property_id, property_value)) {
+        property_value = std::move(*converted);
+      }
+    }
+  }
 
   // This needs to happen before locking the object
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
