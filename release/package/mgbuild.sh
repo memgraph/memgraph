@@ -1056,7 +1056,7 @@ copy_memgraph() {
 test_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_VENV="source ve3/bin/activate"
-  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env && export RUSTUP_TOOLCHAIN=$DEFAULT_RUST_VERSION"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local EXPORT_AWS_KEY_ID="export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}"
