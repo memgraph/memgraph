@@ -33,7 +33,7 @@ env:
 
 jobs:
   test:
-    name: ISSU Test${{{ inputs.run_id != '' && inputs.run_id || ' - 1' }}}
+    name: ISSU Test${{ inputs.run_id != '' && inputs.run_id || ' - 1' }}
     runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "ARM64", "Kubernetes"]') || fromJSON('["self-hosted", "X64", "Kubernetes"]') }}
     steps:
       - name: Checkout code
