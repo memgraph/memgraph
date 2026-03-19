@@ -17,7 +17,6 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 
 #include "planner/extract/extractor.hpp"
-#include "planner/extract/pareto_frontier.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan_v2/egraph_internal.hpp"
 #include "utils/tag.hpp"
@@ -45,30 +44,15 @@ struct AlternativeDominance {
   auto operator()(Alternative const &a, Alternative const &b) const -> bool { return a.dominated_by(b); }
 };
 
+/// Helper: a Bind is "alive" if the input alternative demands the symbol it defines.
+static auto IsBindAlive(Alternative const &input_alt, planner::core::EClassId sym_eclass) -> bool {
+  return input_alt.required.contains(sym_eclass);
+}
+
 /// CostFrontier: ParetoFrontier with resolve/min_cost for the extraction contract.
 /// merge is inherited from ParetoFrontier (union + prune).
-struct CostFrontier : planner::core::extract::ParetoFrontier<Alternative, AlternativeDominance> {
-  using Base = planner::core::extract::ParetoFrontier<Alternative, AlternativeDominance>;
-  using Base::Base;
-
-  CostFrontier() = default;
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
-  CostFrontier(Base base) : Base(std::move(base)) {}
-
-  // Allow initializer_list construction: CostFrontier{{{alt1}, {alt2}}}
-  CostFrontier(std::initializer_list<Alternative> init) : Base{std::vector<Alternative>(init)} {}
-
-  static auto resolve(CostFrontier const &f) -> planner::core::ENodeId {
-    auto it = std::ranges::min_element(f.alts, {}, &Alternative::cost);
-    assert(it != f.alts.end() && "resolve called on empty frontier");
-    return it->enode_id;
-  }
-
-  static auto min_cost(CostFrontier const &f) -> double {
-    auto it = std::ranges::min_element(f.alts, {}, &Alternative::cost);
-    return it != f.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
-  }
+struct CostFrontier : planner::core::extract::CostResultBase<CostFrontier, Alternative, AlternativeDominance> {
+  using CostResultBase::CostResultBase;
 };
 
 // Convenience: combine two frontiers with cost summation and required-set union.
@@ -113,7 +97,7 @@ struct PlanCostModel {
         auto sym_cost = CostFrontier::min_cost(sym_frontier);
 
         return CostFrontier::flat_map(input_frontier, [&](auto const &input_alt, auto emit) {
-          if (input_alt.required.contains(sym_eclass)) {
+          if (IsBindAlive(input_alt, sym_eclass)) {
             // Alive: sym is needed — must pay sym+expr costs
             for (auto const &expr_alt : expr_frontier.alts) {
               auto required = input_alt.required;
@@ -212,6 +196,60 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
   };
 
   auto resolve_recursive = [&](this auto const &self, EClassId eclass_id, SymbolSet const &provided) -> void {
+    // Helper: Bind-specific child visitation with alive/dead logic.
+    // N.B. The alive/dead logic here mirrors PlanCostModel::operator() for symbol::Bind.
+    auto visit_bind_children =
+        [&](EClassId input_eclass, EClassId sym_eclass, EClassId expr_eclass, SymbolSet const &bind_provided) {
+          // Re-derive alive/dead given the provided context
+          auto input_it = frontier_map.find(input_eclass);
+          assert(input_it != frontier_map.end() && input_it->second.has_value());
+          auto const &input_frontier = *input_it->second;
+
+          auto sym_it = frontier_map.find(sym_eclass);
+          assert(sym_it != frontier_map.end() && sym_it->second.has_value());
+          auto sym_cost = CostFrontier::min_cost(*sym_it->second);
+
+          auto expr_it = frontier_map.find(expr_eclass);
+          assert(expr_it != frontier_map.end() && expr_it->second.has_value());
+          auto const &expr_frontier = *expr_it->second;
+
+          // Alive: input alt must have sym in required, required ⊆ provided ∪ {sym}
+          auto alive_provided = bind_provided;
+          alive_provided.insert(sym_eclass);
+
+          auto best_alive_cost = std::numeric_limits<double>::infinity();
+          for (auto const &input_alt : input_frontier.alts) {
+            if (IsBindAlive(input_alt, sym_eclass) && std::ranges::includes(alive_provided, input_alt.required)) {
+              for (auto const &expr_alt : expr_frontier.alts) {
+                if (std::ranges::includes(bind_provided, expr_alt.required)) {
+                  best_alive_cost = std::min(best_alive_cost, input_alt.cost + sym_cost + expr_alt.cost);
+                }
+              }
+            }
+          }
+
+          // Dead: input alt must NOT have sym in required, required ⊆ provided
+          auto best_dead_cost = std::numeric_limits<double>::infinity();
+          for (auto const &input_alt : input_frontier.alts) {
+            if (!IsBindAlive(input_alt, sym_eclass) && std::ranges::includes(bind_provided, input_alt.required)) {
+              best_dead_cost = std::min(best_dead_cost, input_alt.cost);
+            }
+          }
+
+          // Alive wins if strictly cheaper; ties go to dead (less work)
+          if (best_alive_cost < best_dead_cost) {
+            // Alive: visit all three children (input with extra sym provided, sym, expr)
+            self(input_eclass, alive_provided);
+            // sym_eclass is a leaf Symbol with required={}; compatible with any provided set.
+            // We pass provided (not alive_provided) because Symbol doesn't need the symbol it defines.
+            self(sym_eclass, bind_provided);
+            self(expr_eclass, bind_provided);
+          } else {
+            // Dead: only visit input — sym and expr are unreachable
+            self(input_eclass, bind_provided);
+          }
+        };
+
     if (auto existing = resolved.find(eclass_id); existing != resolved.end()) {
       // DAG: this eclass was already resolved from a different parent.
       // Check if the cached selection is compatible with this parent's provided set.
@@ -226,9 +264,14 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
       existing->second = Selection{chosen.enode_id, chosen.cost};
       resolved_required[eclass_id] = chosen.required;
       // Cascade: visit children of the new selection so stale cached values are updated.
+      // Bind nodes need special alive/dead child-visit logic.
       auto const &enode = egraph.get_enode(chosen.enode_id);
-      for (auto child : enode.children()) {
-        self(child, provided);
+      if (enode.symbol() == symbol::Bind && enode.children().size() == 3) {
+        visit_bind_children(enode.children()[0], enode.children()[1], enode.children()[2], provided);
+      } else {
+        for (auto child : enode.children()) {
+          self(child, provided);
+        }
       }
       return;
     }
@@ -245,59 +288,7 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
     auto const &children = enode.children();
 
     if (enode.symbol() == symbol::Bind && children.size() == 3) {
-      // N.B. The alive/dead logic here mirrors PlanCostModel::operator() for symbol::Bind.
-      auto input_eclass = children[0];
-      auto sym_eclass = children[1];
-      auto expr_eclass = children[2];
-
-      // Re-derive alive/dead given the provided context
-      auto input_it = frontier_map.find(input_eclass);
-      assert(input_it != frontier_map.end() && input_it->second.has_value());
-      auto const &input_frontier = *input_it->second;
-
-      auto sym_it = frontier_map.find(sym_eclass);
-      assert(sym_it != frontier_map.end() && sym_it->second.has_value());
-      auto sym_cost = CostFrontier::min_cost(*sym_it->second);
-
-      auto expr_it = frontier_map.find(expr_eclass);
-      assert(expr_it != frontier_map.end() && expr_it->second.has_value());
-      auto const &expr_frontier = *expr_it->second;
-
-      // Alive: input alt must have sym in required, required ⊆ provided ∪ {sym}
-      auto alive_provided = provided;
-      alive_provided.insert(sym_eclass);
-
-      auto best_alive_cost = std::numeric_limits<double>::infinity();
-      for (auto const &input_alt : input_frontier.alts) {
-        if (input_alt.required.contains(sym_eclass) && std::ranges::includes(alive_provided, input_alt.required)) {
-          for (auto const &expr_alt : expr_frontier.alts) {
-            if (std::ranges::includes(provided, expr_alt.required)) {
-              best_alive_cost = std::min(best_alive_cost, input_alt.cost + sym_cost + expr_alt.cost);
-            }
-          }
-        }
-      }
-
-      // Dead: input alt must NOT have sym in required, required ⊆ provided
-      auto best_dead_cost = std::numeric_limits<double>::infinity();
-      for (auto const &input_alt : input_frontier.alts) {
-        if (!input_alt.required.contains(sym_eclass) && std::ranges::includes(provided, input_alt.required)) {
-          best_dead_cost = std::min(best_dead_cost, input_alt.cost);
-        }
-      }
-
-      // Alive wins if strictly cheaper; ties go to dead (less work)
-      if (best_alive_cost < best_dead_cost) {
-        // Alive: visit all three children (input with extra sym provided, sym, expr)
-        self(input_eclass, alive_provided);
-        // sym_eclass is a leaf Symbol with required={}; compatible with any provided set.
-        // We pass provided (not alive_provided) because Symbol doesn't need the symbol it defines.
-        self(sym_eclass, provided);
-        self(expr_eclass, provided);
-      } else {
-        // Dead: only visit input — sym and expr are unreachable
-        self(input_eclass, provided);
-      }
+      visit_bind_children(children[0], children[1], children[2], provided);
     } else {
       for (auto child : children) {
         self(child, provided);
@@ -603,9 +594,12 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
 
     // Dead Bind: sym/expr children were not resolved (skipped by ResolvePlanSelection).
     // Pass through the input operator directly.
-    if (enode.symbol() == symbol::Bind && !build_cache.contains(enode.children()[1])) {
-      build_cache[eclass_id] = build_cache.at(enode.children()[0]);
-      continue;
+    if (enode.symbol() == symbol::Bind) {
+      assert(enode.children().size() == 3 && "Bind must have exactly 3 children");
+      if (!build_cache.contains(enode.children()[1])) {
+        build_cache[eclass_id] = build_cache.at(enode.children()[0]);
+        continue;
+      }
     }
 
     children_refs.clear();

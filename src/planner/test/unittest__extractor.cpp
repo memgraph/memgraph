@@ -788,27 +788,8 @@ struct TestDominance {
 };
 
 /// TestFrontier: ParetoFrontier with resolve/min_cost for the extraction contract.
-struct TestFrontier : ParetoFrontier<TestDemandAlt, TestDominance> {
-  using Base = ParetoFrontier<TestDemandAlt, TestDominance>;
-  using Base::Base;
-
-  TestFrontier() = default;
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
-  TestFrontier(Base base) : Base(std::move(base)) {}
-
-  TestFrontier(std::initializer_list<TestDemandAlt> init) : Base{std::vector<TestDemandAlt>(init)} {}
-
-  static auto resolve(TestFrontier const &f) -> ENodeId {
-    auto it = std::ranges::min_element(f.alts, {}, &TestDemandAlt::cost);
-    assert(it != f.alts.end());
-    return it->enode_id;
-  }
-
-  static auto min_cost(TestFrontier const &f) -> double {
-    auto it = std::ranges::min_element(f.alts, {}, &TestDemandAlt::cost);
-    return it != f.alts.end() ? it->cost : std::numeric_limits<double>::infinity();
-  }
+struct TestFrontier : CostResultBase<TestFrontier, TestDemandAlt, TestDominance> {
+  using CostResultBase::CostResultBase;
 };
 
 // Simple multi-alt cost model: each enode produces a single alternative with cost=1,
