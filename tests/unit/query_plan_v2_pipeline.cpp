@@ -314,14 +314,14 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "WithMultipleLiterals",
             .query = "WITH 1 AS a, 2 AS b RETURN a, b;",
-            .expected_details = {"Produce {a`2:1, b`1:2}", "Once"},  // dead store: both Binds eliminated
+            .expected_details = {"Produce {a`1:1, b`0:2}", "Once"},  // dead store: both Binds eliminated
             .min_rewrites = 2,
             .should_saturate = true,
         },
         PipelineTestCase{
             .name = "ChainedAliases",
             .query = "WITH 1 AS a WITH a AS b RETURN b;",
-            .expected_details = {"Produce {b`1:1}", "Once"},  // dead store: both Binds eliminated
+            .expected_details = {"Produce {b`0:1}", "Once"},  // dead store: both Binds eliminated
             .min_rewrites = 1,
             .should_saturate = true,
         },
@@ -524,7 +524,7 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "InlineThroughNested",
             .query = "WITH 1 AS a, 2 AS b RETURN a + b AS r;",
-            .expected_details = {"Produce {r`1:(1 + 2)}", "Once"},  // dead store: both Binds eliminated
+            .expected_details = {"Produce {r`0:(1 + 2)}", "Once"},  // dead store: both Binds eliminated
             .min_rewrites = 2,
             .should_saturate = true,
         },
@@ -555,7 +555,7 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "InlineChainedWithOperators",
             .query = "WITH 1 AS a WITH a + 2 AS b RETURN b * 3 AS r;",
-            .expected_details = {"Produce {r`1:((1 + 2) * 3)}", "Once"},  // dead store: both Binds eliminated
+            .expected_details = {"Produce {r`0:((1 + 2) * 3)}", "Once"},  // dead store: both Binds eliminated
             .min_rewrites = 0,
             .should_saturate = true,
         },
@@ -571,7 +571,7 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "TripleChainedAliases",
             .query = "WITH 1 AS a WITH a AS b WITH b AS c RETURN c;",
-            .expected_details = {"Produce {c`2:1}", "Once"},
+            .expected_details = {"Produce {c`0:1}", "Once"},
             .min_rewrites = 1,
             .should_saturate = true,
         }
@@ -665,7 +665,7 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "TransitiveDeadBinds",
             .query = "WITH 1 AS a WITH a AS b RETURN 2 AS r;",
-            .expected_details = {"Produce {r`1:2}", "Once"},
+            .expected_details = {"Produce {r`0:2}", "Once"},
             .min_rewrites = 1,
             .should_saturate = true,
         },
@@ -673,7 +673,7 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "PartialDeadBind",
             .query = "WITH 1 AS a, 2 AS b RETURN a AS r;",
-            .expected_details = {"Produce {r`1:1}", "Once"},
+            .expected_details = {"Produce {r`0:1}", "Once"},
             .min_rewrites = 1,
             .should_saturate = true,
         },

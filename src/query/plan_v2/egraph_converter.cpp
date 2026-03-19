@@ -282,12 +282,14 @@ auto ResolvePlanSelection(planner::core::EGraph<symbol, analysis> const &egraph,
 
       // Alive wins if strictly cheaper; ties go to dead (less work)
       if (best_alive_cost < best_dead_cost) {
+        // Alive: visit all three children (input with extra sym provided, sym, expr)
         self(input_eclass, alive_provided);
+        self(sym_eclass, provided);
+        self(expr_eclass, provided);
       } else {
+        // Dead: only visit input — sym and expr are unreachable
         self(input_eclass, provided);
       }
-      self(sym_eclass, provided);
-      self(expr_eclass, provided);
     } else {
       for (auto child : children) {
         self(child, provided);
@@ -573,21 +575,10 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   auto in_degree = extract::CollectDependencies(impl.egraph_, resolved, true_root);
   auto const selection = extract::TopologicalSort(impl.egraph_, resolved, std::move(in_degree));
 
-  /// STAGE: Demand analysis — determine which symbols are alive.
-  /// Scan the resolved selection for Identifier enodes. If an Identifier for
-  /// a symbol was selected (rather than the inlined expression), that symbol
-  /// is required and its Bind must stay alive. This bridges extraction
-  /// (which tracks demands via Pareto alternatives) and the builder (which
-  /// needs a simple set to skip dead Binds).
-  auto required_symbols = std::unordered_set<planner::core::EClassId>{};
-  for (auto const &[eclass_id, enode_id] : selection) {
-    auto const &enode = impl.egraph_.get_enode(enode_id);
-    if (enode.symbol() == symbol::Identifier) {
-      required_symbols.insert(enode.children()[0]);
-    }
-  }
-
   /// STAGE: Build selected (LogicalOperator, Expression *, Symbol, NamedExpression *, etc)
+  /// Dead Binds are already handled: ResolvePlanSelection skips sym/expr children
+  /// for dead Binds, so they're absent from the selection. CollectDependencies
+  /// only walks resolved children, so dead Bind's sym/expr never enter the topo sort.
   auto builder = Builder{impl.storage<symbol::Literal>().store,
                          impl.storage<symbol::NamedOutput>().store,
                          impl.storage<symbol::Symbol>().store};
@@ -603,9 +594,9 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   for (auto [eclass_id, enode_id] : std::views::reverse(selection)) {
     auto const &enode = impl.egraph_.get_enode(enode_id);
 
-    // Dead store elimination: if this Bind's symbol is not required by any
-    // selected Identifier, skip the Produce and pass through the input operator.
-    if (enode.symbol() == symbol::Bind && !required_symbols.contains(enode.children()[1])) {
+    // Dead Bind: sym/expr children were not resolved (skipped by ResolvePlanSelection).
+    // Pass through the input operator directly.
+    if (enode.symbol() == symbol::Bind && !build_cache.contains(enode.children()[1])) {
       build_cache[eclass_id] = build_cache.at(enode.children()[0]);
       continue;
     }
