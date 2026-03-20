@@ -37,6 +37,10 @@ RELEASE="memgraph-db"
 DESIRED_NODES=5
 PROFILE="${PROFILE:-minikube}"  # can be overridden via env
 CLUSTER_SETUP_TIMEOUT="${CLUSTER_SETUP_TIMEOUT:-90s}"
+HELM_CHART_REPO_URL="${HELM_CHART_REPO_URL:-https://github.com/memgraph/helm-charts.git}"
+HELM_CHART_BRANCH="${HELM_CHART_BRANCH:-fix/cluster-setup-flakiness}"
+HELM_CHART_DIR="${HELM_CHART_DIR:-helm-charts}"
+HELM_CHART_PATH="${HELM_CHART_PATH:-${HELM_CHART_DIR}/charts/memgraph-high-availability}"
 
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 
@@ -469,13 +473,26 @@ for i in "${!nodes[@]}"; do
 done
 
 
-# --- Helm chart prep ---
-helm repo add memgraph https://memgraph.github.io/helm-charts
+# --- Helm chart prep (local experimental chart) ---
+if [[ ! -d "${HELM_CHART_DIR}/.git" ]]; then
+  echo -e "${GREEN}Cloning helm chart repository from ${HELM_CHART_REPO_URL}...${NC}"
+  git clone "${HELM_CHART_REPO_URL}" "${HELM_CHART_DIR}"
+fi
+
+echo -e "${GREEN}Checking out helm chart branch ${HELM_CHART_BRANCH}...${NC}"
+git -C "${HELM_CHART_DIR}" fetch origin "${HELM_CHART_BRANCH}"
+git -C "${HELM_CHART_DIR}" checkout "${HELM_CHART_BRANCH}"
+git -C "${HELM_CHART_DIR}" reset --hard "origin/${HELM_CHART_BRANCH}"
+
+if [[ ! -f "${HELM_CHART_PATH}/Chart.yaml" ]]; then
+  echo -e "${RED}Error: Chart.yaml not found at ${HELM_CHART_PATH}${NC}"
+  exit 1
+fi
 
 
 # --- Helm install ---
 echo -e "${GREEN}Installing Helm chart...${NC}"
-helm install "$RELEASE" memgraph/memgraph-high-availability -f old_values.yaml --timeout 120s --wait --debug | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
+helm install "$RELEASE" "${HELM_CHART_PATH}" -f old_values.yaml --timeout 120s --wait --debug | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
 
 # --- Wait & verify resources ---
 echo -e "${GREEN}Waiting for resources to be created...${NC}"
@@ -602,7 +619,7 @@ kubectl exec memgraph-data-0-0 -- bash -c "mgconsole < /var/lib/memgraph/pre_upg
 echo "Run test queries on old version"
 
 # --- Upgrade chart values ---
-helm upgrade "$RELEASE" memgraph/memgraph-high-availability -f new_values.yaml
+helm upgrade "$RELEASE" "${HELM_CHART_PATH}" -f new_values.yaml
 echo "Updated versions"
 
 
