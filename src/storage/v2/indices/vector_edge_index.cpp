@@ -569,7 +569,7 @@ void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, Nam
 
 void VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(PropertyId property, const PropertyValue &value, const Edge *edge,
                                                       std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec) {
-  const auto vector = std::invoke([&]() {
+  const auto maybe_vector = std::invoke([&]() -> std::optional<utils::small_vector<float>> {
     switch (value.type()) {
       case PropertyValue::Type::VectorIndexId:
         return value.ValueVectorIndexList();
@@ -581,14 +581,14 @@ void VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(PropertyId property, const
       case PropertyValue::Type::Null:
         return utils::small_vector<float>{};
       default:
-        throw query::VectorSearchException(
-            "Unexpected property value type in set property processor of vector edge index.");
+        return std::nullopt;
     }
   });
+  if (!maybe_vector) return;
 
   for (auto &ri : recovery_info_vec) {
     if (ri.spec.property == property) {
-      ri.index_entries[edge->gid] = vector;
+      ri.index_entries[edge->gid] = *maybe_vector;
     }
   }
 }

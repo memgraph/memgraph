@@ -704,7 +704,7 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
 
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, const Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
-  const auto vector = std::invoke([&]() {
+  const auto maybe_vector = std::invoke([&]() -> std::optional<utils::small_vector<float>> {
     switch (value.type()) {
       case PropertyValue::Type::VectorIndexId:
         return value.ValueVectorIndexList();
@@ -716,13 +716,14 @@ void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const Propert
       case PropertyValue::Type::Null:
         return utils::small_vector<float>{};
       default:
-        throw query::VectorSearchException("Unexpected property value type in set property processor of vector index.");
+        return std::nullopt;
     }
   });
+  if (!maybe_vector) return;
 
   for (auto &ri : recovery_info_vec) {
     if (ri.spec.property == property && r::contains(vertex->labels, ri.spec.label_id)) {
-      ri.index_entries[vertex->gid] = vector;
+      ri.index_entries[vertex->gid] = *maybe_vector;
     }
   }
 }
