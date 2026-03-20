@@ -237,15 +237,20 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, utils::SkipList<Ver
     }
   }
   pimpl->index_by_id_.erase(it);
-  // Clean up endpoints for edges no longer in any index
+  // Clean up endpoints for edges no longer in any index.
+  // Iterate indices in outer loop to acquire each lock only once.
+  std::unordered_set<Edge *> still_indexed;
+  for (const auto &[_, index_item] : pimpl->index_by_id_) {
+    auto guard = utils::SharedResourceLockGuard(index_item.mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+    for (auto *edge : dropped_edges) {
+      if (index_item.mg_index.index.contains(edge)) {
+        still_indexed.insert(edge);
+      }
+    }
+  }
   for (auto *edge : dropped_edges) {
     DMG_ASSERT(edge != nullptr, "Null edge pointer in vector edge index");
-    const auto still_indexed = r::any_of(pimpl->index_by_id_, [edge](const auto &id_item) {
-      auto guard =
-          utils::SharedResourceLockGuard(id_item.second.mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
-      return id_item.second.mg_index.index.contains(edge);
-    });
-    if (!still_indexed) {
+    if (!still_indexed.contains(edge)) {
       pimpl->edge_endpoints_.erase(edge);
     }
   }
@@ -310,7 +315,7 @@ std::vector<VectorEdgeIndexInfo> VectorEdgeIndex::ListVectorIndicesInfo() const 
 std::vector<VectorEdgeIndexSpec> VectorEdgeIndex::ListIndices() const {
   std::vector<VectorEdgeIndexSpec> result;
   result.reserve(pimpl->index_by_id_.size());
-  std::ranges::transform(pimpl->index_by_id_, std::back_inserter(result), [](const auto &id_index_item) {
+  r::transform(pimpl->index_by_id_, std::back_inserter(result), [](const auto &id_index_item) {
     return id_index_item.second.spec;
   });
   return result;

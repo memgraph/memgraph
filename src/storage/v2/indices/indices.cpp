@@ -173,8 +173,8 @@ void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, Prop
 }
 
 bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) {
-  auto vec_interesting = vector_edge_.p2et.contains(property);
-  return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property) || vec_interesting;
+  return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property) ||
+         vector_edge_.IsInteresting(property);
 }
 
 void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp,

@@ -94,6 +94,8 @@ class VectorEdgeIndex {
     using AbortableInfo = std::map<Edge *, EdgeAbortInfo>;
     AbortableInfo cleanup_collection;
 
+    bool IsInteresting(PropertyId property) const { return p2et.contains(property); }
+
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, const PropertyValue &old_value,
                                  Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
   };

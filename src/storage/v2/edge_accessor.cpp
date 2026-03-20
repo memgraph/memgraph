@@ -277,14 +277,13 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
       if (schema_acc) {
         std::visit(utils::Overloaded{[this, property, new_type = ExtendedPropertyType{value}](
                                          SchemaInfo::VertexModifyingAccessor &acc) {
-                                       acc.SetProperty(  // NOLINT(clang-analyzer-core.CallAndMessage)
-                                           edge_,
-                                           edge_type_,
-                                           from_vertex_,
-                                           to_vertex_,
-                                           property,
-                                           new_type,
-                                           ExtendedPropertyType{});
+                                       acc.SetProperty(edge_,
+                                                       edge_type_,
+                                                       from_vertex_,
+                                                       to_vertex_,
+                                                       property,  // NOLINT(clang-analyzer-core.CallAndMessage)
+                                                       new_type,
+                                                       ExtendedPropertyType{});
                                      },
                                      [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                    *schema_acc);
@@ -580,12 +579,6 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   });
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
-  // Decode any VectorIndexId properties to their vector representation
-  auto decoder = IndexedPropertyDecoder<Edge>{
-      .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr};
-  for (auto &[_, prop_value] : properties_map) {
-    decoder.DecodeProperty(prop_value);
-  }
   return properties_map;
 }
 
