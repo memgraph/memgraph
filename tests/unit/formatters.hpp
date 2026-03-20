@@ -153,6 +153,8 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
       break;
     case memgraph::query::TypedValue::Type::Graph:
       throw std::logic_error{"Not implemented"};
+    case memgraph::query::TypedValue::Type::VirtualEdge:
+      throw std::logic_error{"Not implemented"};
     case memgraph::query::TypedValue::Type::Function:
       throw std::logic_error{"Not implemented"};
     case memgraph::query::TypedValue::Type::Point2d:
