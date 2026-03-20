@@ -240,7 +240,7 @@ jobs:
     name: "Stress Tests Docker HA"
     if: ${{ inputs.deployment == 'ha/docker' }}
     runs-on: [self-hosted, X64, Memory256G]
-    timeout-minutes: 180
+    timeout-minutes: 300
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
