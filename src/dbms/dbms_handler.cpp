@@ -141,8 +141,7 @@ struct Durability {
   }
 };
 
-DbmsHandler::DbmsHandler(storage::Config config, metrics::PrometheusMetrics *prometheus_metrics)
-    : default_config_{std::move(config)}, db_handler_{prometheus_metrics} {
+DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(config)} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
 

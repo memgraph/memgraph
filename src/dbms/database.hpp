@@ -29,7 +29,6 @@ class Streams;
 }  // namespace memgraph::query
 
 namespace memgraph::metrics {
-class PrometheusMetrics;
 struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
 
@@ -56,8 +55,7 @@ class Database {
    * @param database_protector_factory factory function to create database protectors for async operations
    */
   explicit Database(storage::Config config,
-                    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
-                    metrics::PrometheusMetrics *prometheus_metrics = nullptr);
+                    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
 
   ~Database();
 
@@ -202,7 +200,6 @@ class Database {
   std::unique_ptr<metrics::Counter[]> counters_storage_;
   std::unique_ptr<metrics::Histogram[]> histograms_storage_;
 
-  metrics::PrometheusMetrics *prometheus_metrics_{nullptr};
   metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 
  public:
