@@ -11,9 +11,11 @@
 
 #pragma once
 
+#include "edge.hpp"
 #include "indices/indices.hpp"
 #include "name_id_mapper.hpp"
 #include "property_value.hpp"
+#include "vertex.hpp"
 
 namespace memgraph::storage {
 
@@ -26,8 +28,13 @@ struct IndexedPropertyDecoder {
   void DecodeProperty(PropertyValue &value) const {
     switch (value.type()) {
       case PropertyValueType::VectorIndexId: {
-        value.ValueVectorIndexList() = indices->vector_index_.GetVectorPropertyFromIndex(
-            entity, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]), name_id_mapper);
+        if constexpr (std::is_same_v<T, Vertex>) {
+          value.ValueVectorIndexList() = indices->vector_index_.GetVectorPropertyFromIndex(
+              entity, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]), name_id_mapper);
+        } else if constexpr (std::is_same_v<T, Edge>) {
+          value.ValueVectorIndexList() = indices->vector_edge_index_.GetVectorPropertyFromEdgeIndex(
+              entity, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]), name_id_mapper);
+        }
         break;
       }
       default:

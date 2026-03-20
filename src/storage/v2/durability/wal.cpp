@@ -824,11 +824,7 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       encoder->WriteMarker(Marker::DELTA_VERTEX_SET_PROPERTY);
       encoder->WriteUint(vertex->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
-      // The property value is the value that is currently stored in the
-      // vertex.
-      // TODO (mferencevic): Mitigate the memory allocation introduced here
-      // (with the `GetProperty` call). It is the only memory allocation in the
-      // entire WAL file writing logic.
+      // Use IndexedPropertyDecoder to resolve VectorIndexId vectors from vector index.
       auto property_value = vertex->properties.GetProperty(
           delta.property.key,
           IndexedPropertyDecoder<Vertex>{
@@ -877,13 +873,12 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
       encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
       encoder->WriteUint(edge->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
-      // The property value is the value that is currently stored in the
-      // edge.
-      // TODO (mferencevic): Mitigate the memory allocation introduced here
-      // (with the `GetProperty` call). It is the only memory allocation in the
-      // entire WAL file writing logic.
-      encoder->WriteExternalPropertyValue(
-          ToExternalPropertyValue(edge->properties.GetProperty(delta.property.key), storage->name_id_mapper_.get()));
+      // Use IndexedPropertyDecoder to resolve VectorIndexId vectors from vector index.
+      auto property_value = edge->properties.GetProperty(
+          delta.property.key,
+          IndexedPropertyDecoder<Edge>{
+              .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = edge});
+      encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
       encoder->WriteUint((*delta.property.out_vertex).gid.AsUint());
       // In-vertex GID for faster replica resolution (need only if edge was not created in this transaction)
@@ -1245,6 +1240,8 @@ std::optional<RecoveryInfo> LoadWal(
         }
 
         edge->properties.SetProperty(property_id, property_value);
+        VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
+            property_id, property_value, &*edge, indices_constraints->indices.vector_edge_indices);
       },
       [&](WalTransactionStart const &data) {
         should_commit = data.commit.value_or(true);
@@ -1491,22 +1488,22 @@ std::optional<RecoveryInfo> LoadWal(
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind);
-        indices_constraints->indices.vector_edge_indices.emplace_back(data.index_name,
-                                                                      edge_type_id,
-                                                                      property_id,
-                                                                      unum_metric_kind,
-                                                                      data.dimension,
-                                                                      data.resize_coefficient,
-                                                                      data.capacity,
-                                                                      scalar_kind);
+        indices_constraints->indices.vector_edge_indices.emplace_back(
+            VectorEdgeIndexRecoveryInfo{.spec = VectorEdgeIndexSpec{.index_name = data.index_name,
+                                                                    .edge_type_id = edge_type_id,
+                                                                    .property = property_id,
+                                                                    .metric_kind = unum_metric_kind,
+                                                                    .dimension = data.dimension,
+                                                                    .resize_coefficient = data.resize_coefficient,
+                                                                    .capacity = data.capacity,
+                                                                    .scalar_kind = scalar_kind},
+                                        .index_entries = {}});
       },
       [&](WalVectorIndexDrop const &data) {
         VectorIndexRecovery::UpdateOnIndexDrop(
             data.index_name, name_id_mapper, indices_constraints->indices.vector_indices, vertex_acc);
-        indices_constraints->indices.vector_edge_indices.erase(
-            r::remove_if(indices_constraints->indices.vector_edge_indices,
-                         [&](const auto &recovery_info) { return recovery_info.index_name == data.index_name; }),
-            indices_constraints->indices.vector_edge_indices.end());
+        VectorEdgeIndexRecovery::UpdateOnIndexDrop(
+            data.index_name, name_id_mapper, indices_constraints->indices.vector_edge_indices, vertex_acc);
       },
       [&](WalTtlOperation const &data) {
         switch (data.operation_type) {

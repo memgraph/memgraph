@@ -309,6 +309,19 @@ inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
   return vector;
 }
 
+/// @brief Registers an index ID in the property, converting a raw list to VectorIndexId if needed.
+/// @return The float vector to insert into uSearch.
+inline utils::small_vector<float> RegisterIndexId(PropertyValue &property, uint64_t index_id) {
+  if (property.IsVectorIndexId()) {
+    property.ValueVectorIndexIds().push_back(index_id);
+    return property.ValueVectorIndexList();
+  }
+  auto vector = ListToVector(property);
+  property =
+      PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id}, .vector = vector});
+  return vector;
+}
+
 /// @brief Removes an index ID from a property's vector index ID list.
 /// @param property_value The property value to modify (must be a VectorIndexId).
 /// @param index_id The index ID to remove.

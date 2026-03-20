@@ -48,7 +48,7 @@ class VectorEdgeIndexTest : public testing::Test {
     auto unique_acc = this->storage->UniqueAccess();
     const auto edge_type = unique_acc->NameToEdgeType(test_edge_type.data());
     const auto property = unique_acc->NameToProperty(test_property.data());
-    const auto spec = VectorEdgeIndexSpec{
+    auto spec = VectorEdgeIndexSpec{
         test_index.data(), edge_type, property, metric, dimension, resize_coefficient, capacity, scalar_kind};
     EXPECT_FALSE(!unique_acc->CreateVectorEdgeIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -163,8 +163,7 @@ TEST_F(VectorEdgeIndexTest, UpdatePropertyValueTest) {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     const auto search_result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, std::vector<float>{2.0, 2.0});
     EXPECT_EQ(search_result.size(), 1);
-    EXPECT_EQ(std::get<0>(search_result[0]).GetProperty(acc->NameToProperty(test_property), View::OLD).value(),
-              updated_value);
+    EXPECT_EQ(std::get<0>(search_result[0]).Gid(), edge_gid);
   }
 }
 
@@ -191,8 +190,20 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
     edge_gid = edge.Gid();
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    acc = this->storage->Access(memgraph::storage::WRITE);
-    edge = acc->FindEdge(edge_gid, View::OLD).value();
+  }
+  // Verify index has 1 entry after first commit
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
+    // Verify the property is stored as VectorIndexId
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    auto prop = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(prop.has_value());
+    EXPECT_TRUE(prop->IsVectorIndexId());
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), null_value).has_value());
     acc->Abort();
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
@@ -258,7 +269,7 @@ TEST_F(VectorEdgeIndexTest, RemoveEntriesTest) {
     EXPECT_EQ(maybe_deleted_edge.has_value(), true);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    mem_storage->indices_.vector_edge_index_.RemoveEdges({edge_gid});
+    mem_storage->indices_.vector_edge_index_.RemoveEdges({edge.edge_.ptr});
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -389,6 +400,7 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
   memgraph::utils::SkipList<Vertex> vertices_;
   memgraph::utils::SkipList<Edge> edges_;
   VectorEdgeIndex vector_edge_index_;
+  NameIdMapper name_id_mapper_;
 };
 
 TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
@@ -396,9 +408,10 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
   FLAGS_storage_parallel_schema_recovery = false;
 
   auto vertices_acc = vertices_.access();
-  const auto spec = CreateSpec();
+  auto spec = CreateSpec();
+  VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
 
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(spec, vertices_acc));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, nullptr, &name_id_mapper_));
 
   // Verify all edges are in the index
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
@@ -423,7 +436,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
     ASSERT_NE(from_vertex, nullptr);
     ASSERT_NE(to_vertex, nullptr);
 
-    const auto vector = vector_edge_index_.GetVectorFromEdge(from_vertex, to_vertex, &edge, "test_edge_index");
+    const auto vector = vector_edge_index_.GetVectorPropertyFromEdgeIndex(&edge, "test_edge_index", &name_id_mapper_);
     EXPECT_EQ(vector.size(), kDimension);
     EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
     EXPECT_EQ(vector[1], static_cast<float>(edge.gid.AsUint() + 1));
@@ -437,9 +450,10 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexParallelTest) {
       (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 1;
 
   auto vertices_acc = vertices_.access();
-  const auto spec = CreateSpec();
+  auto spec = CreateSpec();
+  VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
 
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(spec, vertices_acc));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, nullptr, &name_id_mapper_));
 
   // Verify all edges are in the index
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
@@ -464,7 +478,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexParallelTest) {
     ASSERT_NE(from_vertex, nullptr);
     ASSERT_NE(to_vertex, nullptr);
 
-    const auto vector = vector_edge_index_.GetVectorFromEdge(from_vertex, to_vertex, &edge, "test_edge_index");
+    const auto vector = vector_edge_index_.GetVectorPropertyFromEdgeIndex(&edge, "test_edge_index", &name_id_mapper_);
     EXPECT_EQ(vector.size(), kDimension);
     EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
     EXPECT_EQ(vector[1], static_cast<float>(edge.gid.AsUint() + 1));
@@ -486,8 +500,9 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
                                   .resize_coefficient = 2,
                                   .capacity = 10,
                                   .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
+  VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
 
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(spec, vertices_acc));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, nullptr, &name_id_mapper_));
 
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -511,7 +526,8 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
     ASSERT_NE(from_vertex, nullptr);
     ASSERT_NE(to_vertex, nullptr);
 
-    const auto vector = vector_edge_index_.GetVectorFromEdge(from_vertex, to_vertex, &edge, "resize_test_edge_index");
+    const auto vector =
+        vector_edge_index_.GetVectorPropertyFromEdgeIndex(&edge, "resize_test_edge_index", &name_id_mapper_);
     EXPECT_EQ(vector.size(), kDimension);
     EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
     EXPECT_EQ(vector[1], static_cast<float>((edge.gid.AsUint()) + 1));
@@ -537,7 +553,7 @@ class VectorEdgeIndexGCTest : public testing::Test {
     auto unique_acc = this->storage->UniqueAccess();
     const auto edge_type = unique_acc->NameToEdgeType(test_edge_type.data());
     const auto property = unique_acc->NameToProperty(test_property.data());
-    const auto spec = VectorEdgeIndexSpec{
+    auto spec = VectorEdgeIndexSpec{
         test_index.data(), edge_type, property, metric, dimension, resize_coefficient, capacity, scalar_kind};
     EXPECT_FALSE(!unique_acc->CreateVectorEdgeIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
