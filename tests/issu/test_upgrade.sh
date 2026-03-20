@@ -292,6 +292,8 @@ cleanup() {
   # Always uninstall Helm release and clean PVCs
   echo -e "${YELLOW}Uninstalling Helm release '${RELEASE}'...${NC}"
   helm uninstall "$RELEASE" >/dev/null 2>&1 || true
+  kubectl delete job cluster-setup --ignore-not-found=true >/dev/null 2>&1 || true
+  kubectl delete pod -l job-name=cluster-setup --ignore-not-found=true --grace-period=0 --force --wait=false >/dev/null 2>&1 || true
 
   echo -e "${YELLOW}Deleting PVCs in the current namespace...${NC}"
   # Avoid blocking forever when PVC protection waits on terminating pods.
