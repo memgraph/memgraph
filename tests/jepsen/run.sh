@@ -6,7 +6,7 @@ MEMGRAPH_BUILD_PATH="$script_dir/../../build"
 MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
 MEMGRAPH_MTENANCY_DATASETS="$script_dir/datasets/"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
-JEPSEN_COMMIT="cab5c5af". # v3.12
+JEPSEN_COMMIT="07e0ee88" # v3.12
 JEPSEN_ACTIVE_NODES_NO=5
 CONTROL_LEIN_RUN_ARGS="test --nodes-config resources/replication-config.edn"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
