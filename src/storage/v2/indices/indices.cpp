@@ -46,8 +46,8 @@ void Indices::RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &verti
   vector_index_.RemoveVertices(vertices_to_remove);
 }
 
-void Indices::RemoveEdgesFromVectorEdgeIndices(std::list<Gid> const &deleted_edge_gids) {
-  vector_edge_index_.RemoveEdges(deleted_edge_gids);
+void Indices::RemoveEdgesFromVectorEdgeIndices(std::vector<Edge *> const &edges_to_remove) {
+  vector_edge_index_.RemoveEdges(edges_to_remove);
 }
 
 void Indices::DropGraphClearIndices() {

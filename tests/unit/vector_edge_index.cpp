@@ -269,7 +269,7 @@ TEST_F(VectorEdgeIndexTest, RemoveEntriesTest) {
     EXPECT_EQ(maybe_deleted_edge.has_value(), true);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    mem_storage->indices_.vector_edge_index_.RemoveEdges({edge_gid});
+    mem_storage->indices_.vector_edge_index_.RemoveEdges({edge.edge_.ptr});
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -436,8 +436,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
     ASSERT_NE(from_vertex, nullptr);
     ASSERT_NE(to_vertex, nullptr);
 
-    const auto vector = vector_edge_index_.GetVectorPropertyFromEdgeIndex(
-        &edge, from_vertex, to_vertex, "test_edge_index", &name_id_mapper_);
+    const auto vector = vector_edge_index_.GetVectorPropertyFromEdgeIndex(&edge, "test_edge_index", &name_id_mapper_);
     EXPECT_EQ(vector.size(), kDimension);
     EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
     EXPECT_EQ(vector[1], static_cast<float>(edge.gid.AsUint() + 1));
@@ -479,8 +478,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexParallelTest) {
     ASSERT_NE(from_vertex, nullptr);
     ASSERT_NE(to_vertex, nullptr);
 
-    const auto vector = vector_edge_index_.GetVectorPropertyFromEdgeIndex(
-        &edge, from_vertex, to_vertex, "test_edge_index", &name_id_mapper_);
+    const auto vector = vector_edge_index_.GetVectorPropertyFromEdgeIndex(&edge, "test_edge_index", &name_id_mapper_);
     EXPECT_EQ(vector.size(), kDimension);
     EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
     EXPECT_EQ(vector[1], static_cast<float>(edge.gid.AsUint() + 1));
@@ -528,8 +526,8 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
     ASSERT_NE(from_vertex, nullptr);
     ASSERT_NE(to_vertex, nullptr);
 
-    const auto vector = vector_edge_index_.GetVectorPropertyFromEdgeIndex(
-        &edge, from_vertex, to_vertex, "resize_test_edge_index", &name_id_mapper_);
+    const auto vector =
+        vector_edge_index_.GetVectorPropertyFromEdgeIndex(&edge, "resize_test_edge_index", &name_id_mapper_);
     EXPECT_EQ(vector.size(), kDimension);
     EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
     EXPECT_EQ(vector[1], static_cast<float>((edge.gid.AsUint()) + 1));

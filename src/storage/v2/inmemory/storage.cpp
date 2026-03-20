@@ -2927,11 +2927,20 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   // EDGES
   if (!current_deleted_edges.empty()) {
+    auto edge_acc = edges_.access();
+
     if (!indices_.vector_edge_index_.Empty()) {
-      indices_.RemoveEdgesFromVectorEdgeIndices(current_deleted_edges);
+      // Resolve GIDs to Edge* BEFORE skip-list removal while Edge* is still valid.
+      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
+                                     auto it = edge_acc.find(gid);
+                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
+                                     return &*it;
+                                   }) |
+                                   std::ranges::to<std::vector>();
+
+      indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
     }
 
-    auto edge_acc = edges_.access();
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
@@ -2969,15 +2978,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto edge_acc = edges_.access();
 
     if (!indices_.vector_edge_index_.Empty()) {
-      // Collect deleted edge GIDs BEFORE skip-list removal while Edge* is still valid.
-      std::list<Gid> analytical_deleted_edge_gids;
-      for (auto const &edge : edge_acc) {
-        if (edge.delta() == nullptr && edge.deleted()) {
-          analytical_deleted_edge_gids.push_back(edge.gid);
-        }
-      }
-      if (!analytical_deleted_edge_gids.empty()) {
-        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edge_gids);
+      // Collect deleted Edge* BEFORE skip-list removal while Edge* is still valid.
+      auto const analytical_deleted_edges =
+          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
+          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
+
+      if (!analytical_deleted_edges.empty()) {
+        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
       }
     }
 

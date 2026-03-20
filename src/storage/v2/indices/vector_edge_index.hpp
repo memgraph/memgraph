@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <list>
 #include <map>
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
@@ -148,8 +147,8 @@ class VectorEdgeIndex {
   /// @brief Aborts the entries in the vector edge index.
   void AbortEntries(AbortProcessor::AbortableInfo &cleanup_collection);
 
-  /// @brief Removes edges from the index by GID.
-  void RemoveEdges(std::list<Gid> const &deleted_edge_gids);
+  /// @brief Removes edges from the index.
+  void RemoveEdges(std::vector<Edge *> const &edges_to_remove);
 
   /// @brief Returns an abort processor snapshot used during transaction abort.
   AbortProcessor GetAbortProcessor() const;

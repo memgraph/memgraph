@@ -391,35 +391,21 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
 
 bool VectorEdgeIndex::Empty() const { return pimpl->index_by_id_.empty(); }
 
-void VectorEdgeIndex::RemoveEdges(std::list<Gid> const &deleted_edge_gids) {
-  auto as_uint = deleted_edge_gids | std::views::transform([](auto const &g) { return g.AsUint(); });
-  std::unordered_set<uint64_t> const gids_to_remove(as_uint.begin(), as_uint.end());
+void VectorEdgeIndex::RemoveEdges(std::vector<Edge *> const &edges_to_remove) {
+  if (edges_to_remove.empty()) return;
+
+  for (auto *edge : edges_to_remove) {
+    pimpl->edge_endpoints_.erase(edge);
+  }
 
   for (auto &[_, index_item] : pimpl->index_by_id_) {
-    auto &[mg_index, spec] = index_item;
-
-    std::vector<Edge *> edges_to_remove;
-    {
-      auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
-      auto const index_size = mg_index.index.size();
-      if (index_size == 0) continue;
-      std::vector<Edge *> all_keys(index_size);
-      mg_index.index.export_keys(all_keys.data(), 0, index_size);
-      for (auto *edge : all_keys) {
-        if (edge != nullptr && gids_to_remove.contains(edge->gid.AsUint())) {
-          edges_to_remove.push_back(edge);
-        }
+    auto guard = std::lock_guard{index_item.mg_index.mutex};
+    for (auto *edge : edges_to_remove) {
+      if (index_item.mg_index.index.contains(edge)) {
+        index_item.mg_index.index.remove(edge);
       }
     }
-
-    if (edges_to_remove.empty()) continue;
-
-    auto guard = std::lock_guard{mg_index.mutex};
-    mg_index.index.remove(edges_to_remove.begin(), edges_to_remove.end());
   }
-  // Clean up endpoints — edges are being deleted from the graph
-  std::erase_if(pimpl->edge_endpoints_,
-                [&](const auto &pair) { return gids_to_remove.contains(pair.first->gid.AsUint()); });
 }
 
 VectorEdgeIndex::AbortProcessor VectorEdgeIndex::GetAbortProcessor() const {
