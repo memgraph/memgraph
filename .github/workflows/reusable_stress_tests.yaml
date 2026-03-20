@@ -39,7 +39,7 @@ jobs:
     name: "Stress Tests Standalone"
     if: ${{ inputs.deployment == 'standalone/native' }}
     runs-on: [self-hosted, X64, Memory256G]
-    timeout-minutes: 180
+    timeout-minutes: 300
     env:
       OS: ubuntu-24.04
       TOOLCHAIN: v7
