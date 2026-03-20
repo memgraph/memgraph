@@ -16,6 +16,10 @@
 
 #include <memory>
 
+#if USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
+
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
 namespace memgraph::dbms {
@@ -62,6 +66,19 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
   config.arena_idx = ArenaIdx();
+
+#if USE_JEMALLOC
+  // Pin the after-commit trigger thread to this DB's arena so trigger allocations are attributed correctly.
+  if (const unsigned idx = ArenaIdx(); idx != 0) {
+    after_commit_trigger_pool_.AddTask([idx] {
+      static thread_local bool arena_pinned = false;
+      if (!arena_pinned) {
+        je_mallctl("thread.arena", nullptr, nullptr, const_cast<unsigned *>(&idx), sizeof(unsigned));
+        arena_pinned = true;
+      }
+    });
+  }
+#endif
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
