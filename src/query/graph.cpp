@@ -96,6 +96,13 @@ const utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() const { return edg
 
 void Graph::InsertVirtualEdge(const VirtualEdge &edge) { virtual_edges_.insert(edge); }
 
+bool Graph::InsertVirtualEdgeIfNew(const VirtualEdge &edge) {
+  auto key = VirtualEdgeKey{edge.From().Gid(), edge.To().Gid(), edge.EdgeTypeName()};
+  if (!virtual_edge_dedup_.insert(std::move(key)).second) return false;
+  virtual_edges_.insert(edge);
+  return true;
+}
+
 bool Graph::ContainsVirtualEdge(const VirtualEdge &edge) const { return virtual_edges_.contains(edge); }
 
 utils::pmr::unordered_set<VirtualEdge> &Graph::virtual_edges() { return virtual_edges_; }

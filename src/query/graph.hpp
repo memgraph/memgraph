@@ -99,6 +99,10 @@ class Graph final {
   std::vector<EdgeAccessor> OutEdges(VertexAccessor vertex_accessor);
 
   void InsertVirtualEdge(const VirtualEdge &edge);
+
+  // Insert a virtual edge only if no edge with the same (from, to, type) already exists. Returns true if inserted.
+  bool InsertVirtualEdgeIfNew(const VirtualEdge &edge);
+
   bool ContainsVirtualEdge(const VirtualEdge &edge) const;
 
   utils::pmr::unordered_set<VirtualEdge> &virtual_edges();
@@ -124,8 +128,26 @@ class Graph final {
   utils::pmr::unordered_set<VertexAccessor> vertices_;
   // Contains all the edges in the Graph
   utils::pmr::unordered_set<EdgeAccessor> edges_;
-  // Contains virtual (derived) edges created by project() with options
+  // Contains virtual (derived) edges created by project_virtual()
   utils::pmr::unordered_set<VirtualEdge> virtual_edges_;
+
+  struct VirtualEdgeKey {
+    storage::Gid from;
+    storage::Gid to;
+    std::string type;
+    bool operator==(const VirtualEdgeKey &) const = default;
+  };
+
+  struct VirtualEdgeKeyHash {
+    size_t operator()(const VirtualEdgeKey &k) const {
+      auto h = std::hash<uint64_t>{}(k.from.AsUint());
+      h ^= std::hash<uint64_t>{}(k.to.AsUint()) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<std::string>{}(k.type) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      return h;
+    }
+  };
+
+  std::unordered_set<VirtualEdgeKey, VirtualEdgeKeyHash> virtual_edge_dedup_;
 };
 
 }  // namespace memgraph::query
