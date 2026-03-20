@@ -291,6 +291,8 @@ RUN_JEPSEN() {
     fi
     __final_run_args="$__control_lein_run_args --license $ENTERPRISE_LICENSE --organization $ORGANIZATION_NAME"
 
+    # Clean stale AOT-compiled classes to ensure the latest Jepsen dependency is used.
+    docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein clean"
     docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $__final_run_args" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
     _JEPSEN_RUN_EXIT_STATUS=$?
     set -e
