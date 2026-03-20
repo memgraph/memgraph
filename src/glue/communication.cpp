@@ -210,18 +210,22 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     }
 
     case query::TypedValue::Type::VirtualEdge: {
-      // Virtual edges are serialized as maps over Bolt since they have no storage backing
-      const auto &ve = value.ValueVirtualEdge();
-      auto map = bolt_map_t{};
       check_db();
-      auto maybe_from = ToBoltVertex(ve.From().impl_, *db, view);
-      if (!maybe_from) return std::unexpected{maybe_from.error()};
-      auto maybe_to = ToBoltVertex(ve.To().impl_, *db, view);
-      if (!maybe_to) return std::unexpected{maybe_to.error()};
-      map.emplace("from", std::move(*maybe_from));
-      map.emplace("to", std::move(*maybe_to));
-      map.emplace("type", ve.EdgeTypeName());
-      return storage::Result<Value>{std::in_place, std::move(map)};
+      const auto &ve = value.ValueVirtualEdge();
+      auto from_id = ve.From().Gid();
+      auto to_id = ve.To().Gid();
+      auto edge_id = ve.Gid();
+      return storage::Result<Value>{std::in_place,
+                                    communication::bolt::Edge{
+                                        .id = communication::bolt::Id::FromUint(edge_id.AsUint()),
+                                        .from = communication::bolt::Id::FromUint(from_id.AsUint()),
+                                        .to = communication::bolt::Id::FromUint(to_id.AsUint()),
+                                        .type = ve.EdgeTypeName(),
+                                        .properties = {},
+                                        .element_id = edge_id.ToString(),
+                                        .from_element_id = from_id.ToString(),
+                                        .to_element_id = to_id.ToString(),
+                                    }};
     }
 
     // Unsupported conversions
