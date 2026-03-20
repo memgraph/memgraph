@@ -16,7 +16,7 @@ module;
 
 export module memgraph.planner.core.eids;
 
-export import rollbear.strong_type;
+import rollbear.strong_type;
 
 export namespace memgraph::planner::core {
 

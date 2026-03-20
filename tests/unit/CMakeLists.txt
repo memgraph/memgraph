@@ -161,6 +161,16 @@ add_unit_test(query_plan_v2_create_set_remove_delete
     LINK_TARGETS mg-query mg-glue
 )
 
+add_unit_test(query_plan_v2_rewrites
+    SOURCES query_plan_v2_rewrites.cpp
+    LINK_TARGETS mg-query mg-planner
+)
+
+add_unit_test(query_plan_v2_pipeline
+    SOURCES query_plan_v2_pipeline.cpp
+    LINK_TARGETS mg-query mg-planner
+)
+
 add_unit_test(query_pretty_print
     SOURCES query_pretty_print.cpp
     LINK_TARGETS mg-query
