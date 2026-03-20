@@ -472,9 +472,6 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
       MG_ASSERT(path->vertices.size() == path->edges.size() + 1);
       memgraph::query::Path tv_path(path->vertices[0].getImpl(), alloc);
       for (size_t i = 0; i < path->edges.size(); ++i) {
-        if (path->edges[i].IsVirtual()) {
-          throw memgraph::query::QueryRuntimeException("Cannot include a virtual edge in a Cypher path.");
-        }
         tv_path.Expand(std::get<memgraph::query::EdgeAccessor>(path->edges[i].impl));
         tv_path.Expand(path->vertices[i + 1].getImpl());
       }
@@ -2956,13 +2953,11 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
 #endif
 
         // Populate virtual in-edges for subgraph vertices
-        if (std::holds_alternative<memgraph::query::SubgraphDbAccessor *>(v->graph->impl)) {
-          if (auto *sva = std::get_if<memgraph::query::SubgraphVertexAccessor>(&v->impl)) {
-            auto virt = sva->VirtualInEdges();
-            if (!virt.empty()) {
-              it->virtual_in_.emplace(std::move(virt));
-              it->virtual_in_it_.emplace(it->virtual_in_->begin());
-            }
+        if (auto *sva = std::get_if<memgraph::query::SubgraphVertexAccessor>(&v->impl)) {
+          auto virt = sva->VirtualInEdges();
+          if (!virt.empty()) {
+            it->virtual_in_.emplace(std::move(virt));
+            it->virtual_in_it_.emplace(it->virtual_in_->begin());
           }
         }
 
@@ -3030,13 +3025,11 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
 #endif
 
         // Populate virtual out-edges for subgraph vertices
-        if (std::holds_alternative<memgraph::query::SubgraphDbAccessor *>(v->graph->impl)) {
-          if (auto *sva = std::get_if<memgraph::query::SubgraphVertexAccessor>(&v->impl)) {
-            auto virt = sva->VirtualOutEdges();
-            if (!virt.empty()) {
-              it->virtual_out_.emplace(std::move(virt));
-              it->virtual_out_it_.emplace(it->virtual_out_->begin());
-            }
+        if (auto *sva = std::get_if<memgraph::query::SubgraphVertexAccessor>(&v->impl)) {
+          auto virt = sva->VirtualOutEdges();
+          if (!virt.empty()) {
+            it->virtual_out_.emplace(std::move(virt));
+            it->virtual_out_it_.emplace(it->virtual_out_->begin());
           }
         }
 

@@ -6643,14 +6643,7 @@ class AggregateCursor : public Cursor {
     projected_graph.InsertVertex(from);
     projected_graph.InsertVertex(to);
 
-    // Dedup: skip if a virtual edge between the same (from, to) with same type already exists
-    for (const auto &existing : projected_graph.virtual_edges()) {
-      if (existing.From() == from && existing.To() == to && existing.EdgeTypeName() == edge_type_name) {
-        return;
-      }
-    }
-
-    projected_graph.InsertVirtualEdge(VirtualEdge(from, to, std::move(edge_type_name)));
+    projected_graph.InsertVirtualEdgeIfNew(VirtualEdge(from, to, std::move(edge_type_name)));
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
