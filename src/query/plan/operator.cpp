@@ -6667,8 +6667,6 @@ class AggregateCursor : public Cursor {
     projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
   }
 
-  static constexpr size_t kMaxVirtualEdges = 1'000'000;
-
   static void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value,
                                      Graph &projected_graph) {
     if (path_value.type() != TypedValue::Type::Path) {
@@ -6683,7 +6681,7 @@ class AggregateCursor : public Cursor {
     if (it == options.end() || it->second.type() != TypedValue::Type::String) {
       throw QueryRuntimeException("project() options map must contain a 'virtualEdgeType' string key.");
     }
-    auto edge_type_name = std::string(it->second.ValueString());
+    std::string edge_type_name{it->second.ValueString()};
 
     const auto &path = path_value.ValuePath();
     const auto &path_vertices = path.vertices();
@@ -6695,8 +6693,6 @@ class AggregateCursor : public Cursor {
     }
 
     // Only insert endpoints — intermediate vertices are not part of the projected graph.
-    // This matches Neo4j GDS behavior: virtual edges represent derived relationships
-    // between source and target nodes, not the full path topology.
     const auto &from = path_vertices.front();
     const auto &to = path_vertices.back();
     projected_graph.InsertVertex(from);
@@ -6707,11 +6703,6 @@ class AggregateCursor : public Cursor {
       if (existing.From() == from && existing.To() == to && existing.EdgeTypeName() == edge_type_name) {
         return;
       }
-    }
-
-    if (projected_graph.virtual_edges().size() >= kMaxVirtualEdges) {
-      throw QueryRuntimeException("Virtual edge limit exceeded ({}). Use fewer paths or increase the limit.",
-                                  kMaxVirtualEdges);
     }
 
     projected_graph.InsertVirtualEdge(VirtualEdge(from, to, std::move(edge_type_name)));
