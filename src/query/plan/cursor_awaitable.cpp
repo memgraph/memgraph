@@ -17,59 +17,6 @@ namespace memgraph::query::plan {
 
 void Cursor::Reset() { gen_.reset(); }
 
-PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ctx) {
-  // 1. If we are resuming after a yield, the suspended handle is in the context.
-  //    We must resume that handle (the inner coroutine that yielded), not the root.
-  std::coroutine_handle<> resume_from{};
-  if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
-    resume_from = std::exchange(*ctx.suspended_task_handle_ptr, {});
-  } else if (ctx.suspended_task_handle_ptr) {
-    // TODO: do we need this?
-    *ctx.suspended_task_handle_ptr = {};
-  }
-
-  decltype(awaitable.GetHandle()) handle;
-
-  if (resume_from) {
-    // The caller may have driven the yielded coroutine directly (e.g. scheduler
-    // called stored_handle.resume() itself).  If the chain ran to completion
-    // during that external resume, resume_from now points to a destroyed child
-    // frame — never call .done() on it.  Check the owning awaitable first.
-    if (awaitable.Done()) {
-      awaitable.RethrowIfException();
-      return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
-    }
-    if (!resume_from.done()) {
-      resume_from.resume();
-    }
-    if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
-      return PullRunResult::Yielded();
-    }
-    if (awaitable.Done()) {
-      awaitable.RethrowIfException();
-      return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
-    }
-    handle = awaitable.GetHandle();
-  } else {
-    handle = awaitable.GetHandle();
-    if (!handle || handle.done()) {
-      awaitable.RethrowIfException();
-      return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
-    }
-  }
-
-  // 2. Execution loop (run until root is done or we yield again)
-  while (!handle.done()) {
-    handle.resume();
-    if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
-      return PullRunResult::Yielded();
-    }
-  }
-
-  awaitable.RethrowIfException();
-  return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
-}
-
 PullRunResult RunPullToCompletion(PullAwaitable::ResumeAwaitable &ra, ExecutionContext &ctx) {
   if (ra.Done()) return PullRunResult::Done();
 

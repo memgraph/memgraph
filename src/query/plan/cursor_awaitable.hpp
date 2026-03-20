@@ -46,6 +46,9 @@ class YieldPointAwaitable {
       return true;
     }
 
+    // NOTE: In order for the handle to be correct, all calls up to here need to be co_await. Otherrwise we will not
+    // propagate the yield all the way up to the scheduler.
+    // However, this needs to be void, so we stop the await_suspend chain and return to scheduler.
     void await_suspend(std::coroutine_handle<> h) const {
       DMG_ASSERT(ctx_->suspended_task_handle_ptr, "ctx_->suspended_task_handle_ptr is nullptr");
       *ctx_->suspended_task_handle_ptr = h;
@@ -67,12 +70,7 @@ class YieldPointAwaitable {
   utils::ResettableCounter *maybe_check_;
 };
 
-/// Run the given pull awaitable to completion or until it yields.
-/// Caller must set ctx.suspended_task_handle_ptr before calling.
-/// Returns HasRow, Done, or Yielded. If Yielded, *ctx.suspended_task_handle_ptr holds the handle to resume.
-PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ctx);
-
-/// Generator-aware variant: resumes the root generator one step (one row or exhaustion).
+/// Resumes the root generator one step (one row or exhaustion).
 PullRunResult RunPullToCompletion(PullAwaitable::ResumeAwaitable &ra, ExecutionContext &ctx);
 
 }  // namespace memgraph::query::plan

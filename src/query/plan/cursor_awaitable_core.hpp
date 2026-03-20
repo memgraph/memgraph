@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <exception>
 #include <utility>
+#include "utils/logging.hpp"
 
 namespace memgraph::query::plan {
 
@@ -36,45 +37,37 @@ struct PullRunResult {
 /// not in parent-owned write-back storage. Readers access them via the child
 /// handle after resumption, before any frame is destroyed.
 struct BasePromise {
-  bool result_{false};
-  std::coroutine_handle<> continuation_{std::noop_coroutine()};
+  bool has_more_{false};
+  std::coroutine_handle<> parent_{std::noop_coroutine()};
   std::exception_ptr local_exception_{nullptr};
 
   static constexpr std::suspend_always initial_suspend() noexcept { return {}; }
 
-  /// Suspends the current coroutine and resumes the parent via symmetric transfer.
-  struct FinalSuspender {
+  // Symmetric-transfer suspender.
+  // NOTE: This is equivalent to a tail-call optimization for coroutines.
+  struct SymmetricTransfer {
     std::coroutine_handle<> continuation;
 
     bool await_ready() const noexcept { return false; }
 
     std::coroutine_handle<> await_suspend(std::coroutine_handle<>) const noexcept {
-      return continuation;  // always non-null: set by RunPullToCompletion or await_suspend before resumption
+      DMG_ASSERT(continuation, "symmetric transfer requiers a valid caller handler.");
+      return continuation;  // Set by the caller.
     }
 
     void await_resume() const noexcept {}
   };
 
-  auto final_suspend() noexcept { return FinalSuspender{continuation_}; }
+  // NOTE: By returning void, we would jump to the scheduler, this is not what we want, we want to unwind.
+  // By not deleting it via suspend_never, we ensure the data is intact and can be read.
+  // The frame is destroyed by the owning PullAwaitable (or ResumeAwaitable via Cursor::gen_) RAII destructor.
+  auto final_suspend() noexcept { return SymmetricTransfer{parent_}; }
 
-  void return_value(bool has_row) noexcept { result_ = has_row; }
-
-  // Symmetric-transfer suspender used by co_yield.
-  struct YieldTransfer {
-    std::coroutine_handle<> continuation;
-
-    bool await_ready() const noexcept { return false; }
-
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<>) const noexcept {
-      return continuation;  // always non-null: set by RunPullToCompletion or await_suspend before resumption
-    }
-
-    void await_resume() const noexcept {}
-  };
+  void return_value(bool has_row) noexcept { has_more_ = has_row; }
 
   auto yield_value(bool has_row) noexcept {
-    result_ = has_row;
-    return YieldTransfer{continuation_};
+    has_more_ = has_row;
+    return SymmetricTransfer{parent_};
   }
 
   void unhandled_exception() noexcept { local_exception_ = std::current_exception(); }
@@ -98,7 +91,7 @@ class PullAwaitable {
   /// shared (lvalue co_await). Results and exceptions are read from the child's
   /// promise directly after resumption.
   struct Awaiter {
-    std::coroutine_handle<promise_type> child_handle_{nullptr};
+    std::coroutine_handle<promise_type> handle_{nullptr};
     bool immediate_ready_{false};
     bool immediate_value_{false};
     /// true only when the handle was moved in from a temporary PullAwaitable
@@ -112,25 +105,32 @@ class PullAwaitable {
       // it — PullPlan::suspended_handle_ handles teardown on interpreter exit.
       // In the lvalue co_await path (owns_handle_=false) the originating
       // PullAwaitable still holds the handle and will destroy it.
-      if (owns_handle_ && child_handle_ && child_handle_.done()) {
-        child_handle_.destroy();
+      if (owns_handle_ && handle_ && handle_.done()) {
+        handle_.destroy();
       }
     }
 
-    bool await_ready() const noexcept { return immediate_ready_ || !child_handle_; }
+    // handle_ is null for default-constructed or immediate PullAwaitables; await_ready() returns true
+    // in both cases so await_suspend is never reached with a null handle.
+    bool await_ready() const noexcept { return immediate_ready_ || !handle_; }
 
+    // This cursor is not ready, transfer to the child and execute it's logic.
     std::coroutine_handle<> await_suspend(std::coroutine_handle<> parent) const noexcept {
-      child_handle_.promise().continuation_ = parent;
-      return child_handle_;  // symmetric transfer into child
+      handle_.promise().parent_ = parent;
+      return handle_;  // symmetric transfer into child
     }
 
     bool await_resume() const {
       if (immediate_ready_) return immediate_value_;
-      auto &p = child_handle_.promise();
+      auto &p = handle_.promise();
       if (p.local_exception_) std::rethrow_exception(p.local_exception_);
-      return p.result_;
+      return p.has_more_;
     }
   };
+
+  // On scheduler yield: the leaf is suspended (handle_.done()==false), so ~Awaiter() skips destroy().
+  // Ownership transfers to PullPlan::suspended_handle_ via YieldPointAwaitable::await_suspend.
+  // ~PullPlan calls cursor_->Reset() which destroys the root generator, unwinding the entire coroutine chain.
 
   PullAwaitable() = default;
 
@@ -179,7 +179,7 @@ class PullAwaitable {
 
   [[nodiscard]] bool Result() const noexcept {
     if (immediate_ready_) return immediate_value_;
-    return handle_ ? handle_.promise().result_ : false;
+    return handle_ ? handle_.promise().has_more_ : false;
   }
 
   void RethrowIfException() const {
@@ -195,8 +195,10 @@ class PullAwaitable {
 
     bool await_ready() const noexcept { return handle_.done(); }
 
+    // NOTE: This is called on the way down, liking back parents along the way.
+    // yield_value (in Promise) is going to unwind this back.
     std::coroutine_handle<> await_suspend(std::coroutine_handle<> parent) const noexcept {
-      handle_.promise().continuation_ = parent;
+      handle_.promise().parent_ = parent;
       return handle_;  // symmetric transfer into generator
     }
 
@@ -205,14 +207,14 @@ class PullAwaitable {
         handle_.promise().RethrowIfException();
         return false;
       }
-      return handle_.promise().result_;
+      return handle_.promise().has_more_;
     }
 
     [[nodiscard]] std::coroutine_handle<promise_type> GetHandle() const noexcept { return handle_; }
 
     [[nodiscard]] bool Done() const noexcept { return !handle_ || handle_.done(); }
 
-    [[nodiscard]] bool Result() const noexcept { return handle_ ? handle_.promise().result_ : false; }
+    [[nodiscard]] bool Result() const noexcept { return handle_ ? handle_.promise().has_more_ : false; }
 
     void RethrowIfException() const {
       if (handle_) handle_.promise().RethrowIfException();
