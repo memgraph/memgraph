@@ -114,6 +114,15 @@ jobs:
           cd tests/issu
           ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing=false --debug=false
 
+      - name: Upload ISSU logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.run_id != '' && format('issu-logs-{0}', inputs.run_id) || 'issu-logs' }}
+          path: tests/issu/artifacts/**
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Clean up Docker
         if: always()
         continue-on-error: true

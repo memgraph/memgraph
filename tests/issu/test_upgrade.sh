@@ -224,9 +224,66 @@ echo "old_values.yaml image tag:"; grep "tag:" old_values.yaml || echo "No tag f
 echo "new_values.yaml image tag:"; grep "tag:" new_values.yaml || echo "No tag found in new_values.yaml"
 
 # --- Cleanup (always uninstall helm + delete PVCs; minikube only if --debug=true) ---
+collect_cluster_logs() {
+  if ! command -v kubectl >/dev/null 2>&1; then
+    echo "kubectl not found; skipping cluster log collection."
+    return 0
+  fi
+
+  local ts
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  local log_dir="artifacts/issu-logs-${ts}"
+  mkdir -p "${log_dir}/pods"
+
+  echo -e "${YELLOW}Collecting cluster diagnostics into ${log_dir}...${NC}"
+
+  kubectl get nodes -o wide > "${log_dir}/nodes.txt" 2>&1 || true
+  kubectl get all -o wide > "${log_dir}/all-resources.txt" 2>&1 || true
+  kubectl get pods -o wide > "${log_dir}/pods.txt" 2>&1 || true
+  kubectl get pvc,pv > "${log_dir}/storage.txt" 2>&1 || true
+  kubectl get events --sort-by=.metadata.creationTimestamp > "${log_dir}/events.txt" 2>&1 || true
+
+  kubectl get job cluster-setup -o yaml > "${log_dir}/cluster-setup-job.yaml" 2>&1 || true
+  kubectl describe job cluster-setup > "${log_dir}/cluster-setup-job.describe.txt" 2>&1 || true
+  kubectl logs job/cluster-setup --all-containers=true > "${log_dir}/cluster-setup-job.logs.txt" 2>&1 || true
+
+  while IFS= read -r pod; do
+    [[ -z "$pod" ]] && continue
+    if [[ "$pod" == memgraph-* || "$pod" == cluster-setup* ]]; then
+      local pod_dir="${log_dir}/pods/${pod}"
+      mkdir -p "${pod_dir}"
+
+      kubectl logs "${pod}" --all-containers=true > "${pod_dir}/containers.log" 2>&1 || true
+      kubectl logs "${pod}" --all-containers=true --previous > "${pod_dir}/containers.previous.log" 2>&1 || true
+
+      if [[ "$pod" == memgraph-* ]]; then
+        kubectl exec "${pod}" -- bash -c '
+          shopt -s nullglob
+          files=(/var/log/memgraph/*)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No files in /var/log/memgraph"
+            exit 0
+          fi
+          for f in "${files[@]}"; do
+            [ -f "$f" ] || continue
+            bn="$(basename "$f")"
+            echo "=== ${bn} ==="
+            cat "$f"
+            echo
+          done
+        ' > "${pod_dir}/memgraph-files.log" 2>&1 || true
+      fi
+    fi
+  done < <(kubectl get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+
+  echo -e "${GREEN}Cluster diagnostics collected in ${log_dir}.${NC}"
+}
+
 cleanup() {
   set +e
   echo -e "${YELLOW}Starting cleanup...${NC}"
+
+  collect_cluster_logs || true
 
   # Always remove generated files and local repo folder
   rm -f old_values.yaml new_values.yaml
