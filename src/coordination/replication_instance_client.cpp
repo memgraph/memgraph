@@ -23,20 +23,20 @@ namespace memgraph::coordination {
 
 // clang-format off
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define RpcInfoMetrics(RPC)                                     \
-  template <>                                                   \
-  auto const RpcInfo<RPC>::succCounter = metrics::RPC##Success; \
-  template <>                                                   \
-  auto const RpcInfo<RPC>::failCounter = metrics::RPC##Fail;    \
-  template <>                                                   \
-  auto const RpcInfo<RPC>::timerLabel = metrics::RPC##_us;
+#define RpcInfoSpecialize(RPC, SUCC, FAIL, HIST)                                                             \
+  template <>                                                                                                \
+  prometheus::Counter *RpcInfo<RPC>::succ_counter(metrics::GlobalMetricHandles &g) { return g.SUCC; }       \
+  template <>                                                                                                \
+  prometheus::Counter *RpcInfo<RPC>::fail_counter(metrics::GlobalMetricHandles &g) { return g.FAIL; }       \
+  template <>                                                                                                \
+  prometheus::Histogram *RpcInfo<RPC>::histogram(metrics::GlobalMetricHandles &g) { return g.HIST; }
 
-RpcInfoMetrics(PromoteToMainRpc)
-RpcInfoMetrics(DemoteMainToReplicaRpc)
-RpcInfoMetrics(RegisterReplicaOnMainRpc)
-RpcInfoMetrics(UnregisterReplicaRpc)
-RpcInfoMetrics(EnableWritingOnMainRpc)
-RpcInfoMetrics(UpdateDataInstanceConfigRpc)
+RpcInfoSpecialize(PromoteToMainRpc,            promote_to_main_rpc_success,               promote_to_main_rpc_fail,               promote_to_main_rpc_seconds)
+RpcInfoSpecialize(DemoteMainToReplicaRpc,      demote_main_to_replica_rpc_success,        demote_main_to_replica_rpc_fail,        demote_main_to_replica_rpc_seconds)
+RpcInfoSpecialize(RegisterReplicaOnMainRpc,    register_replica_on_main_rpc_success,      register_replica_on_main_rpc_fail,      register_replica_on_main_rpc_seconds)
+RpcInfoSpecialize(UnregisterReplicaRpc,        unregister_replica_rpc_success,            unregister_replica_rpc_fail,            unregister_replica_rpc_seconds)
+RpcInfoSpecialize(EnableWritingOnMainRpc,      enable_writing_on_main_rpc_success,        enable_writing_on_main_rpc_fail,        enable_writing_on_main_rpc_seconds)
+RpcInfoSpecialize(UpdateDataInstanceConfigRpc, update_data_instance_config_rpc_success,   update_data_instance_config_rpc_fail,   update_data_instance_config_rpc_seconds)
     // clang-format on
 
     ReplicationInstanceClient::ReplicationInstanceClient(std::string instance_name, io::network::Endpoint mgt_server,
@@ -75,31 +75,40 @@ void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
 void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
 
 auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
+  auto &g = metrics::Metrics().global;
+  auto const _t0 = std::chrono::high_resolution_clock::now();
+  utils::OnScopeExit const _timer{[&] {
+    g.state_check_rpc_seconds->Observe(
+        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+  }};
   try {
-    utils::MetricsTimer const timer{metrics::StateCheckRpc_us};
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
     auto res = stream.SendAndWait();
-    metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
+    g.state_check_rpc_success->Increment();
     return res.arg_;
   } catch (rpc::RpcFailedException const &e) {
     spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", e.what());
-    metrics::IncrementCounter(metrics::StateCheckRpcFail);
+    g.state_check_rpc_fail->Increment();
     return {};
   }
 }
 
 auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     -> std::optional<replication_coordination_glue::InstanceInfo> {
+  auto &g = metrics::Metrics().global;
+  auto const _t0 = std::chrono::high_resolution_clock::now();
+  utils::OnScopeExit const _timer{[&] {
+    g.get_database_histories_rpc_seconds->Observe(
+        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+  }};
   try {
-    utils::MetricsTimer const timer{metrics::GetDatabaseHistoriesRpc_us};
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
     auto res = stream.SendAndWait();
-    metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcSuccess);
+    g.get_database_histories_rpc_success->Increment();
     return res.arg_;
-
   } catch (const rpc::RpcFailedException &e) {
     spdlog::error("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
-    metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcFail);
+    g.get_database_histories_rpc_fail->Increment();
     return {};
   }
 }
