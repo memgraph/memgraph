@@ -701,8 +701,8 @@ Feature: Aggregations
             MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.type AS t
             """
         Then the result should be:
-            | t           |
-            | CONNECTED   |
+            | t             |
+            | 'CONNECTED'   |
 
     Scenario: Virtual edge projection deduplicates edges between same endpoints
         Given an empty graph
