@@ -1,7 +1,7 @@
 name: ISSU Test
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.prev_image }}-${{ inputs.next_image }}-${{ inputs.arch }}
   cancel-in-progress: true
 
 on:
@@ -20,13 +20,60 @@ on:
         description: Image architecture (amd/arm)
         required: true
         default: amd
+      check_flakiness:
+        type: number
+        description: Check for flakiness by running every selected job multiple times. Enter a number between 2 and 20.
+        required: false
+        default: 1
 
 jobs:
   single_test:
+    if: ${{ inputs.check_flakiness == 1 }}
     name: ISSU Test
     uses: ./.github/workflows/reusable_issu_test.yaml
     with:
       last_image: ${{ inputs.prev_image }}
       next_image: ${{ inputs.next_image }}
       arch: ${{ inputs.arch }}
+    secrets: inherit
+
+  prepare_flakiness_matrix:
+    if: ${{ inputs.check_flakiness > 1 }}
+    name: Prepare Flakiness Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      run_no: ${{ steps.generate.outputs.run_no }}
+    steps:
+      - name: Generate matrix range
+        id: generate
+        shell: bash
+        run: |
+          CHECK_FLAKINESS="${{ inputs.check_flakiness }}"
+          # Validate that check_flakiness is an integer between 2 and 20
+          if ! [[ "$CHECK_FLAKINESS" =~ ^[0-9]+$ ]]; then
+            echo "Error: 'check_flakiness' must be an integer between 2 and 20, but got '$CHECK_FLAKINESS'." >&2
+            exit 1
+          fi
+          if [ "$CHECK_FLAKINESS" -lt 2 ] || [ "$CHECK_FLAKINESS" -gt 20 ]; then
+            echo "Error: 'check_flakiness' must be between 2 and 20 (inclusive), but got '$CHECK_FLAKINESS'." >&2
+            exit 1
+          fi
+          RUN_NO_JSON=$(printf '[%s]\n' "$(seq -s, 1 "$CHECK_FLAKINESS")")
+          echo "run_no=${RUN_NO_JSON}" >> "$GITHUB_OUTPUT"
+
+  flakiness_test:
+    needs: prepare_flakiness_matrix
+    if: ${{ inputs.check_flakiness > 1 }}
+    name: ISSU Test (Flakiness Check)
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        run_no: ${{ fromJSON(needs.prepare_flakiness_matrix.outputs.run_no) }}
+    uses: ./.github/workflows/reusable_issu_test.yaml
+    with:
+      last_image: ${{ inputs.prev_image }}
+      next_image: ${{ inputs.next_image }}
+      arch: ${{ inputs.arch }}
+      run_id: "${{ matrix.run_no }}"
     secrets: inherit
