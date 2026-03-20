@@ -11,7 +11,6 @@
 #pragma once
 
 #include "communication/v2/server.hpp"
-#include "metrics/prometheus_metrics.hpp"
 #include "utils/logging.hpp"
 #include "utils/priorities.hpp"
 #include "utils/priority_thread_pool.hpp"
@@ -45,7 +44,6 @@ struct Context {
   audit::Log *audit_log;
 #endif
   utils::PriorityThreadPool *worker_pool_;
-  metrics::GlobalMetricHandles *global_metric_handles = nullptr;
 
   auto AddTask(auto &&task, utils::Priority priority) {
     MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");

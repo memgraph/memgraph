@@ -299,15 +299,13 @@ int main(int argc, char **argv) {
   // Initialize the requests library.
   memgraph::requests::Init();
 
-  memgraph::metrics::PrometheusMetrics prometheus_metrics;
-
   // Start memory warning logger.
   memgraph::utils::Scheduler mem_log_scheduler;
   if (FLAGS_memory_warning_threshold > 0) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
       mem_log_scheduler.SetInterval(std::chrono::seconds(3));
-      mem_log_scheduler.Run("Memory check", [peak_gauge = prometheus_metrics.global.peak_memory_res_bytes] {
+      mem_log_scheduler.Run("Memory check", [peak_gauge = memgraph::metrics::Metrics().global.peak_memory_res_bytes] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn(memgraph::utils::MessageWithLink(
@@ -644,7 +642,7 @@ int main(int argc, char **argv) {
 
 #endif
 
-  memgraph::dbms::DbmsHandler dbms_handler(db_config, &prometheus_metrics);
+  memgraph::dbms::DbmsHandler dbms_handler(db_config);
 
   // singleton replication state
   // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
@@ -789,14 +787,12 @@ int main(int argc, char **argv) {
                                           .ic = &interpreter_context_,
                                           .auth = auth_.get(),
                                           .audit_log = &audit_log,
-                                          .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr,
-                                          .global_metric_handles = &prometheus_metrics.global};
+                                          .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
 #else
   memgraph::glue::Context session_context{.endpoint = server_endpoint,
                                           .ic = &interpreter_context_,
                                           .auth = auth_.get(),
-                                          .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr,
-                                          .global_metric_handles = &prometheus_metrics.global};
+                                          .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
 #endif
 
   memgraph::glue::ServerT server(server_endpoint, &session_context, &bolt_server_context, service_name, io_n_threads);
@@ -855,7 +851,7 @@ int main(int argc, char **argv) {
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &bolt_server_context};
   spdlog::trace("Metrics server created.");
   // TODO: replace hardcoded port 9092 with FLAGS_metrics_port once old metrics server is removed
-  memgraph::glue::PrometheusServerT prometheus_server{{"localhost", 9092}, &prometheus_metrics, &context};
+  memgraph::glue::PrometheusServerT prometheus_server{{"localhost", 9092}, &memgraph::metrics::Metrics(), &context};
   spdlog::trace("Prometheus metrics server created.");
 #endif
 
