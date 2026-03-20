@@ -16,6 +16,10 @@
 
 #ifdef MG_ENTERPRISE
 
+#if USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
+
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
@@ -180,6 +184,15 @@ void TTL::Configure(bool should_run_edge_ttl) {
   }
 
   auto ttl_job = [this]() {
+#if USE_JEMALLOC
+    if (storage_ptr_->config_.arena_idx != 0) {
+      static thread_local bool arena_pinned = false;
+      if (!arena_pinned) {
+        je_mallctl("thread.arena", nullptr, nullptr, &storage_ptr_->config_.arena_idx, sizeof(unsigned));
+        arena_pinned = true;
+      }
+    }
+#endif
     // Check if we're a main instance - only main instances should run TTL
     if (!user_check_()) return;
 

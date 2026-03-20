@@ -11,6 +11,9 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 #include <range/v3/all.hpp>
+#if USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -462,7 +465,19 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     // TODO: move out of storage have one global gc_runner_
     gc_runner_.SetInterval(config_.gc.interval);
-    gc_runner_.Run("Storage GC", [this] { this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true); });
+    gc_runner_.Run("Storage GC", [this] {
+#if USE_JEMALLOC
+      // Pin this GC thread's jemalloc arena to the DB arena (once per thread).
+      if (config_.arena_idx != 0) {
+        static thread_local bool arena_pinned = false;
+        if (!arena_pinned) {
+          je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
+          arena_pinned = true;
+        }
+      }
+#endif
+      this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
+    });
   }
 
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
@@ -4158,6 +4173,15 @@ void InMemoryStorage::CreateSnapshotHandler(
   }
   snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
+#if USE_JEMALLOC
+    if (config_.arena_idx != 0) {
+      static thread_local bool arena_pinned = false;
+      if (!arena_pinned) {
+        je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
+        arena_pinned = true;
+      }
+    }
+#endif
     if (!token.stop_requested()) {
       this->create_snapshot_handler();
     }
