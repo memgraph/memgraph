@@ -147,85 +147,22 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn test_owned_value_to_json_covers_supported_kinds() {
-        // Null
-        let v_null = owned_value_to_json(OwnedValue::Null);
-        assert_eq!(v_null, serde_json::Value::Null);
-
-        // String
-        let v_str = owned_value_to_json(OwnedValue::Str("hello".to_string()));
-        assert_eq!(v_str, json!("hello"));
-
-        // Unsigned integer
-        let v_u64 = owned_value_to_json(OwnedValue::U64(42));
-        assert_eq!(v_u64, json!(42u64));
-
-        // Signed integer
-        let v_i64 = owned_value_to_json(OwnedValue::I64(-7));
-        assert_eq!(v_i64, json!(-7i64));
-
-        // Floating point
-        let v_f64 = owned_value_to_json(OwnedValue::F64(3.5));
-        assert_eq!(v_f64, json!(3.5f64));
-
-        // Boolean
-        let v_bool = owned_value_to_json(OwnedValue::Bool(true));
-        assert_eq!(v_bool, json!(true));
-
-        // Array of mixed primitives
-        let arr = OwnedValue::Array(vec![
-            OwnedValue::U64(1),
-            OwnedValue::I64(-2),
-            OwnedValue::F64(3.0),
-            OwnedValue::Bool(false),
-            OwnedValue::Str("x".to_string()),
-        ]);
-        let v_arr = owned_value_to_json(arr);
-        assert_eq!(v_arr, json!([1u64, -2i64, 3.0f64, false, "x"]));
-
-        // Object with multiple fields
-        let obj = OwnedValue::Object(vec![
-            ("a".to_string(), OwnedValue::U64(10)),
-            ("b".to_string(), OwnedValue::Bool(true)),
-            ("c".to_string(), OwnedValue::Str("value".to_string())),
-        ]);
-        let v_obj = owned_value_to_json(obj);
-        assert_eq!(
-            v_obj,
-            json!({
-                "a": 10u64,
-                "b": true,
-                "c": "value"
-            })
-        );
-
-        // Nested object and array to ensure nested structures work correctly.
-        let nested = OwnedValue::Object(vec![
-            ("nums".to_string(), OwnedValue::Array(vec![
-                OwnedValue::U64(1),
-                OwnedValue::U64(2),
-                OwnedValue::U64(3),
-            ])),
-            ("flags".to_string(), OwnedValue::Array(vec![
+    fn test_owned_value_to_json_nested() {
+        let doc = OwnedValue::Object(vec![
+            ("name".to_string(), OwnedValue::Str("test".to_string())),
+            ("count".to_string(), OwnedValue::I64(-3)),
+            ("tags".to_string(), OwnedValue::Array(vec![
                 OwnedValue::Bool(true),
-                OwnedValue::Bool(false),
+                OwnedValue::U64(42),
             ])),
-            ("inner".to_string(), OwnedValue::Object(vec![
-                ("x".to_string(), OwnedValue::I64(-1)),
-                ("y".to_string(), OwnedValue::F64(2.5)),
+            ("nested".to_string(), OwnedValue::Object(vec![
+                ("x".to_string(), OwnedValue::F64(1.5)),
             ])),
+            ("empty".to_string(), OwnedValue::Null),
         ]);
-        let v_nested = owned_value_to_json(nested);
         assert_eq!(
-            v_nested,
-            json!({
-                "nums": [1u64, 2u64, 3u64],
-                "flags": [true, false],
-                "inner": {
-                    "x": -1i64,
-                    "y": 2.5f64
-                }
-            })
+            owned_value_to_json(doc),
+            json!({"name": "test", "count": -3, "tags": [true, 42u64], "nested": {"x": 1.5}, "empty": null})
         );
     }
 }
