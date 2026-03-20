@@ -238,7 +238,6 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, utils::SkipList<Ver
   }
   pimpl->index_by_id_.erase(it);
   // Clean up endpoints for edges no longer in any index.
-  // Iterate indices in outer loop to acquire each lock only once.
   std::unordered_set<Edge *> still_indexed;
   for (const auto &[_, index_item] : pimpl->index_by_id_) {
     auto guard = utils::SharedResourceLockGuard(index_item.mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
