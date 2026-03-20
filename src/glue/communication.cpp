@@ -209,6 +209,21 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return storage::Result<Value>{std::in_place, value.ValuePoint3d()};
     }
 
+    case query::TypedValue::Type::VirtualEdge: {
+      // Virtual edges are serialized as maps over Bolt since they have no storage backing
+      const auto &ve = value.ValueVirtualEdge();
+      auto map = bolt_map_t{};
+      check_db();
+      auto maybe_from = ToBoltVertex(ve.From().impl_, *db, view);
+      if (!maybe_from) return std::unexpected{maybe_from.error()};
+      auto maybe_to = ToBoltVertex(ve.To().impl_, *db, view);
+      if (!maybe_to) return std::unexpected{maybe_to.error()};
+      map.emplace("from", std::move(*maybe_from));
+      map.emplace("to", std::move(*maybe_to));
+      map.emplace("type", ve.EdgeTypeName());
+      return storage::Result<Value>{std::in_place, std::move(map)};
+    }
+
     // Unsupported conversions
     case query::TypedValue::Type::Function: {
       throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
