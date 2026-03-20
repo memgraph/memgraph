@@ -36,6 +36,7 @@ SC_NAME="csi-hostpath-delayed"
 RELEASE="memgraph-db"
 DESIRED_NODES=5
 PROFILE="${PROFILE:-minikube}"  # can be overridden via env
+CLUSTER_SETUP_TIMEOUT="${CLUSTER_SETUP_TIMEOUT:-90s}"
 
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 
@@ -415,7 +416,7 @@ helm repo add memgraph https://memgraph.github.io/helm-charts
 
 # --- Helm install ---
 echo -e "${GREEN}Installing Helm chart...${NC}"
-helm install "$RELEASE" memgraph/memgraph-high-availability -f old_values.yaml --timeout 60s
+helm install "$RELEASE" memgraph/memgraph-high-availability -f old_values.yaml --timeout 120s --wait --debug #| grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
 
 # --- Wait & verify resources ---
 echo -e "${GREEN}Waiting for resources to be created...${NC}"
@@ -563,17 +564,47 @@ echo "Upgrade of pod memgraph-data-0-0 passed successfully"
 
 if [[ "$NEED_HA_39_COORDINATOR_RESET" == "true" ]]; then
   echo "Running coordinator reset flow required by the 3.9 HA migration"
-  for coord_pod in memgraph-coordinator-1-0 memgraph-coordinator-2-0 memgraph-coordinator-3-0; do
-    echo "Cleaning coordinator data directory on ${coord_pod}"
-    kubectl exec "${coord_pod}" -- bash -c "rm -rf /var/lib/memgraph/mg_data/*"
+  COORDINATOR_PODS=(memgraph-coordinator-1-0 memgraph-coordinator-2-0 memgraph-coordinator-3-0)
+  COORDINATOR_STS=(memgraph-coordinator-1 memgraph-coordinator-2 memgraph-coordinator-3)
+  COORDINATOR_PVCS=()
+
+  echo "Collecting coordinator PVCs before scaling down"
+  for coord_pod in "${COORDINATOR_PODS[@]}"; do
+    while IFS= read -r pvc; do
+      [[ -z "$pvc" ]] && continue
+      COORDINATOR_PVCS+=("$pvc")
+    done < <(kubectl get pod "${coord_pod}" -o jsonpath='{range .spec.volumes[*]}{.persistentVolumeClaim.claimName}{"\n"}{end}' 2>/dev/null || true)
   done
 
-  for coord_pod in memgraph-coordinator-3-0 memgraph-coordinator-2-0 memgraph-coordinator-1-0; do
-    echo "Restarting ${coord_pod} after coordinator data cleanup"
-    kubectl delete pod "${coord_pod}"
-    wait_memgraph_pods_ready 90s
-    echo "Restart of ${coord_pod} passed successfully"
+  if [[ "${#COORDINATOR_PVCS[@]}" -gt 0 ]]; then
+    mapfile -t COORDINATOR_PVCS < <(printf '%s\n' "${COORDINATOR_PVCS[@]}" | awk 'NF' | sort -u)
+  fi
+
+  for coord_sts in "${COORDINATOR_STS[@]}"; do
+    echo "Scaling down ${coord_sts} to 0"
+    kubectl scale statefulset "${coord_sts}" --replicas=0
   done
+
+  for coord_pod in "${COORDINATOR_PODS[@]}"; do
+    kubectl wait --for=delete "pod/${coord_pod}" --timeout=180s || true
+  done
+
+  if [[ "${#COORDINATOR_PVCS[@]}" -eq 0 ]]; then
+    echo "No coordinator PVCs detected for deletion."
+  else
+    echo "Deleting coordinator PVCs: ${COORDINATOR_PVCS[*]}"
+    for pvc in "${COORDINATOR_PVCS[@]}"; do
+      kubectl delete pvc "${pvc}" --wait=true
+    done
+  fi
+
+  for coord_sts in "${COORDINATOR_STS[@]}"; do
+    echo "Scaling up ${coord_sts} to 1"
+    kubectl scale statefulset "${coord_sts}" --replicas=1
+  done
+
+  wait_memgraph_pods_ready 180s
+  echo "Coordinator StatefulSets restarted with clean data directories"
 
   echo "Reconnecting cluster after coordinator reset"
   run_coordinator_query_with_retry 'REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "memgraph-data-0.default.svc.cluster.local:7687", "management_server": "memgraph-data-0.default.svc.cluster.local:10000", "replication_server": "memgraph-data-0.default.svc.cluster.local:20000"};'
