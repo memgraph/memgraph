@@ -19,7 +19,41 @@
 #include <jemalloc/jemalloc.h>
 #endif
 
+#include "utils/memory_tracker.hpp"
+
 namespace memgraph::memory {
+
+#if USE_JEMALLOC
+
+// Internal layout for per-DB extent hooks. The `hooks` field MUST be first so
+// that extent hook callbacks can cast `extent_hooks_t *` → `DbArenaHooks *`.
+struct DbArenaHooks {
+  extent_hooks_t hooks;           // must be first
+  utils::MemoryTracker *tracker;  // per-DB tracker, fed by extent events
+  extent_hooks_t *base_hooks;     // default jemalloc hooks (called through)
+};
+
+// Owns a dynamically-created jemalloc arena with custom extent hooks that
+// report committed OS pages to a `utils::MemoryTracker` owned by the caller.
+// The arena index is stable for the lifetime of this object.
+class DbArena {
+ public:
+  explicit DbArena(utils::MemoryTracker *tracker);
+  ~DbArena();
+
+  DbArena(const DbArena &) = delete;
+  DbArena &operator=(const DbArena &) = delete;
+  DbArena(DbArena &&) = delete;
+  DbArena &operator=(DbArena &&) = delete;
+
+  unsigned idx() const noexcept { return arena_idx_; }
+
+ private:
+  DbArenaHooks hooks_{};
+  unsigned arena_idx_{0};
+};
+
+#endif  // USE_JEMALLOC
 
 // Thread-local arena index for the currently active database.
 // 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
