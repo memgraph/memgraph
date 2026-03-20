@@ -439,4 +439,6 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Histogram> &gc_skiplist_cleanup_latency_family_;
 };
 
+PrometheusMetrics &Metrics();
+
 }  // namespace memgraph::metrics

@@ -972,4 +972,9 @@ void PrometheusMetrics::UpdateGauges() {
   }
 }
 
+PrometheusMetrics &Metrics() {
+  static PrometheusMetrics instance;
+  return instance;
+}
+
 }  // namespace memgraph::metrics
