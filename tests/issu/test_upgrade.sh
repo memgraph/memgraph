@@ -238,11 +238,11 @@ cleanup() {
 
   echo -e "${YELLOW}Deleting PVCs in the current namespace...${NC}"
   # Avoid blocking forever when PVC protection waits on terminating pods.
-  kubectl delete pod --all --grace-period=0 --force --wait=false >/dev/null 2>&1 || true
-  kubectl delete pvc --all --wait=false >/dev/null 2>&1 || true
+  kubectl delete pod -l app.kubernetes.io/instance="$RELEASE" --grace-period=0 --force --wait=false >/dev/null 2>&1 || true
+  kubectl delete pvc -l app.kubernetes.io/instance="$RELEASE" --wait=false >/dev/null 2>&1 || true
 
-  # Best-effort unstick for PVCs left in Terminating due to stale references.
-  stuck_pvcs="$(kubectl get pvc -o jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+  # Limit this to PVCs created by the current Helm release to avoid affecting unrelated workloads.
+  stuck_pvcs="$(kubectl get pvc -l "app.kubernetes.io/instance=${RELEASE}" -o jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
   if [[ -n "$stuck_pvcs" ]]; then
     while IFS= read -r pvc; do
       [[ -z "$pvc" ]] && continue
@@ -460,7 +460,7 @@ run_coordinator_query_with_retry() {
       return 0
     fi
 
-    echo "Coordinator query failed (attempt $i/$attempts). Retrying in ${sleep_s}s..."
+    echo "Coordinator query failed (attempt $i/$attempts). Retrying in ${sleep_s}s..." >&2
     echo "$out"
     sleep "$sleep_s"
   done
