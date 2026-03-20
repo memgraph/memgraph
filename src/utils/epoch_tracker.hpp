@@ -110,28 +110,30 @@ class EpochTracker {
   /// Safe to call from any thread.
   bool IsSafeToFree(uint64_t guard_epoch) const {
     if (guard_epoch == 0) return true;  // no readers existed before the guard was recorded
-    return ComputeLastDead() >= guard_epoch - 1;
+    uint64_t last_dead = ComputeLastDead();
+    if (last_dead == uint64_t(-1)) return false;  // no contiguous dead prefix yet
+    return last_dead >= guard_epoch - 1;
   }
 
  private:
-  /// Returns the highest ID N such that all IDs in [0, N] have been released.
-  /// Returns 0 if no contiguous dead prefix has been established yet; callers
-  /// must combine with the guard_epoch == 0 check in IsSafeToFree.
+  /// Returns the highest ID N such that all IDs in [0, N] have been released,
+  /// or uint64_t(-1) if no contiguous dead prefix has been established yet
+  /// (i.e., ID 0 has not been released, or nothing has been released at all).
   uint64_t ComputeLastDead() const {
     Block *block = tail_.load(std::memory_order_acquire);
-    uint64_t last_dead = 0;
+    uint64_t last_dead = uint64_t(-1);  // sentinel: no dead prefix yet
     while (block != nullptr) {
       for (uint64_t pos = 0; pos < kBlockFields; ++pos) {
         uint64_t field = block->field[pos].load(std::memory_order_acquire);
         if (field != std::numeric_limits<uint64_t>::max()) {
+          if (field == 0) return last_dead;  // no IDs in this field are dead
           // Partial field: find the first zero bit (first still-alive ID).
-          if (field != 0) {
-            int where_alive = __builtin_ffsl(~field) - 1;
-            if (where_alive > 0) {
-              last_dead = block->first_id + pos * kIdsInField + where_alive - 1;
-            }
-          }
-          return last_dead;
+          // __builtin_ffsl returns 1-indexed position of LSB; subtract 1 for 0-indexed.
+          int where_alive = __builtin_ffsl(~field) - 1;
+          uint64_t base = block->first_id + pos * kIdsInField;
+          // base + where_alive - 1: when where_alive==0 and base==0 this wraps to
+          // uint64_t(-1), which correctly signals "no dead prefix" (bit 0 is alive).
+          return base + static_cast<uint64_t>(where_alive) - 1;
         }
         // Full field: all 64 IDs in this field are dead.
         last_dead = block->first_id + (pos + 1) * kIdsInField - 1;

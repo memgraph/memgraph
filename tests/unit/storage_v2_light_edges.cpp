@@ -799,6 +799,78 @@ TEST(LightEdgesGraveyard, ReaderPinsMultipleGraveyardBatches) {
   }
 }
 
+TEST(LightEdgesGraveyard, PostCommitIndexIterableBlocksDrain) {
+  // Regression test for two-phase graveyard drain.
+  //
+  // A reader that starts an index iterable AFTER a deletion commits has an
+  // epoch id > the guard_epoch snapped at commit time.  Under the old single-
+  // phase scheme that was enough for the graveyard to drain (IsSafeToFree
+  // would return true once all pre-commit readers finished), leaving the
+  // iterable with a dangling Edge*.
+  //
+  // Under the two-phase scheme, GC re-snaps guard_epoch to CurrentEpoch()
+  // AFTER RemoveObsoleteEdgeEntries atomically removes the index entry.  The
+  // re-snapped epoch is > the iterable's epoch id, so IsSafeToFree stays false
+  // until the iterable is destroyed.
+  auto store = MakeLightEdgeStorage();
+  auto *mem_store = static_cast<InMemoryStorage *>(store.get());
+  auto [gid_from, gid_to] = CreateTwoVertices(store.get());
+
+  // Create edge type index.
+  EdgeTypeId et;
+  {
+    auto acc = store->UniqueAccess();
+    et = acc->NameToEdgeType("REL");
+    ASSERT_TRUE(acc->CreateIndex(et).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Create edge.
+  {
+    auto acc = store->Access(WRITE);
+    auto vf = acc->FindVertex(gid_from, View::NEW);
+    auto vt = acc->FindVertex(gid_to, View::NEW);
+    ASSERT_TRUE(acc->CreateEdge(&*vf, &*vt, et).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Delete the edge — this pushes Edge* to graveyard with guard_epoch = G.
+  {
+    auto writer = store->Access(WRITE);
+    auto vf = writer->FindVertex(gid_from, View::NEW);
+    auto edge = vf->OutEdges(View::NEW).value().edges[0];
+    ASSERT_TRUE(writer->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(writer->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Start a post-commit reader.  Its epoch id e_R > G (acquired after D committed).
+  // Under the old scheme this would not block graveyard drain.
+  auto reader = store->Access(WRITE);
+  // Constructing the iterable acquires epoch e_R from light_edge_iterable_tracker_.
+  // The iterable is kept alive for the rest of the test to hold the epoch guard.
+  auto iterable = std::make_optional(reader->Edges(et, View::OLD));
+
+  // GC cycle 1: RemoveObsoleteEdgeEntries removes the stale index entry, then
+  // the re-snap sets guard_epoch = CurrentEpoch() > e_R and index_cleaned = true.
+  // Drain must NOT happen yet because IsSafeToFree(re_snapped) is false (e_R is live).
+  store->FreeMemory();
+  EXPECT_EQ(mem_store->LightEdgeGraveyardSizeForTest(), 1)
+      << "graveyard must not drain while post-commit index iterable is alive";
+
+  // A second GC cycle must also leave the graveyard intact.
+  store->FreeMemory();
+  EXPECT_EQ(mem_store->LightEdgeGraveyardSizeForTest(), 1)
+      << "graveyard must not drain while post-commit index iterable is alive";
+
+  // Destroying the iterable releases e_R.  Now IsSafeToFree(re_snapped) can become true.
+  iterable.reset();  // Note: Result<Iterable> — reset the optional
+  reader.reset();
+
+  // GC cycle 2: graveyard must now drain.
+  store->FreeMemory();
+  EXPECT_EQ(mem_store->LightEdgeGraveyardSizeForTest(), 0) << "graveyard must drain after iterable is released";
+}
+
 // ===========================================================================
 // 7. FindEdge
 // ===========================================================================
