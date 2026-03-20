@@ -39,8 +39,8 @@ on:
         default: true
       shutdown-signal:
         description: "Signal to use for terminating instances (9 (SIGKILL), :TERM (SIGTERM))"
-        type: number
-        default: 9
+        type: string
+        default: ":KILL"
 
 
 env:
