@@ -46,7 +46,7 @@ on:
         options:
           - :KILL
           - :TERM
-        default: ":TERM"
+        default: ":KILL"
 
 
   schedule:
@@ -92,7 +92,7 @@ jobs:
       num-tenants: ${{ matrix.mt && '3' || '1' }}
       concurrency: ""
       storage-backup-dir-enabled: true
-      shutdown-signal: :-9
+      shutdown-signal: :KILL
     secrets: inherit
 
   run-manual-jepsen-tests:
