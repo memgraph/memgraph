@@ -14,7 +14,7 @@
 (def mgpid  (str mgdir "/memgraph.pid"))
 (def sync-after-n-txn (atom 100000))
 (def storage-backup-dir-enabled (atom true))
-(def shutdown-signal (atom :-9))
+(def shutdown-signal (atom :KILL))
 
 (defn get-rnd-snapshot-interval-sec
   "Gets the random snapshot interval sec between 5 and 300 secs."
