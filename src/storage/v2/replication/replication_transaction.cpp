@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,7 @@ namespace memgraph::storage {
 // cluster, we send all deltas and commit immediately on replicas.
 auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool {
   if (locked_clients->empty()) return true;
+  spdlog::trace("ShipDeltas starting for {} replicas", locked_clients->size());
 
   MG_ASSERT(commit_args.replication_allowed(),
             "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "

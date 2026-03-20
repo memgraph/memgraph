@@ -378,6 +378,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
               storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
               TwoPhaseCommit(),
               durability_commit_timestamp));
+          spdlog::trace("Obtained RPC lock for replica {}", client_.name_);
         }
 
         if (!maybe_stream_handler) {
@@ -509,6 +510,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
+  spdlog::trace("FinalizeTransactionReplication starting for replica {}", client_.name_);
   utils::MetricsTimer const timer{metrics::FinalizeTxnReplication_us};
   auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
     spdlog::trace("Finalizing transaction on replica {} in state {}", client_.name_, StateToString(state));

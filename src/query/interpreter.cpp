@@ -9256,6 +9256,7 @@ void Interpreter::Commit() {
   bool commit_confirmed_by_all_strict_sync_replicas{true};
 
   auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
+  spdlog::trace("Read lock in commit taken");
   bool const is_main = (*locked_repl_state)->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
   // if I was main with write txn which became replica, abort.
@@ -9266,6 +9267,7 @@ void Interpreter::Commit() {
       current_db_.db_transactional_accessor_->PrepareForCommitPhase(make_commit_arg(is_main, *current_db_.db_acc_));
   // Proactively unlock repl_state
   locked_repl_state.reset();
+  spdlog::trace("Read lock in commit released");
 
   if (!maybe_commit_error) {
     const auto &error = maybe_commit_error.error();
