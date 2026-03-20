@@ -263,13 +263,6 @@ COPY_FILES() {
    docker cp "$script_dir/resources/." jepsen-control:/jepsen/memgraph/resources/
    docker cp "$script_dir/project.clj" jepsen-control:/jepsen/memgraph/project.clj
    INFO "Copying test files to jepsen-control DONE."
-
-   # Re-install Jepsen core library from the checked-out source to ensure
-   # the container uses the exact commit, not a stale Docker-cached version.
-   INFO "Installing Jepsen core library from source (commit $JEPSEN_COMMIT)..."
-   docker cp "$script_dir/jepsen/jepsen/." jepsen-control:/jepsen/jepsen/
-   docker exec jepsen-control bash -c "source ~/.bashrc && cd /jepsen/jepsen && lein install"
-   INFO "Jepsen core library installed."
 }
 
 RUN_JEPSEN() {
