@@ -616,6 +616,7 @@ struct mgp_edge {
   /// We don't actually need this, but it simplifies the C API, because we store
   /// the allocator which was used to allocate `this`.
   using allocator_type = memgraph::utils::Allocator<mgp_edge>;
+  using EdgeImpl = std::variant<memgraph::query::EdgeAccessor, memgraph::query::VirtualEdge>;
 
   static mgp_edge *Copy(const mgp_edge &edge, mgp_memory &memory);
 
@@ -630,15 +631,25 @@ struct mgp_edge {
            const memgraph::query::SubgraphVertexAccessor &to_v, mgp_graph *graph, allocator_type alloc)
       : alloc(alloc), impl(impl), from(from_v, graph, alloc), to(to_v, graph, alloc) {}
 
+  mgp_edge(const memgraph::query::VirtualEdge &ve, mgp_graph *graph, allocator_type alloc)
+      : alloc(alloc), impl(ve), from(ve.From(), graph, alloc), to(ve.To(), graph, alloc) {}
+
+  mgp_edge(const memgraph::query::VirtualEdge &ve, const memgraph::query::SubgraphVertexAccessor &from_v,
+           const memgraph::query::SubgraphVertexAccessor &to_v, mgp_graph *graph, allocator_type alloc)
+      : alloc(alloc), impl(ve), from(from_v, graph, alloc), to(to_v, graph, alloc) {}
+
   mgp_edge(const mgp_edge &other, allocator_type alloc)
       : alloc(alloc), impl(other.impl), from(other.from, alloc), to(other.to, alloc) {}
 
   mgp_edge(mgp_edge &&other, allocator_type alloc)
-      : alloc(other.alloc), impl(other.impl), from(std::move(other.from), alloc), to(std::move(other.to), alloc) {}
+      : alloc(other.alloc),
+        impl(std::move(other.impl)),
+        from(std::move(other.from), alloc),
+        to(std::move(other.to), alloc) {}
 
   // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
   mgp_edge(mgp_edge &&other)
-      : alloc(other.alloc), impl(other.impl), from(std::move(other.from)), to(std::move(other.to)) {}
+      : alloc(other.alloc), impl(std::move(other.impl)), from(std::move(other.from)), to(std::move(other.to)) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_edge(const mgp_edge &) = delete;
@@ -651,10 +662,12 @@ struct mgp_edge {
 
   bool operator!=(const mgp_edge &other) const noexcept { return !(*this == other); };
 
+  bool IsVirtual() const noexcept { return std::holds_alternative<memgraph::query::VirtualEdge>(impl); }
+
   memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
 
   allocator_type alloc;
-  memgraph::query::EdgeAccessor impl;
+  EdgeImpl impl;
   mgp_vertex from;
   mgp_vertex to;
 };
@@ -818,7 +831,11 @@ struct mgp_edges_iterator {
         in_it(std::move(other.in_it)),
         out(std::move(other.out)),
         out_it(std::move(other.out_it)),
-        current_e(std::move(other.current_e)) {}
+        current_e(std::move(other.current_e)),
+        virtual_in_(std::move(other.virtual_in_)),
+        virtual_in_it_(std::move(other.virtual_in_it_)),
+        virtual_out_(std::move(other.virtual_out_)),
+        virtual_out_it_(std::move(other.virtual_out_it_)) {}
 
   mgp_edges_iterator(const mgp_edges_iterator &) = delete;
   mgp_edges_iterator &operator=(const mgp_edges_iterator &) = delete;
@@ -842,6 +859,12 @@ struct mgp_edges_iterator {
       out;
   std::optional<decltype(out->begin())> out_it;
   std::optional<mgp_edge> current_e;
+
+  // Virtual edge iteration (populated for subgraph vertices only)
+  std::optional<std::vector<memgraph::query::VirtualEdge>> virtual_in_;
+  std::optional<decltype(virtual_in_->begin())> virtual_in_it_;
+  std::optional<std::vector<memgraph::query::VirtualEdge>> virtual_out_;
+  std::optional<decltype(virtual_out_->begin())> virtual_out_it_;
 };
 
 struct mgp_vertices_iterator {

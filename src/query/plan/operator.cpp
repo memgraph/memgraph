@@ -6191,6 +6191,7 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
       return TypedValue(TypedValue::TMap(memory));
     case Aggregation::Op::PROJECT_PATH:
     case Aggregation::Op::PROJECT_LISTS:
+    case Aggregation::Op::PROJECT_PATH_OPTIONS:
       return TypedValue(query::Graph(memory));
   }
 }
@@ -6463,6 +6464,7 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::COLLECT_MAP:
         case Aggregation::Op::PROJECT_PATH:
         case Aggregation::Op::PROJECT_LISTS:
+        case Aggregation::Op::PROJECT_PATH_OPTIONS:
           break;
       }
     }
@@ -6569,6 +6571,11 @@ class AggregateCursor : public Cursor {
             ProjectList(input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
             break;
           }
+          case Aggregation::Op::PROJECT_PATH_OPTIONS: {
+            ProjectPathWithOptions(
+                input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
+            break;
+          }
           case Aggregation::Op::COLLECT_MAP:
             auto key = agg_elem.arg2->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
@@ -6629,6 +6636,10 @@ class AggregateCursor : public Cursor {
           ProjectList(input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
           break;
         }
+        case Aggregation::Op::PROJECT_PATH_OPTIONS: {
+          ProjectPathWithOptions(input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
+          break;
+        }
         case Aggregation::Op::COLLECT_MAP:
           auto key = agg_elem.arg2->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
@@ -6654,6 +6665,40 @@ class AggregateCursor : public Cursor {
     }
 
     projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
+  }
+
+  static void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value,
+                                     Graph &projected_graph) {
+    if (path_value.type() != TypedValue::Type::Path) {
+      throw QueryRuntimeException("project() with options requires a path as argument 1.");
+    }
+    if (options_value.type() != TypedValue::Type::Map) {
+      throw QueryRuntimeException("project() argument 2 must be a map of options (e.g. {virtualEdgeType: 'TYPE'}).");
+    }
+
+    const auto &options = options_value.ValueMap();
+    auto it = options.find("virtualEdgeType");
+    if (it == options.end() || it->second.type() != TypedValue::Type::String) {
+      throw QueryRuntimeException("project() options map must contain a 'virtualEdgeType' string key.");
+    }
+    std::string edge_type_name{it->second.ValueString()};
+
+    const auto &path = path_value.ValuePath();
+    const auto &path_vertices = path.vertices();
+    if (path_vertices.size() < 2) {
+      if (!path_vertices.empty()) {
+        projected_graph.InsertVertex(path_vertices.front());
+      }
+      return;
+    }
+
+    // Only insert endpoints — intermediate vertices are not part of the projected graph.
+    const auto &from = path_vertices.front();
+    const auto &to = path_vertices.back();
+    projected_graph.InsertVertex(from);
+    projected_graph.InsertVertex(to);
+
+    projected_graph.InsertVirtualEdgeIfNew(VirtualEdge(from, to, std::move(edge_type_name)));
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
@@ -10680,9 +10725,8 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             break;
           }
           case Aggregation::Op::PROJECT_PATH:
-          case Aggregation::Op::PROJECT_LISTS: {
-            // For Graph projections, deduplication is handled by the Graph object internally.
-            // We can ignore the set check to save hash-lookup costs.
+          case Aggregation::Op::PROJECT_LISTS:
+          case Aggregation::Op::PROJECT_PATH_OPTIONS: {
             auto &main_graph = main_value.ValueGraph();
             auto &other_graph = other_value.ValueGraph();
             for (auto &vertex : other_graph.vertices()) {
@@ -10690,6 +10734,9 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             }
             for (auto &edge : other_graph.edges()) {
               main_graph.InsertEdge(std::move(edge));
+            }
+            for (auto &ve : other_graph.virtual_edges()) {
+              main_graph.InsertVirtualEdge(std::move(ve));
             }
             break;
           }
@@ -10764,7 +10811,8 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::PROJECT_PATH:
-        case Aggregation::Op::PROJECT_LISTS: {
+        case Aggregation::Op::PROJECT_LISTS:
+        case Aggregation::Op::PROJECT_PATH_OPTIONS: {
           auto &main_graph = main_value.ValueGraph();
           auto &other_graph = other_value.ValueGraph();
           for (auto &vertex : other_graph.vertices()) {
@@ -10772,6 +10820,9 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           }
           for (auto &edge : other_graph.edges()) {
             main_graph.InsertEdge(std::move(edge));
+          }
+          for (auto &ve : other_graph.virtual_edges()) {
+            main_graph.InsertVirtualEdge(std::move(ve));
           }
           break;
         }

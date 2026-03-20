@@ -676,6 +676,86 @@ Feature: Aggregations
             """
         Then an error should be raised
 
+    Scenario: Virtual edge projection returns only endpoints from a multi-hop path
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            """
+        Then the result should be:
+            | n | e |
+            | 2 | 1 |
+
+    Scenario: Virtual edge projection creates edge with correct type
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.type AS t
+            """
+        Then the result should be:
+            | t             |
+            | 'CONNECTED'   |
+
+    Scenario: Virtual edge projection deduplicates edges between same endpoints
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (d:N {x:4}), (a)-[:R]->(b), (b)-[:R]->(c), (a)-[:R]->(d), (d)-[:R]->(c)
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'LINKED'}) AS graph RETURN size(graph.edges) AS e
+            """
+        Then the result should be:
+            | e |
+            | 1 |
+
+    Scenario: Virtual edge projection with single-hop path
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            """
+        Then the result should be:
+            | n | e |
+            | 2 | 1 |
+
+    Scenario: Virtual edge projection errors if virtualEdgeType key is missing
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {}) AS graph RETURN graph
+            """
+        Then an error should be raised
+
+    Scenario: Virtual edge projection errors if first argument is not a path
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})
+            """
+        When executing query:
+            """
+            MATCH (n:N {x:1}) WITH project_virtual(n, {virtualEdgeType: 'X'}) AS graph RETURN graph
+            """
+        Then an error should be raised
+
     Scenario: Empty collect aggregation:
       Given an empty graph
       And having executed

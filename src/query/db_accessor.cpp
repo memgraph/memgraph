@@ -127,6 +127,26 @@ DbAccessor *SubgraphDbAccessor::GetAccessor() { return &db_accessor_; }
 
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 
+std::vector<VirtualEdge> SubgraphVertexAccessor::VirtualOutEdges() const {
+  std::vector<VirtualEdge> result;
+  for (const auto &ve : graph_->virtual_edges()) {
+    if (ve.From() == impl_) {
+      result.push_back(ve);
+    }
+  }
+  return result;
+}
+
+std::vector<VirtualEdge> SubgraphVertexAccessor::VirtualInEdges() const {
+  std::vector<VirtualEdge> result;
+  for (const auto &ve : graph_->virtual_edges()) {
+    if (ve.To() == impl_) {
+      result.push_back(ve);
+    }
+  }
+  return result;
+}
+
 storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.OutEdges(view, {});
   if (!maybe_edges) return std::unexpected{maybe_edges.error()};

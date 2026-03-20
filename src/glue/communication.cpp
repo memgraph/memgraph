@@ -115,6 +115,20 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
   return ToBoltEdge(edge.impl_, db, view);
 }
 
+communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve) {
+  auto from_id = ve.From().Gid();
+  auto to_id = ve.To().Gid();
+  auto edge_id = ve.Gid();
+  return {.id = communication::bolt::Id::FromUint(edge_id.AsUint()),
+          .from = communication::bolt::Id::FromUint(from_id.AsUint()),
+          .to = communication::bolt::Id::FromUint(to_id.AsUint()),
+          .type = ve.EdgeTypeName(),
+          .properties = {},
+          .element_id = edge_id.ToString(),
+          .from_element_id = from_id.ToString(),
+          .to_element_id = to_id.ToString()};
+}
+
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
   auto check_db = [db]() {
     if (db == nullptr) [[unlikely]]
@@ -207,6 +221,10 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     }
     case query::TypedValue::Type::Point3d: {
       return storage::Result<Value>{std::in_place, value.ValuePoint3d()};
+    }
+
+    case query::TypedValue::Type::VirtualEdge: {
+      return storage::Result<Value>{std::in_place, ToBoltEdge(value.ValueVirtualEdge())};
     }
 
     // Unsupported conversions
