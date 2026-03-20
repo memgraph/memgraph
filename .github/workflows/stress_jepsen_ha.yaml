@@ -41,11 +41,11 @@ on:
         type: boolean
         default: true
       shutdown-signal:
-        description: "Signal to use for terminating instances (:-9 (SIGKILL), :-TERM (SIGTERM))"
+        description: "Signal to use for terminating instances (:-9 (SIGKILL), :TERM (SIGTERM))"
         type: choice
         options:
           - :-9
-          - :-TERM
+          - :TERM
         default: :-9
 
 
