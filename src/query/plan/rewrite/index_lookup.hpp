@@ -974,6 +974,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // The ORDER BY symbol must match the scan symbol.
     // Compare by name because the ORDER BY may reference a Produce output symbol
     // (different position) that represents the same logical variable.
+    // Note: this assumes variable names are unique within a query scope, which
+    // Cypher guarantees (redeclaring a variable in the same scope is an error).
     if (ctx.scan_symbol.name() != scan_symbol.name()) return;
 
     // The new scan must be ScanAllByLabelProperties
@@ -993,26 +995,32 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       // Check if this operator is order-preserving. An operator is order-preserving if it does not
       // reorder its input rows. It may filter (1:1) or multiply (1:N via nested loop) rows.
+      //
+      // 1:N operators (Expand, ExpandVariable, Unwind, Optional, Apply) are safe here because
+      // they preserve the relative ordering of the *input* symbol's properties. Since we verify
+      // that ORDER BY references the scan symbol (not a symbol introduced by expansion), the
+      // scan-symbol property values remain sorted even when rows are multiplied.
+      //
       // Operators that are NOT order-preserving: Aggregate (hash grouping), OrderBy (reorders),
       // Cartesian (cross product), CallProcedure (output order undefined).
       // Note: Union preserves order within each branch but not across both, so it's not safe here.
       // HashJoin/IndexedJoin preserve left-input order but are unlikely between OrderBy and ScanAll;
       // they could be added if needed.
       const auto &type_info = op->GetTypeInfo();
-      bool order_preserving = type_info == Filter::kType ||                // removes rows
-                              type_info == Produce::kType ||               // evaluates expressions, 1:1
-                              type_info == ConstructNamedPath::kType ||    // builds path value, 1:1
-                              type_info == EdgeUniquenessFilter::kType ||  // removes rows
-                              type_info == Limit::kType ||                 // truncates
-                              type_info == Skip::kType ||                  // drops first N
-                              type_info == Expand::kType ||                // nested loop, 1:N
-                              type_info == ExpandVariable::kType ||  // variable-length expansion, nested loop, 1:N
-                              type_info == Optional::kType ||        // OPTIONAL MATCH, 1:1 or 1:N
-                              type_info == Distinct::kType ||        // hash-set dedup, preserves first-occurrence order
+      bool order_preserving = type_info == Filter::kType ||                 // removes rows, 1:1
+                              type_info == Produce::kType ||                // evaluates expressions, 1:1
+                              type_info == ConstructNamedPath::kType ||     // builds path value, 1:1
+                              type_info == EdgeUniquenessFilter::kType ||   // removes rows, 1:1
+                              type_info == Limit::kType ||                  // truncates, 1:1
+                              type_info == Skip::kType ||                   // drops first N, 1:1
+                              type_info == Expand::kType ||                 // 1:N, preserves input-symbol order
+                              type_info == ExpandVariable::kType ||         // 1:N, preserves input-symbol order
+                              type_info == Optional::kType ||               // 1:1 or 1:N, preserves input-symbol order
+                              type_info == Distinct::kType ||               // streaming dedup, emits in input order
                               type_info == EvaluatePatternFilter::kType ||  // EXISTS subquery, essentially a filter
                               type_info == RollUpApply::kType ||  // pattern comprehension, collects into list, 1:1
-                              type_info == Apply::kType ||        // CALL subquery, nested loop per input row
-                              type_info == Unwind::kType;         // unwraps list, nested loop, 1:N
+                              type_info == Apply::kType ||        // CALL subquery, 1:N, preserves input-symbol order
+                              type_info == Unwind::kType;         // 1:N, preserves input-symbol order
       if (!order_preserving) return;
     }
     if (!found_order_by) return;
