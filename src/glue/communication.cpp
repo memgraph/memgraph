@@ -115,7 +115,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
   return ToBoltEdge(edge.impl_, db, view);
 }
 
-communication::bolt::Edge ToBoltVirtualEdge(const query::VirtualEdge &ve) {
+communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve) {
   auto from_id = ve.From().Gid();
   auto to_id = ve.To().Gid();
   auto edge_id = ve.Gid();
@@ -224,7 +224,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     }
 
     case query::TypedValue::Type::VirtualEdge: {
-      return storage::Result<Value>{std::in_place, ToBoltVirtualEdge(value.ValueVirtualEdge())};
+      return storage::Result<Value>{std::in_place, ToBoltEdge(value.ValueVirtualEdge())};
     }
 
     // Unsupported conversions
