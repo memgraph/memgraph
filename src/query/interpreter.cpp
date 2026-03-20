@@ -12,6 +12,10 @@
 #include "query/interpreter.hpp"
 #include <fmt/core.h>
 #include "ctre.hpp"
+#include "memory/db_arena.hpp"
+#if USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -2872,7 +2876,8 @@ struct PullPlan {
                     storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr
+                    std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
+                    unsigned db_arena_idx = 0
 #ifdef MG_ENTERPRISE
                     ,
                     std::optional<size_t> parallel_execution = std::nullopt,
@@ -2915,7 +2920,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                    TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
                    FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   utils::PriorityThreadPool *worker_pool
+                   utils::PriorityThreadPool *worker_pool, const unsigned db_arena_idx
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
@@ -2947,6 +2952,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.parallel_execution = parallel_execution;
 #endif
   ctx_.db_accessor = dba;
+  ctx_.db_arena_idx = db_arena_idx;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
@@ -2979,6 +2985,24 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
+  // Pin this thread's jemalloc arena to the owning database's arena so all
+  // allocations during this pull (SkipList nodes, std::string, etc.) are
+  // attributed to the database's MemoryTracker via extent hooks.
+  // The previous arena is restored on scope exit so pool threads are unaffected.
+  memory::DbArenaScope db_arena_scope{ctx_.db_arena_idx};
+#if USE_JEMALLOC
+  unsigned prev_thread_arena = 0;
+  if (ctx_.db_arena_idx != 0) {
+    size_t arena_sz = sizeof(unsigned);
+    je_mallctl("thread.arena", &prev_thread_arena, &arena_sz, &ctx_.db_arena_idx, arena_sz);
+  }
+  auto restore_thread_arena = utils::OnScopeExit([&] {
+    if (ctx_.db_arena_idx != 0) {
+      je_mallctl("thread.arena", nullptr, nullptr, &prev_thread_arena, sizeof(unsigned));
+    }
+  });
+#endif
+
   auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
   // Single query memory limit
   memory_tracker.SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
@@ -3377,9 +3401,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
                                               hops_limit,
-                                              interpreter_context->worker_pool
+                                              interpreter_context->worker_pool,
+                                              current_db.db_acc_->get()->ArenaIdx()
 #ifdef MG_ENTERPRISE
-                                              ,
+                                                  ,
                                               parallel_execution,
                                               user_resource
 #endif
@@ -3575,6 +3600,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          stopping_context = std::move(stopping_context),
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
+                                         db_arena_idx = current_db.db_acc_->get()->ArenaIdx(),
                                          &query_logger = interpreter.query_logger_
 #ifdef MG_ENTERPRISE
                                          ,
@@ -3599,7 +3625,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         memory_limit,
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
                                         hops_limit,
-                                        interpreter_context->worker_pool
+                                        interpreter_context->worker_pool,
+                                        db_arena_idx
 #ifdef MG_ENTERPRISE
                                         ,
                                         parallel_execution,
