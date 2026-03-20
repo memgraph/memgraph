@@ -46,10 +46,11 @@ class Aggregation : public memgraph::query::BinaryOperator {
   static constexpr std::string_view kAvg = "AVG";
   static constexpr std::string_view kCollect = "COLLECT";
   static constexpr std::string_view kProject = "PROJECT";
+  static constexpr std::string_view kProjectVirtual = "PROJECT_VIRTUAL";
 
   static std::string OpToString(Op op) {
     static constexpr std::array op_strings = {
-        kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject, kProject};
+        kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject, kProjectVirtual};
     return std::string{op_strings[static_cast<int>(op)]};
   }
 
