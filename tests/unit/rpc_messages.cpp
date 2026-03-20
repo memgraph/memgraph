@@ -11,6 +11,8 @@
 
 #include "rpc_messages.hpp"
 
+#include "slk/serialization.hpp"
+
 namespace memgraph::slk {
 void Save(const SumReqV1 &sum, Builder *builder) {
   Save(sum.x, builder);

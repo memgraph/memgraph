@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include "rpc/exceptions.hpp"
+#include "slk/serialization.hpp"
+#include "utils/typeinfo.hpp"
+
 #include <cstdint>
 
 namespace memgraph::rpc {
