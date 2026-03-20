@@ -6,7 +6,8 @@ target_sources(mg-memory-utils
                db_arena.hpp
                PRIVATE
                query_memory_control.cpp
-               global_memory_control.cpp)
+               global_memory_control.cpp
+               db_arena.cpp)
 
 add_library(mg-memory STATIC
             malloc_free.cpp

@@ -1,0 +1,144 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "db_arena.hpp"
+
+#include "utils/logging.hpp"
+
+#if USE_JEMALLOC
+
+namespace memgraph::memory {
+
+namespace {
+
+// ---------------------------------------------------------------------------
+// Extent hook callbacks for per-DB arenas.
+// Each callback receives back the exact `extent_hooks_t *` pointer that was
+// installed via mallctl, which is `&DbArenaHooks::hooks` (the first field of
+// the `DbArenaHooks` struct). We reinterpret-cast it to `DbArenaHooks *` to
+// retrieve the tracker and the default (base) hooks to call through.
+// ---------------------------------------------------------------------------
+
+static void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t alignment, bool *zero,
+                            bool *commit, unsigned arena_ind) {
+  auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  if (*commit) {
+    if (!dh->tracker->Alloc(static_cast<int64_t>(size))) return nullptr;
+  }
+  void *ptr = dh->base_hooks->alloc(dh->base_hooks, new_addr, size, alignment, zero, commit, arena_ind);
+  if (ptr == nullptr && *commit) {
+    dh->tracker->Free(static_cast<int64_t>(size));
+  }
+  return ptr;
+}
+
+static bool db_arena_dalloc(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
+  auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  bool err = dh->base_hooks->dalloc(dh->base_hooks, addr, size, committed, arena_ind);
+  if (!err && committed) {
+    dh->tracker->Free(static_cast<int64_t>(size));
+  }
+  return err;
+}
+
+static void db_arena_destroy(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
+  auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  if (committed) {
+    dh->tracker->Free(static_cast<int64_t>(size));
+  }
+  dh->base_hooks->destroy(dh->base_hooks, addr, size, committed, arena_ind);
+}
+
+static bool db_arena_commit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
+                            unsigned arena_ind) {
+  auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  bool err = dh->base_hooks->commit(dh->base_hooks, addr, size, offset, length, arena_ind);
+  if (!err) {
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+    dh->tracker->Alloc(static_cast<int64_t>(length));
+  }
+  return err;
+}
+
+static bool db_arena_decommit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
+                              unsigned arena_ind) {
+  auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  bool err = dh->base_hooks->decommit(dh->base_hooks, addr, size, offset, length, arena_ind);
+  if (!err) {
+    dh->tracker->Free(static_cast<int64_t>(length));
+  }
+  return err;
+}
+
+static bool db_arena_purge_forced(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
+                                  unsigned arena_ind) {
+  auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
+  if (dh->base_hooks->purge_forced == nullptr) return true;
+  bool err = dh->base_hooks->purge_forced(dh->base_hooks, addr, size, offset, length, arena_ind);
+  if (!err) {
+    dh->tracker->Free(static_cast<int64_t>(length));
+  }
+  return err;
+}
+
+}  // namespace
+
+DbArena::DbArena(utils::MemoryTracker *tracker) {
+  // Create a new jemalloc arena.
+  unsigned arena_idx = 0;
+  size_t sz = sizeof(arena_idx);
+  int err = je_mallctl("arenas.create", &arena_idx, &sz, nullptr, 0);
+  MG_ASSERT(err == 0, "Failed to create jemalloc arena for per-DB tracking (err={})", err);
+  arena_idx_ = arena_idx;
+
+  // Read the default hooks installed on the new arena so we can call through.
+  const std::string hooks_key = "arena." + std::to_string(arena_idx_) + ".extent_hooks";
+  extent_hooks_t *base_hooks = nullptr;
+  size_t hooks_sz = sizeof(extent_hooks_t *);
+  err = je_mallctl(hooks_key.c_str(), &base_hooks, &hooks_sz, nullptr, 0);
+  MG_ASSERT(
+      err == 0 && base_hooks != nullptr, "Failed to read default hooks for DB arena {} (err={})", arena_idx_, err);
+
+  // Populate our custom hooks struct.
+  hooks_.tracker = tracker;
+  hooks_.base_hooks = base_hooks;
+  hooks_.hooks = extent_hooks_t{
+      .alloc = &db_arena_alloc,
+      .dalloc = &db_arena_dalloc,
+      .destroy = &db_arena_destroy,
+      .commit = &db_arena_commit,
+      .decommit = &db_arena_decommit,
+      .purge_lazy = base_hooks->purge_lazy,  // pass-through; no tracking needed
+      .purge_forced = &db_arena_purge_forced,
+      .split = base_hooks->split,
+      .merge = base_hooks->merge,
+  };
+
+  // Install our custom hooks on the arena.
+  const extent_hooks_t *new_hooks = &hooks_.hooks;
+  err = je_mallctl(
+      hooks_key.c_str(), nullptr, nullptr, const_cast<extent_hooks_t **>(&new_hooks), sizeof(extent_hooks_t *));
+  MG_ASSERT(err == 0, "Failed to install custom hooks on DB arena {} (err={})", arena_idx_, err);
+}
+
+DbArena::~DbArena() {
+  if (arena_idx_ == 0) return;
+  // Purge all dirty/muzzy pages back to the OS.
+  const std::string purge_key = "arena." + std::to_string(arena_idx_) + ".purge";
+  je_mallctl(purge_key.c_str(), nullptr, nullptr, nullptr, 0);
+  // arena.N.destroy resets the arena so its index can be reused.
+  const std::string destroy_key = "arena." + std::to_string(arena_idx_) + ".destroy";
+  je_mallctl(destroy_key.c_str(), nullptr, nullptr, nullptr, 0);
+}
+
+}  // namespace memgraph::memory
+
+#endif  // USE_JEMALLOC

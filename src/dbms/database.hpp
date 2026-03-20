@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 
+#include "memory/db_arena.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
@@ -181,7 +182,26 @@ class Database {
     storage_->StopAllBackgroundTasks();
   }
 
+  /**
+   * @brief jemalloc arena index owned by this database (0 if not using jemalloc).
+   *        Allocations on threads with tls_db_arena_idx == ArenaIdx() are attributed
+   *        to this database's memory tracker.
+   */
+  unsigned ArenaIdx() const noexcept {
+#if USE_JEMALLOC
+    return db_arena_.idx();
+#else
+    return 0;
+#endif
+  }
+
+  int64_t DbMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
+
  private:
+  utils::MemoryTracker db_memory_tracker_;  //!< Tracks committed OS pages in db_arena_
+#if USE_JEMALLOC
+  memory::DbArena db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
+#endif
   std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};  //!< Thread pool for executing after commit triggers
