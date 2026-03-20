@@ -25,11 +25,7 @@ TypedValue GraphEdgesToTypedValue(const Graph &graph, utils::MemoryResource *mem
     edges.push_back(TypedValue(e, memory));
   }
   for (const auto &ve : graph.virtual_edges()) {
-    TypedValue::TMap ve_map(memory);
-    ve_map.emplace("from", TypedValue(ve.From(), memory));
-    ve_map.emplace("to", TypedValue(ve.To(), memory));
-    ve_map.emplace("type", TypedValue(ve.EdgeTypeName(), memory));
-    edges.push_back(TypedValue(std::move(ve_map), memory));
+    edges.push_back(TypedValue(ve, memory));
   }
   return {std::move(edges), memory};
 }
@@ -161,6 +157,13 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
         auto typed_value = TypedValue(value, GetNameIdMapper(), ctx_->memory);
         result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
       }
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::VirtualEdge: {
+      const auto &ve = expression_result.ValueVirtualEdge();
+      result.emplace(TypedValue::TString("from", ctx_->memory), TypedValue(ve.From(), ctx_->memory));
+      result.emplace(TypedValue::TString("to", ctx_->memory), TypedValue(ve.To(), ctx_->memory));
+      result.emplace(TypedValue::TString("type", ctx_->memory), TypedValue(ve.EdgeTypeName(), ctx_->memory));
       return {result, ctx_->memory};
     }
     case TypedValue::Type::Map: {
@@ -452,6 +455,14 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
                 GetNameIdMapper(),
                 ctx_->memory};
       }
+    case TypedValue::Type::VirtualEdge: {
+      const auto &ve = expression_result_ptr->ValueVirtualEdge();
+      const auto &prop_name = property_lookup.property_.name;
+      if (prop_name == "type") return TypedValue(ve.EdgeTypeName(), ctx_->memory);
+      if (prop_name == "from") return TypedValue(ve.From(), ctx_->memory);
+      if (prop_name == "to") return TypedValue(ve.To(), ctx_->memory);
+      return TypedValue(ctx_->memory);
+    }
     case TypedValue::Type::Map: {
       auto &map = expression_result_ptr->ValueMap();
       auto found = map.find(property_lookup.property_.name.c_str());

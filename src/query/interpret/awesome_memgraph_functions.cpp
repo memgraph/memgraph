@@ -735,6 +735,8 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("NODE", ctx.memory);
     case TypedValue::Type::Edge:
       return TypedValue("RELATIONSHIP", ctx.memory);
+    case TypedValue::Type::VirtualEdge:
+      return TypedValue("VIRTUAL_RELATIONSHIP", ctx.memory);
     case TypedValue::Type::Path:
       return TypedValue("PATH", ctx.memory);
     case TypedValue::Type::Date:
@@ -1188,6 +1190,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     case Map:
     case Vertex:
     case Edge:
+    case VirtualEdge:
     case Path:
     case Graph:
     case Function:
@@ -1254,6 +1257,7 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
     case Map:
     case Vertex:
     case Edge:
+    case VirtualEdge:
     case Path:
     case Graph:
     case Function:

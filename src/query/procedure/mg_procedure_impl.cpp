@@ -329,6 +329,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
     case memgraph::query::TypedValue::Type::Vertex:
       return MGP_VALUE_TYPE_VERTEX;
     case memgraph::query::TypedValue::Type::Edge:
+    case memgraph::query::TypedValue::Type::VirtualEdge:
       return MGP_VALUE_TYPE_EDGE;
     case memgraph::query::TypedValue::Type::Path:
       return MGP_VALUE_TYPE_PATH;
@@ -455,9 +456,7 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
       return std::visit(
           memgraph::utils::Overloaded{
               [&alloc](const memgraph::query::EdgeAccessor &ea) { return memgraph::query::TypedValue(ea, alloc); },
-              [](const memgraph::query::VirtualEdge &) -> memgraph::query::TypedValue {
-                throw memgraph::query::QueryRuntimeException("Cannot convert a virtual edge back to a Cypher value.");
-              }},
+              [&alloc](const memgraph::query::VirtualEdge &ve) { return memgraph::query::TypedValue(ve, alloc); }},
           val.edge_v->impl);
     case MGP_VALUE_TYPE_PATH: {
       const auto *path = val.path_v;
@@ -4966,6 +4965,7 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
       return (*stream) << CypherConstructionFor(value.ValuePoint3d());
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
+    case TypedValue::Type::VirtualEdge:
     case TypedValue::Type::Path:
     case TypedValue::Type::Graph:
     case TypedValue::Type::Function:
