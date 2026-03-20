@@ -3,6 +3,7 @@ target_sources(mg-memory-utils
                PUBLIC
                query_memory_control.hpp
                global_memory_control.hpp
+               db_arena.hpp
                PRIVATE
                query_memory_control.cpp
                global_memory_control.cpp)
