@@ -39,7 +39,7 @@ jobs:
     name: "Stress Tests Standalone"
     if: ${{ inputs.deployment == 'standalone/native' }}
     runs-on: [self-hosted, X64, Memory256G]
-    timeout-minutes: 300
+    timeout-minutes: 180
     env:
       OS: ubuntu-24.04
       TOOLCHAIN: v7
@@ -240,7 +240,7 @@ jobs:
     name: "Stress Tests Docker HA"
     if: ${{ inputs.deployment == 'ha/docker' }}
     runs-on: [self-hosted, X64, Memory256G]
-    timeout-minutes: 300
+    timeout-minutes: 180
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
