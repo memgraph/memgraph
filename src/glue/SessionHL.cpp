@@ -27,6 +27,7 @@
 #include "glue/communication.hpp"
 #include "glue/run_id.hpp"
 #include "license/license.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
@@ -567,10 +568,8 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
       runtime_config_{this},
 #endif
       auth_(context.auth),
-      global_metric_handles_(context.global_metric_handles),
       endpoint_(std::move(context.endpoint)) {
-  // Metrics update
-  global_metric_handles_->active_bolt_sessions->Increment();
+  metrics::Metrics().global.active_bolt_sessions->Increment();
 #ifdef MG_ENTERPRISE
   interpreter_.OnChangeCB([&](std::string_view db_name) {
     auto &user_or_role = interpreter_.user_or_role_;
@@ -581,7 +580,7 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
 }
 
 SessionHL::~SessionHL() {
-  global_metric_handles_->active_bolt_sessions->Decrement();
+  metrics::Metrics().global.active_bolt_sessions->Decrement();
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
 #ifdef MG_ENTERPRISE
   // User-related resource monitoring
