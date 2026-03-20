@@ -26,6 +26,7 @@ using memgraph::communication::ServerContext;
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
 using memgraph::rpc::GenericRpcFailedException;
+using memgraph::rpc::RpcTimeoutException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
 using memgraph::storage::Config;
@@ -160,7 +161,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
       true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
-  EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
+  EXPECT_THROW(stream.Finalize(), RpcTimeoutException);
 }
 
 // First send progress, then timeout
@@ -209,7 +210,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
 
-  EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
+  EXPECT_THROW(stream.Finalize(), RpcTimeoutException);
 }
 
 // First send progress, then timeout
@@ -284,7 +285,7 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
 
   auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
 
-  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
 }
 
 // First send progress, then timeout
@@ -357,7 +358,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
-  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
 }
 
 // Timeout immediately
@@ -405,7 +406,7 @@ TEST_F(ReplicationRpcProgressTest, TestTTT) {
 
   {
     auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
-    EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+    EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
   }
 
   {

@@ -14,6 +14,7 @@
 #include <sys/types.h>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -21,6 +22,8 @@
 #include "io/network/endpoint.hpp"
 
 namespace memgraph::io::network {
+
+enum class ClientCommunicationError : uint8_t { TIMEOUT_ERROR, GENERIC_ERROR };
 
 /**
  * This class creates a network socket.
@@ -154,8 +157,11 @@ class Socket {
    *             false if write failed
    */
 
-  bool Write(const uint8_t *data, size_t len, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
-  bool Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
+  [[nodiscard]] auto Write(const uint8_t *data, size_t len, bool have_more = false,
+                           std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, ClientCommunicationError>;
+  [[nodiscard]] auto Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, ClientCommunicationError>;
 
   /**
    * Read data from the socket.

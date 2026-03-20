@@ -38,7 +38,7 @@ using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
-using memgraph::rpc::GenericRpcFailedException;
+using memgraph::rpc::RpcTimeoutException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
 using memgraph::storage::ActiveIndices;
@@ -438,7 +438,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SnapshotRpc>(UUID{}, UUID{});
-  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedNoVertices) {

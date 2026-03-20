@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "rpc/messages.hpp"
 #include "utils/typeinfo.hpp"
