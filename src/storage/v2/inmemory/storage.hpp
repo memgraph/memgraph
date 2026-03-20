@@ -784,11 +784,28 @@ class InMemoryStorage final : public Storage {
   // draining: the timestamp condition (no reader can see the edge alive) and
   // the epoch condition (no edge-index iterable that pre-dates this entry is
   // still active).
+  //
+  // Two-phase drain:
+  //   Phase 1 (commit time): entry added with mark_timestamp and an initial guard_epoch.
+  //   Phase 2 (GC, after RemoveObsoleteEdgeEntries): guard_epoch is re-snapped to
+  //     CurrentEpoch() AFTER index entries are atomically removed, and index_cleaned
+  //     is set. This mirrors SkipList GC which records the high-water accessor ID at
+  //     node-removal time, covering post-commit readers that read Edge* from a stale
+  //     index entry before cleanup ran.
+  //   Drain: only when index_cleaned == true AND IsSafeToFree(guard_epoch).
   struct LightEdgeGraveyardEntry {
     uint64_t mark_timestamp;
-    uint64_t guard_epoch;  // EpochTracker::CurrentEpoch() snapshot at insertion time
+    uint64_t guard_epoch;
     std::vector<Edge *> edges;
+    bool index_cleaned{false};
   };
+
+  // Test helper: number of entries currently sitting in the light-edge graveyard.
+  std::size_t LightEdgeGraveyardSizeForTest() {
+    std::size_t n = 0;
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { n = graveyard.size(); });
+    return n;
+  }
 
   // Returns the appropriate edge-memory pin for edge-index iterables.
   // Normal-edge mode: ConstAccessor on edges_ (prevents skiplist GC from freeing edge nodes).
@@ -846,8 +863,8 @@ class InMemoryStorage final : public Storage {
 
   // Epoch tracker for edge-index Iterables/ChunkedIterables in light-edge mode.
   // Each iterable acquires an epoch ID on construction and releases it on destruction.
-  // The graveyard drain records guard_epoch = CurrentEpoch() at insertion time and only
-  // frees edges once IsSafeToFree(guard_epoch) — i.e. all pre-existing readers are done.
+  // The graveyard drain re-snaps guard_epoch to CurrentEpoch() after index cleanup and
+  // only frees edges once IsSafeToFree(guard_epoch) — see LightEdgeGraveyardEntry.
   mutable utils::EpochTracker light_edge_iterable_tracker_;
 
   // Durability

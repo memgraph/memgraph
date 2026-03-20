@@ -3034,6 +3034,32 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
     }
   }
+  // LIGHT EDGE GRAVEYARD — phase 1: re-snap guard_epoch.
+  // Now that index entries are atomically removed, any reader that started an
+  // iterable before this point has epoch id < CurrentEpoch(). Re-snap guard_epoch
+  // to CurrentEpoch() so that IsSafeToFree() covers post-commit readers that may
+  // have read a stale Edge* from the index before cleanup ran.
+  // Also remove vector-edge-index entries here, while Edge* are still valid.
+  // (Vector index is not handled by RemoveObsoleteEdgeEntries above.)
+  if (light_edges) {
+    uint64_t post_cleanup_epoch = light_edge_iterable_tracker_.CurrentEpoch();
+    light_edge_graveyard_.WithLock([&](auto &graveyard) {
+      for (auto &entry : graveyard) {
+        if (entry.mark_timestamp > oldest_active_start_timestamp) break;  // list is commit-ordered
+        if (!entry.index_cleaned) {
+          if (!indices_.vector_edge_index_.Empty()) {
+            std::list<Gid> gids_to_remove;
+            for (auto const *edge : entry.edges) {
+              gids_to_remove.push_back(edge->gid);
+            }
+            indices_.RemoveEdgesFromVectorEdgeIndices(gids_to_remove);
+          }
+          entry.guard_epoch = post_cleanup_epoch;
+          entry.index_cleaned = true;
+        }
+      }
+    });
+  }
   memgraph::metrics::Measure(
       memgraph::metrics::GCSkiplistCleanupLatency_us,
       std::chrono::duration_cast<std::chrono::microseconds>(skiplist_cleanup_timer.Elapsed()).count());
@@ -3162,21 +3188,15 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
 
-  // LIGHT EDGE GRAVEYARD: drain entries whose mark_timestamp is older than
-  // oldest_active_start_timestamp. At this point, no active transaction could
-  // hold an Edge* from these entries (all readers started after mark_timestamp).
+  // LIGHT EDGE GRAVEYARD — phase 2: drain.
+  // Only drain entries that have been through phase 1 (index_cleaned == true) and
+  // whose guard_epoch is safe to free (all index-iterable readers that could have
+  // held a pointer to these edges have finished). Vector-edge-index cleanup was
+  // already done in phase 1 above.
   if (light_edges) {
     light_edge_graveyard_.WithLock([&](auto &graveyard) {
-      while (!graveyard.empty() && graveyard.front().mark_timestamp <= oldest_active_start_timestamp &&
+      while (!graveyard.empty() && graveyard.front().index_cleaned &&
              light_edge_iterable_tracker_.IsSafeToFree(graveyard.front().guard_epoch)) {
-        // Remove from vector edge index BEFORE freeing Edge* while pointers are still valid.
-        if (!indices_.vector_edge_index_.Empty()) {
-          std::list<Gid> gids_to_remove;
-          for (auto const *edge : graveyard.front().edges) {
-            gids_to_remove.push_back(edge->gid);
-          }
-          indices_.RemoveEdgesFromVectorEdgeIndices(gids_to_remove);
-        }
         for (auto *edge : graveyard.front().edges) {
           DeleteLightEdge(edge);
         }
