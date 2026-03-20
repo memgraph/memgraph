@@ -684,7 +684,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project(p, {virtualEdgeType: 'CONNECTED'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
             """
         Then the result should be:
             | n | e |
@@ -698,7 +698,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project(p, {virtualEdgeType: 'CONNECTED'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.type AS t
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.type AS t
             """
         Then the result should be:
             | t           |
@@ -712,7 +712,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project(p, {virtualEdgeType: 'LINKED'}) AS graph RETURN size(graph.edges) AS e
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'LINKED'}) AS graph RETURN size(graph.edges) AS e
             """
         Then the result should be:
             | e |
@@ -726,7 +726,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project(p, {virtualEdgeType: 'V'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
             """
         Then the result should be:
             | n | e |
@@ -740,7 +740,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project(p, {}) AS graph RETURN graph
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {}) AS graph RETURN graph
             """
         Then an error should be raised
 
@@ -752,7 +752,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH (n:N {x:1}) WITH project(n, {virtualEdgeType: 'X'}) AS graph RETURN graph
+            MATCH (n:N {x:1}) WITH project_virtual(n, {virtualEdgeType: 'X'}) AS graph RETURN graph
             """
         Then an error should be raised
 
