@@ -12,6 +12,9 @@
 #include <functional>
 
 #include "storage/v2/async_indexer.hpp"
+#if USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
@@ -65,6 +68,13 @@ bool AsyncIndexer::HasThreadStopped() const { return !index_creator_thread_.join
 
 void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
   index_creator_thread_ = std::jthread{[this, stop_token, storage](std::stop_token thread_stop_token) mutable {
+#if USE_JEMALLOC
+    // Pin this thread's jemalloc arena to the owning DB's arena so that all
+    // index-building allocations are attributed to the DB memory tracker.
+    if (storage->config_.arena_idx != 0) {
+      je_mallctl("thread.arena", nullptr, nullptr, &storage->config_.arena_idx, sizeof(unsigned));
+    }
+#endif
     // the lock must be taken first because on destruction
     // local objects get destroyed in reverse order of declaration
     // and we must do notify_all before releasing the lock

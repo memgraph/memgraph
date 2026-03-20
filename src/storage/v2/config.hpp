@@ -123,6 +123,12 @@ struct Config {
 
   bool track_label_counts{false};
 
+  // jemalloc arena index owned by the Database that holds this storage.
+  // 0 means no dedicated arena (non-jemalloc builds or unit tests).
+  // Used by background threads to pin thread.arena so allocations are
+  // attributed to the database's MemoryTracker via extent hooks.
+  unsigned arena_idx{0};
+
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };
 
