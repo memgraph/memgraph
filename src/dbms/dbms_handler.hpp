@@ -124,7 +124,7 @@ class DbmsHandler {
    *
    * @param configs storage configuration
    */
-  DbmsHandler(storage::Config config, metrics::PrometheusMetrics *prometheus_metrics = nullptr);
+  explicit DbmsHandler(storage::Config config);
 #else
   /**
    * @brief Initialize the handler. A single database is supported in community edition.
