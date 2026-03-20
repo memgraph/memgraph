@@ -10,8 +10,11 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <barrier>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <thread>
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
@@ -38,7 +41,9 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/worker_yield_signal.hpp"
 
 import memgraph.csv.parsing;
 
@@ -161,6 +166,60 @@ TYPED_TEST(InterpreterTest, MultiplePulls) {
     ASSERT_EQ(stream.GetResults()[3][0].ValueInt(), 4);
     ASSERT_EQ(stream.GetResults()[4][0].ValueInt(), 5);
   }
+}
+
+// Full flow: pool (with WorkerYieldRegistry) runs interpreter Pull; external thread triggers
+// yield; continuation runs on pool until query completes. Verifies scheduler + PullPlan yield path.
+// InMemory only: DiskStorage triggers repeated "edge-type index not supported" warnings for each
+// MATCH iteration and is too slow for the 300-node × 3000-iteration dataset.
+TYPED_TEST(InterpreterTest, YieldFlowPoolInterpreterPull) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Yield test is storage-agnostic; skip slow/noisy DiskStorage variant";
+  }
+  // Create data so MATCH has work to do and can hit yield points
+  this->Interpret("UNWIND range(1, 300) AS i CREATE () RETURN i");
+  auto [stream, qid] = this->Prepare("UNWIND range(1, 3000) AS i MATCH (n) RETURN count(n)");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+
+  memgraph::utils::WorkerYieldRegistry registry(1);
+  memgraph::utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+  std::barrier barrier(2);
+  std::atomic<bool> done{false};
+
+  // ScheduleResumableTask: pool handles yield detection and same-worker pinning.
+  pool.ScheduleResumableTask(
+      [this, &stream, qid, &done, &barrier, first = true]() mutable -> bool {
+        if (first) {
+          first = false;
+          barrier.arrive_and_wait();
+        }
+        auto summary = this->default_interpreter.interpreter.Pull(&stream, {}, qid);
+        stream.Summary(summary);
+        if (summary.count("has_more") && summary.at("has_more").ValueBool()) {
+          return true;  // pool reschedules on same worker if yield signal is set
+        }
+        done = true;
+        return false;
+      },
+      memgraph::utils::Priority::LOW);
+
+  std::jthread external([&registry, &barrier]() {
+    barrier.arrive_and_wait();
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
+    registry.RequestYieldForWorker(0);
+  });
+
+  while (!done.load(std::memory_order_acquire)) {
+    std::this_thread::yield();
+  }
+  external.join();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  EXPECT_EQ(stream.GetResults().size(), 1U) << "Query should complete with 1 result after yield and resume";
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 300 * 3000)
+      << "Query should complete with 300 nodes after yield and resume";
 }
 
 // Run query with different ast twice to see if query executes correctly when

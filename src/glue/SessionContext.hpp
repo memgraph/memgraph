@@ -49,5 +49,15 @@ struct Context {
     MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");
     return worker_pool_->ScheduledAddTask(std::forward<decltype(task)>(task), priority);
   }
+
+  auto AddTaskOnWorker(uint16_t worker_id, auto &&task) {
+    MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");
+    return worker_pool_->RescheduleTaskOnWorker(worker_id, std::forward<decltype(task)>(task));
+  }
+
+  auto AddResumableTask(auto &&task, utils::Priority priority) {
+    MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");
+    return worker_pool_->ScheduleResumableTask(std::forward<decltype(task)>(task), priority);
+  }
 };
 }  // namespace memgraph::glue

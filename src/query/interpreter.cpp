@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -74,6 +75,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/fmt.hpp"
 #include "query/plan/hint_provider.hpp"
 #include "query/plan/parallel_checker.hpp"
@@ -127,6 +129,7 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
+#include "utils/worker_yield_signal.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "flags/experimental.hpp"
@@ -2906,6 +2909,19 @@ struct PullPlan {
                                                         const std::vector<Symbol> &output_symbols,
                                                         std::map<std::string, TypedValue> *summary);
 
+  ~PullPlan() {
+    // If the query was abandoned mid-yield the innermost cursor's coroutine
+    // frame is still suspended.  That frame is co-owned by the cursor's gen_
+    // member AND by suspended_handle_.  Calling Reset() on the cursor chain
+    // destroys every gen_ (including the suspended one) exactly once via
+    // ~PullAwaitable().  We then clear suspended_handle_ so the normal cursor
+    // destructor path finds gen_ already null and does nothing.
+    if (suspended_handle_) {
+      cursor_->Reset();
+      suspended_handle_ = {};
+    }
+  }
+
  private:
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
   plan::UniqueCursorPtr cursor_ = nullptr;
@@ -2929,6 +2945,11 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
+
+  // Scheduler-driven yield: keep the suspended coroutine handle alive so the task can return and be resumed later.
+  // gen_live_ tracks whether the cursor has a live generator (yielded but not yet finished/reset).
+  std::coroutine_handle<> suspended_handle_{};
+  bool gen_live_ = false;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
@@ -3027,8 +3048,27 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 #endif
     }};
 
-    // Returns true if a result was pulled.
-    const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
+    // Allow the cursor to store its suspended handle for scheduler-driven yield.
+    ctx_.suspended_task_handle_ptr = &suspended_handle_;
+    // Connect to current worker's yield signal when running in a pool (no-op if not set).
+    ctx_.stopping_context.yield_requested = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+
+    // Returns std::optional<bool>: true = has row, false = done, nullopt = yielded (caller should return and resume
+    // later).
+    const auto pull_result = [this, summary]() -> std::optional<bool> {
+      // cursor_->Pull() lazily creates the generator on first call and returns a ResumeAwaitable
+      // for the live generator. Subsequent calls return a new ResumeAwaitable for the same gen_.
+      auto resume_aw = cursor_->Pull(frame_, ctx_);
+      summary->insert_or_assign("yielded", TypedValue(false));
+      auto result = plan::RunPullToCompletion(resume_aw, ctx_);
+      if (result.status == plan::PullRunResult::Status::Yielded) {
+        gen_live_ = true;
+        summary->insert_or_assign("yielded", TypedValue(true));
+        return std::nullopt;  // Expose yield to scheduler; next Pull() will resume.
+      }
+      gen_live_ = false;
+      return result.status == plan::PullRunResult::Status::HasRow;
+    };
 
     auto values = std::vector<TypedValue>(output_symbols.size());
     const auto stream_values = [&] {
@@ -3049,20 +3089,32 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     }
 
     for (; !n || i < n; ++i) {
-      if (!pull_result()) {
-        break;
+      auto pr = pull_result();
+      if (!pr.has_value()) {
+        break;  // Yielded: exit so scheduler can resume later.
       }
-
+      if (!*pr) break;
       if (!output_symbols.empty()) {
         stream_values();
       }
     }
 
-    // If we finished because we streamed the requested n results,
-    // we try to pull the next result to see if there is more.
-    // If there is additional result, we leave the pulled result in the frame
-    // and set the flag to true.
-    has_unsent_results_ = i == n && pull_result();
+    // If we yielded, return without finishing so the task can end and be resumed later.
+    if (gen_live_) {
+      return std::nullopt;
+    }
+
+    // Only do lookahead when we streamed exactly n results; we need one more pull to set has_more.
+    // When we broke because the cursor returned false (no more rows), we must not pull again.
+    // Always reset first: if we broke early (cursor exhausted or no limit), there are no unsent results.
+    has_unsent_results_ = false;
+    if (n && i == *n) {
+      auto pr = pull_result();
+      if (!pr.has_value()) {
+        return std::nullopt;  // Yielded during lookahead.
+      }
+      has_unsent_results_ = *pr;
+    }
 
     execution_time_ += timer.Elapsed();
   }
