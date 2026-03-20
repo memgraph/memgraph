@@ -131,12 +131,12 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
 
 DbArena::~DbArena() {
   if (arena_idx_ == 0) return;
-  // Purge all dirty/muzzy pages back to the OS.
+  // Purge all dirty/muzzy pages back to the OS to release memory to the system.
+  // Note: we intentionally skip arena.N.destroy because jemalloc's arena destruction
+  // is experimental and can corrupt metadata when arena indices are reused (e.g. in tests).
+  // The arena will be cleaned up when the process exits.
   const std::string purge_key = "arena." + std::to_string(arena_idx_) + ".purge";
   je_mallctl(purge_key.c_str(), nullptr, nullptr, nullptr, 0);
-  // arena.N.destroy resets the arena so its index can be reused.
-  const std::string destroy_key = "arena." + std::to_string(arena_idx_) + ".destroy";
-  je_mallctl(destroy_key.c_str(), nullptr, nullptr, nullptr, 0);
 }
 
 }  // namespace memgraph::memory
