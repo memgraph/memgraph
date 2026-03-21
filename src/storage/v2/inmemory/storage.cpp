@@ -1035,8 +1035,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   // If main executes this: Block until we receive votes from all replicas.
   // If replica executes this:,
+  spdlog::trace("HandleDurabilityAndReplicate starting");
   bool const repl_prepare_phase_status =
       HandleDurabilityAndReplicate(durability_commit_timestamp, replicating_txn, commit_args);
+  spdlog::trace("HandleDurabilityAndReplicate finished, status={}", repl_prepare_phase_status);
 
   // If replica executes this
   bool const replica_write_was_applied =

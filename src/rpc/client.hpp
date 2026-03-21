@@ -148,6 +148,9 @@ class Client {
                                       /* exactly_len = */ false,
                                       /* timeout_ms = */ timeout_ms_)) {
               // Failed connection, abort and let somebody retry in the future.
+              spdlog::error("[RpcClient] Read failed from {} while waiting for response to {}",
+                            self_->endpoint_.SocketAddress(),
+                            final_res_type_name);
               defunct_ = true;
               self_->Shutdown();
               guard_.unlock();
@@ -291,7 +294,10 @@ class Client {
     static auto GenBuilderCallback(Client *client, StreamHandler *self, std::optional<int> timeout_ms) {
       return [client, self, timeout_ms](const uint8_t *data, size_t size, bool have_more) {
         if (self->defunct_) throw GenericRpcFailedException();
+        spdlog::trace(
+            "[RpcClient] flushing {} bytes to {}, have_more={}", size, client->endpoint_.SocketAddress(), have_more);
         if (!client->client_->Write(data, size, have_more, timeout_ms)) {
+          spdlog::error("[RpcClient] Write failed to {}, marking stream defunct", client->endpoint_.SocketAddress());
           self->defunct_ = true;
           client->Shutdown();
           self->guard_.unlock();
@@ -408,6 +414,7 @@ class Client {
     // Connect to the remote server.
     if (!client_) {
       client_.emplace(context_);
+      spdlog::trace("Trying to connect to remote address {}", endpoint_.SocketAddress());
       if (!client_->Connect(endpoint_)) {
         spdlog::error("Couldn't connect to remote address {}", endpoint_.SocketAddress());
         client_ = std::nullopt;

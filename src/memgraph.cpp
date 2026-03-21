@@ -878,8 +878,11 @@ int main(int argc, char **argv) {
 
     // Don't replicate on shutdown anymore
     {
+      spdlog::trace("Trying to take repl state lock");
       auto locked_repl_state = repl_state.Lock();
+      spdlog::trace("Repl state lock taken");
       locked_repl_state->Shutdown();
+      spdlog::trace("Repl state shut-down");
     }
 
     dbms_handler.ForEach([](memgraph::dbms::DatabaseAccess acc) {

@@ -78,6 +78,12 @@
   [f]
   {:type :info :f f})
 
+
+(defn asked-to-abort-shutdown?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Transaction was asked to abort because of database shutdown"))
+
 (defn not-main-anymore?
   "Accepts exception e as argument."
   [e]

@@ -6,7 +6,7 @@ MEMGRAPH_BUILD_PATH="$script_dir/../../build"
 MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
 MEMGRAPH_MTENANCY_DATASETS="$script_dir/datasets/"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
-JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.5}"
+JEPSEN_COMMIT="07e0ee88"
 JEPSEN_ACTIVE_NODES_NO=5
 CONTROL_LEIN_RUN_ARGS="test --nodes-config resources/replication-config.edn"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
@@ -19,7 +19,7 @@ WGET_OR_CLONE_TIMEOUT=60
 PRINT_CONTEXT() {
     echo -e "MEMGRAPH_BINARY_PATH:\t\t $MEMGRAPH_BINARY_PATH"
     echo -e "MEMGRAPH_BUILD_PATH:\t\t $MEMGRAPH_BUILD_PATH"
-    echo -e "JEPSEN_VERSION:\t\t\t $JEPSEN_VERSION"
+    echo -e "JEPSEN_COMMIT:\t\t\t $JEPSEN_COMMIT"
     echo -e "JEPSEN_ACTIVE_NODES_NO:\t\t $JEPSEN_ACTIVE_NODES_NO"
     echo -e "CONTROL_LEIN_RUN_ARGS:\t\t $CONTROL_LEIN_RUN_ARGS"
     echo -e "CONTROL_LEIN_RUN_STDOUT_LOGS:\t $CONTROL_LEIN_RUN_STDOUT_LOGS"
@@ -100,17 +100,18 @@ if ! command -v docker > /dev/null 2>&1 || ! command -v docker compose > /dev/nu
 fi
 
 if [ ! -d "$script_dir/jepsen" ]; then
-  echo "Cloning Jepsen $JEPSEN_VERSION ..."
-  git clone http://mgdeps-cache:8000/git/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen" &> /dev/null \
-  || git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
-  # Apply patch for Jepsen 0.3.5 which replaces openjdk-21-jdk-headless with openjdk-22-jdk-headless
-  if [[ "$JEPSEN_VERSION" == "v0.3.5" ]]; then
-    echo "Applying patch for Jepsen 0.3.5 ..."
-    cd "$script_dir/jepsen"
-    git apply "$script_dir/0-3-5.patch"
-    cd "$script_dir"
-  fi
+  echo "Cloning Jepsen $JEPSEN_COMMIT ..."
+  # TODO: (andi) Uncomment once mg-deps cache is upgraded
+#   git clone http://mgdeps-cache:8000/git/jepsen.git "$script_dir/jepsen" &> /dev/null \
+#   || git clone https://github.com/jepsen-io/jepsen.git "$script_dir/jepsen"
+  git clone https://github.com/jepsen-io/jepsen.git "$script_dir/jepsen"
 fi
+
+cd "$script_dir/jepsen"
+git fetch
+git checkout "$JEPSEN_COMMIT"
+cd "$script_dir"
+
 
 PROCESS_ARGS() {
     shift
