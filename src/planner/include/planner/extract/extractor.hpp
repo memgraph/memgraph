@@ -155,13 +155,23 @@ template <typename Symbol, typename Analysis, typename CostModel>
   return std::nullopt;
 }
 
-/// Top-down resolution of frontiers into a Selection map.
-/// Walks from root, picks the best enode at each eclass via CostResult::resolve.
+/// Generic top-down resolver. Picks the best enode at each eclass via CostResult::resolve.
+///
+/// Used by the unit test helper Extract() in unittest__extractor.cpp for cost-model tests
+/// that do not require context-sensitive child visitation.
+///
+/// For production use, see PlanResolver in egraph_converter.cpp, which handles Bind
+/// alive/dead decisions by propagating a "provided" SymbolSet top-down.
+///
+/// NOTE: If you are adding a new cost model that has special child semantics (e.g., a
+/// Bind-like construct with conditional child visitation), do not use ResolveSelection.
+/// Implement a custom resolver like PlanResolver instead.
 template <typename Symbol, typename Analysis, typename CostResult>
   requires CostResultType<CostResult>
 [[nodiscard]] auto ResolveSelection(EGraph<Symbol, Analysis> const &egraph,
                                     std::unordered_map<EClassId, EClassFrontier<CostResult>> const &frontier_map,
-                                    EClassId root) {
+                                    EClassId root)
+    -> std::unordered_map<EClassId, Selection<typename CostResult::cost_t>> {
   using CostType = typename CostResult::cost_t;
 
   auto resolved = std::unordered_map<EClassId, Selection<CostType>>{};

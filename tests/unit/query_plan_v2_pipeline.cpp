@@ -725,6 +725,32 @@ INSTANTIATE_TEST_SUITE_P(
     ),
     TestCaseName
 );
+// --- DAG resolution and cascade tests ---
+
+// clang-format off
+INSTANTIATE_TEST_SUITE_P(
+    DAGResolution,
+    PlannerV2PipelineTest,
+    ::testing::Values(
+        // Shared Bind consumed by two outputs — exercises DAG memoization in resolver
+        PipelineTestCase{
+            .name = "SharedBindTwoConsumers",
+            .query = "WITH 1 AS a RETURN a AS x, a AS y;",
+            .expected_details = {"Produce {x`1:1, y`0:1}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        // Chained Binds with cascade — both eliminated after inline
+        PipelineTestCase{
+            .name = "ChainedBindCascade",
+            .query = "WITH 1 AS a WITH a AS b RETURN b AS x, 1 AS y;",
+            .expected_details = {"Produce {x`1:1, y`0:1}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        }
+    ),
+    TestCaseName
+);
 // clang-format on
 
 }  // namespace

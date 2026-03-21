@@ -59,6 +59,52 @@ struct CostFrontier : planner::core::extract::CostResultBase<CostFrontier, Alter
   using CostResultBase::CostResultBase;
 };
 
+/// Bind branch cost computation shared by PlanCostModel and PlanResolver.
+///
+/// Returns the cheapest alive and dead costs for a Bind node, optionally filtered
+/// to alternatives whose required set is a subset of `provided`.  When `provided`
+/// is empty the filter is bypassed (cost model path — all alternatives considered).
+///
+/// Symbol eclasses are always leaf nodes with a single alternative {cost=1, required={}}.
+/// If Symbol ever gains multiple alternatives, sym_cost must become a frontier and
+/// this function must enumerate it in the Cartesian product alongside expr_frontier.
+///
+/// Tie-break rule: ties go to dead (less work).  Callers compare with strict `<`.
+struct BindBranchCosts {
+  double alive;
+  double dead;
+};
+
+static auto ComputeBindBranchCosts(CostFrontier const &input_frontier, double sym_cost,
+                                   CostFrontier const &expr_frontier, planner::core::EClassId sym_eclass,
+                                   SymbolSet const &provided) -> BindBranchCosts {
+  // When provided is non-empty we filter alternatives by required ⊆ provided.
+  // For the alive branch the input alt may demand sym_eclass, so we check against
+  // provided ∪ {sym_eclass}.  For the dead branch we check against provided directly.
+  bool const filtering = !provided.empty();
+
+  auto alive_provided = provided;
+  if (filtering) alive_provided.insert(sym_eclass);
+
+  auto best_alive = std::numeric_limits<double>::infinity();
+  auto best_dead = std::numeric_limits<double>::infinity();
+
+  for (auto const &input_alt : input_frontier.alts) {
+    if (IsBindAlive(input_alt, sym_eclass)) {
+      if (filtering && !std::ranges::includes(alive_provided, input_alt.required)) continue;
+      for (auto const &expr_alt : expr_frontier.alts) {
+        if (filtering && !std::ranges::includes(provided, expr_alt.required)) continue;
+        best_alive = std::min(best_alive, input_alt.cost + sym_cost + expr_alt.cost);
+      }
+    } else {
+      if (filtering && !std::ranges::includes(provided, input_alt.required)) continue;
+      best_dead = std::min(best_dead, input_alt.cost);
+    }
+  }
+
+  return {best_alive, best_dead};
+}
+
 // Convenience: combine two frontiers with cost summation and required-set union.
 auto CombineAlts(double extra_cost, planner::core::ENodeId enode_id) {
   return [extra_cost, enode_id](Alternative const &l, Alternative const &r) -> Alternative {
@@ -92,16 +138,13 @@ struct PlanCostModel {
         return CostResult{{{.cost = 1.0 + child_cost, .required = {sym_eclass}, .enode_id = enode_id}}};
       }
 
-      // Bind: alive if sym demanded, dead otherwise
-      // N.B. The alive/dead logic here is mirrored in PlanResolver's Bind branch.
+      // Bind: alive if sym demanded, dead otherwise.
+      // Cost formulas shared with PlanResolver via ComputeBindBranchCosts.
       case symbol::Bind: {
         auto const &input_frontier = children[0];
         auto const &sym_frontier = children[1];
         auto const &expr_frontier = children[2];
         auto sym_eclass = current.children()[1];
-        // Symbol eclasses are always leaf nodes with a single alternative {cost=1, required={}}.
-        // If Symbol ever gains multiple alternatives, this must enumerate sym_frontier.alts
-        // in the Cartesian product alongside expr_frontier.alts.
         auto sym_cost = CostFrontier::min_cost(sym_frontier);
 
         return CostFrontier::flat_map(input_frontier, [&](auto const &input_alt, auto emit) {
@@ -222,10 +265,9 @@ struct PlanResolver {
   }
 
   /// Bind-specific child visitation with alive/dead logic.
-  /// N.B. The alive/dead logic here mirrors PlanCostModel::operator() for symbol::Bind.
+  /// Cost formulas shared with PlanCostModel via ComputeBindBranchCosts.
   void visit_bind_children(EClassId input_eclass, EClassId sym_eclass, EClassId expr_eclass,
                            SymbolSet const &bind_provided) {
-    // Re-derive alive/dead given the provided context
     auto input_it = frontier_map.find(input_eclass);
     assert(input_it != frontier_map.end() && input_it->second.has_value());
     auto const &input_frontier = *input_it->second;
@@ -238,32 +280,14 @@ struct PlanResolver {
     assert(expr_it != frontier_map.end() && expr_it->second.has_value());
     auto const &expr_frontier = *expr_it->second;
 
-    // Alive: input alt must have sym in required, required ⊆ provided ∪ {sym}
-    auto alive_provided = bind_provided;
-    alive_provided.insert(sym_eclass);
-
-    auto best_alive_cost = std::numeric_limits<double>::infinity();
-    for (auto const &input_alt : input_frontier.alts) {
-      if (IsBindAlive(input_alt, sym_eclass) && std::ranges::includes(alive_provided, input_alt.required)) {
-        for (auto const &expr_alt : expr_frontier.alts) {
-          if (std::ranges::includes(bind_provided, expr_alt.required)) {
-            best_alive_cost = std::min(best_alive_cost, input_alt.cost + sym_cost + expr_alt.cost);
-          }
-        }
-      }
-    }
-
-    // Dead: input alt must NOT have sym in required, required ⊆ provided
-    auto best_dead_cost = std::numeric_limits<double>::infinity();
-    for (auto const &input_alt : input_frontier.alts) {
-      if (!IsBindAlive(input_alt, sym_eclass) && std::ranges::includes(bind_provided, input_alt.required)) {
-        best_dead_cost = std::min(best_dead_cost, input_alt.cost);
-      }
-    }
+    auto const [best_alive_cost, best_dead_cost] =
+        ComputeBindBranchCosts(input_frontier, sym_cost, expr_frontier, sym_eclass, bind_provided);
 
     // Alive wins if strictly cheaper; ties go to dead (less work)
     if (best_alive_cost < best_dead_cost) {
       // Alive: visit all three children (input with extra sym provided, sym, expr)
+      auto alive_provided = bind_provided;
+      alive_provided.insert(sym_eclass);
       resolve_impl(input_eclass, alive_provided);
       // sym_eclass is a leaf Symbol with required={}; compatible with any provided set.
       // We pass provided (not alive_provided) because Symbol doesn't need the symbol it defines.
@@ -646,11 +670,19 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   for (auto [eclass_id, enode_id] : std::views::reverse(selection)) {
     auto const &enode = impl.egraph_.get_enode(enode_id);
 
-    // Dead Bind: sym/expr children were not resolved (skipped by PlanResolver).
-    // Pass through the input operator directly.
+    // Dead Bind detection: PlanResolver excludes sym/expr e-classes from the resolved
+    // selection when it determines the Bind is dead (sym not needed downstream).
+    // CollectDependencies skips children absent from the selection, so dead sym/expr
+    // never enter the topo sort. TopologicalSort therefore never emits them, and the
+    // builder loop never inserts them into build_cache.
+    //
+    // Invariant: sym (children()[1]) is in build_cache <-> Bind is alive.
+    // Checking sym is consistent with IsBindAlive() in PlanCostModel, which uses sym
+    // membership as the canonical alive predicate. Checking expr would be equivalent
+    // but redundant and inconsistent with that convention.
     if (enode.symbol() == symbol::Bind) {
       assert(enode.children().size() == 3 && "Bind must have exactly 3 children");
-      if (!build_cache.contains(enode.children()[1])) {
+      if (!build_cache.contains(enode.children()[1])) {  // sym absent => dead Bind
         build_cache[eclass_id] = build_cache.at(enode.children()[0]);
         continue;
       }

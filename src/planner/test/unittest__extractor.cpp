@@ -809,6 +809,39 @@ TEST(Extract_Safety, ComputeFrontiers_CyclicChildCostsCached) {
   EXPECT_EQ(frontier_enode<UniformCostModel>(frontiers, merged), b_node);
 }
 
+TEST(Extract_Safety, ComputeFrontiers_CyclicExprChildOfBind) {
+  // Simulates a Bind-like enode (symbol::A with 3 children [input, sym, expr])
+  // where the expr child's eclass contains a cyclic ADD enode alongside a non-cyclic
+  // LITERAL escape. The has_cyclic_child guard should skip the Bind enode entirely,
+  // but input and sym (processed before expr) must still be cached.
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [input_class, input_node, input_new] = egraph.emplace(symbol::B);
+  auto [sym_class, sym_node, sym_new] = egraph.emplace(symbol::B, {}, 1);
+  auto [leaf_class, leaf_node, leaf_new] = egraph.emplace(symbol::LITERAL, 0);
+  auto [expr_class, expr_node, expr_new] = egraph.emplace(symbol::LITERAL, 99);
+  auto [add_class, add_node, add_new] = egraph.emplace(symbol::ADD, {expr_class, leaf_class});
+  // Merge expr with add to create a cycle in expr_class
+  auto [cyclic_expr, _] = egraph.merge(expr_class, add_class);
+  auto ctx = ProcessingContext<symbol>{};
+  egraph.rebuild(ctx);
+
+  // Bind-like: symbol A with 3 children [input, sym, cyclic_expr]
+  auto [bind_class, bind_node, bind_new] = egraph.emplace(symbol::A, {input_class, sym_class, cyclic_expr});
+
+  FrontierMap<UniformCostModel> frontiers;
+  auto cost = ComputeFrontiers(egraph, UniformCostModel{}, bind_class, frontiers);
+
+  // cyclic_expr has LITERAL(99) as an escape — it resolves, so the Bind enode is NOT
+  // skipped. The Bind enode's cost = 1 (self) + 1 (input) + 1 (sym) + 1 (cyclic_expr LITERAL) = 4.
+  ASSERT_TRUE(cost.has_value());
+  ASSERT_EQ(cost->cost, 4.0);
+
+  // All children must be cached
+  EXPECT_TRUE(frontiers.contains(input_class));
+  EXPECT_TRUE(frontiers.contains(sym_class));
+  EXPECT_TRUE(frontiers.contains(cyclic_expr)) << "cyclic_expr has a LITERAL escape path — must be cached";
+}
+
 // ========================================
 // Multi-Alt Extraction Tests
 // ========================================
