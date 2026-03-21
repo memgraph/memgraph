@@ -39,7 +39,6 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   IS_MAIN,
   NO_MAIN,
   NOT_COORDINATOR,
-  RPC_FAILED,
   NOT_LEADER,
   RAFT_LOG_ERROR,
   LEADER_NOT_FOUND,
@@ -53,9 +52,7 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   NOT_COORDINATOR,
   NOT_LEADER,
   RAFT_LOG_ERROR,
-  COULD_NOT_PROMOTE_TO_MAIN,
   SUCCESS,
-  ENABLE_WRITING_FAILED,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
 };
@@ -118,12 +115,12 @@ enum class UpdateConfigStatus : uint8_t {
 enum class DemoteInstanceCoordinatorStatus : uint8_t {
   NO_INSTANCE_WITH_NAME = 0,
   NOT_LEADER,
-  RPC_FAILED,
   RAFT_LOG_ERROR,
   SUCCESS,
   NOT_COORDINATOR,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
+  ALREADY_REPLICA
 };
 
 enum class ReconcileClusterStateStatus : uint8_t {

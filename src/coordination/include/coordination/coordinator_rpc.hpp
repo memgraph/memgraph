@@ -265,6 +265,8 @@ struct EnableWritingOnMainRes {
   bool arg_;
 };
 
+// This exists now solely for backwards compatibility and to support ISSU, coordinators aren't sending
+// this RPC anymore
 using EnableWritingOnMainRpc = rpc::RequestResponse<EnableWritingOnMainReq, EnableWritingOnMainRes>;
 
 struct GetDatabaseHistoriesReqV1 {

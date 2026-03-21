@@ -448,7 +448,10 @@ def test_even_number_coords(test_name):
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_3 TO MAIN;")
 
-    assert "Couldn't promote instance since raft server couldn't append the log!" in str(e.value)
+    assert (
+        "Writing to Raft log failed - the operation may or may not have taken the effect. It is safe to retry, however, before retrying, please check the state with the 'SHOW INSTANCES' query and whether the command took effect"
+        in str(e.value)
+    )
 
     follower_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),

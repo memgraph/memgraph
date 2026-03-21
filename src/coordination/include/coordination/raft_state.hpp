@@ -71,7 +71,8 @@ class RaftState {
   auto IsLeader() const -> bool;
   auto GetLeaderId() const -> int32_t;
 
-  auto AppendClusterUpdate(CoordinatorClusterStateDelta const &delta_state) const -> bool;
+  // Waits until log is committed
+  auto AppendLogAndWaitForCommit(CoordinatorClusterStateDelta const &delta_state) const -> bool;
 
   auto GetDataInstancesContext() const -> std::vector<DataInstanceContext>;
   auto GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext>;
