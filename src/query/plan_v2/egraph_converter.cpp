@@ -62,9 +62,12 @@ struct CostFrontier : planner::core::extract::CostResultBase<CostFrontier, Alter
 // Convenience: combine two frontiers with cost summation and required-set union.
 auto CombineAlts(double extra_cost, planner::core::ENodeId enode_id) {
   return [extra_cost, enode_id](Alternative const &l, Alternative const &r) -> Alternative {
-    SymbolSet required;
-    required.reserve(l.required.size() + r.required.size());
-    std::ranges::set_union(l.required, r.required, std::inserter(required, required.end()));
+    boost::container::small_vector<planner::core::EClassId, 16> tmp;
+    tmp.reserve(l.required.size() + r.required.size());
+    std::ranges::set_union(l.required, r.required, std::back_inserter(tmp));
+    // set_union on two sorted flat_sets produces sorted unique output —
+    // ordered_unique_range skips redundant sorting in the flat_set constructor.
+    SymbolSet required(boost::container::ordered_unique_range, tmp.begin(), tmp.end());
     return {.cost = extra_cost + l.cost + r.cost, .required = std::move(required), .enode_id = enode_id};
   };
 }
@@ -171,21 +174,34 @@ struct PlanCostModel {
 /// Propagates a "provided" set (symbols bound by Bind ancestors) to ensure
 /// child selections are consistent with parent alive/dead decisions.
 struct PlanResolver {
-  planner::core::EGraph<symbol, analysis> const &egraph;
-  std::unordered_map<planner::core::EClassId, planner::core::extract::EClassFrontier<CostFrontier>> const &frontier_map;
-
   using EClassId = planner::core::EClassId;
   using Selection = planner::core::extract::Selection<double>;
 
-  std::unordered_map<EClassId, Selection> resolved;
-  std::unordered_map<EClassId, SymbolSet> resolved_required;
+  struct ResolvedEntry {
+    Selection sel;
+    SymbolSet required;
+  };
 
-  auto resolve(EClassId root) -> std::unordered_map<EClassId, Selection> {
+  PlanResolver(planner::core::EGraph<symbol, analysis> const &egraph,
+               std::unordered_map<planner::core::EClassId, planner::core::extract::EClassFrontier<CostFrontier>> const
+                   &frontier_map)
+      : egraph(egraph), frontier_map(frontier_map) {}
+
+  auto resolve(EClassId root) && -> std::unordered_map<EClassId, Selection> {
     resolve_impl(root, SymbolSet{});
-    return std::move(resolved);
+    auto result = std::unordered_map<EClassId, Selection>{};
+    result.reserve(resolved.size());
+    for (auto &&[id, entry] : resolved) {
+      result.emplace(id, std::move(entry.sel));
+    }
+    return result;
   }
 
  private:
+  planner::core::EGraph<symbol, analysis> const &egraph;
+  std::unordered_map<planner::core::EClassId, planner::core::extract::EClassFrontier<CostFrontier>> const &frontier_map;
+  std::unordered_map<EClassId, ResolvedEntry> resolved;
+
   /// Pick cheapest alt whose required is a subset of provided.
   auto pick_compatible(CostFrontier const &frontier, SymbolSet const &provided) -> Alternative const & {
     Alternative const *best = nullptr;
@@ -196,7 +212,12 @@ struct PlanResolver {
         }
       }
     }
-    assert(best && "pick_compatible: no compatible alternative found — bottom-up computation may be incorrect");
+    if (!best) {
+      throw QueryException{
+          "Plan extraction failed: no compatible alternative at this node — "
+          "a symbol is demanded that no ancestor can provide. "
+          "This usually means an Identifier node was not inlined by the rewrite pass."};
+    }
     return *best;
   }
 
@@ -254,8 +275,6 @@ struct PlanResolver {
       // (cascade alive->dead transition).
       resolved.erase(sym_eclass);
       resolved.erase(expr_eclass);
-      resolved_required.erase(sym_eclass);
-      resolved_required.erase(expr_eclass);
       resolve_impl(input_eclass, bind_provided);
     }
   }
@@ -264,16 +283,14 @@ struct PlanResolver {
     if (auto existing = resolved.find(eclass_id); existing != resolved.end()) {
       // DAG: this eclass was already resolved from a different parent.
       // Check if the cached selection is compatible with this parent's provided set.
-      assert(resolved_required.contains(eclass_id) && "resolved and resolved_required must be written together");
-      if (std::ranges::includes(provided, resolved_required.at(eclass_id))) return;  // still feasible
+      if (std::ranges::includes(provided, existing->second.required)) return;  // still feasible
       // Incompatible: the cached alt demands symbols this parent doesn't provide.
       // Re-resolve with the more restrictive provided set, then cascade to children
       // so they are also re-resolved with the new context.
       auto it = frontier_map.find(eclass_id);
       assert(it != frontier_map.end() && it->second.has_value());
       auto const &chosen = pick_compatible(*it->second, provided);
-      existing->second = Selection{chosen.enode_id, chosen.cost};
-      resolved_required[eclass_id] = chosen.required;
+      existing->second = ResolvedEntry{Selection{chosen.enode_id, chosen.cost}, chosen.required};
       // Cascade: visit children of the new selection so stale cached values are updated.
       // Bind nodes need special alive/dead child-visit logic.
       auto const &enode = egraph.get_enode(chosen.enode_id);
@@ -292,8 +309,7 @@ struct PlanResolver {
 
     auto const &frontier = *it->second;
     auto const &chosen = pick_compatible(frontier, provided);
-    resolved[eclass_id] = Selection{chosen.enode_id, chosen.cost};
-    resolved_required[eclass_id] = chosen.required;
+    resolved[eclass_id] = ResolvedEntry{Selection{chosen.enode_id, chosen.cost}, chosen.required};
 
     auto const &enode = egraph.get_enode(chosen.enode_id);
     auto const &children = enode.children();
@@ -543,32 +559,41 @@ struct Builder {
   }
 
   Builder(std::map<storage::ExternalPropertyValue, uint64_t> const &literal_store,
-          std::map<std::string, uint64_t> const &name_store, std::map<int32_t, std::string> const &symbol_name_store)
-      : literal_store_(literal_store), name_store_(name_store), symbol_name_store_(symbol_name_store) {
-    for (auto const &[val, id] : literal_store_.get()) {
-      reverse_literal_store_[id] = val;
+          std::map<std::string, uint64_t> const &name_store, std::map<int32_t, std::string> const &symbol_name_store) {
+    reverse_literal_store_.reserve(literal_store.size());
+    for (auto const &[val, id] : literal_store) {
+      reverse_literal_store_.emplace(id, val);
     }
 
-    for (auto const &[val, id] : name_store_.get()) {
-      reverse_name_store_[id] = val;
+    reverse_name_store_.reserve(name_store.size());
+    for (auto const &[val, id] : name_store) {
+      reverse_name_store_.emplace(id, val);
     }
 
-    for (auto const &[pos, name] : symbol_name_store_.get()) {
-      reverse_symbol_name_store_[pos] = name;
+    reverse_symbol_name_store_.reserve(symbol_name_store.size());
+    for (auto const &[pos, name] : symbol_name_store) {
+      reverse_symbol_name_store_.emplace(pos, name);
     }
   }
 
-  std::reference_wrapper<std::map<storage::ExternalPropertyValue, uint64_t> const> literal_store_;
-  std::map<uint64_t, storage::ExternalPropertyValue> reverse_literal_store_;
-  std::reference_wrapper<std::map<std::string, uint64_t> const> name_store_;
-  std::map<uint64_t, std::string> reverse_name_store_;
-  std::reference_wrapper<std::map<int32_t, std::string> const> symbol_name_store_;
-  std::map<int32_t, std::string> reverse_symbol_name_store_;
+  boost::unordered_flat_map<uint64_t, storage::ExternalPropertyValue> reverse_literal_store_;
+  boost::unordered_flat_map<uint64_t, std::string> reverse_name_store_;
+  boost::unordered_flat_map<int32_t, std::string> reverse_symbol_name_store_;
 
   AstStorage ast_storage_;
   SymbolTable symbol_table_;
 };
 
+/// Convert an egraph (after rewrite saturation) into a concrete LogicalOperator tree.
+///
+/// Precondition: after all rewrites, every Identifier eclass must be merged with at least one
+/// alternative whose `required == {}`. This is guaranteed when InlineRule has been applied to
+/// saturation for all Bind/Identifier pairs in the egraph. Extensions that add new binding
+/// forms (scan operators, UNWIND, etc.) must ensure a corresponding rewrite or direct enode
+/// alternative satisfies this invariant.
+///
+/// If the invariant is violated, the function throws QueryException rather than invoking
+/// undefined behaviour.
 auto ConvertToLogicalOperator(egraph const &e, eclass root)
     -> std::tuple<std::unique_ptr<LogicalOperator>, double, AstStorage, SymbolTable> {
   auto const &impl = internal::get_impl(e);
@@ -578,8 +603,27 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   namespace extract = planner::core::extract;
   auto frontier_map = std::unordered_map<planner::core::EClassId, extract::EClassFrontier<CostFrontier>>{};
   (void)extract::ComputeFrontiers(impl.egraph_, PlanCostModel{}, true_root, frontier_map);
+
+  // Root-satisfiability precondition: the root eclass must have at least one
+  // alternative with required == {} (i.e. self-contained, needing no symbols
+  // from ancestors). If this fails, an Identifier survived rewrites without
+  // being inlined, making the plan unresolvable.
+  auto const root_it = frontier_map.find(true_root);
+  if (root_it == frontier_map.end() || !root_it->second.has_value()) {
+    throw QueryException{"Plan extraction failed: root eclass has no frontier"};
+  }
+  auto const &root_frontier = *root_it->second;
+  bool root_satisfiable =
+      std::ranges::any_of(root_frontier.alts, [](Alternative const &a) { return a.required.empty(); });
+  if (!root_satisfiable) {
+    throw QueryException{
+        "Plan extraction failed: root frontier has no self-contained alternative. "
+        "All paths through the plan demand symbols that cannot be provided. "
+        "Ensure all Identifier references are resolved by rewrites before extraction."};
+  }
+
   auto resolver = PlanResolver{impl.egraph_, frontier_map};
-  auto resolved = resolver.resolve(true_root);
+  auto resolved = std::move(resolver).resolve(true_root);
   auto in_degree = extract::CollectDependencies(impl.egraph_, resolved, true_root);
   auto const selection = extract::TopologicalSort(impl.egraph_, resolved, std::move(in_degree));
 

@@ -70,6 +70,9 @@ std::string DescribeExpression(Expression *expr) {
   if (auto *op = utils::Downcast<UnaryMinusOperator>(expr)) return "(-" + DescribeExpression(op->expression_) + ")";
   if (auto *op = utils::Downcast<UnaryPlusOperator>(expr)) return "(+" + DescribeExpression(op->expression_) + ")";
 
+  // Parameter lookup
+  if (utils::Downcast<ParameterLookup>(expr)) return "ParameterLookup";
+
   return expr->GetTypeInfo().name;
 }
 
@@ -639,6 +642,40 @@ INSTANTIATE_TEST_SUITE_P(
     ),
     TestCaseName
 );
+// --- Parameter query pipeline tests ---
+
+INSTANTIATE_TEST_SUITE_P(
+    ParameterQueries,
+    PlannerV2PipelineTest,
+    ::testing::Values(
+        // Parameter lookup inlined through WITH binding
+        PipelineTestCase{
+            .name = "ParamLookupInlined",
+            .query = "WITH $param AS a RETURN a;",
+            .expected_details = {"Produce {a`0:ParameterLookup}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        // Parameter used in arithmetic expression
+        PipelineTestCase{
+            .name = "ParamLookupInArithmetic",
+            .query = "WITH $x AS a RETURN a + 1 AS r;",
+            .expected_details = {"Produce {r`0:(ParameterLookup + 1)}", "Once"},
+            .min_rewrites = 1,
+            .should_saturate = true,
+        },
+        // Dead bind with parameter — param never used, bind eliminated
+        PipelineTestCase{
+            .name = "UnusedParamBinding",
+            .query = "WITH $x AS unused RETURN 1 AS r;",
+            .expected_details = {"Produce {r`0:1}", "Once"},
+            .min_rewrites = 0,
+            .should_saturate = true,
+        }
+    ),
+    TestCaseName
+);
+
 // --- Dead store elimination tests ---
 
 INSTANTIATE_TEST_SUITE_P(

@@ -603,6 +603,38 @@ TEST(Extract_TopologicalSort, DiamondTopology) {
   ASSERT_EQ(result[3].first, shared_class);
 }
 
+TEST(Extract_TopologicalSort, CycleDetection_IncompleteResult) {
+  // Construct an InDegreeMap that simulates a cycle: both nodes have in-degree 1,
+  // so neither ever enters the queue. Documents the silent-truncation behaviour
+  // that the post-condition assertion in TopologicalSort is designed to catch.
+  auto egraph = EGraph<symbol, analysis>{};
+  auto [a_class, a_node, a_new] = egraph.emplace(symbol::A);
+  auto [b_class, b_node, b_new] = egraph.emplace(symbol::B, {a_class});
+
+  using Sel = Selection<double>;
+  std::unordered_map<EClassId, Sel> selection;
+  selection[a_class] = {a_node, 1.0};
+  selection[b_class] = {b_node, 1.0};
+
+  // Manually construct in_degree with a cycle: both stuck at 1
+  InDegreeMap in_degree;
+  in_degree[a_class] = 1;
+  in_degree[b_class] = 1;
+
+  // The post-condition assertion in TopologicalSort fires because neither node
+  // reaches in-degree 0, so result.size() == 0 != in_degree.size() == 2.
+  // In debug builds (assert enabled), ASSERT_DEATH verifies the assertion fires.
+  // In release builds (NDEBUG defined), assert is compiled out and TopologicalSort
+  // silently returns an incomplete result — the test verifies the truncation instead.
+#ifdef NDEBUG
+  auto result = TopologicalSort(egraph, selection, std::move(in_degree));
+  // Without the assertion, the cycle causes silent truncation: no nodes emitted
+  EXPECT_EQ(result.size(), 0);
+#else
+  ASSERT_DEATH(TopologicalSort(egraph, selection, std::move(in_degree)), "cycle detected");
+#endif
+}
+
 // ========================================
 // Integration Tests (Full Extract Pipeline)
 // ========================================
@@ -936,6 +968,24 @@ TEST(ParetoFrontier_Prune, TransitiveDominance) {
   frontier_reversed.prune();
   ASSERT_EQ(frontier_reversed.alts.size(), 1);
   ASSERT_EQ(frontier_reversed.alts[0].enode_id, ENodeId{0}) << "Only A should survive regardless of input order";
+}
+
+TEST(ParetoFrontier_Prune, TransitiveDominance_AllPermutations) {
+  // A={cost=1,req={}}, B={cost=2,req={1}}, C={cost=3,req={1,2}}
+  // A dominates both B and C. After prune, only A survives regardless of input order.
+  using Alt = TestDemandAlt;
+  Alt A = {.cost = 1.0, .required = {}, .enode_id = ENodeId{0}};
+  Alt B = {.cost = 2.0, .required = {1}, .enode_id = ENodeId{1}};
+  Alt C = {.cost = 3.0, .required = {1, 2}, .enode_id = ENodeId{2}};
+
+  std::array<Alt, 3> elems{A, B, C};
+  std::array<std::array<int, 3>, 6> perms{{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}};
+  for (auto const &perm : perms) {
+    auto frontier = TestFrontier{{elems[perm[0]], elems[perm[1]], elems[perm[2]]}};
+    frontier.prune();
+    ASSERT_EQ(frontier.alts.size(), 1) << "permutation " << perm[0] << perm[1] << perm[2];
+    ASSERT_EQ(frontier.alts[0].enode_id, ENodeId{0}) << "Only A (cost=1, req={}) should survive";
+  }
 }
 
 TEST(ParetoFrontier_Prune, BeamLimit) {

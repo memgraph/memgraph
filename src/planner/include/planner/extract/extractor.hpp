@@ -255,6 +255,14 @@ template <typename Symbol, typename Analysis, typename CostResult>
       }
     }
   }
+
+  // Post-condition: all nodes must have been emitted. If not, the input contained a cycle,
+  // which means an upstream stage (ComputeFrontiers, PlanResolver, or CollectDependencies)
+  // admitted a cyclic dependency into the resolved selection — a bug in that stage.
+  assert(result.size() == in_degree.size() &&
+         "TopologicalSort: cycle detected — resolved selection is not a DAG; "
+         "check ComputeFrontiers and PlanResolver for upstream bug");
+
   return result;
 }
 

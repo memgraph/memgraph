@@ -42,6 +42,9 @@ struct ParetoFrontier {
   /// moved-from elements (std::erase_if/remove_if moves elements during its pass).
   void prune() {
     auto const n = alts.size();
+    // Stack buffer for typical frontier sizes — avoids heap allocation for the
+    // dominated[] flag array in the common case. Frontiers rarely exceed 64
+    // alternatives after pruning; larger ones fall back to heap_buf.
     constexpr size_t kSmallSize = 64;
     char small_buf[kSmallSize] = {};
     std::vector<char> heap_buf;
@@ -58,6 +61,10 @@ struct ParetoFrontier {
         if (dominated[j] != 0) continue;
         if (DominanceFn{}(alts[i], alts[j])) {
           dominated[i] = 1;
+          // Safe to break: DominanceFn must be transitive (see class doc). If alts[i] is
+          // dominated by alts[j], anything alts[i] would have dominated at higher j is
+          // either dominated by alts[j] (transitivity) or will be discovered when the
+          // outer loop reaches those indices as i. Continuing past j would be redundant.
           break;
         }
         if (DominanceFn{}(alts[j], alts[i])) {
@@ -97,6 +104,7 @@ struct ParetoFrontier {
   template <typename Fn>
   [[nodiscard]] static auto flat_map(ParetoFrontier const &input, Fn &&fn) -> ParetoFrontier {
     auto result = ParetoFrontier{};
+    result.alts.reserve(input.alts.size());  // heuristic: at least one output per input
     for (auto const &alt : input.alts) {
       fn(alt, [&](Alt &&out) { result.alts.push_back(std::move(out)); });
     }
