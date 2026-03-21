@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "io/network/endpoint.hpp"
 #include "utils/exceptions.hpp"
 
 namespace memgraph::rpc {
@@ -26,6 +25,13 @@ class RpcFailedException : public utils::BasicException {
   explicit RpcFailedException(std::string_view const msg) : utils::BasicException(msg) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
+};
+
+class RpcTimeoutException final : public RpcFailedException {
+ public:
+  RpcTimeoutException() : RpcFailedException("Timeout occurred during RPC calls") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(RpcTimeoutException);
 };
 
 class UnsupportedRpcVersionException final : public RpcFailedException {
