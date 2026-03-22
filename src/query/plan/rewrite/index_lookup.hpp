@@ -918,6 +918,23 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     int64_t num_of_index_hints;
   };
 
+  /// Returns true if the Produce operator remaps the given variable name, i.e., the output
+  /// named expression with that name has an input expression referencing a different variable.
+  /// This detects WITH clauses like `WITH a AS b, b AS a` that would make name-based symbol
+  /// comparison unsafe.
+  static bool ProduceRenamesVariable(Produce *produce, const std::string &var_name) {
+    for (const auto *ne : produce->named_expressions_) {
+      if (ne->name_ != var_name) continue;
+      // Found an output with our variable name — check if it maps to the same input name.
+      auto *ident = dynamic_cast<Identifier *>(ne->expression_);
+      if (!ident || ident->name_ != var_name) return true;  // renamed or complex expression
+      return false;                                         // identity mapping, safe
+    }
+    // Variable not in Produce output — it's not projected through, so elimination is unsafe
+    // (the variable won't be visible after this Produce).
+    return true;
+  }
+
   auto TryExtractOrderByContext(OrderBy &op) -> std::optional<OrderByContext> {
     const auto &orderings = op.compare_.orderings();
     const auto &order_by_exprs = op.order_by_;
@@ -974,15 +991,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto &ctx = *pending_order_by_;
 
     // The ORDER BY symbol must match the scan symbol.
-    // We use Symbol::operator== (which compares position, type, and name) rather than
-    // comparing names alone. Name-only comparison is unsafe because WITH can remap names:
-    //   MATCH (a:L)-[r]->(b) WHERE a.prop > 5 WITH a AS b, b AS a ORDER BY a.prop RETURN a
-    // Here post-WITH "a" is actually old "b", but name comparison would falsely match
-    // the scan symbol "a", incorrectly eliminating ORDER BY.
-    // Trade-off: this misses elimination when WITH DISTINCT introduces a new symbol for
-    // the same logical variable (different position). That case is rare and the scan
-    // already produces unique nodes, so DISTINCT on it is typically a no-op.
-    if (ctx.scan_symbol != scan_symbol) return;
+    // We compare by name because the ORDER BY identifier and the scan output symbol may
+    // have different positions in the symbol table (e.g., RETURN creates a new scope).
+    // Name-only comparison is safe here because Produce is excluded from the order-preserving
+    // whitelist below — any WITH clause (which can remap names, e.g. WITH a AS b, b AS a)
+    // introduces a Produce between OrderBy and ScanAll, blocking elimination.
+    if (ctx.scan_symbol.name() != scan_symbol.name()) return;
 
     // The new scan must be ScanAllByLabelProperties
     if (new_scan->GetTypeInfo() != ScanAllByLabelProperties::kType) return;
@@ -1012,9 +1026,21 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // Note: Union preserves order within each branch but not across both, so it's not safe here.
       // HashJoin/IndexedJoin preserve left-input order but are unlikely between OrderBy and ScanAll;
       // they could be added if needed.
+      //
+      // Produce preserves row order but requires special handling: since we compare symbols by
+      // name, a WITH clause that remaps names (e.g. WITH a AS b, b AS a) would cause false
+      // matches. When we encounter a Produce, we verify it doesn't rename our target variable.
+      // Note: the RETURN clause's Produce always sits between OrderBy and ScanAll (the planner
+      // builds Produce first, then wraps it with OrderBy so it can read Produce's output symbols).
       const auto &type_info = op->GetTypeInfo();
+      if (type_info == Produce::kType) {
+        // Produce is order-preserving, but we must verify it doesn't rename our target variable.
+        // A WITH clause can remap names (e.g. WITH a AS b, b AS a), which would make our
+        // name-based symbol comparison unsafe.
+        if (ProduceRenamesVariable(dynamic_cast<Produce *>(op), ctx.scan_symbol.name())) return;
+        continue;
+      }
       bool order_preserving = type_info == Filter::kType ||                 // removes rows, 1:1
-                              type_info == Produce::kType ||                // evaluates expressions, 1:1
                               type_info == ConstructNamedPath::kType ||     // builds path value, 1:1
                               type_info == EdgeUniquenessFilter::kType ||   // removes rows, 1:1
                               type_info == Limit::kType ||                  // truncates, 1:1
