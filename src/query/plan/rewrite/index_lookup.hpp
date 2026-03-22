@@ -925,6 +925,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (orderings.empty()) return std::nullopt;
 
     // All orderings must be ASC
+    // TODO: Support DESC elimination — SkipList-backed indexes can be iterated in reverse,
+    //       so DESC ordering could also be eliminated if the scan supports a reverse mode.
     for (const auto &ord : orderings) {
       if (ord.ordering() != Ordering::ASC) return std::nullopt;
     }
@@ -972,11 +974,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto &ctx = *pending_order_by_;
 
     // The ORDER BY symbol must match the scan symbol.
-    // Compare by name because the ORDER BY may reference a Produce output symbol
-    // (different position) that represents the same logical variable.
-    // Note: this assumes variable names are unique within a query scope, which
-    // Cypher guarantees (redeclaring a variable in the same scope is an error).
-    if (ctx.scan_symbol.name() != scan_symbol.name()) return;
+    // We use Symbol::operator== (which compares position, type, and name) rather than
+    // comparing names alone. Name-only comparison is unsafe because WITH can remap names:
+    //   MATCH (a:L)-[r]->(b) WHERE a.prop > 5 WITH a AS b, b AS a ORDER BY a.prop RETURN a
+    // Here post-WITH "a" is actually old "b", but name comparison would falsely match
+    // the scan symbol "a", incorrectly eliminating ORDER BY.
+    // Trade-off: this misses elimination when WITH DISTINCT introduces a new symbol for
+    // the same logical variable (different position). That case is rare and the scan
+    // already produces unique nodes, so DISTINCT on it is typically a no-op.
+    if (ctx.scan_symbol != scan_symbol) return;
 
     // The new scan must be ScanAllByLabelProperties
     if (new_scan->GetTypeInfo() != ScanAllByLabelProperties::kType) return;
