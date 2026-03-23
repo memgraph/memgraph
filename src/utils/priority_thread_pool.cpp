@@ -396,18 +396,27 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
 }
 
 // Prepares task for safe scheduling
-TaskSignature TaskCollection::WrapTask(size_t index) {
+ResumableTaskSignature TaskCollection::WrapTask(size_t index) {
   auto &task = tasks_[index];
-  return [&task = task.task_, state = task.state_]() {
+  return [&task = task.task_, state = task.state_]() -> bool {
     auto expected = Task::State::IDLE;
     if (!state->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
-      return;  // Task already scheduled
+      // SCHEDULED means this is a resume after a yield — fall through to re-execute.
+      // STOLEN means WaitOrSteal claimed it for direct execution — don't double-run.
+      // FINISHED means already done — skip.
+      if (expected != Task::State::SCHEDULED) {
+        return false;
+      }
     }
 
     try {
-      task();
+      bool yielded = task();
+      if (yielded) {
+        return true;
+      }
       state->store(Task::State::FINISHED, std::memory_order_release);
       state->notify_one();  // Notify waiting threads
+      return false;
     } catch (...) {
       state->store(Task::State::FINISHED, std::memory_order_release);
       state->notify_one();  // Notify even on exception
@@ -427,12 +436,19 @@ void TaskCollection::Wait() {
 }
 
 void TaskCollection::WaitOrSteal() {
-  // Phase 1 - steal tasks that are not scheduled
+  // Phase 1 - steal tasks that have not been picked up by a pool worker yet.
+  // Use IDLE→STOLEN (not IDLE→SCHEDULED): WrapTask closures still in the pool
+  // queue interpret SCHEDULED as "resume after yield" and would fall through to
+  // double-execute. STOLEN is a distinct state that WrapTask recognises as
+  // "already claimed by the calling thread — skip".
   for (auto &task : tasks_) {
     auto expected = Task::State::IDLE;
-    if (task.state_->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
+    if (task.state_->compare_exchange_strong(expected, Task::State::STOLEN, std::memory_order_acq_rel)) {
       try {
-        task.task_();
+        bool yielded = task.task_();
+        if (yielded) {
+          throw std::runtime_error("WaitOrSteal cannot handle yielding tasks. Use co_await Finished() instead.");
+        }
         task.state_->store(Task::State::FINISHED, std::memory_order_release);
         task.state_->notify_one();  // Notify waiting threads
       } catch (...) {
@@ -444,6 +460,15 @@ void TaskCollection::WaitOrSteal() {
   }
   // Phase 2 - wait for tasks to finish
   Wait();
+}
+
+bool TaskCollection::Finished() const {
+  for (const auto &task : tasks_) {
+    if (task.state_->load(std::memory_order_acquire) != Task::State::FINISHED) {
+      return false;
+    }
+  }
+  return true;
 }
 
 }  // namespace memgraph::utils

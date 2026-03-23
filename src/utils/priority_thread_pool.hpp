@@ -87,11 +87,18 @@ class TaskCollection {
 
   TaskCollection() = default;
 
-  void AddTask(TaskSignature task) { tasks_.emplace_back(std::move(task)); }
+  void AddTask(TaskSignature task) {
+    tasks_.emplace_back([t = std::move(task)]() mutable {
+      t();
+      return false;
+    });
+  }
+
+  void AddResumableTask(ResumableTaskSignature task) { tasks_.emplace_back(std::move(task)); }
 
   class Task {
    public:
-    explicit Task(TaskSignature task)
+    explicit Task(ResumableTaskSignature task)
         : state_(std::make_shared<std::atomic<State>>(State::IDLE)), task_(std::move(task)) {}
 
     ~Task() = default;
@@ -102,20 +109,23 @@ class TaskCollection {
 
     enum class State : uint8_t {
       IDLE,
-      SCHEDULED,
+      SCHEDULED,  // Claimed by pool's WrapTask closure; also "suspended between yield-resume cycles"
+      STOLEN,     // Claimed by WaitOrSteal for direct execution on the calling thread
       FINISHED,
     };
     std::shared_ptr<std::atomic<State>> state_;
-    TaskSignature task_;
+    ResumableTaskSignature task_;
   };
 
   Task &operator[](size_t index) { return tasks_[index]; }
 
-  TaskSignature WrapTask(size_t index);
+  ResumableTaskSignature WrapTask(size_t index);
 
   void Wait();
 
   void WaitOrSteal();
+
+  bool Finished() const;
 
   size_t Size() const { return tasks_.size(); }
 
@@ -158,7 +168,7 @@ class PriorityThreadPool {
 
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {
-      ScheduledAddTask(collection.WrapTask(i), Priority::LOW);
+      ScheduleResumableTask(collection.WrapTask(i), Priority::LOW);
     }
   }
 
@@ -248,6 +258,11 @@ class CollectionScheduler {
   void WaitOrSteal() {
     if (collection_) collection_->WaitOrSteal();
     collection_.reset();
+  }
+
+  bool Finished() const {
+    if (collection_) return collection_->Finished();
+    return true;
   }
 
  private:

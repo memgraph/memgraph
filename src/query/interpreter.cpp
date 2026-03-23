@@ -3020,6 +3020,18 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.worker_pool = worker_pool;
 }
 
+// Lifetime analysis for the coroutine chain on query cancellation:
+// When a query yields, suspended_handle_ points to the innermost (leaf) coroutine.
+// If ~PullPlan fires before the next Pull(), it calls cursor_->Reset().
+// cursor_->Reset() is virtual and cascades: each override calls Cursor::Reset() (destroys own gen_)
+// then input_cursor_->Reset() (recurses down the operator tree). This destroys every gen_
+// (PullAwaitable) in the chain including the one that owns the suspended leaf frame, so all
+// frames are cleaned up exactly once via ~PullAwaitable::handle_.destroy(). suspended_handle_
+// is cleared immediately after, before cursor_ itself is destroyed, so it is never accessed
+// as a dangling pointer.
+// Note: destroying a parent coroutine frame does NOT cascade to children in plain C++20, but
+// that mechanism is NOT used here — operator-tree RAII via cascading Reset() is what ensures
+// complete cleanup.
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
@@ -3036,6 +3048,13 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
 #endif
 
+  // TLS safety across yield/reschedule:
+  // Memory tracking TLS (StartTrackingCurrentThread / StartTrackingUserResource) is started here
+  // and stopped in the OnScopeExit below, so it is always started fresh on whatever thread calls
+  // Pull() — correct even if rescheduled on a different pool worker after a yield.
+  // yield_requested is refreshed from WorkerYieldRegistry::GetCurrentYieldSignal() on every
+  // Pull() call, so it always points to the current worker's signal.
+  // No other persistent TLS crosses a yield boundary.
   {  // Limiting scope of memory tracking
     auto reset_query_limit = utils::OnScopeExit{[]() {
       // Stopping tracking of transaction occurs in interpreter::pull
@@ -3094,7 +3113,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
       if (!pr.has_value()) {
         break;  // Yielded: exit so scheduler can resume later.
       }
-      if (!*pr) break;
+      if (!*pr) break;  // has no more
       if (!output_symbols.empty()) {
         stream_values();
       }
@@ -9147,6 +9166,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }
 }  // namespace
 
+// TODO: Think about YieldCheck in Commit and Abort
 void Interpreter::Commit() {
 #ifdef MG_ENTERPRISE
   if (user_resource_ && current_db_.db_transactional_accessor_) {

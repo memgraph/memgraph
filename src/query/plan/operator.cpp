@@ -9881,12 +9881,23 @@ class ScanParallelCursor : public Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), get_chunks_(std::move(get_chunks)) {}
 
   // ScanParallelCursor is shared across all parallel branches: each branch calls Pull()
-  // with its own frame/context. The base Cursor::Pull() reuses a single persistent gen_,
-  // but that bakes the first caller's frame reference into the coroutine. Override Pull()
-  // to always create a fresh one-shot coroutine so each call gets the correct frame.
+  // with its own frame/context. We need a fresh one-shot coroutine per call (the base
+  // Cursor::Pull() reuses gen_, baking in the first caller's frame), but gen_ is a shared
+  // member — writing to it from multiple threads concurrently would destroy a running
+  // coroutine frame. Use thread-local storage so each branch thread owns its generator
+  // independently. Branches never yield (yield_requested=nullptr), so each runs to
+  // completion on one thread — thread-local is safe.
+  //
+  // Keyed by cursor instance (this) to prevent aliasing: two ScanParallelByLabel cursors
+  // produce the same TChunksFun lambda type and thus the same thread_local instantiation.
+  // When nested (e.g. ScanParallel(p2) outer, ScanParallel(p) inner via AggregateParallel),
+  // both run on the main thread. Without per-instance keying, the inner Pull overwrites
+  // tl_gen, destroying the outer coroutine frame while it is live → UB / SIGSEGV.
   PullAwaitable::ResumeAwaitable Pull(Frame &f, ExecutionContext &ctx) override {
-    gen_ = DoPull(f, ctx);
-    return gen_->Resume();
+    thread_local std::unordered_map<Cursor *, PullAwaitable> tl_gen_map;
+    auto &tl_gen = tl_gen_map[this];
+    tl_gen = DoPull(f, ctx);
+    return tl_gen.Resume();
   }
 
   PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
@@ -9905,7 +9916,18 @@ class ScanParallelCursor : public Cursor {
       if (index_ == 0 || index_ >= self_.num_threads_) {
         if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
         chunks_.reset();
-        const bool res = co_await input_cursor_->Pull(*frame_, context);
+        // Disable yielding for the duration of the input pull: ScanParallelCursor is shared across
+        // branches, so gen_ may be replaced by another branch while we are suspended. If we yielded
+        // here, the inner coroutine's continuation_ would point to our (soon-to-be-destroyed) frame.
+        // Mirroring the pattern used in EvaluatePatternFilterCursor.
+        auto *saved_yield = context.stopping_context.yield_requested;
+        auto *saved_handle_ptr = context.suspended_task_handle_ptr;
+        context.stopping_context.yield_requested = nullptr;
+        context.suspended_task_handle_ptr = nullptr;
+        auto input_ra = input_cursor_->Pull(*frame_, context);
+        const bool res = co_await input_ra;
+        context.stopping_context.yield_requested = saved_yield;
+        context.suspended_task_handle_ptr = saved_handle_ptr;
         if (!res) {
           all_pulled_ = true;
           co_return false;
@@ -10618,84 +10640,99 @@ class ParallelBranchCursor : public Cursor {
 
     // Execute branches 1..N in parallel
     for (size_t i = 1; i < num_branches; i++) {
-      tasks.AddTask([&,
-                     i,
-                     context,
-                     frame_size = frame.elems().size(),
-                     main_thread = std::this_thread::get_id(),
-                     post_pull_func,
-                     mem_tracking = memgraph::memory::CrossThreadMemoryTracking()]() mutable {
+      tasks.AddResumableTask([&,
+                              i,
+                              context,
+                              frame_size = frame.elems().size(),
+                              main_thread = std::this_thread::get_id(),
+                              post_pull_func,
+                              pre_pull_func,
+                              mem_tracking = memgraph::memory::CrossThreadMemoryTracking(),
+                              awaitable_opt = std::optional<plan::PullAwaitable::ResumeAwaitable>(),
+                              suspended_handle = std::coroutine_handle<>(),
+                              frame_local_opt = std::optional<Frame>()]() mutable -> bool {
         const OOMExceptionEnabler oom_exception;
-        const utils::Timer timer;
-        if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
+
+        if (!frame_local_opt) {
+          // Create parallel operator entry in branch's stats tree
+          context.stats_root = nullptr;
+          context.stats = plan::ProfilingStats();
+
+          DMG_ASSERT(!context.auth_checker || context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
+          const auto metadata_i = i - 1;
+          if (context.frame_change_collector != nullptr) {
+            auto &collector =
+                branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
+            collector.CopyStructureFrom(*context.frame_change_collector);
+            context.frame_change_collector = &collector;
+          }
+          if (context.trigger_context_collector != nullptr) {
+            auto &collector = branch_trigger_collectors[metadata_i].emplace(
+                context.trigger_context_collector->CreateEmptyWithSameConfig());
+            context.trigger_context_collector = &collector;
+          }
+
+          if (branch_plan_quotas_[i] && context.hops_limit.IsUsed() && context.hops_limit.shared_quota_) {
+            context.hops_limit.shared_quota_->SetPlanQuotas(branch_plan_quotas_[i]);
+          }
+
+          frame_local_opt.emplace(static_cast<int64_t>(frame_size));
+        }
+
+        // Disable yield for branch contexts: branches must run to completion without suspending.
+        // The main coroutine waits (blocking) via WaitOrSteal(); if branches yielded,
+        // WaitOrSteal() would throw. AbortCheck still fires normally.
+        context.stopping_context.yield_requested = nullptr;
+
+        if (main_thread != std::this_thread::get_id()) {
           mem_tracking.StartTracking();
         }
-        // Create parallel operator entry in branch's stats tree
-        context.stats_root = nullptr;
-        context.stats = plan::ProfilingStats();
-        SCOPED_PROFILE_OP_BY_REF(self);
 
-        DMG_ASSERT(!context.auth_checker || context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
-        const auto &cursor = branch_cursors_[i];
-        const auto metadata_i = i - 1;
-        if (context.frame_change_collector != nullptr) {
-          auto &collector =
-              branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
-          // Copy the cache structure (keys and invalidators) from the main collector so that
-          // cache invalidation works correctly when frame values change in this branch.
-          collector.CopyStructureFrom(*context.frame_change_collector);
-          context.frame_change_collector = &collector;
-        }
-        if (context.trigger_context_collector != nullptr) {
-          // Create an empty collector with same config for this branch (don't copy existing data)
-          // Main branch retains its own data, this branch will only receive new changes.
-          auto &collector = branch_trigger_collectors[metadata_i].emplace(
-              context.trigger_context_collector->CreateEmptyWithSameConfig());
-          context.trigger_context_collector = &collector;
-        }
-
-        // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case multiple
-        // shared quotas are used)
-        if (branch_plan_quotas_[i] && context.hops_limit.IsUsed() && context.hops_limit.shared_quota_) {
-          context.hops_limit.shared_quota_->SetPlanQuotas(branch_plan_quotas_[i]);
-        }
-
-        // TODO Try to not allocate since Scan will copy it. Problem if we return before Scan; will crash
-        Frame frame_local(static_cast<int64_t>(frame_size));
-
-        auto on_exit = utils::OnScopeExit([&]() {
-          // Force state reset (life extended through the context)
-          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-          const_cast<std::optional<ScopedProfile> &>(profile).reset();
-          if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
-            // NOTE: Parallel operators have to PullAll, so no need to worry about switching threads (at the bolt level)
-            // Main thread is handled by the higher level
-            context.profile_execution_time += timer.Elapsed();
-            // Main thread will continue using the same tracker
+        const utils::Timer slice_timer;
+        auto on_slice_exit = utils::OnScopeExit([&]() {
+          if (main_thread != std::this_thread::get_id()) {
+            context.profile_execution_time += slice_timer.Elapsed();
             mem_tracking.StopTracking();
           }
-          // NOTE: hops limit is shared between threads, so we need to free the leftover quota
-          context.hops_limit.Free();
-          // Move current context to the branch context for unification
-          branch_contexts[metadata_i] = std::move(context);
         });
 
+        SCOPED_PROFILE_OP_BY_REF(self);
+        context.suspended_task_handle_ptr = &suspended_handle;
+        const auto &cursor = branch_cursors_[i];
+
         try {
-          pre_pull_func(cursor.get());
-          // TODO: Should be coroutine
-          auto awaitable = cursor->Pull(frame_local, context);
-          pull_result.fetch_add(
-              (int)(plan::RunPullToCompletion(awaitable, context).status == plan::PullRunResult::Status::HasRow));
-          post_pull_func(cursor.get(), &frame_local);
+          if (!awaitable_opt) {
+            spdlog::trace("First hit {} on {}", i, std::this_thread::get_id());
+            pre_pull_func(cursor.get());
+            awaitable_opt.emplace(cursor->Pull(*frame_local_opt, context));
+          }
+
+          // std::cout << "RunPull " << i << std::endl;
+          auto result = plan::RunPullToCompletion(*awaitable_opt, context);
+          // std::cout << "RunPull " << i << " result: " << (int)result.status << std::endl;
+          if (result.status == plan::PullRunResult::Status::Yielded) {
+            return true;
+          }
+
+          // std::cout << "Post pull " << i << std::endl;
+          pull_result.fetch_add((int)(result.status == plan::PullRunResult::Status::HasRow));
+          post_pull_func(cursor.get(), &(*frame_local_opt));
+          spdlog::trace("Cleanup {} on {}", i, std::this_thread::get_id());
+
+          // Cleanup after finish
+          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+          const_cast<std::optional<ScopedProfile> &>(profile).reset();
+          context.hops_limit.Free();
+          branch_contexts[i - 1] = std::move(context);
         } catch (const std::exception &e) {
-          // Stop all other threads
+          spdlog::trace("Exception {}", i);
           DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
           if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
-            // Set exception occurred flag and pass exception to the main thread
             exceptions[i] = std::current_exception();
           }
-          return;
+          return false;
         }
+        return false;
       });
     }
 
@@ -10730,6 +10767,13 @@ class ParallelBranchCursor : public Cursor {
       }
     }
 
+    spdlog::trace("First branch finished on {}", std::this_thread::get_id());
+
+    // Block the current thread until all branch tasks complete.
+    // Branches have yield_requested=nullptr so they never suspend; WaitOrSteal()
+    // steals any IDLE tasks (not yet picked up by pool workers) and then waits
+    // (OS futex) for SCHEDULED tasks. This is safe and avoids coroutine teardown
+    // races that the co_await-based polling loop would introduce.
     collection_scheduler_->WaitOrSteal();
 
     // Check for exceptions
