@@ -30,15 +30,16 @@ class VirtualEdgeStore {
 
   explicit VirtualEdgeStore(allocator_type alloc) : edges_(alloc) {}
 
-  VirtualEdgeStore(const VirtualEdgeStore &other, allocator_type alloc) : edges_(other.edges_, alloc) {
-    RebuildIndexes();
-  }
+  VirtualEdgeStore(const VirtualEdgeStore &other, allocator_type alloc)
+      : edges_(other.edges_, alloc), dedup_(other.dedup_), out_index_(other.out_index_), in_index_(other.in_index_) {}
 
   VirtualEdgeStore(VirtualEdgeStore &&other) noexcept = default;
 
-  VirtualEdgeStore(VirtualEdgeStore &&other, allocator_type alloc) : edges_(std::move(other.edges_), alloc) {
-    RebuildIndexes();
-  }
+  VirtualEdgeStore(VirtualEdgeStore &&other, allocator_type alloc)
+      : edges_(std::move(other.edges_), alloc),
+        dedup_(std::move(other.dedup_)),
+        out_index_(std::move(other.out_index_)),
+        in_index_(std::move(other.in_index_)) {}
 
   VirtualEdgeStore(const VirtualEdgeStore &other) : VirtualEdgeStore(other, other.edges_.get_allocator()) {}
 

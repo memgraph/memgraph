@@ -917,10 +917,10 @@ struct mgp_edges_iterator {
         out(std::move(other.out)),
         out_it(std::move(other.out_it)),
         current_e(std::move(other.current_e)),
-        virtual_in_(std::move(other.virtual_in_)),
-        virtual_in_it_(std::move(other.virtual_in_it_)),
-        virtual_out_(std::move(other.virtual_out_)),
-        virtual_out_it_(std::move(other.virtual_out_it_)) {}
+        virtual_in_(other.virtual_in_),
+        virtual_in_it_(other.virtual_in_it_),
+        virtual_out_(other.virtual_out_),
+        virtual_out_it_(other.virtual_out_it_) {}
 
   mgp_edges_iterator(const mgp_edges_iterator &) = delete;
   mgp_edges_iterator &operator=(const mgp_edges_iterator &) = delete;
