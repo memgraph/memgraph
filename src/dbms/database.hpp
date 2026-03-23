@@ -212,7 +212,9 @@ class Database {
   int64_t DbMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
 
  private:
-  utils::MemoryTracker db_memory_tracker_;  //!< Tracks committed OS pages in db_arena_
+  //!< Tracks committed OS pages in db_arena_. Parent=graph_memory_tracker so per-DB
+  //!< allocations roll up into the global graph tracker → total_memory_tracker hierarchy.
+  utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker};
 #if USE_JEMALLOC
   memory::DbArena db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
 #endif

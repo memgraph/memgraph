@@ -91,6 +91,22 @@ static bool db_arena_purge_forced(extent_hooks_t *hooks, void *addr, size_t size
 
 }  // namespace
 
+void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hooks_t *base_hooks) {
+  h.tracker = tracker;
+  h.base_hooks = base_hooks;
+  h.hooks = extent_hooks_t{
+      .alloc = &db_arena_alloc,
+      .dalloc = &db_arena_dalloc,
+      .destroy = &db_arena_destroy,
+      .commit = &db_arena_commit,
+      .decommit = &db_arena_decommit,
+      .purge_lazy = base_hooks->purge_lazy,  // pass-through; no tracking needed
+      .purge_forced = &db_arena_purge_forced,
+      .split = base_hooks->split,
+      .merge = base_hooks->merge,
+  };
+}
+
 DbArena::DbArena(utils::MemoryTracker *tracker) {
   // Create a new jemalloc arena.
   unsigned arena_idx = 0;
@@ -107,22 +123,8 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
   MG_ASSERT(
       err == 0 && base_hooks != nullptr, "Failed to read default hooks for DB arena {} (err={})", arena_idx_, err);
 
-  // Populate our custom hooks struct.
-  hooks_.tracker = tracker;
-  hooks_.base_hooks = base_hooks;
-  hooks_.hooks = extent_hooks_t{
-      .alloc = &db_arena_alloc,
-      .dalloc = &db_arena_dalloc,
-      .destroy = &db_arena_destroy,
-      .commit = &db_arena_commit,
-      .decommit = &db_arena_decommit,
-      .purge_lazy = base_hooks->purge_lazy,  // pass-through; no tracking needed
-      .purge_forced = &db_arena_purge_forced,
-      .split = base_hooks->split,
-      .merge = base_hooks->merge,
-  };
-
-  // Install our custom hooks on the arena.
+  // Populate and install our custom hooks.
+  InitDbArenaHooks(hooks_, tracker, base_hooks);
   const extent_hooks_t *new_hooks = &hooks_.hooks;
   err = je_mallctl(
       hooks_key.c_str(), nullptr, nullptr, const_cast<extent_hooks_t **>(&new_hooks), sizeof(extent_hooks_t *));

@@ -13,6 +13,15 @@
 
 #include <fmt/format.h>
 #include <librdkafka/rdkafka.h>
+#include <algorithm>
+
+#if USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
+#include <chrono>
+#include <memory>
+#include <unordered_set>
+
 #include <librdkafka/rdkafkacpp.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
@@ -401,6 +410,12 @@ void Consumer::StartConsuming() {
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 
     utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));
+
+#if USE_JEMALLOC
+    if (info_.arena_idx != 0) {
+      je_mallctl("thread.arena", nullptr, nullptr, &info_.arena_idx, sizeof(unsigned));
+    }
+#endif
 
     while (is_running_) {
       auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
