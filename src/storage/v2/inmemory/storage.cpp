@@ -1809,6 +1809,12 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // (abort_mark_timestamp <= oldest_active_start_timestamp) ensures all such readers
     // have finished before the pool memory is reclaimed.
     if (!my_deleted_light_edges.empty()) {
+      if (mem_storage->config_.salient.items.enable_edges_metadata) {
+        auto edges_metadata_acc = mem_storage->edges_metadata_.access();
+        for (auto *edge : my_deleted_light_edges) {
+          edges_metadata_acc.remove(edge->gid);
+        }
+      }
       auto guard_epoch = mem_storage->light_edge_iterable_tracker_.CurrentEpoch();
       mem_storage->light_edge_graveyard_.WithLock([&](auto &graveyard) {
         graveyard.push_back({abort_mark_timestamp, guard_epoch, std::move(my_deleted_light_edges)});
@@ -3161,10 +3167,15 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // held a pointer to these edges have finished). Vector-edge-index cleanup was
   // already done in phase 1 above.
   if (light_edges) {
+    std::optional<utils::SkipList<EdgeMetadata>::Accessor> edge_metadata_acc;
+    if (config_.salient.items.enable_edges_metadata) {
+      edge_metadata_acc = edges_metadata_.access();
+    }
     light_edge_graveyard_.WithLock([&](auto &graveyard) {
       while (!graveyard.empty() && graveyard.front().index_cleaned &&
              light_edge_iterable_tracker_.IsSafeToFree(graveyard.front().guard_epoch)) {
         for (auto *edge : graveyard.front().edges) {
+          if (edge_metadata_acc) edge_metadata_acc->remove(edge->gid);
           DeleteLightEdge(edge);
         }
         graveyard.pop_front();
