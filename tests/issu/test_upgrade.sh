@@ -230,6 +230,49 @@ trap 'echo -e "'"${RED}"'Error on line $LINENO. Exiting…'"${NC}"'" >&2' ERR
 trap 'echo -e "'"${RED}"'SIGINT received. Exiting…'"${NC}"'" >&2' INT
 trap 'echo -e "'"${RED}"'SIGTERM received. Exiting…'"${NC}"'" >&2' TERM
 
+dump_cluster_setup_debug() {
+  set +e
+  echo -e "${YELLOW}===== cluster-setup debug dump (on install failure) =====${NC}"
+
+  echo -e "${YELLOW}--- cluster-setup job (yaml) ---${NC}"
+  kubectl get job cluster-setup -o yaml || true
+
+  echo -e "${YELLOW}--- cluster-setup job (describe) ---${NC}"
+  kubectl describe job cluster-setup || true
+
+  echo -e "${YELLOW}--- cluster-setup pods (wide) ---${NC}"
+  kubectl get pods -l job-name=cluster-setup -o wide || true
+
+  local setup_pods
+  setup_pods="$(kubectl get pods -l job-name=cluster-setup -o name 2>/dev/null || true)"
+
+  if [[ -z "$setup_pods" ]]; then
+    echo -e "${YELLOW}No cluster-setup pods found.${NC}"
+  else
+    while IFS= read -r pod; do
+      [[ -z "$pod" ]] && continue
+      echo -e "${YELLOW}--- ${pod} (describe) ---${NC}"
+      kubectl describe "$pod" || true
+
+      echo -e "${YELLOW}--- ${pod} (containerStatuses jsonpath) ---${NC}"
+      kubectl get "$pod" -o jsonpath='{.metadata.name}{"\n"}{range .status.containerStatuses[*]}container={.name}{" state="}{.state}{" lastState="}{.lastState}{" restartCount="}{.restartCount}{"\n"}{end}' || true
+      echo
+
+      echo -e "${YELLOW}--- ${pod} (logs) ---${NC}"
+      kubectl logs "$pod" --timestamps || true
+
+      echo -e "${YELLOW}--- ${pod} (previous logs) ---${NC}"
+      kubectl logs "$pod" --previous --timestamps || true
+    done <<< "$setup_pods"
+  fi
+
+  echo -e "${YELLOW}--- recent events ---${NC}"
+  kubectl get events --sort-by=.lastTimestamp || true
+
+  echo -e "${YELLOW}===== end cluster-setup debug dump =====${NC}"
+  set -e
+}
+
 # --- Check required CLIs ---
 for bin in minikube kubectl helm git; do
   if ! command -v "$bin" >/dev/null 2>&1; then
@@ -364,7 +407,11 @@ helm repo add memgraph https://memgraph.github.io/helm-charts
 
 # --- Helm install ---
 echo -e "${GREEN}Installing Helm chart...${NC}"
-helm install "$RELEASE" memgraph/memgraph-high-availability -f old_values.yaml
+if ! helm install "$RELEASE" memgraph/memgraph-high-availability -f old_values.yaml; then
+  echo -e "${RED}Helm install failed. Collecting extra cluster-setup diagnostics...${NC}"
+  dump_cluster_setup_debug
+  exit 1
+fi
 
 # --- Wait & verify resources ---
 echo -e "${GREEN}Waiting for resources to be created...${NC}"
