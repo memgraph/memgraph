@@ -37,13 +37,10 @@ RELEASE="memgraph-db"
 DESIRED_NODES=5
 PROFILE="${PROFILE:-minikube}"  # can be overridden via env
 CLUSTER_SETUP_TIMEOUT="${CLUSTER_SETUP_TIMEOUT:-90s}"
-<<<<<<< HEAD
 HELM_CHART_REPO_URL="${HELM_CHART_REPO_URL:-https://github.com/memgraph/helm-charts.git}"
 HELM_CHART_BRANCH="${HELM_CHART_BRANCH:-fix/cluster-setup-flakiness}"
 HELM_CHART_DIR="${HELM_CHART_DIR:-helm-charts}"
 HELM_CHART_PATH="${HELM_CHART_PATH:-${HELM_CHART_DIR}/charts/memgraph-high-availability}"
-=======
->>>>>>> master
 
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 
@@ -341,6 +338,49 @@ trap 'echo -e "'"${RED}"'Error on line $LINENO. Exiting…'"${NC}"'" >&2' ERR
 trap 'echo -e "'"${RED}"'SIGINT received. Exiting…'"${NC}"'" >&2' INT
 trap 'echo -e "'"${RED}"'SIGTERM received. Exiting…'"${NC}"'" >&2' TERM
 
+dump_cluster_setup_debug() {
+  set +e
+  echo -e "${YELLOW}===== cluster-setup debug dump (on install failure) =====${NC}"
+
+  echo -e "${YELLOW}--- cluster-setup job (yaml) ---${NC}"
+  kubectl get job cluster-setup -o yaml || true
+
+  echo -e "${YELLOW}--- cluster-setup job (describe) ---${NC}"
+  kubectl describe job cluster-setup || true
+
+  echo -e "${YELLOW}--- cluster-setup pods (wide) ---${NC}"
+  kubectl get pods -l job-name=cluster-setup -o wide || true
+
+  local setup_pods
+  setup_pods="$(kubectl get pods -l job-name=cluster-setup -o name 2>/dev/null || true)"
+
+  if [[ -z "$setup_pods" ]]; then
+    echo -e "${YELLOW}No cluster-setup pods found.${NC}"
+  else
+    while IFS= read -r pod; do
+      [[ -z "$pod" ]] && continue
+      echo -e "${YELLOW}--- ${pod} (describe) ---${NC}"
+      kubectl describe "$pod" || true
+
+      echo -e "${YELLOW}--- ${pod} (containerStatuses jsonpath) ---${NC}"
+      kubectl get "$pod" -o jsonpath='{.metadata.name}{"\n"}{range .status.containerStatuses[*]}container={.name}{" state="}{.state}{" lastState="}{.lastState}{" restartCount="}{.restartCount}{"\n"}{end}' || true
+      echo
+
+      echo -e "${YELLOW}--- ${pod} (logs) ---${NC}"
+      kubectl logs "$pod" --timestamps || true
+
+      echo -e "${YELLOW}--- ${pod} (previous logs) ---${NC}"
+      kubectl logs "$pod" --previous --timestamps || true
+    done <<< "$setup_pods"
+  fi
+
+  echo -e "${YELLOW}--- recent events ---${NC}"
+  kubectl get events --sort-by=.lastTimestamp || true
+
+  echo -e "${YELLOW}===== end cluster-setup debug dump =====${NC}"
+  set -e
+}
+
 # --- Check required CLIs ---
 for bin in minikube kubectl helm git; do
   if ! command -v "$bin" >/dev/null 2>&1; then
@@ -495,7 +535,11 @@ fi
 
 # --- Helm install ---
 echo -e "${GREEN}Installing Helm chart...${NC}"
-helm install "$RELEASE" "${HELM_CHART_PATH}" -f old_values.yaml --timeout 120s --wait --debug | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
+if ! helm install "$RELEASE" "${HELM_CHART_PATH}" -f old_values.yaml --timeout 120s --wait --debug | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"; then
+  echo -e "${RED}Helm install failed. Collecting extra cluster-setup diagnostics...${NC}"
+  dump_cluster_setup_debug
+  exit 1
+fi
 
 # --- Wait & verify resources ---
 echo -e "${GREEN}Waiting for resources to be created...${NC}"
