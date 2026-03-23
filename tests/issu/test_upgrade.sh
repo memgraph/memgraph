@@ -352,6 +352,7 @@ dump_cluster_setup_debug() {
   kubectl get pods -l job-name=cluster-setup -o wide || true
 
   local setup_pods
+  local setup_nodes=""
   setup_pods="$(kubectl get pods -l job-name=cluster-setup -o name 2>/dev/null || true)"
 
   if [[ -z "$setup_pods" ]]; then
@@ -366,12 +367,29 @@ dump_cluster_setup_debug() {
       kubectl get "$pod" -o jsonpath='{.metadata.name}{"\n"}{range .status.containerStatuses[*]}container={.name}{" state="}{.state}{" lastState="}{.lastState}{" restartCount="}{.restartCount}{"\n"}{end}' || true
       echo
 
+      local pod_node
+      pod_node="$(kubectl get "$pod" -o jsonpath='{.spec.nodeName}' 2>/dev/null || true)"
+      if [[ -n "$pod_node" ]]; then
+        setup_nodes+="${pod_node}"$'\n'
+      fi
+
       echo -e "${YELLOW}--- ${pod} (logs) ---${NC}"
       kubectl logs "$pod" --timestamps || true
 
       echo -e "${YELLOW}--- ${pod} (previous logs) ---${NC}"
       kubectl logs "$pod" --previous --timestamps || true
     done <<< "$setup_pods"
+  fi
+
+  if [[ -n "$setup_nodes" ]]; then
+    echo -e "${YELLOW}--- cluster-setup host node diagnostics ---${NC}"
+    while IFS= read -r node; do
+      [[ -z "$node" ]] && continue
+      echo -e "${YELLOW}--- node/${node} (describe) ---${NC}"
+      kubectl describe node "$node" || true
+      echo -e "${YELLOW}--- node/${node} (top) ---${NC}"
+      kubectl top node "$node" || true
+    done < <(printf '%s' "$setup_nodes" | sort -u)
   fi
 
   echo -e "${YELLOW}--- recent events ---${NC}"
