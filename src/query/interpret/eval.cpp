@@ -22,10 +22,10 @@ TypedValue GraphEdgesToTypedValue(const Graph &graph, utils::MemoryResource *mem
   utils::pmr::vector<TypedValue> edges(memory);
   edges.reserve(graph.edges().size() + graph.virtual_edge_store().size());
   for (const auto &e : graph.edges()) {
-    edges.push_back(TypedValue(e, memory));
+    edges.emplace_back(e);
   }
   for (const auto &ve : graph.virtual_edge_store().edges()) {
-    edges.push_back(TypedValue(ve, memory));
+    edges.emplace_back(ve);
   }
   return {std::move(edges), memory};
 }
@@ -468,7 +468,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       auto prop_id = dba_->NameToProperty(prop_name);
       auto prop_value = ve.GetProperty(prop_id);
       if (prop_value.IsNull()) return TypedValue(ctx_->memory);
-      return TypedValue(std::move(prop_value), GetNameIdMapper(), ctx_->memory);
+      return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
     }
     case TypedValue::Type::Map: {
       auto &map = expression_result_ptr->ValueMap();

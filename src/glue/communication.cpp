@@ -115,7 +115,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
   return ToBoltEdge(edge.impl_, db, view);
 }
 
-communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve) {
+static communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve) {
   auto from_id = ve.From().Gid();
   auto to_id = ve.To().Gid();
   auto edge_id = ve.Gid();
