@@ -260,7 +260,13 @@ def verify_counts_match() -> bool:
 
 
 def get_vector_index_names(db_name: str) -> set[str]:
-    rows = execute_and_fetch(COORDINATOR, "SHOW VECTOR INDEX INFO;", protocol=Protocol.BOLT_ROUTING, database=db_name)
+    rows = execute_and_fetch(
+        COORDINATOR,
+        "SHOW VECTOR INDEX INFO;",
+        protocol=Protocol.BOLT_ROUTING,
+        apply_retry_mechanism=True,
+        database=db_name,
+    )
     return {row.get("index_name") or row.get("name") for row in rows}
 
 

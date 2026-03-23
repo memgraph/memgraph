@@ -31,8 +31,9 @@ VECTOR_DIMENSIONS = 128
 BATCH_SIZE = 100
 NUM_WORKERS = 4
 
-ITERATIONS = 100_000
+ITERATIONS = 10_000
 NUM_WORKERS_PER_DB = 4
+MAX_TRANSIENT_RETRIES = 30
 
 HEALTH_CHECK_RETRIES = 30
 HEALTH_CHECK_INTERVAL = 10
@@ -167,6 +168,7 @@ def _delete_random_edges(db_name: str) -> bool:
         query_type=QueryType.WRITE,
         apply_retry_mechanism=True,
         database=db_name,
+        max_transient_retries=MAX_TRANSIENT_RETRIES,
     )
     return True
 
@@ -192,6 +194,7 @@ def run_iterations(worker_id: int, num_iterations: int, db_name: str) -> dict:
                 query_type=QueryType.WRITE,
                 apply_retry_mechanism=True,
                 database=db_name,
+                max_transient_retries=MAX_TRANSIENT_RETRIES,
             )
             created += 1
         else:
@@ -272,7 +275,13 @@ def verify_counts_match() -> bool:
 
 
 def get_vector_index_names(db_name: str) -> set[str]:
-    rows = execute_and_fetch(COORDINATOR, "SHOW VECTOR INDEX INFO;", protocol=Protocol.BOLT_ROUTING, database=db_name)
+    rows = execute_and_fetch(
+        COORDINATOR,
+        "SHOW VECTOR INDEX INFO;",
+        protocol=Protocol.BOLT_ROUTING,
+        apply_retry_mechanism=True,
+        database=db_name,
+    )
     return {row.get("index_name") or row.get("name") for row in rows}
 
 

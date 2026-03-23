@@ -228,6 +228,7 @@ def _run_query(
     result_handler: Callable,
     database: str | None = None,
     auth: tuple[str, str] = ("", ""),
+    max_transient_retries: int = 15,
 ) -> Any:
     """
     Internal query runner. Returns None if SYNC replica error occurs
@@ -236,7 +237,6 @@ def _run_query(
     """
     max_connection_retries = 3
     connection_retry_delay = 2.0
-    max_transient_retries = 15
     transient_base_delay = 0.25
 
     connection_attempt = 0
@@ -301,6 +301,7 @@ def execute_query(
     apply_retry_mechanism: bool = False,
     database: str | None = None,
     auth: tuple[str, str] = ("", ""),
+    max_transient_retries: int = 15,
 ) -> None:
     """Execute a query on a specific instance. Discards results."""
     _run_query(
@@ -313,6 +314,7 @@ def execute_query(
         result_handler=lambda result: result.consume(),
         database=database,
         auth=auth,
+        max_transient_retries=max_transient_retries,
     )
 
 
@@ -432,6 +434,7 @@ def execute_and_fetch(
     apply_retry_mechanism: bool = False,
     database: str | None = None,
     auth: tuple[str, str] = ("", ""),
+    max_transient_retries: int = 15,
 ) -> list[dict[str, Any]]:
     """Execute a query and return all results as a list of dicts."""
     result = _run_query(
@@ -444,6 +447,7 @@ def execute_and_fetch(
         result_handler=lambda result: [record.data() for record in result],
         database=database,
         auth=auth,
+        max_transient_retries=max_transient_retries,
     )
     return result if result is not None else []
 
