@@ -2958,6 +2958,7 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
           it->virtual_in_it_ = it->virtual_in_.begin();
         }
 
+        // Position current_e at the first edge: prefer real edges, fall back to virtual
         if (*it->in_it != it->in->end()) {
           std::visit(
               memgraph::utils::Overloaded{
@@ -3027,6 +3028,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
           it->virtual_out_it_ = it->virtual_out_.begin();
         }
 
+        // Position current_e at the first edge: prefer real edges, fall back to virtual
         if (*it->out_it != it->out->end()) {
           std::visit(
               memgraph::utils::Overloaded{
@@ -3079,16 +3081,11 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
       [it] {
         MG_ASSERT(it->in || it->out);
 
-        // Helper to advance through virtual edges
-        auto next_virtual = [it](bool for_in) -> mgp_edge * {
+        // Emit the current virtual edge pointed to by virt_it
+        auto emit_virtual = [it](auto for_in) -> mgp_edge * {
           auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
           auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
           if (virt.empty() || virt_it == virt.end()) {
-            it->current_e = std::nullopt;
-            return nullptr;
-          }
-          ++virt_it;
-          if (virt_it == virt.end()) {
             it->current_e = std::nullopt;
             return nullptr;
           }
@@ -3103,11 +3100,22 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
           return &*it->current_e;
         };
 
-        auto next = [it, &next_virtual](const bool for_in) -> mgp_edge * {
+        // Advance to the next virtual edge, then emit it
+        auto next_virtual = [it, &emit_virtual](auto for_in) -> mgp_edge * {
+          auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
+          auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
+          if (virt.empty() || virt_it == virt.end()) {
+            it->current_e = std::nullopt;
+            return nullptr;
+          }
+          ++virt_it;
+          return emit_virtual(for_in);
+        };
+
+        auto next = [it, &next_virtual, &emit_virtual](auto for_in) -> mgp_edge * {
           auto &impl_it = for_in ? it->in_it : it->out_it;
           const auto end = for_in ? it->in->end() : it->out->end();
           if (*impl_it == end) {
-            // Real edges already exhausted, try virtual edges
             return next_virtual(for_in);
           }
 
@@ -3120,22 +3128,8 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
 #endif
 
           if (*impl_it == end) {
-            // Real edges exhausted — transition to virtual edges if available
-            auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
-            auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
-            if (!virt.empty() && virt_it != virt.end()) {
-              auto *sub = std::get_if<memgraph::query::SubgraphDbAccessor *>(&it->source_vertex.graph->impl);
-              MG_ASSERT(sub, "Virtual edges should only exist in subgraph context");
-              const auto &ve = *virt_it;
-              it->current_e.emplace(ve,
-                                    memgraph::query::SubgraphVertexAccessor(ve.From(), (*sub)->getGraph()),
-                                    memgraph::query::SubgraphVertexAccessor(ve.To(), (*sub)->getGraph()),
-                                    it->source_vertex.graph,
-                                    it->GetMemoryResource());
-              return &*it->current_e;
-            }
-            it->current_e = std::nullopt;
-            return nullptr;
+            // Just exhausted real edges — emit first virtual edge without advancing
+            return emit_virtual(for_in);
           }
           std::visit(memgraph::utils::Overloaded{
                          [&](memgraph::query::DbAccessor *) {
@@ -3260,9 +3254,15 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
 
 mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, mgp_value *property_value) {
   return WrapExceptions([=] {
+    const auto prop_key =
+        std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, e->from.graph->impl);
+
     if (e->IsVirtual()) {
-      throw ImmutableObjectException{"Cannot set a property on a virtual edge!"};
+      auto &ve = std::get<memgraph::query::VirtualEdge>(e->impl);
+      ve.SetProperty(prop_key, ToPropertyValue(*property_value, GetNameIdMapper(e->from.graph)));
+      return;
     }
+
     auto &ea = std::get<memgraph::query::EdgeAccessor>(e->impl);
     auto *ctx = e->from.graph->ctx;
 
@@ -3277,8 +3277,6 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     if (!MgpEdgeIsMutable(*e)) {
       throw ImmutableObjectException{"Cannot set a property on an immutable edge!"};
     }
-    const auto prop_key =
-        std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, e->from.graph->impl);
     const auto result = ea.SetProperty(prop_key, ToPropertyValue(*property_value, GetNameIdMapper(e->from.graph)));
 
     if (!result) {
@@ -3314,9 +3312,28 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
 
 mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties) {
   return WrapExceptions([=] {
+    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
+    std::visit(
+        [&props, &e](const auto &items) {
+          for (const auto &item : items) {
+            props.insert(std::visit(
+                [&item, &e](auto *impl) {
+                  return std::make_pair(impl->NameToProperty(item.first),
+                                        ToPropertyValue(item.second, GetNameIdMapper(e->from.graph)));
+                },
+                e->from.graph->impl));
+          }
+        },
+        properties->items);
+
     if (e->IsVirtual()) {
-      throw ImmutableObjectException{"Cannot set properties on a virtual edge!"};
+      auto &ve = std::get<memgraph::query::VirtualEdge>(e->impl);
+      for (const auto &[key, value] : props) {
+        ve.SetProperty(key, value);
+      }
+      return;
     }
+
     auto &ea = std::get<memgraph::query::EdgeAccessor>(e->impl);
     auto *ctx = e->from.graph->ctx;
 
@@ -3331,19 +3348,6 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
     if (!MgpEdgeIsMutable(*e)) {
       throw ImmutableObjectException{"Cannot set properties of an immutable edge!"};
     }
-    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
-    std::visit(
-        [&props, &e](const auto &items) {
-          for (const auto &item : items) {
-            props.insert(std::visit(
-                [&item, &e](auto *impl) {
-                  return std::make_pair(impl->NameToProperty(item.first),
-                                        ToPropertyValue(item.second, GetNameIdMapper(e->from.graph)));
-                },
-                e->from.graph->impl));
-          }
-        },
-        properties->items);
 
     const auto result = ea.UpdateProperties(props);
     if (!result) {

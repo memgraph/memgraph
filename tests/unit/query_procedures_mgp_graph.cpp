@@ -21,6 +21,7 @@
 #include "disk_test_utils.hpp"
 #include "mg_procedure.h"
 #include "query/db_accessor.hpp"
+#include "query/graph.hpp"
 #include "query/plan/operator.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -701,4 +702,105 @@ TYPED_TEST(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
   MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 65, &this->memory)};
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_edge_underlying_graph_is_mutable, edge.get()), 0);
   EXPECT_EQ(mgp_edge_set_property(edge.get(), "property", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+}
+
+TYPED_TEST(MgpGraphTest, VirtualEdgesInIterator) {
+  // Create two vertices with a real edge between them
+  auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto v3 = dba.InsertVertex();
+  auto real_edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("REAL"));
+  ASSERT_TRUE(real_edge.has_value());
+
+  // Build a projected graph with the real edge + a virtual edge
+  memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
+  proj_graph.InsertVertex(memgraph::query::VertexAccessor(v1));
+  proj_graph.InsertVertex(memgraph::query::VertexAccessor(v2));
+  proj_graph.InsertVertex(memgraph::query::VertexAccessor(v3));
+  proj_graph.InsertEdge(memgraph::query::EdgeAccessor(*real_edge));
+  proj_graph.virtual_edge_store().Insert(memgraph::query::VirtualEdge(
+      memgraph::query::VertexAccessor(v1), memgraph::query::VertexAccessor(v3), "VIRTUAL"));
+
+  // Create SubgraphDbAccessor and mgp_graph
+  memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
+  auto graph = mgp_graph{
+      &sub_dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+  // Get v1 as mgp_vertex
+  MgpVertexPtr mgp_v1{EXPECT_MGP_NO_ERROR(
+      mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{v1.Gid().AsInt()}, &this->memory)};
+  ASSERT_NE(mgp_v1, nullptr);
+
+  // Iterate out-edges of v1: should get 1 real + 1 virtual = 2 total
+  MgpEdgesIteratorPtr it{
+      EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, mgp_v1.get(), &this->memory)};
+  ASSERT_NE(it, nullptr);
+
+  int count = 0;
+  bool found_real = false;
+  bool found_virtual = false;
+
+  for (auto *edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, it.get()); edge != nullptr;
+       edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_next, it.get())) {
+    count++;
+    mgp_edge_type edge_type;
+    EXPECT_SUCCESS(mgp_edge_get_type(edge, &edge_type));
+    if (std::string_view(edge_type.name) == "REAL") found_real = true;
+    if (std::string_view(edge_type.name) == "VIRTUAL") found_virtual = true;
+  }
+
+  EXPECT_EQ(count, 2);
+  EXPECT_TRUE(found_real);
+  EXPECT_TRUE(found_virtual);
+}
+
+TYPED_TEST(MgpGraphTest, VirtualEdgeApiOperations) {
+  auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+
+  memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
+  proj_graph.InsertVertex(memgraph::query::VertexAccessor(v1));
+  proj_graph.InsertVertex(memgraph::query::VertexAccessor(v2));
+  proj_graph.virtual_edge_store().Insert(
+      memgraph::query::VirtualEdge(memgraph::query::VertexAccessor(v1), memgraph::query::VertexAccessor(v2), "VE"));
+
+  memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
+  auto graph = mgp_graph{
+      &sub_dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+  MgpVertexPtr mgp_v1{EXPECT_MGP_NO_ERROR(
+      mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{v1.Gid().AsInt()}, &this->memory)};
+  ASSERT_NE(mgp_v1, nullptr);
+
+  MgpEdgesIteratorPtr it{
+      EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, mgp_v1.get(), &this->memory)};
+  auto *edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, it.get());
+  ASSERT_NE(edge, nullptr);
+
+  // Type
+  mgp_edge_type edge_type;
+  EXPECT_SUCCESS(mgp_edge_get_type(edge, &edge_type));
+  EXPECT_EQ(std::string_view(edge_type.name), "VE");
+
+  // Id
+  mgp_edge_id edge_id;
+  EXPECT_SUCCESS(mgp_edge_get_id(edge, &edge_id));
+  EXPECT_NE(edge_id.as_int, 0);
+
+  // From/To
+  mgp_vertex *from_v = nullptr;
+  mgp_vertex *to_v = nullptr;
+  EXPECT_SUCCESS(mgp_edge_get_from(edge, &from_v));
+  EXPECT_SUCCESS(mgp_edge_get_to(edge, &to_v));
+  ASSERT_NE(from_v, nullptr);
+  ASSERT_NE(to_v, nullptr);
+
+  // Set and read back a property
+  MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 42, &this->memory)};
+  EXPECT_SUCCESS(mgp_edge_set_property(edge, "weight", value.get()));
+  MgpValuePtr read_value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_edge_get_property, edge, "weight", &this->memory)};
+  ASSERT_NE(read_value, nullptr);
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(int64_t, mgp_value_get_int, read_value.get()), 42);
 }

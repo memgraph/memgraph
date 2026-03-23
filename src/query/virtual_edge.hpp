@@ -47,6 +47,8 @@ class VirtualEdge final {
     return storage::PropertyValue{};
   }
 
+  void SetProperty(storage::PropertyId key, const storage::PropertyValue &value) { properties_[key] = value; }
+
   auto Properties() const -> const std::map<storage::PropertyId, storage::PropertyValue> & { return properties_; }
 
   bool operator==(const VirtualEdge &other) const noexcept { return gid_ == other.gid_; }
