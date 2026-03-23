@@ -994,12 +994,20 @@ void Refactor::MergeNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
       if (mergeRels) {
         auto in_rels = source_node.InRelationships();
         for (const auto &rel : in_rels) {
-          graph.CreateRelationship(rel.From(), target_node, rel.Type());
+          mgp::Relationship new_rel = graph.CreateRelationship(rel.From(), target_node, rel.Type());
+          std::unordered_map<std::string, mgp::Value> props = rel.Properties();
+          for(auto iter = props.begin(); iter != props.end(); ++iter) {
+            new_rel.SetProperty(iter->first, iter->second);
+          }
         }
 
         auto out_rels = source_node.OutRelationships();
         for (const auto &rel : out_rels) {
-          graph.CreateRelationship(target_node, rel.To(), rel.Type());
+          mgp::Relationship new_rel = graph.CreateRelationship(target_node, rel.To(), rel.Type());
+          std::unordered_map<std::string, mgp::Value> props = rel.Properties();
+          for(auto iter = props.begin(); iter != props.end(); ++iter) {
+            new_rel.SetProperty(iter->first, iter->second);
+          }
         }
       }
 
