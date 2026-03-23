@@ -17,7 +17,15 @@ import sys
 import time
 
 from cluster_monitor import ClusterMonitor
-from ha_common import Protocol, QueryType, execute_and_fetch, execute_query, get_restart_all_fn, run_parallel
+from ha_common import (
+    Protocol,
+    QueryType,
+    execute_and_fetch,
+    execute_and_fetch_with_manual_retries,
+    execute_query,
+    get_restart_all_fn,
+    run_parallel,
+)
 
 COORDINATOR = "coord_1"
 COORDINATORS = ["coord_1", "coord_2", "coord_3"]
@@ -275,12 +283,12 @@ def verify_counts_match() -> bool:
 
 
 def get_vector_index_names(db_name: str) -> set[str]:
-    rows = execute_and_fetch(
+    rows = execute_and_fetch_with_manual_retries(
         COORDINATOR,
         "SHOW VECTOR INDEX INFO;",
         protocol=Protocol.BOLT_ROUTING,
-        apply_retry_mechanism=True,
         database=db_name,
+        max_retries=10,
     )
     return {row.get("index_name") or row.get("name") for row in rows}
 
