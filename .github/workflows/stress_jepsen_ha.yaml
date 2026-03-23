@@ -41,12 +41,12 @@ on:
         type: boolean
         default: true
       shutdown-signal:
-        description: "Signal to use for terminating instances (:KILL (SIGKILL), :TERM (SIGTERM))"
+        description: "Signal to use for terminating instances (KILL (SIGKILL), TERM (SIGTERM))"
         type: choice
         options:
-          - ":KILL"
-          - ":TERM"
-        default: ":KILL"
+          - KILL
+          - TERM
+        default: KILL
 
 
   schedule:

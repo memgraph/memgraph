@@ -34,9 +34,9 @@ on:
         type: boolean
         default: true
       shutdown-signal:
-        description: "Signal to use for terminating instances (:KILL (SIGKILL), :TERM (SIGTERM))"
+        description: "Signal to use for terminating instances (KILL (SIGKILL), TERM (SIGTERM))"
         type: string
-        default: ":KILL"
+        default: "KILL"
 
 
 env:
