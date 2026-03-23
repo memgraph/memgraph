@@ -279,8 +279,8 @@ TYPED_TEST(OrderByIndexTest, OrderBySuperset) {
       << "OrderBy should NOT be eliminated (ORDER BY has more keys than index)";
 }
 
-// Test 10: Expand blocks elimination
-TYPED_TEST(OrderByIndexTest, ExpandBlocks) {
+// Test 10: Expand preserves order - ORDER BY n.prop with Expand between OrderBy and ScanAll
+TYPED_TEST(OrderByIndexTest, ExpandPreservesOrder) {
   // MATCH (n:L)-[r]->(m) WHERE n.prop > 5 ORDER BY n.prop RETURN n, m
   FakeDbAccessor dba;
   const auto label_name = "L";
@@ -471,6 +471,36 @@ TYPED_TEST(OrderByIndexTest, MultiMatchDifferentSymbols) {
   // Cartesian or nested loop between OrderBy and n's ScanAll — this blocks elimination.
   EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy should NOT be eliminated (second MATCH creates Cartesian between OrderBy and n's scan)";
+}
+
+// Test 18: WITH variable renaming blocks elimination
+// MATCH (n:L) WHERE n.prop > 5 WITH n AS m ORDER BY m.prop RETURN m
+// The WITH clause renames n to m, which means the OrderBy symbol (m) does not correspond
+// to the scan symbol (n) through a simple identity mapping. ProduceRenamesVariable should block this.
+TYPED_TEST(OrderByIndexTest, WithRenamingBlocks) {
+  FakeDbAccessor dba;
+  const auto label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *ident_n = IDENT("n");
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5)));
+  auto *with_clause = WITH(ident_n, AS("m"));
+  auto *return_clause = RETURN("m", ORDER_BY(PROPERTY_LOOKUP(dba, "m", property.second)));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (WITH renames n to m)";
 }
 
 }  // namespace
