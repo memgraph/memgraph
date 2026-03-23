@@ -48,7 +48,7 @@ class VirtualEdgeStore {
   ~VirtualEdgeStore() = default;
 
   void Insert(const VirtualEdge &edge);
-  bool InsertIfNew(const VirtualEdge &edge);
+  bool InsertIfNew(VirtualEdge edge);
   bool Contains(const VirtualEdge &edge) const;
 
   std::span<const VirtualEdge> OutEdges(storage::Gid vertex_gid) const;

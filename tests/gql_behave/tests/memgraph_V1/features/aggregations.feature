@@ -756,6 +756,20 @@ Feature: Aggregations
             """
         Then an error should be raised
 
+    Scenario: Virtual edge projection with relationshipProperties
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED', relationshipProperties: {weight: 42}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.weight AS w
+            """
+        Then the result should be:
+            | w  |
+            | 42 |
+
     Scenario: Empty collect aggregation:
       Given an empty graph
       And having executed
