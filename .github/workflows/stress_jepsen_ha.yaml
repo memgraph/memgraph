@@ -44,9 +44,9 @@ on:
         description: "Signal to use for terminating instances (:KILL (SIGKILL), :TERM (SIGTERM))"
         type: choice
         options:
-          - :KILL
-          - :TERM
-        default: :KILL
+          - ":KILL"
+          - ":TERM"
+        default: ":KILL"
 
 
   schedule:
