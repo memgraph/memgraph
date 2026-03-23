@@ -861,10 +861,10 @@ struct mgp_edges_iterator {
   std::optional<mgp_edge> current_e;
 
   // Virtual edge iteration (populated for subgraph vertices only)
-  std::optional<std::vector<memgraph::query::VirtualEdge>> virtual_in_;
-  std::optional<decltype(virtual_in_->begin())> virtual_in_it_;
-  std::optional<std::vector<memgraph::query::VirtualEdge>> virtual_out_;
-  std::optional<decltype(virtual_out_->begin())> virtual_out_it_;
+  std::span<const memgraph::query::VirtualEdge> virtual_in_;
+  std::span<const memgraph::query::VirtualEdge>::iterator virtual_in_it_;
+  std::span<const memgraph::query::VirtualEdge> virtual_out_;
+  std::span<const memgraph::query::VirtualEdge>::iterator virtual_out_it_;
 };
 
 struct mgp_vertices_iterator {

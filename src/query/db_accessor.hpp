@@ -42,6 +42,7 @@
 #include <cstdint>
 #include <optional>
 #include <ranges>
+#include <span>
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -103,8 +104,8 @@ class SubgraphVertexAccessor final {
 
   VertexAccessor GetVertexAccessor() const;
 
-  std::vector<VirtualEdge> VirtualOutEdges() const;
-  std::vector<VirtualEdge> VirtualInEdges() const;
+  std::span<const VirtualEdge> VirtualOutEdges() const;
+  std::span<const VirtualEdge> VirtualInEdges() const;
 };
 }  // namespace memgraph::query
 

@@ -19,10 +19,12 @@ namespace memgraph::query {
 namespace r = std::ranges;
 namespace rv = r::views;
 
-Graph::Graph(allocator_type alloc) : vertices_(alloc), edges_(alloc), virtual_edges_(alloc) {}
+Graph::Graph(allocator_type alloc) : vertices_(alloc), edges_(alloc), virtual_edge_store_(alloc) {}
 
 Graph::Graph(const Graph &other, allocator_type alloc)
-    : vertices_(other.vertices_, alloc), edges_(other.edges_, alloc), virtual_edges_(other.virtual_edges_, alloc) {}
+    : vertices_(other.vertices_, alloc),
+      edges_(other.edges_, alloc),
+      virtual_edge_store_(other.virtual_edge_store_, alloc) {}
 
 Graph::Graph(Graph &&other) noexcept : Graph(std::move(other), other.get_allocator()) {}
 
@@ -32,7 +34,7 @@ Graph::Graph(const Graph &other)
 Graph::Graph(Graph &&other, allocator_type alloc)
     : vertices_(std::move(other.vertices_), alloc),
       edges_(std::move(other.edges_), alloc),
-      virtual_edges_(std::move(other.virtual_edges_), alloc) {}
+      virtual_edge_store_(std::move(other.virtual_edge_store_), alloc) {}
 
 void Graph::Expand(const Path &path) {
   const auto &path_vertices_ = path.vertices();
@@ -93,21 +95,6 @@ utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() { return edges_; }
 const utils::pmr::unordered_set<VertexAccessor> &Graph::vertices() const { return vertices_; }
 
 const utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() const { return edges_; }
-
-void Graph::InsertVirtualEdge(const VirtualEdge &edge) { virtual_edges_.insert(edge); }
-
-bool Graph::InsertVirtualEdgeIfNew(const VirtualEdge &edge) {
-  auto key = VirtualEdgeKey{edge.From().Gid(), edge.To().Gid(), edge.EdgeTypeName()};
-  if (!virtual_edge_dedup_.insert(std::move(key)).second) return false;
-  virtual_edges_.insert(edge);
-  return true;
-}
-
-bool Graph::ContainsVirtualEdge(const VirtualEdge &edge) const { return virtual_edges_.contains(edge); }
-
-utils::pmr::unordered_set<VirtualEdge> &Graph::virtual_edges() { return virtual_edges_; }
-
-const utils::pmr::unordered_set<VirtualEdge> &Graph::virtual_edges() const { return virtual_edges_; }
 
 auto Graph::get_allocator() const -> allocator_type { return vertices_.get_allocator(); }
 

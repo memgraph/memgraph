@@ -20,11 +20,11 @@ namespace memgraph::query {
 namespace {
 TypedValue GraphEdgesToTypedValue(const Graph &graph, utils::MemoryResource *memory) {
   utils::pmr::vector<TypedValue> edges(memory);
-  edges.reserve(graph.edges().size() + graph.virtual_edges().size());
+  edges.reserve(graph.edges().size() + graph.virtual_edge_store().size());
   for (const auto &e : graph.edges()) {
     edges.push_back(TypedValue(e, memory));
   }
-  for (const auto &ve : graph.virtual_edges()) {
+  for (const auto &ve : graph.virtual_edge_store().edges()) {
     edges.push_back(TypedValue(ve, memory));
   }
   return {std::move(edges), memory};

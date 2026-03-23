@@ -76,12 +76,12 @@ TEST_F(VirtualEdgeTest, GraphStoresVirtualEdgesSeparately) {
   graph.InsertEdge(memgraph::query::EdgeAccessor(*se));
 
   memgraph::query::VirtualEdge ve(v1, v2, "VIRTUAL");
-  graph.InsertVirtualEdge(ve);
-  graph.InsertVirtualEdge(ve);  // duplicate is a no-op
+  graph.virtual_edge_store().Insert(ve);
+  graph.virtual_edge_store().Insert(ve);  // duplicate is a no-op
 
   EXPECT_EQ(graph.edges().size(), 1);
-  EXPECT_EQ(graph.virtual_edges().size(), 1);
-  EXPECT_TRUE(graph.ContainsVirtualEdge(ve));
+  EXPECT_EQ(graph.virtual_edge_store().size(), 1);
+  EXPECT_TRUE(graph.virtual_edge_store().Contains(ve));
 }
 
 TEST_F(VirtualEdgeTest, SubgraphVertexAccessorFiltersVirtualEdges) {
@@ -101,9 +101,9 @@ TEST_F(VirtualEdgeTest, SubgraphVertexAccessorFiltersVirtualEdges) {
   graph.InsertVertex(v3);
 
   // v1->v2, v1->v3, v2->v3
-  graph.InsertVirtualEdge(memgraph::query::VirtualEdge(v1, v2, "A"));
-  graph.InsertVirtualEdge(memgraph::query::VirtualEdge(v1, v3, "B"));
-  graph.InsertVirtualEdge(memgraph::query::VirtualEdge(v2, v3, "C"));
+  graph.virtual_edge_store().Insert(memgraph::query::VirtualEdge(v1, v2, "A"));
+  graph.virtual_edge_store().Insert(memgraph::query::VirtualEdge(v1, v3, "B"));
+  graph.virtual_edge_store().Insert(memgraph::query::VirtualEdge(v2, v3, "C"));
 
   // v1 has 2 out, 0 in
   memgraph::query::SubgraphVertexAccessor sva1(v1, &graph);
@@ -125,7 +125,7 @@ TEST_F(VirtualEdgeTest, SelfLoopAppearsInBothDirections) {
 
   memgraph::query::Graph graph(memgraph::utils::NewDeleteResource());
   graph.InsertVertex(v1);
-  graph.InsertVirtualEdge(memgraph::query::VirtualEdge(v1, v1, "SELF"));
+  graph.virtual_edge_store().Insert(memgraph::query::VirtualEdge(v1, v1, "SELF"));
 
   memgraph::query::SubgraphVertexAccessor sva(v1, &graph);
   EXPECT_EQ(sva.VirtualOutEdges().size(), 1);
