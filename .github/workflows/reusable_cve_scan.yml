@@ -190,6 +190,8 @@ jobs:
         if: ${{ inputs.run_trivy || inputs.run_grype }}
         env:
           COLUMNS: 200
+          RUN_TRIVY: ${{ inputs.run_trivy }}
+          RUN_GRYPE: ${{ inputs.run_grype }}
         run: |
           if [[ "$ARCH" == "amd" ]]; then
               CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-x64"
@@ -200,11 +202,17 @@ jobs:
           curl -L -o cyclonedx "$CYCLONEDXURL"
           chmod +x cyclonedx
 
-          ./cyclonedx merge --input-files \
-            "${{ env.CVE_DIR }}/trivy-summary.json" \
-            "${{ env.CVE_DIR }}/grype-summary.json" \
-            --output-format json \
-            --output-file "${{ env.CVE_DIR }}/combined_report.json"
+          if [[ "$RUN_TRIVY" == "true" && "$RUN_GRYPE" == "true" ]]; then
+            ./cyclonedx merge --input-files \
+              "${{ env.CVE_DIR }}/trivy-summary.json" \
+              "${{ env.CVE_DIR }}/grype-summary.json" \
+              --output-format json \
+              --output-file "${{ env.CVE_DIR }}/combined_report.json"
+          elif [[ "$RUN_TRIVY" == "true" ]]; then
+            cp -v "${{ env.CVE_DIR }}/trivy-summary.json" "${{ env.CVE_DIR }}/combined_report.json"
+          elif [[ "$RUN_GRYPE" == "true" ]]; then
+            cp -v "${{ env.CVE_DIR }}/grype-summary.json" "${{ env.CVE_DIR }}/combined_report.json"
+          fi
 
           rm -v cyclonedx
           source "${{ env.CVE_DIR }}/env/bin/activate"
