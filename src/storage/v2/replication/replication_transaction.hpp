@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <expected>
 #include <optional>
 
 #include "storage/v2/database_protector.hpp"
@@ -68,10 +69,11 @@ class TransactionReplication {
   }
 
   // RPC stream won't be destroyed at the end of this function
-  auto ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool;
+  auto ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args)
+      -> std::expected<void, io::network::ClientCommunicationError>;
 
-  auto FinalizeTransaction(bool const decision, utils::UUID const &storage_uuid, DatabaseProtector const &protector,
-                           uint64_t const durability_commit_timestamp) -> bool;
+  auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseProtector const &protector,
+                           uint64_t durability_commit_timestamp) -> bool;
 
   auto ShouldRunTwoPC() const -> bool { return run_two_phase_commit; }
 

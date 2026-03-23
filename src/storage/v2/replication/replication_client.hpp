@@ -11,9 +11,7 @@
 
 #pragma once
 
-#include "replication/config.hpp"
 #include "replication/replication_client.hpp"
-#include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/commit_ts_info.hpp"
@@ -26,6 +24,7 @@
 #include "utils/uuid.hpp"
 
 #include <concepts>
+#include <expected>
 #include <optional>
 #include <string>
 
@@ -189,8 +188,9 @@ class ReplicationStorageClient {
   [[nodiscard]] bool FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
                                                 uint64_t durability_commit_timestamp) const;
 
-  bool FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
-                                      uint64_t durability_commit_timestamp) const;
+  auto FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
+                                      uint64_t durability_commit_timestamp) const
+      -> std::expected<void, io::network::ClientCommunicationError>;
 
   [[nodiscard]] bool SendFinalizeCommitRpc(bool const decision, utils::UUID const &storage_uuid,
                                            uint64_t const durability_commit_timestamp,
