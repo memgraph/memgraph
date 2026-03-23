@@ -6670,16 +6670,17 @@ class AggregateCursor : public Cursor {
   static void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value,
                                      Graph &projected_graph) {
     if (path_value.type() != TypedValue::Type::Path) {
-      throw QueryRuntimeException("project() with options requires a path as argument 1.");
+      throw QueryRuntimeException("project_virtual() requires a path as argument 1.");
     }
     if (options_value.type() != TypedValue::Type::Map) {
-      throw QueryRuntimeException("project() argument 2 must be a map of options (e.g. {virtualEdgeType: 'TYPE'}).");
+      throw QueryRuntimeException(
+          "project_virtual() argument 2 must be a map of options (e.g. {virtualEdgeType: 'TYPE'}).");
     }
 
     const auto &options = options_value.ValueMap();
     auto it = options.find("virtualEdgeType");
     if (it == options.end() || it->second.type() != TypedValue::Type::String) {
-      throw QueryRuntimeException("project() options map must contain a 'virtualEdgeType' string key.");
+      throw QueryRuntimeException("project_virtual() options map must contain a 'virtualEdgeType' string key.");
     }
     std::string edge_type_name{it->second.ValueString()};
 
