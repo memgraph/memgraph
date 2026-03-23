@@ -1,8 +1,3 @@
-memgraph:
-  # Native HA deployment starts from tests/stress; this path resolves to build/query_modules.
-  args:
-    - "--query-modules-directory=../../build/query_modules"
-
 customWorkloads:
   tests:
     - name: vector-index-concurrent-ops
