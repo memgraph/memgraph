@@ -342,6 +342,20 @@ dump_cluster_setup_debug() {
   set +e
   echo -e "${YELLOW}===== cluster-setup debug dump (on install failure) =====${NC}"
 
+  run_on_minikube_node() {
+    local node="$1"
+    local remote_cmd="$2"
+
+    if ! command -v minikube >/dev/null 2>&1; then
+      return 1
+    fi
+
+    # Support both old/new minikube node-selection flag variants.
+    minikube -p "$PROFILE" ssh -n "$node" -- "$remote_cmd" 2>/dev/null && return 0
+    minikube -p "$PROFILE" ssh --node="$node" -- "$remote_cmd" 2>/dev/null && return 0
+    return 1
+  }
+
   echo -e "${YELLOW}--- cluster-setup job (yaml) ---${NC}"
   kubectl get job cluster-setup -o yaml || true
 
@@ -369,6 +383,10 @@ dump_cluster_setup_debug() {
 
       local pod_node
       pod_node="$(kubectl get "$pod" -o jsonpath='{.spec.nodeName}' 2>/dev/null || true)"
+      local term_cid
+      term_cid="$(kubectl get "$pod" -o jsonpath='{.status.containerStatuses[0].state.terminated.containerID}' 2>/dev/null || true)"
+      term_cid="${term_cid#docker://}"
+
       if [[ -n "$pod_node" ]]; then
         setup_nodes+="${pod_node}"$'\n'
       fi
@@ -378,6 +396,20 @@ dump_cluster_setup_debug() {
 
       echo -e "${YELLOW}--- ${pod} (previous logs) ---${NC}"
       kubectl logs "$pod" --previous --timestamps || true
+
+      if [[ -n "$pod_node" ]]; then
+        echo -e "${YELLOW}--- ${pod} (node runtime diagnostics on ${pod_node}) ---${NC}"
+
+        if [[ -n "$term_cid" ]]; then
+          echo -e "${YELLOW}container id: ${term_cid}${NC}"
+          run_on_minikube_node "$pod_node" "sudo docker inspect ${term_cid} --format 'OOMKilled={{.State.OOMKilled}} Exit={{.State.ExitCode}} Error={{.State.Error}} Started={{.State.StartedAt}} Finished={{.State.FinishedAt}}'" || true
+        else
+          echo -e "${YELLOW}No terminated docker container id found for ${pod}.${NC}"
+        fi
+
+        run_on_minikube_node "$pod_node" "sudo journalctl -u kubelet --since '20 min ago' --no-pager | egrep -i '${pod}|cluster-setup|kill|oom|evict|cgroup|memory|deadline|probe' | tail -n 200" || true
+        run_on_minikube_node "$pod_node" "sudo journalctl -k --since '20 min ago' --no-pager | egrep -i 'oom|out of memory|killed process|cgroup' | tail -n 200" || true
+      fi
     done <<< "$setup_pods"
   fi
 
