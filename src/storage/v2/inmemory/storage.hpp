@@ -178,9 +178,10 @@ class InMemoryStorage final : public Storage {
 
     void CheckForFastDiscardOfDeltas();
 
-    [[nodiscard]] bool HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
+    [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,
-                                                    CommitArgs const &commit_args);
+                                                    CommitArgs const &commit_args)
+        -> std::expected<void, io::network::ClientCommunicationError>;
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;

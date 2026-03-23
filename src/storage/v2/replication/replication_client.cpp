@@ -502,9 +502,10 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   }
 }
 
-bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
+auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
                                                               std::optional<ReplicaStream> &&replica_stream,
-                                                              uint64_t durability_commit_timestamp) const {
+                                                              uint64_t durability_commit_timestamp) const
+    -> std::expected<void, io::network::ClientCommunicationError> {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -526,7 +527,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   });
 
   if (!continue_finalize) {
-    return false;
+    return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
   }
 
   if (!replica_stream || replica_stream->IsDefunct()) {
@@ -535,19 +536,20 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       state = ReplicaState::MAYBE_BEHIND;
     });
     LogRpcFailure();
-    return false;
+    return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
   }
 
   auto task = [this,
                protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
-               durability_commit_timestamp]() mutable -> bool {
+               durability_commit_timestamp]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
       return replica_state_.WithLock(
-          [this, response, &replica_stream_obj, durability_commit_timestamp](auto &state) mutable {
+          [this, response, &replica_stream_obj, durability_commit_timestamp](
+              auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
             replica_stream_obj.reset();
 
             // It doesn't matter whether we started a new txn or not, we can increment here the number of known
@@ -563,12 +565,12 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
             // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
             // MAYBE_BEHIND state if we missed next txn.
             if (state != ReplicaState::REPLICATING) {
-              return false;
+              return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
             }
 
             if (!response.success) {
               state = ReplicaState::MAYBE_BEHIND;
-              return false;
+              return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
             }
 
             auto update_func = [durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
@@ -577,22 +579,29 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
             atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
 
             state = ReplicaState::READY;
-            return true;
+            return {};
           });
-    } catch (const rpc::RpcFailedException &) {
+    } catch (rpc::RpcTimeoutException const &) {
+      replica_state_.WithLock([&replica_stream_obj](auto &state) {
+        replica_stream_obj.reset();
+        state = ReplicaState::MAYBE_BEHIND;
+      });
+      spdlog::error("Couldn't replicate data to {} because timeout occurred.", client_.name_);
+      return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
+    } catch (rpc::GenericRpcFailedException const &) {
       replica_state_.WithLock([&replica_stream_obj](auto &state) {
         replica_stream_obj.reset();
         state = ReplicaState::MAYBE_BEHIND;
       });
       LogRpcFailure();
-      return false;
+      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
     }
   };
 
   if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
     // When in ASYNC mode, we ignore the return value from task() and always return true
     client_.thread_pool_.AddTask(std::move(task));
-    return true;
+    return {};
   }
 
   // If we are in SYNC mode, we return the result of task().
