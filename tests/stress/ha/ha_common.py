@@ -331,6 +331,7 @@ def _run_with_manual_retries(
     auth: tuple[str, str] = ("", ""),
     max_retries: int = 5,
     base_delay: float = 1.0,
+    raise_on_failure: bool = False,
 ) -> _T:
     """Core retry loop for operational queries.
 
@@ -366,6 +367,8 @@ def _run_with_manual_retries(
                 key = (pid, instance_name, protocol.value, auth[0], auth[1])
                 _driver_cache.pop(key, None)
             if attempt == max_retries:
+                if raise_on_failure:
+                    raise
                 print(
                     f"\nWARN: Retriable error after {max_retries} retries (instance={instance_name}, query={query!r}): {e}"
                 )
@@ -388,6 +391,7 @@ def execute_with_manual_retries(
     auth: tuple[str, str] = ("", ""),
     max_retries: int = 5,
     base_delay: float = 1.0,
+    raise_on_failure: bool = False,
 ) -> None:
     _run_with_manual_retries(
         instance_name,
@@ -399,6 +403,7 @@ def execute_with_manual_retries(
         auth=auth,
         max_retries=max_retries,
         base_delay=base_delay,
+        raise_on_failure=raise_on_failure,
     )
 
 
@@ -411,6 +416,7 @@ def execute_and_fetch_with_manual_retries(
     auth: tuple[str, str] = ("", ""),
     max_retries: int = 5,
     base_delay: float = 1.0,
+    raise_on_failure: bool = False,
 ) -> list[dict[str, Any]]:
     return _run_with_manual_retries(
         instance_name,
@@ -422,6 +428,7 @@ def execute_and_fetch_with_manual_retries(
         auth=auth,
         max_retries=max_retries,
         base_delay=base_delay,
+        raise_on_failure=raise_on_failure,
     )
 
 

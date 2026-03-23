@@ -39,7 +39,7 @@ VECTOR_DIMENSIONS = 128
 BATCH_SIZE = 100
 NUM_WORKERS = 4
 
-ITERATIONS = 10_000
+ITERATIONS = 100_000
 NUM_WORKERS_PER_DB = 4
 MAX_TRANSIENT_RETRIES = 30
 
@@ -283,14 +283,21 @@ def verify_counts_match() -> bool:
 
 
 def get_vector_index_names(db_name: str) -> set[str]:
-    rows = execute_and_fetch_with_manual_retries(
-        COORDINATOR,
-        "SHOW VECTOR INDEX INFO;",
-        protocol=Protocol.BOLT_ROUTING,
-        database=db_name,
-        max_retries=10,
-    )
-    return {row.get("index_name") or row.get("name") for row in rows}
+    last_error = None
+    for coord in random.sample(COORDINATORS, len(COORDINATORS)):
+        try:
+            rows = execute_and_fetch_with_manual_retries(
+                coord,
+                "SHOW VECTOR INDEX INFO;",
+                protocol=Protocol.BOLT_ROUTING,
+                database=db_name,
+                max_retries=5,
+                raise_on_failure=True,
+            )
+            return {row.get("index_name") or row.get("name") for row in rows}
+        except Exception as e:
+            last_error = e
+    raise last_error if last_error is not None else RuntimeError("No coordinator available for vector index info query")
 
 
 def verify_vector_edge_indices() -> bool:
