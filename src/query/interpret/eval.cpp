@@ -164,6 +164,10 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       result.emplace(TypedValue::TString("from", ctx_->memory), TypedValue(ve.From(), ctx_->memory));
       result.emplace(TypedValue::TString("to", ctx_->memory), TypedValue(ve.To(), ctx_->memory));
       result.emplace(TypedValue::TString("type", ctx_->memory), TypedValue(ve.EdgeTypeName(), ctx_->memory));
+      for (const auto &[prop_id, prop_value] : ve.Properties()) {
+        result.emplace(TypedValue::TString(dba_->PropertyToName(prop_id), ctx_->memory),
+                       TypedValue(prop_value, GetNameIdMapper(), ctx_->memory));
+      }
       return {result, ctx_->memory};
     }
     case TypedValue::Type::Map: {
@@ -461,7 +465,10 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       if (prop_name == "type") return TypedValue(ve.EdgeTypeName(), ctx_->memory);
       if (prop_name == "from") return TypedValue(ve.From(), ctx_->memory);
       if (prop_name == "to") return TypedValue(ve.To(), ctx_->memory);
-      return TypedValue(ctx_->memory);
+      auto prop_id = dba_->NameToProperty(prop_name);
+      auto prop_value = ve.GetProperty(prop_id);
+      if (prop_value.IsNull()) return TypedValue(ctx_->memory);
+      return TypedValue(std::move(prop_value), GetNameIdMapper(), ctx_->memory);
     }
     case TypedValue::Type::Map: {
       auto &map = expression_result_ptr->ValueMap();
