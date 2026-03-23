@@ -6352,6 +6352,7 @@ class AggregateCursor : public Cursor {
   // this LogicalOp pulls all from the input on it's first pull
   // this switch tracks if this has been performed
   bool pulled_all_input_{false};
+  DbAccessor *db_accessor_{nullptr};
 
   /**
    * Pulls from the input operator until exhausted and aggregates the
@@ -6363,6 +6364,7 @@ class AggregateCursor : public Cursor {
    * aggregation results, and not on the number of inputs.
    */
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
+    db_accessor_ = context->db_accessor;
     ExpressionEvaluator evaluator(frame,
                                   context->symbol_table,
                                   context->evaluation_context,
@@ -6612,8 +6614,7 @@ class AggregateCursor : public Cursor {
     projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
   }
 
-  static void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value,
-                                     Graph &projected_graph) {
+  void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value, Graph &projected_graph) {
     if (path_value.type() != TypedValue::Type::Path) {
       throw QueryRuntimeException("project_virtual() requires a path as argument 1.");
     }
@@ -6644,7 +6645,17 @@ class AggregateCursor : public Cursor {
     projected_graph.InsertVertex(from);
     projected_graph.InsertVertex(to);
 
-    projected_graph.virtual_edge_store().InsertIfNew(VirtualEdge(from, to, std::move(edge_type_name)));
+    VirtualEdge ve(from, to, std::move(edge_type_name));
+
+    auto props_it = options.find("relationshipProperties");
+    if (props_it != options.end() && props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
+      for (const auto &[key, val] : props_it->second.ValueMap()) {
+        auto prop_id = db_accessor_->NameToProperty(std::string(key));
+        ve.SetProperty(prop_id, val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+      }
+    }
+
+    projected_graph.virtual_edge_store().InsertIfNew(std::move(ve));
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not

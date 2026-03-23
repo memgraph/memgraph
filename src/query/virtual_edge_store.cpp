@@ -33,12 +33,12 @@ void VirtualEdgeStore::Insert(const VirtualEdge &edge) {
   IndexEdge(edge);
 }
 
-bool VirtualEdgeStore::InsertIfNew(const VirtualEdge &edge) {
+bool VirtualEdgeStore::InsertIfNew(VirtualEdge edge) {
   auto inserted =
       dedup_.insert(DedupKey{.from = edge.From().Gid(), .to = edge.To().Gid(), .type = edge.EdgeTypeName()}).second;
   if (!inserted) return false;
-  edges_.insert(edge);
   IndexEdge(edge);
+  edges_.insert(std::move(edge));
   return true;
 }
 
