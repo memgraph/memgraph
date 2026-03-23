@@ -46,7 +46,7 @@ on:
         options:
           - :KILL
           - :TERM
-        default: ":KILL"
+        default: :KILL
 
 
   schedule:
