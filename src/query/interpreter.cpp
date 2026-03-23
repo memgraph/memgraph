@@ -6797,6 +6797,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
             {TypedValue("memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
+            {TypedValue("db_memory_tracked"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(db->DbMemoryUsage())))},
             {TypedValue("allocation_limit"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("graph_memory_tracked"),
@@ -6807,9 +6809,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
             {TypedValue("next_session_isolation_level"),
              TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
-            {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))},
-            {TypedValue("db_memory_tracked"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(db->DbMemoryUsage())))}};
+            {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))}};
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
     } break;
