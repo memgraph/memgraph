@@ -37,10 +37,13 @@ RELEASE="memgraph-db"
 DESIRED_NODES=5
 PROFILE="${PROFILE:-minikube}"  # can be overridden via env
 CLUSTER_SETUP_TIMEOUT="${CLUSTER_SETUP_TIMEOUT:-90s}"
+<<<<<<< HEAD
 HELM_CHART_REPO_URL="${HELM_CHART_REPO_URL:-https://github.com/memgraph/helm-charts.git}"
 HELM_CHART_BRANCH="${HELM_CHART_BRANCH:-fix/cluster-setup-flakiness}"
 HELM_CHART_DIR="${HELM_CHART_DIR:-helm-charts}"
 HELM_CHART_PATH="${HELM_CHART_PATH:-${HELM_CHART_DIR}/charts/memgraph-high-availability}"
+=======
+>>>>>>> master
 
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 

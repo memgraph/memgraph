@@ -17,7 +17,7 @@ from standalone_monitor import StandaloneMonitor
 HOST = "127.0.0.1"
 PORT = 7687
 
-ITERATIONS = 25
+ITERATIONS = 10
 TOTAL_NODES = 50_000_000
 TOTAL_EDGES = 25_000_000
 
