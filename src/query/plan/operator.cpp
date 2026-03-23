@@ -9893,11 +9893,17 @@ class ScanParallelCursor : public Cursor {
   // When nested (e.g. ScanParallel(p2) outer, ScanParallel(p) inner via AggregateParallel),
   // both run on the main thread. Without per-instance keying, the inner Pull overwrites
   // tl_gen, destroying the outer coroutine frame while it is live → UB / SIGSEGV.
+  //
+  // Stale-entry cleanup: branches never yield so by the time Pull() is called again on
+  // the same cursor the previous coroutine is always done. We erase it first so the map
+  // stays bounded to the number of currently-active (running) cursors rather than
+  // accumulating one dead entry per cursor per thread across queries.
   PullAwaitable::ResumeAwaitable Pull(Frame &f, ExecutionContext &ctx) override {
     thread_local std::unordered_map<Cursor *, PullAwaitable> tl_gen_map;
-    auto &tl_gen = tl_gen_map[this];
-    tl_gen = DoPull(f, ctx);
-    return tl_gen.Resume();
+    // Erase the previous (done) entry for this cursor before inserting a new one.
+    tl_gen_map.erase(this);
+    auto [it, _] = tl_gen_map.emplace(this, DoPull(f, ctx));
+    return it->second.Resume();
   }
 
   PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
