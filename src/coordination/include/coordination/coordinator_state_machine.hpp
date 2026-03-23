@@ -105,6 +105,8 @@ class CoordinatorStateMachine final : public state_machine {
   auto GetMaxFailoverReplicaLag() const -> uint64_t;
   auto GetMaxReplicaReadLag() const -> uint64_t;
   auto GetDeltasBatchProgressSize() const -> uint64_t;
+  auto GetInstanceDownTimeoutSec() const -> std::chrono::seconds;
+  auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
 
  private:
   bool HandleMigration(LogStoreVersion stored_version);

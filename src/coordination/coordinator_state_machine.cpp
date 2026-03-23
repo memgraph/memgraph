@@ -174,6 +174,8 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
   add_if_set(kMaxFailoverLagOnReplica, delta_state.max_failover_replica_lag_);
   add_if_set(kMaxReplicaReadLag, delta_state.max_replica_read_lag_);
   add_if_set(kDeltasBatchProgressSize, delta_state.deltas_batch_progress_size_);
+  add_if_set(kInstanceDownTimeoutSec, delta_state.instance_down_timeout_sec_);
+  add_if_set(kInstanceHealthCheckFreqSec, delta_state.instance_health_check_frequency_sec_);
 
   return CreateLog(delta_state_json);
 }
@@ -226,6 +228,16 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
       auto const deltas_batch_progress_size =
           json.value(kDeltasBatchProgressSize.data(), replication_coordination_glue::kDefaultDeltasBatchProgressSize);
       delta_state.deltas_batch_progress_size_ = deltas_batch_progress_size;
+    }
+
+    if (json.contains(kInstanceDownTimeoutSec.data())) {
+      auto const instance_down_timeout_sec = json.value(kInstanceDownTimeoutSec.data(), uint32_t{5});
+      delta_state.instance_down_timeout_sec_ = instance_down_timeout_sec;
+    }
+
+    if (json.contains(kInstanceHealthCheckFreqSec.data())) {
+      auto const instance_health_check_frequency_sec = json.value(kInstanceHealthCheckFreqSec.data(), uint32_t{1});
+      delta_state.instance_health_check_frequency_sec_ = instance_health_check_frequency_sec;
     }
 
     return delta_state;
@@ -421,6 +433,14 @@ auto CoordinatorStateMachine::GetMaxReplicaReadLag() const -> uint64_t { return 
 
 auto CoordinatorStateMachine::GetDeltasBatchProgressSize() const -> uint64_t {
   return cluster_state_.GetDeltasBatchProgressSize();
+}
+
+auto CoordinatorStateMachine::GetInstanceDownTimeoutSec() const -> std::chrono::seconds {
+  return cluster_state_.GetInstanceDownTimeoutSec();
+}
+
+auto CoordinatorStateMachine::GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds {
+  return cluster_state_.GetInstanceHealthCheckFrequencySec();
 }
 
 }  // namespace memgraph::coordination

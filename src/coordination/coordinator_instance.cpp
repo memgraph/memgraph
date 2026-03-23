@@ -102,9 +102,7 @@ using nuraft::ptr;
 using namespace std::chrono_literals;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
-    : instance_down_timeout_sec_(config.instance_down_timeout_sec),
-      instance_health_check_frequency_sec_(config.instance_health_check_frequency_sec),
-      coordinator_management_server_{ManagementServerConfig{
+    : coordinator_management_server_{ManagementServerConfig{
           io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}}} {
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
@@ -251,7 +249,8 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
       return "unknown";
     }
 
-    return raft_state_->CoordLastSuccRespMs(coordinator_id) < instance_down_timeout_sec_ ? kUp.data() : kDown.data();
+    return raft_state_->CoordLastSuccRespMs(coordinator_id) < raft_state_->GetInstanceDownTimeoutSec() ? kUp.data()
+                                                                                                       : kDown.data();
   };
 
   auto const coordinators = raft_state_->GetCoordinatorInstancesAux();
@@ -494,8 +493,10 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   }
 
   std::ranges::for_each(raft_state_data_instances, [this](auto const &data_instance) {
-    auto &instance = repl_instances_.emplace_back(
-        data_instance.config, this, instance_down_timeout_sec_, instance_health_check_frequency_sec_);
+    auto &instance = repl_instances_.emplace_back(data_instance.config,
+                                                  this,
+                                                  raft_state_->GetInstanceDownTimeoutSec(),
+                                                  raft_state_->GetInstanceHealthCheckFrequencySec());
     instance.StartStateCheck();
   });
 
@@ -780,8 +781,8 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
-  auto *new_instance =
-      &repl_instances_.emplace_back(config, this, instance_down_timeout_sec_, instance_health_check_frequency_sec_);
+  auto *new_instance = &repl_instances_.emplace_back(
+      config, this, raft_state_->GetInstanceDownTimeoutSec(), raft_state_->GetInstanceHealthCheckFrequencySec());
 
   // We do this here not under callbacks because we need to add replica to the current main.
   if (!new_instance->SendRpc<DemoteMainToReplicaRpc>(config.replication_client_info, curr_main_uuid)) {
@@ -1077,7 +1078,9 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
                                     kSyncFailoverOnly,
                                     kMaxFailoverLagOnReplica,
                                     kMaxReplicaReadLag,
-                                    kDeltasBatchProgressSize};
+                                    kDeltasBatchProgressSize,
+                                    kInstanceDownTimeoutSec,
+                                    kInstanceHealthCheckFreqSec};
       !std::ranges::contains(settings, setting_name)) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
@@ -1094,6 +1097,10 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
       delta_state.max_replica_read_lag_ = utils::ParseStringToUint64(setting_value);
     } else if (setting_name == kDeltasBatchProgressSize) {
       delta_state.deltas_batch_progress_size_ = utils::ParseStringToUint64(setting_value);
+    } else if (setting_name == kInstanceDownTimeoutSec) {
+      delta_state.instance_down_timeout_sec_ = utils::ParseStringToUint32(setting_value);
+    } else if (setting_name == kInstanceHealthCheckFreqSec) {
+      delta_state.instance_health_check_frequency_sec_ = utils::ParseStringToUint32(setting_value);
     }
   } catch (std::exception const &e) {
     spdlog::error("Error occurred while trying to update {} to {}. Error: {}", setting_name, setting_value, e.what());
@@ -1505,7 +1512,10 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
       std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxFailoverReplicaLag())},
       std::pair{std::string{kMaxReplicaReadLag}, std::to_string(raft_state_->GetMaxReplicaReadLag())},
-      std::pair{std::string{kDeltasBatchProgressSize}, std::to_string(raft_state_->GetDeltasBatchProgressSize())}};
+      std::pair{std::string{kDeltasBatchProgressSize}, std::to_string(raft_state_->GetDeltasBatchProgressSize())},
+      std::pair{std::string{kInstanceDownTimeoutSec}, std::to_string(raft_state_->GetInstanceDownTimeoutSec().count())},
+      std::pair{std::string{kInstanceHealthCheckFreqSec},
+                std::to_string(raft_state_->GetInstanceHealthCheckFrequencySec().count())}};
   return settings;
 }
 
@@ -1557,11 +1567,12 @@ auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, st
 }
 
 auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
-  return nlohmann::json({{"cluster_size", raft_state_->GetCoordinatorInstancesContext().size()},
-                         {"enabled_reads_on_main", raft_state_->GetEnabledReadsOnMain()},
-                         {"sync_failover_only", raft_state_->GetSyncFailoverOnly()},
-                         {"instance_down_timeout_sec", instance_down_timeout_sec_.count()},
-                         {"instance_health_check_frequency_sec", instance_health_check_frequency_sec_.count()}});
+  return nlohmann::json(
+      {{"cluster_size", raft_state_->GetCoordinatorInstancesContext().size()},
+       {"enabled_reads_on_main", raft_state_->GetEnabledReadsOnMain()},
+       {"sync_failover_only", raft_state_->GetSyncFailoverOnly()},
+       {"instance_down_timeout_sec", raft_state_->GetInstanceDownTimeoutSec().count()},
+       {"instance_health_check_frequency_sec", raft_state_->GetInstanceHealthCheckFrequencySec().count()}});
 }
 
 auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> UpdateConfigStatus {

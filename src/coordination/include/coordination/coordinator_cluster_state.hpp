@@ -44,6 +44,8 @@ struct CoordinatorClusterStateDelta {
   std::optional<uint64_t> max_failover_replica_lag_;
   std::optional<uint64_t> max_replica_read_lag_;
   std::optional<uint64_t> deltas_batch_progress_size_;
+  std::optional<uint32_t> instance_down_timeout_sec_;
+  std::optional<uint32_t> instance_health_check_frequency_sec_;
 
   bool operator==(const CoordinatorClusterStateDelta &other) const = default;
 };
@@ -91,6 +93,10 @@ class CoordinatorClusterState {
 
   auto GetDeltasBatchProgressSize() const -> uint64_t;
 
+  auto GetInstanceDownTimeoutSec() const -> std::chrono::seconds;
+
+  auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
+
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
   // Setter function used on parsing data from json
@@ -113,6 +119,10 @@ class CoordinatorClusterState {
 
   void SetDeltasBatchProgressSize(uint64_t deltas_batch_progress_size);
 
+  void SetInstanceDownTimeoutSec(uint32_t timeout_sec);
+
+  void SetInstanceHealthCheckFreqSec(uint32_t check_freq_sec);
+
   friend bool operator==(const CoordinatorClusterState &lhs, const CoordinatorClusterState &rhs) {
     if (&lhs == &rhs) {
       return true;
@@ -126,14 +136,18 @@ class CoordinatorClusterState {
                     lhs.sync_failover_only_,
                     lhs.max_failover_replica_lag_,
                     lhs.max_replica_read_lag_,
-                    lhs.deltas_batch_progress_size_) == std::tie(rhs.data_instances_,
-                                                                 rhs.coordinator_instances_,
-                                                                 rhs.current_main_uuid_,
-                                                                 rhs.enabled_reads_on_main_,
-                                                                 rhs.sync_failover_only_,
-                                                                 rhs.max_failover_replica_lag_,
-                                                                 rhs.max_replica_read_lag_,
-                                                                 rhs.deltas_batch_progress_size_);
+                    lhs.deltas_batch_progress_size_,
+                    lhs.instance_down_timeout_sec_,
+                    lhs.instance_health_check_frequency_sec_) == std::tie(rhs.data_instances_,
+                                                                          rhs.coordinator_instances_,
+                                                                          rhs.current_main_uuid_,
+                                                                          rhs.enabled_reads_on_main_,
+                                                                          rhs.sync_failover_only_,
+                                                                          rhs.max_failover_replica_lag_,
+                                                                          rhs.max_replica_read_lag_,
+                                                                          rhs.deltas_batch_progress_size_,
+                                                                          rhs.instance_down_timeout_sec_,
+                                                                          rhs.instance_health_check_frequency_sec_);
   }
 
  private:
@@ -153,6 +167,10 @@ class CoordinatorClusterState {
   // table is requested.
   uint64_t max_replica_read_lag_{std::numeric_limits<uint64_t>::max()};
   uint64_t deltas_batch_progress_size_{replication_coordination_glue::kDefaultDeltasBatchProgressSize};
+  // How long to wait before instance is considered down
+  uint32_t instance_down_timeout_sec_{5};
+  // How often should leader coordinator ping data instances
+  uint32_t instance_health_check_frequency_sec_{1};
   mutable utils::ResourceLock app_lock_;
 };
 

@@ -71,16 +71,13 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   std::shared_ptr<CoordinatorState> coord_state;
-  coord_state = std::make_shared<CoordinatorState>(
-      CoordinatorInstanceInitConfig{.coordinator_id = 1,
-                                    .coordinator_port = 20'000,
-                                    .bolt_port = 7689,
-                                    .management_port = 10'000,
-                                    .durability_dir = "coord_state_dir",
-                                    .coordinator_hostname = "localhost",
-                                    .nuraft_log_file = "test.log",
-                                    .instance_down_timeout_sec = std::chrono::seconds(5),
-                                    .instance_health_check_frequency_sec = std::chrono::seconds(1)});
+  coord_state = std::make_shared<CoordinatorState>(CoordinatorInstanceInitConfig{.coordinator_id = 1,
+                                                                                 .coordinator_port = 20'000,
+                                                                                 .bolt_port = 7689,
+                                                                                 .management_port = 10'000,
+                                                                                 .durability_dir = "coord_state_dir",
+                                                                                 .coordinator_hostname = "localhost",
+                                                                                 .nuraft_log_file = "test.log"});
 #endif
 
   memgraph::requests::Init();
