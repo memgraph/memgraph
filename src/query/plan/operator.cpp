@@ -6643,7 +6643,7 @@ class AggregateCursor : public Cursor {
     projected_graph.InsertVertex(from);
     projected_graph.InsertVertex(to);
 
-    projected_graph.InsertVirtualEdgeIfNew(VirtualEdge(from, to, std::move(edge_type_name)));
+    projected_graph.virtual_edge_store().InsertIfNew(VirtualEdge(from, to, std::move(edge_type_name)));
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
@@ -10680,8 +10680,8 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             for (auto &edge : other_graph.edges()) {
               main_graph.InsertEdge(std::move(edge));
             }
-            for (auto &ve : other_graph.virtual_edges()) {
-              main_graph.InsertVirtualEdge(std::move(ve));
+            for (auto &ve : other_graph.virtual_edge_store().edges()) {
+              main_graph.virtual_edge_store().Insert(std::move(ve));
             }
             break;
           }
@@ -10766,8 +10766,8 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           for (auto &edge : other_graph.edges()) {
             main_graph.InsertEdge(std::move(edge));
           }
-          for (auto &ve : other_graph.virtual_edges()) {
-            main_graph.InsertVirtualEdge(std::move(ve));
+          for (auto &ve : other_graph.virtual_edge_store().edges()) {
+            main_graph.virtual_edge_store().Insert(std::move(ve));
           }
           break;
         }

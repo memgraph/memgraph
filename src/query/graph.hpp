@@ -12,11 +12,12 @@
 #pragma once
 
 #include <functional>
+#include <span>
 #include <utility>
 #include "query/edge_accessor.hpp"
 #include "query/typed_value.hpp"
 #include "query/vertex_accessor.hpp"
-#include "query/virtual_edge.hpp"
+#include "query/virtual_edge_store.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_set.hpp"
@@ -98,15 +99,9 @@ class Graph final {
   /** Return the out edges of the given vertex. */
   std::vector<EdgeAccessor> OutEdges(VertexAccessor vertex_accessor);
 
-  void InsertVirtualEdge(const VirtualEdge &edge);
+  VirtualEdgeStore &virtual_edge_store() { return virtual_edge_store_; }
 
-  // Insert a virtual edge only if no edge with the same (from, to, type) already exists. Returns true if inserted.
-  bool InsertVirtualEdgeIfNew(const VirtualEdge &edge);
-
-  bool ContainsVirtualEdge(const VirtualEdge &edge) const;
-
-  utils::pmr::unordered_set<VirtualEdge> &virtual_edges();
-  const utils::pmr::unordered_set<VirtualEdge> &virtual_edges() const;
+  const VirtualEdgeStore &virtual_edge_store() const { return virtual_edge_store_; }
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
   Graph &operator=(const Graph &) = default;
@@ -128,26 +123,7 @@ class Graph final {
   utils::pmr::unordered_set<VertexAccessor> vertices_;
   // Contains all the edges in the Graph
   utils::pmr::unordered_set<EdgeAccessor> edges_;
-  // Contains virtual (derived) edges created by project_virtual()
-  utils::pmr::unordered_set<VirtualEdge> virtual_edges_;
-
-  struct VirtualEdgeKey {
-    storage::Gid from;
-    storage::Gid to;
-    std::string type;
-    bool operator==(const VirtualEdgeKey &) const = default;
-  };
-
-  struct VirtualEdgeKeyHash {
-    size_t operator()(const VirtualEdgeKey &k) const {
-      auto h = std::hash<uint64_t>{}(k.from.AsUint());
-      h ^= std::hash<uint64_t>{}(k.to.AsUint()) + 0x9e3779b9 + (h << 6) + (h >> 2);
-      h ^= std::hash<std::string>{}(k.type) + 0x9e3779b9 + (h << 6) + (h >> 2);
-      return h;
-    }
-  };
-
-  std::unordered_set<VirtualEdgeKey, VirtualEdgeKeyHash> virtual_edge_dedup_;
+  VirtualEdgeStore virtual_edge_store_;
 };
 
 }  // namespace memgraph::query
