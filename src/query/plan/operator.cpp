@@ -7526,10 +7526,15 @@ class DistinctParallelCursor : public Cursor {
       co_return false;
     }
 
+    // Compact globally-unique frames to the front of local_cache_.
+    // unique_count_ ends up as the number of rows that passed global dedup.
     auto uniqueness = shared_state_->TryInsertBatch(local_batch_);
     for (size_t i = 0; i < uniqueness.size(); ++i) {
-      if (unique_count_ != i) {
-        std::swap(local_cache_[unique_count_], local_cache_[i]);
+      if (uniqueness[i]) {
+        if (unique_count_ != i) {
+          std::swap(local_cache_[unique_count_], local_cache_[i]);
+        }
+        ++unique_count_;
       }
     }
 
@@ -9880,30 +9885,32 @@ class ScanParallelCursor : public Cursor {
   ScanParallelCursor(const ScanParallel &self, utils::MemoryResource *mem, TChunksFun get_chunks)
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), get_chunks_(std::move(get_chunks)) {}
 
-  // ScanParallelCursor is shared across all parallel branches: each branch calls Pull()
-  // with its own frame/context. We need a fresh one-shot coroutine per call (the base
-  // Cursor::Pull() reuses gen_, baking in the first caller's frame), but gen_ is a shared
-  // member — writing to it from multiple threads concurrently would destroy a running
-  // coroutine frame. Use thread-local storage so each branch thread owns its generator
-  // independently. Branches never yield (yield_requested=nullptr), so each runs to
-  // completion on one thread — thread-local is safe.
+  // ScanParallelCursor is shared across all parallel branches. Each branch calls Pull()
+  // with its own ExecutionContext. gen_map_ holds one long-lived DoPull generator per
+  // context: the generator loops, assigning one chunk per co_yield. Pull() emplaces on
+  // first call and reuses the suspended generator on subsequent calls (one per chunk).
+  // Reset() clears gen_map_, destroying all generators when the scan is rewound.
   //
-  // Keyed by cursor instance (this) to prevent aliasing: two ScanParallelByLabel cursors
-  // produce the same TChunksFun lambda type and thus the same thread_local instantiation.
-  // When nested (e.g. ScanParallel(p2) outer, ScanParallel(p) inner via AggregateParallel),
-  // both run on the main thread. Without per-instance keying, the inner Pull overwrites
-  // tl_gen, destroying the outer coroutine frame while it is live → UB / SIGSEGV.
-  //
-  // Stale-entry cleanup: branches never yield so by the time Pull() is called again on
-  // the same cursor the previous coroutine is always done. We erase it first so the map
-  // stays bounded to the number of currently-active (running) cursors rather than
-  // accumulating one dead entry per cursor per thread across queries.
+  // Keyed by &ctx (not `this`) to prevent aliasing: two ScanParallelCursors of the same
+  // TChunksFun type share the same template instantiation, so keying by `this` would
+  // allow the inner cursor's emplace to collide with the outer one in nested parallel scans.
   PullAwaitable::ResumeAwaitable Pull(Frame &f, ExecutionContext &ctx) override {
-    thread_local std::unordered_map<Cursor *, PullAwaitable> tl_gen_map;
-    // Erase the previous (done) entry for this cursor before inserting a new one.
-    tl_gen_map.erase(this);
-    auto [it, _] = tl_gen_map.emplace(this, DoPull(f, ctx));
-    return it->second.Resume();
+    // DoPull is a long-lived generator: each co_yield assigns one chunk, then suspends.
+    // Pull() is called once per chunk by the branch cursor's loop. We emplace on first
+    // call (creates the generator) and reuse on subsequent calls (resumes the suspended
+    // generator to get the next chunk). Erasing on each call would destroy the coroutine
+    // frame mid-iteration.
+    // Keyed by &ctx (not `this`) so two ScanParallelCursors of the same template type
+    // don't collide when both run on the same thread (e.g. nested parallel scans).
+    PullAwaitable *gen = nullptr;
+    {
+      // TODO: This is correct, but a thread local cache would be better. The issue with that is that
+      // a thread can encounter mutiple scan parallel cursors. In addition cleanup is much harder.
+      auto l = std::unique_lock{gen_map_mutex_};
+      auto [it, _] = gen_map_.emplace(&ctx, DoPull(f, ctx));
+      gen = &it->second;
+    }
+    return gen->Resume();
   }
 
   PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
@@ -9916,57 +9923,62 @@ class ScanParallelCursor : public Cursor {
     size_t index = 0;
     uint64_t current_batch = 0;
 
-    {
-      const std::unique_lock lock(mutex_);
-      if (all_pulled_) co_return false;  // Everything was pulled
-      if (index_ == 0 || index_ >= self_.num_threads_) {
-        if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
-        chunks_.reset();
-        // Disable yielding for the duration of the input pull: ScanParallelCursor is shared across
-        // branches, so gen_ may be replaced by another branch while we are suspended. If we yielded
-        // here, the inner coroutine's continuation_ would point to our (soon-to-be-destroyed) frame.
-        // Mirroring the pattern used in EvaluatePatternFilterCursor.
-        auto *saved_yield = context.stopping_context.yield_requested;
-        auto *saved_handle_ptr = context.suspended_task_handle_ptr;
-        context.stopping_context.yield_requested = nullptr;
-        context.suspended_task_handle_ptr = nullptr;
-        auto input_ra = input_cursor_->Pull(*frame_, context);
-        const bool res = co_await input_ra;
-        context.stopping_context.yield_requested = saved_yield;
-        context.suspended_task_handle_ptr = saved_handle_ptr;
-        if (!res) {
-          all_pulled_ = true;
-          co_return false;
+    while (true) {
+      {
+        const std::unique_lock lock(mutex_);
+        if (all_pulled_) co_return false;  // Everything was pulled
+        if (index_ == 0 || index_ >= self_.num_threads_) {
+          if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+          chunks_.reset();
+          // Disable yielding for the duration of the input pull: ScanParallelCursor is shared across
+          // branches, so gen_ may be replaced by another branch while we are suspended. If we yielded
+          // here, the inner coroutine's continuation_ would point to our (soon-to-be-destroyed) frame.
+          // Mirroring the pattern used in EvaluatePatternFilterCursor.
+          auto *saved_yield = context.stopping_context.yield_requested;
+          auto *saved_handle_ptr = context.suspended_task_handle_ptr;
+          context.stopping_context.yield_requested = nullptr;
+          context.suspended_task_handle_ptr = nullptr;
+          auto input_ra = input_cursor_->Pull(*frame_, context);
+          const bool res = co_await input_ra;
+          context.stopping_context.yield_requested = saved_yield;
+          context.suspended_task_handle_ptr = saved_handle_ptr;
+          if (!res) {
+            all_pulled_ = true;
+            co_return false;
+          }
+          index_ = 0;
+          ++batch_version_;  // New input batch - caches need to be cleared
+          chunks_ = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
         }
-        index_ = 0;
-        ++batch_version_;  // New input batch - caches need to be cleared
-        chunks_ = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
+        current_batch = batch_version_;
+        frame = *frame_;  // Copy the filled frame
+        chunks = chunks_;
+        index = index_++;
       }
-      current_batch = batch_version_;
-      frame = *frame_;  // Copy the filled frame
-      chunks = chunks_;
-      index = index_++;
-    }
 
-    // Clear caches if this branch hasn't seen this batch yet.
-    // This is critical for correctness: when UNWIND produces a new value, each branch
-    // must re-evaluate expressions like "IN [0, multiplier]" with the new value.
-    // Each branch's FrameChangeCollector tracks the last batch it saw.
-    if (context.frame_change_collector) {
-      context.frame_change_collector->ClearCachesIfBatchChanged(current_batch);
-    }
+      // Clear caches if this branch hasn't seen this batch yet.
+      // This is critical for correctness: when UNWIND produces a new value, each branch
+      // must re-evaluate expressions like "IN [0, multiplier]" with the new value.
+      // Each branch's FrameChangeCollector tracks the last batch it saw.
+      if (context.frame_change_collector) {
+        context.frame_change_collector->ClearCachesIfBatchChanged(current_batch);
+      }
 
-    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    ParallelStateOnFrame::PushToFrame(
-        frame_writer, context.evaluation_context.memory, self_.state_symbol_, chunks, index);
-    co_yield true;
-    co_return false;
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      ParallelStateOnFrame::PushToFrame(
+          frame_writer, context.evaluation_context.memory, self_.state_symbol_, chunks, index);
+      co_yield true;
+    }
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
     Cursor::Reset();
+    {
+      const std::unique_lock lock(gen_map_mutex_);
+      gen_map_.clear();
+    }
     const std::unique_lock lock(mutex_);
     index_ = 0;
     chunks_.reset();
@@ -9976,7 +9988,8 @@ class ScanParallelCursor : public Cursor {
   }
 
  private:
-  mutable std::mutex mutex_;
+  mutable std::mutex mutex_;          // Guards shared scan state: index_, chunks_, frame_, all_pulled_
+  mutable std::mutex gen_map_mutex_;  // Guards gen_map_ only; held briefly (emplace + pointer read)
   size_t index_{0};
   std::shared_ptr<std::invoke_result_t<TChunksFun, Frame &, ExecutionContext &>> chunks_;
   const ScanParallel &self_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
@@ -9987,6 +10000,9 @@ class ScanParallelCursor : public Cursor {
   // Tracks input batch version. Incremented when new input is pulled from upstream (e.g., UNWIND).
   // Used to signal branch collectors to clear their caches when input changes.
   uint64_t batch_version_{0};
+  // Long-lived generator per branch (keyed by ExecutionContext*). Each generator loops,
+  // assigning one chunk per co_yield. Pull() emplaces on first call and reuses on subsequent calls.
+  std::unordered_map<ExecutionContext *, PullAwaitable> gen_map_;
 };
 #endif
 
