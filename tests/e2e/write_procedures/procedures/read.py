@@ -38,6 +38,17 @@ def subgraph_get_out_edges(ctx: mgp.ProcCtx, vertex: mgp.Vertex) -> mgp.Record(e
 
 
 @mgp.read_proc
+def subgraph_edge_info(
+    ctx: mgp.ProcCtx, vertex: mgp.Vertex
+) -> mgp.Record(edge_type=str, weight=mgp.Nullable[mgp.Number]):
+    records = []
+    for edge in vertex.out_edges:
+        weight = edge.properties.get("weight", None)
+        records.append(mgp.Record(edge_type=edge.type.name, weight=weight))
+    return records
+
+
+@mgp.read_proc
 def subgraph_get_in_edges(ctx: mgp.ProcCtx, vertex: mgp.Vertex) -> mgp.Record(edge=mgp.Edge):
     return [mgp.Record(edge=edge) for edge in vertex.in_edges]
 
