@@ -423,4 +423,54 @@ TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOrderByBoth) {
       << "OrderBy should be eliminated (equality on a + range on b, ORDER BY a, b)";
 }
 
+// Test 16: Equality-only filter - WHERE n.prop = 5 ORDER BY n.prop with :L(prop) index
+// With equality, all rows have the same property value, so ORDER BY is trivially satisfied.
+TYPED_TEST(OrderByIndexTest, EqualityOnlyElimination) {
+  FakeDbAccessor dba;
+  const auto label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (equality-only, trivially sorted)";
+}
+
+// Test 17: Multiple MATCH with different symbols - ORDER BY n.prop should not match m's scan
+// MATCH (n:L) WHERE n.prop > 5 MATCH (m:L) WHERE m.prop > 3 ORDER BY n.prop RETURN n, m
+// The second ScanAll (for m) should not falsely eliminate ORDER BY.
+TYPED_TEST(OrderByIndexTest, MultiMatchDifferentSymbols) {
+  FakeDbAccessor dba;
+  const auto label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                   MATCH(PATTERN(NODE("m", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "m", property.second), LITERAL(3))),
+                                   RETURN("n", "m", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // The plan should use an index scan, and the ORDER BY on n.prop should be eliminated
+  // because n's scan provides ordering, regardless of m's scan being present.
+  // Note: m's scan is above n's in the plan tree (it was planned second), so there's a
+  // Cartesian or nested loop between OrderBy and n's ScanAll — this blocks elimination.
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (second MATCH creates Cartesian between OrderBy and n's scan)";
+}
+
 }  // namespace

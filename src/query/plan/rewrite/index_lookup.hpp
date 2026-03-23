@@ -884,6 +884,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::unordered_set<Symbol> additional_bound_symbols_;
 
   // ORDER BY elimination state
+  // Lifetime: pending_order_by_ is set in PreVisit(OrderBy) and cleared in PostVisit(OrderBy).
+  // CheckOrderByElimination uses ctx.op only during the tree walk between these two visits,
+  // so the OrderBy node is guaranteed to be alive and in the tree.
   struct OrderByContext {
     OrderBy *op = nullptr;
     Symbol scan_symbol;                                 // symbol all ORDER BY PropertyLookups reference
@@ -992,9 +995,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // The ORDER BY symbol must match the scan symbol.
     // We compare by name because the ORDER BY identifier and the scan output symbol may
     // have different positions in the symbol table (e.g., RETURN creates a new scope).
-    // Name-only comparison is safe here because Produce is excluded from the order-preserving
-    // whitelist below — any WITH clause (which can remap names, e.g. WITH a AS b, b AS a)
-    // introduces a Produce between OrderBy and ScanAll, blocking elimination.
+    // Name-only comparison is safe here because Produce (the only operator that can remap
+    // names, e.g. WITH a AS b) is checked via ProduceRenamesVariable below — if a Produce
+    // renames our target variable, elimination is blocked.
+    // INVARIANT: No operator other than Produce can introduce name aliasing. If a new
+    // operator gains this ability, it must be handled in the order-preserving walk below.
     if (ctx.scan_symbol.name() != scan_symbol.name()) return;
 
     // The new scan must be ScanAllByLabelProperties
