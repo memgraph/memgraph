@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,9 +45,13 @@ struct KafkaStream {
 
   std::expected<void, std::string> SetStreamOffset(int64_t offset);
 
+ public:
+  void SetArenaIdx(unsigned idx) noexcept { arena_idx_ = idx; }
+
  private:
   using Consumer = integrations::kafka::Consumer;
   std::optional<Consumer> consumer_;
+  unsigned arena_idx_{0};
 };
 
 void to_json(nlohmann::json &data, KafkaStream::StreamInfo &&info);
@@ -79,9 +83,13 @@ struct PulsarStream {
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
              ConsumerFunction<Message> consumer_function) const;
 
+ public:
+  void SetArenaIdx(unsigned idx) noexcept { arena_idx_ = idx; }
+
  private:
   using Consumer = integrations::pulsar::Consumer;
   std::optional<Consumer> consumer_;
+  unsigned arena_idx_{0};
 };
 
 void to_json(nlohmann::json &data, PulsarStream::StreamInfo &&info);

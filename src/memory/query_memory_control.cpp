@@ -13,6 +13,10 @@
 
 #include "query_memory_control.hpp"
 
+#if USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
+
 #include "utils/logging.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/resource_monitoring.hpp"
@@ -137,23 +141,38 @@ ThreadTrackingBlocker::~ThreadTrackingBlocker() {
 #endif
 
 #if USE_JEMALLOC
-CrossThreadMemoryTracking::CrossThreadMemoryTracking()
-    : query_tracker(GetQueryTracker()), user_tracker(GetUserTracker()) {}
-void CrossThreadMemoryTracking::StartTracking() const {
+CrossThreadMemoryTracking::CrossThreadMemoryTracking(unsigned arena_idx)
+    : query_tracker(GetQueryTracker()), user_tracker(GetUserTracker()), db_arena_idx(arena_idx) {}
+
+void CrossThreadMemoryTracking::StartTracking() {
   if (query_tracker) memgraph::memory::StartTrackingCurrentThread(query_tracker);
   if (user_tracker) memgraph::memory::StartTrackingUserResource(user_tracker);
+  if (db_arena_idx != 0) {
+    size_t sz = sizeof(unsigned);
+    je_mallctl("thread.arena", &prev_arena_, &sz, &db_arena_idx, sz);
+  }
 }
-void CrossThreadMemoryTracking::StopTracking() const {
+
+void CrossThreadMemoryTracking::StopTracking() {
   if (query_tracker) memgraph::memory::StopTrackingCurrentThread();
   if (user_tracker) memgraph::memory::StopTrackingUserResource();
+  if (db_arena_idx != 0) {
+    je_mallctl("thread.arena", nullptr, nullptr, &prev_arena_, sizeof(unsigned));
+  }
 }
+
 CrossThreadMemoryTracking::CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept
     : query_tracker(std::exchange(other.query_tracker, nullptr)),
-      user_tracker(std::exchange(other.user_tracker, nullptr)) {}
+      user_tracker(std::exchange(other.user_tracker, nullptr)),
+      db_arena_idx(std::exchange(other.db_arena_idx, 0u)),
+      prev_arena_(std::exchange(other.prev_arena_, 0u)) {}
+
 CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemoryTracking &&other) noexcept {
   if (this != &other) {
     query_tracker = std::exchange(other.query_tracker, nullptr);
     user_tracker = std::exchange(other.user_tracker, nullptr);
+    db_arena_idx = std::exchange(other.db_arena_idx, 0u);
+    prev_arena_ = std::exchange(other.prev_arena_, 0u);
   }
   return *this;
 }

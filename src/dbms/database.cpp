@@ -66,6 +66,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
   config.arena_idx = ArenaIdx();
+  streams_.SetArenaIdx(ArenaIdx());
 
 #if USE_JEMALLOC
   // Pin the after-commit trigger thread to this DB's arena so trigger allocations are attributed correctly.

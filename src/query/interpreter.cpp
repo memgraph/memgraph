@@ -6543,6 +6543,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
       header = {"storage info", "value"};
       handler = [storage = current_db.db_acc_->get()->storage(),
+                 db = current_db.db_acc_->get(),
                  interpreter_isolation_level,
                  next_transaction_isolation_level] {
         auto info = storage->GetBaseInfo();
@@ -6572,7 +6573,9 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
             {TypedValue("next_session_isolation_level"),
              TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
-            {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))}};
+            {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))},
+            {TypedValue("db_memory_tracked"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(db->DbMemoryUsage())))}};
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
     } break;

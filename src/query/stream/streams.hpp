@@ -87,6 +87,8 @@ class Streams final {
   /// @param directory a directory path to store the persisted streams metadata
   explicit Streams(std::filesystem::path directory);
 
+  void SetArenaIdx(unsigned idx) noexcept { arena_idx_ = idx; }
+
   /// Restores the streams from the persisted metadata.
   /// The restoration is done in a best effort manner, therefore no exception is thrown on failure, but the error is
   /// logged. If a stream was running previously, then after restoration it will be started.
@@ -216,6 +218,7 @@ class Streams final {
   kvstore::KVStore storage_;
 
   SynchronizedStreamsMap streams_;
+  unsigned arena_idx_{0};
 };
 
 }  // namespace stream

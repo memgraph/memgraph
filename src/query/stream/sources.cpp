@@ -43,7 +43,10 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
           .credentials = info.private_configs};
 }
 
-void KafkaStream::Start() { consumer_->Start(); }
+void KafkaStream::Start() {
+  if (arena_idx_ != 0) consumer_->SetArenaIdx(arena_idx_);
+  consumer_->Start();
+}
 
 void KafkaStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
   consumer_->StartWithLimit(batch_limit, timeout);
@@ -111,7 +114,10 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
           .service_url = info.service_url};
 }
 
-void PulsarStream::Start() { consumer_->Start(); }
+void PulsarStream::Start() {
+  if (arena_idx_ != 0) consumer_->SetArenaIdx(arena_idx_);
+  consumer_->Start();
+}
 
 void PulsarStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
   consumer_->StartWithLimit(batch_limit, timeout);

@@ -83,21 +83,27 @@ struct CrossThreadMemoryTracking {
 #if USE_JEMALLOC
   utils::QueryMemoryTracker *query_tracker{nullptr};
   utils::UserResources *user_tracker{nullptr};
+  unsigned db_arena_idx{0};
 
-  CrossThreadMemoryTracking();
+  explicit CrossThreadMemoryTracking(unsigned arena_idx = 0);
   ~CrossThreadMemoryTracking() = default;
 
-  void StartTracking() const;
-  void StopTracking() const;
+  void StartTracking();
+  void StopTracking();
 
   CrossThreadMemoryTracking(CrossThreadMemoryTracking &) = delete;
   CrossThreadMemoryTracking &operator=(CrossThreadMemoryTracking &) = delete;
   CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept;
   CrossThreadMemoryTracking &operator=(CrossThreadMemoryTracking &&other) noexcept;
-#else
-  void StartTracking() const {}
 
-  void StopTracking() const {}
+ private:
+  unsigned prev_arena_{0};
+#else
+  explicit CrossThreadMemoryTracking(unsigned /*arena_idx*/ = 0) {}
+
+  void StartTracking() {}
+
+  void StopTracking() {}
 #endif
 };
 

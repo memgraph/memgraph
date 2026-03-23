@@ -33,6 +33,14 @@ struct DbArenaHooks {
   extent_hooks_t *base_hooks;     // default jemalloc hooks (called through)
 };
 
+// Populate a DbArenaHooks struct so it can be installed on any jemalloc arena.
+// `tracker`    – receives Alloc/Free calls for that arena.
+// `base_hooks` – jemalloc's default hooks; the callbacks call through to these.
+// After calling this, install with:
+//   const extent_hooks_t *p = &h.hooks;
+//   je_mallctl("arena.N.extent_hooks", nullptr, nullptr, &p, sizeof(p));
+void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hooks_t *base_hooks);
+
 // Owns a dynamically-created jemalloc arena with custom extent hooks that
 // report committed OS pages to a `utils::MemoryTracker` owned by the caller.
 // The arena index is stable for the lifetime of this object.
