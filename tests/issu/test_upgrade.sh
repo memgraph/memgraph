@@ -37,6 +37,8 @@ RELEASE="memgraph-db"
 DESIRED_NODES=5
 PROFILE="${PROFILE:-minikube}"  # can be overridden via env
 CLUSTER_SETUP_TIMEOUT="${CLUSTER_SETUP_TIMEOUT:-90s}"
+MINIKUBE_START_ATTEMPTS="${MINIKUBE_START_ATTEMPTS:-3}"
+MINIKUBE_START_RETRY_SLEEP="${MINIKUBE_START_RETRY_SLEEP:-15}"
 
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 
@@ -360,6 +362,61 @@ ensure_minikube_storage_addons() {
   minikube addons enable csi-hostpath-driver -p "$PROFILE"
 }
 
+recover_minikube_profile() {
+  echo -e "${YELLOW}Resetting Minikube profile '${PROFILE}' before retry...${NC}"
+  minikube stop -p "$PROFILE" >/dev/null 2>&1 || true
+  minikube delete -p "$PROFILE" >/dev/null 2>&1 || true
+}
+
+wait_for_minikube_nodes() {
+  local expected_nodes="${1:-$DESIRED_NODES}"
+  local timeout_s="${2:-300}"
+  local sleep_s=5
+  local elapsed=0
+  local node_count
+
+  while (( elapsed < timeout_s )); do
+    node_count="$(minikube kubectl -p "$PROFILE" -- get nodes --no-headers 2>/dev/null | wc -l || echo 0)"
+    if [[ "$node_count" -ge "$expected_nodes" ]]; then
+      if minikube kubectl -p "$PROFILE" -- wait --for=condition=Ready node --all --timeout=120s >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+    sleep "$sleep_s"
+    elapsed=$((elapsed + sleep_s))
+  done
+
+  echo -e "${YELLOW}Timed out waiting for ${expected_nodes} ready node(s).${NC}"
+  return 1
+}
+
+start_minikube_with_retry() {
+  local attempts="${1:-$MINIKUBE_START_ATTEMPTS}"
+  local sleep_between_attempts="${2:-$MINIKUBE_START_RETRY_SLEEP}"
+  local attempt
+
+  for attempt in $(seq 1 "$attempts"); do
+    echo -e "${GREEN}Starting Minikube '${PROFILE}' with ${DESIRED_NODES} nodes (attempt ${attempt}/${attempts})...${NC}"
+    if minikube start -p "$PROFILE" --driver=docker --nodes="$DESIRED_NODES"; then
+      minikube update-context -p "$PROFILE" >/dev/null 2>&1 || true
+      kubectl config use-context "$PROFILE" >/dev/null 2>&1 || true
+      if wait_for_minikube_nodes "$DESIRED_NODES" 300; then
+        return 0
+      fi
+      echo -e "${YELLOW}Minikube start succeeded but cluster is not healthy yet.${NC}"
+    else
+      echo -e "${YELLOW}Minikube start failed (attempt ${attempt}/${attempts}).${NC}"
+    fi
+
+    if [[ "$attempt" -lt "$attempts" ]]; then
+      recover_minikube_profile
+      sleep "$sleep_between_attempts"
+    fi
+  done
+
+  return 1
+}
+
 # --- Ensure Minikube with desired nodes ---
 echo -e "${GREEN}Ensuring Minikube cluster '${PROFILE}' with ${DESIRED_NODES} nodes...${NC}"
 
@@ -377,15 +434,30 @@ if [[ "$cluster_running" == "true" ]]; then
   else
     to_add=$(( DESIRED_NODES - existing_nodes ))
     echo -e "${YELLOW}Cluster running with ${existing_nodes} nodes; adding ${to_add} worker node(s)...${NC}"
+    target_nodes="$DESIRED_NODES"
     for _ in $(seq 1 "$to_add"); do
-      minikube node add -p "$PROFILE" --worker
+      added=false
+      for attempt in $(seq 1 "$MINIKUBE_START_ATTEMPTS"); do
+        if minikube node add -p "$PROFILE" --worker; then
+          added=true
+          break
+        fi
+        echo -e "${YELLOW}minikube node add failed (attempt ${attempt}/${MINIKUBE_START_ATTEMPTS}).${NC}"
+        sleep "$MINIKUBE_START_RETRY_SLEEP"
+      done
+
+      if [[ "$added" != "true" ]]; then
+        echo -e "${YELLOW}Failed to add worker nodes to existing cluster. Recreating profile...${NC}"
+        recover_minikube_profile
+        start_minikube_with_retry "$MINIKUBE_START_ATTEMPTS" "$MINIKUBE_START_RETRY_SLEEP"
+        break
+      fi
     done
+
+    wait_for_minikube_nodes "$target_nodes" 300
   fi
 else
-  echo -e "${GREEN}Starting Minikube '${PROFILE}' with ${DESIRED_NODES} nodes...${NC}"
-  minikube start -p "$PROFILE" --driver=docker --nodes="$DESIRED_NODES"
-  minikube update-context -p "$PROFILE"
-  kubectl config use-context "$PROFILE" >/dev/null 2>&1 || true
+  start_minikube_with_retry "$MINIKUBE_START_ATTEMPTS" "$MINIKUBE_START_RETRY_SLEEP"
 fi
 
 # Always ensure addons even when reusing an existing cluster.
