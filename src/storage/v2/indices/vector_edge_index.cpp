@@ -11,6 +11,7 @@
 
 #include <mutex>
 #include <ranges>
+#include <shared_mutex>
 #include <unordered_set>
 
 #include "flags/general.hpp"
@@ -51,7 +52,8 @@ struct EdgeTypeIndexItem {
 
 struct VectorEdgeIndex::Impl {
   std::unordered_map<uint64_t, EdgeTypeIndexItem> index_by_id_;
-  std::unordered_map<Edge *, std::pair<Vertex *, Vertex *>> edge_endpoints_;  // edge -> (from_vertex, to_vertex)
+  std::unordered_map<Edge *, std::pair<Vertex *, Vertex *>> edge_endpoints_;
+  mutable std::shared_mutex edge_endpoints_mutex_;
 };
 
 VectorEdgeIndex::VectorEdgeIndex() : pimpl(std::make_unique<Impl>()) {}
@@ -78,12 +80,12 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
   auto mg_edge_index = mg_vector_edge_index_t::make(metric);
   if (!mg_edge_index) {
     throw query::VectorSearchException(fmt::format(
-        "Failed to create vector index {}, error message: {}", spec.index_name, mg_edge_index.error.what()));
+        "Failed to create vector edge index {}, error message: {}", spec.index_name, mg_edge_index.error.what()));
   }
 
   if (!mg_edge_index.index.try_reserve(limits)) {
     throw query::VectorSearchException(
-        fmt::format("Failed to create vector index {}. Failed to reserve memory for the index", spec.index_name));
+        fmt::format("Failed to create vector edge index {}. Failed to reserve memory for the index", spec.index_name));
   }
 
   const auto [_, inserted] = pimpl->index_by_id_.try_emplace(index_id, std::move(mg_edge_index.index), spec);
@@ -94,7 +96,7 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, Vertex *from
                                      std::optional<std::size_t> thread_id) {
   auto it = pimpl->index_by_id_.find(index_id);
   if (it == pimpl->index_by_id_.end()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_id));
+    throw query::VectorSearchException(fmt::format("Vector edge index {} does not exist.", index_id));
   }
   auto &index_item = it->second;
   auto &spec = index_item.spec;
@@ -104,7 +106,10 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, Vertex *from
   auto vector = RegisterIndexId(property, index_id);
   edge->properties.SetProperty(spec.property, property);
 
-  pimpl->edge_endpoints_[edge] = {from_vertex, to_vertex};
+  {
+    auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
+    pimpl->edge_endpoints_[edge] = {from_vertex, to_vertex};
+  }
   UpdateVectorIndex(index_item.mg_index, spec, edge, vector, thread_id);
 }
 
@@ -146,7 +151,7 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
     const auto index_id = SetupIndex(spec, name_id_mapper);
     if (!index_id.has_value()) {
       throw query::VectorSearchException(
-          "Given vector index already exists. Corrupted or invalid index recovery files.");
+          "Given vector edge index already exists. Corrupted or invalid index recovery files.");
     }
     auto &index_item = pimpl->index_by_id_.at(*index_id);
     auto &mg_index = index_item.mg_index;
@@ -161,7 +166,10 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
 
         if (auto it = recovery_entries.find(edge->gid); it != recovery_entries.end()) {
           auto &vector = it->second;
-          pimpl->edge_endpoints_[edge] = {&vertex, to_vertex};
+          {
+            auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
+            pimpl->edge_endpoints_[edge] = {&vertex, to_vertex};
+          }
           UpdateVectorIndex(mg_index, spec, edge, vector, thread_id);
 
           auto property = edge->properties.GetProperty(spec.property);
@@ -247,10 +255,13 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, utils::SkipList<Ver
       }
     }
   }
-  for (auto *edge : dropped_edges) {
-    DMG_ASSERT(edge != nullptr, "Null edge pointer in vector edge index");
-    if (!still_indexed.contains(edge)) {
-      pimpl->edge_endpoints_.erase(edge);
+  {
+    auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
+    for (auto *edge : dropped_edges) {
+      DMG_ASSERT(edge != nullptr, "Null edge pointer in vector edge index");
+      if (!still_indexed.contains(edge)) {
+        pimpl->edge_endpoints_.erase(edge);
+      }
     }
   }
   return true;
@@ -258,6 +269,7 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, utils::SkipList<Ver
 
 void VectorEdgeIndex::Clear() {
   pimpl->index_by_id_.clear();
+  auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
   pimpl->edge_endpoints_.clear();
 }
 
@@ -267,7 +279,10 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
   if (value.IsVectorIndexId()) {
     const auto &vector_property = value.ValueVectorIndexList();
     const auto &index_ids = value.ValueVectorIndexIds();
-    pimpl->edge_endpoints_[edge] = {from_vertex, to_vertex};
+    {
+      auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
+      pimpl->edge_endpoints_[edge] = {from_vertex, to_vertex};
+    }
     for (auto index_id : index_ids) {
       auto &index_item = pimpl->index_by_id_.at(index_id);
       UpdateVectorIndex(index_item.mg_index, index_item.spec, edge, vector_property);
@@ -342,7 +357,7 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
     return std::nullopt;
   });
   if (!maybe_id.has_value()) {
-    throw query::VectorSearchException("Vector index {} does not exist.", index_name);
+    throw query::VectorSearchException("Vector edge index {} does not exist.", index_name);
   }
   auto &index_item = pimpl->index_by_id_.at(*maybe_id);
   auto &mg_index = index_item.mg_index;
@@ -351,6 +366,7 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
   result.reserve(result_set_size);
 
   auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+  auto ep_lock = std::shared_lock{pimpl->edge_endpoints_mutex_};
   const auto result_keys = mg_index.index.filtered_search(query_vector.data(), result_set_size, [this](Edge *edge) {
     auto guard = std::shared_lock{edge->lock};
     if (edge->deleted()) return false;
@@ -376,7 +392,10 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
       if (old_value.IsVectorIndexId()) {
         const auto &vector_property = old_value.ValueVectorIndexList();
         const auto &index_ids = old_value.ValueVectorIndexIds();
-        pimpl->edge_endpoints_[edge] = {info.from_vertex, info.to_vertex};
+        {
+          auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
+          pimpl->edge_endpoints_[edge] = {info.from_vertex, info.to_vertex};
+        }
         for (auto index_id : index_ids) {
           auto &index_item = pimpl->index_by_id_.at(index_id);
           storage::UpdateVectorIndex(index_item.mg_index, index_item.spec, edge, vector_property);
@@ -398,8 +417,11 @@ bool VectorEdgeIndex::Empty() const { return pimpl->index_by_id_.empty(); }
 void VectorEdgeIndex::RemoveEdges(std::vector<Edge *> const &edges_to_remove) {
   if (edges_to_remove.empty()) return;
 
-  for (auto *edge : edges_to_remove) {
-    pimpl->edge_endpoints_.erase(edge);
+  {
+    auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
+    for (auto *edge : edges_to_remove) {
+      pimpl->edge_endpoints_.erase(edge);
+    }
   }
 
   for (auto &[_, index_item] : pimpl->index_by_id_) {
@@ -442,7 +464,7 @@ EdgeTypeId VectorEdgeIndex::GetEdgeTypeId(std::string_view index_name) {
       return index_item.spec.edge_type_id;
     }
   }
-  throw query::VectorSearchException("Vector index {} does not exist.", index_name);
+  throw query::VectorSearchException("Vector edge index {} does not exist.", index_name);
 }
 
 bool VectorEdgeIndex::IndexExists(std::string_view index_name) const {
@@ -454,11 +476,11 @@ utils::small_vector<float> VectorEdgeIndex::GetVectorPropertyFromEdgeIndex(Edge 
                                                                            NameIdMapper *name_id_mapper) const {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
-    throw query::VectorSearchException("Vector index {} does not exist.", index_name);
+    throw query::VectorSearchException("Vector edge index {} does not exist.", index_name);
   }
   auto it = pimpl->index_by_id_.find(*maybe_id);
   if (it == pimpl->index_by_id_.end()) {
-    throw query::VectorSearchException("Vector index {} does not exist.", index_name);
+    throw query::VectorSearchException("Vector edge index {} does not exist.", index_name);
   }
   auto &index_item = it->second;
   auto guard = utils::SharedResourceLockGuard(index_item.mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
@@ -468,6 +490,7 @@ utils::small_vector<float> VectorEdgeIndex::GetVectorPropertyFromEdgeIndex(Edge 
 }
 
 std::pair<Vertex *, Vertex *> VectorEdgeIndex::GetEdgeEndpoints(Edge *edge) const {
+  auto lock = std::shared_lock{pimpl->edge_endpoints_mutex_};
   auto it = pimpl->edge_endpoints_.find(edge);
   DMG_ASSERT(it != pimpl->edge_endpoints_.end(), "Edge not found in endpoints map");
   return it->second;
