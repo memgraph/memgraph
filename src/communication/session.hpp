@@ -105,6 +105,7 @@ class Session final {
     socket_.SetNonBlocking();
     socket_.SetKeepAlive();
     socket_.SetNoDelay();
+    socket_.SetUserTimeout();
 
     // Prepare SSL if we should be using it.
     if (context->use_ssl()) {
@@ -230,8 +231,12 @@ class Session final {
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
           return true;
         }
-        // Some other error occurred, throw an exception to start session
-        // cleanup.
+        // Some other error occurred, throw an exception to start session cleanup.
+        if (errno == ETIMEDOUT) {
+          spdlog::warn("TCP_USER_TIMEOUT triggered on session read (fd={}): connection timed out", socket_.fd());
+        } else {
+          spdlog::warn("Session read error (fd={}, errno={}): {}", socket_.fd(), errno, strerror(errno));
+        }
         throw utils::BasicException("Couldn't read data from the socket!");
       } else if (len == 0) {
         // The client has closed the connection.

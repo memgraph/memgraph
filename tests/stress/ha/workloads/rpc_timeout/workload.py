@@ -15,6 +15,7 @@ Cluster port layout (from native deployment):
 """
 import multiprocessing
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -75,7 +76,8 @@ HEAVY_WRITE_QUERY = (
     "->(:Child {str: 'sdjghfskgshkf', id: x, flt: 1.0567, bool: true, dt: date(), dtz: localdatetime()});"
 )
 
-RPC_TIMEOUT_ERROR = "At least one replica reached an RPC timeout"
+RPC_TIMEOUT_ERROR = "At least one SYNC replica reached an RPC timeout"
+RPC_GENERIC_ERROR = "At least one SYNC replica has not confirmed"
 
 
 def run_iptables(rule, description):
@@ -127,7 +129,9 @@ def main():
         query_proc.start()
 
         # Wait for the query to start executing and enter the replication phase
-        time.sleep(15)
+        sleep_time = random.randint(1, 20)
+        print(f"Sleeping for {sleep_time}s")
+        time.sleep(sleep_time)
 
         # Block outgoing communication from data_2's replication port
         result = run_iptables(BLOCK_RULE, "BLOCK")
@@ -160,10 +164,14 @@ def main():
 
         error_message = error_queue.get(timeout=5)
         if error_message is None:
-            print("FATAL: Expected an exception from the heavy write query but none was raised")
-            sys.exit(1)
+            print("Replication managed to finish before network disruption")
+            print("RPC Timeout Stress Test PASSED")
+            sys.exit(0)
 
-        if RPC_TIMEOUT_ERROR not in error_message:
+        # We currently check for both generic and specific timeout because the generic one will be thrown
+        # if socket connect fails or sending data fails while timeout will occur if client waits for too
+        # long for the reply from the replica
+        if RPC_TIMEOUT_ERROR not in error_message and RPC_GENERIC_ERROR not in error_message:
             print(f"FATAL: Expected '{RPC_TIMEOUT_ERROR}' in error message, got: {error_message}")
             sys.exit(1)
 

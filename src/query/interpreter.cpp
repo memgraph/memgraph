@@ -9027,7 +9027,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                   trigger.Name());
             } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
               spdlog::warn(
-                  "At least one replica reached an RPC timeout. Please set a smaller parameter value for "
+                  "At least one SYNC replica reached an RPC timeout. Please set a smaller parameter value for "
                   "'deltas_batch_progress_size' using 'SET COORDINATOR SETTING' query on the coordinator.");
             } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
               const auto &constraint_violation = arg;
@@ -9361,7 +9361,7 @@ void Interpreter::Commit() {
 
   if (rpc_timeout) {
     throw ReplicationException(
-        "At least one replica reached an RPC timeout. Please set a smaller parameter value for "
+        "At least one SYNC replica reached an RPC timeout. Please set a smaller parameter value for "
         "'deltas_batch_progress_size' using 'SET COORDINATOR SETTING' query on the coordinator.");
   }
 

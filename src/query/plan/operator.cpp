@@ -336,7 +336,8 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
               "Transaction will be aborted on all instances.");
         } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
           spdlog::warn(
-              "PeriodicCommit warning: At least one replica reached an RPC timeout. Please set a smaller parameter "
+              "PeriodicCommit warning: At least one SYNC replica reached an RPC timeout. Please set a smaller "
+              "parameter "
               "value for 'deltas_batch_progress_size' using 'SET COORDINATOR SETTING' query on the coordinator.");
         } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
           throw PeriodicCommitException(

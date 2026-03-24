@@ -38,6 +38,7 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
   // suffer.
   socket_.SetKeepAlive();
   socket_.SetNoDelay();
+  socket_.SetUserTimeout();
 
   if (context_->use_ssl()) {
     // Release leftover SSL objects.
