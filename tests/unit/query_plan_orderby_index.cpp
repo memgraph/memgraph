@@ -524,11 +524,11 @@ TYPED_TEST(OrderByIndexTest, LabelOnlyIndexNoElimination) {
       << "OrderBy should NOT be eliminated (label-only index, no property index)";
 }
 
-// Test 20: ORDER BY on rebound symbol with same name via UNWIND
-// MATCH (n:L) WHERE n.prop > 5 UNWIND [1, 2] AS n ORDER BY n RETURN n
-// After UNWIND, 'n' refers to the unwound integer, not the original node.
-// This should not trigger elimination.
-TYPED_TEST(OrderByIndexTest, ReboundSymbolSameNameViaUnwind) {
+// Test 20: WITH without renaming still allows elimination
+// MATCH (n:L) WHERE n.prop > 5 WITH n ORDER BY n.prop RETURN n
+// The WITH clause passes n through without renaming, so elimination should still fire.
+// This complements Test 18 (WithRenamingBlocks) — same pattern but identity mapping.
+TYPED_TEST(OrderByIndexTest, WithoutRenamingAllowsElimination) {
   FakeDbAccessor dba;
   const auto label_name = "L";
   const auto label = dba.Label(label_name);
@@ -536,22 +536,22 @@ TYPED_TEST(OrderByIndexTest, ReboundSymbolSameNameViaUnwind) {
   dba.SetIndexCount(label, 1);
   dba.SetIndexCount(label, property.second, 1);
 
-  // MATCH (n:L) WHERE n.prop > 5 WITH n.prop AS val UNWIND [1, 2] AS x ORDER BY val RETURN val
-  // This tests that ORDER BY val doesn't match scan symbol n.
-  // We use a different variable name to ensure no false match.
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
-                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
-                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+  auto *ident_n = IDENT("n");
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5)));
+  auto *with_clause = WITH(ident_n, AS("n"));
+  auto *return_clause = RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  // This should be eliminated — it's the basic case. The real protection is that
-  // semantic analysis prevents UNWIND from rebinding 'n' when 'n' is already declared.
-  // This test documents that the optimization is safe because Cypher scoping rules
-  // prevent same-name rebinding within a single scope.
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should be eliminated (Cypher scoping prevents same-name rebinding)";
+      << "OrderBy should be eliminated (WITH passes n through without renaming)";
 }
 
 // Test 21: ORDER BY in reverse column order — ORDER BY n.b, n.a with index (a, b)
