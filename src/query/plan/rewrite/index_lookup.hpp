@@ -944,9 +944,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (!ident || ident->name_ != var_name) return true;  // renamed or complex expression
       return false;                                         // identity mapping, safe
     }
-    // Variable not in Produce output — semantic analysis should have rejected this query
-    // since ORDER BY references a variable not projected through WITH/RETURN.
-    DMG_ASSERT(false, "ORDER BY variable not found in Produce output");
+    // Variable not in Produce output as a direct named expression. This can happen when
+    // ORDER BY references a property of a variable that is projected as an expression
+    // (e.g., RETURN n.b AS b ORDER BY n.b — the Produce has "b", not "n").
+    // Elimination is unsafe since the scan symbol is not directly visible after this Produce.
     return true;
   }
 
