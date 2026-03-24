@@ -73,4 +73,12 @@ class YieldPointAwaitable {
 /// Resumes the root generator one step (one row or exhaustion).
 PullRunResult RunPullToCompletion(PullAwaitable::ResumeAwaitable &ra, ExecutionContext &ctx);
 
+/// Convenience overload: extracts a ResumeAwaitable from a PullAwaitable and drives it one step.
+/// Handles the immediate (non-coroutine) case where handle_ is null.
+inline PullRunResult RunPullToCompletion(PullAwaitable &pa, ExecutionContext &ctx) {
+  if (pa.Done()) return pa.Result() ? PullRunResult::Row() : PullRunResult::Done();
+  auto ra = pa.Resume();
+  return RunPullToCompletion(ra, ctx);
+}
+
 }  // namespace memgraph::query::plan
