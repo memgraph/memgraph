@@ -342,7 +342,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     auto indexed_scan = GenScanByIndex(scan);
     if (indexed_scan) {
-      if (pending_order_by_ && pending_order_by_->valid) {
+      if (!order_by_stack_.empty() && order_by_stack_.back().valid) {
         CheckOrderByElimination(indexed_scan.get(), scan.output_symbol_);
       }
       SetOnParent(std::move(indexed_scan));
@@ -703,18 +703,24 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
-    order_by_should_be_eliminated_ = false;
-    pending_order_by_ = TryExtractOrderByContext(op);
+    auto ctx = TryExtractOrderByContext(op);
+    if (ctx) {
+      order_by_stack_.push_back(std::move(*ctx));
+    } else {
+      // Push an invalid context so PostVisit always has a matching pop.
+      order_by_stack_.push_back(OrderByContext{&op, {}, {}, false, false});
+    }
     return true;
   }
 
   bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
-    if (order_by_should_be_eliminated_) {
+    MG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in PostVisit");
+    auto ctx = std::move(order_by_stack_.back());
+    order_by_stack_.pop_back();
+    if (ctx.should_eliminate) {
       SetOnParent(op.input());
-      order_by_should_be_eliminated_ = false;
     }
-    pending_order_by_ = std::nullopt;
     return true;
   }
 
@@ -885,18 +891,22 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::unordered_set<Symbol> additional_bound_symbols_;
 
   // ORDER BY elimination state
-  // Lifetime: pending_order_by_ is set in PreVisit(OrderBy) and cleared in PostVisit(OrderBy).
+  // A stack is used because nested OrderBy operators can appear in the same branch
+  // (e.g., WITH n ORDER BY n.prop RETURN n ORDER BY n.prop). Each PreVisit pushes
+  // a context and each PostVisit pops it, so inner OrderBy processing doesn't clobber
+  // outer state.
+  // Lifetime: each entry is pushed in PreVisit(OrderBy) and popped in PostVisit(OrderBy).
   // CheckOrderByElimination uses ctx.op only during the tree walk between these two visits,
   // so the OrderBy node is guaranteed to be alive and in the tree.
   struct OrderByContext {
     OrderBy *op = nullptr;
     Symbol scan_symbol;                                 // symbol all ORDER BY PropertyLookups reference
     std::vector<storage::PropertyPath> property_paths;  // ORDER BY properties converted to storage paths
-    bool valid = false;  // true if all expressions are simple ASC PropertyLookups on same symbol
+    bool valid = false;             // true if all expressions are simple ASC PropertyLookups on same symbol
+    bool should_eliminate = false;  // set by CheckOrderByElimination, consumed in PostVisit
   };
 
-  std::optional<OrderByContext> pending_order_by_;
-  bool order_by_should_be_eliminated_ = false;
+  std::vector<OrderByContext> order_by_stack_;
 
   struct LabelPropertyIndex {
     LabelIx label;
@@ -991,7 +1001,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // TODO: Extend ORDER BY elimination to edge property index scans (ScanAllByEdgePropertyRange,
   //       ScanAllByEdgeTypePropertyRange) — they are also SkipList-backed and return data in ASC order.
   void CheckOrderByElimination(LogicalOperator *new_scan, const Symbol &scan_symbol) {
-    auto &ctx = *pending_order_by_;
+    MG_ASSERT(!order_by_stack_.empty(), "CheckOrderByElimination called with empty stack");
+    auto &ctx = order_by_stack_.back();
 
     // The ORDER BY symbol must match the scan symbol.
     // We compare by name because the ORDER BY identifier and the scan output symbol may
@@ -1086,7 +1097,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     if (ob_cursor == ctx.property_paths.size()) {
-      order_by_should_be_eliminated_ = true;
+      ctx.should_eliminate = true;
     }
   }
 
