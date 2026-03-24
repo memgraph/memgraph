@@ -65,9 +65,6 @@ if [ "$CI" = true ]; then
     python3 -m pip install --no-cache-dir --no-index --find-links=$WHEEL_CACHE_DIR torch
   fi
 
-  # Temporary CI workaround: install litellm from git because recent PyPI releases are quarantined.
-  python3 -m pip install --no-cache-dir "git+https://github.com/BerriAI/litellm.git@v1.81.9-stable"
-
   # for building the docker image
   python3 -m pip install --no-cache-dir -r "/tmp/${requirements_file}"
   python3 -m pip install --no-cache-dir -r /tmp/auth_module-requirements.txt
