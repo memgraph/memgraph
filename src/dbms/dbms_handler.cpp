@@ -217,10 +217,8 @@ struct DropDatabase : memgraph::system::ISystemAction {
       return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
     };
 
-    return client
-        .StreamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
-            check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_)
-        .has_value();
+    return client.StreamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
   }
 
   void PostReplication(replication::RoleMainData &mainData) const override {}
@@ -243,15 +241,8 @@ struct RenameDatabase : memgraph::system::ISystemAction {
       return response.result != storage::replication::RenameDatabaseRes::Result::FAILURE;
     };
 
-    return client
-        .StreamAndFinalizeDelta<storage::replication::RenameDatabaseRpc>(check_response,
-                                                                         main_uuid,
-                                                                         txn.last_committed_system_timestamp(),
-                                                                         txn.timestamp(),
-                                                                         uuid_,
-                                                                         old_name_,
-                                                                         new_name_)
-        .has_value();
+    return client.StreamAndFinalizeDelta<storage::replication::RenameDatabaseRpc>(
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_, old_name_, new_name_);
   }
 
   void PostReplication(replication::RoleMainData &mainData) const override {}
@@ -407,10 +398,8 @@ struct CreateDatabase : memgraph::system::ISystemAction {
       return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
     };
 
-    return client
-        .StreamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
-            check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), config_)
-        .has_value();
+    return client.StreamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), config_);
   }
 
   void PostReplication(replication::RoleMainData &mainData) const override {
