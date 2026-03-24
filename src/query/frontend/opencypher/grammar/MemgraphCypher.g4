@@ -593,7 +593,7 @@ socketAddress : literal ;
 registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC | STRICT_SYNC )
                 TO socketAddress ;
 
-configKeyValuePair : literal ':' literal ;
+configKeyValuePair : literal ':' ( literal | parameter ) ;
 
 configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
