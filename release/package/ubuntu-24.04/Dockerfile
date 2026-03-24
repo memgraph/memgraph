@@ -24,8 +24,10 @@ RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && ./environment/os/ubuntu-24.04.sh install MEMGRAPH_BUILD_DEPS \
     && cd .. && rm -rf memgraph
 
-# Create mg user and set as default
-RUN useradd -m -s /bin/bash mg
+# Create mg user and set as default, with passwordless sudo
+RUN useradd -m -s /bin/bash mg \
+    && adduser mg sudo \
+    && echo 'mg ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
 USER mg
 
 # Install rust
