@@ -133,12 +133,26 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
 
 DbArena::~DbArena() {
   if (arena_idx_ == 0) return;
-  // Purge all dirty/muzzy pages back to the OS to release memory to the system.
+  const std::string arena_key = "arena." + std::to_string(arena_idx_);
+
+  // Purge all dirty/muzzy pages back to the OS FIRST, while our custom hooks are
+  // still installed. This ensures dalloc/decommit callbacks fire through our tracker
+  // so the DB and global MemoryTrackers are correctly decremented before we unlink them.
   // Note: we intentionally skip arena.N.destroy because jemalloc's arena destruction
   // is experimental and can corrupt metadata when arena indices are reused (e.g. in tests).
   // The arena will be cleaned up when the process exits.
-  const std::string purge_key = "arena." + std::to_string(arena_idx_) + ".purge";
-  je_mallctl(purge_key.c_str(), nullptr, nullptr, nullptr, 0);
+  je_mallctl((arena_key + ".purge").c_str(), nullptr, nullptr, nullptr, 0);
+
+  // Restore the default hooks AFTER purging so jemalloc's background thread cannot
+  // call our hooks after `hooks_` is destroyed (use-after-free / null-tracker SIGSEGV).
+  // mallctl atomically swaps the hooks pointer; once it returns no new invocations
+  // of db_arena_alloc/dalloc/... will be dispatched for this arena.
+  const extent_hooks_t *base = hooks_.base_hooks;
+  je_mallctl((arena_key + ".extent_hooks").c_str(),
+             nullptr,
+             nullptr,
+             static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
+             sizeof(extent_hooks_t *));
 }
 
 }  // namespace memgraph::memory
