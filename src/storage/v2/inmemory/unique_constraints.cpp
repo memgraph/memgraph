@@ -675,6 +675,24 @@ void InMemoryUniqueConstraints::DropGraphClearConstraints() {
   container_.WithLock([](ContainerPtr &container) { container = std::make_shared<Container const>(); });
 }
 
+void InMemoryUniqueConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  if (!metric_handles_) return;
+  auto *gauge = metric_handles_->active_unique_constraints;
+  container_.WithReadLock([&](ContainerPtr const &ptr) {
+    double count = 0;
+    for (auto const &[label, by_properties] : *ptr) {
+      for (auto const &[props, constraint] : by_properties) {
+        if (constraint->status.IsReady()) {
+          constraint->gauge_ = gauge;
+          ++count;
+        }
+      }
+    }
+    gauge->Set(count);
+  });
+}
+
 void InMemoryUniqueConstraints::RunGC() {
   const auto container = container_.ReadCopy();
   for (const auto &map : *container | std::views::values) {
