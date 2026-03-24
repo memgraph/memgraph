@@ -6469,7 +6469,8 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
                        .rw_type = RWType::NONE};
 }
 
-PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
+PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
+                                       InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -6696,37 +6697,43 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         throw QueryRuntimeException(license::LicenseCheckErrorToString(
             license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "SHOW METRICS INFO"));
       }
-#else
-      throw EnterpriseOnlyException();
-#endif
+      auto *db_handler = interpreter_context->dbms_handler;
+      std::optional<std::string> target_db;
+      switch (info_query->database_specification_) {
+        case DatabaseInfoQuery::DatabaseSpecification::NONE:
+          break;
+        case DatabaseInfoQuery::DatabaseSpecification::CURRENT:
+          if (!current_db.db_acc_) {
+            throw QueryRuntimeException("No current database for SHOW METRICS INFO ON CURRENT");
+          }
+          target_db = (*current_db.db_acc_)->name();
+          break;
+        case DatabaseInfoQuery::DatabaseSpecification::DATABASE:
+          target_db = info_query->database_;
+          break;
+      }
+      if (target_db) {
+        // Validate the database exists
+        if (!db_handler->Get(*target_db)) {
+          throw QueryRuntimeException("Database '{}' does not exist.", *target_db);
+        }
+      }
       header = {"name", "type", "metric type", "value"};
-      handler = [storage = current_db.db_acc_->get()->storage()] {
-        auto const info = storage->GetBaseInfo();
-        auto const metrics_info = memgraph::storage::Storage::GetMetrics();
+      handler = [target_db = std::move(target_db)] {
+        std::vector<metrics::MetricInfo> metric_rows;
+        if (target_db) {
+          auto result = metrics::Metrics().GetDbMetricsInfo(*target_db);
+          if (!result) {
+            throw QueryRuntimeException("{}", result.error());
+          }
+          metric_rows = std::move(*result);
+        } else {
+          metric_rows = metrics::Metrics().GetGlobalMetricsInfo();
+        }
         std::vector<std::vector<TypedValue>> results;
-        results.push_back({TypedValue("VertexCount"),
-                           TypedValue("General"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.vertex_count))});
-        results.push_back({TypedValue("EdgeCount"),
-                           TypedValue("General"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.edge_count))});
-        results.push_back(
-            {TypedValue("AverageDegree"), TypedValue("General"), TypedValue("Gauge"), TypedValue(info.average_degree)});
-        results.push_back({TypedValue("MemoryRes"),
-                           TypedValue("Memory"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.memory_res))});
-        results.push_back({TypedValue("DiskUsage"),
-                           TypedValue("Memory"),
-                           TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.disk_usage))});
-        for (const auto &metric : metrics_info) {
-          results.push_back({TypedValue(metric.name),
-                             TypedValue(metric.type),
-                             TypedValue(metric.event_type),
-                             TypedValue(static_cast<int64_t>(metric.value))});
+        results.reserve(metric_rows.size());
+        for (auto const &m : metric_rows) {
+          results.push_back({TypedValue(m.name), TypedValue(m.type), TypedValue(m.metric_type), TypedValue(m.value)});
         }
         std::ranges::sort(results, [](auto const &record_1, auto const &record_2) {
           auto const key_1 = std::tie(record_1[1].ValueString(), record_1[2].ValueString(), record_1[0].ValueString());
@@ -6735,7 +6742,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         });
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
-
+#else
+      throw EnterpriseOnlyException();
+#endif
       break;
     }
     case DatabaseInfoQuery::InfoType::VECTOR_INDEX: {
@@ -8959,7 +8968,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareAuthQuery(
           std::move(parsed_query), in_explicit_transaction_, interpreter_context_, *this, current_db_.db_acc_);
     } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+      prepared_query = PrepareDatabaseInfoQuery(
+          std::move(parsed_query), in_explicit_transaction_, current_db_, interpreter_context_);
     } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
       prepared_query = PrepareSystemInfoQuery(std::move(parsed_query),
                                               in_explicit_transaction_,

@@ -11,6 +11,8 @@
 
 #include "metrics/prometheus_metrics.hpp"
 
+#include <fmt/format.h>
+#include <prometheus/client_metric.h>
 #include <prometheus/detail/builder.h>
 
 #include "utils/logging.hpp"
@@ -18,6 +20,8 @@
 namespace memgraph::metrics {
 
 namespace {
+
+using prometheus::ClientMetric;
 
 // 16 buckets covering 10µs to 120s
 prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
@@ -755,6 +759,7 @@ DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name,
   prometheus::Labels const labels{{"database", std::string(db_name)}};
   MG_ASSERT(!vertex_count_family_.Has(labels), "Database '{}' already registered in PrometheusMetrics", db_name);
   databases_.push_back({
+      .db_name = std::string(db_name),
       .handles =
           DatabaseMetricHandles{
               .vertex_count = &vertex_count_family_.Add(labels),
@@ -970,6 +975,660 @@ void PrometheusMetrics::UpdateGauges() {
     entry.handles.disk_usage_bytes->Set(static_cast<double>(snapshot.disk_usage));
     entry.handles.memory_res_bytes->Set(static_cast<double>(snapshot.memory_res));
   }
+}
+
+namespace {
+
+// Compute percentile from a prometheus histogram's cumulative bucket data.
+// Returns 0 if there are no observations.
+double HistogramPercentile(prometheus::Histogram const &h, double quantile) {
+  auto const cm = h.Collect();
+  auto const &hdata = cm.histogram;
+  if (hdata.sample_count == 0) return 0.0;
+
+  double const target = quantile * static_cast<double>(hdata.sample_count);
+  double prev_bound = 0.0;
+  uint64_t prev_count = 0;
+  for (auto const &bucket : hdata.bucket) {
+    if (static_cast<double>(bucket.cumulative_count) >= target) {
+      if (bucket.cumulative_count == prev_count) return prev_bound;
+      double const frac =
+          (target - static_cast<double>(prev_count)) / static_cast<double>(bucket.cumulative_count - prev_count);
+      return prev_bound + frac * (bucket.upper_bound - prev_bound);
+    }
+    prev_bound = bucket.upper_bound;
+    prev_count = bucket.cumulative_count;
+  }
+  return prev_bound;
+}
+
+void AppendHistogramPercentiles(std::vector<MetricInfo> &out, std::string const &name, std::string const &type,
+                                prometheus::Histogram const &h) {
+  for (auto const [quantile, label] : {std::pair{0.50, "p50"}, std::pair{0.90, "p90"}, std::pair{0.99, "p99"}}) {
+    out.push_back({name + "_" + label, type, "Histogram", HistogramPercentile(h, quantile)});
+  }
+}
+
+// Compute percentile from merged cumulative bucket counts (same boundaries across all histograms).
+double MergedHistogramPercentile(std::vector<prometheus::ClientMetric::Histogram> const &hdatas, double quantile) {
+  if (hdatas.empty()) return 0.0;
+
+  uint64_t total_count = 0;
+  for (auto const &hd : hdatas) total_count += hd.sample_count;
+  if (total_count == 0) return 0.0;
+
+  std::size_t const nbuckets = hdatas[0].bucket.size();
+  double const target = quantile * static_cast<double>(total_count);
+  double prev_bound = 0.0;
+  uint64_t prev_cumulative = 0;
+  for (std::size_t i = 0; i < nbuckets; ++i) {
+    uint64_t cumulative = 0;
+    for (auto const &hd : hdatas) cumulative += hd.bucket[i].cumulative_count;
+    double const upper = hdatas[0].bucket[i].upper_bound;
+    if (static_cast<double>(cumulative) >= target) {
+      if (cumulative == prev_cumulative) return prev_bound;
+      double const frac =
+          (target - static_cast<double>(prev_cumulative)) / static_cast<double>(cumulative - prev_cumulative);
+      return prev_bound + frac * (upper - prev_bound);
+    }
+    prev_bound = upper;
+    prev_cumulative = cumulative;
+  }
+  return prev_bound;
+}
+
+void AppendMergedHistogramPercentiles(std::vector<MetricInfo> &out, std::string const &name, std::string const &type,
+                                      std::vector<prometheus::ClientMetric::Histogram> const &hdatas) {
+  for (auto const [quantile, label] : {std::pair{0.50, "p50"}, std::pair{0.90, "p90"}, std::pair{0.99, "p99"}}) {
+    out.push_back({name + "_" + label, type, "Histogram", MergedHistogramPercentile(hdatas, quantile)});
+  }
+}
+
+}  // namespace
+
+std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetricsInfo(
+    std::string_view db_name) const {
+  auto const it = std::ranges::find_if(databases_, [db_name](auto const &e) { return e.db_name == db_name; });
+  if (it == databases_.end()) {
+    return std::unexpected(fmt::format("Database '{}' not found in metrics registry", db_name));
+  }
+
+  auto const &h = it->handles;
+  auto const snapshot = it->get_snapshot();
+  std::vector<MetricInfo> out;
+
+  // General
+  double const vertex_count = static_cast<double>(snapshot.vertex_count);
+  double const edge_count = static_cast<double>(snapshot.edge_count);
+  out.push_back({"vertex_count", "General", "Gauge", vertex_count});
+  out.push_back({"edge_count", "General", "Gauge", edge_count});
+  out.push_back({"average_degree", "General", "Gauge", vertex_count > 0.0 ? 2.0 * edge_count / vertex_count : 0.0});
+
+  // Memory
+  out.push_back({"disk_usage_bytes", "Memory", "Gauge", static_cast<double>(snapshot.disk_usage)});
+  out.push_back({"memory_res_bytes", "Memory", "Gauge", static_cast<double>(snapshot.memory_res)});
+  out.push_back({"unreleased_delta_objects", "Memory", "Gauge", h.unreleased_delta_objects->Value()});
+  AppendHistogramPercentiles(out, "gc_latency_seconds", "Memory", *h.gc_latency_seconds);
+  AppendHistogramPercentiles(
+      out, "gc_skiplist_cleanup_latency_seconds", "Memory", *h.gc_skiplist_cleanup_latency_seconds);
+
+  // Operator
+  out.push_back({"once_operator", "Operator", "Counter", h.once_operator->Value()});
+  out.push_back({"create_node_operator", "Operator", "Counter", h.create_node_operator->Value()});
+  out.push_back({"create_expand_operator", "Operator", "Counter", h.create_expand_operator->Value()});
+  out.push_back({"scan_all_operator", "Operator", "Counter", h.scan_all_operator->Value()});
+  out.push_back({"scan_all_by_label_operator", "Operator", "Counter", h.scan_all_by_label_operator->Value()});
+  out.push_back({"scan_all_by_label_properties_operator",
+                 "Operator",
+                 "Counter",
+                 h.scan_all_by_label_properties_operator->Value()});
+  out.push_back({"scan_all_by_id_operator", "Operator", "Counter", h.scan_all_by_id_operator->Value()});
+  out.push_back({"scan_all_by_edge_operator", "Operator", "Counter", h.scan_all_by_edge_operator->Value()});
+  out.push_back({"scan_all_by_edge_type_operator", "Operator", "Counter", h.scan_all_by_edge_type_operator->Value()});
+  out.push_back({"scan_all_by_edge_type_property_operator",
+                 "Operator",
+                 "Counter",
+                 h.scan_all_by_edge_type_property_operator->Value()});
+  out.push_back({"scan_all_by_edge_type_property_value_operator",
+                 "Operator",
+                 "Counter",
+                 h.scan_all_by_edge_type_property_value_operator->Value()});
+  out.push_back({"scan_all_by_edge_type_property_range_operator",
+                 "Operator",
+                 "Counter",
+                 h.scan_all_by_edge_type_property_range_operator->Value()});
+  out.push_back(
+      {"scan_all_by_edge_property_operator", "Operator", "Counter", h.scan_all_by_edge_property_operator->Value()});
+  out.push_back({"scan_all_by_edge_property_value_operator",
+                 "Operator",
+                 "Counter",
+                 h.scan_all_by_edge_property_value_operator->Value()});
+  out.push_back({"scan_all_by_edge_property_range_operator",
+                 "Operator",
+                 "Counter",
+                 h.scan_all_by_edge_property_range_operator->Value()});
+  out.push_back({"scan_all_by_edge_id_operator", "Operator", "Counter", h.scan_all_by_edge_id_operator->Value()});
+  out.push_back(
+      {"scan_all_by_point_distance_operator", "Operator", "Counter", h.scan_all_by_point_distance_operator->Value()});
+  out.push_back({"scan_all_by_point_withinbbox_operator",
+                 "Operator",
+                 "Counter",
+                 h.scan_all_by_point_withinbbox_operator->Value()});
+  out.push_back({"expand_operator", "Operator", "Counter", h.expand_operator->Value()});
+  out.push_back({"expand_variable_operator", "Operator", "Counter", h.expand_variable_operator->Value()});
+  out.push_back({"construct_named_path_operator", "Operator", "Counter", h.construct_named_path_operator->Value()});
+  out.push_back({"filter_operator", "Operator", "Counter", h.filter_operator->Value()});
+  out.push_back({"produce_operator", "Operator", "Counter", h.produce_operator->Value()});
+  out.push_back({"delete_operator", "Operator", "Counter", h.delete_operator->Value()});
+  out.push_back({"set_property_operator", "Operator", "Counter", h.set_property_operator->Value()});
+  out.push_back({"set_properties_operator", "Operator", "Counter", h.set_properties_operator->Value()});
+  out.push_back({"set_labels_operator", "Operator", "Counter", h.set_labels_operator->Value()});
+  out.push_back({"remove_property_operator", "Operator", "Counter", h.remove_property_operator->Value()});
+  out.push_back({"remove_labels_operator", "Operator", "Counter", h.remove_labels_operator->Value()});
+  out.push_back({"edge_uniqueness_filter_operator", "Operator", "Counter", h.edge_uniqueness_filter_operator->Value()});
+  out.push_back({"empty_result_operator", "Operator", "Counter", h.empty_result_operator->Value()});
+  out.push_back({"accumulate_operator", "Operator", "Counter", h.accumulate_operator->Value()});
+  out.push_back({"aggregate_operator", "Operator", "Counter", h.aggregate_operator->Value()});
+  out.push_back({"skip_operator", "Operator", "Counter", h.skip_operator->Value()});
+  out.push_back({"limit_operator", "Operator", "Counter", h.limit_operator->Value()});
+  out.push_back({"order_by_operator", "Operator", "Counter", h.order_by_operator->Value()});
+  out.push_back({"merge_operator", "Operator", "Counter", h.merge_operator->Value()});
+  out.push_back({"optional_operator", "Operator", "Counter", h.optional_operator->Value()});
+  out.push_back({"unwind_operator", "Operator", "Counter", h.unwind_operator->Value()});
+  out.push_back({"distinct_operator", "Operator", "Counter", h.distinct_operator->Value()});
+  out.push_back({"union_operator", "Operator", "Counter", h.union_operator->Value()});
+  out.push_back({"cartesian_operator", "Operator", "Counter", h.cartesian_operator->Value()});
+  out.push_back({"call_procedure_operator", "Operator", "Counter", h.call_procedure_operator->Value()});
+  out.push_back({"foreach_operator", "Operator", "Counter", h.foreach_operator->Value()});
+  out.push_back(
+      {"evaluate_pattern_filter_operator", "Operator", "Counter", h.evaluate_pattern_filter_operator->Value()});
+  out.push_back({"apply_operator", "Operator", "Counter", h.apply_operator->Value()});
+  out.push_back({"indexed_join_operator", "Operator", "Counter", h.indexed_join_operator->Value()});
+  out.push_back({"hash_join_operator", "Operator", "Counter", h.hash_join_operator->Value()});
+  out.push_back({"roll_up_apply_operator", "Operator", "Counter", h.roll_up_apply_operator->Value()});
+  out.push_back({"periodic_commit_operator", "Operator", "Counter", h.periodic_commit_operator->Value()});
+  out.push_back({"periodic_subquery_operator", "Operator", "Counter", h.periodic_subquery_operator->Value()});
+  out.push_back({"set_nested_property_operator", "Operator", "Counter", h.set_nested_property_operator->Value()});
+  out.push_back({"remove_nested_property_operator", "Operator", "Counter", h.remove_nested_property_operator->Value()});
+
+  // Index
+  out.push_back({"active_label_indices", "Index", "Gauge", h.active_label_indices->Value()});
+  out.push_back({"active_label_property_indices", "Index", "Gauge", h.active_label_property_indices->Value()});
+  out.push_back({"active_edge_type_indices", "Index", "Gauge", h.active_edge_type_indices->Value()});
+  out.push_back({"active_edge_type_property_indices", "Index", "Gauge", h.active_edge_type_property_indices->Value()});
+  out.push_back({"active_edge_property_indices", "Index", "Gauge", h.active_edge_property_indices->Value()});
+  out.push_back({"active_point_indices", "Index", "Gauge", h.active_point_indices->Value()});
+  out.push_back({"active_text_indices", "Index", "Gauge", h.active_text_indices->Value()});
+  out.push_back({"active_text_edge_indices", "Index", "Gauge", h.active_text_edge_indices->Value()});
+  out.push_back({"active_vector_indices", "Index", "Gauge", h.active_vector_indices->Value()});
+  out.push_back({"active_vector_edge_indices", "Index", "Gauge", h.active_vector_edge_indices->Value()});
+
+  // Constraint
+  out.push_back({"active_existence_constraints", "Constraint", "Gauge", h.active_existence_constraints->Value()});
+  out.push_back({"active_unique_constraints", "Constraint", "Gauge", h.active_unique_constraints->Value()});
+  out.push_back({"active_type_constraints", "Constraint", "Gauge", h.active_type_constraints->Value()});
+
+  // Stream
+  out.push_back({"streams_created", "Stream", "Counter", h.streams_created->Value()});
+  out.push_back({"messages_consumed", "Stream", "Counter", h.messages_consumed->Value()});
+
+  // Trigger
+  out.push_back({"triggers_created", "Trigger", "Counter", h.triggers_created->Value()});
+  out.push_back({"triggers_executed", "Trigger", "Counter", h.triggers_executed->Value()});
+
+  // Transaction
+  out.push_back({"active_transactions", "Transaction", "Gauge", h.active_transactions->Value()});
+  out.push_back({"committed_transactions", "Transaction", "Counter", h.committed_transactions->Value()});
+  out.push_back({"rollbacked_transactions", "Transaction", "Counter", h.rollbacked_transactions->Value()});
+  out.push_back({"failed_query", "Transaction", "Counter", h.failed_query->Value()});
+  out.push_back({"failed_prepare", "Transaction", "Counter", h.failed_prepare->Value()});
+  out.push_back({"failed_pull", "Transaction", "Counter", h.failed_pull->Value()});
+  out.push_back({"successful_query", "Transaction", "Counter", h.successful_query->Value()});
+  out.push_back({"write_write_conflicts", "Transaction", "Counter", h.write_write_conflicts->Value()});
+  out.push_back({"transient_errors", "Transaction", "Counter", h.transient_errors->Value()});
+
+  // QueryType
+  out.push_back({"read_query", "QueryType", "Counter", h.read_query->Value()});
+  out.push_back({"write_query", "QueryType", "Counter", h.write_query->Value()});
+  out.push_back({"read_write_query", "QueryType", "Counter", h.read_write_query->Value()});
+
+  // TTL
+  out.push_back({"deleted_nodes", "TTL", "Counter", h.deleted_nodes->Value()});
+  out.push_back({"deleted_edges", "TTL", "Counter", h.deleted_edges->Value()});
+
+  // SchemaInfo
+  out.push_back({"show_schema", "SchemaInfo", "Counter", h.show_schema->Value()});
+
+  // Query
+  AppendHistogramPercentiles(out, "query_execution_latency_seconds", "Query", *h.query_execution_latency_seconds);
+
+  // Snapshot
+  AppendHistogramPercentiles(
+      out, "snapshot_creation_latency_seconds", "Snapshot", *h.snapshot_creation_latency_seconds);
+  AppendHistogramPercentiles(
+      out, "snapshot_recovery_latency_seconds", "Snapshot", *h.snapshot_recovery_latency_seconds);
+
+  return out;
+}
+
+std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
+  auto const &g = global;
+  std::vector<MetricInfo> out;
+
+  // General — aggregate across all databases
+  double total_vertex_count = 0.0;
+  double total_edge_count = 0.0;
+  for (auto const &entry : databases_) {
+    auto const snapshot = entry.get_snapshot();
+    total_vertex_count += static_cast<double>(snapshot.vertex_count);
+    total_edge_count += static_cast<double>(snapshot.edge_count);
+  }
+  out.push_back({"vertex_count", "General", "Gauge", total_vertex_count});
+  out.push_back({"edge_count", "General", "Gauge", total_edge_count});
+  out.push_back({"average_degree",
+                 "General",
+                 "Gauge",
+                 total_vertex_count > 0.0 ? 2.0 * total_edge_count / total_vertex_count : 0.0});
+
+  // Memory — aggregate across all databases + global peak
+  double total_disk_usage = 0.0;
+  double total_memory_res = 0.0;
+  double total_unreleased_deltas = 0.0;
+  for (auto const &entry : databases_) {
+    auto const snapshot = entry.get_snapshot();
+    total_disk_usage += static_cast<double>(snapshot.disk_usage);
+    total_memory_res += static_cast<double>(snapshot.memory_res);
+    total_unreleased_deltas += entry.handles.unreleased_delta_objects->Value();
+  }
+  out.push_back({"disk_usage_bytes", "Memory", "Gauge", total_disk_usage});
+  out.push_back({"memory_res_bytes", "Memory", "Gauge", total_memory_res});
+  out.push_back({"peak_memory_res_bytes", "Memory", "Gauge", g.peak_memory_res_bytes->Value()});
+  out.push_back({"unreleased_delta_objects", "Memory", "Gauge", total_unreleased_deltas});
+
+  // Aggregate per-db counters/gauges
+  double total_once_operator = 0.0, total_create_node_operator = 0.0, total_create_expand_operator = 0.0;
+  double total_scan_all_operator = 0.0, total_scan_all_by_label_operator = 0.0;
+  double total_scan_all_by_label_properties_operator = 0.0, total_scan_all_by_id_operator = 0.0;
+  double total_scan_all_by_edge_operator = 0.0, total_scan_all_by_edge_type_operator = 0.0;
+  double total_scan_all_by_edge_type_property_operator = 0.0;
+  double total_scan_all_by_edge_type_property_value_operator = 0.0;
+  double total_scan_all_by_edge_type_property_range_operator = 0.0;
+  double total_scan_all_by_edge_property_operator = 0.0;
+  double total_scan_all_by_edge_property_value_operator = 0.0;
+  double total_scan_all_by_edge_property_range_operator = 0.0;
+  double total_scan_all_by_edge_id_operator = 0.0;
+  double total_scan_all_by_point_distance_operator = 0.0, total_scan_all_by_point_withinbbox_operator = 0.0;
+  double total_expand_operator = 0.0, total_expand_variable_operator = 0.0;
+  double total_construct_named_path_operator = 0.0, total_filter_operator = 0.0, total_produce_operator = 0.0;
+  double total_delete_operator = 0.0, total_set_property_operator = 0.0, total_set_properties_operator = 0.0;
+  double total_set_labels_operator = 0.0, total_remove_property_operator = 0.0, total_remove_labels_operator = 0.0;
+  double total_edge_uniqueness_filter_operator = 0.0, total_empty_result_operator = 0.0;
+  double total_accumulate_operator = 0.0, total_aggregate_operator = 0.0;
+  double total_skip_operator = 0.0, total_limit_operator = 0.0, total_order_by_operator = 0.0;
+  double total_merge_operator = 0.0, total_optional_operator = 0.0, total_unwind_operator = 0.0;
+  double total_distinct_operator = 0.0, total_union_operator = 0.0, total_cartesian_operator = 0.0;
+  double total_call_procedure_operator = 0.0, total_foreach_operator = 0.0;
+  double total_evaluate_pattern_filter_operator = 0.0, total_apply_operator = 0.0;
+  double total_indexed_join_operator = 0.0, total_hash_join_operator = 0.0, total_roll_up_apply_operator = 0.0;
+  double total_periodic_commit_operator = 0.0, total_periodic_subquery_operator = 0.0;
+  double total_set_nested_property_operator = 0.0, total_remove_nested_property_operator = 0.0;
+  double total_active_label_indices = 0.0, total_active_label_property_indices = 0.0;
+  double total_active_edge_type_indices = 0.0, total_active_edge_type_property_indices = 0.0;
+  double total_active_edge_property_indices = 0.0, total_active_point_indices = 0.0;
+  double total_active_text_indices = 0.0, total_active_text_edge_indices = 0.0;
+  double total_active_vector_indices = 0.0, total_active_vector_edge_indices = 0.0;
+  double total_active_existence_constraints = 0.0, total_active_unique_constraints = 0.0;
+  double total_active_type_constraints = 0.0;
+  double total_streams_created = 0.0, total_messages_consumed = 0.0;
+  double total_triggers_created = 0.0, total_triggers_executed = 0.0;
+  double total_active_transactions = 0.0, total_committed_transactions = 0.0;
+  double total_rollbacked_transactions = 0.0, total_failed_query = 0.0;
+  double total_failed_prepare = 0.0, total_failed_pull = 0.0, total_successful_query = 0.0;
+  double total_write_write_conflicts = 0.0, total_transient_errors = 0.0;
+  double total_read_query = 0.0, total_write_query = 0.0, total_read_write_query = 0.0;
+  double total_deleted_nodes = 0.0, total_deleted_edges = 0.0;
+  double total_show_schema = 0.0;
+  std::vector<prometheus::ClientMetric::Histogram> query_exec_hdatas;
+  std::vector<prometheus::ClientMetric::Histogram> snapshot_creation_hdatas;
+  std::vector<prometheus::ClientMetric::Histogram> snapshot_recovery_hdatas;
+  std::vector<prometheus::ClientMetric::Histogram> gc_hdatas;
+  std::vector<prometheus::ClientMetric::Histogram> gc_skiplist_hdatas;
+
+  for (auto const &entry : databases_) {
+    auto const &h = entry.handles;
+    total_once_operator += h.once_operator->Value();
+    total_create_node_operator += h.create_node_operator->Value();
+    total_create_expand_operator += h.create_expand_operator->Value();
+    total_scan_all_operator += h.scan_all_operator->Value();
+    total_scan_all_by_label_operator += h.scan_all_by_label_operator->Value();
+    total_scan_all_by_label_properties_operator += h.scan_all_by_label_properties_operator->Value();
+    total_scan_all_by_id_operator += h.scan_all_by_id_operator->Value();
+    total_scan_all_by_edge_operator += h.scan_all_by_edge_operator->Value();
+    total_scan_all_by_edge_type_operator += h.scan_all_by_edge_type_operator->Value();
+    total_scan_all_by_edge_type_property_operator += h.scan_all_by_edge_type_property_operator->Value();
+    total_scan_all_by_edge_type_property_value_operator += h.scan_all_by_edge_type_property_value_operator->Value();
+    total_scan_all_by_edge_type_property_range_operator += h.scan_all_by_edge_type_property_range_operator->Value();
+    total_scan_all_by_edge_property_operator += h.scan_all_by_edge_property_operator->Value();
+    total_scan_all_by_edge_property_value_operator += h.scan_all_by_edge_property_value_operator->Value();
+    total_scan_all_by_edge_property_range_operator += h.scan_all_by_edge_property_range_operator->Value();
+    total_scan_all_by_edge_id_operator += h.scan_all_by_edge_id_operator->Value();
+    total_scan_all_by_point_distance_operator += h.scan_all_by_point_distance_operator->Value();
+    total_scan_all_by_point_withinbbox_operator += h.scan_all_by_point_withinbbox_operator->Value();
+    total_expand_operator += h.expand_operator->Value();
+    total_expand_variable_operator += h.expand_variable_operator->Value();
+    total_construct_named_path_operator += h.construct_named_path_operator->Value();
+    total_filter_operator += h.filter_operator->Value();
+    total_produce_operator += h.produce_operator->Value();
+    total_delete_operator += h.delete_operator->Value();
+    total_set_property_operator += h.set_property_operator->Value();
+    total_set_properties_operator += h.set_properties_operator->Value();
+    total_set_labels_operator += h.set_labels_operator->Value();
+    total_remove_property_operator += h.remove_property_operator->Value();
+    total_remove_labels_operator += h.remove_labels_operator->Value();
+    total_edge_uniqueness_filter_operator += h.edge_uniqueness_filter_operator->Value();
+    total_empty_result_operator += h.empty_result_operator->Value();
+    total_accumulate_operator += h.accumulate_operator->Value();
+    total_aggregate_operator += h.aggregate_operator->Value();
+    total_skip_operator += h.skip_operator->Value();
+    total_limit_operator += h.limit_operator->Value();
+    total_order_by_operator += h.order_by_operator->Value();
+    total_merge_operator += h.merge_operator->Value();
+    total_optional_operator += h.optional_operator->Value();
+    total_unwind_operator += h.unwind_operator->Value();
+    total_distinct_operator += h.distinct_operator->Value();
+    total_union_operator += h.union_operator->Value();
+    total_cartesian_operator += h.cartesian_operator->Value();
+    total_call_procedure_operator += h.call_procedure_operator->Value();
+    total_foreach_operator += h.foreach_operator->Value();
+    total_evaluate_pattern_filter_operator += h.evaluate_pattern_filter_operator->Value();
+    total_apply_operator += h.apply_operator->Value();
+    total_indexed_join_operator += h.indexed_join_operator->Value();
+    total_hash_join_operator += h.hash_join_operator->Value();
+    total_roll_up_apply_operator += h.roll_up_apply_operator->Value();
+    total_periodic_commit_operator += h.periodic_commit_operator->Value();
+    total_periodic_subquery_operator += h.periodic_subquery_operator->Value();
+    total_set_nested_property_operator += h.set_nested_property_operator->Value();
+    total_remove_nested_property_operator += h.remove_nested_property_operator->Value();
+    total_active_label_indices += h.active_label_indices->Value();
+    total_active_label_property_indices += h.active_label_property_indices->Value();
+    total_active_edge_type_indices += h.active_edge_type_indices->Value();
+    total_active_edge_type_property_indices += h.active_edge_type_property_indices->Value();
+    total_active_edge_property_indices += h.active_edge_property_indices->Value();
+    total_active_point_indices += h.active_point_indices->Value();
+    total_active_text_indices += h.active_text_indices->Value();
+    total_active_text_edge_indices += h.active_text_edge_indices->Value();
+    total_active_vector_indices += h.active_vector_indices->Value();
+    total_active_vector_edge_indices += h.active_vector_edge_indices->Value();
+    total_active_existence_constraints += h.active_existence_constraints->Value();
+    total_active_unique_constraints += h.active_unique_constraints->Value();
+    total_active_type_constraints += h.active_type_constraints->Value();
+    total_streams_created += h.streams_created->Value();
+    total_messages_consumed += h.messages_consumed->Value();
+    total_triggers_created += h.triggers_created->Value();
+    total_triggers_executed += h.triggers_executed->Value();
+    total_active_transactions += h.active_transactions->Value();
+    total_committed_transactions += h.committed_transactions->Value();
+    total_rollbacked_transactions += h.rollbacked_transactions->Value();
+    total_failed_query += h.failed_query->Value();
+    total_failed_prepare += h.failed_prepare->Value();
+    total_failed_pull += h.failed_pull->Value();
+    total_successful_query += h.successful_query->Value();
+    total_write_write_conflicts += h.write_write_conflicts->Value();
+    total_transient_errors += h.transient_errors->Value();
+    total_read_query += h.read_query->Value();
+    total_write_query += h.write_query->Value();
+    total_read_write_query += h.read_write_query->Value();
+    total_deleted_nodes += h.deleted_nodes->Value();
+    total_deleted_edges += h.deleted_edges->Value();
+    total_show_schema += h.show_schema->Value();
+    query_exec_hdatas.push_back(h.query_execution_latency_seconds->Collect().histogram);
+    snapshot_creation_hdatas.push_back(h.snapshot_creation_latency_seconds->Collect().histogram);
+    snapshot_recovery_hdatas.push_back(h.snapshot_recovery_latency_seconds->Collect().histogram);
+    gc_hdatas.push_back(h.gc_latency_seconds->Collect().histogram);
+    gc_skiplist_hdatas.push_back(h.gc_skiplist_cleanup_latency_seconds->Collect().histogram);
+  }
+
+  // Operator
+  out.push_back({"once_operator", "Operator", "Counter", total_once_operator});
+  out.push_back({"create_node_operator", "Operator", "Counter", total_create_node_operator});
+  out.push_back({"create_expand_operator", "Operator", "Counter", total_create_expand_operator});
+  out.push_back({"scan_all_operator", "Operator", "Counter", total_scan_all_operator});
+  out.push_back({"scan_all_by_label_operator", "Operator", "Counter", total_scan_all_by_label_operator});
+  out.push_back(
+      {"scan_all_by_label_properties_operator", "Operator", "Counter", total_scan_all_by_label_properties_operator});
+  out.push_back({"scan_all_by_id_operator", "Operator", "Counter", total_scan_all_by_id_operator});
+  out.push_back({"scan_all_by_edge_operator", "Operator", "Counter", total_scan_all_by_edge_operator});
+  out.push_back({"scan_all_by_edge_type_operator", "Operator", "Counter", total_scan_all_by_edge_type_operator});
+  out.push_back({"scan_all_by_edge_type_property_operator",
+                 "Operator",
+                 "Counter",
+                 total_scan_all_by_edge_type_property_operator});
+  out.push_back({"scan_all_by_edge_type_property_value_operator",
+                 "Operator",
+                 "Counter",
+                 total_scan_all_by_edge_type_property_value_operator});
+  out.push_back({"scan_all_by_edge_type_property_range_operator",
+                 "Operator",
+                 "Counter",
+                 total_scan_all_by_edge_type_property_range_operator});
+  out.push_back(
+      {"scan_all_by_edge_property_operator", "Operator", "Counter", total_scan_all_by_edge_property_operator});
+  out.push_back({"scan_all_by_edge_property_value_operator",
+                 "Operator",
+                 "Counter",
+                 total_scan_all_by_edge_property_value_operator});
+  out.push_back({"scan_all_by_edge_property_range_operator",
+                 "Operator",
+                 "Counter",
+                 total_scan_all_by_edge_property_range_operator});
+  out.push_back({"scan_all_by_edge_id_operator", "Operator", "Counter", total_scan_all_by_edge_id_operator});
+  out.push_back(
+      {"scan_all_by_point_distance_operator", "Operator", "Counter", total_scan_all_by_point_distance_operator});
+  out.push_back(
+      {"scan_all_by_point_withinbbox_operator", "Operator", "Counter", total_scan_all_by_point_withinbbox_operator});
+  out.push_back({"expand_operator", "Operator", "Counter", total_expand_operator});
+  out.push_back({"expand_variable_operator", "Operator", "Counter", total_expand_variable_operator});
+  out.push_back({"construct_named_path_operator", "Operator", "Counter", total_construct_named_path_operator});
+  out.push_back({"filter_operator", "Operator", "Counter", total_filter_operator});
+  out.push_back({"produce_operator", "Operator", "Counter", total_produce_operator});
+  out.push_back({"delete_operator", "Operator", "Counter", total_delete_operator});
+  out.push_back({"set_property_operator", "Operator", "Counter", total_set_property_operator});
+  out.push_back({"set_properties_operator", "Operator", "Counter", total_set_properties_operator});
+  out.push_back({"set_labels_operator", "Operator", "Counter", total_set_labels_operator});
+  out.push_back({"remove_property_operator", "Operator", "Counter", total_remove_property_operator});
+  out.push_back({"remove_labels_operator", "Operator", "Counter", total_remove_labels_operator});
+  out.push_back({"edge_uniqueness_filter_operator", "Operator", "Counter", total_edge_uniqueness_filter_operator});
+  out.push_back({"empty_result_operator", "Operator", "Counter", total_empty_result_operator});
+  out.push_back({"accumulate_operator", "Operator", "Counter", total_accumulate_operator});
+  out.push_back({"aggregate_operator", "Operator", "Counter", total_aggregate_operator});
+  out.push_back({"skip_operator", "Operator", "Counter", total_skip_operator});
+  out.push_back({"limit_operator", "Operator", "Counter", total_limit_operator});
+  out.push_back({"order_by_operator", "Operator", "Counter", total_order_by_operator});
+  out.push_back({"merge_operator", "Operator", "Counter", total_merge_operator});
+  out.push_back({"optional_operator", "Operator", "Counter", total_optional_operator});
+  out.push_back({"unwind_operator", "Operator", "Counter", total_unwind_operator});
+  out.push_back({"distinct_operator", "Operator", "Counter", total_distinct_operator});
+  out.push_back({"union_operator", "Operator", "Counter", total_union_operator});
+  out.push_back({"cartesian_operator", "Operator", "Counter", total_cartesian_operator});
+  out.push_back({"call_procedure_operator", "Operator", "Counter", total_call_procedure_operator});
+  out.push_back({"foreach_operator", "Operator", "Counter", total_foreach_operator});
+  out.push_back({"evaluate_pattern_filter_operator", "Operator", "Counter", total_evaluate_pattern_filter_operator});
+  out.push_back({"apply_operator", "Operator", "Counter", total_apply_operator});
+  out.push_back({"indexed_join_operator", "Operator", "Counter", total_indexed_join_operator});
+  out.push_back({"hash_join_operator", "Operator", "Counter", total_hash_join_operator});
+  out.push_back({"roll_up_apply_operator", "Operator", "Counter", total_roll_up_apply_operator});
+  out.push_back({"periodic_commit_operator", "Operator", "Counter", total_periodic_commit_operator});
+  out.push_back({"periodic_subquery_operator", "Operator", "Counter", total_periodic_subquery_operator});
+  out.push_back({"set_nested_property_operator", "Operator", "Counter", total_set_nested_property_operator});
+  out.push_back({"remove_nested_property_operator", "Operator", "Counter", total_remove_nested_property_operator});
+
+  // Index
+  out.push_back({"active_label_indices", "Index", "Gauge", total_active_label_indices});
+  out.push_back({"active_label_property_indices", "Index", "Gauge", total_active_label_property_indices});
+  out.push_back({"active_edge_type_indices", "Index", "Gauge", total_active_edge_type_indices});
+  out.push_back({"active_edge_type_property_indices", "Index", "Gauge", total_active_edge_type_property_indices});
+  out.push_back({"active_edge_property_indices", "Index", "Gauge", total_active_edge_property_indices});
+  out.push_back({"active_point_indices", "Index", "Gauge", total_active_point_indices});
+  out.push_back({"active_text_indices", "Index", "Gauge", total_active_text_indices});
+  out.push_back({"active_text_edge_indices", "Index", "Gauge", total_active_text_edge_indices});
+  out.push_back({"active_vector_indices", "Index", "Gauge", total_active_vector_indices});
+  out.push_back({"active_vector_edge_indices", "Index", "Gauge", total_active_vector_edge_indices});
+
+  // Constraint
+  out.push_back({"active_existence_constraints", "Constraint", "Gauge", total_active_existence_constraints});
+  out.push_back({"active_unique_constraints", "Constraint", "Gauge", total_active_unique_constraints});
+  out.push_back({"active_type_constraints", "Constraint", "Gauge", total_active_type_constraints});
+
+  // Stream
+  out.push_back({"streams_created", "Stream", "Counter", total_streams_created});
+  out.push_back({"messages_consumed", "Stream", "Counter", total_messages_consumed});
+
+  // Trigger
+  out.push_back({"triggers_created", "Trigger", "Counter", total_triggers_created});
+  out.push_back({"triggers_executed", "Trigger", "Counter", total_triggers_executed});
+
+  // Transaction
+  out.push_back({"active_transactions", "Transaction", "Gauge", total_active_transactions});
+  out.push_back({"committed_transactions", "Transaction", "Counter", total_committed_transactions});
+  out.push_back({"rollbacked_transactions", "Transaction", "Counter", total_rollbacked_transactions});
+  out.push_back({"failed_query", "Transaction", "Counter", total_failed_query});
+  out.push_back({"failed_prepare", "Transaction", "Counter", total_failed_prepare});
+  out.push_back({"failed_pull", "Transaction", "Counter", total_failed_pull});
+  out.push_back({"successful_query", "Transaction", "Counter", total_successful_query});
+  out.push_back({"write_write_conflicts", "Transaction", "Counter", total_write_write_conflicts});
+  out.push_back({"transient_errors", "Transaction", "Counter", total_transient_errors});
+
+  // QueryType
+  out.push_back({"read_query", "QueryType", "Counter", total_read_query});
+  out.push_back({"write_query", "QueryType", "Counter", total_write_query});
+  out.push_back({"read_write_query", "QueryType", "Counter", total_read_write_query});
+
+  // TTL
+  out.push_back({"deleted_nodes", "TTL", "Counter", total_deleted_nodes});
+  out.push_back({"deleted_edges", "TTL", "Counter", total_deleted_edges});
+
+  // SchemaInfo
+  out.push_back({"show_schema", "SchemaInfo", "Counter", total_show_schema});
+
+  // Query
+  AppendMergedHistogramPercentiles(out, "query_execution_latency_seconds", "Query", query_exec_hdatas);
+
+  // Snapshot
+  AppendMergedHistogramPercentiles(out, "snapshot_creation_latency_seconds", "Snapshot", snapshot_creation_hdatas);
+  AppendMergedHistogramPercentiles(out, "snapshot_recovery_latency_seconds", "Snapshot", snapshot_recovery_hdatas);
+
+  // Memory (GC histograms)
+  AppendMergedHistogramPercentiles(out, "gc_latency_seconds", "Memory", gc_hdatas);
+  AppendMergedHistogramPercentiles(out, "gc_skiplist_cleanup_latency_seconds", "Memory", gc_skiplist_hdatas);
+
+  // Session
+  out.push_back({"active_sessions", "Session", "Gauge", g.active_sessions->Value()});
+  out.push_back({"active_bolt_sessions", "Session", "Gauge", g.active_bolt_sessions->Value()});
+  out.push_back({"active_tcp_sessions", "Session", "Gauge", g.active_tcp_sessions->Value()});
+  out.push_back({"active_ssl_sessions", "Session", "Gauge", g.active_ssl_sessions->Value()});
+  out.push_back({"active_websocket_sessions", "Session", "Gauge", g.active_websocket_sessions->Value()});
+  out.push_back({"bolt_messages", "Session", "Counter", g.bolt_messages->Value()});
+
+  // HighAvailability counters
+  out.push_back({"successful_failovers", "HighAvailability", "Counter", g.successful_failovers->Value()});
+  out.push_back({"raft_failed_failovers", "HighAvailability", "Counter", g.raft_failed_failovers->Value()});
+  out.push_back({"no_alive_instance_failed_failovers",
+                 "HighAvailability",
+                 "Counter",
+                 g.no_alive_instance_failed_failovers->Value()});
+  out.push_back({"become_leader_success", "HighAvailability", "Counter", g.become_leader_success->Value()});
+  out.push_back({"failed_to_become_leader", "HighAvailability", "Counter", g.failed_to_become_leader->Value()});
+  out.push_back({"show_instance", "HighAvailability", "Counter", g.show_instance->Value()});
+  out.push_back({"show_instances", "HighAvailability", "Counter", g.show_instances->Value()});
+  out.push_back({"demote_instance", "HighAvailability", "Counter", g.demote_instance->Value()});
+  out.push_back({"unregister_repl_instance", "HighAvailability", "Counter", g.unregister_repl_instance->Value()});
+  out.push_back({"remove_coord_instance", "HighAvailability", "Counter", g.remove_coord_instance->Value()});
+  out.push_back({"replica_recovery_success", "HighAvailability", "Counter", g.replica_recovery_success->Value()});
+  out.push_back({"replica_recovery_fail", "HighAvailability", "Counter", g.replica_recovery_fail->Value()});
+  out.push_back({"replica_recovery_skip", "HighAvailability", "Counter", g.replica_recovery_skip->Value()});
+  out.push_back({"state_check_rpc_success", "HighAvailability", "Counter", g.state_check_rpc_success->Value()});
+  out.push_back({"state_check_rpc_fail", "HighAvailability", "Counter", g.state_check_rpc_fail->Value()});
+  out.push_back(
+      {"unregister_replica_rpc_success", "HighAvailability", "Counter", g.unregister_replica_rpc_success->Value()});
+  out.push_back({"unregister_replica_rpc_fail", "HighAvailability", "Counter", g.unregister_replica_rpc_fail->Value()});
+  out.push_back({"enable_writing_on_main_rpc_success",
+                 "HighAvailability",
+                 "Counter",
+                 g.enable_writing_on_main_rpc_success->Value()});
+  out.push_back(
+      {"enable_writing_on_main_rpc_fail", "HighAvailability", "Counter", g.enable_writing_on_main_rpc_fail->Value()});
+  out.push_back({"promote_to_main_rpc_success", "HighAvailability", "Counter", g.promote_to_main_rpc_success->Value()});
+  out.push_back({"promote_to_main_rpc_fail", "HighAvailability", "Counter", g.promote_to_main_rpc_fail->Value()});
+  out.push_back({"demote_main_to_replica_rpc_success",
+                 "HighAvailability",
+                 "Counter",
+                 g.demote_main_to_replica_rpc_success->Value()});
+  out.push_back(
+      {"demote_main_to_replica_rpc_fail", "HighAvailability", "Counter", g.demote_main_to_replica_rpc_fail->Value()});
+  out.push_back({"register_replica_on_main_rpc_success",
+                 "HighAvailability",
+                 "Counter",
+                 g.register_replica_on_main_rpc_success->Value()});
+  out.push_back({"register_replica_on_main_rpc_fail",
+                 "HighAvailability",
+                 "Counter",
+                 g.register_replica_on_main_rpc_fail->Value()});
+  out.push_back({"swap_main_uuid_rpc_success", "HighAvailability", "Counter", g.swap_main_uuid_rpc_success->Value()});
+  out.push_back({"swap_main_uuid_rpc_fail", "HighAvailability", "Counter", g.swap_main_uuid_rpc_fail->Value()});
+  out.push_back({"get_database_histories_rpc_success",
+                 "HighAvailability",
+                 "Counter",
+                 g.get_database_histories_rpc_success->Value()});
+  out.push_back(
+      {"get_database_histories_rpc_fail", "HighAvailability", "Counter", g.get_database_histories_rpc_fail->Value()});
+  out.push_back({"update_data_instance_config_rpc_success",
+                 "HighAvailability",
+                 "Counter",
+                 g.update_data_instance_config_rpc_success->Value()});
+  out.push_back({"update_data_instance_config_rpc_fail",
+                 "HighAvailability",
+                 "Counter",
+                 g.update_data_instance_config_rpc_fail->Value()});
+
+  // HighAvailability histograms
+  AppendHistogramPercentiles(
+      out, "instance_succ_callback_seconds", "HighAvailability", *g.instance_succ_callback_seconds);
+  AppendHistogramPercentiles(
+      out, "instance_fail_callback_seconds", "HighAvailability", *g.instance_fail_callback_seconds);
+  AppendHistogramPercentiles(
+      out, "choose_most_up_to_date_instance_seconds", "HighAvailability", *g.choose_most_up_to_date_instance_seconds);
+  AppendHistogramPercentiles(out, "socket_connect_seconds", "HighAvailability", *g.socket_connect_seconds);
+  AppendHistogramPercentiles(out, "replica_stream_seconds", "HighAvailability", *g.replica_stream_seconds);
+  AppendHistogramPercentiles(out, "data_failover_seconds", "HighAvailability", *g.data_failover_seconds);
+  AppendHistogramPercentiles(
+      out, "start_txn_replication_seconds", "HighAvailability", *g.start_txn_replication_seconds);
+  AppendHistogramPercentiles(
+      out, "finalize_txn_replication_seconds", "HighAvailability", *g.finalize_txn_replication_seconds);
+  AppendHistogramPercentiles(out, "promote_to_main_rpc_seconds", "HighAvailability", *g.promote_to_main_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "demote_main_to_replica_rpc_seconds", "HighAvailability", *g.demote_main_to_replica_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "register_replica_on_main_rpc_seconds", "HighAvailability", *g.register_replica_on_main_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "unregister_replica_rpc_seconds", "HighAvailability", *g.unregister_replica_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "enable_writing_on_main_rpc_seconds", "HighAvailability", *g.enable_writing_on_main_rpc_seconds);
+  AppendHistogramPercentiles(out, "state_check_rpc_seconds", "HighAvailability", *g.state_check_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "get_database_histories_rpc_seconds", "HighAvailability", *g.get_database_histories_rpc_seconds);
+  AppendHistogramPercentiles(out, "heartbeat_rpc_seconds", "HighAvailability", *g.heartbeat_rpc_seconds);
+  AppendHistogramPercentiles(out, "prepare_commit_rpc_seconds", "HighAvailability", *g.prepare_commit_rpc_seconds);
+  AppendHistogramPercentiles(out, "snapshot_rpc_seconds", "HighAvailability", *g.snapshot_rpc_seconds);
+  AppendHistogramPercentiles(out, "current_wal_rpc_seconds", "HighAvailability", *g.current_wal_rpc_seconds);
+  AppendHistogramPercentiles(out, "wal_files_rpc_seconds", "HighAvailability", *g.wal_files_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "frequent_heartbeat_rpc_seconds", "HighAvailability", *g.frequent_heartbeat_rpc_seconds);
+  AppendHistogramPercentiles(out, "system_recovery_rpc_seconds", "HighAvailability", *g.system_recovery_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "update_data_instance_config_rpc_seconds", "HighAvailability", *g.update_data_instance_config_rpc_seconds);
+  AppendHistogramPercentiles(out, "get_histories_seconds", "HighAvailability", *g.get_histories_seconds);
+
+  return out;
 }
 
 PrometheusMetrics &Metrics() {
