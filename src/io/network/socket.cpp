@@ -317,6 +317,7 @@ void Socket::SetTimeout(int64_t sec, int64_t usec) {
   MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)), "Can't set socket timeout");
 }
 
+// NOLINTNEXTLINE(readability-make-member-function-const)
 void Socket::SetUserTimeout(int timeout_ms) {
   MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_USER_TIMEOUT, &timeout_ms, sizeof(timeout_ms)),
             "Can't set TCP_USER_TIMEOUT");
