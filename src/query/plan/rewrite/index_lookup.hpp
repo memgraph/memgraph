@@ -986,13 +986,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         if (ctx.scan_symbol != sym) return std::nullopt;
       }
 
-      // Convert property_path_ (vector<PropertyIx>) to storage::PropertyPath
-      storage::PropertyPath path;
-      path.reserve(prop_lookup->property_path_.size());
+      // Convert property_path_ (vector<PropertyIx>) to storage::PropertyPath.
+      // PropertyPath wraps vector<PropertyId>; build it directly to avoid reserve/insert overhead.
+      std::vector<storage::PropertyId> prop_ids;
+      prop_ids.reserve(prop_lookup->property_path_.size());
       for (const auto &pix : prop_lookup->property_path_) {
-        path.insert(GetProperty(pix));
+        prop_ids.push_back(GetProperty(pix));
       }
-      ctx.property_paths.push_back(std::move(path));
+      ctx.property_paths.emplace_back(std::move(prop_ids));
     }
 
     ctx.valid = true;
@@ -1015,7 +1016,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // operator gains this ability, it must be handled in the order-preserving walk below.
     if (ctx.scan_symbol.name() != scan_symbol.name()) return;
 
-    // The new scan must be ScanAllByLabelProperties
+    // The new scan must be ScanAllByLabelProperties.
+    // Note: there is no separate ScanAllByLabelPropertyValue or ScanAllByLabelPropertyRange —
+    // ScanAllByLabelProperties handles all label+property scan variants (equality, range, composite).
     if (new_scan->GetTypeInfo() != ScanAllByLabelProperties::kType) return;
 
     // Verify all operators between OrderBy and ScanAll are order-preserving.
@@ -1069,25 +1072,33 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (!order_preserving) return;
     }
 
-    // Match ORDER BY properties against index properties with equality-skip logic
+    // Match ORDER BY properties against index properties with equality-skip logic.
+    //
+    // The index provides lexicographic ordering over its columns. An equality-pinned column
+    // contributes a single constant value, so it can be "skipped" — the remaining columns
+    // still provide order. This works regardless of whether equality filters precede range
+    // filters in expression_ranges_; the loop inspects each column's filter type individually.
+    //
+    // For trailing index columns beyond expression_ranges_ (no filter), the column still
+    // participates in ordering as long as all prior columns were either equality-pinned or
+    // matched by ORDER BY — there are no "gaps" because the index scan returns all values
+    // for unfiltered columns in sorted order.
     auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(new_scan);
     const auto &index_properties = scan_by_props->properties_;
     const auto &expression_ranges = scan_by_props->expression_ranges_;
 
     size_t ob_cursor = 0;  // cursor into ORDER BY property_paths
     for (size_t i = 0; i < index_properties.size() && ob_cursor < ctx.property_paths.size(); ++i) {
-      // Index properties beyond those with expression ranges have no filter — they provide
-      // ordering only if all prior columns were equality-pinned or matched.
       bool is_equality = (i < expression_ranges.size() && expression_ranges[i].type_ == PropertyFilter::Type::EQUAL);
       if (is_equality) {
-        // Equality-pinned: skip this index property.
-        // If ORDER BY also references this property, advance the ORDER BY cursor too.
+        // Equality-pinned columns are constant across all results, so they
+        // don't affect output ordering. Skip to the next index column.
         if (index_properties[i] == ctx.property_paths[ob_cursor]) {
           ++ob_cursor;
         }
         continue;
       }
-      // Non-equality: the next ORDER BY property must match this index property
+      // Non-equality (range, IS NOT NULL, or no filter): ORDER BY must match this column.
       if (index_properties[i] != ctx.property_paths[ob_cursor]) return;
       ++ob_cursor;
     }
