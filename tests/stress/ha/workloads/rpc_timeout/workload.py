@@ -76,8 +76,9 @@ HEAVY_WRITE_QUERY = (
     "->(:Child {str: 'sdjghfskgshkf', id: x, flt: 1.0567, bool: true, dt: date(), dtz: localdatetime()});"
 )
 
-RPC_TIMEOUT_ERROR = "At least one SYNC replica reached an RPC timeout"
-RPC_GENERIC_ERROR = "At least one SYNC replica has not confirmed"
+RPC_TIMEOUT_ERROR = "At least one replica reached an RPC timeout"
+RPC_GENERIC_SYNC_ERROR = "At least one SYNC replica has not confirmed"
+RPC_GENERIC_STRICT_SYNC_ERROR = "At least one STRICT_SYNC replica has not confirmed"
 
 
 def run_iptables(rule, description):
@@ -171,7 +172,11 @@ def main():
         # We currently check for both generic and specific timeout because the generic one will be thrown
         # if socket connect fails or sending data fails while timeout will occur if client waits for too
         # long for the reply from the replica
-        if RPC_TIMEOUT_ERROR not in error_message and RPC_GENERIC_ERROR not in error_message:
+        if (
+            RPC_TIMEOUT_ERROR not in error_message
+            and RPC_GENERIC_SYNC_ERROR not in error_message
+            and RPC_GENERIC_STRICT_SYNC_ERROR not in error_message
+        ):
             print(f"FATAL: Expected '{RPC_TIMEOUT_ERROR}' in error message, got: {error_message}")
             sys.exit(1)
 

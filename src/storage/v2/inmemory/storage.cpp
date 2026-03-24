@@ -1072,7 +1072,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
         // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
         // cluster.
-        if (repl_prepare_phase_status) {
+        if (repl_prepare_phase_status.has_value()) {
           // All replicas voted yes, hence they want to commit the current transaction
           FinalizeCommitPhase(durability_commit_timestamp);
         }
@@ -1085,11 +1085,14 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         replicating_txn.FinalizeTransaction(
             repl_prepare_phase_status.has_value(), mem_storage->uuid(), protector, durability_commit_timestamp);
 
-        if (!repl_prepare_phase_status) {
+        if (!repl_prepare_phase_status.has_value()) {
           // Release engine lock because we don't have to hold it anymore for abort
           engine_guard.unlock();
           AbortAndResetCommitTs();
 
+          if (repl_prepare_phase_status.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
+            return std::unexpected{TimeoutReplicationError{}};
+          }
           return std::unexpected{StrictSyncReplicationError{}};
         }
 

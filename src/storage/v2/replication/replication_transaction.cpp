@@ -41,9 +41,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
       // NOLINTNEXTLINE
       if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
         // NOLINTNEXTLINE
-        return client->FinalizePrepareCommitPhase(replica_stream, durability_commit_timestamp)
-                   ? std::expected<void, io::network::ClientCommunicationError>{}
-                   : std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+        return client->FinalizePrepareCommitPhase(replica_stream, durability_commit_timestamp);
       }
       // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
       // RPC stream gets destroyed => RPC lock released.
