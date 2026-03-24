@@ -32,9 +32,12 @@ MAIN_BOLT_PORT = 7687
 # Use sudo only if not running as root and sudo is available
 _SUDO = ["sudo"] if os.geteuid() != 0 and shutil.which("sudo") else []
 
+# Resolve iptables binary — may not be on PATH in minimal containers (e.g. /usr/sbin/iptables)
+_IPTABLES = shutil.which("iptables") or "/usr/sbin/iptables"
+
 BLOCK_RULE = [
     *_SUDO,
-    "iptables",
+    _IPTABLES,
     "-I",
     "OUTPUT",
     "-o",
@@ -48,7 +51,7 @@ BLOCK_RULE = [
 ]
 UNBLOCK_RULE = [
     *_SUDO,
-    "iptables",
+    _IPTABLES,
     "-D",
     "OUTPUT",
     "-o",
@@ -130,7 +133,7 @@ def main():
 
         # Verify the rule is in place
         verify = subprocess.run(
-            [*_SUDO, "iptables", "-L", "OUTPUT", "-n", "--line-numbers"], capture_output=True, text=True
+            [*_SUDO, _IPTABLES, "-L", "OUTPUT", "-n", "--line-numbers"], capture_output=True, text=True
         )
         print(f"[iptables] Current OUTPUT rules:\n{verify.stdout}")
 
