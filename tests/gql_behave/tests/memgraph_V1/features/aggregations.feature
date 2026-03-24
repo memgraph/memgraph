@@ -690,7 +690,7 @@ Feature: Aggregations
             | n | e |
             | 2 | 1 |
 
-    Scenario: Virtual edge projection creates edge with correct type
+    Scenario: Virtual edge projection with property access
         Given an empty graph
         And having executed
             """
@@ -698,7 +698,21 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.type AS t
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED', relationshipProperties: {score: 10}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.score AS s
+            """
+        Then the result should be:
+            | s  |
+            | 10 |
+
+    Scenario: Virtual edge type() function works
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN type(e) AS t
             """
         Then the result should be:
             | t             |
@@ -769,6 +783,48 @@ Feature: Aggregations
         Then the result should be:
             | w  |
             | 42 |
+
+    Scenario: Virtual edge startNode and endNode functions
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN startNode(e).x AS s, endNode(e).x AS t
+            """
+        Then the result should be:
+            | s | t |
+            | 1 | 3 |
+
+    Scenario: Virtual edge id function
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN id(e) IS NOT NULL AS has_id
+            """
+        Then the result should be:
+            | has_id |
+            | true   |
+
+    Scenario: Virtual edge properties and keys functions
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'V', relationshipProperties: {w: 5}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN properties(e) AS props, keys(e) AS k
+            """
+        Then the result should be:
+            | props  | k    |
+            | {w:5}  | ['w'] |
 
     Scenario: Empty collect aggregation:
       Given an empty graph
