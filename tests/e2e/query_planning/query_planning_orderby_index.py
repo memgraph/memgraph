@@ -22,104 +22,166 @@ def get_plan(memgraph, query):
     return [x[QUERY_PLAN] for x in results]
 
 
-def plan_contains(plan, operator):
-    return any(operator in line for line in plan)
-
-
 def test_basic_orderby_elimination(memgraph):
     """ORDER BY n.prop eliminated when index scan on :L(prop) with range filter."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop")
+    expected = [
+        " * Produce {n}",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
 
-    assert plan_contains(plan, "ScanAllByLabelProperties"), f"Expected index scan in plan: {plan}"
-    assert not plan_contains(plan, "OrderBy"), f"OrderBy should be eliminated: {plan}"
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop")
+    assert expected == actual
 
 
 def test_orderby_desc_not_eliminated(memgraph):
     """ORDER BY n.prop DESC should not be eliminated (index is ASC only)."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC")
+    expected = [
+        " * OrderBy {n}",
+        " * Produce {n}",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
 
-    assert plan_contains(plan, "OrderBy"), f"OrderBy should NOT be eliminated for DESC: {plan}"
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC")
+    assert expected == actual
 
 
 def test_orderby_elimination_with_limit(memgraph):
     """ORDER BY eliminated but LIMIT preserved."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop LIMIT 10")
+    expected = [
+        " * Limit",
+        " * Produce {n}",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
 
-    assert not plan_contains(plan, "OrderBy"), f"OrderBy should be eliminated: {plan}"
-    assert plan_contains(plan, "Limit"), f"Limit should remain: {plan}"
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop LIMIT 10")
+    assert expected == actual
 
 
 def test_orderby_with_expand(memgraph):
     """ORDER BY eliminated when Expand is between OrderBy and index scan."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
-    plan = get_plan(memgraph, "MATCH (n:L)-[r]->(m) WHERE n.prop > 5 RETURN n, m ORDER BY n.prop")
+    expected = [
+        " * Produce {n, m}",
+        " * Expand (n)-[r]->(m)",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
 
-    assert plan_contains(plan, "ScanAllByLabelProperties"), f"Expected index scan in plan: {plan}"
-    assert not plan_contains(plan, "OrderBy"), f"OrderBy should be eliminated (Expand preserves order): {plan}"
+    actual = get_plan(memgraph, "MATCH (n:L)-[r]->(m) WHERE n.prop > 5 RETURN n, m ORDER BY n.prop")
+    assert expected == actual
 
 
 def test_orderby_different_property_not_eliminated(memgraph):
     """ORDER BY n.other not eliminated when index is on :L(prop)."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.other")
+    expected = [
+        " * OrderBy {n}",
+        " * Produce {n}",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
 
-    assert plan_contains(plan, "OrderBy"), f"OrderBy should NOT be eliminated (different property): {plan}"
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.other")
+    assert expected == actual
 
 
 def test_orderby_no_property_index(memgraph):
     """ORDER BY not eliminated when only a label index exists (no property index)."""
     memgraph.execute("CREATE INDEX ON :L;")
 
-    plan = get_plan(memgraph, "MATCH (n:L) RETURN n ORDER BY n.prop")
+    expected = [
+        " * OrderBy {n}",
+        " * Produce {n}",
+        " * ScanAllByLabel (n :L)",
+        " * Once",
+    ]
 
-    assert plan_contains(plan, "OrderBy"), f"OrderBy should NOT be eliminated (label-only index): {plan}"
+    actual = get_plan(memgraph, "MATCH (n:L) RETURN n ORDER BY n.prop")
+    assert expected == actual
 
 
 def test_orderby_aggregate_blocks(memgraph):
     """Aggregate between OrderBy and scan blocks elimination."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
-    plan = get_plan(
-        memgraph,
-        "MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS p, count(*) AS c ORDER BY p",
-    )
+    expected = [
+        " * OrderBy {p, c}",
+        " * Produce {p, c}",
+        " * Aggregate {COUNT-1} {n}",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
 
-    assert plan_contains(plan, "OrderBy"), f"OrderBy should NOT be eliminated (Aggregate blocks): {plan}"
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS p, count(*) AS c ORDER BY p")
+    assert expected == actual
 
 
 def test_orderby_with_renaming_blocks(memgraph):
     """WITH renaming (n AS m) blocks elimination."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
-    plan = get_plan(
-        memgraph,
-        "MATCH (n:L) WHERE n.prop > 5 WITH n AS m RETURN m ORDER BY m.prop",
-    )
+    expected = [
+        " * OrderBy {m}",
+        " * Produce {m}",
+        " * Produce {m}",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
 
-    assert plan_contains(plan, "OrderBy"), f"OrderBy should NOT be eliminated (WITH renames variable): {plan}"
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 WITH n AS m RETURN m ORDER BY m.prop")
+    assert expected == actual
 
 
 def test_orderby_equality_filter(memgraph):
     """ORDER BY on equality-filtered property is trivially satisfied."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop = 5 RETURN n ORDER BY n.prop")
+    expected = [
+        " * Produce {n}",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
 
-    assert not plan_contains(plan, "OrderBy"), f"OrderBy should be eliminated (equality filter): {plan}"
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop = 5 RETURN n ORDER BY n.prop")
+    assert expected == actual
 
 
 def test_orderby_non_property_expr_not_eliminated(memgraph):
     """ORDER BY n.prop + 1 should not be eliminated."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop + 1")
+    expected = [
+        " * OrderBy {n}",
+        " * Produce {n}",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
 
-    assert plan_contains(plan, "OrderBy"), f"OrderBy should NOT be eliminated (non-property expr): {plan}"
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop + 1")
+    assert expected == actual
+
+
+def test_orderby_reverse_column_order_not_eliminated(memgraph):
+    """ORDER BY n.b, n.a not eliminated when index is (a, b) — different sort order."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+
+    expected = [
+        " * OrderBy {n}",
+        " * Produce {n}",
+        " * ScanAllByLabelProperties (n :L {a, b})",
+        " * Once",
+    ]
+
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.a > 5 RETURN n ORDER BY n.b, n.a")
+    assert expected == actual
