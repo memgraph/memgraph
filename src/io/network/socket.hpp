@@ -127,6 +127,15 @@ class Socket {
   void SetTimeout(int64_t sec, int64_t usec);
 
   /**
+   * Sets TCP_USER_TIMEOUT on the socket. If transmitted data remains
+   * unacknowledged for @p timeout_ms milliseconds, the kernel tears down
+   * the connection and any blocked send()/recv() returns ETIMEDOUT.
+   *
+   * Default: 5000ms (5s).
+   */
+  void SetUserTimeout(int timeout_ms = 5000);
+
+  /**
    * Checks if there are any errors on a socket. Returns 0 if there are none.
    */
   int ErrorStatus() const;
