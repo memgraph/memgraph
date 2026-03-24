@@ -261,7 +261,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp);
 
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override { metric_handles_ = metric_handles; }
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
   void RunGC();
 

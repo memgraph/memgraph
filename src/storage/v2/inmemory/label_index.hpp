@@ -220,7 +220,7 @@ class InMemoryLabelIndex : public LabelIndex {
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(LabelId label, uint64_t commit_timestamp);
 
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override { metric_handles_ = metric_handles; }
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
   void RunGC();
 

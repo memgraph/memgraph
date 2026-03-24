@@ -131,7 +131,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// Publishes a constraint after validation, making it visible at the given commit timestamp.
   bool PublishConstraint(LabelId label, const std::set<PropertyId> &properties, uint64_t commit_timestamp);
 
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override { metric_handles_ = metric_handles; }
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
   auto DropConstraint(LabelId label, const std::set<PropertyId> &properties) -> DeletionStatus override;
 
