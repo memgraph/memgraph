@@ -133,7 +133,13 @@ struct Config {
   // attributed to the database's MemoryTracker via extent hooks.
   unsigned arena_idx{0};
 
-  friend bool operator==(const Config &lrh, const Config &rhs) = default;
+  friend bool operator==(const Config &lhs, const Config &rhs) {
+    // arena_idx is a runtime field set by the owning Database at construction;
+    // it is not part of the logical storage configuration.
+    return lhs.gc == rhs.gc && lhs.durability == rhs.durability && lhs.transaction == rhs.transaction &&
+           lhs.disk == rhs.disk && lhs.salient == rhs.salient && lhs.force_on_disk == rhs.force_on_disk &&
+           lhs.track_label_counts == rhs.track_label_counts;
+  }
 };
 
 inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
