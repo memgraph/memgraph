@@ -193,7 +193,7 @@ TYPED_TEST(OrderByIndexTest, WithLimit) {
   EXPECT_TRUE(PlanContainsOp(planner.plan(), Limit::kType)) << "Limit should remain";
 }
 
-// Test 6: DESC rejected
+// Test 6: DESC ordering is not eliminated — index only provides ASC order
 TYPED_TEST(OrderByIndexTest, DescRejected) {
   // MATCH (n:L) WHERE n.prop > 5 ORDER BY n.prop DESC RETURN n
   FakeDbAccessor dba;
@@ -213,7 +213,7 @@ TYPED_TEST(OrderByIndexTest, DescRejected) {
   EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "OrderBy should NOT be eliminated (DESC)";
 }
 
-// Test 7: Non-property expression rejected
+// Test 7: Non-property expression in ORDER BY — computed expressions can't match index columns
 TYPED_TEST(OrderByIndexTest, NonPropertyExprRejected) {
   // MATCH (n:L) WHERE n.prop > 5 ORDER BY n.prop + 1 RETURN n
   FakeDbAccessor dba;
@@ -234,7 +234,7 @@ TYPED_TEST(OrderByIndexTest, NonPropertyExprRejected) {
       << "OrderBy should NOT be eliminated (non-property expression)";
 }
 
-// Test 8: No matching index - ORDER BY n.b with index on (a) only
+// Test 8: ORDER BY property differs from index property — no elimination
 TYPED_TEST(OrderByIndexTest, NoMatchingIndex) {
   // MATCH (n:L) WHERE n.a > 5 ORDER BY n.b RETURN n
   FakeDbAccessor dba;
@@ -256,7 +256,7 @@ TYPED_TEST(OrderByIndexTest, NoMatchingIndex) {
       << "OrderBy should NOT be eliminated (ORDER BY property not in index)";
 }
 
-// Test 9: ORDER BY superset - ORDER BY n.a, n.b with index on (a) only
+// Test 9: ORDER BY has more columns than the single-property index — can't fully satisfy
 TYPED_TEST(OrderByIndexTest, OrderBySuperset) {
   // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a, n.b RETURN n
   FakeDbAccessor dba;
@@ -300,9 +300,7 @@ TYPED_TEST(OrderByIndexTest, ExpandPreservesOrder) {
       << "OrderBy should be eliminated (Expand is order-preserving)";
 }
 
-// Test 10b: Expand with ORDER BY on the expanded symbol, not the scan symbol.
-// Both n and m have property indexes, but the scan is on n and ORDER BY is on m.prop.
-// The index scan provides order on n.prop, not m.prop — elimination must not fire.
+// Test 10b: ORDER BY on expanded symbol m, not scan symbol n — index order is on n.prop, not m.prop
 TYPED_TEST(OrderByIndexTest, ExpandOrderByExpandedSymbol) {
   // MATCH (n:L)-[r]->(m:K) WHERE n.prop > 5 AND m.prop > 3 ORDER BY m.prop RETURN n, m
   FakeDbAccessor dba;
@@ -328,7 +326,7 @@ TYPED_TEST(OrderByIndexTest, ExpandOrderByExpandedSymbol) {
       << "OrderBy should NOT be eliminated (ORDER BY m.prop but index scan is on n)";
 }
 
-// Test 11: Cartesian blocks elimination
+// Test 11: Cartesian product between OrderBy and ScanAll breaks ordering guarantee
 TYPED_TEST(OrderByIndexTest, CartesianBlocks) {
   // MATCH (n:L), (m:K) WHERE n.prop > 5 ORDER BY n.prop RETURN n, m
   FakeDbAccessor dba;
@@ -352,10 +350,9 @@ TYPED_TEST(OrderByIndexTest, CartesianBlocks) {
       << "OrderBy should NOT be eliminated (Cartesian between OrderBy and ScanAll)";
 }
 
-// Test 12: Aggregate blocks elimination
+// Test 12: Aggregate (hash grouping) between OrderBy and ScanAll destroys ordering
 TYPED_TEST(OrderByIndexTest, AggregateBlocks) {
   // MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS p, count(*) AS c ORDER BY p
-  // The Aggregate operator (hash grouping) is between OrderBy and ScanAll, blocking elimination.
   FakeDbAccessor dba;
   const auto *label_name = "L";
   const auto label = dba.Label(label_name);
@@ -376,8 +373,9 @@ TYPED_TEST(OrderByIndexTest, AggregateBlocks) {
       << "OrderBy should NOT be eliminated (Aggregate between OrderBy and ScanAll)";
 }
 
-// Test 13: Equality + range on second column - WHERE n.a = 5 AND n.b > 3 ORDER BY n.b with index (a, b)
+// Test 13: Equality on first column + range on second — ORDER BY second column is satisfied
 TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOnSecondColumn) {
+  // MATCH (n:L) WHERE n.a = 5 AND n.b > 3 ORDER BY n.b RETURN n
   FakeDbAccessor dba;
   const auto *label_name = "L";
   const auto label = dba.Label(label_name);
@@ -400,9 +398,9 @@ TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOnSecondColumn) {
       << "OrderBy should be eliminated (equality on a, range on b, ORDER BY b)";
 }
 
-// Test 14: Full composite ORDER BY - ORDER BY n.a, n.b with index (a, b) and range on a.
-// Both ORDER BY columns match the full index, so elimination should apply.
+// Test 14: ORDER BY matches full composite index (a, b) with range on a — elimination applies
 TYPED_TEST(OrderByIndexTest, FullCompositeRangeOnFirst) {
+  // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a, n.b RETURN n
   FakeDbAccessor dba;
   const auto *label_name = "L";
   const auto label = dba.Label(label_name);
@@ -425,9 +423,9 @@ TYPED_TEST(OrderByIndexTest, FullCompositeRangeOnFirst) {
       << "OrderBy should be eliminated (ORDER BY n.a, n.b matches index (a, b) with range on a)";
 }
 
-// Test 15: Equality + range + ORDER BY both - WHERE n.a = 5 AND n.b > 3 ORDER BY n.a, n.b with index (a, b)
-// Equality-pinned column is also in ORDER BY, both cursors should advance.
+// Test 15: Equality on a + range on b, ORDER BY a, b — equality-pinned column also in ORDER BY
 TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOrderByBoth) {
+  // MATCH (n:L) WHERE n.a = 5 AND n.b > 3 ORDER BY n.a, n.b RETURN n
   FakeDbAccessor dba;
   const auto *label_name = "L";
   const auto label = dba.Label(label_name);
@@ -451,9 +449,9 @@ TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOrderByBoth) {
       << "OrderBy should be eliminated (equality on a + range on b, ORDER BY a, b)";
 }
 
-// Test 16: Equality-only filter - WHERE n.prop = 5 ORDER BY n.prop with :L(prop) index
-// With equality, all rows have the same property value, so ORDER BY is trivially satisfied.
+// Test 16: Equality-only filter — all rows have the same value, ORDER BY is trivially satisfied
 TYPED_TEST(OrderByIndexTest, EqualityOnlyElimination) {
+  // MATCH (n:L) WHERE n.prop = 5 ORDER BY n.prop RETURN n
   FakeDbAccessor dba;
   const auto *label_name = "L";
   const auto label = dba.Label(label_name);
@@ -473,10 +471,9 @@ TYPED_TEST(OrderByIndexTest, EqualityOnlyElimination) {
       << "OrderBy should be eliminated (equality-only, trivially sorted)";
 }
 
-// Test 17: Multiple MATCH with different symbols - ORDER BY n.prop should not match m's scan
-// MATCH (n:L) WHERE n.prop > 5 MATCH (m:L) WHERE m.prop > 3 ORDER BY n.prop RETURN n, m
-// The second ScanAll (for m) should not falsely eliminate ORDER BY.
+// Test 17: Two separate MATCHes produce a Cartesian — ORDER BY n.prop can't be eliminated
 TYPED_TEST(OrderByIndexTest, MultiMatchDifferentSymbols) {
+  // MATCH (n:L) WHERE n.prop > 5 MATCH (m:L) WHERE m.prop > 3 ORDER BY n.prop RETURN n, m
   FakeDbAccessor dba;
   const auto *label_name = "L";
   const auto label = dba.Label(label_name);
@@ -493,18 +490,13 @@ TYPED_TEST(OrderByIndexTest, MultiMatchDifferentSymbols) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  // Two separate MATCH clauses produce a Cartesian product between n's and m's scans.
-  // Cartesian is not order-preserving, so it blocks elimination even though n's scan
-  // provides ordering on n.prop.
   EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy should NOT be eliminated (Cartesian between OrderBy and n's scan)";
 }
 
-// Test 18: WITH variable renaming blocks elimination
-// MATCH (n:L) WHERE n.prop > 5 WITH n AS m ORDER BY m.prop RETURN m
-// The WITH clause renames n to m, which means the OrderBy symbol (m) does not correspond
-// to the scan symbol (n) through a simple identity mapping. ProduceRenamesVariable should block this.
+// Test 18: WITH renames n to m — OrderBy symbol no longer maps to scan symbol
 TYPED_TEST(OrderByIndexTest, WithRenamingBlocks) {
+  // MATCH (n:L) WHERE n.prop > 5 WITH n AS m ORDER BY m.prop RETURN m
   FakeDbAccessor dba;
   const auto label_name = "L";
   const auto label = dba.Label(label_name);
@@ -551,11 +543,9 @@ TYPED_TEST(OrderByIndexTest, LabelOnlyIndexNoElimination) {
       << "OrderBy should NOT be eliminated (label-only index, no property index)";
 }
 
-// Test 20: WITH without renaming still allows elimination.
-// MATCH (n:L) WHERE n.prop > 5 WITH n ORDER BY n.prop RETURN n
-// The WITH clause passes n through without renaming, so elimination should still fire.
-// This complements Test 18 (WithRenamingBlocks) — same pattern but identity mapping.
+// Test 20: WITH passes n through without renaming — elimination still applies (complement of Test 18)
 TYPED_TEST(OrderByIndexTest, WithoutRenamingAllowsElimination) {
+  // MATCH (n:L) WHERE n.prop > 5 WITH n ORDER BY n.prop RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
@@ -581,9 +571,9 @@ TYPED_TEST(OrderByIndexTest, WithoutRenamingAllowsElimination) {
       << "OrderBy should be eliminated (WITH passes n through without renaming)";
 }
 
-// Test 21: ORDER BY in reverse column order — ORDER BY n.b, n.a with index (a, b)
-// The index sorts lexicographically by (a, b), but ORDER BY wants (b, a) — different order.
+// Test 21: ORDER BY n.b, n.a with index (a, b) — reversed column order doesn't match
 TYPED_TEST(OrderByIndexTest, ReverseColumnOrderNotEliminated) {
+  // MATCH (n:L) WHERE n.a > 5 ORDER BY n.b, n.a RETURN n
   FakeDbAccessor dba;
   const auto *label_name = "L";
   const auto label = dba.Label(label_name);
