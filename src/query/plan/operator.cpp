@@ -6645,17 +6645,29 @@ class AggregateCursor : public Cursor {
     projected_graph.InsertVertex(from);
     projected_graph.InsertVertex(to);
 
-    VirtualEdge ve(from, to, std::move(edge_type_name));
-
-    auto props_it = options.find("relationshipProperties");
-    if (props_it != options.end() && props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
-      for (const auto &[key, val] : props_it->second.ValueMap()) {
-        auto prop_id = db_accessor_->NameToProperty(key);
-        ve.SetProperty(prop_id, val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+    auto set_properties = [&](VirtualEdge &ve) {
+      auto props_it = options.find("relationshipProperties");
+      if (props_it != options.end() && props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
+        for (const auto &[key, val] : props_it->second.ValueMap()) {
+          auto prop_id = db_accessor_->NameToProperty(key);
+          ve.SetProperty(prop_id, val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
       }
-    }
+    };
 
+    auto undirected_it = options.find("undirected");
+    auto undirected = undirected_it != options.end() && undirected_it->second.type() == TypedValue::Type::Bool &&
+                      undirected_it->second.ValueBool();
+
+    VirtualEdge ve(from, to, edge_type_name);
+    set_properties(ve);
     projected_graph.virtual_edge_store().InsertIfNew(std::move(ve));
+
+    if (undirected) {
+      VirtualEdge reverse(to, from, edge_type_name);
+      set_properties(reverse);
+      projected_graph.virtual_edge_store().InsertIfNew(std::move(reverse));
+    }
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
