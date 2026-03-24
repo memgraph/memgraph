@@ -554,4 +554,28 @@ TYPED_TEST(OrderByIndexTest, ReboundSymbolSameNameViaUnwind) {
       << "OrderBy should be eliminated (Cypher scoping prevents same-name rebinding)";
 }
 
+// Test 21: ORDER BY in reverse column order — ORDER BY n.b, n.a with index (a, b)
+// The index sorts lexicographically by (a, b), but ORDER BY wants (b, a) — different order.
+TYPED_TEST(OrderByIndexTest, ReverseColumnOrderNotEliminated) {
+  FakeDbAccessor dba;
+  const auto label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", label_name))),
+      WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(5))),
+      RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_b.second), PROPERTY_LOOKUP(dba, "n", prop_a.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (ORDER BY b, a does not match index order a, b)";
+}
+
 }  // namespace
