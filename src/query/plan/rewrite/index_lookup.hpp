@@ -955,7 +955,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (orderings.empty()) return std::nullopt;
 
     // All orderings must be ASC
-    // TODO: Support DESC elimination — SkipList-backed indexes can be iterated in reverse,
+    // TODO(ivan): Support DESC elimination — SkipList-backed indexes can be iterated in reverse,
     //       so DESC ordering could also be eliminated if the scan supports a reverse mode.
     for (const auto &ord : orderings) {
       if (ord.ordering() != Ordering::ASC) return std::nullopt;
