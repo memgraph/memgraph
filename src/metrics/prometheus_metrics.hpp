@@ -11,9 +11,12 @@
 
 #pragma once
 
+#include <expected>
 #include <functional>
 #include <list>
+#include <string>
 #include <string_view>
+#include <vector>
 
 #include <prometheus/counter.h>
 #include <prometheus/gauge.h>
@@ -21,6 +24,13 @@
 #include <prometheus/registry.h>
 
 namespace memgraph::metrics {
+
+struct MetricInfo {
+  std::string name;
+  std::string type;
+  std::string metric_type;
+  double value;
+};
 
 struct StorageSnapshot {
   uint64_t vertex_count;
@@ -234,12 +244,16 @@ class PrometheusMetrics {
   void RemoveDatabase(DatabaseMetricHandles const *handles);
   void UpdateGauges();
 
+  std::expected<std::vector<MetricInfo>, std::string> GetDbMetricsInfo(std::string_view db_name) const;
+  std::vector<MetricInfo> GetGlobalMetricsInfo() const;
+
   prometheus::Registry &registry() { return registry_; }
 
   GlobalMetricHandles global;
 
  private:
   struct DatabaseEntry {
+    std::string db_name;
     DatabaseMetricHandles handles;
     std::function<StorageSnapshot()> get_snapshot;
   };
