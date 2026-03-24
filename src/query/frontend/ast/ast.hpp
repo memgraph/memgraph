@@ -3091,13 +3091,19 @@ class DatabaseInfoQuery : public memgraph::query::Query {
 
   enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS, METRICS, VECTOR_INDEX };
 
+  enum class DatabaseSpecification { NONE, CURRENT, DATABASE };
+
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::DatabaseInfoQuery::InfoType info_type_;
+  DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
+  std::string database_;
 
   DatabaseInfoQuery *Clone(AstStorage *storage) const override {
     DatabaseInfoQuery *object = storage->Create<DatabaseInfoQuery>();
     object->info_type_ = info_type_;
+    object->database_specification_ = database_specification_;
+    object->database_ = database_;
     return object;
   }
 };
