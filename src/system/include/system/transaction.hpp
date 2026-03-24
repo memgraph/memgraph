@@ -14,7 +14,6 @@
 #include <list>
 #include <memory>
 #include <mutex>
-#include <ranges>
 
 #include "replication/state.hpp"
 #include "system/action.hpp"
@@ -25,7 +24,7 @@ namespace memgraph::system {
 
 enum class AllSyncReplicaStatus : std::uint8_t {
   AllCommitsConfirmed,
-  SomeCommitsUnconfirmed,
+  SomeCommitsUnconfirmedGenericError,
 };
 
 struct Transaction;
@@ -64,7 +63,7 @@ struct Transaction {
       /// replication
       auto action_sync_status = handler.ApplyAction(*action, *this);
       if (action_sync_status != AllSyncReplicaStatus::AllCommitsConfirmed) {
-        sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+        sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmedGenericError;
       }
 
       actions_.pop_front();
@@ -73,7 +72,7 @@ struct Transaction {
     /// replication
     auto action_sync_status = handler.FinalizeTransaction(*this);
     if (action_sync_status != AllSyncReplicaStatus::AllCommitsConfirmed) {
-      sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+      sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmedGenericError;
     }
     state_->FinalizeTransaction(timestamp_);
 
@@ -124,7 +123,7 @@ struct DoReplication {
       auto const completed = action.DoReplication(client, main_data_.uuid_, system_tx);
       if (!completed && (client.mode_ == replication_coordination_glue::ReplicationMode::SYNC ||
                          client.mode_ == replication_coordination_glue::ReplicationMode::STRICT_SYNC)) {
-        sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+        sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmedGenericError;
       }
     }
 
@@ -136,13 +135,14 @@ struct DoReplication {
     auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
 
     for (auto &client : main_data_.registered_replicas_) {
-      const bool completed = client.StreamAndFinalizeDelta<replication::FinalizeSystemTxRpc>(
+      auto const completed = client.StreamAndFinalizeDelta<replication::FinalizeSystemTxRpc>(
           [](const replication::FinalizeSystemTxRes &response) { return response.success; },
           main_data_.uuid_,
           system_tx.last_committed_system_timestamp(),
           system_tx.timestamp());
-      if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-        sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+      if (!completed.has_value() && (client.mode_ == replication_coordination_glue::ReplicationMode::SYNC ||
+                                     client.mode_ == replication_coordination_glue::ReplicationMode::STRICT_SYNC)) {
+        sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmedGenericError;
       }
     }
 

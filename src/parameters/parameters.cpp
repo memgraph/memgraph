@@ -39,12 +39,14 @@ struct SetParameterAction : memgraph::system::ISystemAction {
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
     auto check = [](const storage::replication::SetParameterRes &res) { return res.success; };
-    return client.StreamAndFinalizeDelta<storage::replication::SetParameterRpc>(
-        check,
-        main_uuid,
-        txn.last_committed_system_timestamp(),
-        txn.timestamp(),
-        ParameterInfo{.name = name_, .value = value_, .scope_context = scope_context_});
+    return client
+        .StreamAndFinalizeDelta<storage::replication::SetParameterRpc>(
+            check,
+            main_uuid,
+            txn.last_committed_system_timestamp(),
+            txn.timestamp(),
+            ParameterInfo{.name = name_, .value = value_, .scope_context = scope_context_})
+        .has_value();
   }
 
   void PostReplication(replication::RoleMainData &) const override {}
@@ -66,8 +68,10 @@ struct UnsetParameterAction : memgraph::system::ISystemAction {
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
     auto check = [](const storage::replication::UnsetParameterRes &res) { return res.success; };
-    return client.StreamAndFinalizeDelta<storage::replication::UnsetParameterRpc>(
-        check, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), name_, scope_context_);
+    return client
+        .StreamAndFinalizeDelta<storage::replication::UnsetParameterRpc>(
+            check, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), name_, scope_context_)
+        .has_value();
   }
 
   void PostReplication(replication::RoleMainData &) const override {}
@@ -85,8 +89,10 @@ struct DeleteAllParametersAction : memgraph::system::ISystemAction {
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
     auto check = [](const storage::replication::DeleteAllParametersRes &res) { return res.success; };
-    return client.StreamAndFinalizeDelta<storage::replication::DeleteAllParametersRpc>(
-        check, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp());
+    return client
+        .StreamAndFinalizeDelta<storage::replication::DeleteAllParametersRpc>(
+            check, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp())
+        .has_value();
   }
 
   void PostReplication(replication::RoleMainData &) const override {}
