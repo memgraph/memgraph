@@ -134,22 +134,16 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const replication::UpdateAuthDataRes &response) { return response.success; };
     if (user_) {
-      return client
-          .StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-              check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *user_)
-          .has_value();
+      return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *user_);
     }
     if (role_) {
-      return client
-          .StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-              check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *role_)
-          .has_value();
+      return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *role_);
     }
     if (profile_) {
-      return client
-          .StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-              check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *profile_)
-          .has_value();
+      return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *profile_);
     }
     // Should never get here
     MG_ASSERT(false, "Trying to update auth data that is not a user nor a role");
@@ -189,10 +183,8 @@ struct DropAuthData : memgraph::system::ISystemAction {
         type = memgraph::replication::DropAuthDataReq::DataType::PROFILE;
         break;
     }
-    return client
-        .StreamAndFinalizeDelta<replication::DropAuthDataRpc>(
-            check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), type, name_)
-        .has_value();
+    return client.StreamAndFinalizeDelta<replication::DropAuthDataRpc>(
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), type, name_);
   }
 
   void PostReplication(replication::RoleMainData &mainData) const override {}
