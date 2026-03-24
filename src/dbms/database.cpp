@@ -81,6 +81,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
       static thread_local bool arena_pinned = false;
       if (!arena_pinned) {
         je_mallctl("thread.arena", nullptr, nullptr, const_cast<unsigned *>(&idx), sizeof(unsigned));
+        memory::tls_db_arena_idx = idx;
         arena_pinned = true;
       }
     });

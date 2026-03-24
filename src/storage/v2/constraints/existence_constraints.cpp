@@ -11,6 +11,7 @@
 
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include <expected>
+#include "memory/db_arena.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
@@ -206,11 +207,12 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
   std::atomic<uint64_t> batch_counter = 0;
   utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> maybe_error{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back(
+          parallel_exec_info.arena_idx,
           [&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property, &snapshot_info]() {
             do_per_thread_validation(maybe_error,
                                      ValidateVertexOnConstraint,

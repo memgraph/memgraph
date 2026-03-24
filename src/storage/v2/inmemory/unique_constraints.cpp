@@ -15,6 +15,7 @@
 #include <bitset>
 #include <ranges>
 #include <tuple>
+#include "memory/db_arena.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -448,10 +449,11 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
   std::atomic<uint64_t> batch_counter = 0;
   utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> result{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&result,
+      threads.emplace_back(parallel_exec_info.arena_idx,
+                           [&result,
                             &vertex_batches,
                             &batch_counter,
                             &vertex_accessor,
@@ -459,16 +461,16 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
                             &label,
                             &properties,
                             &snapshot_info]() {
-        do_per_thread_validation(result,
-                                 DoValidate,
-                                 vertex_batches,
-                                 batch_counter,
-                                 vertex_accessor,
-                                 snapshot_info,
-                                 constraint_accessor,
-                                 label,
-                                 properties);
-      });
+                             do_per_thread_validation(result,
+                                                      DoValidate,
+                                                      vertex_batches,
+                                                      batch_counter,
+                                                      vertex_accessor,
+                                                      snapshot_info,
+                                                      constraint_accessor,
+                                                      label,
+                                                      properties);
+                           });
     }
   }
   return *result.Lock();

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,5 +19,6 @@ namespace memgraph::storage::durability {
 struct ParallelizedSchemaCreationInfo {
   std::vector<std::pair<Gid, uint64_t>> vertex_recovery_info;
   uint64_t thread_count;
+  unsigned arena_idx = 0;  // jemalloc arena for the owning DB; 0 = default arena
 };
 }  // namespace memgraph::storage::durability
