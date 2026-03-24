@@ -3047,24 +3047,36 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // have read a stale Edge* from the index before cleanup ran.
   // Also remove vector-edge-index entries here, while Edge* are still valid.
   // (Vector index is not handled by RemoveObsoleteEdgeEntries above.)
+  //
+  // NOTE: the graveyard is NOT commit-ordered — aborted transactions insert with
+  // abort_mark_timestamp = storage_->timestamp_ (taken under engine_lock_), and
+  // concurrent aborts can produce timestamps that interleave with commit timestamps.
+  // We must therefore iterate ALL entries (not break early) and use continue to
+  // skip entries whose mark_timestamp is not yet safe.
+  //
+  // To avoid holding the SpinLock across the heavy index-cleanup work we swap the
+  // list out under the lock, process off-lock, then splice everything back.
   if (light_edges) {
     uint64_t post_cleanup_epoch = light_edge_iterable_tracker_.CurrentEpoch();
-    light_edge_graveyard_.WithLock([&](auto &graveyard) {
-      for (auto &entry : graveyard) {
-        if (entry.mark_timestamp > oldest_active_start_timestamp) break;  // list is commit-ordered
-        if (!entry.index_cleaned) {
-          if (!indices_.vector_edge_index_.Empty()) {
-            std::list<Gid> gids_to_remove;
-            for (auto const *edge : entry.edges) {
-              gids_to_remove.push_back(edge->gid);
-            }
-            indices_.RemoveEdgesFromVectorEdgeIndices(gids_to_remove);
+    std::list<LightEdgeGraveyardEntry> local_graveyard;
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { local_graveyard.swap(graveyard); });
+
+    for (auto &entry : local_graveyard) {
+      if (entry.mark_timestamp > oldest_active_start_timestamp) continue;
+      if (!entry.index_cleaned) {
+        if (!indices_.vector_edge_index_.Empty()) {
+          std::list<Gid> gids_to_remove;
+          for (auto const *edge : entry.edges) {
+            gids_to_remove.push_back(edge->gid);
           }
-          entry.guard_epoch = post_cleanup_epoch;
-          entry.index_cleaned = true;
+          indices_.RemoveEdgesFromVectorEdgeIndices(gids_to_remove);
         }
+        entry.guard_epoch = post_cleanup_epoch;
+        entry.index_cleaned = true;
       }
-    });
+    }
+
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { graveyard.splice(graveyard.begin(), local_graveyard); });
   }
   memgraph::metrics::Measure(
       memgraph::metrics::GCSkiplistCleanupLatency_us,
@@ -3204,16 +3216,24 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     if (config_.salient.items.enable_edges_metadata) {
       edge_metadata_acc = edges_metadata_.access();
     }
-    light_edge_graveyard_.WithLock([&](auto &graveyard) {
-      while (!graveyard.empty() && graveyard.front().index_cleaned &&
-             light_edge_iterable_tracker_.IsSafeToFree(graveyard.front().guard_epoch)) {
-        for (auto *edge : graveyard.front().edges) {
+    // Swap out, free eligible entries off-lock, splice remainder back.
+    // Entries are NOT ordered (aborts interleave with commits), so iterate all.
+    std::list<LightEdgeGraveyardEntry> local_graveyard;
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { local_graveyard.swap(graveyard); });
+
+    for (auto it = local_graveyard.begin(); it != local_graveyard.end();) {
+      if (it->index_cleaned && light_edge_iterable_tracker_.IsSafeToFree(it->guard_epoch)) {
+        for (auto *edge : it->edges) {
           if (edge_metadata_acc) edge_metadata_acc->remove(edge->gid);
           DeleteLightEdge(edge);
         }
-        graveyard.pop_front();
+        it = local_graveyard.erase(it);
+      } else {
+        ++it;
       }
-    });
+    }
+
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { graveyard.splice(graveyard.end(), local_graveyard); });
   }
 }
 
