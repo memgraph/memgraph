@@ -76,7 +76,7 @@ HEAVY_WRITE_QUERY = (
     "->(:Child {str: 'sdjghfskgshkf', id: x, flt: 1.0567, bool: true, dt: date(), dtz: localdatetime()});"
 )
 
-RPC_TIMEOUT_ERROR = "At least one replica reached an RPC timeout"
+RPC_TIMEOUT_ERROR = "Main reached an RPC timeout"
 RPC_GENERIC_SYNC_ERROR = "At least one SYNC replica has not confirmed"
 RPC_GENERIC_STRICT_SYNC_ERROR = "At least one STRICT_SYNC replica has not confirmed"
 

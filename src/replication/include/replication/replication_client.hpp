@@ -84,37 +84,44 @@ struct ReplicationClient {
   //! \param args arguments to forward to the rpc request
   //! \return If replica stream is completed or enqueued
   template <typename RPC, typename... Args>
-  bool StreamAndFinalizeDelta(auto &&check, Args &&...args) {
+  auto StreamAndFinalizeDelta(auto &&check, Args &&...args)
+      -> std::expected<void, io::network::ClientCommunicationError> {
     try {
       auto stream = rpc_client_.Stream<RPC>(std::forward<Args>(args)...);
       // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
-      auto task = [this, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
+      auto task = [this,
+                   check = std::forward<decltype(check)>(check),
+                   stream = std::move(stream)]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
         if (stream.IsDefunct()) {
           state_.WithLock([](auto &state) { state = State::BEHIND; });
-          return false;
+          return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
         }
         try {
           if (check(stream.SendAndWait())) {
-            return true;
+            return {};
           }
+        } catch (rpc::RpcTimeoutException const &) {
+          state_.WithLock([](auto &state) { state = State::BEHIND; });
+          return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
         } catch (rpc::GenericRpcFailedException const &) {
-          // swallow error, fallthrough to error handling
+          state_.WithLock([](auto &state) { state = State::BEHIND; });
+          return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
         }
-        // This replica needs SYSTEM recovery
-        state_.WithLock([](auto &state) { state = State::BEHIND; });
-        return false;
       };
 
       if (mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
         thread_pool_.AddTask(std::move(task));
-        return true;
+        return {};
       }
 
       return task();
+    } catch (rpc::RpcTimeoutException const &) {
+      state_.WithLock([](auto &state) { state = State::BEHIND; });
+      return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
     } catch (rpc::GenericRpcFailedException const &) {
       // This replica needs SYSTEM recovery
       state_.WithLock([](auto &state) { state = State::BEHIND; });
-      return false;
+      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
     }
   };
 
