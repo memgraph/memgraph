@@ -860,8 +860,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   if (value.IsVirtualEdge()) {
     TypedValue::TVector values(ctx.memory);
     for (const auto &[prop_id, prop_value] : value.ValueVirtualEdge().Properties()) {
-      values.emplace_back(  // NOLINT(modernize-use-emplace)
-          TypedValue(prop_value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+      auto typed_value = TypedValue(prop_value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+      values.emplace_back(std::move(typed_value));
     }
     return TypedValue(std::move(values));
   }
