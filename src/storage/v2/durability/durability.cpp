@@ -524,8 +524,8 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                   const Config &config) {
   return (config.durability.allow_parallel_schema_creation && recovery_info.vertex_batches.size() > 1)
-             ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
-                                                                 config.durability.recovery_thread_count})
+             ? std::make_optional(ParallelizedSchemaCreationInfo{
+                   recovery_info.vertex_batches, config.durability.recovery_thread_count, config.arena_idx})
              : std::nullopt;
 }
 

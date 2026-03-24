@@ -26,8 +26,9 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
+#include "memory/db_arena.hpp"
+
 #include <atomic>
-#include <thread>
 
 namespace memgraph::storage {
 
@@ -264,11 +265,11 @@ inline void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &ve
   // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
   auto maybe_error = utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock>{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&, func /*local copy incase there is local state*/]() {
+      threads.emplace_back(parallel_exec_info.arena_idx, [&, func /*local copy incase there is local state*/]() {
         auto acc = accessor_factory();
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
@@ -372,11 +373,11 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
   // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
   utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&]() mutable {
+      threads.emplace_back(parallel_exec_info.arena_idx, [&]() {
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {

@@ -12,6 +12,9 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include <range/v3/all.hpp>
 #if USE_JEMALLOC
+#include "memory/db_arena.hpp"
+#endif
+#if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
 #endif
 
@@ -472,6 +475,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         static thread_local bool arena_pinned = false;
         if (!arena_pinned) {
           je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
+          memory::tls_db_arena_idx = config_.arena_idx;
           arena_pinned = true;
         }
       }
@@ -4178,6 +4182,7 @@ void InMemoryStorage::CreateSnapshotHandler(
       static thread_local bool arena_pinned = false;
       if (!arena_pinned) {
         je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
+        memory::tls_db_arena_idx = config_.arena_idx;
         arena_pinned = true;
       }
     }

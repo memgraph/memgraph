@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "integrations/kafka/consumer.hpp"
+#if USE_JEMALLOC
+#include "memory/db_arena.hpp"
+#endif
 
 #include <fmt/format.h>
 #include <librdkafka/rdkafka.h>
@@ -414,6 +417,7 @@ void Consumer::StartConsuming() {
 #if USE_JEMALLOC
     if (info_.arena_idx != 0) {
       je_mallctl("thread.arena", nullptr, nullptr, &info_.arena_idx, sizeof(unsigned));
+      memory::tls_db_arena_idx = info_.arena_idx;
     }
 #endif
 

@@ -13,7 +13,9 @@
 
 #include <cstddef>
 #include <new>
+#include <thread>
 #include <type_traits>
+#include <utility>
 
 #if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
@@ -133,6 +135,78 @@ struct DbArenaFullScope {
   DbArenaScope tls_scope_;
   unsigned prev_thread_arena_{0};
   bool active_{false};
+};
+
+// A std::jthread wrapper that permanently pins the new thread to a jemalloc
+// arena so every allocation on that thread is attributed to the owning DB.
+//
+// Two construction forms:
+//   DbAwareThread t{callable, args...};            // inherits tls_db_arena_idx from caller
+//   DbAwareThread t{arena_idx, callable, args...}; // explicit arena index
+//
+// On thread start, the wrapper sets both:
+//   - tls_db_arena_idx  → DbAwareAllocator routes to this arena
+//   - thread.arena      → all other allocations (std::string, std::vector…) also go there
+//
+// No restore is needed — these are fresh, dedicated threads.
+// This mirrors the static-pin pattern used by GC/snapshot/TTL threads.
+//
+// Non-jemalloc builds: no-op wrapper, identical behaviour to std::jthread.
+class DbAwareThread {
+ public:
+  // Inherit the calling thread's arena index.
+  template <typename F, typename... Args>
+    requires(std::is_invocable_v<std::decay_t<F>, std::decay_t<Args>...> ||
+             std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>)
+  explicit DbAwareThread(F &&f, Args &&...args)
+      : DbAwareThread(tls_db_arena_idx, std::forward<F>(f), std::forward<Args>(args)...) {}
+
+  // Explicit arena index.
+  template <typename F, typename... Args>
+    requires(std::is_invocable_v<std::decay_t<F>, std::decay_t<Args>...> ||
+             std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>)
+  DbAwareThread(unsigned arena_idx, F &&f, Args &&...args)
+      : thread_(
+            [arena_idx, func = std::forward<F>(f)](std::stop_token st, std::decay_t<Args>... a) mutable {
+              tls_db_arena_idx = arena_idx;
+#if USE_JEMALLOC
+              if (arena_idx != 0) {
+                je_mallctl("thread.arena", nullptr, nullptr, &arena_idx, sizeof(arena_idx));
+              }
+#endif
+              if constexpr (std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>) {
+                func(std::move(st), std::move(a)...);
+              } else {
+                func(std::move(a)...);
+              }
+            },
+            std::forward<Args>(args)...) {
+  }
+
+  DbAwareThread() = default;
+  DbAwareThread(DbAwareThread &&) noexcept = default;
+  DbAwareThread &operator=(DbAwareThread &&) noexcept = default;
+
+  DbAwareThread(const DbAwareThread &) = delete;
+  DbAwareThread &operator=(const DbAwareThread &) = delete;
+
+  // Delegate jthread interface.
+  void join() { thread_.join(); }
+
+  void detach() { thread_.detach(); }
+
+  [[nodiscard]] bool joinable() const noexcept { return thread_.joinable(); }
+
+  [[nodiscard]] std::jthread::id get_id() const noexcept { return thread_.get_id(); }
+
+  [[nodiscard]] std::stop_token get_stop_token() const noexcept { return thread_.get_stop_token(); }
+
+  [[nodiscard]] std::stop_source get_stop_source() noexcept { return thread_.get_stop_source(); }
+
+  void request_stop() { thread_.request_stop(); }
+
+ private:
+  std::jthread thread_;
 };
 
 // Stateless C++ allocator that routes allocations to the DB arena currently

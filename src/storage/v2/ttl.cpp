@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "storage/v2/ttl.hpp"
+#if USE_JEMALLOC
+#include "memory/db_arena.hpp"
+#endif
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -189,6 +192,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
       static thread_local bool arena_pinned = false;
       if (!arena_pinned) {
         je_mallctl("thread.arena", nullptr, nullptr, &storage_ptr_->config_.arena_idx, sizeof(unsigned));
+        memory::tls_db_arena_idx = storage_ptr_->config_.arena_idx;
         arena_pinned = true;
       }
     }
