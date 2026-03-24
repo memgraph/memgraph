@@ -189,16 +189,6 @@ jobs:
             echo "Cache is not present. Skipping wheel fetch."
           fi
 
-      - name: Build litellm wheel for Docker build
-        run: |
-          tmp_dir="$(mktemp -d)"
-          python3 -m venv "$tmp_dir/venv"
-          "$tmp_dir/venv/bin/python" -m pip install --no-cache-dir --upgrade pip build
-          git clone --depth 1 --branch v1.81.9-stable https://github.com/BerriAI/litellm.git "$tmp_dir/litellm"
-          "$tmp_dir/venv/bin/python" -m build --wheel --outdir "$(pwd)/mage/wheels" "$tmp_dir/litellm"
-          ls -la mage/wheels/litellm-*.whl
-          rm -rf "$tmp_dir"
-
       - name: Set image tag and artifact name
         run: |
           echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA, CUGRAPH=$CUGRAPH"
