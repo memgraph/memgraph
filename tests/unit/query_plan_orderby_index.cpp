@@ -41,10 +41,10 @@ class Planner {
  public:
   template <class TDbAccessor>
   Planner(QueryParts query_parts, PlanningContext<TDbAccessor> context,
-          const std::vector<memgraph::query::IndexHint> &index_hints) {
+          const std::vector<memgraph::query::IndexHint> &index_hints)
+      : plan_(MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, &context)) {
     memgraph::query::Parameters parameters;
     PostProcessor post_processor(parameters, index_hints, context.db);
-    plan_ = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, &context);
     plan_ = post_processor.Rewrite(std::move(plan_), &context);
   }
 
@@ -81,7 +81,7 @@ TYPED_TEST_SUITE(OrderByIndexTest, PlannerTypes);
 TYPED_TEST(OrderByIndexTest, BasicElimination) {
   // MATCH (n:L) WHERE n.prop > 5 ORDER BY n.prop RETURN n
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
   const auto property = PROPERTY_PAIR(dba, "prop");
   dba.SetIndexCount(label, 1);
@@ -103,7 +103,7 @@ TYPED_TEST(OrderByIndexTest, BasicElimination) {
 TYPED_TEST(OrderByIndexTest, CompositePrefix) {
   // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a RETURN n
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
   const auto prop_a = PROPERTY_PAIR(dba, "a");
   const auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -126,7 +126,7 @@ TYPED_TEST(OrderByIndexTest, CompositePrefix) {
 TYPED_TEST(OrderByIndexTest, EqualitySkip) {
   // MATCH (n:L) WHERE n.a = 5 ORDER BY n.b RETURN n
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
   const auto prop_a = PROPERTY_PAIR(dba, "a");
   const auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -150,7 +150,7 @@ TYPED_TEST(OrderByIndexTest, EqualitySkip) {
 TYPED_TEST(OrderByIndexTest, FullCompositeWithEquality) {
   // MATCH (n:L) WHERE n.a = 5 ORDER BY n.a, n.b RETURN n
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
   const auto prop_a = PROPERTY_PAIR(dba, "a");
   const auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -175,7 +175,7 @@ TYPED_TEST(OrderByIndexTest, FullCompositeWithEquality) {
 TYPED_TEST(OrderByIndexTest, WithLimit) {
   // MATCH (n:L) WHERE n.prop > 5 ORDER BY n.prop LIMIT 10 RETURN n
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
   const auto property = PROPERTY_PAIR(dba, "prop");
   dba.SetIndexCount(label, 1);
@@ -197,7 +197,7 @@ TYPED_TEST(OrderByIndexTest, WithLimit) {
 TYPED_TEST(OrderByIndexTest, DescRejected) {
   // MATCH (n:L) WHERE n.prop > 5 ORDER BY n.prop DESC RETURN n
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
   const auto property = PROPERTY_PAIR(dba, "prop");
   dba.SetIndexCount(label, 1);
@@ -217,7 +217,7 @@ TYPED_TEST(OrderByIndexTest, DescRejected) {
 TYPED_TEST(OrderByIndexTest, NonPropertyExprRejected) {
   // MATCH (n:L) WHERE n.prop > 5 ORDER BY n.prop + 1 RETURN n
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
   const auto property = PROPERTY_PAIR(dba, "prop");
   dba.SetIndexCount(label, 1);
@@ -238,7 +238,7 @@ TYPED_TEST(OrderByIndexTest, NonPropertyExprRejected) {
 TYPED_TEST(OrderByIndexTest, NoMatchingIndex) {
   // MATCH (n:L) WHERE n.a > 5 ORDER BY n.b RETURN n
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
   const auto prop_a = PROPERTY_PAIR(dba, "a");
   const auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -260,7 +260,7 @@ TYPED_TEST(OrderByIndexTest, NoMatchingIndex) {
 TYPED_TEST(OrderByIndexTest, OrderBySuperset) {
   // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a, n.b RETURN n
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *label_name = "L";
   const auto label = dba.Label(label_name);
   const auto prop_a = PROPERTY_PAIR(dba, "a");
   const auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -283,7 +283,7 @@ TYPED_TEST(OrderByIndexTest, OrderBySuperset) {
 TYPED_TEST(OrderByIndexTest, ExpandPreservesOrder) {
   // MATCH (n:L)-[r]->(m) WHERE n.prop > 5 ORDER BY n.prop RETURN n, m
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *label_name = "L";
   const auto label = dba.Label(label_name);
   const auto property = PROPERTY_PAIR(dba, "prop");
   dba.SetIndexCount(label, 1);
@@ -300,12 +300,40 @@ TYPED_TEST(OrderByIndexTest, ExpandPreservesOrder) {
       << "OrderBy should be eliminated (Expand is order-preserving)";
 }
 
+// Test 10b: Expand with ORDER BY on the expanded symbol, not the scan symbol.
+// Both n and m have property indexes, but the scan is on n and ORDER BY is on m.prop.
+// The index scan provides order on n.prop, not m.prop — elimination must not fire.
+TYPED_TEST(OrderByIndexTest, ExpandOrderByExpandedSymbol) {
+  // MATCH (n:L)-[r]->(m:K) WHERE n.prop > 5 AND m.prop > 3 ORDER BY m.prop RETURN n, m
+  FakeDbAccessor dba;
+  const auto *const label_l = "L";
+  const auto *const label_k = "K";
+  const auto label_l_id = dba.Label(label_l);
+  const auto label_k_id = dba.Label(label_k);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label_l_id, 1);
+  dba.SetIndexCount(label_l_id, property.second, 1);
+  dba.SetIndexCount(label_k_id, 1);
+  dba.SetIndexCount(label_k_id, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_l), EDGE("r", Direction::OUT), NODE("m", label_k))),
+                                   WHERE(AND(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5)),
+                                             GREATER(PROPERTY_LOOKUP(dba, "m", property.second), LITERAL(3)))),
+                                   RETURN("n", "m", ORDER_BY(PROPERTY_LOOKUP(dba, "m", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (ORDER BY m.prop but index scan is on n)";
+}
+
 // Test 11: Cartesian blocks elimination
 TYPED_TEST(OrderByIndexTest, CartesianBlocks) {
   // MATCH (n:L), (m:K) WHERE n.prop > 5 ORDER BY n.prop RETURN n, m
   FakeDbAccessor dba;
-  const auto label_l = "L";
-  const auto label_k = "K";
+  const auto *label_l = "L";
+  const auto *label_k = "K";
   const auto label_l_id = dba.Label(label_l);
   const auto label_k_id = dba.Label(label_k);
   const auto property = PROPERTY_PAIR(dba, "prop");
@@ -329,7 +357,7 @@ TYPED_TEST(OrderByIndexTest, AggregateBlocks) {
   // MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS p, count(*) AS c ORDER BY p
   // The Aggregate operator (hash grouping) is between OrderBy and ScanAll, blocking elimination.
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *label_name = "L";
   const auto label = dba.Label(label_name);
   const auto property = PROPERTY_PAIR(dba, "prop");
   dba.SetIndexCount(label, 1);
@@ -351,7 +379,7 @@ TYPED_TEST(OrderByIndexTest, AggregateBlocks) {
 // Test 13: Equality + range on second column - WHERE n.a = 5 AND n.b > 3 ORDER BY n.b with index (a, b)
 TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOnSecondColumn) {
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *label_name = "L";
   const auto label = dba.Label(label_name);
   const auto prop_a = PROPERTY_PAIR(dba, "a");
   const auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -372,11 +400,11 @@ TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOnSecondColumn) {
       << "OrderBy should be eliminated (equality on a, range on b, ORDER BY b)";
 }
 
-// Test 14: Partial composite match - ORDER BY n.a, n.b with index (a, b) and range on a
-// Both ORDER BY columns match the index prefix, so elimination should apply.
+// Test 14: Full composite ORDER BY - ORDER BY n.a, n.b with index (a, b) and range on a.
+// Both ORDER BY columns match the full index, so elimination should apply.
 TYPED_TEST(OrderByIndexTest, FullCompositeRangeOnFirst) {
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *label_name = "L";
   const auto label = dba.Label(label_name);
   const auto prop_a = PROPERTY_PAIR(dba, "a");
   const auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -401,7 +429,7 @@ TYPED_TEST(OrderByIndexTest, FullCompositeRangeOnFirst) {
 // Equality-pinned column is also in ORDER BY, both cursors should advance.
 TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOrderByBoth) {
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *label_name = "L";
   const auto label = dba.Label(label_name);
   const auto prop_a = PROPERTY_PAIR(dba, "a");
   const auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -427,7 +455,7 @@ TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOrderByBoth) {
 // With equality, all rows have the same property value, so ORDER BY is trivially satisfied.
 TYPED_TEST(OrderByIndexTest, EqualityOnlyElimination) {
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *label_name = "L";
   const auto label = dba.Label(label_name);
   const auto property = PROPERTY_PAIR(dba, "prop");
   dba.SetIndexCount(label, 1);
@@ -450,7 +478,7 @@ TYPED_TEST(OrderByIndexTest, EqualityOnlyElimination) {
 // The second ScanAll (for m) should not falsely eliminate ORDER BY.
 TYPED_TEST(OrderByIndexTest, MultiMatchDifferentSymbols) {
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *label_name = "L";
   const auto label = dba.Label(label_name);
   const auto property = PROPERTY_PAIR(dba, "prop");
   dba.SetIndexCount(label, 1);
@@ -465,12 +493,11 @@ TYPED_TEST(OrderByIndexTest, MultiMatchDifferentSymbols) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  // The plan should use an index scan, and the ORDER BY on n.prop should be eliminated
-  // because n's scan provides ordering, regardless of m's scan being present.
-  // Note: m's scan is above n's in the plan tree (it was planned second), so there's a
-  // Cartesian or nested loop between OrderBy and n's ScanAll — this blocks elimination.
+  // Two separate MATCH clauses produce a Cartesian product between n's and m's scans.
+  // Cartesian is not order-preserving, so it blocks elimination even though n's scan
+  // provides ordering on n.prop.
   EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should NOT be eliminated (second MATCH creates Cartesian between OrderBy and n's scan)";
+      << "OrderBy should NOT be eliminated (Cartesian between OrderBy and n's scan)";
 }
 
 // Test 18: WITH variable renaming blocks elimination
@@ -524,13 +551,13 @@ TYPED_TEST(OrderByIndexTest, LabelOnlyIndexNoElimination) {
       << "OrderBy should NOT be eliminated (label-only index, no property index)";
 }
 
-// Test 20: WITH without renaming still allows elimination
+// Test 20: WITH without renaming still allows elimination.
 // MATCH (n:L) WHERE n.prop > 5 WITH n ORDER BY n.prop RETURN n
 // The WITH clause passes n through without renaming, so elimination should still fire.
 // This complements Test 18 (WithRenamingBlocks) — same pattern but identity mapping.
 TYPED_TEST(OrderByIndexTest, WithoutRenamingAllowsElimination) {
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
   const auto property = PROPERTY_PAIR(dba, "prop");
   dba.SetIndexCount(label, 1);
@@ -558,7 +585,7 @@ TYPED_TEST(OrderByIndexTest, WithoutRenamingAllowsElimination) {
 // The index sorts lexicographically by (a, b), but ORDER BY wants (b, a) — different order.
 TYPED_TEST(OrderByIndexTest, ReverseColumnOrderNotEliminated) {
   FakeDbAccessor dba;
-  const auto label_name = "L";
+  const auto *label_name = "L";
   const auto label = dba.Label(label_name);
   const auto prop_a = PROPERTY_PAIR(dba, "a");
   const auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -576,6 +603,59 @@ TYPED_TEST(OrderByIndexTest, ReverseColumnOrderNotEliminated) {
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy should NOT be eliminated (ORDER BY b, a does not match index order a, b)";
+}
+
+// Test 22: Composite index (a, b), range on a, ORDER BY b — should NOT eliminate.
+// The range on a means b values are interleaved across different a values,
+// so the index does not provide global ordering on b alone.
+TYPED_TEST(OrderByIndexTest, CompositeRangeOnFirstOrderBySecond) {
+  // MATCH (n:L) WHERE n.a > 5 ORDER BY n.b RETURN n
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(5))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_b.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (range on a, ORDER BY b — b not globally sorted)";
+}
+
+// Test 23: ORDER BY has more columns than composite index — ORDER BY n.a, n.b, n.c with index (a, b).
+// The index only covers the first two columns; it cannot guarantee order on c.
+TYPED_TEST(OrderByIndexTest, CompositeIndexPartialCoverage) {
+  // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a, n.b, n.c RETURN n
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  const auto prop_c = PROPERTY_PAIR(dba, "c");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(5))),
+                                   RETURN("n",
+                                          ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_a.second),
+                                                   PROPERTY_LOOKUP(dba, "n", prop_b.second),
+                                                   PROPERTY_LOOKUP(dba, "n", prop_c.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (ORDER BY n.a, n.b, n.c but index only covers (a, b))";
 }
 
 }  // namespace
