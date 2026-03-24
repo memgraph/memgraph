@@ -6650,7 +6650,7 @@ class AggregateCursor : public Cursor {
     auto props_it = options.find("relationshipProperties");
     if (props_it != options.end() && props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
       for (const auto &[key, val] : props_it->second.ValueMap()) {
-        auto prop_id = db_accessor_->NameToProperty(std::string(key));
+        auto prop_id = db_accessor_->NameToProperty(key);
         ve.SetProperty(prop_id, val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
       }
     }

@@ -115,19 +115,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
   return ToBoltEdge(edge.impl_, db, view);
 }
 
-static communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve) {
-  auto from_id = ve.From().Gid();
-  auto to_id = ve.To().Gid();
-  auto edge_id = ve.Gid();
-  return {.id = communication::bolt::Id::FromUint(edge_id.AsUint()),
-          .from = communication::bolt::Id::FromUint(from_id.AsUint()),
-          .to = communication::bolt::Id::FromUint(to_id.AsUint()),
-          .type = ve.EdgeTypeName(),
-          .properties = {},
-          .element_id = edge_id.ToString(),
-          .from_element_id = from_id.ToString(),
-          .to_element_id = to_id.ToString()};
-}
+static communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db);
 
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
   auto check_db = [db]() {
@@ -224,7 +212,8 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     }
 
     case query::TypedValue::Type::VirtualEdge: {
-      return storage::Result<Value>{std::in_place, ToBoltEdge(value.ValueVirtualEdge())};
+      check_db();
+      return storage::Result<Value>{std::in_place, ToBoltEdge(value.ValueVirtualEdge(), *db)};
     }
 
     // Unsupported conversions
@@ -483,6 +472,24 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       return vector | std::ranges::views::transform([](auto v) { return Value(v); }) | std::ranges::to<std::vector>();
     }
   }
+}
+
+static communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db) {
+  auto from_id = ve.From().Gid();
+  auto to_id = ve.To().Gid();
+  auto edge_id = ve.Gid();
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : ve.Properties()) {
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  return {.id = communication::bolt::Id::FromUint(edge_id.AsUint()),
+          .from = communication::bolt::Id::FromUint(from_id.AsUint()),
+          .to = communication::bolt::Id::FromUint(to_id.AsUint()),
+          .type = ve.EdgeTypeName(),
+          .properties = std::move(properties),
+          .element_id = edge_id.ToString(),
+          .from_element_id = from_id.ToString(),
+          .to_element_id = to_id.ToString()};
 }
 
 }  // namespace memgraph::glue
