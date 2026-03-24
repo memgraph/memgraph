@@ -36,7 +36,6 @@ namespace {
 ExistenceConstraints::IndividualConstraint::~IndividualConstraint() {
   if (status.IsReady()) {
     if (gauge_) gauge_->Decrement();
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveExistenceConstraints);
   }
 }
 
@@ -102,7 +101,6 @@ bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property,
   constraint->status.Commit(commit_timestamp);
   constraint->gauge_ = metric_handles_ ? metric_handles_->active_existence_constraints : nullptr;
   if (constraint->gauge_) constraint->gauge_->Increment();
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveExistenceConstraints);
   return true;
 }
 
@@ -169,7 +167,6 @@ void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::strin
       if (inserted) {
         // Immediately commit with timestamp 0 so constraint is visible to all transactions
         it->second->status.Commit(kTimestampInitialId);
-        memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveExistenceConstraints);
       }
     }
     constraints = std::move(new_constraints);
@@ -242,6 +239,22 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::SingleThreadConst
     }
   }
   return {};
+}
+
+void ExistenceConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  if (!metric_handles_) return;
+  auto *gauge = metric_handles_->active_existence_constraints;
+  constraints_.WithReadLock([&](ContainerPtr const &ptr) {
+    double count = 0;
+    for (auto const &[key, constraint] : *ptr) {
+      if (constraint->status.IsReady()) {
+        constraint->gauge_ = gauge;
+        ++count;
+      }
+    }
+    gauge->Set(count);
+  });
 }
 
 void ExistenceConstraints::DropGraphClearConstraints() {
