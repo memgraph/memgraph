@@ -126,7 +126,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp);
 
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override { metric_handles_ = metric_handles; }
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
   class Iterable {
    public:

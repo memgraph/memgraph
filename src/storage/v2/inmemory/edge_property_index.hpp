@@ -252,7 +252,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(PropertyId property, uint64_t commit_timestamp);
 
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override { metric_handles_ = metric_handles; }
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
   /// Returns false if there was no index to drop
   bool DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) override;

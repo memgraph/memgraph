@@ -228,7 +228,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   bool PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp);
 
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override { metric_handles_ = metric_handles; }
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
   /// Returns false if there was no index to drop
   bool DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) override;
