@@ -7,13 +7,15 @@ instance_2's replication port (10002) using iptables. The query should
 fail with an RPC timeout exception because the SYNC replica can no longer
 respond.
 
-Requires: sudo access for iptables (passwordless NOPASSWD recommended).
+Requires: iptables (runs with sudo if not root, without sudo if root).
 Cluster port layout (from native deployment):
   - data_1 bolt=7687, mgmt=13011, repl=10001
   - data_2 bolt=7688, mgmt=13012, repl=10002
   - data_3 bolt=7689, mgmt=13013, repl=10003
 """
 import multiprocessing
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -27,8 +29,11 @@ REPL_PORT_DATA_2 = 10002
 # MAIN instance bolt port
 MAIN_BOLT_PORT = 7687
 
+# Use sudo only if not running as root and sudo is available
+_SUDO = ["sudo"] if os.geteuid() != 0 and shutil.which("sudo") else []
+
 BLOCK_RULE = [
-    "sudo",
+    *_SUDO,
     "iptables",
     "-I",
     "OUTPUT",
@@ -42,7 +47,7 @@ BLOCK_RULE = [
     "DROP",
 ]
 UNBLOCK_RULE = [
-    "sudo",
+    *_SUDO,
     "iptables",
     "-D",
     "OUTPUT",
@@ -125,7 +130,7 @@ def main():
 
         # Verify the rule is in place
         verify = subprocess.run(
-            ["sudo", "iptables", "-L", "OUTPUT", "-n", "--line-numbers"], capture_output=True, text=True
+            [*_SUDO, "iptables", "-L", "OUTPUT", "-n", "--line-numbers"], capture_output=True, text=True
         )
         print(f"[iptables] Current OUTPUT rules:\n{verify.stdout}")
 
