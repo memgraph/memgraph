@@ -89,7 +89,8 @@ def test_plan_reverse_column_order_not_eliminated(memgraph):
 
 # ---------------------------------------------------------------------------
 # Correctness tests — insert real data and verify result ordering is correct
-# after ORDER BY elimination.
+# after ORDER BY elimination. Queries use RETURN n ORDER BY n.prop so the
+# scan symbol passes through Produce and elimination actually fires.
 # ---------------------------------------------------------------------------
 
 
@@ -99,8 +100,8 @@ def test_correctness_basic_ascending(memgraph):
     for v in [30, 10, 50, 20, 40]:
         memgraph.execute(f"CREATE (:L {{prop: {v}}})")
 
-    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS p ORDER BY n.prop"))
-    values = [r["p"] for r in results]
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop"))
+    values = [r["n"].properties["prop"] for r in results]
     assert values == [10, 20, 30, 40, 50]
 
 
@@ -110,10 +111,8 @@ def test_correctness_with_limit(memgraph):
     for v in [30, 10, 50, 20, 40]:
         memgraph.execute(f"CREATE (:L {{prop: {v}}})")
 
-    results = list(
-        memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS p ORDER BY n.prop LIMIT 3")
-    )
-    values = [r["p"] for r in results]
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop LIMIT 3"))
+    values = [r["n"].properties["prop"] for r in results]
     assert values == [10, 20, 30]
 
 
@@ -122,11 +121,10 @@ def test_correctness_equality_skip(memgraph):
     memgraph.execute("CREATE INDEX ON :L(a, b);")
     for b in [3, 1, 4, 1, 5]:
         memgraph.execute(f"CREATE (:L {{a: 10, b: {b}}})")
-    # Add some rows with different 'a' to ensure they're filtered out
     memgraph.execute("CREATE (:L {a: 20, b: 0})")
 
-    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 10 RETURN n.b AS b ORDER BY n.b"))
-    values = [r["b"] for r in results]
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 10 RETURN n ORDER BY n.b"))
+    values = [r["n"].properties["b"] for r in results]
     assert values == [1, 1, 3, 4, 5]
 
 
@@ -137,8 +135,8 @@ def test_correctness_composite_order(memgraph):
     for a, b in data:
         memgraph.execute(f"CREATE (:L {{a: {a}, b: {b}}})")
 
-    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a > 0 RETURN n.a AS a, n.b AS b ORDER BY n.a, n.b"))
-    pairs = [(r["a"], r["b"]) for r in results]
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a > 0 RETURN n ORDER BY n.a, n.b"))
+    pairs = [(r["n"].properties["a"], r["n"].properties["b"]) for r in results]
     assert pairs == [(1, 1), (1, 2), (2, 1), (2, 3), (3, 1)]
 
 
@@ -149,10 +147,8 @@ def test_correctness_with_expand(memgraph):
     memgraph.execute("CREATE (:L {prop: 10})-[:R]->(:M)")
     memgraph.execute("CREATE (:L {prop: 20})-[:R]->(:M)")
 
-    results = list(
-        memgraph.execute_and_fetch("MATCH (n:L)-[r]->(m) WHERE n.prop > 5 RETURN n.prop AS p ORDER BY n.prop")
-    )
-    values = [r["p"] for r in results]
+    results = list(memgraph.execute_and_fetch("MATCH (n:L)-[r]->(m) WHERE n.prop > 5 RETURN n, m ORDER BY n.prop"))
+    values = [r["n"].properties["prop"] for r in results]
     assert values == [10, 20, 30]
 
 
@@ -163,6 +159,6 @@ def test_correctness_equality_plus_range(memgraph):
         memgraph.execute(f"CREATE (:L {{a: 1, b: {b}}})")
     memgraph.execute("CREATE (:L {a: 2, b: 5})")
 
-    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 1 AND n.b > 15 RETURN n.b AS b ORDER BY n.b"))
-    values = [r["b"] for r in results]
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 1 AND n.b > 15 RETURN n ORDER BY n.b"))
+    values = [r["n"].properties["b"] for r in results]
     assert values == [20, 30, 40, 50]
