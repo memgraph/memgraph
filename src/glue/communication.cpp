@@ -115,7 +115,9 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
   return ToBoltEdge(edge.impl_, db, view);
 }
 
-static communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db);
+namespace {
+communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db);
+}  // namespace
 
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
   auto check_db = [db]() {
@@ -474,7 +476,8 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
   }
 }
 
-static communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db) {
+namespace {
+communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db) {
   auto from_id = ve.From().Gid();
   auto to_id = ve.To().Gid();
   auto edge_id = ve.Gid();
@@ -491,5 +494,6 @@ static communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const 
           .from_element_id = from_id.ToString(),
           .to_element_id = to_id.ToString()};
 }
+}  // namespace
 
 }  // namespace memgraph::glue
