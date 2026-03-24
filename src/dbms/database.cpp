@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "dbms/inmemory/storage_helper.hpp"
+#include "memory/db_arena.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -69,6 +70,11 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
+#if USE_JEMALLOC
+  // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
+  memory::DbArenaFullScope db_arena_scope{ArenaIdx()};
+#endif
+
   config.arena_idx = ArenaIdx();
   streams_.SetArenaIdx(ArenaIdx());
 
@@ -114,6 +120,9 @@ void Database::SwitchToOnDisk() {
   // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
   auto preserved_factory = storage_->get_database_protector_factory();
 
+#if USE_JEMALLOC
+  memory::DbArenaFullScope db_arena_scope{ArenaIdx()};
+#endif
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(
       std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);
 }
