@@ -31,6 +31,14 @@ on:
         required: false
         type: string
         default: ''
+      replication_mode:
+        description: 'Replication mode for HA data instances: sync (default) or strict_sync'
+        required: false
+        type: choice
+        options:
+          - sync
+          - strict_sync
+        default: sync
 
 run-name: "Stress Tests (${{ inputs.deployment }} - ${{ inputs.arch }})"
 
@@ -69,6 +77,7 @@ jobs:
       deployment: ${{ inputs.deployment }}
       arch: ${{ inputs.arch }}
       workload: ${{ inputs.workload }}
+      replication_mode: ${{ inputs.replication_mode }}
     secrets: inherit
 
   stress_test_docker_ha:
