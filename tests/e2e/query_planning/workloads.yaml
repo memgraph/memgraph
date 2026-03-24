@@ -36,3 +36,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["query_planning/query_planning_bfs_cost_based.py"]
     <<: *queries_cluster
+
+  - name: "Query planning ORDER BY index elimination"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_orderby_index.py"]
+    <<: *queries_cluster
