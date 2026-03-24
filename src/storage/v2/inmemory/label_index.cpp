@@ -437,6 +437,22 @@ void InMemoryLabelIndex::DropGraphClearIndices() {
   });
 }
 
+void InMemoryLabelIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  if (!metric_handles_) return;
+  auto *gauge = metric_handles_->active_label_indices;
+  index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &ptr) {
+    double count = 0;
+    for (auto const &[label, idx] : *ptr) {
+      if (idx->status.IsReady()) {
+        idx->gauge_ = gauge;
+        ++count;
+      }
+    }
+    gauge->Set(count);
+  });
+}
+
 void InMemoryLabelIndex::CleanupAllIndices() {
   // By cleanup, we mean just cleanup of the all_indexes_
   // If all_indexes_ is the only thing holding onto an IndividualIndex, we remove it

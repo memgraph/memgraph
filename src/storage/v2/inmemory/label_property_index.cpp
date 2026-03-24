@@ -1131,6 +1131,24 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   });
 }
 
+void InMemoryLabelPropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  if (!metric_handles_) return;
+  auto *gauge = metric_handles_->active_label_property_indices;
+  index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &ptr) {
+    double count = 0;
+    for (auto const &[label, by_properties] : ptr->indices_) {
+      for (auto const &[props, idx] : by_properties) {
+        if (idx->status.IsReady()) {
+          idx->gauge_ = gauge;
+          ++count;
+        }
+      }
+    }
+    gauge->Set(count);
+  });
+}
+
 auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
   AbortProcessor res{};
   for (const auto &[label, per_properties] : index_container_->indices_) {
