@@ -108,7 +108,7 @@ class TypeConstraints {
 
   void DropGraphClearConstraints();
 
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) { metric_handles_ = metric_handles; }
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
   /// Returns constraints for a specific label, used for registration in property store
   auto GetTypeConstraintsForLabel(LabelId label) const -> absl::flat_hash_map<PropertyId, TypeConstraintKind>;
