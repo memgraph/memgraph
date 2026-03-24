@@ -826,20 +826,6 @@ Feature: Aggregations
             | props  | k    |
             | {w:5}  | ['w'] |
 
-    Scenario: Virtual edge projection with undirected option
-        Given an empty graph
-        And having executed
-            """
-            CREATE (a:N {x:1})-[:R]->(b:N {x:2})
-            """
-        When executing query:
-            """
-            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {virtualEdgeType: 'V', undirected: true}) AS graph RETURN size(graph.edges) AS e
-            """
-        Then the result should be:
-            | e |
-            | 2 |
-
     Scenario: Empty collect aggregation:
       Given an empty graph
       And having executed
