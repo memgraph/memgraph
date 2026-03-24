@@ -705,17 +705,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     auto ctx = TryExtractOrderByContext(op);
     if (ctx) {
-      order_by_stack_.push_back(std::move(*ctx));
+      order_by_stack_.emplace_back(std::move(*ctx));
     } else {
       // Push an invalid context so PostVisit always has a matching pop.
-      order_by_stack_.push_back(OrderByContext{&op, {}, {}, false, false});
+      order_by_stack_.emplace_back(OrderByContext{
+          .op = &op, .scan_symbol = {}, .property_paths = {}, .valid = false, .should_eliminate = false});
     }
     return true;
   }
 
   bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
-    MG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in PostVisit");
+    DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in PostVisit");
     auto ctx = std::move(order_by_stack_.back());
     order_by_stack_.pop_back();
     if (ctx.should_eliminate) {
@@ -899,11 +900,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // CheckOrderByElimination uses ctx.op only during the tree walk between these two visits,
   // so the OrderBy node is guaranteed to be alive and in the tree.
   struct OrderByContext {
-    OrderBy *op = nullptr;
+    OrderBy *op;
     Symbol scan_symbol;                                 // symbol all ORDER BY PropertyLookups reference
     std::vector<storage::PropertyPath> property_paths;  // ORDER BY properties converted to storage paths
-    bool valid = false;             // true if all expressions are simple ASC PropertyLookups on same symbol
-    bool should_eliminate = false;  // set by CheckOrderByElimination, consumed in PostVisit
+    bool valid;             // true if all expressions are simple ASC PropertyLookups on same symbol
+    bool should_eliminate;  // set by CheckOrderByElimination, consumed in PostVisit
   };
 
   std::vector<OrderByContext> order_by_stack_;
@@ -961,9 +962,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (ord.ordering() != Ordering::ASC) return std::nullopt;
     }
 
-    OrderByContext ctx;
-    ctx.op = &op;
-    ctx.valid = false;
+    OrderByContext ctx{.op = &op, .scan_symbol = {}, .property_paths = {}, .valid = false, .should_eliminate = false};
 
     bool first = true;
     for (auto *expr : order_by_exprs) {
