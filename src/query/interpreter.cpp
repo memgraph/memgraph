@@ -13,9 +13,6 @@
 #include <fmt/core.h>
 #include "ctre.hpp"
 #include "memory/db_arena.hpp"
-#if USE_JEMALLOC
-#include <jemalloc/jemalloc.h>
-#endif
 
 #include <algorithm>
 #include <atomic>
@@ -2989,19 +2986,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // allocations during this pull (SkipList nodes, std::string, etc.) are
   // attributed to the database's MemoryTracker via extent hooks.
   // The previous arena is restored on scope exit so pool threads are unaffected.
-  memory::DbArenaScope db_arena_scope{ctx_.db_arena_idx};
-#if USE_JEMALLOC
-  unsigned prev_thread_arena = 0;
-  if (ctx_.db_arena_idx != 0) {
-    size_t arena_sz = sizeof(unsigned);
-    je_mallctl("thread.arena", &prev_thread_arena, &arena_sz, &ctx_.db_arena_idx, arena_sz);
-  }
-  auto restore_thread_arena = utils::OnScopeExit([&] {
-    if (ctx_.db_arena_idx != 0) {
-      je_mallctl("thread.arena", nullptr, nullptr, &prev_thread_arena, sizeof(unsigned));
-    }
-  });
-#endif
+  memory::DbArenaFullScope db_arena_scope{ctx_.db_arena_idx};
 
   auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
   // Single query memory limit

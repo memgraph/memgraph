@@ -93,6 +93,48 @@ struct DbArenaScope {
   unsigned prev_;
 };
 
+// Full arena scope for shared threads (replication pool, RPC server workers).
+//
+// Sets both:
+//   - tls_db_arena_idx  → DbAwareAllocator routes SkipList/small_vector nodes to the DB arena
+//   - thread.arena      → all other allocations (std::string, std::vector, ...) also go there
+//
+// Both are saved and restored on destruction, so this is safe on threads that
+// serve multiple databases (e.g. ReplicationClient::thread_pool_, RPC workers).
+//
+// Usage:
+//   DbArenaFullScope scope{storage.config_.arena_idx};
+//   ... do replication work ...
+struct DbArenaFullScope {
+  explicit DbArenaFullScope(unsigned arena_idx) noexcept : tls_scope_(arena_idx) {
+#if USE_JEMALLOC
+    if (arena_idx != 0) {
+      size_t sz = sizeof(prev_thread_arena_);
+      je_mallctl("thread.arena", &prev_thread_arena_, &sz, &arena_idx, sz);
+      active_ = true;
+    }
+#endif
+  }
+
+  ~DbArenaFullScope() noexcept {
+#if USE_JEMALLOC
+    if (active_) {
+      je_mallctl("thread.arena", nullptr, nullptr, &prev_thread_arena_, sizeof(prev_thread_arena_));
+    }
+#endif
+  }
+
+  DbArenaFullScope(const DbArenaFullScope &) = delete;
+  DbArenaFullScope &operator=(const DbArenaFullScope &) = delete;
+  DbArenaFullScope(DbArenaFullScope &&) = delete;
+  DbArenaFullScope &operator=(DbArenaFullScope &&) = delete;
+
+ private:
+  DbArenaScope tls_scope_;
+  unsigned prev_thread_arena_{0};
+  bool active_{false};
+};
+
 // Stateless C++ allocator that routes allocations to the DB arena currently
 // pinned on this thread (tls_db_arena_idx).  When no arena is pinned (idx==0)
 // it falls back to the process-default allocator.
