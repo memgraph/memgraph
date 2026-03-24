@@ -164,15 +164,15 @@ void CrossThreadMemoryTracking::StopTracking() {
 CrossThreadMemoryTracking::CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept
     : query_tracker(std::exchange(other.query_tracker, nullptr)),
       user_tracker(std::exchange(other.user_tracker, nullptr)),
-      db_arena_idx(std::exchange(other.db_arena_idx, 0u)),
-      prev_arena_(std::exchange(other.prev_arena_, 0u)) {}
+      db_arena_idx(std::exchange(other.db_arena_idx, 0U)),
+      prev_arena_(std::exchange(other.prev_arena_, 0U)) {}
 
 CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemoryTracking &&other) noexcept {
   if (this != &other) {
     query_tracker = std::exchange(other.query_tracker, nullptr);
     user_tracker = std::exchange(other.user_tracker, nullptr);
-    db_arena_idx = std::exchange(other.db_arena_idx, 0u);
-    prev_arena_ = std::exchange(other.prev_arena_, 0u);
+    db_arena_idx = std::exchange(other.db_arena_idx, 0U);
+    prev_arena_ = std::exchange(other.prev_arena_, 0U);
   }
   return *this;
 }

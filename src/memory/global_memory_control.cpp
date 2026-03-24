@@ -33,8 +33,12 @@ namespace memgraph::memory {
 
 // Single DbArenaHooks instance for all startup arenas — they all share the same
 // default (base) hooks and feed graph_memory_tracker (which rolls up to total_memory_tracker).
+namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static DbArenaHooks global_graph_arena_hooks{};
+DbArenaHooks global_graph_arena_hooks{};
+}  // namespace
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extent_hooks_t *old_hooks = nullptr;
 
 #endif
