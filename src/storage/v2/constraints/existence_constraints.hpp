@@ -130,7 +130,7 @@ class ExistenceConstraints {
 
   void DropGraphClearConstraints();
 
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) { metric_handles_ = metric_handles; }
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
  private:
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
