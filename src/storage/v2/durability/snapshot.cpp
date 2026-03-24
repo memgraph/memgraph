@@ -9524,7 +9524,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
             if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
             vector.push_back(static_cast<float>(*value));
           }
-          index_entries.emplace(Gid::FromUint(*gid), std::move(vector));
+          index_entries.emplace(Gid::FromUint(*gid), vector);
+          vector.clear();
         }
 
         indices_constraints.indices.vector_indices.emplace_back(
@@ -9589,7 +9590,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
             if (!value) throw RecoveryFailure("Couldn't read vector edge index entry value!");
             vector.push_back(static_cast<float>(*value));
           }
-          index_entries.emplace(Gid::FromUint(*gid), std::move(vector));
+          index_entries.emplace(Gid::FromUint(*gid), vector);
+          vector.clear();
         }
 
         indices_constraints.indices.vector_edge_indices.emplace_back(
