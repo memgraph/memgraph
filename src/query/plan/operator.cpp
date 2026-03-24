@@ -9906,7 +9906,7 @@ class ScanParallelCursor : public Cursor {
     {
       // TODO: This is correct, but a thread local cache would be better. The issue with that is that
       // a thread can encounter mutiple scan parallel cursors. In addition cleanup is much harder.
-      auto l = std::unique_lock{gen_map_mutex_};
+      auto lock = std::unique_lock{gen_map_mutex_};
       auto [it, _] = gen_map_.emplace(&ctx, DoPull(f, ctx));
       gen = &it->second;
     }
@@ -11206,9 +11206,12 @@ class AggregateParallelCursor : public ParallelBranchCursor {
       };
 
       // Execute branches in parallel and unify context fields (handled by base class)
-      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-      if (!co_await ExecuteBranchesInParallel(
-              frame, context, self_, std::move(profile), pre_pull_func, post_pull_func)) {
+      if (!co_await ExecuteBranchesInParallel(frame,
+                                              context,
+                                              self_,
+                                              std::move(profile),  // NOLINT
+                                              pre_pull_func,
+                                              post_pull_func)) {
         co_return false;
       }
 
@@ -11328,9 +11331,12 @@ class OrderByParallelCursor : public ParallelBranchCursor {
       auto post_pull_func = [](Cursor * /*cursor*/, Frame * /*frame*/) {};
 
       // Execute branches in parallel - each branch will pull all its data and sort it
-      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-      if (!co_await ExecuteBranchesInParallel(
-              frame, context, self_, std::move(profile), pre_pull_func, post_pull_func)) {
+      if (!co_await ExecuteBranchesInParallel(frame,
+                                              context,
+                                              self_,
+                                              std::move(profile),  // NOLINT
+                                              pre_pull_func,
+                                              post_pull_func)) {
         co_return false;
       }
 

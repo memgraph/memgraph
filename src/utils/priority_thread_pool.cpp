@@ -410,7 +410,7 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index) {
     }
 
     try {
-      bool yielded = task();
+      const bool yielded = task();
       if (yielded) {
         return true;
       }
@@ -445,7 +445,7 @@ void TaskCollection::WaitOrSteal() {
     auto expected = Task::State::IDLE;
     if (task.state_->compare_exchange_strong(expected, Task::State::STOLEN, std::memory_order_acq_rel)) {
       try {
-        bool yielded = task.task_();
+        const bool yielded = task.task_();
         if (yielded) {
           throw std::runtime_error("WaitOrSteal cannot handle yielding tasks. Use co_await Finished() instead.");
         }
@@ -463,12 +463,8 @@ void TaskCollection::WaitOrSteal() {
 }
 
 bool TaskCollection::Finished() const {
-  for (const auto &task : tasks_) {
-    if (task.state_->load(std::memory_order_acquire) != Task::State::FINISHED) {
-      return false;
-    }
-  }
-  return true;
+  return std::ranges::all_of(
+      tasks_, [](const auto &task) { return task.state_->load(std::memory_order_acquire) == Task::State::FINISHED; });
 }
 
 }  // namespace memgraph::utils
