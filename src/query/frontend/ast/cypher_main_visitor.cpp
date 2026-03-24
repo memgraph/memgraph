@@ -142,7 +142,6 @@ antlrcpp::Any CypherMainVisitor::visitProfileQuery(MemgraphCypher::ProfileQueryC
 }
 
 antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::DatabaseInfoQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 2, "DatabaseInfoQuery should have exactly two children!");
   auto *info_query = storage_->Create<DatabaseInfoQuery>();
   query_ = info_query;
   if (ctx->indexInfo()) {
@@ -161,8 +160,16 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
     info_query->info_type_ = DatabaseInfoQuery::InfoType::NODE_LABELS;
     return info_query;
   }
-  if (ctx->metricsInfo()) {
+  if (auto *metrics = ctx->metricsInfo()) {
     info_query->info_type_ = DatabaseInfoQuery::InfoType::METRICS;
+    if (metrics->ON()) {
+      if (metrics->DATABASE()) {
+        info_query->database_specification_ = DatabaseInfoQuery::DatabaseSpecification::DATABASE;
+        info_query->database_ = std::any_cast<std::string>(metrics->db->accept(this));
+      } else if (metrics->CURRENT()) {
+        info_query->database_specification_ = DatabaseInfoQuery::DatabaseSpecification::CURRENT;
+      }
+    }
     return info_query;
   }
   if (ctx->vectorIndexInfo()) {
