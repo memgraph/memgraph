@@ -107,6 +107,9 @@ struct ReplicationClient {
           state_.WithLock([](auto &state) { state = State::BEHIND; });
           return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
         }
+        // if check failed, consider that as a generic error
+        state_.WithLock([](auto &state) { state = State::BEHIND; });
+        return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
       };
 
       if (mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
@@ -135,7 +138,7 @@ struct ReplicationClient {
   // and we want to set replica to listen to main
   bool try_set_uuid{false};
 
-  enum class State {
+  enum class State : uint8_t {
     BEHIND,
     READY,
     RECOVERY,
