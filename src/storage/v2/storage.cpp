@@ -789,6 +789,7 @@ void Storage::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
   metric_handles_ = metric_handles;
   indices_.SetMetricHandles(metric_handles);
   constraints_.SetMetricHandles(metric_handles);
+  ttl_.SetMetricHandles(metric_handles);
 }
 
 }  // namespace memgraph::storage
