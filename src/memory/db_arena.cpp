@@ -27,8 +27,8 @@ namespace {
 // retrieve the tracker and the default (base) hooks to call through.
 // ---------------------------------------------------------------------------
 
-static void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t alignment, bool *zero,
-                            bool *commit, unsigned arena_ind) {
+void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t alignment, bool *zero, bool *commit,
+                     unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
   if (*commit) {
     if (!dh->tracker->Alloc(static_cast<int64_t>(size))) return nullptr;
@@ -40,16 +40,16 @@ static void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, 
   return ptr;
 }
 
-static bool db_arena_dalloc(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
+bool db_arena_dalloc(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
-  bool err = dh->base_hooks->dalloc(dh->base_hooks, addr, size, committed, arena_ind);
+  const bool err = dh->base_hooks->dalloc(dh->base_hooks, addr, size, committed, arena_ind);
   if (!err && committed) {
     dh->tracker->Free(static_cast<int64_t>(size));
   }
   return err;
 }
 
-static void db_arena_destroy(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
+void db_arena_destroy(extent_hooks_t *hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
   if (committed) {
     dh->tracker->Free(static_cast<int64_t>(size));
@@ -57,32 +57,31 @@ static void db_arena_destroy(extent_hooks_t *hooks, void *addr, size_t size, boo
   dh->base_hooks->destroy(dh->base_hooks, addr, size, committed, arena_ind);
 }
 
-static bool db_arena_commit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
-                            unsigned arena_ind) {
+bool db_arena_commit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length, unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
-  bool err = dh->base_hooks->commit(dh->base_hooks, addr, size, offset, length, arena_ind);
+  const bool err = dh->base_hooks->commit(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+    const utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
     dh->tracker->Alloc(static_cast<int64_t>(length));
   }
   return err;
 }
 
-static bool db_arena_decommit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
-                              unsigned arena_ind) {
+bool db_arena_decommit(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
+                       unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
-  bool err = dh->base_hooks->decommit(dh->base_hooks, addr, size, offset, length, arena_ind);
+  const bool err = dh->base_hooks->decommit(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
     dh->tracker->Free(static_cast<int64_t>(length));
   }
   return err;
 }
 
-static bool db_arena_purge_forced(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
-                                  unsigned arena_ind) {
+bool db_arena_purge_forced(extent_hooks_t *hooks, void *addr, size_t size, size_t offset, size_t length,
+                           unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
   if (dh->base_hooks->purge_forced == nullptr) return true;
-  bool err = dh->base_hooks->purge_forced(dh->base_hooks, addr, size, offset, length, arena_ind);
+  const bool err = dh->base_hooks->purge_forced(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
     dh->tracker->Free(static_cast<int64_t>(length));
   }
@@ -119,15 +118,18 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
   const std::string hooks_key = "arena." + std::to_string(arena_idx_) + ".extent_hooks";
   extent_hooks_t *base_hooks = nullptr;
   size_t hooks_sz = sizeof(extent_hooks_t *);
-  err = je_mallctl(hooks_key.c_str(), &base_hooks, &hooks_sz, nullptr, 0);
+  err = je_mallctl(hooks_key.c_str(), static_cast<void *>(&base_hooks), &hooks_sz, nullptr, 0);
   MG_ASSERT(
       err == 0 && base_hooks != nullptr, "Failed to read default hooks for DB arena {} (err={})", arena_idx_, err);
 
   // Populate and install our custom hooks.
   InitDbArenaHooks(hooks_, tracker, base_hooks);
   const extent_hooks_t *new_hooks = &hooks_.hooks;
-  err = je_mallctl(
-      hooks_key.c_str(), nullptr, nullptr, const_cast<extent_hooks_t **>(&new_hooks), sizeof(extent_hooks_t *));
+  err = je_mallctl(hooks_key.c_str(),
+                   nullptr,
+                   nullptr,
+                   static_cast<void *>(const_cast<extent_hooks_t **>(&new_hooks)),
+                   sizeof(extent_hooks_t *));
   MG_ASSERT(err == 0, "Failed to install custom hooks on DB arena {} (err={})", arena_idx_, err);
 }
 

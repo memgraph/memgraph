@@ -2986,7 +2986,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // allocations during this pull (SkipList nodes, std::string, etc.) are
   // attributed to the database's MemoryTracker via extent hooks.
   // The previous arena is restored on scope exit so pool threads are unaffected.
-  memory::DbArenaFullScope db_arena_scope{ctx_.db_arena_idx};
+  const memory::DbArenaFullScope db_arena_scope{ctx_.db_arena_idx};
 
   auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
   // Single query memory limit
