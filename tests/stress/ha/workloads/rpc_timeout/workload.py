@@ -127,7 +127,7 @@ def main():
         query_proc.start()
 
         # Wait for the query to start executing and enter the replication phase
-        time.sleep(10)
+        time.sleep(15)
 
         # Block outgoing communication from data_2's replication port
         result = run_iptables(BLOCK_RULE, "BLOCK")
