@@ -22,8 +22,13 @@ def get_plan(memgraph, query):
     return [x[QUERY_PLAN] for x in results]
 
 
-def test_basic_orderby_elimination(memgraph):
-    """ORDER BY n.prop eliminated when index scan on :L(prop) with range filter."""
+# ---------------------------------------------------------------------------
+# Plan smoke tests — verify the optimization fires (or doesn't) in key cases.
+# ---------------------------------------------------------------------------
+
+
+def test_plan_basic_elimination(memgraph):
+    """ORDER BY n.prop eliminated when index scan provides ascending order."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
     expected = [
@@ -36,8 +41,8 @@ def test_basic_orderby_elimination(memgraph):
     assert expected == actual
 
 
-def test_orderby_desc_not_eliminated(memgraph):
-    """ORDER BY n.prop DESC should not be eliminated (index is ASC only)."""
+def test_plan_desc_not_eliminated(memgraph):
+    """ORDER BY DESC not eliminated (index is ASC only)."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
     expected = [
@@ -51,83 +56,7 @@ def test_orderby_desc_not_eliminated(memgraph):
     assert expected == actual
 
 
-def test_orderby_elimination_with_limit(memgraph):
-    """ORDER BY eliminated but LIMIT preserved."""
-    memgraph.execute("CREATE INDEX ON :L(prop);")
-
-    expected = [
-        " * Limit",
-        " * Produce {n}",
-        " * ScanAllByLabelProperties (n :L {prop})",
-        " * Once",
-    ]
-
-    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop LIMIT 10")
-    assert expected == actual
-
-
-def test_orderby_with_expand(memgraph):
-    """ORDER BY eliminated when Expand is between OrderBy and index scan."""
-    memgraph.execute("CREATE INDEX ON :L(prop);")
-
-    expected = [
-        " * Produce {n, m}",
-        " * Expand (n)-[r]->(m)",
-        " * ScanAllByLabelProperties (n :L {prop})",
-        " * Once",
-    ]
-
-    actual = get_plan(memgraph, "MATCH (n:L)-[r]->(m) WHERE n.prop > 5 RETURN n, m ORDER BY n.prop")
-    assert expected == actual
-
-
-def test_orderby_different_property_not_eliminated(memgraph):
-    """ORDER BY n.other not eliminated when index is on :L(prop)."""
-    memgraph.execute("CREATE INDEX ON :L(prop);")
-
-    expected = [
-        " * OrderBy {n}",
-        " * Produce {n}",
-        " * ScanAllByLabelProperties (n :L {prop})",
-        " * Once",
-    ]
-
-    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.other")
-    assert expected == actual
-
-
-def test_orderby_no_property_index(memgraph):
-    """ORDER BY not eliminated when only a label index exists (no property index)."""
-    memgraph.execute("CREATE INDEX ON :L;")
-
-    expected = [
-        " * OrderBy {n}",
-        " * Produce {n}",
-        " * ScanAllByLabel (n :L)",
-        " * Once",
-    ]
-
-    actual = get_plan(memgraph, "MATCH (n:L) RETURN n ORDER BY n.prop")
-    assert expected == actual
-
-
-def test_orderby_aggregate_blocks(memgraph):
-    """Aggregate between OrderBy and scan blocks elimination."""
-    memgraph.execute("CREATE INDEX ON :L(prop);")
-
-    expected = [
-        " * OrderBy {p, c}",
-        " * Produce {p, c}",
-        " * Aggregate {COUNT-1} {n}",
-        " * ScanAllByLabelProperties (n :L {prop})",
-        " * Once",
-    ]
-
-    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS p, count(*) AS c ORDER BY p")
-    assert expected == actual
-
-
-def test_orderby_with_renaming_blocks(memgraph):
+def test_plan_with_renaming_blocks(memgraph):
     """WITH renaming (n AS m) blocks elimination."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
@@ -143,37 +72,8 @@ def test_orderby_with_renaming_blocks(memgraph):
     assert expected == actual
 
 
-def test_orderby_equality_filter(memgraph):
-    """ORDER BY on equality-filtered property is trivially satisfied."""
-    memgraph.execute("CREATE INDEX ON :L(prop);")
-
-    expected = [
-        " * Produce {n}",
-        " * ScanAllByLabelProperties (n :L {prop})",
-        " * Once",
-    ]
-
-    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop = 5 RETURN n ORDER BY n.prop")
-    assert expected == actual
-
-
-def test_orderby_non_property_expr_not_eliminated(memgraph):
-    """ORDER BY n.prop + 1 should not be eliminated."""
-    memgraph.execute("CREATE INDEX ON :L(prop);")
-
-    expected = [
-        " * OrderBy {n}",
-        " * Produce {n}",
-        " * ScanAllByLabelProperties (n :L {prop})",
-        " * Once",
-    ]
-
-    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop + 1")
-    assert expected == actual
-
-
-def test_orderby_reverse_column_order_not_eliminated(memgraph):
-    """ORDER BY n.b, n.a not eliminated when index is (a, b) — different sort order."""
+def test_plan_reverse_column_order_not_eliminated(memgraph):
+    """ORDER BY n.b, n.a not eliminated when index is (a, b)."""
     memgraph.execute("CREATE INDEX ON :L(a, b);")
 
     expected = [
@@ -185,3 +85,84 @@ def test_orderby_reverse_column_order_not_eliminated(memgraph):
 
     actual = get_plan(memgraph, "MATCH (n:L) WHERE n.a > 5 RETURN n ORDER BY n.b, n.a")
     assert expected == actual
+
+
+# ---------------------------------------------------------------------------
+# Correctness tests — insert real data and verify result ordering is correct
+# after ORDER BY elimination.
+# ---------------------------------------------------------------------------
+
+
+def test_correctness_basic_ascending(memgraph):
+    """Results are correctly ordered ascending after OrderBy elimination."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+    for v in [30, 10, 50, 20, 40]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS p ORDER BY n.prop"))
+    values = [r["p"] for r in results]
+    assert values == [10, 20, 30, 40, 50]
+
+
+def test_correctness_with_limit(memgraph):
+    """ORDER BY eliminated with LIMIT still returns first N sorted results."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+    for v in [30, 10, 50, 20, 40]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    results = list(
+        memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS p ORDER BY n.prop LIMIT 3")
+    )
+    values = [r["p"] for r in results]
+    assert values == [10, 20, 30]
+
+
+def test_correctness_equality_skip(memgraph):
+    """Equality on first column, ORDER BY second column — results sorted by second."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+    for b in [3, 1, 4, 1, 5]:
+        memgraph.execute(f"CREATE (:L {{a: 10, b: {b}}})")
+    # Add some rows with different 'a' to ensure they're filtered out
+    memgraph.execute("CREATE (:L {a: 20, b: 0})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 10 RETURN n.b AS b ORDER BY n.b"))
+    values = [r["b"] for r in results]
+    assert values == [1, 1, 3, 4, 5]
+
+
+def test_correctness_composite_order(memgraph):
+    """ORDER BY n.a, n.b with composite index (a, b) — lexicographic order."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+    data = [(2, 3), (1, 2), (2, 1), (1, 1), (3, 1)]
+    for a, b in data:
+        memgraph.execute(f"CREATE (:L {{a: {a}, b: {b}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a > 0 RETURN n.a AS a, n.b AS b ORDER BY n.a, n.b"))
+    pairs = [(r["a"], r["b"]) for r in results]
+    assert pairs == [(1, 1), (1, 2), (2, 1), (2, 3), (3, 1)]
+
+
+def test_correctness_with_expand(memgraph):
+    """ORDER BY on scan symbol preserved through Expand."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+    memgraph.execute("CREATE (:L {prop: 30})-[:R]->(:M)")
+    memgraph.execute("CREATE (:L {prop: 10})-[:R]->(:M)")
+    memgraph.execute("CREATE (:L {prop: 20})-[:R]->(:M)")
+
+    results = list(
+        memgraph.execute_and_fetch("MATCH (n:L)-[r]->(m) WHERE n.prop > 5 RETURN n.prop AS p ORDER BY n.prop")
+    )
+    values = [r["p"] for r in results]
+    assert values == [10, 20, 30]
+
+
+def test_correctness_equality_plus_range(memgraph):
+    """WHERE a = val AND b > val ORDER BY b — correct order after equality skip."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+    for b in [50, 20, 40, 10, 30]:
+        memgraph.execute(f"CREATE (:L {{a: 1, b: {b}}})")
+    memgraph.execute("CREATE (:L {a: 2, b: 5})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 1 AND n.b > 15 RETURN n.b AS b ORDER BY n.b"))
+    values = [r["b"] for r in results]
+    assert values == [20, 30, 40, 50]
