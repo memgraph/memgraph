@@ -944,8 +944,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (!ident || ident->name_ != var_name) return true;  // renamed or complex expression
       return false;                                         // identity mapping, safe
     }
-    // Variable not in Produce output — it's not projected through, so elimination is unsafe
-    // (the variable won't be visible after this Produce).
+    // Variable not in Produce output — semantic analysis should have rejected this query
+    // since ORDER BY references a variable not projected through WITH/RETURN.
+    DMG_ASSERT(false, "ORDER BY variable not found in Produce output");
     return true;
   }
 
@@ -1000,7 +1001,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // TODO: Extend ORDER BY elimination to edge property index scans (ScanAllByEdgePropertyRange,
   //       ScanAllByEdgeTypePropertyRange) — they are also SkipList-backed and return data in ASC order.
   void CheckOrderByElimination(LogicalOperator *new_scan, const Symbol &scan_symbol) {
-    MG_ASSERT(!order_by_stack_.empty(), "CheckOrderByElimination called with empty stack");
+    DMG_ASSERT(!order_by_stack_.empty(), "CheckOrderByElimination called with empty stack");
     auto &ctx = order_by_stack_.back();
 
     // The ORDER BY symbol must match the scan symbol.
@@ -1021,13 +1022,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // prev_ops_ contains operators from root down to the scan's parent.
     // The scan itself is NOT in prev_ops_ (it was popped in PostVisit).
     // We need to check operators between OrderBy (exclusive) and ScanAll (exclusive).
-    bool found_order_by = false;
-    for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend(); ++it) {
+    // OrderBy is guaranteed to be in prev_ops_ (pushed in PreVisit, we're between Pre/PostVisit).
+    for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
       auto *op = *it;
-      if (op == ctx.op) {
-        found_order_by = true;
-        break;
-      }
       // Check if this operator is order-preserving. An operator is order-preserving if it does not
       // reorder its input rows. It may filter (1:1) or multiply (1:N via nested loop) rows.
       //
@@ -1070,7 +1067,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                               type_info == Unwind::kType;         // 1:N, preserves input-symbol order
       if (!order_preserving) return;
     }
-    if (!found_order_by) return;
 
     // Match ORDER BY properties against index properties with equality-skip logic
     auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(new_scan);
