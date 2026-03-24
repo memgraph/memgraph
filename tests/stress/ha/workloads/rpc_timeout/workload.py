@@ -32,8 +32,12 @@ MAIN_BOLT_PORT = 7687
 # Use sudo only if not running as root and sudo is available
 _SUDO = ["sudo"] if os.geteuid() != 0 and shutil.which("sudo") else []
 
-# Resolve iptables binary — may not be on PATH in minimal containers (e.g. /usr/sbin/iptables)
-_IPTABLES = shutil.which("iptables") or "/usr/sbin/iptables"
+
+# Resolve iptables — may be in /usr/sbin which isn't always on PATH
+_IPTABLES_PATH = shutil.which("iptables") or "/usr/sbin/iptables"
+
+
+_IPTABLES = _IPTABLES_PATH
 
 BLOCK_RULE = [
     *_SUDO,
