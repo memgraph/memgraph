@@ -804,3 +804,45 @@ TYPED_TEST(MgpGraphTest, VirtualEdgeApiOperations) {
   ASSERT_NE(read_value, nullptr);
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int64_t, mgp_value_get_int, read_value.get()), 42);
 }
+
+TYPED_TEST(MgpGraphTest, NodeOverridePropertyVisibleViaMgpApi) {
+  auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+
+  memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
+  proj_graph.InsertVertex(memgraph::query::VertexAccessor(v1));
+  proj_graph.InsertVertex(memgraph::query::VertexAccessor(v2));
+  proj_graph.virtual_edge_store().Insert(
+      memgraph::query::VirtualEdge(memgraph::query::VertexAccessor(v1), memgraph::query::VertexAccessor(v2), "VE"));
+
+  // Set a property override on v1
+  auto score_id = dba.NameToProperty("score");
+  memgraph::query::NodeOverride override;
+  override.properties[score_id] = memgraph::storage::PropertyValue(99);
+  proj_graph.node_override_store().Set(v1.Gid(), std::move(override));
+
+  memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
+  auto graph = mgp_graph{
+      &sub_dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+  // Get v1 via MGP API
+  MgpVertexPtr mgp_v1{EXPECT_MGP_NO_ERROR(
+      mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{v1.Gid().AsInt()}, &this->memory)};
+  ASSERT_NE(mgp_v1, nullptr);
+
+  // Read overridden property
+  MgpValuePtr read_value{
+      EXPECT_MGP_NO_ERROR(mgp_value *, mgp_vertex_get_property, mgp_v1.get(), "score", &this->memory)};
+  ASSERT_NE(read_value, nullptr);
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(int64_t, mgp_value_get_int, read_value.get()), 99);
+
+  // v2 should NOT have the override
+  MgpVertexPtr mgp_v2{EXPECT_MGP_NO_ERROR(
+      mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{v2.Gid().AsInt()}, &this->memory)};
+  ASSERT_NE(mgp_v2, nullptr);
+
+  MgpValuePtr v2_value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_vertex_get_property, mgp_v2.get(), "score", &this->memory)};
+  ASSERT_NE(v2_value, nullptr);
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_value_type, mgp_value_get_type, v2_value.get()), MGP_VALUE_TYPE_NULL);
+}
