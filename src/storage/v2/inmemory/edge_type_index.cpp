@@ -203,13 +203,11 @@ void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp, 
   status_.Commit(commit_timestamp);
   gauge_ = gauge;
   if (gauge_) gauge_->Increment();
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
 }
 
 InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() {
   if (status_.IsReady()) {
     if (gauge_) gauge_->Decrement();
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
   }
 }
 

@@ -263,13 +263,11 @@ void InMemoryEdgePropertyIndex::IndividualIndex::Publish(uint64_t commit_timesta
   status_.Commit(commit_timestamp);
   gauge_ = gauge;
   if (gauge_) gauge_->Increment();
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgePropertyIndices);
 }
 
 InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() {
   if (status_.IsReady()) {
     if (gauge_) gauge_->Decrement();
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgePropertyIndices);
   }
 }
 
