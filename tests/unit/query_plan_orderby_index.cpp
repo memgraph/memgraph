@@ -122,8 +122,8 @@ TYPED_TEST(OrderByIndexTest, CompositePrefix) {
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "OrderBy should be eliminated (composite prefix)";
 }
 
-// Test 3: Equality skip - WHERE n.a = 5 ORDER BY n.b with index (a, b)
-TYPED_TEST(OrderByIndexTest, EqualitySkip) {
+// Test 3: Equality on first column, ORDER BY second only — not a prefix, should NOT eliminate
+TYPED_TEST(OrderByIndexTest, EqualitySkipNotEliminated) {
   // MATCH (n:L) WHERE n.a = 5 ORDER BY n.b RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
@@ -142,8 +142,8 @@ TYPED_TEST(OrderByIndexTest, EqualitySkip) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
-  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should be eliminated (equality skip on first index column)";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (ORDER BY n.b is not a prefix of index (a, b))";
 }
 
 // Test 4: Full composite - WHERE n.a = 5 ORDER BY n.a, n.b with index (a, b)
@@ -373,8 +373,8 @@ TYPED_TEST(OrderByIndexTest, AggregateBlocks) {
       << "OrderBy should NOT be eliminated (Aggregate between OrderBy and ScanAll)";
 }
 
-// Test 13: Equality on first column + range on second — ORDER BY second column is satisfied
-TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOnSecondColumn) {
+// Test 13: Equality on first column + range on second, ORDER BY second only — not a prefix
+TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOnSecondColumnNotEliminated) {
   // MATCH (n:L) WHERE n.a = 5 AND n.b > 3 ORDER BY n.b RETURN n
   FakeDbAccessor dba;
   const auto *label_name = "L";
@@ -394,8 +394,8 @@ TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOnSecondColumn) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
-  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should be eliminated (equality on a, range on b, ORDER BY b)";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (ORDER BY n.b is not a prefix of index (a, b))";
 }
 
 // Test 14: ORDER BY matches full composite index (a, b) with range on a — elimination applies
