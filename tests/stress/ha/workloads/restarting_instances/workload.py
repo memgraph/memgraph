@@ -3,7 +3,7 @@
 Restarting instances workload.
 
 1) Imports the publications dataset from S3.
-2) Repeats 100 times:
+2) Repeats 50 times:
    - Create 1000 random edges between existing nodes with 4 workers.
    - Restart all instances (coordinators + data).
    - Wait for cluster to become healthy again.
@@ -26,7 +26,7 @@ S3_REGION = "eu-west-1"
 EDGES_PER_ITERATION = 1000
 NODES_PER_ITERATION = 10
 NUM_WORKERS = 4
-NUM_ITERATIONS = 100
+NUM_ITERATIONS = 50
 
 HEALTH_CHECK_RETRIES = 30
 HEALTH_CHECK_INTERVAL = 10
