@@ -64,10 +64,13 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     :
 #if USE_JEMALLOC
       db_arena_(&db_memory_tracker_),
+      arena_scope_(ArenaIdx()),
 #endif
-      trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
+      trigger_store_(
+          std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers", ArenaIdx())),
       streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
-      plan_cache_{FLAGS_query_plan_cache_max_size} {
+      plan_cache_{FLAGS_query_plan_cache_max_size},
+      after_commit_trigger_pool_{1} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
 #if USE_JEMALLOC

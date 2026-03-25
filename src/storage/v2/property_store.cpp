@@ -11,6 +11,7 @@
 
 #include "storage/v2/property_store.hpp"
 #include <range/v3/all.hpp>
+#include "memory/db_arena.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
 
 #include <algorithm>
@@ -2287,7 +2288,7 @@ void FreeMemory(DecodedBuffer const &buffer_info) {
   switch (buffer_info.storage_mode) {
     case BufferMode::BUFFER:
     case BufferMode::COMPRESSED:
-      delete[] buffer_info.view.data();
+      memory::DbAwareAllocator<uint8_t>{}.deallocate(buffer_info.view.data(), buffer_info.view.size());
       break;
     case BufferMode::LOCAL:
     case BufferMode::EMPTY:
@@ -2311,7 +2312,7 @@ DecodedBuffer SetupLocalBuffer(std::array<uint8_t, 12> &buffer) {
 
 DecodedBuffer SetupExternalBuffer(uint32_t size) {
   auto alloc_size = ToMultipleOf8(size);
-  auto *alloc_data = new uint8_t[alloc_size];
+  auto *alloc_data = memory::DbAwareAllocator<uint8_t>{}.allocate(alloc_size);
 
   return DecodedBuffer{
       .view = std::span{alloc_data, alloc_size},
@@ -2376,23 +2377,23 @@ void CompressBuffer(std::array<uint8_t, 12> &buffer, DecodedBuffer const &buffer
     return;
   }
 
-  auto compressed_data = std::make_unique_for_overwrite<uint8_t[]>(compressed_size_to_multiple_of_8);
+  auto *compressed_data = memory::DbAwareAllocator<uint8_t>{}.allocate(compressed_size_to_multiple_of_8);
 
   // We have compressed data + new buffer to put it into, no need for old uncompressed buffer
   FreeMemory(buffer_info);
 
   // first 4 bytes are the size of the original buffer
   auto orig_size = compressed_buffer->original_size();
-  memcpy(compressed_data.get(), &orig_size, sizeof(uint32_t));
+  memcpy(compressed_data, &orig_size, sizeof(uint32_t));
 
   // next byte is the mod before multiple of 8
   const uint8_t mod = size_needed % 8;
   compressed_data[sizeof(uint32_t)] = mod;
 
   // the rest of the buffer is the compressed data
-  memcpy(compressed_data.get() + metadata_size, compressed_view.data(), compressed_view.size_bytes());
+  memcpy(compressed_data + metadata_size, compressed_view.data(), compressed_view.size_bytes());
 
-  SetSizeData(buffer, compressed_size_to_multiple_of_8 + kUseCompressedBuffer, compressed_data.release());
+  SetSizeData(buffer, compressed_size_to_multiple_of_8 + kUseCompressedBuffer, compressed_data);
 }
 
 // Helper functions used to retrieve/store `size` and `data` from/into the

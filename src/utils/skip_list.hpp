@@ -32,6 +32,7 @@
 
 #include "utils/bound.hpp"
 #include "utils/counter.hpp"
+#include "utils/db_aware_allocator.hpp"
 #include "utils/linux.hpp"
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
@@ -244,7 +245,7 @@ constexpr uint64_t ExpectedSizeAtLayer(const uint64_t N, const uint8_t k) {
 /// collection is blocking is when the structure of the doubly-linked list has
 /// to be changed (eg. a new Block has to be allocated and linked into the
 /// structure).
-template <typename TObj, typename Alloc = std::allocator<char>>
+template <typename TObj, typename Alloc = memory::ArenaAwareAllocator<char>>
 class SkipListGc final {
  private:
   using TNode = SkipListNode<TObj>;
@@ -617,7 +618,7 @@ class SkipListGc final {
 /// change must be implemented thread-safe inside the object.
 ///
 /// @tparam TObj object type that is stored in the list
-template <typename TObj, typename Alloc = std::allocator<char>>
+template <typename TObj, typename Alloc = memory::ArenaAwareAllocator<char>>
 class SkipList final : detail::SkipListNode_base {
  private:
   using TNode = SkipListNode<TObj>;

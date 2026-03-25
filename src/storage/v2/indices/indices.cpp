@@ -46,8 +46,9 @@ void Indices::RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &verti
   vector_index_.RemoveVertices(vertices_to_remove);
 }
 
-void Indices::RemoveEdgesFromVectorEdgeIndices(std::vector<Edge *> const &edges_to_remove) {
-  vector_edge_index_.RemoveEdges(edges_to_remove);
+void Indices::RemoveEdgesFromVectorEdgeIndices(
+    std::list<Gid, memory::DbAwareAllocator<Gid>> const &deleted_edge_gids) const {
+  vector_edge_index_.RemoveEdges(deleted_edge_gids);
 }
 
 void Indices::DropGraphClearIndices() {
@@ -115,11 +116,11 @@ Indices::Indices(const Config &config, StorageMode storage_mode)
     : text_index_(config.durability.storage_directory), text_edge_index_(config.durability.storage_directory) {
   std::invoke([this, config, storage_mode]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      label_index_ = std::make_unique<InMemoryLabelIndex>();
-      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>();
-      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>();
-      edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>();
-      edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>();
+      label_index_ = std::make_unique<InMemoryLabelIndex>(config.arena_idx);
+      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(config.arena_idx);
+      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>(config.arena_idx);
+      edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>(config.arena_idx);
+      edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>(config.arena_idx);
     } else {
       label_index_ = std::make_unique<DiskLabelIndex>(config);
       label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);

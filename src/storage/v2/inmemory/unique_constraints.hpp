@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <variant>
+#include "memory/db_arena.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
@@ -65,16 +66,23 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   // a status is needed to not drop the constraint before it gets validated
   // new writes can't happen during this time due to read only access
   struct IndividualConstraint {
+    explicit IndividualConstraint(unsigned arena_idx = 0) : skiplist(memory::ArenaAwareAllocator<char>{arena_idx}) {}
+
     ~IndividualConstraint();
     void Publish(uint64_t commit_timestamp);
 
-    utils::SkipList<Entry> skiplist;
+    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
 
-  using Container = std::map<LabelId, std::map<std::set<PropertyId>, IndividualConstraintPtr>>;
+  using PropertiesConstraints =
+      std::map<std::set<PropertyId>, IndividualConstraintPtr, std::less<std::set<PropertyId>>,
+               memory::DbAwareAllocator<std::pair<const std::set<PropertyId>, IndividualConstraintPtr>>>;
+
+  using Container = std::map<LabelId, PropertiesConstraints, std::less<LabelId>,
+                             memory::DbAwareAllocator<std::pair<const LabelId, PropertiesConstraints>>>;
 
   using ContainerPtr = std::shared_ptr<Container const>;
 
@@ -104,6 +112,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
    private:
     ContainerPtr container_;
   };
+
+  explicit InMemoryUniqueConstraints(unsigned arena_idx = 0) : arena_idx_(arena_idx) {}
 
   /// Creates an ActiveConstraints snapshot for transaction use.
   auto GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> override;
@@ -150,6 +160,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
  private:
   auto GetIndividualConstraint(const LabelId label, const std::set<PropertyId> &properties) const
       -> IndividualConstraintPtr;
+  unsigned arena_idx_{0};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

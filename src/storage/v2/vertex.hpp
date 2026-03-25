@@ -13,6 +13,7 @@
 
 #include <tuple>
 
+#include "memory/db_arena.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -23,6 +24,11 @@
 
 namespace memgraph::storage {
 
+struct Vertex;
+
+using EdgeTriple = std::tuple<EdgeTypeId, Vertex *, EdgeRef>;
+using Edges = utils::small_vector<EdgeTriple, memory::DbAwareAllocator<EdgeTriple>>;
+
 struct Vertex {
   Vertex(Gid gid, Delta *delta) : gid(gid), delta_(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
@@ -32,12 +38,10 @@ struct Vertex {
 
   const Gid gid;
 
-  utils::small_vector<LabelId> labels;
+  utils::small_vector<LabelId, memory::DbAwareAllocator<LabelId>> labels;
 
-  using EdgeTriple = std::tuple<EdgeTypeId, Vertex *, EdgeRef>;
-
-  utils::small_vector<EdgeTriple> in_edges;
-  utils::small_vector<EdgeTriple> out_edges;
+  Edges in_edges;
+  Edges out_edges;
 
   PropertyStore properties;
   mutable utils::RWSpinLock lock;

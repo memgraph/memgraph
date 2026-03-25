@@ -207,8 +207,10 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
   return false;
 }
 
-void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std::list<Gid> &current_deleted_edges,
-                           std::list<Gid> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
+void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id,
+                           std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_edges,
+                           std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
+                           IndexPerformanceTracker &impact_tracker) {
   for (auto &delta : deltas) {
     DMG_ASSERT(
         [&delta]() {
@@ -319,6 +321,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  PlanInvalidatorPtr invalidator,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : Storage(config, config.salient.storage_mode, std::move(invalidator), std::move(database_protector_factory)),
+      vertices_(memory::ArenaAwareAllocator<char>{config.arena_idx}),
+      edges_(memory::ArenaAwareAllocator<char>{config.arena_idx}),
+      edges_metadata_(memory::ArenaAwareAllocator<char>{config.arena_idx}),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
@@ -1264,9 +1269,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   return result;
 }
 
-void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges,
-                                                            std::list<Gid> &current_deleted_vertices,
-                                                            IndexPerformanceTracker &impact_tracker) {
+void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
+    std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_edges,
+    std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // STEP 1) ensure everything in GC is gone
@@ -1277,7 +1282,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 
   // 1.b.0) old committed_transactions_ and waiting_gc_deltas_ need minimal unlinking + remove + clear
   //      must be done before this transactions delta unlinking
-  auto linked_undo_buffers = std::list<GCDeltas>{};
+  auto linked_undo_buffers = std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>{};
   mem_storage->committed_transactions_.WithLock(
       [&](auto &committed_transactions) { committed_transactions.swap(linked_undo_buffers); });
   mem_storage->waiting_gc_deltas_.WithLock(
@@ -1304,8 +1309,8 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std::mutex> /*gc_guard*/) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  std::list<Gid> current_deleted_vertices;
-  std::list<Gid> current_deleted_edges;
+  std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_vertices;
+  std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_edges;
   auto impact_tracker = IndexPerformanceTracker{};
 
   // STEP 1 + STEP 2 - delta cleanup
@@ -2290,24 +2295,40 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_->edge_type_.get());
-  return EdgesIterable(active_indices->Edges(edge_type, view, storage_, &transaction_));
+  return EdgesIterable(
+      active_indices->Edges(edge_type, std::move(vertex_acc), std::move(edge_acc), view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property, View view) {
-  auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
-      transaction_.active_indices_->edge_type_properties_.get());
-  return EdgesIterable(
-      active_indices->Edges(edge_type, property, std::nullopt, std::nullopt, view, storage_, &transaction_));
-}
-
-EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
-                                                       const PropertyValue &value, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
   return EdgesIterable(active_indices->Edges(edge_type,
                                              property,
+                                             std::move(vertex_acc),
+                                             std::move(edge_acc),
+                                             std::nullopt,
+                                             std::nullopt,
+                                             view,
+                                             storage_,
+                                             &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
+                                                       const PropertyValue &value, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
+  auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
+      transaction_.active_indices_->edge_type_properties_.get());
+  return EdgesIterable(active_indices->Edges(edge_type,
+                                             property,
+                                             std::move(vertex_acc),
+                                             std::move(edge_acc),
                                              utils::MakeBoundInclusive(value),
                                              utils::MakeBoundInclusive(value),
                                              view,
@@ -2319,34 +2340,55 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Pro
                                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                        View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
-  return EdgesIterable(
-      active_indices->Edges(edge_type, property, lower_bound, upper_bound, view, storage_, &transaction_));
+  return EdgesIterable(active_indices->Edges(edge_type,
+                                             property,
+                                             std::move(vertex_acc),
+                                             std::move(edge_acc),
+                                             lower_bound,
+                                             upper_bound,
+                                             view,
+                                             storage_,
+                                             &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, View view) {
-  auto *mem_edge_property_active_indices =
-      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
-  return EdgesIterable(
-      mem_edge_property_active_indices->Edges(property, std::nullopt, std::nullopt, view, storage_, &transaction_));
-}
-
-EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, const PropertyValue &value, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *mem_edge_property_active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesIterable(mem_edge_property_active_indices->Edges(
-      property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, storage_, &transaction_));
+      property, std::move(vertex_acc), std::move(edge_acc), std::nullopt, std::nullopt, view, storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, const PropertyValue &value, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
+  auto *mem_edge_property_active_indices =
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
+  return EdgesIterable(mem_edge_property_active_indices->Edges(property,
+                                                               std::move(vertex_acc),
+                                                               std::move(edge_acc),
+                                                               utils::MakeBoundInclusive(value),
+                                                               utils::MakeBoundInclusive(value),
+                                                               view,
+                                                               storage_,
+                                                               &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property,
                                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                        View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *mem_edge_property_active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
-  return EdgesIterable(
-      mem_edge_property_active_indices->Edges(property, lower_bound, upper_bound, view, storage_, &transaction_));
+  return EdgesIterable(mem_edge_property_active_indices->Edges(
+      property, std::move(vertex_acc), std::move(edge_acc), lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, View view,
@@ -2500,7 +2542,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           std::move(active_indices),
           *std::move(active_constraints),
           std::move(async_index_helper),
-          last_durable_ts};
+          last_durable_ts,
+          config_.arena_idx};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
@@ -2702,13 +2745,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
-  std::list<GCDeltas> unlinked_undo_buffers{};
+  std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>> unlinked_undo_buffers{};
 
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
   // vertices that appear in an index also exist in main storage.
-  std::list<Gid> current_deleted_edges{};
-  std::list<Gid> current_deleted_vertices{};
+  std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_edges{};
+  std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_vertices{};
 
   deleted_vertices_.WithLock([&](auto &deleted_vertices) { current_deleted_vertices.swap(deleted_vertices); });
   deleted_edges_.WithLock([&](auto &deleted_edges) { current_deleted_edges.swap(deleted_edges); });
@@ -2717,7 +2760,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false, std::memory_order_acq_rel);
 
   // Short lock, to move to local variable. Hence, allows other transactions to commit.
-  auto linked_undo_buffers = std::list<GCDeltas>{};
+  auto linked_undo_buffers = std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>{};
   committed_transactions_.WithLock(
       [&](auto &committed_transactions) { committed_transactions.swap(linked_undo_buffers); });
 
@@ -3051,13 +3094,16 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   if (need_full_scan_edges) {
     auto edge_acc = edges_.access();
 
-    if (!need_full_scan_vertices && !indices_.vector_edge_index_.Empty()) {
-      auto const analytical_deleted_edges =
-          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
-          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
-
-      if (!analytical_deleted_edges.empty()) {
-        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
+    if (!indices_.vector_edge_index_.Empty()) {
+      // Collect deleted edge GIDs BEFORE skip-list removal while Edge* is still valid.
+      std::list<Gid, memory::DbAwareAllocator<Gid>> analytical_deleted_edge_gids;
+      for (auto const &edge : edge_acc) {
+        if (edge.delta() == nullptr && edge.deleted()) {
+          analytical_deleted_edge_gids.push_back(edge.gid);
+        }
+      }
+      if (!analytical_deleted_edge_gids.empty()) {
+        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edge_gids);
       }
     }
 

@@ -20,6 +20,7 @@
 
 #include "dbms/database_protector.hpp"
 #include "kvstore/kvstore.hpp"
+#include "memory/db_arena.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -94,7 +95,7 @@ struct Trigger {
 enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
 
 struct TriggerStore {
-  explicit TriggerStore(std::filesystem::path directory);
+  explicit TriggerStore(std::filesystem::path directory, unsigned arena_idx = 0);
 
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                        const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
@@ -137,8 +138,8 @@ struct TriggerStore {
   utils::SpinLock store_lock_;
   kvstore::KVStore storage_;
 
-  utils::SkipList<Trigger> before_commit_triggers_;
-  utils::SkipList<Trigger> after_commit_triggers_;
+  utils::SkipList<Trigger, memory::ArenaAwareAllocator<char>> before_commit_triggers_;
+  utils::SkipList<Trigger, memory::ArenaAwareAllocator<char>> after_commit_triggers_;
 };
 
 }  // namespace memgraph::query

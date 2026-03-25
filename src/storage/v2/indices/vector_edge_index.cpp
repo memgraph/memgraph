@@ -406,22 +406,32 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
 
 bool VectorEdgeIndex::Empty() const { return pimpl->index_by_id_.empty(); }
 
-void VectorEdgeIndex::RemoveEdges(std::vector<Edge *> const &edges_to_remove) {
-  if (edges_to_remove.empty()) return;
+void VectorEdgeIndex::RemoveEdges(std::list<Gid, memory::DbAwareAllocator<Gid>> const &deleted_edge_gids) const {
+  if (deleted_edge_gids.empty()) return;
 
-  // Lock order: uSearch mutex → edge_endpoints_mutex_ (matches SearchEdges)
+  auto as_uint = deleted_edge_gids | std::views::transform([](auto const &g) { return g.AsUint(); });
+  std::unordered_set<uint64_t> const gids_to_remove(as_uint.begin(), as_uint.end());
+
+  std::vector<Edge *> removed_edges;
+
+  // Lock order: uSearch mutex → edge_endpoints_mutex_
   for (auto &[_, index_item] : pimpl->index_by_id_) {
     auto guard = std::lock_guard{index_item.mg_index.mutex};
-    for (auto *edge : edges_to_remove) {
-      if (index_item.mg_index.index.contains(edge)) {
+    auto const index_size = index_item.mg_index.index.size();
+    if (index_size == 0) continue;
+    std::vector<Edge *> all_keys(index_size);
+    index_item.mg_index.index.export_keys(all_keys.data(), 0, index_size);
+    for (auto *edge : all_keys) {
+      if (edge != nullptr && gids_to_remove.contains(edge->gid.AsUint())) {
         index_item.mg_index.index.remove(edge);
+        removed_edges.push_back(edge);
       }
     }
   }
 
-  {
+  if (!removed_edges.empty()) {
     auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
-    for (auto *edge : edges_to_remove) {
+    for (auto *edge : removed_edges) {
       pimpl->edge_endpoints_.erase(edge);
     }
   }

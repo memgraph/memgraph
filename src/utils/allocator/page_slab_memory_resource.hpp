@@ -24,14 +24,22 @@ namespace memgraph::utils {
 /// - allocations larger than a page get their own allocations
 /// - deallocation is a noop
 /// - all memory released on destruction
+///
+/// An optional upstream std::pmr::memory_resource can be supplied at
+/// construction. All backing page allocations go through that upstream
+/// (default: operator new via std::pmr::get_default_resource()). Callers that
+/// need DB-arena attribution pass an ArenaMemoryResource as the upstream.
 struct PageSlabMemoryResource : std::pmr::memory_resource {
   static constexpr std::size_t PAGE_SIZE = 4096;
-  PageSlabMemoryResource() = default;
+
+  explicit PageSlabMemoryResource(std::pmr::memory_resource *upstream = std::pmr::get_default_resource()) noexcept
+      : upstream_(upstream) {}
 
   PageSlabMemoryResource(PageSlabMemoryResource const &) = delete;
   PageSlabMemoryResource &operator=(PageSlabMemoryResource const &) = delete;
 
   PageSlabMemoryResource(PageSlabMemoryResource &&other) noexcept {
+    std::swap(upstream_, other.upstream_);
     std::swap(pages, other.pages);
     std::swap(ptr, other.ptr);
     std::swap(space, other.space);
@@ -47,16 +55,18 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
     auto current = pages;
     while (current) {
       auto next = current->next;
-      operator delete(current, current->alignment);
+      upstream_->deallocate(current, current->alloc_size, static_cast<std::size_t>(current->alignment));
       current = next;
     }
   }
 
  private:
   struct header {
-    explicit header(header *next, std::align_val_t alignment) : next(next), alignment{alignment} {}
+    explicit header(header *next, std::size_t alloc_size, std::align_val_t alignment)
+        : next(next), alloc_size{alloc_size}, alignment{alignment} {}
 
     header *next = nullptr;
+    std::size_t alloc_size;  // total bytes passed to upstream_->allocate()
     std::align_val_t alignment;
   };
 
@@ -71,16 +81,16 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
     auto max_slab_capacity = PAGE_SIZE - earliest_slab_position;
     if (max_slab_capacity < bytes) [[unlikely]] {
       auto required_bytes = bytes + earliest_slab_position;
-      auto *newmem = reinterpret_cast<header *>(operator new(required_bytes, std::align_val_t{alignment}));
+      auto *newmem = reinterpret_cast<header *>(upstream_->allocate(required_bytes, alignment));
       // add to the allocation list
-      pages = std::construct_at<header>(newmem, pages, std::align_val_t{alignment});
+      pages = std::construct_at<header>(newmem, pages, required_bytes, std::align_val_t{alignment});
       return reinterpret_cast<std::byte *>(pages) + earliest_slab_position;
     }
 
     // 2. can it fit in existing slab?
     if (!std::align(alignment, bytes, ptr, space)) [[unlikely]] {
-      auto *newmem = reinterpret_cast<header *>(operator new(PAGE_SIZE, std::align_val_t{PAGE_SIZE}));
-      pages = std::construct_at<header>(newmem, pages, std::align_val_t{PAGE_SIZE});
+      auto *newmem = reinterpret_cast<header *>(upstream_->allocate(PAGE_SIZE, PAGE_SIZE));
+      pages = std::construct_at<header>(newmem, pages, PAGE_SIZE, std::align_val_t{PAGE_SIZE});
       ptr = reinterpret_cast<std::byte *>(pages) + header_size;
       space = PAGE_SIZE - header_size;
       if (!std::align(alignment, bytes, ptr, space)) [[unlikely]] {
@@ -102,6 +112,7 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
   bool do_is_equal(memory_resource const &other) const noexcept final { return std::addressof(other) == this; }
 
  private:
+  std::pmr::memory_resource *upstream_ = std::pmr::get_default_resource();
   header *pages = nullptr;
   void *ptr = nullptr;
   size_t space = 0;

@@ -11,16 +11,16 @@
 
 #pragma once
 
-#include <cstddef>
+#include <memory_resource>
 #include <new>
 #include <thread>
-#include <type_traits>
 #include <utility>
 
 #if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
 #endif
 
+#include "utils/db_aware_allocator.hpp"
 #include "utils/memory_tracker.hpp"
 
 namespace memgraph::memory {
@@ -65,15 +65,46 @@ class DbArena {
 
 #endif  // USE_JEMALLOC
 
-// Thread-local arena index for the currently active database.
-// 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
-// Set by DbArenaScope for shared query threads and directly at thread-start
-// for DB-owned background threads (GC, snapshot, TTL, async indexer, ...).
+// A std::pmr::memory_resource that routes allocations to a specific jemalloc
+// arena. Used as the upstream for PageSlabMemoryResource so that Delta slab
+// pages are attributed to the owning DB's MemoryTracker.
 //
-// DEVNOTE: initial-exec TLS model requires this to be in the main executable,
-//          not a shared library. Matches the pattern used by query_memory_control.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-inline thread_local unsigned tls_db_arena_idx [[gnu::tls_model("initial-exec")]] = 0;
+// arena_idx == 0 → falls back to operator new / operator delete.
+// Non-jemalloc builds: always uses operator new / operator delete.
+class ArenaMemoryResource final : public std::pmr::memory_resource {
+ public:
+  explicit ArenaMemoryResource(unsigned arena_idx) noexcept : arena_idx_(arena_idx) {}
+
+ private:
+  void *do_allocate(std::size_t bytes, std::size_t alignment) override {
+#if USE_JEMALLOC
+    if (arena_idx_ != 0) {
+      int flags = MALLOCX_ARENA(arena_idx_) | MALLOCX_TCACHE_NONE;
+      if (alignment > alignof(std::max_align_t)) flags |= MALLOCX_ALIGN(alignment);
+      void *p = je_mallocx(bytes, flags);
+      if (!p) throw std::bad_alloc{};
+      return p;
+    }
+#endif
+    return ::operator new(bytes, std::align_val_t{alignment});
+  }
+
+  void do_deallocate(void *p, [[maybe_unused]] std::size_t bytes,
+                     [[maybe_unused]] std::size_t alignment) noexcept override {
+#if USE_JEMALLOC
+    je_free(p);
+#else
+    ::operator delete(p, bytes, std::align_val_t{alignment});
+#endif
+  }
+
+  bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override {
+    const auto *o = dynamic_cast<const ArenaMemoryResource *>(&other);
+    return o && o->arena_idx_ == arena_idx_;
+  }
+
+  unsigned arena_idx_;
+};
 
 // RAII guard: installs a DB arena index for the duration of its scope and
 // restores the previous value on destruction. Supports nested scopes.
@@ -95,61 +126,20 @@ struct DbArenaScope {
   unsigned prev_;
 };
 
-// Full arena scope for shared threads (replication pool, RPC server workers).
-//
-// Sets both:
-//   - tls_db_arena_idx  → DbAwareAllocator routes SkipList/small_vector nodes to the DB arena
-//   - thread.arena      → all other allocations (std::string, std::vector, ...) also go there
-//
-// Both are saved and restored on destruction, so this is safe on threads that
-// serve multiple databases (e.g. ReplicationClient::thread_pool_, RPC workers).
-//
-// Usage:
-//   DbArenaFullScope scope{storage.config_.arena_idx};
-//   ... do replication work ...
-struct DbArenaFullScope {
-  explicit DbArenaFullScope(unsigned arena_idx) noexcept : tls_scope_(arena_idx) {
-#if USE_JEMALLOC
-    if (arena_idx != 0) {
-      size_t sz = sizeof(prev_thread_arena_);
-      je_mallctl("thread.arena", &prev_thread_arena_, &sz, &arena_idx, sz);
-      active_ = true;
-    }
-#endif
-  }
+// Alias kept for call-site compatibility. Updates only tls_db_arena_idx (TLS),
+// does NOT redirect thread.arena via je_mallctl. Only allocations going through
+// DbAwareAllocator / ArenaAwareAllocator containers are attributed to the DB arena.
+using DbArenaFullScope = DbArenaScope;
 
-  ~DbArenaFullScope() noexcept {
-#if USE_JEMALLOC
-    if (active_) {
-      je_mallctl("thread.arena", nullptr, nullptr, &prev_thread_arena_, sizeof(prev_thread_arena_));
-    }
-#endif
-  }
-
-  DbArenaFullScope(const DbArenaFullScope &) = delete;
-  DbArenaFullScope &operator=(const DbArenaFullScope &) = delete;
-  DbArenaFullScope(DbArenaFullScope &&) = delete;
-  DbArenaFullScope &operator=(DbArenaFullScope &&) = delete;
-
- private:
-  DbArenaScope tls_scope_;
-  unsigned prev_thread_arena_{0};
-  bool active_{false};
-};
-
-// A std::jthread wrapper that permanently pins the new thread to a jemalloc
-// arena so every allocation on that thread is attributed to the owning DB.
+// A std::jthread wrapper that sets tls_db_arena_idx on the new thread so that
+// allocations through DbAwareAllocator / ArenaAwareAllocator containers are
+// attributed to the owning DB arena.  Does NOT redirect thread.arena via
+// je_mallctl — raw allocations (std::string, operator new, …) on these threads
+// go to the default jemalloc arena and are not attributed.
 //
 // Two construction forms:
 //   DbAwareThread t{callable, args...};            // inherits tls_db_arena_idx from caller
 //   DbAwareThread t{arena_idx, callable, args...}; // explicit arena index
-//
-// On thread start, the wrapper sets both:
-//   - tls_db_arena_idx  → DbAwareAllocator routes to this arena
-//   - thread.arena      → all other allocations (std::string, std::vector…) also go there
-//
-// No restore is needed — these are fresh, dedicated threads.
-// This mirrors the static-pin pattern used by GC/snapshot/TTL threads.
 //
 // Non-jemalloc builds: no-op wrapper, identical behaviour to std::jthread.
 class DbAwareThread {
@@ -169,19 +159,13 @@ class DbAwareThread {
       : thread_(
             [arena_idx, func = std::forward<F>(f)](std::stop_token st, std::decay_t<Args>... a) mutable {
               tls_db_arena_idx = arena_idx;
-#if USE_JEMALLOC
-              if (arena_idx != 0) {
-                je_mallctl("thread.arena", nullptr, nullptr, &arena_idx, sizeof(arena_idx));
-              }
-#endif
               if constexpr (std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>) {
                 func(std::move(st), std::move(a)...);
               } else {
                 func(std::move(a)...);
               }
             },
-            std::forward<Args>(args)...) {
-  }
+            std::forward<Args>(args)...) {}
 
   DbAwareThread() = default;
   DbAwareThread(DbAwareThread &&) noexcept = default;
@@ -207,68 +191,6 @@ class DbAwareThread {
 
  private:
   std::jthread thread_;
-};
-
-// Stateless C++ allocator that routes allocations to the DB arena currently
-// pinned on this thread (tls_db_arena_idx).  When no arena is pinned (idx==0)
-// it falls back to the process-default allocator.
-//
-// Zero data members → qualifies for EBO in containers (e.g. small_vector,
-// SkipList) so their sizeof is unchanged vs. the plain std::allocator<T> case.
-//
-// Accounting: per-DB arena extent hooks (installed at Database construction)
-// attribute committed OS pages to the database's MemoryTracker. Individual
-// allocations routed via MALLOCX_ARENA therefore show up in that tracker.
-template <typename T>
-struct DbAwareAllocator {
-  using value_type = T;
-
-  // Propagate on container move/swap so the allocator stays correct.
-  using propagate_on_container_move_assignment = std::true_type;
-  using propagate_on_container_copy_assignment = std::true_type;
-  using propagate_on_container_swap = std::true_type;
-
-  DbAwareAllocator() noexcept = default;
-
-  template <typename U>
-  explicit DbAwareAllocator(DbAwareAllocator<U> const & /*unused*/) noexcept {}
-
-  [[nodiscard]] T *allocate(std::size_t n) {
-#if USE_JEMALLOC
-    const unsigned idx = tls_db_arena_idx;
-    if (idx != 0) {
-      int flags = MALLOCX_ARENA(idx) | MALLOCX_TCACHE_NONE;
-      if constexpr (alignof(T) > alignof(std::max_align_t)) {
-        flags |= MALLOCX_ALIGN(alignof(T));
-      }
-      void *p = je_mallocx(n * sizeof(T), flags);
-      if (!p) throw std::bad_alloc{};
-      return static_cast<T *>(p);
-    }
-#endif
-    return static_cast<T *>(::operator new(n * sizeof(T), std::align_val_t{alignof(T)}));
-  }
-
-  // DEVNOTE: jemalloc tracks the owning arena per-extent in its own metadata.
-  //          je_free(p) always routes to the correct arena regardless of which
-  //          thread calls it, so GC can safely free query-thread allocations.
-  void deallocate(T *p, [[maybe_unused]] std::size_t n) noexcept {
-#if USE_JEMALLOC
-    je_free(p);
-#else
-    ::operator delete(static_cast<void *>(p), n * sizeof(T), std::align_val_t{alignof(T)});
-#endif
-  }
-
-  template <typename U>
-  friend bool operator==(DbAwareAllocator<T> const & /*lhs*/, DbAwareAllocator<U> const & /*rhs*/) noexcept {
-    return true;
-  }
-
-  template <typename U>
-  friend bool operator!=(DbAwareAllocator<T> const &lhs, DbAwareAllocator<U> const &rhs) noexcept {
-    return !(lhs == rhs);
-  }
 };
 
 }  // namespace memgraph::memory

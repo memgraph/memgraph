@@ -216,7 +216,8 @@ class Database {
   //!< allocations roll up into the global graph tracker → total_memory_tracker hierarchy.
   utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker};
 #if USE_JEMALLOC
-  memory::DbArena db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
+  memory::DbArena db_arena_;          //!< Per-DB jemalloc arena with tracking hooks
+  memory::DbArenaScope arena_scope_;  //!< Pins this thread to db_arena_ during initialization
 #endif
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
