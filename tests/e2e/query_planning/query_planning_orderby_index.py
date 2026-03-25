@@ -56,12 +56,11 @@ def test_plan_desc_not_eliminated(memgraph):
     assert expected == actual
 
 
-def test_plan_with_renaming_blocks(memgraph):
-    """WITH renaming (n AS m) blocks elimination."""
+def test_plan_with_renaming_allows_elimination(memgraph):
+    """WITH renaming (n AS m) allows elimination — rename is tracked through Produce."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
 
     expected = [
-        " * OrderBy {m}",
         " * Produce {m}",
         " * Produce {m}",
         " * ScanAllByLabelProperties (n :L {prop})",
@@ -162,3 +161,25 @@ def test_correctness_equality_plus_range(memgraph):
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 1 AND n.b > 15 RETURN n ORDER BY n.b"))
     values = [r["n"].properties["b"] for r in results]
     assert values == [20, 30, 40, 50]
+
+
+def test_correctness_with_rename(memgraph):
+    """Results correctly ordered after WITH rename and OrderBy elimination."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+    for v in [30, 10, 50, 20, 40]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 WITH n AS m RETURN m ORDER BY m.prop"))
+    values = [r["m"].properties["prop"] for r in results]
+    assert values == [10, 20, 30, 40, 50]
+
+
+def test_correctness_return_rename_input_scope(memgraph):
+    """RETURN n AS m ORDER BY n.prop — ORDER BY uses input scope, results still correct."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+    for v in [30, 10, 50, 20, 40]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n AS m ORDER BY n.prop"))
+    values = [r["m"].properties["prop"] for r in results]
+    assert values == [10, 20, 30, 40, 50]

@@ -931,23 +931,22 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     int64_t num_of_index_hints;
   };
 
-  /// Returns true if the Produce operator remaps the given variable name, i.e., the output
-  /// named expression with that name has an input expression referencing a different variable.
-  /// This detects WITH clauses like `WITH a AS b, b AS a` that would make name-based symbol
-  /// comparison unsafe.
-  static bool ProduceRenamesVariable(Produce *produce, const std::string &var_name) {
+  /// Given a Produce and a tracked variable name, resolve what output name carries that variable.
+  /// Returns the output name if found (identity mapping returns same name, rename returns new name).
+  /// Returns std::nullopt if the variable is not passed through as a direct Identifier
+  /// (e.g., projected as a complex expression like n.prop AS val, or dropped entirely).
+  static std::optional<std::string> ResolveProduceMapping(Produce *produce, const std::string &tracked_name) {
     for (const auto *ne : produce->named_expressions_) {
-      if (ne->name_ != var_name) continue;
-      // Found an output with our variable name — check if it maps to the same input name.
       auto *ident = dynamic_cast<Identifier *>(ne->expression_);
-      if (!ident || ident->name_ != var_name) return true;  // renamed or complex expression
-      return false;                                         // identity mapping, safe
+      if (!ident || ident->name_ != tracked_name) continue;
+      // Found: this named expression takes our tracked variable as input.
+      // Return the output name (may be the same for identity, or different for a rename).
+      return ne->name_;
     }
-    // Variable not in Produce output as a direct named expression. This can happen when
-    // ORDER BY references a property of a variable that is projected as an expression
-    // (e.g., RETURN n.b AS b ORDER BY n.b — the Produce has "b", not "n").
-    // Elimination is unsafe since the scan symbol is not directly visible after this Produce.
-    return true;
+    // The tracked variable is not directly referenced by any named expression's input.
+    // This means the variable is either dropped or only referenced inside a complex expression
+    // (e.g., RETURN n.prop AS p). Elimination is unsafe.
+    return std::nullopt;
   }
 
   auto TryExtractOrderByContext(OrderBy &op) -> std::optional<OrderByContext> {
@@ -1005,20 +1004,21 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     DMG_ASSERT(!order_by_stack_.empty(), "CheckOrderByElimination called with empty stack");
     auto &ctx = order_by_stack_.back();
 
-    // The ORDER BY symbol must match the scan symbol.
-    // We compare by name because the ORDER BY identifier and the scan output symbol may
-    // have different positions in the symbol table (e.g., RETURN creates a new scope).
-    // Name-only comparison is safe here because Produce (the only operator that can remap
-    // names, e.g. WITH a AS b) is checked via ProduceRenamesVariable below — if a Produce
-    // renames our target variable, elimination is blocked.
-    // INVARIANT: No operator other than Produce can introduce name aliasing. If a new
-    // operator gains this ability, it must be handled in the order-preserving walk below.
-    if (ctx.scan_symbol.name() != scan_symbol.name()) return;
-
     // The new scan must be ScanAllByLabelProperties.
     // Note: there is no separate ScanAllByLabelPropertyValue or ScanAllByLabelPropertyRange —
     // ScanAllByLabelProperties handles all label+property scan variants (equality, range, composite).
     if (new_scan->GetTypeInfo() != ScanAllByLabelProperties::kType) return;
+
+    // Track the scan symbol's name as it flows upward through Produce operators.
+    // A WITH/RETURN clause can rename the variable (e.g., WITH n AS m), so we propagate
+    // the name through each Produce we encounter. After the walk, we compare the
+    // tracked name with the ORDER BY symbol to see if they refer to the same variable.
+    std::string tracked_name = scan_symbol.name();
+    // pre_last_produce_name tracks the name BEFORE the last Produce rename. This is needed
+    // because Cypher's ORDER BY has dual-scope semantics: it can reference both the input
+    // and output names of the Produce directly under it (e.g., RETURN n AS m ORDER BY n.prop
+    // and RETURN n AS m ORDER BY m.prop are both valid).
+    std::string pre_last_produce_name = tracked_name;
 
     // Verify all operators between OrderBy and ScanAll are order-preserving.
     // Walk prev_ops_ backwards from the scan's position to find OrderBy.
@@ -1042,17 +1042,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // HashJoin/IndexedJoin preserve left-input order but are unlikely between OrderBy and ScanAll;
       // they could be added if needed.
       //
-      // Produce preserves row order but requires special handling: since we compare symbols by
-      // name, a WITH clause that remaps names (e.g. WITH a AS b, b AS a) would cause false
-      // matches. When we encounter a Produce, we verify it doesn't rename our target variable.
-      // Note: the RETURN clause's Produce always sits between OrderBy and ScanAll (the planner
-      // builds Produce first, then wraps it with OrderBy so it can read Produce's output symbols).
+      // Produce preserves row order but can rename variables. We resolve the mapping to track
+      // the scan symbol through renames (e.g., WITH n AS m updates tracked_name from "n" to "m").
       const auto &type_info = op->GetTypeInfo();
       if (type_info == Produce::kType) {
-        // Produce is order-preserving, but we must verify it doesn't rename our target variable.
-        // A WITH clause can remap names (e.g. WITH a AS b, b AS a), which would make our
-        // name-based symbol comparison unsafe.
-        if (ProduceRenamesVariable(dynamic_cast<Produce *>(op), ctx.scan_symbol.name())) return;
+        // Produce is order-preserving. Resolve what name carries our tracked variable through.
+        // Save the pre-rename name for dual-scope comparison (see comment above).
+        pre_last_produce_name = tracked_name;
+        auto resolved = ResolveProduceMapping(dynamic_cast<Produce *>(op), tracked_name);
+        if (!resolved) return;  // variable dropped or complex expression — block elimination
+        tracked_name = std::move(*resolved);
         continue;
       }
       bool order_preserving = type_info == Filter::kType ||                 // removes rows, 1:1
@@ -1070,6 +1069,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                               type_info == Unwind::kType;         // 1:N, preserves input-symbol order
       if (!order_preserving) return;
     }
+
+    // The ORDER BY symbol must match the tracked scan symbol. We check both tracked_name
+    // (output scope, after all Produce renames) and pre_last_produce_name (input scope of the
+    // last Produce before OrderBy) because Cypher's ORDER BY can reference either scope.
+    // Example: RETURN n AS m ORDER BY m.prop → tracked_name "m" matches.
+    //          RETURN n AS m ORDER BY n.prop → pre_last_produce_name "n" matches.
+    const auto &ob_name = ctx.scan_symbol.name();
+    if (tracked_name != ob_name && pre_last_produce_name != ob_name) return;
 
     // Match ORDER BY properties against the index as a strict prefix.
     //
