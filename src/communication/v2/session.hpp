@@ -127,10 +127,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     execution_active_ = true;
 
     if (std::holds_alternative<SSLSocket>(socket_)) {
-      utils::OnScopeExit increment_counter([this] { metrics::Metrics().global.active_ssl_sessions->Increment(); });
+      utils::OnScopeExit increment_counter([] { metrics::Metrics().global.active_ssl_sessions->Increment(); });
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoSSLHandshake(); });
     } else {
-      utils::OnScopeExit increment_counter([this] { metrics::Metrics().global.active_tcp_sessions->Increment(); });
+      utils::OnScopeExit increment_counter([] { metrics::Metrics().global.active_tcp_sessions->Increment(); });
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoFirstRead(); });
     }
     return true;

@@ -21,7 +21,6 @@
 #include "query/stream.hpp"
 #include "query/trigger_context.hpp"
 #include "system/transaction.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/memory.hpp"
 #include "utils/priorities.hpp"
@@ -34,13 +33,6 @@
 #include "coordination/utils.hpp"
 #include "utils/resource_monitoring.hpp"
 #endif
-
-namespace memgraph::metrics {
-extern const Event FailedQuery;
-extern const Event FailedPrepare;
-extern const Event FailedPull;
-extern const Event SuccessfulQuery;
-}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
@@ -663,8 +655,10 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   } catch (const utils::BasicException &e) {
     LogQueryMessage(e.what());
     metrics::FirstFailedQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPull);
+    if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
+      mh->failed_query->Increment();
+      mh->failed_pull->Increment();
+    }
     // PeriodicCommitException means the storage layer already aborted the transaction internally.
     // Null the accessor first so AbortCommand does not call Abort() a second time.
     if (dynamic_cast<const PeriodicCommitException *>(&e)) {
@@ -677,7 +671,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   if (maybe_summary) {
     // Toggle first successfully completed query
     metrics::FirstSuccessfulQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::SuccessfulQuery);
+    if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
+      mh->successful_query->Increment();
+    }
     // return the execution summary
     maybe_summary->insert_or_assign("has_more", false);
     return std::move(*maybe_summary);
