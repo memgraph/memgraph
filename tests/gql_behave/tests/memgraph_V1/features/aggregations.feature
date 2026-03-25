@@ -840,6 +840,34 @@ Feature: Aggregations
             | n |
             | 2 |
 
+    Scenario: Virtual node targetNodeLabels and targetNodeProperties
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x: 1})-[:R]->(b:N {x: 2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH project_virtual(p, {virtualEdgeType: 'V', targetNodeLabels: ['Target'], targetNodeProperties: {rank: 7}}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            """
+        Then the result should be:
+            | n | e |
+            | 2 | 1 |
+
+    Scenario: Virtual node and edge properties in same projection
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x: 1})-[:R]->(b:N {x: 2})-[:R]->(c:N {x: 3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x: 1})-[*]->(:N {x: 3}) WITH project_virtual(p, {virtualEdgeType: 'V', relationshipProperties: {w: 10}, sourceNodeProperties: {score: 5}, targetNodeProperties: {score: 8}}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            """
+        Then the result should be:
+            | n | e |
+            | 2 | 1 |
+
     Scenario: Empty collect aggregation:
       Given an empty graph
       And having executed
