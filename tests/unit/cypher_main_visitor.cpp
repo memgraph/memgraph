@@ -952,6 +952,39 @@ TEST_P(CypherMainVisitorTest, UnaryMinusPlusOperators) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, Int64MinLiteral) {
+  // INT64_MIN (-9223372036854775808) should be accepted as a valid integer
+  // literal. The parser must handle the edge case where the absolute value
+  // 9223372036854775808 overflows int64_t but -9223372036854775808 is valid.
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN -9223372036854775808"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  ASSERT_NE(return_clause, nullptr);
+  // The minus is absorbed into the literal, producing INT64_MIN directly.
+  ast_generator.CheckLiteral(return_clause->body_.named_expressions[0]->expression_,
+                             std::numeric_limits<int64_t>::min());
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, Int64MinInComparison) {
+  // Reproducer for https://github.com/memgraph/memgraph/issues/471
+  // RETURN $i = -9223372036854775808 should not throw.
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 1 = -9223372036854775808"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  ASSERT_NE(return_clause, nullptr);
+  auto *eq_op = dynamic_cast<EqualOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_NE(eq_op, nullptr);
+  ast_generator.CheckLiteral(eq_op->expression2_, std::numeric_limits<int64_t>::min());
+  CheckRWType(query, kRead);
+}
+
 TEST_P(CypherMainVisitorTest, Aggregation) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(

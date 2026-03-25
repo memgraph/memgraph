@@ -143,9 +143,39 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       case Token::STRING:
         replace_stripped(token_index, ParseStringLiteral(token.second), kStrippedStringToken);
         break;
-      case Token::INT:
-        replace_stripped(token_index, ParseIntegerLiteral(token.second), kStrippedIntToken);
-        break;
+      case Token::INT: {
+        // Handle INT64_MIN edge case: -9223372036854775808 is tokenized as
+        // SPECIAL("-") + INT("9223372036854775808"). The unsigned value
+        // overflows int64_t, but the negated value is valid (INT64_MIN).
+        // When parsing overflows, check if the previous non-space token is
+        // a minus sign and retry with negation.
+        bool merged_minus = false;
+        try {
+          replace_stripped(token_index, ParseIntegerLiteral(token.second), kStrippedIntToken);
+        } catch (const SemanticException &) {
+          if (!token_strings.empty() && token_strings.back() == "-") {
+            auto negated_value = ParseIntegerLiteral(token.second, true);
+            token_strings.pop_back();
+            // Recalculate token_index since we removed the minus token.
+            int adjusted_token_index = token_strings.size() + parameters_.size();
+            replace_stripped(adjusted_token_index, negated_value, kStrippedIntToken);
+            merged_minus = true;
+          } else {
+            throw;
+          }
+        }
+        if (merged_minus) {
+          // The position mapping for the minus token that was merged needs
+          // to be invalidated. Find its mapping entry and clear it.
+          for (int j = i - 1; j >= 0; --j) {
+            if (tokens[j].first == Token::SPACE) continue;
+            if (tokens[j].first == Token::SPECIAL && tokens[j].second == "-") {
+              position_mapping[j] = -1;
+            }
+            break;
+          }
+        }
+      } break;
       case Token::REAL:
         replace_stripped(token_index, ParseDoubleLiteral(token.second), kStrippedDoubleToken);
         break;

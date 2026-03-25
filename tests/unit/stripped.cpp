@@ -14,6 +14,9 @@
 // Created by Florijan Stamenkovic on 07.03.17.
 //
 
+#include <cstdint>
+#include <limits>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -508,6 +511,46 @@ TEST(QueryStripper, KeywordsCanBeUsedInStrippedQueries) {
     StrippedQuery stripped("MATCH (n:Constraints), (m:Indexes) RETURN n, m");
     EXPECT_EQ(stripped.stripped_query().str(), "MATCH ( n : Constraints ) , ( m : Indexes ) RETURN n , m");
   }
+}
+
+TEST(QueryStripper, NegativeInteger) {
+  StrippedQuery stripped("RETURN -42");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 42);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN - " + kStrippedIntToken);
+}
+
+TEST(QueryStripper, Int64Min) {
+  // INT64_MIN (-9223372036854775808) is a valid int64 value, but the
+  // absolute value 9223372036854775808 overflows int64. The stripper should
+  // merge the preceding minus sign with the literal to produce INT64_MIN.
+  StrippedQuery stripped("RETURN -9223372036854775808");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), std::numeric_limits<int64_t>::min());
+  // The minus sign is absorbed into the literal, so it does not appear
+  // in the stripped query.
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken);
+}
+
+TEST(QueryStripper, Int64MinInExpression) {
+  // INT64_MIN used in a comparison expression.
+  StrippedQuery stripped("RETURN $i = -9223372036854775808");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), std::numeric_limits<int64_t>::min());
+}
+
+TEST(QueryStripper, Int64Max) {
+  // INT64_MAX (9223372036854775807) should parse normally.
+  StrippedQuery stripped("RETURN 9223372036854775807");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), std::numeric_limits<int64_t>::max());
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken);
+}
+
+TEST(QueryStripper, IntegerOverflow) {
+  // A value exceeding int64 range (even when negated) should throw.
+  EXPECT_THROW(StrippedQuery("RETURN 9223372036854775808"), SemanticException);
+  EXPECT_THROW(StrippedQuery("RETURN 99999999999999999999"), SemanticException);
 }
 
 }  // namespace

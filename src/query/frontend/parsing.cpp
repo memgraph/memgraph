@@ -21,11 +21,22 @@
 
 namespace memgraph::query::frontend {
 
-int64_t ParseIntegerLiteral(const std::string &s) {
+int64_t ParseIntegerLiteral(const std::string &s, bool negated) {
   try {
     // Not really correct since long long can have a bigger range than int64_t.
     return static_cast<int64_t>(std::stoll(s, 0, 0));
   } catch (const std::out_of_range &) {
+    // Handle INT64_MIN edge case: the absolute value 9223372036854775808
+    // overflows int64_t, but -9223372036854775808 is a valid int64_t value.
+    // When the caller indicates a preceding negation, try parsing the
+    // negated form directly.
+    if (negated) {
+      try {
+        return static_cast<int64_t>(std::stoll("-" + s, 0, 0));
+      } catch (...) {
+        // Fall through to throw the original error.
+      }
+    }
     throw SemanticException("Integer literal exceeds 64 bits.");
   }
 }

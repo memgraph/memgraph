@@ -11,8 +11,10 @@
 
 #include <algorithm>
 #include <any>
+#include <cstdint>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -3249,6 +3251,50 @@ antlrcpp::Any CypherMainVisitor::visitExpression5(MemgraphCypher::Expression5Con
 
 // Unary minus and plus.
 antlrcpp::Any CypherMainVisitor::visitExpression4(MemgraphCypher::Expression4Context *ctx) {
+  // Handle INT64_MIN edge case: the literal 9223372036854775808 overflows
+  // int64_t, but -9223372036854775808 is valid (INT64_MIN). When a single
+  // unary minus is applied to this literal, produce INT64_MIN directly
+  // instead of trying to parse the unsigned value first.
+  auto operators = ExtractOperators(ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
+  if (!operators.empty()) {
+    // Count net sign: each MINUS flips the sign.
+    bool has_net_minus = false;
+    for (auto op : operators) {
+      if (op == MemgraphCypher::MINUS) has_net_minus = !has_net_minus;
+    }
+    if (has_net_minus) {
+      auto expr_text = ctx->expression3a()->getText();
+      try {
+        auto value = ParseIntegerLiteral(expr_text, true);
+        if (value == std::numeric_limits<int64_t>::min()) {
+          // The literal only fits as a negated value (INT64_MIN).
+          // Create the literal directly and apply remaining operators.
+          int token_position = ctx->expression3a()->getStart()->getTokenIndex();
+          Expression *expression = nullptr;
+          if (context_.is_query_cached) {
+            expression = storage_->Create<ParameterLookup>(token_position);
+          } else {
+            expression = storage_->Create<PrimitiveLiteral>(TypedValue(value), token_position);
+          }
+          // Apply the remaining operators (all except one MINUS which was
+          // absorbed into the literal value).
+          bool consumed_minus = false;
+          for (int i = static_cast<int>(operators.size()) - 1; i >= 0; --i) {
+            if (operators[i] == MemgraphCypher::MINUS && !consumed_minus) {
+              consumed_minus = true;
+              continue;
+            }
+            expression = CreateUnaryOperatorByToken(operators[i], expression);
+          }
+          return expression;
+        }
+      } catch (...) {
+        // Not the INT64_MIN case (e.g. expression3a is not a bare integer
+        // literal, or the value is genuinely too large). Fall through to
+        // normal handling which will produce the appropriate error.
+      }
+    }
+  }
   return PrefixUnaryOperator(ctx->expression3a(), ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
 }
 
