@@ -117,6 +117,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   inline bool Execute() { return Execute_(*this); }
 
+  metrics::DatabaseMetricHandles *GetMetricHandles() {
+    auto &db_acc = interpreter_.current_db_.db_acc_;
+    return db_acc ? db_acc->get()->metric_handles() : nullptr;
+  }
+
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);
 
