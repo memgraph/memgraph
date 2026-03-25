@@ -2498,7 +2498,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           std::move(active_indices),
           *std::move(active_constraints),
           std::move(async_index_helper),
-          last_durable_ts};
+          last_durable_ts,
+          metric_handles_ ? metric_handles_->unreleased_delta_objects : nullptr};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
@@ -3084,7 +3085,8 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
   info.memory_res = utils::GetMemoryRES();
   memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
   info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
-  info.unreleased_delta_objects = memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects);
+  info.unreleased_delta_objects =
+      metric_handles_ ? static_cast<uint64_t>(metric_handles_->unreleased_delta_objects->Value()) : 0;
 
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
