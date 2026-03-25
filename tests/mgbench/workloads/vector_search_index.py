@@ -52,8 +52,8 @@ class VectorSearchIndex(Workload):
             queries.append(("CREATE (:Node {id:%i, vector: %s});" % (i, str(vector)), {}))
         # Add edges because we also want to benchmark traversals.
         for i in range(0, self._edges_count):
-            a = random.randint(0, self._nodes_count)
-            b = random.randint(0, self._nodes_count)
+            a = self._get_random_node()
+            b = self._get_random_node()
             queries.append(
                 (("MATCH (a:Node {id:$A_id}), (b:Node {id:$B_id}) CREATE (a)-[:Edge]->(b);"), {"A_id": a, "B_id": b})
             )
