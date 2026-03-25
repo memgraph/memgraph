@@ -3230,7 +3230,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw ExplicitTransactionUsageException("No current transaction to rollback.");
         }
 
-        memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions);
         if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
           h->rollbacked_transactions->Increment();
 
@@ -8513,8 +8512,6 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
     metrics::FirstFailedQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
     if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
       h->failed_query->Increment();
     AbortCommand({});
@@ -9152,17 +9149,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     switch (rw_type) {
       case plan::ReadWriteTypeChecker::RWType::R:
-        memgraph::metrics::IncrementCounter(memgraph::metrics::ReadQuery);
         if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
           h->read_query->Increment();
         break;
       case plan::ReadWriteTypeChecker::RWType::W:
-        memgraph::metrics::IncrementCounter(memgraph::metrics::WriteQuery);
         if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
           h->write_query->Increment();
         break;
       case plan::ReadWriteTypeChecker::RWType::RW:
-        memgraph::metrics::IncrementCounter(memgraph::metrics::ReadWriteQuery);
         if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
           h->read_write_query->Increment();
         break;
@@ -9206,8 +9200,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
     metrics::FirstFailedQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
     if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
       h->failed_query->Increment();
     AbortCommand(query_execution_ptr);
@@ -9592,8 +9584,6 @@ void Interpreter::Commit() {
 
   auto *metric_handles = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr;
   utils::OnScopeExit update_metrics([metric_handles]() {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
     if (metric_handles) metric_handles->committed_transactions->Increment();
   });
 
