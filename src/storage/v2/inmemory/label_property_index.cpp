@@ -552,14 +552,12 @@ void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(uint64_t commi
   status.Commit(commit_timestamp);
   gauge_ = gauge;
   if (gauge_) gauge_->Increment();
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
 }
 
 template <typename EntryT>
 InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::~IndividualIndex() {
   if (status.IsReady()) {
     if (gauge_) gauge_->Decrement();
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   }
 }
 

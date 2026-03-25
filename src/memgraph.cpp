@@ -370,7 +370,7 @@ int main(int argc, char **argv) {
               "Running out of available RAM, only {} MB left.", *free_ram / 1024, "https://memgr.ph/ram"));
 
         auto memory_res = memgraph::utils::GetMemoryRES();
-        peak_gauge->Set(static_cast<double>(memory_res));
+        peak_gauge->Set(std::max(static_cast<double>(memory_res), peak_gauge->Value()));
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs

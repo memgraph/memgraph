@@ -3159,8 +3159,9 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_res = utils::GetMemoryRES();
-  memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
-  info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
+  metrics::Metrics().global.peak_memory_res_bytes->Set(
+      std::max(static_cast<double>(info.memory_res), metrics::Metrics().global.peak_memory_res_bytes->Value()));
+  info.peak_memory_res = static_cast<uint64_t>(metrics::Metrics().global.peak_memory_res_bytes->Value());
   info.unreleased_delta_objects =
       metric_handles_ ? static_cast<uint64_t>(metric_handles_->unreleased_delta_objects->Value()) : 0;
 
@@ -3867,8 +3868,6 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
 
   {
     auto snapshot_elapsed = std::chrono::duration<double>(timer.Elapsed());
-    memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
-                               std::chrono::duration_cast<std::chrono::microseconds>(snapshot_elapsed).count());
     if (metric_handles_) metric_handles_->snapshot_creation_latency_seconds->Observe(snapshot_elapsed.count());
   }
 
