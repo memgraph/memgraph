@@ -2903,6 +2903,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       ,
       metric_handles_(metric_handles) {
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
+  ctx_.metric_handles = metric_handles;
   if (hops_limit) {
 #ifdef MG_ENTERPRISE
     if (parallel_execution) {
