@@ -494,8 +494,8 @@ TYPED_TEST(OrderByIndexTest, MultiMatchDifferentSymbols) {
       << "OrderBy should NOT be eliminated (Cartesian between OrderBy and n's scan)";
 }
 
-// Test 18: WITH renames n to m — OrderBy symbol no longer maps to scan symbol
-TYPED_TEST(OrderByIndexTest, WithRenamingBlocks) {
+// Test 18: WITH renames n to m — rename is tracked through Produce, elimination still applies
+TYPED_TEST(OrderByIndexTest, WithRenamingAllowsElimination) {
   // MATCH (n:L) WHERE n.prop > 5 WITH n AS m ORDER BY m.prop RETURN m
   FakeDbAccessor dba;
   const auto label_name = "L";
@@ -518,8 +518,8 @@ TYPED_TEST(OrderByIndexTest, WithRenamingBlocks) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should NOT be eliminated (WITH renames n to m)";
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (WITH renames n to m, tracked through Produce)";
 }
 
 // Test 19: Label-only index (no property index) should not trigger elimination
@@ -646,6 +646,48 @@ TYPED_TEST(OrderByIndexTest, CompositeIndexPartialCoverage) {
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy should NOT be eliminated (ORDER BY n.a, n.b, n.c but index only covers (a, b))";
+}
+
+// Test 24: RETURN n AS m ORDER BY n.prop — ORDER BY uses input scope name (dual-scope semantics)
+TYPED_TEST(OrderByIndexTest, ReturnRenameOrderByInputScope) {
+  // MATCH (n:L) WHERE n.prop > 5 RETURN n AS m ORDER BY n.prop
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                   RETURN(IDENT("n"), AS("m"), ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (RETURN n AS m, ORDER BY n.prop — input scope name matches scan)";
+}
+
+// Test 25: RETURN n AS m ORDER BY m.prop — ORDER BY uses output scope name (dual-scope semantics)
+TYPED_TEST(OrderByIndexTest, ReturnRenameOrderByOutputScope) {
+  // MATCH (n:L) WHERE n.prop > 5 RETURN n AS m ORDER BY m.prop
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                   RETURN(IDENT("n"), AS("m"), ORDER_BY(PROPERTY_LOOKUP(dba, "m", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (RETURN n AS m, ORDER BY m.prop — output scope name tracked through Produce)";
 }
 
 }  // namespace
