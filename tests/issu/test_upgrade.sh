@@ -362,7 +362,7 @@ ensure_minikube_storage_addons() {
   minikube addons enable csi-hostpath-driver -p "$PROFILE"
 }
 
-recover_minikube_profile() {
+reset_minikube_profile() {
   echo -e "${YELLOW}Resetting Minikube profile '${PROFILE}' before retry...${NC}"
   minikube stop -p "$PROFILE" >/dev/null 2>&1 || true
   minikube delete -p "$PROFILE" >/dev/null 2>&1 || true
@@ -372,17 +372,43 @@ wait_for_minikube_nodes() {
   local expected_nodes="${1:-$DESIRED_NODES}"
   local timeout_s="${2:-300}"
   local sleep_s=5
-  local elapsed=0
+  local start_time
+  local elapsed
+  local remaining
+  local wait_timeout_s
+  local sleep_duration
   local node_count
-
-  while (( elapsed < timeout_s )); do
+  start_time="$(date +%s)"
+  while true; do
+    # Recalculate elapsed and remaining time on each iteration to account for
+    # time spent in kubectl/minikube commands.
+    elapsed="$(( $(date +%s) - start_time ))"
+    if (( elapsed >= timeout_s )); then
+      break
+    fi
+    remaining="$(( timeout_s - elapsed ))"
     node_count="$(minikube kubectl -p "$PROFILE" -- get nodes --no-headers 2>/dev/null | wc -l || echo 0)"
     if [[ "$node_count" -ge "$expected_nodes" ]]; then
-      if minikube kubectl -p "$PROFILE" -- wait --for=condition=Ready node --all --timeout=120s >/dev/null 2>&1; then
-        return 0
+      # Do not let a single kubectl call block longer than the remaining timeout.
+      # Cap per-iteration wait to 30s to keep responsiveness.
+      wait_timeout_s="$(( remaining < 30 ? remaining : 30 ))"
+      if (( wait_timeout_s > 0 )); then
+        if minikube kubectl -p "$PROFILE" -- wait --for=condition=Ready node --all --timeout="${wait_timeout_s}s" >/dev/null 2>&1; then
+          return 0
+        fi
       fi
     fi
-    sleep "$sleep_s"
+    # Recalculate remaining time before sleeping.
+    elapsed="$(( $(date +%s) - start_time ))"
+    if (( elapsed >= timeout_s )); then
+      break
+    fi
+    remaining="$(( timeout_s - elapsed ))"
+    sleep_duration="$(( remaining < sleep_s ? remaining : sleep_s ))"
+    if (( sleep_duration <= 0 )); then
+      break
+    fi
+    sleep "$sleep_duration"
     elapsed=$((elapsed + sleep_s))
   done
 
@@ -409,7 +435,7 @@ start_minikube_with_retry() {
     fi
 
     if [[ "$attempt" -lt "$attempts" ]]; then
-      recover_minikube_profile
+      reset_minikube_profile
       sleep "$sleep_between_attempts"
     fi
   done
@@ -448,7 +474,7 @@ if [[ "$cluster_running" == "true" ]]; then
 
       if [[ "$added" != "true" ]]; then
         echo -e "${YELLOW}Failed to add worker nodes to existing cluster. Recreating profile...${NC}"
-        recover_minikube_profile
+        reset_minikube_profile
         start_minikube_with_retry "$MINIKUBE_START_ATTEMPTS" "$MINIKUBE_START_RETRY_SLEEP"
         break
       fi
