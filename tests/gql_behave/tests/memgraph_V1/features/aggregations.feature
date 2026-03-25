@@ -826,6 +826,20 @@ Feature: Aggregations
             | props  | k    |
             | {w:5}  | ['w'] |
 
+    Scenario: RETURN subgraph includes virtual edges in output
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph WITH graph AS g RETURN size(g.edges) AS e, size(g.nodes) AS n
+            """
+        Then the result should be:
+            | e | n |
+            | 1 | 2 |
+
     Scenario: Virtual node overrides do not affect vertex count
         Given an empty graph
         And having executed
