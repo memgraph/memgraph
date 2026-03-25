@@ -127,6 +127,16 @@ DbAccessor *SubgraphDbAccessor::GetAccessor() { return &db_accessor_; }
 
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 
+storage::Result<storage::PropertyValue> SubgraphVertexAccessor::GetProperty(storage::View view,
+                                                                            storage::PropertyId key) const {
+  if (const auto *node_override = graph_->node_override_store().Find(impl_.Gid())) {
+    if (auto it = node_override->properties.find(key); it != node_override->properties.end()) {
+      return it->second;
+    }
+  }
+  return impl_.GetProperty(view, key);
+}
+
 std::span<const VirtualEdge> SubgraphVertexAccessor::VirtualOutEdges() const {
   return graph_->virtual_edge_store().OutEdges(impl_.Gid());
 }
