@@ -53,7 +53,6 @@
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/disk_utils.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -63,10 +62,6 @@
 #include "utils/small_vector.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
-
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -2170,7 +2165,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
+  if (storage_->metric_handles_) storage_->metric_handles_->active_label_indices->Increment();
   return {};
 }
 
@@ -2205,7 +2200,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  if (storage_->metric_handles_) storage_->metric_handles_->active_label_property_indices->Increment();
   return {};
 }
 
@@ -2242,7 +2237,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
+  if (storage_->metric_handles_) storage_->metric_handles_->active_label_indices->Decrement();
   return {};
 }
 
@@ -2271,7 +2266,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  if (storage_->metric_handles_) storage_->metric_handles_->active_label_property_indices->Decrement();
   return {};
 }
 

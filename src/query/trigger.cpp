@@ -25,15 +25,10 @@
 #include "query/query_user.hpp"
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
 #ifdef MG_ENTERPRISE
 #include "license/license.hpp"
 #endif
-
-namespace memgraph::metrics {
-extern const Event TriggersExecuted;
-}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 namespace {
@@ -298,7 +293,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   while (cursor->Pull(frame, ctx));
 
   cursor->Shutdown();
-  memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);
+  if (auto *mh = db_acc->metric_handles()) mh->triggers_executed->Increment();
 }
 
 namespace {
