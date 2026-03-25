@@ -1071,40 +1071,28 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (!order_preserving) return;
     }
 
-    // Match ORDER BY properties against index properties with equality-skip logic.
+    // Match ORDER BY properties against the index as a strict prefix.
     //
-    // The index provides lexicographic ordering over its columns. An equality-pinned column
-    // contributes a single constant value, so it can be "skipped" — the remaining columns
-    // still provide order. This works regardless of whether equality filters precede range
-    // filters in expression_ranges_; the loop inspects each column's filter type individually.
+    // For composite indexes, the ORDER BY columns must exactly match a leading prefix
+    // of the index columns, in the same order. For example, with index (a, b, c):
+    //   ORDER BY a       → OK (prefix of length 1)
+    //   ORDER BY a, b    → OK (prefix of length 2)
+    //   ORDER BY a, b, c → OK (full match)
+    //   ORDER BY b       → NOT OK (not a prefix)
+    //   ORDER BY a, c    → NOT OK (gap — b is missing)
     //
-    // For trailing index columns beyond expression_ranges_ (no filter), the column still
-    // participates in ordering as long as all prior columns were either equality-pinned or
-    // matched by ORDER BY — there are no "gaps" because the index scan returns all values
-    // for unfiltered columns in sorted order.
+    // Equality-pinned columns are NOT skipped: even though WHERE a = 5 makes column a
+    // constant, ORDER BY must still start from the first index column to be eliminated.
     auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(new_scan);
     const auto &index_properties = scan_by_props->properties_;
-    const auto &expression_ranges = scan_by_props->expression_ranges_;
 
-    size_t ob_cursor = 0;  // cursor into ORDER BY property_paths
-    for (size_t i = 0; i < index_properties.size() && ob_cursor < ctx.property_paths.size(); ++i) {
-      bool is_equality = (i < expression_ranges.size() && expression_ranges[i].type_ == PropertyFilter::Type::EQUAL);
-      if (is_equality) {
-        // Equality-pinned columns are constant across all results, so they
-        // don't affect output ordering. Skip to the next index column.
-        if (index_properties[i] == ctx.property_paths[ob_cursor]) {
-          ++ob_cursor;
-        }
-        continue;
-      }
-      // Non-equality (range, IS NOT NULL, or no filter): ORDER BY must match this column.
-      if (index_properties[i] != ctx.property_paths[ob_cursor]) return;
-      ++ob_cursor;
+    if (ctx.property_paths.size() > index_properties.size()) return;
+
+    for (size_t i = 0; i < ctx.property_paths.size(); ++i) {
+      if (index_properties[i] != ctx.property_paths[i]) return;
     }
 
-    if (ob_cursor == ctx.property_paths.size()) {
-      ctx.should_eliminate = true;
-    }
+    ctx.should_eliminate = true;
   }
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
