@@ -38,7 +38,18 @@ def subgraph_get_out_edges(ctx: mgp.ProcCtx, vertex: mgp.Vertex) -> mgp.Record(e
 
 
 # Used by virtual_edges.py e2e tests to verify that virtual edges
-# created by project_virtual() are visible through the MGP API.
+# and node overrides created by project_virtual() are visible through the MGP API.
+
+
+@mgp.read_proc
+def subgraph_vertex_info(
+    ctx: mgp.ProcCtx, vertex: mgp.Vertex
+) -> mgp.Record(labels=list, score=mgp.Nullable[mgp.Number]):
+    labels = [label.name for label in vertex.labels]
+    score = vertex.properties.get("score", None)
+    return mgp.Record(labels=labels, score=score)
+
+
 @mgp.read_proc
 def subgraph_edge_info(
     ctx: mgp.ProcCtx, vertex: mgp.Vertex

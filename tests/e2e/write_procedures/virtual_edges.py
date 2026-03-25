@@ -56,6 +56,30 @@ class TestVirtualEdgesWithProcedures:
         assert results[0][0] == "DERIVED"
         assert results[0][1] == 99
 
+    def test_procedure_sees_node_override_labels_and_properties(self, connection):
+        """Node overrides (labels and properties) should be visible to procedures."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1})-[:R]->(:N {id: 2});")
+
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH project_virtual(p, {
+                virtualEdgeType: 'V',
+                sourceNodeLabels: ['Expert'],
+                sourceNodeProperties: {score: 42}
+            }) AS graph
+            MATCH (n:N {id: 1})
+            CALL read.subgraph_vertex_info(graph, n) YIELD labels, score
+            RETURN labels, score
+            """,
+        )
+
+        assert len(results) == 1
+        assert "Expert" in results[0][0]
+        assert results[0][1] == 42
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
