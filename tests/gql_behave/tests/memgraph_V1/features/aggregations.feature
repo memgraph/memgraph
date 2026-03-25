@@ -826,6 +826,20 @@ Feature: Aggregations
             | props  | k    |
             | {w:5}  | ['w'] |
 
+    Scenario: Virtual node overrides do not affect vertex count
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x: 1})-[:R]->(b:N {x: 2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH project_virtual(p, {virtualEdgeType: 'V', sourceNodeLabels: ['Expert'], sourceNodeProperties: {score: 99}}) AS graph RETURN size(graph.nodes) AS n
+            """
+        Then the result should be:
+            | n |
+            | 2 |
+
     Scenario: Empty collect aggregation:
       Given an empty graph
       And having executed

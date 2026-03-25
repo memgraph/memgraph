@@ -15,6 +15,7 @@
 #include <span>
 #include <utility>
 #include "query/edge_accessor.hpp"
+#include "query/node_override_store.hpp"
 #include "query/typed_value.hpp"
 #include "query/vertex_accessor.hpp"
 #include "query/virtual_edge_store.hpp"
@@ -103,6 +104,10 @@ class Graph final {
 
   const VirtualEdgeStore &virtual_edge_store() const { return virtual_edge_store_; }
 
+  NodeOverrideStore &node_override_store() { return node_override_store_; }
+
+  const NodeOverrideStore &node_override_store() const { return node_override_store_; }
+
   /** Copy assign other, utils::MemoryResource of `this` is used */
   Graph &operator=(const Graph &) = default;
 
@@ -124,6 +129,7 @@ class Graph final {
   // Contains all the edges in the Graph
   utils::pmr::unordered_set<EdgeAccessor> edges_;
   VirtualEdgeStore virtual_edge_store_;
+  NodeOverrideStore node_override_store_;
 };
 
 }  // namespace memgraph::query

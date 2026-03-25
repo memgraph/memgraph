@@ -289,10 +289,21 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
   bolt_map_t map;
   std::vector<Value> vertices;
   vertices.reserve(graph.vertices().size());
+  const auto &overrides = graph.node_override_store();
   for (const auto &v : graph.vertices()) {
-    auto maybe_vertex = ToBoltVertex(v, db, view);
-    if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
-    vertices.emplace_back(std::move(*maybe_vertex));
+    if (const auto *node_override = overrides.Find(v.Gid())) {
+      auto id = communication::bolt::Id::FromUint(v.Gid().AsUint());
+      bolt_map_t properties;
+      for (const auto &[prop_id, prop_value] : node_override->properties) {
+        properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+      }
+      vertices.emplace_back(
+          communication::bolt::Vertex{id, node_override->labels, std::move(properties), std::to_string(id.AsInt())});
+    } else {
+      auto maybe_vertex = ToBoltVertex(v, db, view);
+      if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
+      vertices.emplace_back(std::move(*maybe_vertex));
+    }
   }
   map.emplace("nodes", Value(vertices));
 
