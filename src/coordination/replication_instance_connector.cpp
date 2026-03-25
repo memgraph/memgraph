@@ -54,7 +54,7 @@ ReplicationInstanceConnector::ReplicationInstanceConnector(
     : client_(ReplicationInstanceClient(config.instance_name, config.mgt_server, coord_instance,
                                         instance_health_check_frequency_sec)),
       timed_failure_detector_(instance_down_timeout_sec),
-      // takes a copy because config is a temporary, stack-allocated object
+      // Stored by value to avoid a dangling pointer: callers build
       repl_client_info_(config.replication_client_info) {}
 
 // Intentional logical constness

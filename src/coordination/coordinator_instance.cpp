@@ -470,7 +470,7 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   auto const raft_state_data_instances = raft_state_->GetDataInstancesContext();
 
   // Reconciliation shouldn't be done on single coordinator
-  if (raft_state_->GetCoordinatorInstancesAux().size() == kDisconnectedCluster) {
+  if (raft_state_->GetCoordinatorInstancesAux().size() == kDisconnectedCluster && raft_state_data_instances.empty()) {
     return ReconcileClusterStateStatus::SUCCESS;
   }
 
@@ -631,17 +631,25 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     spdlog::error("Instance {} not registered. Please register it using REGISTER INSTANCE query.", new_main_name);
     return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
-  // Update new role
-  main_data_instance->status = ReplicationRole::MAIN;
 
-  auto const new_main_uuid = utils::UUID{};
   auto const is_new_main_connector = [new_main_name](auto const &instance) {
     return instance.InstanceName() == new_main_name;
   };
+
   auto new_main_connector = std::ranges::find_if(repl_instances_, is_new_main_connector);
-  // we already checked if instance exists in Raft log
-  DMG_ASSERT(new_main_connector != std::ranges::end(repl_instances_),
-             "Inconsistency between connectors and Raft state");
+
+  // Small probability that it can occur during coordinator's startup
+  if (new_main_connector == std::ranges::end(repl_instances_)) {
+    spdlog::error(
+        "Instance {} found in Raft but no connector exists "
+        "(coordinator not ready yet). Retry the operation.",
+        new_main_name);
+    return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
+  }
+
+  // Update new role
+  main_data_instance->status = ReplicationRole::MAIN;
+  auto const new_main_uuid = utils::UUID{};
 
   // Update UUID for all replicas and new main
   for (auto &data_instance : data_instances) {
@@ -866,7 +874,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(new_data_instances)};
 
-  // Append new cluster state. We may need to restore old state if something goes wrong.
+  // Append new cluster state.
   if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
@@ -1154,6 +1162,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       // for registering replica on main failed
       for (auto const &raft_replica_instance : data_instances) {
         if (instance_name != raft_replica_instance.config.instance_name &&
+            raft_replica_instance.status == ReplicationRole::REPLICA &&
             !instance_state.inner_state.replicas_num_txns->contains(raft_replica_instance.config.instance_name)) {
           auto replica_inmem_instance =
               FindReplicationInstance(raft_replica_instance.config.instance_name, repl_instances_);

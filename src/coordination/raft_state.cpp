@@ -518,20 +518,9 @@ auto RaftState::AppendLogAndWaitForCommit(CoordinatorClusterStateDelta const &de
   }
   spdlog::trace("Request for updating cluster state accepted.");
 
-  // Block until the majority appends log.
-  // Coordinator could get blocked if the log successfully replicated but never committed and we don't want to block
-  // the user query
-  // The problem here is we don't know whether the majority was reached or not so we cannot say to users whether they
-  // should repeat the operation or not
-  constexpr auto kCommitTimeout = std::chrono::seconds{10};
-  auto const start = std::chrono::steady_clock::now();
-  while (!res->has_result()) {
-    if (std::chrono::steady_clock::now() - start > kCommitTimeout) {
-      spdlog::error("Timeout of 10s reached during log replication");
-      return false;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(25));
-  }
+  // blocking operation
+  // leader will step down if cannot rach a majority
+  [[maybe_unused]] auto blocked = res->get();
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::warn("Failed to update cluster state. Error code {}", static_cast<int>(res->get_result_code()));
