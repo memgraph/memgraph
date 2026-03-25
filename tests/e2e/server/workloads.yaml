@@ -1,5 +1,7 @@
 cert_file: &cert_file "$PROJECT_DIR/tests/e2e/memgraph-selfsigned.crt"
 key_file: &key_file "$PROJECT_DIR/tests/e2e/memgraph-selfsigned.key"
+reload_cert_file: &reload_cert_file "$PROJECT_DIR/tests/e2e/server/ssl_reload_test.crt"
+reload_key_file: &reload_key_file "$PROJECT_DIR/tests/e2e/server/ssl_reload_test.key"
 bolt_port: &bolt_port "7687"
 template_cluster: &template_cluster
   cluster:
@@ -21,6 +23,21 @@ template_cluster_ssl: &template_cluster_ssl
         ]
       log_file: "server-connection-ssl-e2e.log"
       ssl: true
+template_cluster_ssl_reload: &template_cluster_ssl_reload
+  cluster:
+    server:
+      args:
+        [
+          "--bolt-port",
+          *bolt_port,
+          "--log-level=TRACE",
+          "--bolt-cert-file",
+          *reload_cert_file,
+          "--bolt-key-file",
+          *reload_key_file,
+        ]
+      log_file: "server-ssl-hot-reload-e2e.log"
+      ssl: true
 
 workloads:
   - name: "Server connection"
@@ -31,3 +48,7 @@ workloads:
     binary: "tests/e2e/server/memgraph__e2e__server_ssl_connection"
     args: ["--bolt-port", *bolt_port]
     <<: *template_cluster_ssl
+  - name: "Server SSL hot reload"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["server/test_ssl_hot_reload.py"]
+    <<: *template_cluster_ssl_reload
