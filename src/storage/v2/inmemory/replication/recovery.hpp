@@ -10,22 +10,16 @@
 // licenses/APL.txt.
 #pragma once
 
+#include "metrics/prometheus_metrics.hpp"
 #include "rpc/messages.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/replication/recovery.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/metrics_timer.hpp"
-
-namespace memgraph::metrics {
-extern const Event SnapshotRpc_us;
-extern const Event WalFilesRpc_us;
-extern const Event CurrentWalRpc_us;
-}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 template <rpc::IsRpc T>
 struct RpcInfo {
-  static const metrics::Event timerLabel;
+  static prometheus::Histogram *histogram(metrics::GlobalMetricHandles &g);
 };
 
 constexpr auto kRecoveryRpcTimeout = std::chrono::milliseconds(5000);
@@ -76,7 +70,7 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
                                                             std::filesystem::path const &root_data_dir,
                                                             replication_coordination_glue::ReplicationMode const mode,
                                                             Args &&...args) {
-  utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
+  utils::MetricsTimer const timer{RpcInfo<T>::histogram(metrics::Metrics().global)};
   std::optional<rpc::Client::StreamHandler<T>> maybe_stream_result;
 
   // if ASYNC mode, we shouldn't block on transferring durability files because there could be a commit task which holds

@@ -267,17 +267,10 @@ bool InMemoryEdgePropertyIndex::PublishIndex(PropertyId property, uint64_t commi
 
 void InMemoryEdgePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status_.Commit(commit_timestamp);
-  gauge_ = gauge;
-  if (gauge_) gauge_->Increment();
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgePropertyIndices);
+  gauge_ = ::metrics::ScopedGauge{gauge};
 }
 
-InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() {
-  if (status_.IsReady()) {
-    if (gauge_) gauge_->Decrement();
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgePropertyIndices);
-  }
-}
+InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() = default;
 
 auto InMemoryEdgePropertyIndex::DropIndex(PropertyId property, ActiveIndicesUpdater const &updater)
     -> std::shared_ptr<IndividualIndex> {
@@ -285,6 +278,7 @@ auto InMemoryEdgePropertyIndex::DropIndex(PropertyId property, ActiveIndicesUpda
       [&](std::shared_ptr<IndicesContainer const> &indices_container) -> std::shared_ptr<IndividualIndex> {
         auto const it = indices_container->indices_.find(property);
         if (it == indices_container->indices_.cend()) return {};
+        it->second->gauge_.release();
         auto evicted_entry = it->second;
 
         auto new_container = std::make_shared<IndicesContainer>();
@@ -439,7 +433,7 @@ void InMemoryEdgePropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles 
     double count = 0;
     for (auto const &[property, idx] : ptr->indices_) {
       if (idx->status_.IsReady()) {
-        idx->gauge_ = gauge;
+        idx->gauge_ = ::metrics::ScopedGauge{gauge};
         ++count;
       }
     }

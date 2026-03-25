@@ -114,7 +114,8 @@ class Yield : public memgraph::query::plan::LogicalOperator {
         modified_symbols_(modified_symbols),
         values_(values) {}
 
-  memgraph::query::plan::UniqueCursorPtr MakeCursor(memgraph::utils::MemoryResource *mem) const override {
+  memgraph::query::plan::UniqueCursorPtr MakeCursor(memgraph::utils::MemoryResource *mem,
+                                                    memgraph::metrics::DatabaseMetricHandles *) const override {
     return memgraph::query::plan::MakeUniqueCursorPtr<YieldCursor>(mem, this, input_->MakeCursor(mem));
   }
 
@@ -175,7 +176,7 @@ class Yield : public memgraph::query::plan::LogicalOperator {
 std::vector<std::vector<memgraph::query::TypedValue>> PullResults(memgraph::query::plan::LogicalOperator *last_op,
                                                                   memgraph::query::ExecutionContext *context,
                                                                   std::vector<memgraph::query::Symbol> output_symbols) {
-  auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
+  auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
   std::vector<std::vector<memgraph::query::TypedValue>> output;
   {
     memgraph::query::Frame frame(context->symbol_table.max_position());

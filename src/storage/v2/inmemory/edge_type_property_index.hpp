@@ -20,6 +20,7 @@ class Gauge;
 #include <utility>
 
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -190,7 +191,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
     utils::SkipListDb<Entry> skiplist;
     IndexStatus status{};
-    prometheus::Gauge *gauge_{nullptr};
+    ::metrics::ScopedGauge gauge_{};
   };
 
   // TODO: change to map of maps as in label property index

@@ -11,6 +11,10 @@
 
 #pragma once
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
@@ -80,9 +84,12 @@ class DiskUniqueConstraints : public UniqueConstraints {
 
   void LoadUniqueConstraints(const std::vector<std::string> &keys);
 
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
+
  private:
   std::set<std::pair<LabelId, std::set<PropertyId>>> constraints_;
   std::unique_ptr<RocksDBStorage> kvstore_;
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 
   [[nodiscard]] std::expected<void, ConstraintViolation> TestIfVertexSatisifiesUniqueConstraint(
       const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,

@@ -34,11 +34,7 @@ namespace {
 
 // --- IndividualConstraint implementation ---
 
-ExistenceConstraints::IndividualConstraint::~IndividualConstraint() {
-  if (status.IsReady()) {
-    if (gauge_) gauge_->Decrement();
-  }
-}
+ExistenceConstraints::IndividualConstraint::~IndividualConstraint() = default;
 
 // --- ActiveConstraints implementation ---
 
@@ -100,8 +96,8 @@ bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property,
     return false;
   }
   constraint->status.Commit(commit_timestamp);
-  constraint->gauge_ = metric_handles_ ? metric_handles_->active_existence_constraints : nullptr;
-  if (constraint->gauge_) constraint->gauge_->Increment();
+  constraint->gauge_ =
+      ::metrics::ScopedGauge{metric_handles_ ? metric_handles_->active_existence_constraints : nullptr};
   return true;
 }
 
@@ -109,7 +105,9 @@ ExistenceConstraints::IndividualConstraintPtr ExistenceConstraints::DropConstrai
   return constraints_.WithLock([&](ContainerPtr &constraints) -> IndividualConstraintPtr {
     auto it = constraints->find({label, property});
     if (it == constraints->end()) return nullptr;
+    it->second->gauge_.release();
     auto evicted = it->second;
+
     auto new_constraints = std::make_shared<Container>(*constraints);
     new_constraints->erase({label, property});
     constraints = std::move(new_constraints);
@@ -259,7 +257,7 @@ void ExistenceConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metr
     double count = 0;
     for (auto const &[key, constraint] : *ptr) {
       if (constraint->status.IsReady()) {
-        constraint->gauge_ = gauge;
+        constraint->gauge_ = ::metrics::ScopedGauge{gauge};
         ++count;
       }
     }

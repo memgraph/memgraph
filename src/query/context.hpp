@@ -12,6 +12,11 @@
 #pragma once
 
 #include <atomic>
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 #include <memory>
 #include <type_traits>
 
@@ -136,6 +141,7 @@ struct ExecutionContext {
   // acquire from it when work leaves the main query thread, so TLS-scoped
   // allocations still attribute to the parent DB.
   memgraph::memory::ArenaPool *db_arena_pool{nullptr};
+  metrics::DatabaseMetricHandles *metric_handles{nullptr};
 
   auto commit_args() -> storage::CommitArgs;
 };

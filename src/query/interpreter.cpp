@@ -114,8 +114,6 @@
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
 #include "utils/compile_time.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/functional.hpp"
 #include "utils/likely.hpp"
@@ -162,6 +160,7 @@ extern const Event ActiveTransactions;
 extern const Event ShowSchema;
 extern const Event ShowStorageInfoOnDatabase;
 }  // namespace memgraph::metrics
+
 
 namespace {
 
@@ -237,6 +236,8 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
       throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
+
+  if (auto *mh = db_acc->metric_handles()) mh->active_transactions->Increment();
 
   if (db_acc->trigger_store()->HasTriggers() && could_commit) {
     trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
@@ -2559,7 +2560,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
     return config_map;
   };
 
-  memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
+  if (auto *mh = db_acc->metric_handles()) mh->streams_created->Increment();
 
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
@@ -2601,7 +2602,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
     throw SemanticException("Service URL must not be an empty string!");
   }
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
+  if (auto *mh = db->metric_handles()) mh->streams_created->Increment();
 
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
@@ -3104,6 +3105,7 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
@@ -3128,8 +3130,10 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       ,
       user_resource_{std::move(user_resource)}
 #endif
-{
+      ,
+      metric_handles_(metric_handles) {
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
+  ctx_.metric_handles = metric_handles;
   if (hops_limit) {
 #ifdef MG_ENTERPRISE
     if (parallel_execution) {
@@ -3255,8 +3259,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     query_logger_->trace(fmt::format("Query execution time: {}", execution_time_.count()));
   }
 
-  memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
-                             std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
+  if (metric_handles_) metric_handles_->query_execution_latency_seconds->Observe(execution_time_.count());
 
   // We are finished with pulling all the data, therefore we can send any
   // metadata about the results i.e. notifications and statistics
@@ -3395,7 +3398,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw ExplicitTransactionUsageException("No current transaction to rollback.");
         }
 
-        memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions);
         if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
           h->rollbacked_transactions->Increment();
 
@@ -5513,38 +5515,39 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
 
 Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPropertyValue::map_t &user_parameters,
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
-                       std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name) {
+                       std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name,
+                       metrics::DatabaseMetricHandles *metric_handles) {
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
-  return {
-      .header = {},
-      // NOLINTNEXTLINE(bugprone-exception-escape)
-      .fn = [trigger_name = std::move(trigger_query->trigger_name_),
-             trigger_statement = std::move(trigger_query->statement_),
-             event_type = trigger_query->event_type_,
-             before_commit = trigger_query->before_commit_,
-             trigger_store,
-             interpreter_context,
-             dba,
-             user_parameters,
-             owner = std::move(owner),
-             db_name,
-             privilege_context = trigger_query->privilege_context_]() mutable -> std::vector<std::vector<TypedValue>> {
-        trigger_store->AddTrigger(std::move(trigger_name),
-                                  trigger_statement,
-                                  user_parameters,
-                                  ToTriggerEventType(event_type),
-                                  before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
-                                  &interpreter_context->ast_cache,
-                                  dba,
-                                  interpreter_context->config.query,
-                                  std::move(owner),
-                                  db_name,
-                                  privilege_context,
-                                  interpreter_context->parameters);
-        memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
-        return {};
-      }};
+  return {.header = {},
+          // NOLINTNEXTLINE(bugprone-exception-escape)
+          .fn = [trigger_name = std::move(trigger_query->trigger_name_),
+                 trigger_statement = std::move(trigger_query->statement_),
+                 event_type = trigger_query->event_type_,
+                 before_commit = trigger_query->before_commit_,
+                 trigger_store,
+                 interpreter_context,
+                 dba,
+                 user_parameters,
+                 owner = std::move(owner),
+                 db_name,
+                 privilege_context = trigger_query->privilege_context_,
+                 metric_handles]() mutable -> std::vector<std::vector<TypedValue>> {
+            trigger_store->AddTrigger(std::move(trigger_name),
+                                      trigger_statement,
+                                      user_parameters,
+                                      ToTriggerEventType(event_type),
+                                      before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
+                                      &interpreter_context->ast_cache,
+                                      dba,
+                                      interpreter_context->config.query,
+                                      std::move(owner),
+                                      db_name,
+                                      privilege_context,
+                                      interpreter_context->parameters);
+            if (metric_handles) metric_handles->triggers_created->Increment();
+            return {};
+          }};
 }
 
 Callback DropTrigger(TriggerQuery *trigger_query, TriggerStore *trigger_store) {
@@ -5600,6 +5603,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   std::optional<Notification> trigger_notification;
 
+  auto *metric_handles = current_db.db_acc_->get()->metric_handles();
   auto callback = std::invoke([trigger_query,
                                trigger_store,
                                interpreter_context,
@@ -5607,14 +5611,21 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                user_parameters = parsed_query.user_parameters,
                                owner = std::move(user_or_role),
                                &trigger_notification,
+                               metric_handles,
                                db_name = current_db.db_acc_->get()->name()]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO,
                                      NotificationCode::CREATE_TRIGGER,
                                      fmt::format("Created trigger {}.", trigger_query->trigger_name_));
-        return CreateTrigger(
-            trigger_query, user_parameters, trigger_store, interpreter_context, dba, std::move(owner), db_name);
+        return CreateTrigger(trigger_query,
+                             user_parameters,
+                             trigger_store,
+                             interpreter_context,
+                             dba,
+                             std::move(owner),
+                             db_name,
+                             metric_handles);
       case TriggerQuery::Action::DROP_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO,
                                      NotificationCode::DROP_TRIGGER,
@@ -7026,7 +7037,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         std::vector<std::vector<TypedValue>> results;
         results.reserve(metric_rows.size());
         for (auto const &m : metric_rows) {
-          results.push_back({TypedValue(m.name), TypedValue(m.type), TypedValue(m.metric_type), TypedValue(m.value)});
+          results.push_back({TypedValue(m.name),
+                             TypedValue(m.type),
+                             TypedValue(m.metric_type),
+                             std::visit([](auto v) { return TypedValue(v); }, m.value)});
         }
         std::ranges::sort(results, [](auto const &record_1, auto const &record_2) {
           auto const key_1 = std::tie(record_1[1].ValueString(), record_1[2].ValueString(), record_1[0].ValueString());
@@ -8219,7 +8233,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                  user_or_role
 #endif
   ]() mutable -> std::vector<std::vector<TypedValue>> {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ShowSchema);
+    if (auto *mh = db->metric_handles()) mh->show_schema->Increment();
 
     std::vector<std::vector<TypedValue>> schema;
     auto *storage = db->storage();
@@ -9128,8 +9142,6 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
     metrics::FirstFailedQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
     if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
       h->failed_query->Increment();
     AbortCommand({});
@@ -9794,17 +9806,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     switch (rw_type) {
       case plan::ReadWriteTypeChecker::RWType::R:
-        memgraph::metrics::IncrementCounter(memgraph::metrics::ReadQuery);
         if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
           h->read_query->Increment();
         break;
       case plan::ReadWriteTypeChecker::RWType::W:
-        memgraph::metrics::IncrementCounter(memgraph::metrics::WriteQuery);
         if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
           h->write_query->Increment();
         break;
       case plan::ReadWriteTypeChecker::RWType::RW:
-        memgraph::metrics::IncrementCounter(memgraph::metrics::ReadWriteQuery);
         if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
           h->read_write_query->Increment();
         break;
@@ -9848,10 +9857,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
     metrics::FirstFailedQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
     if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
-      h->failed_query->Increment();
+      h->failed_prepare->Increment();
     AbortCommand(query_execution_ptr);
     throw;
   }
@@ -9883,7 +9890,6 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAcc
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
-  metrics::IncrementCounter(metrics::ActiveTransactions);
   auto tx_id = interpreter_context_->id_handler.next();
   current_transaction_ = tx_id;
   transaction_start_time_ = std::chrono::system_clock::now();
@@ -9971,8 +9977,9 @@ void Interpreter::Abort() {
   current_timeout_timer_.reset();
 
   if (decrement) {
-    // Decrement only if the transaction was active when we started to Abort
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+    if (current_db_.db_acc_) {
+      if (auto *mh = (*current_db_.db_acc_)->metric_handles()) mh->active_transactions->Decrement();
+    }
   }
 
   // Route Abort-path deallocations/cleanup to this DB's arena.
@@ -10251,9 +10258,10 @@ void Interpreter::Commit() {
 
   auto *metric_handles = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr;
   utils::OnScopeExit update_metrics([metric_handles]() {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
-    if (metric_handles) metric_handles->committed_transactions->Increment();
+    if (metric_handles) {
+      metric_handles->committed_transactions->Increment();
+      metric_handles->active_transactions->Decrement();
+    }
   });
 
   std::optional<TriggerContext> trigger_context = std::nullopt;

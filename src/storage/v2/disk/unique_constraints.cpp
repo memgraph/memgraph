@@ -14,6 +14,7 @@
 #include <limits>
 #include <optional>
 #include <tuple>
+#include "metrics/prometheus_metrics.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/disk/delta_utils.hpp"
@@ -122,7 +123,7 @@ bool DiskUniqueConstraints::InsertConstraint(
     spdlog::error("rocksdb: {}", status.getState());
     return false;
   }
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+  if (metric_handles_) metric_handles_->active_unique_constraints->Increment();
   return true;
 }
 
@@ -299,7 +300,7 @@ DiskUniqueConstraints::DeletionStatus DiskUniqueConstraints::DropConstraint(Labe
     return drop_properties_check_result;
   }
   if (constraints_.erase({label, properties}) > 0) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+    if (metric_handles_) metric_handles_->active_unique_constraints->Decrement();
     return UniqueConstraints::DeletionStatus::SUCCESS;
   }
   return UniqueConstraints::DeletionStatus::NOT_FOUND;
@@ -359,6 +360,12 @@ void DiskUniqueConstraints::Clear() {
 
 RocksDBStorage *DiskUniqueConstraints::GetRocksDBStorage() const { return kvstore_.get(); }
 
+void DiskUniqueConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  if (!metric_handles_) return;
+  metric_handles_->active_unique_constraints->Set(static_cast<double>(constraints_.size()));
+}
+
 void DiskUniqueConstraints::LoadUniqueConstraints(const std::vector<std::string> &keys) {
   for (const auto &key : keys) {
     std::vector<std::string> key_parts = utils::Split(key, ",");
@@ -367,10 +374,7 @@ void DiskUniqueConstraints::LoadUniqueConstraints(const std::vector<std::string>
     for (int i = 1; i < key_parts.size(); i++) {
       properties.insert(PropertyId::FromString(key_parts[i]));
     }
-    auto [_, inserted] = constraints_.emplace(label, properties);
-    if (inserted) {
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
-    }
+    constraints_.emplace(label, properties);
   }
 }
 

@@ -59,8 +59,7 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
-Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
-                   metrics::PrometheusMetrics *prometheus_metrics)
+Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
       after_commit_trigger_pool_{1,
                                  [this]() -> utils::ThreadPool::TaskSignature {
@@ -71,11 +70,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                  }},
       streams_(
           std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams", db_arena_.get())),
-      plan_cache_{FLAGS_query_plan_cache_max_size},
-      counters_storage_{std::make_unique<metrics::Counter[]>(metrics::CounterEnd())},
-      histograms_storage_{std::make_unique<metrics::Histogram[]>(metrics::HistogramEnd())},
-      counters{counters_storage_.get()},
-      histograms{histograms_storage_.get()} {
+      plan_cache_{FLAGS_query_plan_cache_max_size} {
   const memory::DbArenaScope db_arena_scope{this, memory::DbArenaScope::Type::FORCE};
 
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
@@ -115,8 +110,14 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 }
 
 Database::~Database() {
+  storage_.reset();
+  DetachMetrics();
+}
+
+void Database::DetachMetrics() {
   if (metric_handles_) {
     metrics::Metrics().RemoveDatabase(metric_handles_);
+    metric_handles_ = nullptr;
   }
 }
 
@@ -155,9 +156,6 @@ storage::ttl::TTL &Database::ttl() { return storage_->ttl_; }
 DatabaseInfo Database::GetInfo() const {
   DatabaseInfo info;
   info.storage_info = storage_->GetInfo();
-  metrics::Metrics().global.peak_memory_res_bytes->Set(static_cast<double>(info.storage_info.memory_res));
-  info.storage_info.peak_memory_res =
-      static_cast<uint64_t>(metrics::Metrics().global.peak_memory_res_bytes->Value());
   info.triggers = trigger_store_->GetTriggerInfo().size();
   info.streams = streams_->GetStreamInfo().size();
   info.db_memory_tracked = DbMemoryUsage();

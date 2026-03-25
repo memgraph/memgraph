@@ -18,6 +18,7 @@ class Gauge;
 #include <span>
 
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -53,7 +54,7 @@ class InMemoryLabelIndex : public LabelIndex {
     void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
     utils::SkipListDb<Entry> skiplist;
     IndexStatus status{};
-    prometheus::Gauge *gauge_{nullptr};
+    ::metrics::ScopedGauge gauge_{};
   };
 
   struct AllIndicesEntry {

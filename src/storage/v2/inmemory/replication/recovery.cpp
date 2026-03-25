@@ -20,14 +20,19 @@
 namespace memgraph::storage {
 
 template <>
-// NOLINTNEXTLINE
-auto const RpcInfo<replication::WalFilesRpc>::timerLabel = metrics::WalFilesRpc_us;
+prometheus::Histogram *RpcInfo<replication::WalFilesRpc>::histogram(metrics::GlobalMetricHandles &g) {
+  return g.wal_files_rpc_seconds;
+}
+
 template <>
-// NOLINTNEXTLINE
-auto const RpcInfo<replication::CurrentWalRpc>::timerLabel = metrics::CurrentWalRpc_us;
+prometheus::Histogram *RpcInfo<replication::CurrentWalRpc>::histogram(metrics::GlobalMetricHandles &g) {
+  return g.current_wal_rpc_seconds;
+}
+
 template <>
-// NOLINTNEXTLINE
-auto const RpcInfo<replication::SnapshotRpc>::timerLabel = metrics::SnapshotRpc_us;
+prometheus::Histogram *RpcInfo<replication::SnapshotRpc>::histogram(metrics::GlobalMetricHandles &g) {
+  return g.snapshot_rpc_seconds;
+}
 
 /// This method tries to find the optimal path for recovering a single replica.
 /// Based on the last commit transferred to replica it tries to update the

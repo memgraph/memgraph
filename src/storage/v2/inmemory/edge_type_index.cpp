@@ -203,17 +203,10 @@ bool InMemoryEdgeTypeIndex::PublishIndex(EdgeTypeId edge_type, uint64_t commit_t
 
 void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status_.Commit(commit_timestamp);
-  gauge_ = gauge;
-  if (gauge_) gauge_->Increment();
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
+  gauge_ = ::metrics::ScopedGauge{gauge};
 }
 
-InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() {
-  if (status_.IsReady()) {
-    if (gauge_) gauge_->Decrement();
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
-  }
-}
+InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() = default;
 
 auto InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater)
     -> std::shared_ptr<IndividualIndex> {
@@ -221,6 +214,7 @@ auto InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater
       [&](std::shared_ptr<IndicesContainer const> &indices_container) -> std::shared_ptr<IndividualIndex> {
         auto const it = indices_container->indices_.find(edge_type);
         if (it == indices_container->indices_.cend()) return {};
+        it->second->gauge_.release();
         auto evicted_entry = it->second;
 
         auto new_container = std::make_shared<IndicesContainer>();
@@ -351,7 +345,7 @@ void InMemoryEdgeTypeIndex::SetMetricHandles(metrics::DatabaseMetricHandles *met
     double count = 0;
     for (auto const &[edge_type, idx] : ptr->indices_) {
       if (idx->status_.IsReady()) {
-        idx->gauge_ = gauge;
+        idx->gauge_ = ::metrics::ScopedGauge{gauge};
         ++count;
       }
     }
