@@ -32,16 +32,11 @@
 #include "query/query_user.hpp"
 #include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/variant_helpers.hpp"
-
-namespace memgraph::metrics {
-extern const Event MessagesConsumed;
-}  // namespace memgraph::metrics
 
 namespace memgraph::query::stream {
 namespace {
@@ -541,7 +536,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     utils::OnScopeExit interpreter_cleanup{
         [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
 
-    memgraph::metrics::IncrementCounter(memgraph::metrics::MessagesConsumed, messages.size());
+    if (auto *mh = interpreter->current_db_.db_acc_->get()->metric_handles())
+      mh->messages_consumed->Increment(static_cast<double>(messages.size()));
     CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
     DiscardValueResultStream stream;
