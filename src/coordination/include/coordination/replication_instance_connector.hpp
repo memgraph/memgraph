@@ -78,12 +78,13 @@ class ReplicationInstanceConnector {
 
   auto GetClient() const -> ReplicationInstanceClient const &;
 
+  friend bool operator==(ReplicationInstanceConnector const &first, ReplicationInstanceConnector const &second) {
+    return first.InstanceName() == second.InstanceName();
+  }
+
  private:
   ReplicationInstanceClient client_;
   mutable TimedFailureDetector timed_failure_detector_;
-
-  friend bool operator==(ReplicationInstanceConnector const &first,
-                         ReplicationInstanceConnector const &second) = default;
 };
 
 }  // namespace memgraph::coordination
