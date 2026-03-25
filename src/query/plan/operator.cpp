@@ -6711,6 +6711,31 @@ class AggregateCursor : public Cursor {
     }
 
     projected_graph.virtual_edge_store().InsertIfNew(std::move(ve));
+
+    auto apply_node_override = [&](const VertexAccessor &vertex, const char *labels_key, const char *props_key) {
+      auto labels_it = options.find(labels_key);
+      auto props_it2 = options.find(props_key);
+      if (labels_it == options.end() && props_it2 == options.end()) return;
+
+      NodeOverride override;
+      if (labels_it != options.end() && labels_it->second.type() == TypedValue::Type::List) {
+        for (const auto &label : labels_it->second.ValueList()) {
+          if (label.type() == TypedValue::Type::String) {
+            override.labels.emplace_back(label.ValueString());
+          }
+        }
+      }
+      if (props_it2 != options.end() && props_it2->second.type() == TypedValue::Type::Map && db_accessor_) {
+        for (const auto &[key, val] : props_it2->second.ValueMap()) {
+          auto prop_id = db_accessor_->NameToProperty(key);
+          override.properties[prop_id] = val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper());
+        }
+      }
+      projected_graph.node_override_store().Set(vertex.Gid(), std::move(override));
+    };
+
+    apply_node_override(from, "sourceNodeLabels", "sourceNodeProperties");
+    apply_node_override(to, "targetNodeLabels", "targetNodeProperties");
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
