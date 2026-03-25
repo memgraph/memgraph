@@ -29,6 +29,7 @@
 #include "license/license.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/graph.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -365,6 +366,12 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
 }
 
 bool IsDeleted(const mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex_->deleted(); }
+
+const memgraph::query::NodeOverride *GetNodeOverride(const mgp_vertex *v) {
+  const auto *sub = std::get_if<memgraph::query::SubgraphVertexAccessor>(&v->impl);
+  if (!sub) return nullptr;
+  return sub->graph_->node_override_store().Find(sub->impl_.Gid());
+}
 
 bool IsDeleted(const mgp_edge *edge) {
   return std::visit(memgraph::utils::Overloaded{[](const memgraph::query::EdgeAccessor &ea) { return ea.IsDeleted(); },
@@ -2756,6 +2763,9 @@ mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
 mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
+        if (const auto *node_override = GetNodeOverride(v); node_override && !node_override->labels.empty()) {
+          return node_override->labels.size();
+        }
         return std::visit(
             [v](const auto &impl) {
               const auto maybe_labels = impl.Labels(v->graph->view);
@@ -2781,7 +2791,12 @@ mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
 mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
   return WrapExceptions(
       [v, i]() -> const char * {
-        // TODO: Maybe it's worth caching this in mgp_vertex.
+        if (const auto *node_override = GetNodeOverride(v); node_override && !node_override->labels.empty()) {
+          if (i >= node_override->labels.size()) {
+            throw std::out_of_range("Label cannot be retrieved, because index exceeds the number of labels!");
+          }
+          return node_override->labels[i].c_str();
+        }
         auto maybe_labels = std::visit([v](const auto &impl) { return impl.Labels(v->graph->view); }, v->impl);
         if (!maybe_labels) {
           switch (maybe_labels.error()) {
@@ -2814,6 +2829,10 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
 mgp_error mgp_vertex_has_label_named(mgp_vertex *v, const char *name, int *result) {
   return WrapExceptions(
       [v, name] {
+        if (const auto *node_override = GetNodeOverride(v); node_override && !node_override->labels.empty()) {
+          return std::ranges::any_of(node_override->labels, [name](const auto &label) { return label == name; }) ? 1
+                                                                                                                 : 0;
+        }
         memgraph::storage::LabelId label;
         label = std::visit([name](auto *impl) { return impl->NameToLabel(name); }, v->graph->impl);
 
@@ -2868,10 +2887,6 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
 }
 
 mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_properties_iterator **result) {
-  // NOTE: This copies the whole properties into the iterator.
-  // TODO: Think of a good way to avoid the copy which doesn't just rely on some
-  // assumption that storage may return a pointer to the property store. This
-  // will probably require a different API in storage.
   return WrapExceptions(
       [v, memory] {
         auto maybe_props = std::visit([v](auto &impl) { return impl.Properties(v->graph->view); }, v->impl);
@@ -2887,6 +2902,12 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
             case memgraph::storage::Error::VERTEX_HAS_EDGES:
             case memgraph::storage::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting the properties of a vertex.");
+          }
+        }
+        // Merge override properties on top of storage properties
+        if (const auto *node_override = GetNodeOverride(v)) {
+          for (const auto &[prop_id, prop_value] : node_override->properties) {
+            (*maybe_props)[prop_id] = prop_value;
           }
         }
         return NewRawMgpObject<mgp_properties_iterator>(memory, v->graph, std::move(*maybe_props));

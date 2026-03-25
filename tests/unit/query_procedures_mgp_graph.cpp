@@ -846,3 +846,47 @@ TYPED_TEST(MgpGraphTest, NodeOverridePropertyVisibleViaMgpApi) {
   ASSERT_NE(v2_value, nullptr);
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_value_type, mgp_value_get_type, v2_value.get()), MGP_VALUE_TYPE_NULL);
 }
+
+TYPED_TEST(MgpGraphTest, NodeOverrideLabelVisibleViaMgpApi) {
+  auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+  auto v1 = dba.InsertVertex();
+
+  memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
+  proj_graph.InsertVertex(memgraph::query::VertexAccessor(v1));
+
+  // Set label override on v1
+  memgraph::query::NodeOverride label_override;
+  label_override.labels = {"Expert", "Analyst"};
+  proj_graph.node_override_store().Set(v1.Gid(), std::move(label_override));
+
+  memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
+  auto graph = mgp_graph{
+      &sub_dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+  MgpVertexPtr mgp_v1{EXPECT_MGP_NO_ERROR(
+      mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{v1.Gid().AsInt()}, &this->memory)};
+  ASSERT_NE(mgp_v1, nullptr);
+
+  // Labels count should be overridden
+  auto count = EXPECT_MGP_NO_ERROR(size_t, mgp_vertex_labels_count, mgp_v1.get());
+  EXPECT_EQ(count, 2);
+
+  // Label at index 0
+  mgp_label label0;
+  EXPECT_SUCCESS(mgp_vertex_label_at(mgp_v1.get(), 0, &label0));
+  EXPECT_EQ(std::string_view(label0.name), "Expert");
+
+  // Label at index 1
+  mgp_label label1;
+  EXPECT_SUCCESS(mgp_vertex_label_at(mgp_v1.get(), 1, &label1));
+  EXPECT_EQ(std::string_view(label1.name), "Analyst");
+
+  // Has label check
+  int has_expert = 0;
+  EXPECT_SUCCESS(mgp_vertex_has_label_named(mgp_v1.get(), "Expert", &has_expert));
+  EXPECT_EQ(has_expert, 1);
+
+  int has_unknown = 0;
+  EXPECT_SUCCESS(mgp_vertex_has_label_named(mgp_v1.get(), "Unknown", &has_unknown));
+  EXPECT_EQ(has_unknown, 0);
+}
