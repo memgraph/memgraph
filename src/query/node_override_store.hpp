@@ -37,11 +37,7 @@ class NodeOverrideStore {
   auto empty() const { return overrides_.empty(); }
 
  private:
-  struct GidHash {
-    size_t operator()(storage::Gid gid) const { return std::hash<storage::Gid>{}(gid); }
-  };
-
-  std::unordered_map<storage::Gid, NodeOverride, GidHash> overrides_;
+  std::unordered_map<storage::Gid, NodeOverride> overrides_;
 };
 
 }  // namespace memgraph::query

@@ -6714,24 +6714,25 @@ class AggregateCursor : public Cursor {
 
     auto apply_node_override = [&](const VertexAccessor &vertex, const char *labels_key, const char *props_key) {
       auto labels_it = options.find(labels_key);
-      auto props_it2 = options.find(props_key);
-      if (labels_it == options.end() && props_it2 == options.end()) return;
+      auto node_props_it = options.find(props_key);
+      if (labels_it == options.end() && node_props_it == options.end()) return;
 
-      NodeOverride override;
+      NodeOverride node_override;
       if (labels_it != options.end() && labels_it->second.type() == TypedValue::Type::List) {
         for (const auto &label : labels_it->second.ValueList()) {
           if (label.type() == TypedValue::Type::String) {
-            override.labels.emplace_back(label.ValueString());
+            node_override.labels.emplace_back(label.ValueString());
           }
         }
       }
-      if (props_it2 != options.end() && props_it2->second.type() == TypedValue::Type::Map && db_accessor_) {
-        for (const auto &[key, val] : props_it2->second.ValueMap()) {
+      if (node_props_it != options.end() && node_props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
+        for (const auto &[key, val] : node_props_it->second.ValueMap()) {
           auto prop_id = db_accessor_->NameToProperty(key);
-          override.properties[prop_id] = val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper());
+          node_override.properties[prop_id] =
+              val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper());
         }
       }
-      projected_graph.node_override_store().Set(vertex.Gid(), std::move(override));
+      projected_graph.node_override_store().Set(vertex.Gid(), std::move(node_override));
     };
 
     apply_node_override(from, "sourceNodeLabels", "sourceNodeProperties");
