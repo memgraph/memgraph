@@ -26,12 +26,11 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   REPL_ENDPOINT_EXISTS,
   NOT_COORDINATOR,
   NOT_LEADER,
-  RPC_FAILED,
   RAFT_LOG_ERROR,
   SUCCESS,
   STRICT_SYNC_AND_SYNC_FORBIDDEN,
   LEADER_NOT_FOUND,
-  LEADER_FAILED
+  LEADER_FAILED,
 };
 
 enum class UnregisterInstanceCoordinatorStatus : uint8_t {
@@ -80,7 +79,7 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
   RAFT_SERVER_IS_LEAVING,
   RAFT_TERM_MISMATCH,
   RAFT_RESULT_NOT_EXIST_YET,
-  RAFT_FAILED
+  RAFT_FAILED,
 };
 
 enum class RemoveCoordinatorInstanceStatus : uint8_t {
@@ -101,7 +100,7 @@ enum class RemoveCoordinatorInstanceStatus : uint8_t {
   RAFT_SERVER_IS_LEAVING,
   RAFT_TERM_MISMATCH,
   RAFT_RESULT_NOT_EXIST_YET,
-  RAFT_FAILED
+  RAFT_FAILED,
 };
 
 enum class UpdateConfigStatus : uint8_t {
@@ -110,7 +109,7 @@ enum class UpdateConfigStatus : uint8_t {
   NO_SUCH_REPL_INSTANCE,
   RAFT_FAILURE,
   LEADER_FAILED,
-  LEADER_NOT_FOUND
+  LEADER_NOT_FOUND,
 };
 
 enum class DemoteInstanceCoordinatorStatus : uint8_t {
@@ -122,7 +121,7 @@ enum class DemoteInstanceCoordinatorStatus : uint8_t {
   NOT_COORDINATOR,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
-  ALREADY_REPLICA
+  ALREADY_REPLICA,
 };
 
 enum class ReconcileClusterStateStatus : uint8_t {

@@ -26,7 +26,6 @@
 #include <utility>
 #include <vector>
 
-#include <communication/bolt/v1/encoder/base_encoder.hpp>
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
@@ -781,14 +780,25 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
+  auto data_instances = raft_state_->GetDataInstancesContext();
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, curr_main_uuid);
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances)};
+
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting instance registration. Writing to Raft failed.");
+    return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
+  }
+
   auto *new_instance = &repl_instances_.emplace_back(
       config, this, raft_state_->GetInstanceDownTimeoutSec(), raft_state_->GetInstanceHealthCheckFrequencySec());
 
-  // We do this here not under callbacks because we need to add replica to the current main.
+  // Try sending RPC now but the failure is not fatal, we will try again in the reconciliation loop
+  // From the user's perspective, as soon as the log is committed to Raft logs, the in-memory state will eventually
+  // become correct. Best effort here.
   if (!new_instance->SendRpc<DemoteMainToReplicaRpc>(config.replication_client_info, curr_main_uuid)) {
     spdlog::error("Failed to demote instance {} to replica.", config.instance_name);
-    repl_instances_.pop_back();
-    return RegisterInstanceCoordinatorStatus::RPC_FAILED;
   }
 
   if (auto const main_name = raft_state_->TryGetCurrentMainName(); main_name.has_value()) {
@@ -798,22 +808,8 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
     if (auto const &current_main = maybe_current_main->get();
         !current_main.SendRpc<RegisterReplicaOnMainRpc>(curr_main_uuid, config.replication_client_info)) {
-      spdlog::error("Failed to register instance {} on main instance {}.", config.instance_name, main_name);
-      repl_instances_.pop_back();
-      return RegisterInstanceCoordinatorStatus::RPC_FAILED;
+      spdlog::error("Failed to register instance {} on the current main instance {}.", config.instance_name, main_name);
     }
-  }
-
-  auto data_instances = raft_state_->GetDataInstancesContext();
-  data_instances.emplace_back(config, ReplicationRole::REPLICA, curr_main_uuid);
-
-  // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances)};
-
-  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
-    spdlog::error("Aborting instance registration. Writing to Raft failed.");
-    repl_instances_.pop_back();
-    return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
   new_instance->StartStateCheck();
@@ -878,10 +874,14 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   auto const name_matches = [instance_name](auto const &instance) { return instance.InstanceName() == instance_name; };
 
   // Even if RPC fails, this is still a success from user's perspective because we will retry this operation in the
-  // reconciliation loop
-  if (curr_main->SendRpc<UnregisterReplicaRpc>(instance_name)) {
-    std::erase_if(repl_instances_, name_matches);
+  // reconciliation loop. Best effort RPC handling
+  if (!curr_main->SendRpc<UnregisterReplicaRpc>(instance_name)) {
+    spdlog::error("Failed to unregister replica from the current main");
   }
+  // We can delete connector for the instance we are removing indepedently from the RPC result
+  std::erase_if(repl_instances_, name_matches);
+  // Update cache entry
+  replicas_num_txns_cache_.erase(std::string{instance_name});
 
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
@@ -1140,26 +1140,47 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
   if (raft_state_->IsCurrentMain(instance_name)) {
-    // Update cache if there is a value received
+    // Update cache with the information from the current main if there is a value received
     if (instance_state.inner_state.main_num_txns.has_value()) {
       main_num_txns_cache_ = *instance_state.inner_state.main_num_txns;
     }
 
-    // Use this information for checking the number of committed txns and also to figure out if some replica got deleted
+    // Use this information for checking the number of committed txns and also to figure out if some replica got
+    // unregistered
     if (instance_state.inner_state.replicas_num_txns.has_value()) {
       auto const data_instances = raft_state_->GetDataInstancesContext();
 
-      // Handle the case when data instance was unregistered
+      // Handle the case when an instance was registered with a log successfully committed to Raft logs but RPC message
+      // for registering replica on main failed
+      for (auto const &raft_replica_instance : data_instances) {
+        if (instance_name != raft_replica_instance.config.instance_name &&
+            !instance_state.inner_state.replicas_num_txns->contains(raft_replica_instance.config.instance_name)) {
+          auto replica_inmem_instance =
+              FindReplicationInstance(raft_replica_instance.config.instance_name, repl_instances_);
+          MG_ASSERT(replica_inmem_instance.has_value(), "Inconsistency found between in-memory state and Raft logs");
+
+          if (instance.SendRpc<RegisterReplicaOnMainRpc>(curr_main_uuid,
+                                                         replica_inmem_instance->get().GetReplicationClientInfo())) {
+            spdlog::trace("Replica {} successfully registered on the current main {}",
+                          replica_inmem_instance->get().InstanceName(),
+                          instance_name);
+          } else {
+            spdlog::error("Failed to register replica {} on the current main {}",
+                          replica_inmem_instance->get().InstanceName(),
+                          instance_name);
+          }
+        }
+      }
+
+      // Handle the case when data instance was unregistered (Raft log committed) but RPC UnregisterReplicaRpc failed
       for (auto const &[replica_name, replica_data] : *instance_state.inner_state.replicas_num_txns) {
-        if (std::ranges::find(data_instances, replica_name, [](auto const &context) {
+        bool const instance_exists_in_raft =
+            std::ranges::find(data_instances, replica_name, [](auto const &context) -> std::string const & {
               return context.config.instance_name;
-            }) != std::ranges::end(data_instances)) {
+            }) != std::ranges::end(data_instances);
+        if (instance_exists_in_raft) {
           replicas_num_txns_cache_.insert_or_assign(replica_name, replica_data);
         } else if (instance.SendRpc<UnregisterReplicaRpc>(replica_name)) {
-          auto const data_name_matches = [&replica_name](auto const &instance) {
-            return instance.InstanceName() == replica_name;
-          };
-          std::erase_if(repl_instances_, data_name_matches);
           replicas_num_txns_cache_.erase(replica_name);
         }
       }

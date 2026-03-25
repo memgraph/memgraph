@@ -82,10 +82,12 @@ class ReplicationInstanceConnector {
     return first.InstanceName() == second.InstanceName();
   }
 
+  auto GetReplicationClientInfo() const -> ReplicationClientInfo const & { return repl_client_info_; }
+
  private:
   ReplicationInstanceClient client_;
   mutable TimedFailureDetector timed_failure_detector_;
 };
 
 }  // namespace memgraph::coordination
-#endif
+#endif `

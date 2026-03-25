@@ -740,10 +740,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Writing to Raft log failed - the operation may or may not have taken the effect. It is safe to retry, "
             "however, before retrying, please check the state with the 'SHOW INSTANCES' query and whether the command "
             "took effect");
-      case RPC_FAILED:
-        throw QueryRuntimeException(
-            "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
-            "find out more info!");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
