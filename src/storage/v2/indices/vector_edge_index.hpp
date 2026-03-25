@@ -147,7 +147,7 @@ class VectorEdgeIndex {
   /// @brief Removes edges from the index by GID.
   /// Must be called before the edge is removed from the skip list (while the pointer is still valid).
   /// @param deleted_edge_gids The GIDs of the edges to remove.
-  void RemoveEdges(std::list<Gid> const &deleted_edge_gids) const;
+  void RemoveEdges(std::list<Gid, memory::DbAwareAllocator<Gid>> const &deleted_edge_gids) const;
 
   /// @brief Returns the index statistics.
   /// @return The index statistics.

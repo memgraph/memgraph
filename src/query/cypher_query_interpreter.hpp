@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "memory/db_arena.hpp"
 #include "parameters/parameters.hpp"
 #include "plan/read_write_type_checker.hpp"
 #include "query/config.hpp"
@@ -148,7 +149,9 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
   plan::ReadWriteTypeChecker::RWType rw_type_;
 };
 
-using PlanCache_t = utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>>;
+using PlanCache_t = utils::LRUCache<
+    frontend::HashedString, std::shared_ptr<query::PlanWrapper>,
+    memory::DbAwareAllocator<std::pair<const frontend::HashedString, std::shared_ptr<query::PlanWrapper>>>>;
 using PlanCacheLRU = utils::Synchronized<PlanCache_t, utils::RWSpinLock>;
 
 auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,

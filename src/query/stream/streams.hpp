@@ -17,6 +17,9 @@
 #include <optional>
 #include <type_traits>
 #include <unordered_map>
+#include <variant>
+
+#include "memory/db_arena.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -195,7 +198,9 @@ class Streams final {
   };
 
   using StreamDataVariant = std::variant<StreamData<KafkaStream>, StreamData<PulsarStream>>;
-  using StreamsMap = std::unordered_map<std::string, StreamDataVariant>;
+  using StreamsMap =
+      std::unordered_map<std::string, StreamDataVariant, std::hash<std::string>, std::equal_to<std::string>,
+                         memory::DbAwareAllocator<std::pair<const std::string, StreamDataVariant>>>;
   using SynchronizedStreamsMap = utils::Synchronized<StreamsMap, utils::WritePrioritizedRWLock>;
 
   template <typename TStream, typename TDbAccess>

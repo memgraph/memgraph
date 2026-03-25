@@ -298,7 +298,7 @@ void VectorEdgeIndex::RestoreEntries(
 
 bool VectorEdgeIndex::Empty() const { return pimpl->edge_index_.empty(); }
 
-void VectorEdgeIndex::RemoveEdges(std::list<Gid> const &deleted_edge_gids) const {
+void VectorEdgeIndex::RemoveEdges(std::list<Gid, memory::DbAwareAllocator<Gid>> const &deleted_edge_gids) const {
   auto as_uint = deleted_edge_gids | std::views::transform([](auto const &g) { return g.AsUint(); });
   std::unordered_set<uint64_t> const gids_to_remove(as_uint.begin(), as_uint.end());
 

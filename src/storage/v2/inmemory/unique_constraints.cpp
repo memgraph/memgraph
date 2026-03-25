@@ -508,7 +508,7 @@ auto InMemoryUniqueConstraints::CreateConstraint(
       container_.WithLock([&](ContainerPtr &container) -> std::expected<IndividualConstraintPtr, CreationStatus> {
         auto new_container = std::make_shared<Container>(*container);
         auto &inner = (*new_container)[label];
-        auto [it, inserted] = inner.try_emplace(properties, std::make_shared<IndividualConstraint>());
+        auto [it, inserted] = inner.try_emplace(properties, std::make_shared<IndividualConstraint>(arena_idx_));
         if (!inserted) return std::unexpected{CreationStatus::ALREADY_EXISTS};
         container = std::move(new_container);
         return it->second;

@@ -25,6 +25,7 @@
 #include <string>
 #include <thread>
 
+#include "memory/db_arena.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -1089,7 +1090,7 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
   {
     std::atomic<uint64_t> batch_counter = 0;
     thread_count = std::min(thread_count, batches.size());
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {

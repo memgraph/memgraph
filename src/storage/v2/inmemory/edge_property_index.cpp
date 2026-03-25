@@ -67,7 +67,7 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
-  utils::small_vector<Vertex::EdgeTriple> edges;
+  Edges edges;
 
   {
     auto guard = std::shared_lock{from_vertex.lock};
@@ -175,9 +175,9 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
 }
 }  // namespace
 
-bool InMemoryEdgePropertyIndex::CreateIndexOnePass(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                                                   ActiveIndicesUpdater const &updater,
-                                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
+bool InMemoryEdgePropertyIndex::CreateIndexOnePass(
+    PropertyId property, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(property, updater);
   if (!res) return false;
   auto res2 = PopulateIndex(property, std::move(vertices), updater, snapshot_info);
@@ -198,7 +198,7 @@ bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property, ActiveIndices
     utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
     // Register
     auto new_container = std::make_shared<IndicesContainer>(*indices_container);
-    auto [new_it, _] = new_container->indices_.emplace(property, std::make_shared<IndividualIndex>());
+    auto [new_it, _] = new_container->indices_.emplace(property, std::make_shared<IndividualIndex>(arena_idx_));
     // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
     all_indices_.WithLock([&](auto &all_indices) {
       auto new_all_indices = *all_indices;
@@ -212,11 +212,10 @@ bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property, ActiveIndices
   });
 }
 
-auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                                              ActiveIndicesUpdater const &updater,
-                                              std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                              Transaction const *tx, CheckCancelFunction cancel_check)
-    -> std::expected<void, IndexPopulateError> {
+auto InMemoryEdgePropertyIndex::PopulateIndex(
+    PropertyId property, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info,
+    Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(property);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -410,12 +409,13 @@ void InMemoryEdgePropertyIndex::DropGraphClearIndices() {
   });
 }
 
-InMemoryEdgePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                              utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-                                              utils::SkipList<Edge>::ConstAccessor edge_accessor, PropertyId property,
-                                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                                              Storage *storage, Transaction *transaction)
+InMemoryEdgePropertyIndex::Iterable::Iterable(
+    utils::SkipList<InMemoryEdgePropertyIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor, PropertyId property,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
@@ -427,7 +427,9 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor i
       storage_(storage),
       transaction_(transaction) {}
 
-InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
+InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(
+    Iterable *self,
+    utils::SkipList<InMemoryEdgePropertyIndex::Entry, memory::ArenaAwareAllocator<char>>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_edge_(nullptr),
@@ -466,16 +468,16 @@ void InMemoryEdgePropertyIndex::RunGC() {
 }
 
 InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Edges(
-    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    PropertyId property, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_container_->indices_.find(property);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
-  auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
   return {it->second->skip_list_.access(),
-          std::move(vertex_acc),
-          std::move(edge_acc),
+          std::move(vertex_accessor),
+          std::move(edge_accessor),
           property,
           lower_bound,
           upper_bound,
@@ -485,8 +487,9 @@ InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Ed
 }
 
 InMemoryEdgePropertyIndex::ChunkedIterable InMemoryEdgePropertyIndex::ActiveIndices::ChunkedEdges(
-    PropertyId property, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    PropertyId property, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
   auto it = index_container_->indices_.find(property);
@@ -546,8 +549,9 @@ void InMemoryEdgePropertyIndex::CleanupAllIndicies() {
 }
 
 InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
-    utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge>::ConstAccessor edge_accessor, PropertyId property,
+    utils::SkipList<InMemoryEdgePropertyIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor, PropertyId property,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks)
@@ -568,23 +572,24 @@ InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
   chunks_ = index_accessor_.create_chunks(num_chunks, lower_bound_pv, upper_bound_pv);
 
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
-  RechunkIndex<utils::SkipList<Entry>>(
+  RechunkIndex<utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>>(
       chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge && a.value == b.value; });
 }
 
 void InMemoryEdgePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
-  AdvanceUntilValid_(index_iterator_,
-                     utils::SkipList<Entry>::ChunkedIterator{},
-                     current_edge_,
-                     current_edge_accessor_,
-                     self_->storage_,
-                     self_->transaction_,
-                     self_->view_,
-                     self_->property_,
-                     self_->lower_bound_,
-                     self_->upper_bound_);
+  AdvanceUntilValid_(
+      index_iterator_,
+      utils::SkipList<InMemoryEdgePropertyIndex::Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator{},
+      current_edge_,
+      current_edge_accessor_,
+      self_->storage_,
+      self_->transaction_,
+      self_->view_,
+      self_->property_,
+      self_->lower_bound_,
+      self_->upper_bound_);
 }
 
 }  // namespace memgraph::storage

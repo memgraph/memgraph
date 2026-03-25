@@ -54,7 +54,7 @@ bool InMemoryLabelIndex::RegisterIndex(LabelId label, ActiveIndicesUpdater const
     }
 
     auto new_index = std::make_shared<IndexContainer>(indices);
-    auto [new_it, _] = new_index->try_emplace(label, std::make_shared<IndividualIndex>());
+    auto [new_it, _] = new_index->try_emplace(label, std::make_shared<IndividualIndex>(arena_idx_));
 
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
 
@@ -158,7 +158,7 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
 }
 
 auto InMemoryLabelIndex::PopulateIndex(
-    LabelId label, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info,
     Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
@@ -203,7 +203,7 @@ auto InMemoryLabelIndex::GetActiveIndices() const -> std::shared_ptr<LabelIndex:
 }
 
 bool InMemoryLabelIndex::CreateIndexOnePass(
-    LabelId label, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(label, updater);
@@ -306,9 +306,10 @@ void InMemoryLabelIndex::ActiveIndices::AbortEntries(LabelIndex::AbortableInfo c
   }
 }
 
-InMemoryLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                       utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
-                                       View view, Storage *storage, Transaction *transaction)
+InMemoryLabelIndex::Iterable::Iterable(
+    utils::SkipList<InMemoryLabelIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
+    View view, Storage *storage, Transaction *transaction)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -316,7 +317,9 @@ InMemoryLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
       storage_(storage),
       transaction_(transaction) {}
 
-InMemoryLabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
+InMemoryLabelIndex::Iterable::Iterator::Iterator(
+    Iterable *self,
+    utils::SkipList<InMemoryLabelIndex::Entry, memory::ArenaAwareAllocator<char>>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, self_->storage_, nullptr),
@@ -367,7 +370,7 @@ InMemoryLabelIndex::Iterable InMemoryLabelIndex::ActiveIndices::Vertices(LabelId
 }
 
 InMemoryLabelIndex::Iterable InMemoryLabelIndex::ActiveIndices::Vertices(
-    LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
+    LabelId label, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_acc, View view,
     Storage *storage, Transaction *transaction) {
   const auto it = index_container_->find(label);
   MG_ASSERT(it != index_container_->end(), "Index for label {} doesn't exist", label.AsUint());
@@ -375,7 +378,7 @@ InMemoryLabelIndex::Iterable InMemoryLabelIndex::ActiveIndices::Vertices(
 }
 
 InMemoryLabelIndex::ChunkedIterable InMemoryLabelIndex::ActiveIndices::ChunkedVertices(
-    LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
+    LabelId label, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_acc, View view,
     Storage *storage, Transaction *transaction, size_t num_chunks) {
   const auto it = index_container_->find(label);
   MG_ASSERT(it != index_container_->end(), "Index for label {} doesn't exist", label.AsUint());
@@ -450,7 +453,7 @@ void InMemoryLabelIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
   AdvanceUntilValid_(index_iterator_,
-                     utils::SkipList<Entry>::ChunkedIterator{},
+                     utils::SkipList<InMemoryLabelIndex::Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator{},
                      current_vertex_,
                      current_vertex_accessor_,
                      self_->storage_,
@@ -459,10 +462,10 @@ void InMemoryLabelIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
                      self_->label_);
 }
 
-InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                                     utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
-                                                     LabelId label, View view, Storage *storage,
-                                                     Transaction *transaction, size_t num_chunks)
+InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(
+    utils::SkipList<InMemoryLabelIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
+    View view, Storage *storage, Transaction *transaction, size_t num_chunks)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -471,7 +474,8 @@ InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Acc
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)} {
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
-  RechunkIndex<utils::SkipList<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex; });
+  RechunkIndex<utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>>(
+      chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex; });
 }
 
 }  // namespace memgraph::storage

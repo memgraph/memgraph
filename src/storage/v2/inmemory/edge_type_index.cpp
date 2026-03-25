@@ -47,13 +47,13 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
-  utils::small_vector<Vertex::EdgeTriple> edges;
+  Edges edges;
   auto matches_edge_type = [edge_type](auto const &each) { return std::get<EdgeTypeId>(each) == edge_type; };
   {
     auto guard = std::shared_lock{from_vertex.lock};
     deleted = from_vertex.deleted();
     delta = from_vertex.delta();
-    edges = from_vertex.out_edges | rv::filter(matches_edge_type) | r::to<utils::small_vector<Vertex::EdgeTriple>>;
+    edges = from_vertex.out_edges | rv::filter(matches_edge_type) | r::to<Edges>;
 
     // If vertex has non-sequential deltas, hold lock while applying them
     if (!from_vertex.has_uncommitted_non_sequential_deltas()) {
@@ -114,9 +114,9 @@ inline void AdvanceUntilValid_(auto &index_iterator, const auto &end_iterator, E
 
 }  // namespace
 
-bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
-                                               ActiveIndicesUpdater const &updater,
-                                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
+bool InMemoryEdgeTypeIndex::CreateIndexOnePass(
+    EdgeTypeId edge_type, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(edge_type, updater);
   if (!res) return false;
   auto res2 = PopulateIndex(edge_type, std::move(vertices), updater, snapshot_info);
@@ -126,12 +126,13 @@ bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::Skip
   return PublishIndex(edge_type, 0);
 }
 
-auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
+auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId insert_function,
+                                          utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
                                           ActiveIndicesUpdater const &updater,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info,
                                           Transaction const *tx, CheckCancelFunction cancel_check)
     -> std::expected<void, IndexPopulateError> {
-  auto index = GetIndividualIndex(edge_type);
+  auto index = GetIndividualIndex(insert_function);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
   }
@@ -140,18 +141,16 @@ auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipList<
     auto const accessor_factory = [&] { return index->skip_list_.access(); };
     if (tx) {
       // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
-      auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
-        TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, snapshot_info, *tx);
+      auto const insert_func = [&](Vertex &from_vertex, auto &index_accessor) {
+        TryInsertEdgeTypeIndex(from_vertex, insert_function, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(
-          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
+      PopulateIndexDispatch(vertices, accessor_factory, insert_func, std::move(cancel_check), {} /*TODO: parallel*/);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
-      auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
-        TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, snapshot_info);
+      auto const insert_func = [&](Vertex &from_vertex, auto &index_accessor) {
+        TryInsertEdgeTypeIndex(from_vertex, insert_function, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(
-          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
+      PopulateIndexDispatch(vertices, accessor_factory, insert_func, std::move(cancel_check), {} /*TODO: parallel*/);
     }
   } catch (const PopulateCancel &) {
     DropIndex(edge_type, updater);
@@ -173,7 +172,7 @@ bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpd
 
     // Register
     auto new_container = std::make_shared<IndicesContainer>(*indices_container);
-    auto [new_it, _] = new_container->indices_.emplace(edge_type, std::make_shared<IndividualIndex>());
+    auto [new_it, _] = new_container->indices_.emplace(edge_type, std::make_shared<IndividualIndex>(arena_idx_));
 
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
     // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
@@ -326,10 +325,11 @@ void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
   });
 }
 
-InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                          utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-                                          utils::SkipList<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
-                                          View view, Storage *storage, Transaction *transaction)
+InMemoryEdgeTypeIndex::Iterable::Iterable(
+    utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
+    View view, Storage *storage, Transaction *transaction)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
@@ -338,7 +338,9 @@ InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index
       storage_(storage),
       transaction_(transaction) {}
 
-InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
+InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(
+    Iterable *self,
+    utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::ArenaAwareAllocator<char>>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_edge_(nullptr),
@@ -374,13 +376,12 @@ void InMemoryEdgeTypeIndex::RunGC() {
   }
 }
 
-InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(EdgeTypeId edge_type, View view,
-                                                                            Storage *storage,
-                                                                            Transaction *transaction) {
+InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(
+    EdgeTypeId edge_type, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_acc,
+    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_acc, View view, Storage *storage,
+    Transaction *transaction) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
-  auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
   return {it->second->skip_list_.access(),
           std::move(vertex_acc),
           std::move(edge_acc),
@@ -391,9 +392,9 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(Edge
 }
 
 InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::ChunkedEdges(
-    EdgeTypeId edge_type, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge>::ConstAccessor edge_accessor, View view, Storage *storage, Transaction *transaction,
-    size_t num_chunks) {
+    EdgeTypeId edge_type, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
   return {it->second->skip_list_.access(),
@@ -434,11 +435,11 @@ void InMemoryEdgeTypeIndex::CleanupAllIndices() {
   });
 }
 
-InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                                        utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-                                                        utils::SkipList<Edge>::ConstAccessor edge_accessor,
-                                                        EdgeTypeId edge_type, View view, Storage *storage,
-                                                        Transaction *transaction, size_t num_chunks)
+InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(
+    utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
+    View view, Storage *storage, Transaction *transaction, size_t num_chunks)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
@@ -448,20 +449,22 @@ InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)} {
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
-  RechunkIndex<utils::SkipList<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge; });
+  RechunkIndex<utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>>(
+      chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge; });
 }
 
 void InMemoryEdgeTypeIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
-  AdvanceUntilValid_(index_iterator_,
-                     utils::SkipList<Entry>::ChunkedIterator{},
-                     current_edge_,
-                     current_edge_accessor_,
-                     self_->transaction_,
-                     self_->view_,
-                     self_->edge_type_,
-                     self_->storage_);
+  AdvanceUntilValid_(
+      index_iterator_,
+      utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator{},
+      current_edge_,
+      current_edge_accessor_,
+      self_->transaction_,
+      self_->view_,
+      self_->edge_type_,
+      self_->storage_);
 }
 
 }  // namespace memgraph::storage

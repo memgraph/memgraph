@@ -202,15 +202,14 @@ class Database {
   //!< allocations roll up into the global graph tracker → total_memory_tracker hierarchy.
   utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker};
 #if USE_JEMALLOC
-  memory::DbArena db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
+  memory::DbArena db_arena_;          //!< Per-DB jemalloc arena with tracking hooks
+  memory::DbArenaScope arena_scope_;  //!< Pins this thread to db_arena_ during initialization
 #endif
-  std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
-  utils::ThreadPool after_commit_trigger_pool_{1};  //!< Thread pool for executing after commit triggers
   query::stream::Streams streams_;                  //!< Streams associated with the storage
-
-  // TODO: Move to a better place
-  query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
+  query::PlanCacheLRU plan_cache_;                  //!< Plan cache associated with the storage
+  utils::ThreadPool after_commit_trigger_pool_{1};  //!< Thread pool for executing after commit triggers
+  std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
 };
 
 }  // namespace memgraph::dbms
