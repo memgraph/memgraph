@@ -915,9 +915,13 @@ class ScanAllCursor : public Cursor {
 
   PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
 
     while (true) {
+      // Profile is created per-iteration so actual_hits counts rows produced, matching the
+      // semantics of the old per-Pull model. The ScopedProfile finds the same stats node by
+      // key on iterations 2..N and simply increments actual_hits; the destructor fires at the
+      // top of the next iteration (when this scope exits after co_yield resumes).
+      SCOPED_PROFILE_OP_BY_REF(self_);
       co_await AbortCheck(context);
 
       while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
@@ -10767,6 +10771,13 @@ class ParallelBranchCursor : public Cursor {
     collection_scheduler_->SetCollection(std::make_shared<utils::TaskCollection>(std::move(tasks)));
     collection_scheduler_->SetPool(context.worker_pool);
 
+    // Capture the parallel operator's stats node now, while context.stats_root still points to it.
+    // Inner branch cursors create their own ScopedProfile children and update context.stats_root during Pull().
+    // Because inner cursor coroutine frames stay alive (held by Cursor::gen_), their ScopedProfile destructors
+    // do not fire after co_return — so context.stats_root remains pointing at the inner cursor's stats node
+    // after branch 0 finishes. Capturing here (before any Pull) gives us the correct node for merge matching.
+    plan::ProfilingStats *parallel_stats = context.stats_root;
+
     // TODO Reuse the same logic as each thread
     // Execute branch 0 on the main thread
     // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case multiple
@@ -10810,7 +10821,6 @@ class ParallelBranchCursor : public Cursor {
     if (pull_result.load() == 0) co_return false;
 
     // Unify context fields from all branches
-    plan::ProfilingStats *parallel_stats = context.stats_root;  // save before resetting the profile
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     const_cast<std::optional<ScopedProfile> &>(profile).reset();
     UnifyContexts(context, branch_contexts, branch_trigger_collectors, branch_frame_collectors, parallel_stats);
