@@ -311,7 +311,6 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() {
   if (status.IsReady()) {
     if (gauge_) gauge_->Decrement();
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveUniqueConstraints);
   }
 }
 
@@ -319,7 +318,6 @@ void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_ti
   status.Commit(commit_timestamp);
   gauge_ = gauge;
   if (gauge_) gauge_->Increment();
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
 }
 
 // --- ActiveConstraints implementation ---
