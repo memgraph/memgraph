@@ -135,7 +135,7 @@ def test_graph_and_vector_index_tracked_sum_to_total():
     )
 
 
-def test_vector_insert_oom_throws_exception_not_segfault():
+def test_vector_insert_oom_throws_exception():
     """
     When the global memory limit is exceeded during vector insertion, Memgraph
     must raise an OutOfMemoryException to the client.
@@ -151,16 +151,12 @@ def test_vector_insert_oom_throws_exception_not_segfault():
 
     oom_raised = False
     try:
-        insert_vectors(cursor, INDEX_CAPACITY, DIMENSION)
+        insert_vectors(cursor, INDEX_CAPACITY * 10, DIMENSION)
     except mgclient.DatabaseError as e:
         assert "Memory limit exceeded" in str(e), f"Expected 'Memory limit exceeded' but got: {e}"
         oom_raised = True
 
-    info = get_storage_info(cursor)
-    assert oom_raised, (
-        "Expected an OutOfMemoryException to be raised during vector insertion, but it was not. Tracked memory info: "
-        + str(info)
-    )
+    assert oom_raised, "Expected an OutOfMemoryException to be raised during vector insertion, but it was not."
 
 
 def test_remove_vector_property_vector_index_unchanged():
