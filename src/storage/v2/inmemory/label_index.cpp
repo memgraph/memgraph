@@ -92,13 +92,11 @@ void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, pro
   status.Commit(commit_timestamp);
   gauge_ = gauge;
   if (gauge_) gauge_->Increment();
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
 }
 
 InMemoryLabelIndex::IndividualIndex::~IndividualIndex() {
   if (status.IsReady()) {
     if (gauge_) gauge_->Decrement();
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
   }
 }
 
