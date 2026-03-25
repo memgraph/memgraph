@@ -218,9 +218,9 @@ auto CoordinatorClusterState::GetDeltasBatchProgressSize() const -> uint64_t {
   return deltas_batch_progress_size_;
 }
 
-auto CoordinatorClusterState::GetInstanceDownTimeoutSec() const -> std::chrono::seconds {
+auto CoordinatorClusterState::GetInstanceDownTimeoutSec() const -> uint32_t {
   auto lock = std::shared_lock{app_lock_};
-  return std::chrono::seconds{instance_down_timeout_sec_};
+  return instance_down_timeout_sec_;
 }
 
 auto CoordinatorClusterState::GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds {
@@ -290,7 +290,7 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
                      {kMaxReplicaReadLag.data(), state.GetMaxReplicaReadLag()},
                      {kDeltasBatchProgressSize.data(), state.GetDeltasBatchProgressSize()},
                      // Added in 3.10.0 version
-                     {kInstanceDownTimeoutSec.data(), state.GetInstanceDownTimeoutSec().count()},
+                     {kInstanceDownTimeoutSec.data(), state.GetInstanceDownTimeoutSec()},
                      {kInstanceHealthCheckFreqSec.data(), state.GetInstanceHealthCheckFrequencySec().count()}};
 }
 

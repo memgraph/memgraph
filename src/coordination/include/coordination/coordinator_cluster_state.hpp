@@ -93,7 +93,7 @@ class CoordinatorClusterState {
 
   auto GetDeltasBatchProgressSize() const -> uint64_t;
 
-  auto GetInstanceDownTimeoutSec() const -> std::chrono::seconds;
+  auto GetInstanceDownTimeoutSec() const -> uint32_t;
 
   auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
 

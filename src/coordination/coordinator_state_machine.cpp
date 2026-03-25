@@ -187,57 +187,49 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
     auto const json = nlohmann::json::parse(bs.get_str());
 
     if (json.contains(kClusterState.data())) {
-      auto const data_instances = json.at(kClusterState.data());
-      delta_state.data_instances_ = data_instances.get<std::vector<DataInstanceContext>>();
+      delta_state.data_instances_ = json[kClusterState.data()].get<std::vector<DataInstanceContext>>();
     }
 
     if (json.contains(kCoordinatorInstances.data())) {
-      auto const coordinator_instances = json.at(kCoordinatorInstances.data());
-      delta_state.coordinator_instances_ = coordinator_instances.get<std::vector<CoordinatorInstanceContext>>();
+      delta_state.coordinator_instances_ =
+          json[kCoordinatorInstances.data()].get<std::vector<CoordinatorInstanceContext>>();
     }
 
     if (json.contains(kUuid.data())) {
-      auto const uuid = json.at(kUuid.data());
-      delta_state.current_main_uuid_ = uuid.get<utils::UUID>();
+      delta_state.current_main_uuid_ = json[kUuid.data()].get<utils::UUID>();
     }
 
     if (json.contains(kEnabledReadsOnMain.data())) {
-      // enabled_reads_on_main policy is added later, read it optionally, otherwise default it to false
-      auto const enabled_reads_on_main = json.value(kEnabledReadsOnMain.data(), false);
-      delta_state.enabled_reads_on_main_ = enabled_reads_on_main;
+      // enabled_reads_on_main policy is added later, read it optionally
+      delta_state.enabled_reads_on_main_ = json[kEnabledReadsOnMain.data()].get<bool>();
+      ;
     }
 
     if (json.contains(kSyncFailoverOnly.data())) {
-      // sync_failover_only policy is added later, read it optionally, otherwise default it to true
-      auto const sync_failover_only = json.value(kSyncFailoverOnly.data(), true);
-      delta_state.sync_failover_only_ = sync_failover_only;
+      // sync_failover_only policy is added later, read it optionally
+      delta_state.sync_failover_only_ = json[kSyncFailoverOnly.data()].get<bool>();
     }
 
     if (json.contains(kMaxFailoverLagOnReplica.data())) {
-      auto const max_failover_replica_lag =
-          json.value(kMaxFailoverLagOnReplica.data(), std::numeric_limits<uint64_t>::max());
-      delta_state.max_failover_replica_lag_ = max_failover_replica_lag;
+      delta_state.max_failover_replica_lag_ = json[kMaxFailoverLagOnReplica.data()].get<uint64_t>();
+      ;
     }
 
     if (json.contains(kMaxReplicaReadLag.data())) {
-      auto const max_replica_read_lag = json.value(kMaxReplicaReadLag.data(), std::numeric_limits<uint64_t>::max());
-      delta_state.max_replica_read_lag_ = max_replica_read_lag;
+      delta_state.max_replica_read_lag_ = json[kMaxReplicaReadLag.data()].get<uint64_t>();
+      ;
     }
 
     if (json.contains(kDeltasBatchProgressSize.data())) {
-      auto const deltas_batch_progress_size =
-          json.value(kDeltasBatchProgressSize.data(), replication_coordination_glue::kDefaultDeltasBatchProgressSize);
-      delta_state.deltas_batch_progress_size_ = deltas_batch_progress_size;
+      delta_state.deltas_batch_progress_size_ = json[kDeltasBatchProgressSize.data()].get<uint64_t>();
     }
 
     if (json.contains(kInstanceDownTimeoutSec.data())) {
-      auto const instance_down_timeout_sec = json.value(kInstanceDownTimeoutSec.data(), uint32_t{5});
-      delta_state.instance_down_timeout_sec_ = instance_down_timeout_sec;
+      delta_state.instance_down_timeout_sec_ = json[kInstanceDownTimeoutSec.data()].get<uint32_t>();
     }
 
     if (json.contains(kInstanceHealthCheckFreqSec.data())) {
-      auto const instance_health_check_frequency_sec = json.value(kInstanceHealthCheckFreqSec.data(), uint32_t{1});
-      delta_state.instance_health_check_frequency_sec_ = instance_health_check_frequency_sec;
+      delta_state.instance_health_check_frequency_sec_ = json[kInstanceHealthCheckFreqSec.data()].get<uint32_t>();
     }
 
     return delta_state;
@@ -435,7 +427,7 @@ auto CoordinatorStateMachine::GetDeltasBatchProgressSize() const -> uint64_t {
   return cluster_state_.GetDeltasBatchProgressSize();
 }
 
-auto CoordinatorStateMachine::GetInstanceDownTimeoutSec() const -> std::chrono::seconds {
+auto CoordinatorStateMachine::GetInstanceDownTimeoutSec() const -> uint32_t {
   return cluster_state_.GetInstanceDownTimeoutSec();
 }
 

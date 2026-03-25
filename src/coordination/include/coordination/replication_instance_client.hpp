@@ -67,6 +67,8 @@ class ReplicationInstanceClient {
   ReplicationInstanceClient(ReplicationInstanceClient &&) noexcept = delete;
   ReplicationInstanceClient &operator=(ReplicationInstanceClient &&) noexcept = delete;
 
+  void UpdateHealthCheckFrequencySec(std::chrono::seconds const &new_config) const;
+
   void StartStateCheck();
   void StopStateCheck();
   void PauseStateCheck();
@@ -114,7 +116,7 @@ class ReplicationInstanceClient {
   CoordinatorInstance *coord_instance_;
 
   std::chrono::seconds instance_health_check_frequency_sec_{1};
-  utils::Scheduler instance_checker_;
+  mutable utils::Scheduler instance_checker_;
 };
 
 }  // namespace memgraph::coordination

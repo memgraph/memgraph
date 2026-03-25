@@ -591,9 +591,7 @@ auto RaftState::GetMaxReplicaReadLag() const -> uint64_t { return state_machine_
 
 auto RaftState::GetDeltasBatchProgressSize() const -> uint64_t { return state_machine_->GetDeltasBatchProgressSize(); }
 
-auto RaftState::GetInstanceDownTimeoutSec() const -> std::chrono::seconds {
-  return state_machine_->GetInstanceDownTimeoutSec();
-}
+auto RaftState::GetInstanceDownTimeoutSec() const -> uint32_t { return state_machine_->GetInstanceDownTimeoutSec(); }
 
 auto RaftState::GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds {
   return state_machine_->GetInstanceHealthCheckFrequencySec();

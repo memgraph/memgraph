@@ -249,8 +249,10 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
       return "unknown";
     }
 
-    return raft_state_->CoordLastSuccRespMs(coordinator_id) < raft_state_->GetInstanceDownTimeoutSec() ? kUp.data()
-                                                                                                       : kDown.data();
+    return raft_state_->CoordLastSuccRespMs(coordinator_id) <
+                   std::chrono::seconds{raft_state_->GetInstanceDownTimeoutSec()}
+               ? kUp.data()
+               : kDown.data();
   };
 
   auto const coordinators = raft_state_->GetCoordinatorInstancesAux();
@@ -1111,6 +1113,22 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     spdlog::error("Aborting the update of coordinator setting {}. Writing to Raft failed.", setting_name);
     return SetCoordinatorSettingStatus::RAFT_LOG_ERROR;
   }
+
+  {
+  }
+  // Kinda like post-commit hooks/callbacks
+  if (setting_name == kInstanceDownTimeoutSec) {
+    auto guard = std::lock_guard{coord_instance_lock_};
+    for (auto const &repl_instance_connector : repl_instances_) {
+      repl_instance_connector.UpdateInstanceDownTimeoutSec(raft_state_->GetInstanceDownTimeoutSec());
+    }
+  } else if (setting_name == kInstanceHealthCheckFreqSec) {
+    auto guard = std::lock_guard{coord_instance_lock_};
+    for (auto const &repl_instance_connector : repl_instances_) {
+      repl_instance_connector.UpdateHealthCheckFrequencySec(raft_state_->GetInstanceHealthCheckFrequencySec());
+    }
+  }
+
   return SetCoordinatorSettingStatus::SUCCESS;
 }
 
@@ -1513,7 +1531,7 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
       std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxFailoverReplicaLag())},
       std::pair{std::string{kMaxReplicaReadLag}, std::to_string(raft_state_->GetMaxReplicaReadLag())},
       std::pair{std::string{kDeltasBatchProgressSize}, std::to_string(raft_state_->GetDeltasBatchProgressSize())},
-      std::pair{std::string{kInstanceDownTimeoutSec}, std::to_string(raft_state_->GetInstanceDownTimeoutSec().count())},
+      std::pair{std::string{kInstanceDownTimeoutSec}, std::to_string(raft_state_->GetInstanceDownTimeoutSec())},
       std::pair{std::string{kInstanceHealthCheckFreqSec},
                 std::to_string(raft_state_->GetInstanceHealthCheckFrequencySec().count())}};
   return settings;
@@ -1571,7 +1589,7 @@ auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
       {{"cluster_size", raft_state_->GetCoordinatorInstancesContext().size()},
        {"enabled_reads_on_main", raft_state_->GetEnabledReadsOnMain()},
        {"sync_failover_only", raft_state_->GetSyncFailoverOnly()},
-       {"instance_down_timeout_sec", raft_state_->GetInstanceDownTimeoutSec().count()},
+       {"instance_down_timeout_sec", raft_state_->GetInstanceDownTimeoutSec()},
        {"instance_health_check_frequency_sec", raft_state_->GetInstanceHealthCheckFrequencySec().count()}});
 }
 
