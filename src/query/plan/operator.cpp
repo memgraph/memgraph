@@ -582,6 +582,7 @@ VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame
     if (!maybe_error) {
       switch (maybe_error.error()) {
         case storage::Error::SERIALIZATION_ERROR:
+          if (context.metric_handles) context.metric_handles->write_write_conflicts->Increment();
           throw TransactionSerializationException();
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set a label on a deleted node.");
@@ -619,7 +620,7 @@ VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame
     }
   }
 
-  MultiPropsInitChecked(&new_node, properties);
+  MultiPropsInitChecked(&new_node, properties, context.metric_handles);
 
   auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
   return frame_writer.Write(node_info.symbol, new_node).ValueVertex();
@@ -774,13 +775,14 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, const storage::EdgeTy
         }
       }
     }
-    if (!properties.empty()) MultiPropsInitChecked(&edge, properties);
+    if (!properties.empty()) MultiPropsInitChecked(&edge, properties, context.metric_handles);
 
     auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     frame_writer.Write(edge_info.symbol, edge);
   } else {
     switch (maybe_edge.error()) {
       case storage::Error::SERIALIZATION_ERROR:
+        if (context.metric_handles) context.metric_handles->write_write_conflicts->Increment();
         throw TransactionSerializationException();
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to create an edge on a deleted node.");
@@ -4928,6 +4930,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (!res) {
       switch (res.error()) {
         case storage::Error::SERIALIZATION_ERROR:
+          if (context.metric_handles) context.metric_handles->write_write_conflicts->Increment();
           throw TransactionSerializationException();
         case storage::Error::VERTEX_HAS_EDGES:
           throw RemoveAttachedVertexException();
@@ -5030,8 +5033,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
             "Setting node property failed: missing SET PROPERTY or UPDATE permission on labels.");
       }
 #endif
-      auto old_value = PropsSetChecked(
-          &lhs.ValueVertex(), self_.property_, rhs, context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+      auto old_value = PropsSetChecked(&lhs.ValueVertex(),
+                                       self_.property_,
+                                       rhs,
+                                       context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                                       context.metric_handles);
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
@@ -5051,8 +5057,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
             "Setting edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
       }
 #endif
-      auto old_value = PropsSetChecked(
-          &lhs.ValueEdge(), self_.property_, rhs, context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+      auto old_value = PropsSetChecked(&lhs.ValueEdge(),
+                                       self_.property_,
+                                       rhs,
+                                       context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                                       context.metric_handles);
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid
@@ -5212,7 +5221,8 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
     auto old_stored_value = PropsSetChecked(record,
                                             self_.property_path_[0],
                                             reconstructed_property_value,
-                                            context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+                                            context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                                            context.metric_handles);
     context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterSetObjectProperty(
@@ -5323,6 +5333,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
+          if (context->metric_handles) context->metric_handles->write_write_conflicts->Increment();
           throw TransactionSerializationException();
         case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
@@ -5377,7 +5388,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
   };
 
   auto update_props = [&, record](PropertiesMap &new_properties) {
-    auto updated_properties = UpdatePropertiesChecked(record, new_properties);
+    auto updated_properties = UpdatePropertiesChecked(record, new_properties, context->metric_handles);
     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
     context->execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += new_properties.size();
 
@@ -5582,6 +5593,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
       if (!maybe_value) {
         switch (maybe_value.error()) {
           case storage::Error::SERIALIZATION_ERROR:
+            if (context.metric_handles) context.metric_handles->write_write_conflicts->Increment();
             throw TransactionSerializationException();
           case storage::Error::DELETED_OBJECT:
             throw QueryRuntimeException("Trying to set a label on a deleted node.");
@@ -5661,6 +5673,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to remove a property on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
+          if (context.metric_handles) context.metric_handles->write_write_conflicts->Increment();
           throw TransactionSerializationException();
         case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException(
@@ -5802,7 +5815,8 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
     auto old_stored_value = PropsSetChecked(record,
                                             self_.property_path_[0],
                                             reconstructed_property_value,
-                                            context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+                                            context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                                            context.metric_handles);
     context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterSetObjectProperty(
@@ -5930,6 +5944,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
       if (!maybe_value) {
         switch (maybe_value.error()) {
           case storage::Error::SERIALIZATION_ERROR:
+            if (context.metric_handles) context.metric_handles->write_write_conflicts->Increment();
             throw TransactionSerializationException();
           case storage::Error::DELETED_OBJECT:
             throw QueryRuntimeException("Trying to remove labels from a deleted node.");

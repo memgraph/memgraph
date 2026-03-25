@@ -12,6 +12,11 @@
 #pragma once
 
 #include <atomic>
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 #include <memory>
 #include <type_traits>
 
@@ -128,6 +133,7 @@ struct ExecutionContext {
   bool is_main{true};
   std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
   utils::PriorityThreadPool *worker_pool{nullptr};
+  metrics::DatabaseMetricHandles *metric_handles{nullptr};
 
   auto commit_args() -> storage::CommitArgs;
 };

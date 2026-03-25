@@ -260,6 +260,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.evaluation_context.memory = execution_memory;
   ctx.protector = dbms::DatabaseProtector{db_acc}.clone();
   ctx.is_main = is_main;
+  ctx.metric_handles = db_acc->metric_handles();
   // used for authorization checks
   ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
   // used for username() and roles() functions
