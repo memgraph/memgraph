@@ -315,11 +315,14 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
   map.emplace("nodes", Value(vertices));
 
   std::vector<Value> edges;
-  edges.reserve(graph.edges().size());
+  edges.reserve(graph.edges().size() + graph.virtual_edge_store().size());
   for (const auto &e : graph.edges()) {
     auto maybe_edge = ToBoltEdge(e, db, view);
     if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     edges.emplace_back(std::move(*maybe_edge));
+  }
+  for (const auto &ve : graph.virtual_edge_store().edges()) {
+    edges.emplace_back(ToBoltEdge(ve, db));
   }
   map.emplace("edges", Value(edges));
 
