@@ -285,6 +285,19 @@ storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, c
   return communication::bolt::Path(vertices, edges);
 }
 
+static communication::bolt::Vertex ToBoltVertex(const query::VertexAccessor &vertex,
+                                                const query::NodeOverride &node_override, const storage::Storage &db) {
+  auto id = communication::bolt::Id::FromUint(vertex.Gid().AsUint());
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : node_override.properties) {
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  return {.id = id,
+          .labels = node_override.labels,
+          .properties = std::move(properties),
+          .element_id = std::to_string(id.AsInt())};
+}
+
 storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db, storage::View view) {
   bolt_map_t map;
   std::vector<Value> vertices;
@@ -292,13 +305,7 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
   const auto &overrides = graph.node_override_store();
   for (const auto &v : graph.vertices()) {
     if (const auto *node_override = overrides.Find(v.Gid())) {
-      auto id = communication::bolt::Id::FromUint(v.Gid().AsUint());
-      bolt_map_t properties;
-      for (const auto &[prop_id, prop_value] : node_override->properties) {
-        properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
-      }
-      vertices.emplace_back(
-          communication::bolt::Vertex{id, node_override->labels, std::move(properties), std::to_string(id.AsInt())});
+      vertices.emplace_back(ToBoltVertex(v, *node_override, db));
     } else {
       auto maybe_vertex = ToBoltVertex(v, db, view);
       if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
