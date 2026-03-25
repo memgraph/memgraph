@@ -6191,6 +6191,7 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
       return TypedValue(TypedValue::TMap(memory));
     case Aggregation::Op::PROJECT_PATH:
     case Aggregation::Op::PROJECT_LISTS:
+    case Aggregation::Op::PROJECT_PATH_OPTIONS:
       return TypedValue(query::Graph(memory));
   }
 }
@@ -6406,6 +6407,7 @@ class AggregateCursor : public Cursor {
   // this LogicalOp pulls all from the input on it's first pull
   // this switch tracks if this has been performed
   bool pulled_all_input_{false};
+  DbAccessor *db_accessor_{nullptr};
 
   /**
    * Pulls from the input operator until exhausted and aggregates the
@@ -6417,6 +6419,7 @@ class AggregateCursor : public Cursor {
    * aggregation results, and not on the number of inputs.
    */
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
+    db_accessor_ = context->db_accessor;
     ExpressionEvaluator evaluator(frame,
                                   context->symbol_table,
                                   context->evaluation_context,
@@ -6463,6 +6466,7 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::COLLECT_MAP:
         case Aggregation::Op::PROJECT_PATH:
         case Aggregation::Op::PROJECT_LISTS:
+        case Aggregation::Op::PROJECT_PATH_OPTIONS:
           break;
       }
     }
@@ -6569,6 +6573,11 @@ class AggregateCursor : public Cursor {
             ProjectList(input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
             break;
           }
+          case Aggregation::Op::PROJECT_PATH_OPTIONS: {
+            ProjectPathWithOptions(
+                input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
+            break;
+          }
           case Aggregation::Op::COLLECT_MAP:
             auto key = agg_elem.arg2->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
@@ -6629,6 +6638,10 @@ class AggregateCursor : public Cursor {
           ProjectList(input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
           break;
         }
+        case Aggregation::Op::PROJECT_PATH_OPTIONS: {
+          ProjectPathWithOptions(input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
+          break;
+        }
         case Aggregation::Op::COLLECT_MAP:
           auto key = agg_elem.arg2->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
@@ -6654,6 +6667,76 @@ class AggregateCursor : public Cursor {
     }
 
     projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
+  }
+
+  void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value, Graph &projected_graph) {
+    if (path_value.type() != TypedValue::Type::Path) {
+      throw QueryRuntimeException("project_virtual() requires a path as argument 1.");
+    }
+    if (options_value.type() != TypedValue::Type::Map) {
+      throw QueryRuntimeException(
+          "project_virtual() argument 2 must be a map of options (e.g. {virtualEdgeType: 'TYPE'}).");
+    }
+
+    const auto &options = options_value.ValueMap();
+    auto it = options.find("virtualEdgeType");
+    if (it == options.end() || it->second.type() != TypedValue::Type::String) {
+      throw QueryRuntimeException("project_virtual() options map must contain a 'virtualEdgeType' string key.");
+    }
+    std::string edge_type_name{it->second.ValueString()};
+
+    const auto &path = path_value.ValuePath();
+    const auto &path_vertices = path.vertices();
+    if (path_vertices.size() < 2) {
+      if (!path_vertices.empty()) {
+        projected_graph.InsertVertex(path_vertices.front());
+      }
+      return;
+    }
+
+    // Only insert endpoints — intermediate vertices are not part of the projected graph.
+    const auto &from = path_vertices.front();
+    const auto &to = path_vertices.back();
+    projected_graph.InsertVertex(from);
+    projected_graph.InsertVertex(to);
+
+    VirtualEdge ve(from, to, std::move(edge_type_name));
+
+    auto props_it = options.find("relationshipProperties");
+    if (props_it != options.end() && props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
+      for (const auto &[key, val] : props_it->second.ValueMap()) {
+        auto prop_id = db_accessor_->NameToProperty(key);
+        ve.SetProperty(prop_id, val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+      }
+    }
+
+    projected_graph.virtual_edge_store().InsertIfNew(std::move(ve));
+
+    auto apply_node_override = [&](const VertexAccessor &vertex, const char *labels_key, const char *props_key) {
+      auto labels_it = options.find(labels_key);
+      auto node_props_it = options.find(props_key);
+      if (labels_it == options.end() && node_props_it == options.end()) return;
+
+      NodeOverride node_override;
+      if (labels_it != options.end() && labels_it->second.type() == TypedValue::Type::List) {
+        for (const auto &label : labels_it->second.ValueList()) {
+          if (label.type() == TypedValue::Type::String) {
+            node_override.labels.emplace_back(label.ValueString());
+          }
+        }
+      }
+      if (node_props_it != options.end() && node_props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
+        for (const auto &[key, val] : node_props_it->second.ValueMap()) {
+          auto prop_id = db_accessor_->NameToProperty(key);
+          node_override.properties[prop_id] =
+              val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper());
+        }
+      }
+      projected_graph.node_override_store().Set(vertex.Gid(), std::move(node_override));
+    };
+
+    apply_node_override(from, "sourceNodeLabels", "sourceNodeProperties");
+    apply_node_override(to, "targetNodeLabels", "targetNodeProperties");
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
@@ -10680,9 +10763,8 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             break;
           }
           case Aggregation::Op::PROJECT_PATH:
-          case Aggregation::Op::PROJECT_LISTS: {
-            // For Graph projections, deduplication is handled by the Graph object internally.
-            // We can ignore the set check to save hash-lookup costs.
+          case Aggregation::Op::PROJECT_LISTS:
+          case Aggregation::Op::PROJECT_PATH_OPTIONS: {
             auto &main_graph = main_value.ValueGraph();
             auto &other_graph = other_value.ValueGraph();
             for (auto &vertex : other_graph.vertices()) {
@@ -10690,6 +10772,9 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             }
             for (auto &edge : other_graph.edges()) {
               main_graph.InsertEdge(std::move(edge));
+            }
+            for (auto &ve : other_graph.virtual_edge_store().edges()) {
+              main_graph.virtual_edge_store().Insert(std::move(ve));
             }
             break;
           }
@@ -10764,7 +10849,8 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::PROJECT_PATH:
-        case Aggregation::Op::PROJECT_LISTS: {
+        case Aggregation::Op::PROJECT_LISTS:
+        case Aggregation::Op::PROJECT_PATH_OPTIONS: {
           auto &main_graph = main_value.ValueGraph();
           auto &other_graph = other_value.ValueGraph();
           for (auto &vertex : other_graph.vertices()) {
@@ -10772,6 +10858,9 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           }
           for (auto &edge : other_graph.edges()) {
             main_graph.InsertEdge(std::move(edge));
+          }
+          for (auto &ve : other_graph.virtual_edge_store().edges()) {
+            main_graph.virtual_edge_store().Insert(std::move(ve));
           }
           break;
         }

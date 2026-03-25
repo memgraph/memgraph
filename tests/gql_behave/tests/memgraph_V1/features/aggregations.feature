@@ -676,6 +676,212 @@ Feature: Aggregations
             """
         Then an error should be raised
 
+    Scenario: Virtual edge projection returns only endpoints from a multi-hop path
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            """
+        Then the result should be:
+            | n | e |
+            | 2 | 1 |
+
+    Scenario: Virtual edge projection with property access
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED', relationshipProperties: {score: 10}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.score AS s
+            """
+        Then the result should be:
+            | s  |
+            | 10 |
+
+    Scenario: Virtual edge type() function works
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN type(e) AS t
+            """
+        Then the result should be:
+            | t             |
+            | 'CONNECTED'   |
+
+    Scenario: Virtual edge projection deduplicates edges between same endpoints
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (d:N {x:4}), (a)-[:R]->(b), (b)-[:R]->(c), (a)-[:R]->(d), (d)-[:R]->(c)
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'LINKED'}) AS graph RETURN size(graph.edges) AS e
+            """
+        Then the result should be:
+            | e |
+            | 1 |
+
+    Scenario: Virtual edge projection with single-hop path
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            """
+        Then the result should be:
+            | n | e |
+            | 2 | 1 |
+
+    Scenario: Virtual edge projection errors if virtualEdgeType key is missing
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {}) AS graph RETURN graph
+            """
+        Then an error should be raised
+
+    Scenario: Virtual edge projection errors if first argument is not a path
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})
+            """
+        When executing query:
+            """
+            MATCH (n:N {x:1}) WITH project_virtual(n, {virtualEdgeType: 'X'}) AS graph RETURN graph
+            """
+        Then an error should be raised
+
+    Scenario: Virtual edge projection with relationshipProperties
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED', relationshipProperties: {weight: 42}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.weight AS w
+            """
+        Then the result should be:
+            | w  |
+            | 42 |
+
+    Scenario: Virtual edge startNode and endNode functions
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN startNode(e).x AS s, endNode(e).x AS t
+            """
+        Then the result should be:
+            | s | t |
+            | 1 | 3 |
+
+    Scenario: Virtual edge id function
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN id(e) IS NOT NULL AS has_id
+            """
+        Then the result should be:
+            | has_id |
+            | true   |
+
+    Scenario: Virtual edge properties and keys functions
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})-[:R]->(c:N {x:3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'V', relationshipProperties: {w: 5}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN properties(e) AS props, keys(e) AS k
+            """
+        Then the result should be:
+            | props  | k    |
+            | {w:5}  | ['w'] |
+
+    Scenario: RETURN subgraph includes virtual edges in output
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1})-[:R]->(b:N {x:2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph WITH graph AS g RETURN size(g.edges) AS e, size(g.nodes) AS n
+            """
+        Then the result should be:
+            | e | n |
+            | 1 | 2 |
+
+    Scenario: Virtual node overrides do not affect vertex count
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x: 1})-[:R]->(b:N {x: 2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH project_virtual(p, {virtualEdgeType: 'V', sourceNodeLabels: ['Expert'], sourceNodeProperties: {score: 99}}) AS graph RETURN size(graph.nodes) AS n
+            """
+        Then the result should be:
+            | n |
+            | 2 |
+
+    Scenario: Virtual node targetNodeLabels and targetNodeProperties
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x: 1})-[:R]->(b:N {x: 2})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH project_virtual(p, {virtualEdgeType: 'V', targetNodeLabels: ['Target'], targetNodeProperties: {rank: 7}}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            """
+        Then the result should be:
+            | n | e |
+            | 2 | 1 |
+
+    Scenario: Virtual node and edge properties in same projection
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x: 1})-[:R]->(b:N {x: 2})-[:R]->(c:N {x: 3})
+            """
+        When executing query:
+            """
+            MATCH p=(:N {x: 1})-[*]->(:N {x: 3}) WITH project_virtual(p, {virtualEdgeType: 'V', relationshipProperties: {w: 10}, sourceNodeProperties: {score: 5}, targetNodeProperties: {score: 8}}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            """
+        Then the result should be:
+            | n | e |
+            | 2 | 1 |
+
     Scenario: Empty collect aggregation:
       Given an empty graph
       And having executed

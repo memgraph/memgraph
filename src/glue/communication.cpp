@@ -115,6 +115,10 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
   return ToBoltEdge(edge.impl_, db, view);
 }
 
+namespace {
+communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db);
+}  // namespace
+
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
   auto check_db = [db]() {
     if (db == nullptr) [[unlikely]]
@@ -209,6 +213,11 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return storage::Result<Value>{std::in_place, value.ValuePoint3d()};
     }
 
+    case query::TypedValue::Type::VirtualEdge: {
+      check_db();
+      return storage::Result<Value>{std::in_place, ToBoltEdge(value.ValueVirtualEdge(), *db)};
+    }
+
     // Unsupported conversions
     case query::TypedValue::Type::Function: {
       throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
@@ -276,23 +285,44 @@ storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, c
   return communication::bolt::Path(vertices, edges);
 }
 
+static communication::bolt::Vertex ToBoltVertex(const query::VertexAccessor &vertex,
+                                                const query::NodeOverride &node_override, const storage::Storage &db) {
+  auto id = communication::bolt::Id::FromUint(vertex.Gid().AsUint());
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : node_override.properties) {
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  return {.id = id,
+          .labels = node_override.labels,
+          .properties = std::move(properties),
+          .element_id = std::to_string(id.AsInt())};
+}
+
 storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db, storage::View view) {
   bolt_map_t map;
   std::vector<Value> vertices;
   vertices.reserve(graph.vertices().size());
+  const auto &overrides = graph.node_override_store();
   for (const auto &v : graph.vertices()) {
-    auto maybe_vertex = ToBoltVertex(v, db, view);
-    if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
-    vertices.emplace_back(std::move(*maybe_vertex));
+    if (const auto *node_override = overrides.Find(v.Gid())) {
+      vertices.emplace_back(ToBoltVertex(v, *node_override, db));
+    } else {
+      auto maybe_vertex = ToBoltVertex(v, db, view);
+      if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
+      vertices.emplace_back(std::move(*maybe_vertex));
+    }
   }
   map.emplace("nodes", Value(vertices));
 
   std::vector<Value> edges;
-  edges.reserve(graph.edges().size());
+  edges.reserve(graph.edges().size() + graph.virtual_edge_store().size());
   for (const auto &e : graph.edges()) {
     auto maybe_edge = ToBoltEdge(e, db, view);
     if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     edges.emplace_back(std::move(*maybe_edge));
+  }
+  for (const auto &ve : graph.virtual_edge_store().edges()) {
+    edges.emplace_back(ToBoltEdge(ve, db));
   }
   map.emplace("edges", Value(edges));
 
@@ -466,5 +496,25 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
     }
   }
 }
+
+namespace {
+communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db) {
+  auto from_id = ve.From().Gid();
+  auto to_id = ve.To().Gid();
+  auto edge_id = ve.Gid();
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : ve.Properties()) {
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  return {.id = communication::bolt::Id::FromUint(edge_id.AsUint()),
+          .from = communication::bolt::Id::FromUint(from_id.AsUint()),
+          .to = communication::bolt::Id::FromUint(to_id.AsUint()),
+          .type = ve.EdgeTypeName(),
+          .properties = std::move(properties),
+          .element_id = edge_id.ToString(),
+          .from_element_id = from_id.ToString(),
+          .to_element_id = to_id.ToString()};
+}
+}  // namespace
 
 }  // namespace memgraph::glue

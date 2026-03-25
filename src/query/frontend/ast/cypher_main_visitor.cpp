@@ -3646,6 +3646,9 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::PROJECT_PATH, is_distinct));
     }
+    if (upper_function_name == Aggregation::kProjectVirtual) {
+      throw SemanticException("project_virtual() requires exactly 2 arguments: a path and an options map.");
+    }
   }
 
   if (expressions.size() == 2U) {
@@ -3656,6 +3659,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
     if (upper_function_name == Aggregation::kProject) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], expressions[1], Aggregation::Op::PROJECT_LISTS, is_distinct));
+    }
+    if (upper_function_name == Aggregation::kProjectVirtual) {
+      return static_cast<Expression *>(storage_->Create<Aggregation>(
+          expressions[0], expressions[1], Aggregation::Op::PROJECT_PATH_OPTIONS, is_distinct));
     }
   }
 

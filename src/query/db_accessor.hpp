@@ -18,6 +18,7 @@
 #include "query/hops_limit.hpp"
 #include "query/typed_value.hpp"
 #include "query/vertex_accessor.hpp"
+#include "query/virtual_edge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -41,6 +42,7 @@
 #include <cstdint>
 #include <optional>
 #include <ranges>
+#include <span>
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -77,9 +79,7 @@ class SubgraphVertexAccessor final {
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(view, key);
-  }
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const;
 
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
     return impl_.GetPropertySize(key, view);
@@ -101,6 +101,9 @@ class SubgraphVertexAccessor final {
   }
 
   VertexAccessor GetVertexAccessor() const;
+
+  std::span<const VirtualEdge> VirtualOutEdges() const;
+  std::span<const VirtualEdge> VirtualInEdges() const;
 };
 }  // namespace memgraph::query
 
