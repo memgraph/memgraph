@@ -1033,7 +1033,7 @@ std::optional<RecoveryInfo> LoadWal(
         std::optional<VertexKey> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
-        if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels);
+        if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
         VectorIndexRecovery::UpdateOnLabelAddition(
             label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },
@@ -1049,7 +1049,7 @@ std::optional<RecoveryInfo> LoadWal(
         if (schema_info) old_labels.emplace(vertex->labels);
         std::swap(*it, vertex->labels.back());
         vertex->labels.pop_back();
-        if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels);
+        if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
         VectorIndexRecovery::UpdateOnLabelRemoval(
             label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },
