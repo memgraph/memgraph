@@ -911,12 +911,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     if (config_.storage_light_edge) {
       // Light edge: allocate from pool, store only in vertex adjacency lists (no global skip list).
       auto *delta = CreateDeleteObjectDelta(&transaction_);
-      auto *edge_ptr = [&]() -> Edge * {
-        if (auto *mr = mem_storage->light_edge_pool_.get()) {
-          return new (mr->allocate(sizeof(Edge), alignof(Edge))) Edge(gid, delta);
-        }
-        return new Edge(gid, delta);
-      }();
+      DMG_ASSERT(mem_storage->light_edge_pool_, "Light edge pool must be initialized!");
+      auto *edge_ptr =
+          std::pmr::polymorphic_allocator<Edge>{mem_storage->light_edge_pool_.get()}.new_object<Edge>(gid, delta);
       if (delta) {
         delta->prev.Set(edge_ptr);
       }
@@ -3024,7 +3021,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // To avoid holding the SpinLock across the heavy index-cleanup work we swap the
   // list out under the lock, process off-lock, then splice everything back.
   if (light_edges) {
-    const uint64_t post_cleanup_epoch = light_edge_iterable_tracker_.CurrentEpoch();
     std::list<LightEdgeGraveyardEntry> local_graveyard;
     light_edge_graveyard_.WithLock([&](auto &graveyard) { local_graveyard.swap(graveyard); });
 
@@ -3038,7 +3034,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           }
           indices_.RemoveEdgesFromVectorEdgeIndices(gids_to_remove);
         }
-        entry.guard_epoch = post_cleanup_epoch;
+        entry.guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
         entry.index_cleaned = true;
       }
     }
