@@ -220,7 +220,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       state = ReplicaState::RECOVERY;
       client_.thread_pool_.AddTask(
           [main_storage, gk = protector.clone(), this, arena_idx = main_storage->config_.arena_idx] {
-            memory::DbArenaFullScope db_arena_scope{arena_idx};
+            const memory::DbArenaFullScope db_arena_scope{arena_idx};
             this->RecoverReplica(/*replica_last_commit_ts*/ 0,
                                  main_storage,
                                  true);  // needs force reset so we need to recover from 0.

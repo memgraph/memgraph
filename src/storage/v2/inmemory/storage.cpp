@@ -502,6 +502,10 @@ InMemoryStorage::~InMemoryStorage() {
     // Stop replication (Stop all clients or stop the REPLICA server)
     repl_storage_state_.Reset();
   }
+  // Must stop all background tasks (async indexer, TTL) before finalizing WAL:
+  // both commit transactions that write to wal_file_, so resetting wal_file_ while
+  // they are still running causes a null dereference in HandleDurabilityAndReplicate.
+  StopAllBackgroundTasks();
   if (wal_file_) {
     wal_file_->FinalizeWal();
     wal_file_.reset();
