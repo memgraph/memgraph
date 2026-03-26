@@ -9922,6 +9922,18 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
+RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path const &path,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                        NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                                        Config const &config, EnumStore *enum_store,
+                                        SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
+                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                    edge_count, config, enum_store, schema_info, ttl, nullptr, snapshot_info);
+}
+
 }  // namespace
 
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
@@ -10137,20 +10149,19 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     case 32U:
       [[fallthrough]];
     case 33U: {
-      return LoadCurrentVersionSnapshot(snapshot,
-                                        path,
-                                        vertices,
-                                        edges,
-                                        edges_metadata,
-                                        epoch_history,
-                                        name_id_mapper,
-                                        edge_count,
-                                        config,
-                                        enum_store,
-                                        schema_info,
-                                        ttl,
-                                        nullptr,
-                                        snapshot_info);
+      return LoadSnapshotVersion33(snapshot,
+                                   path,
+                                   vertices,
+                                   edges,
+                                   edges_metadata,
+                                   epoch_history,
+                                   name_id_mapper,
+                                   edge_count,
+                                   config,
+                                   enum_store,
+                                   schema_info,
+                                   ttl,
+                                   snapshot_info);
     }
     case 34U: {
       return LoadCurrentVersionSnapshot(snapshot,
