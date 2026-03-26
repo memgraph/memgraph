@@ -33,7 +33,6 @@
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/logging.hpp"
-#include "glue/MonitoringServerT.hpp"
 #include "glue/PrometheusServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
@@ -61,7 +60,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/readable_size.hpp"
@@ -77,10 +75,6 @@
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
-
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-}  // namespace memgraph::metrics
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -843,13 +837,9 @@ int main(int argc, char **argv) {
     spdlog::error("Skipping adding logger sync for websocket.");
   }
 
-// TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
-  memgraph::glue::MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
-  spdlog::trace("Metrics server created.");
-  // TODO: replace hardcoded port 9092 with FLAGS_metrics_port once old metrics server is removed
-  memgraph::glue::PrometheusServerT prometheus_server{{"localhost", 9092}, &memgraph::metrics::Metrics(), &context};
+  memgraph::glue::PrometheusServerT prometheus_server{
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &memgraph::metrics::Metrics(), &context};
   spdlog::trace("Prometheus metrics server created.");
 #endif
 
@@ -857,7 +847,6 @@ int main(int argc, char **argv) {
   auto shutdown = [
 #ifdef MG_ENTERPRISE
                       &coordinator_state,
-                      &metrics_server,
                       &prometheus_server,
 #endif
                       &websocket_server,
@@ -900,7 +889,6 @@ int main(int argc, char **argv) {
     interpreter_context_.Shutdown();
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
-    metrics_server.Shutdown();
     prometheus_server.Shutdown();
     if (coordinator_state && coordinator_state->IsCoordinator()) {
       // Coordinator instance destruction will handle the complete shutdown
@@ -919,8 +907,6 @@ int main(int argc, char **argv) {
   spdlog::trace("Web socket server started.");
 
 #ifdef MG_ENTERPRISE
-  metrics_server.Start();
-  spdlog::trace("Metrics server started");
   prometheus_server.Start();
   spdlog::trace("Prometheus metrics server started");
 #endif
@@ -951,7 +937,6 @@ int main(int argc, char **argv) {
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
-  metrics_server.AwaitShutdown();
   prometheus_server.AwaitShutdown();
 #endif
   try {

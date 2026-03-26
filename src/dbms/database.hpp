@@ -18,8 +18,6 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/gatekeeper.hpp"
 
 namespace memgraph::metrics {
@@ -203,14 +201,7 @@ class Database {
   // TODO: Move to a better place
   query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
 
-  std::unique_ptr<metrics::Counter[]> counters_storage_;
-  std::unique_ptr<metrics::Histogram[]> histograms_storage_;
-
   metrics::DatabaseMetricHandles *metric_handles_{nullptr};
-
- public:
-  metrics::EventCounters counters;
-  metrics::EventHistograms histograms;
 };
 
 }  // namespace memgraph::dbms
