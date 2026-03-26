@@ -7465,6 +7465,37 @@ TEST_P(CypherMainVisitorTest, ShowSchemaInfoQuery) {
   ASSERT_NE(query, nullptr);
 }
 
+TEST_P(CypherMainVisitorTest, ReloadSSLQuery) {
+  auto &ast_generator = *GetParam();
+
+  // Valid: RELOAD SSL FOR BOLT_SERVER
+  {
+    const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("RELOAD SSL FOR BOLT_SERVER;"));
+    ASSERT_NE(query, nullptr);
+  }
+
+  // Case insensitivity
+  {
+    const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("reload ssl for bolt_server;"));
+    ASSERT_NE(query, nullptr);
+  }
+
+  // Invalid: missing FOR keyword
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("RELOAD SSL BOLT_SERVER;"), SyntaxException);
+  }
+
+  // Invalid: missing BOLT_SERVER
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("RELOAD SSL FOR;"), SyntaxException);
+  }
+
+  // Invalid: missing SSL
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("RELOAD FOR BOLT_SERVER;"), SyntaxException);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, TtlQuery) {
   auto &ast_generator = *GetParam();
   {

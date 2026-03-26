@@ -4789,6 +4789,32 @@ PreparedQuery PrepareDropAllConstraintsQuery(ParsedQuery parsed_query, bool in_e
       .rw_type = RWType::NONE};
 }
 
+PreparedQuery PrepareReloadSSLQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                    std::vector<Notification> *notifications) {
+  if (in_explicit_transaction) {
+    throw ReloadSSLMulticommandTxException();
+  }
+
+  // TODO: (andi) Do you need some database accessor? If not/yes, do you need also to specialize access type for this
+  // query
+
+  std::function<void(Notification &)> handler = [](Notification & /*notification*/) mutable {
+
+  };
+  Notification notification(SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloading SSL for Bolt server");
+
+  return PreparedQuery{.header = {},
+                       .privileges = std::move(parsed_query.required_privileges),
+                       .query_handler =
+                           [handler = std::move(handler), notifications, notification = std::move(notification)](
+                               AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+                             handler(notification);
+                             notifications->push_back(notification);
+                             return QueryHandlerResult::COMMIT;
+                           },
+                       .rw_type = RWType::NONE};
+}
+
 #ifdef MG_ENTERPRISE
 PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                               std::vector<Notification> *notifications, CurrentDB &current_db,
@@ -8537,6 +8563,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     accessor_type_ = storage::StorageAccessType::UNIQUE;
   }
 
+  void Visit(ReloadSSLQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+
   void Visit(RecoverSnapshotQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
 
   // Read access required
@@ -8858,6 +8886,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #else
       throw EnterpriseOnlyException();
 #endif  // MG_ENTERPRISE
+    } else if (utils::Downcast<ReloadSSLQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareReloadSSLQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications);
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {

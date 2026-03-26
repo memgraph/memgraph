@@ -554,6 +554,12 @@ class EnumModificationInMulticommandTxException : public MulticommandTxException
   SPECIALIZE_GET_EXCEPTION_NAME(EnumModificationInMulticommandTxException)
 };
 
+class ReloadSSLMulticommandTxException : public MulticommandTxException {
+ public:
+  ReloadSSLMulticommandTxException() : MulticommandTxException("Reloading SSL") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ReloadSSLMulticommandTxException)
+};
+
 class TtlInMulticommandTxException : public MulticommandTxException {
  public:
   TtlInMulticommandTxException() : MulticommandTxException("Configuring TTL") {}

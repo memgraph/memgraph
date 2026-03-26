@@ -4072,6 +4072,12 @@ antlrcpp::Any CypherMainVisitor::visitShowSchemaInfoQuery(MemgraphCypher::ShowSc
   return show_schema_info_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitReloadSSLQuery(MemgraphCypher::ReloadSSLQueryContext * /*ctx*/) {
+  auto *reload_ssl_query = storage_->Create<ReloadSSLQuery>();
+  query_ = reload_ssl_query;
+  return reload_ssl_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitTtlQuery(MemgraphCypher::TtlQueryContext *ctx) {
   auto *ttl_query = storage_->Create<TtlQuery>();
   if (auto *manip = ctx->stopTtlQuery()) {
