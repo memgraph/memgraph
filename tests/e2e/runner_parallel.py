@@ -13,6 +13,7 @@
 
 import copy
 import io
+import json
 import logging
 import os
 import re
@@ -370,7 +371,15 @@ def _prepare_workload_for_worker(workload, worker_slot, port_offset_step):
                 config["data_directory"] = _append_suffix(config["data_directory"], suffix)
 
     prepared["args"] = _replace_port_flags_with_map(prepared.get("args", []), port_map)
-    return prepared, namespace_start
+    return prepared, namespace_start, port_map
+
+
+def _extend_pythonpath(env, path):
+    existing = env.get("PYTHONPATH", "")
+    if not existing:
+        env["PYTHONPATH"] = path
+    else:
+        env["PYTHONPATH"] = f"{path}{os.pathsep}{existing}"
 
 
 def _run_and_capture(command, env):
@@ -397,13 +406,23 @@ def run_single_workload(workload, worker_slot, args_dict):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
 
     env = os.environ.copy()
-    prepared, port_namespace_start = _prepare_workload_for_worker(workload, worker_slot, args_dict["port_offset_step"])
+    prepared, port_namespace_start, port_map = _prepare_workload_for_worker(
+        workload, worker_slot, args_dict["port_offset_step"]
+    )
     env["MEMGRAPH_PARALLEL_PROCESS_INDEX"] = str(worker_slot)
     env["MEMGRAPH_PORT_OFFSET"] = str(port_namespace_start)
     env["MEMGRAPH_PORT_NAMESPACE_START"] = str(port_namespace_start)
+    env["MEMGRAPH_E2E_PORT_MAP"] = json.dumps(port_map)
+    _extend_pythonpath(env, SCRIPT_DIR)
     if "cluster" in prepared and prepared["cluster"]:
-        first_instance_config = next(iter(prepared["cluster"].values()))
-        env["MEMGRAPH_BOLT_PORT"] = str(_extract_bolt_port_from_args(first_instance_config.get("args", [])))
+        first_instance_name, first_instance_config = next(iter(prepared["cluster"].items()))
+        first_instance_bolt_port = _extract_bolt_port_from_args(first_instance_config.get("args", []))
+        env["MEMGRAPH_BOLT_PORT"] = str(first_instance_bolt_port)
+        env["MEMGRAPH_HOST"] = "127.0.0.1"
+        env["MEMGRAPH_PORT"] = str(first_instance_bolt_port)
+        env["MG_HOST"] = "127.0.0.1"
+        env["MG_PORT"] = str(first_instance_bolt_port)
+        env["MEMGRAPH_INSTANCE_NAME"] = first_instance_name
 
     gdb_port = None
     if args_gdb:
