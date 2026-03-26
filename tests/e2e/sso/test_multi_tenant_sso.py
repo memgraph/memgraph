@@ -149,7 +149,7 @@ def multi_tenant_setup(request):
 def test_admin_full_privileges(multi_tenant_setup):
     """Test admin user with full privileges across all databases."""
 
-    response = base64.b64encode(b"multi_role_admin").decode("utf-8")
+    response = base64.b64encode(b"admin_user").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
@@ -858,7 +858,7 @@ def test_no_main_database_user(multi_tenant_setup):
 def test_label_based_authorization_hierarchy(multi_tenant_setup):
     """Test the label-based authorization levels."""
 
-    response = base64.b64encode(b"multi_role_admin").decode("utf-8")
+    response = base64.b64encode(b"admin_user").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
@@ -956,7 +956,7 @@ def test_label_permission_denial(multi_tenant_setup):
 def test_edge_type_authorization_hierarchy(multi_tenant_setup):
     """Test the edge type authorization levels"""
 
-    response = base64.b64encode(b"multi_role_admin").decode("utf-8")
+    response = base64.b64encode(b"admin_user").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
