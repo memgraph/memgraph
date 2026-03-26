@@ -37,10 +37,6 @@
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace memgraph::metrics {
-extern const Event ActiveBoltSessions;
-}  // namespace memgraph::metrics
-
 namespace {
 
 #ifdef MG_ENTERPRISE
