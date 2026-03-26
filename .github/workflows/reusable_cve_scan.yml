@@ -69,12 +69,58 @@ jobs:
       - name: Install Trivy
         if: ${{ inputs.run_trivy }}
         run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b "${{ env.CVE_DIR }}/trivy" latest
+          TRIVY_VERSION="0.69.3"
+          TRIVY_DIR="${{ env.CVE_DIR }}/trivy"
+          TRIVY_ARCHIVE="${{ env.CVE_DIR }}/trivy_${TRIVY_VERSION}.tar.gz"
+
+          case "$ARCH" in
+            amd)
+              TRIVY_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+              TRIVY_SHA256="1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75"
+              ;;
+            arm)
+              TRIVY_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-ARM64.tar.gz"
+              TRIVY_SHA256="7e3924a974e912e57b4a99f65ece7931f8079584dae12eb7845024f97087bdfd"
+              ;;
+            *)
+              echo "Unsupported ARCH value: $ARCH"
+              exit 1
+              ;;
+          esac
+
+          mkdir -p "$TRIVY_DIR"
+          curl --proto '=https' --tlsv1.2 -fsSL "$TRIVY_URL" -o "$TRIVY_ARCHIVE"
+          echo "${TRIVY_SHA256}  ${TRIVY_ARCHIVE}" | sha256sum -c -
+          tar -xzf "$TRIVY_ARCHIVE" -C "$TRIVY_DIR" trivy
+          rm -f "$TRIVY_ARCHIVE"
 
       - name: Install Grype
         if: ${{ inputs.run_grype }}
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "${{ env.CVE_DIR }}/grype"
+          GRYPE_VERSION="0.110.0"
+          GRYPE_DIR="${{ env.CVE_DIR }}/grype"
+          GRYPE_ARCHIVE="${{ env.CVE_DIR }}/grype_${GRYPE_VERSION}.tar.gz"
+
+          case "$ARCH" in
+            amd)
+              GRYPE_URL="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+              GRYPE_SHA256="aaa98d27d2d7efd9317c6a1ad6d9b15f3e65bab320e7d03bde41e251387bb71c"
+              ;;
+            arm)
+              GRYPE_URL="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_arm64.tar.gz"
+              GRYPE_SHA256="804041ee69f119022e3e866741a558eae6f2df372a5dc1a5376d456d16f8c931"
+              ;;
+            *)
+              echo "Unsupported ARCH value: $ARCH"
+              exit 1
+              ;;
+          esac
+
+          mkdir -p "$GRYPE_DIR"
+          curl --proto '=https' --tlsv1.2 -fsSL "$GRYPE_URL" -o "$GRYPE_ARCHIVE"
+          echo "${GRYPE_SHA256}  ${GRYPE_ARCHIVE}" | sha256sum -c -
+          tar -xzf "$GRYPE_ARCHIVE" -C "$GRYPE_DIR" grype
+          rm -f "$GRYPE_ARCHIVE"
           "${{ env.CVE_DIR }}/grype/grype" db update
 
       - name: Install cve-bin-tool
@@ -85,7 +131,7 @@ jobs:
 
       - name: Download Docker Image
         run: |
-          curl -L "$IMAGE_URL" -o "${{ env.CVE_DIR }}/image.tar.gz"
+          curl --proto '=https' --tlsv1.2 -L "$IMAGE_URL" -o "${{ env.CVE_DIR }}/image.tar.gz"
 
       - name: Load into Docker
         if: ${{ inputs.run_cbt }}
@@ -130,7 +176,7 @@ jobs:
       - name: Download CVE Database
         if: ${{ inputs.run_cbt }}
         run: |
-          curl --fail --silent --show-error -L https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/CVE-database/cve-bin-tool-cve.db.tar.gz \
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error -L https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/CVE-database/cve-bin-tool-cve.db.tar.gz \
             -o "${{ env.CVE_DIR }}/cve-bin-tool-cve.db.tar.gz"
           if [ ! -s "${{ env.CVE_DIR }}/cve-bin-tool-cve.db.tar.gz" ]; then
             echo "CVE database download failed or empty" >&2
@@ -190,6 +236,8 @@ jobs:
         if: ${{ inputs.run_trivy || inputs.run_grype }}
         env:
           COLUMNS: 200
+          RUN_TRIVY: ${{ inputs.run_trivy }}
+          RUN_GRYPE: ${{ inputs.run_grype }}
         run: |
           if [[ "$ARCH" == "amd" ]]; then
               CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-x64"
@@ -197,14 +245,20 @@ jobs:
               CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-arm64"
           fi
 
-          curl -L -o cyclonedx "$CYCLONEDXURL"
+          curl --proto '=https' --tlsv1.2 -L -o cyclonedx "$CYCLONEDXURL"
           chmod +x cyclonedx
 
-          ./cyclonedx merge --input-files \
-            "${{ env.CVE_DIR }}/trivy-summary.json" \
-            "${{ env.CVE_DIR }}/grype-summary.json" \
-            --output-format json \
-            --output-file "${{ env.CVE_DIR }}/combined_report.json"
+          if [[ "$RUN_TRIVY" == "true" && "$RUN_GRYPE" == "true" ]]; then
+            ./cyclonedx merge --input-files \
+              "${{ env.CVE_DIR }}/trivy-summary.json" \
+              "${{ env.CVE_DIR }}/grype-summary.json" \
+              --output-format json \
+              --output-file "${{ env.CVE_DIR }}/combined_report.json"
+          elif [[ "$RUN_TRIVY" == "true" ]]; then
+            cp -v "${{ env.CVE_DIR }}/trivy-summary.json" "${{ env.CVE_DIR }}/combined_report.json"
+          elif [[ "$RUN_GRYPE" == "true" ]]; then
+            cp -v "${{ env.CVE_DIR }}/grype-summary.json" "${{ env.CVE_DIR }}/combined_report.json"
+          fi
 
           rm -v cyclonedx
           source "${{ env.CVE_DIR }}/env/bin/activate"

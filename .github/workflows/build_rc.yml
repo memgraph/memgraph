@@ -373,6 +373,7 @@ jobs:
     needs: [SetupISSUImageOutputs, PrepareReleaseBranch]
     uses: ./.github/workflows/reusable_issu_test.yaml
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: amd

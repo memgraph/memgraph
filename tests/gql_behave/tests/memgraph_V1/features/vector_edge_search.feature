@@ -137,3 +137,46 @@ Feature: Vector edge search related features
             CALL vector_search.search_edges("test_index", 1, ["invalid", "invalid"]) YIELD * RETURN edge;
             """
         Then an error should be raised
+
+    Scenario: Create vector edge index with parameterized config with all options
+        Given an empty graph
+        And parameters are:
+            | config | {dimension: 2, capacity: 10, metric: "cos", resize_coefficient: 2, scalar_kind: "i8"} |
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX test_index ON :E1(prop1) WITH CONFIG $config
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type                  |
+            | 64       | 2         | 'test_index' | 'E1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'edge-type+property_vector' |
+
+    Scenario: Create vector edge index with parameterized config that is not a map raises error
+        Given an empty graph
+        And parameters are:
+            | config | not_a_map |
+        When executing query:
+            """
+            CREATE VECTOR EDGE INDEX test_index ON :E1(prop1) WITH CONFIG $config
+            """
+        Then an error should be raised
+
+    Scenario: Create vector edge index with parameterized config values
+        Given an empty graph
+        And parameters are:
+            | dim | 2  |
+            | cap | 10 |
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX test_index ON :E1(prop1) WITH CONFIG {"dimension": $dim, "capacity": $cap}
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type                  |
+            | 64       | 2         | 'test_index' | 'E1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |

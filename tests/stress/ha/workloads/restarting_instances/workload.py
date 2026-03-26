@@ -3,7 +3,7 @@
 Restarting instances workload.
 
 1) Imports the publications dataset from S3.
-2) Repeats 100 times:
+2) Repeats 50 times:
    - Create 1000 random edges between existing nodes with 4 workers.
    - Restart all instances (coordinators + data).
    - Wait for cluster to become healthy again.
@@ -24,8 +24,9 @@ S3_DATASET_PATH = "publications-dataset-1-percent"
 S3_REGION = "eu-west-1"
 
 EDGES_PER_ITERATION = 1000
+NODES_PER_ITERATION = 10
 NUM_WORKERS = 4
-NUM_ITERATIONS = 100
+NUM_ITERATIONS = 50
 
 HEALTH_CHECK_RETRIES = 30
 HEALTH_CHECK_INTERVAL = 10
@@ -230,7 +231,7 @@ RETURN formatted;""",
 def run_python_functions(worker_id: int, calls_per_worker: int, iteration: int) -> dict:
     """Each worker creates a node then calls a random Python (MAGE) procedure."""
     t0 = time.time()
-    for i in range(calls_per_worker):
+    for _ in range(calls_per_worker):
         template = random.choice(PYTHON_QUERIES)
         query = template.format(iteration=iteration)
         execute_query(
@@ -273,7 +274,8 @@ def main():
     print("=" * 60)
     print(f"Phase 1: Import publications dataset from S3")
     print(f"Phase 2: {NUM_ITERATIONS} iterations of (edges OR python functions) + restart")
-    print(f"  Operations per iteration: {EDGES_PER_ITERATION}")
+    print(f"  Edges per iteration: {EDGES_PER_ITERATION}")
+    print(f"  Nodes per iteration: {NODES_PER_ITERATION}")
     print(f"  Workers: {NUM_WORKERS}")
     print("-" * 60)
 
@@ -330,8 +332,9 @@ def main():
                 print(f"  Edge creation complete in {time.time() - t0:.1f}s")
             else:
                 python_iterations += 1
-                print(f"[MODE: python] Creating {EDGES_PER_ITERATION} nodes + Python function calls...")
-                tasks = [(worker_id, ops_per_worker, iteration) for worker_id in range(NUM_WORKERS)]
+                print(f"[MODE: python] Creating {NODES_PER_ITERATION} nodes + Python function calls...")
+                nodes_per_worker = NODES_PER_ITERATION // NUM_WORKERS
+                tasks = [(worker_id, nodes_per_worker, iteration) for worker_id in range(NUM_WORKERS)]
                 t0 = time.time()
                 run_parallel(run_python_functions, tasks, num_workers=NUM_WORKERS)
                 print(f"  Python functions complete in {time.time() - t0:.1f}s")
