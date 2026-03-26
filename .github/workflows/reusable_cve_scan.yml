@@ -97,7 +97,30 @@ jobs:
       - name: Install Grype
         if: ${{ inputs.run_grype }}
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "${{ env.CVE_DIR }}/grype"
+          GRYPE_VERSION="0.110.0"
+          GRYPE_DIR="${{ env.CVE_DIR }}/grype"
+          GRYPE_ARCHIVE="${{ env.CVE_DIR }}/grype_${GRYPE_VERSION}.tar.gz"
+
+          case "$ARCH" in
+            amd)
+              GRYPE_URL="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+              GRYPE_SHA256="bf9ebac0de0c6865eb216e55cc9a27cc5b887cab2c30bbfdb584ba933c38f22c"
+              ;;
+            arm)
+              GRYPE_URL="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_arm64.tar.gz"
+              GRYPE_SHA256="804041ee69f119022e3e866741a558eae6f2df372a5dc1a5376d456d16f8c931"
+              ;;
+            *)
+              echo "Unsupported ARCH value: $ARCH"
+              exit 1
+              ;;
+          esac
+
+          mkdir -p "$GRYPE_DIR"
+          curl -fsSL "$GRYPE_URL" -o "$GRYPE_ARCHIVE"
+          echo "${GRYPE_SHA256}  ${GRYPE_ARCHIVE}" | sha256sum -c -
+          tar -xzf "$GRYPE_ARCHIVE" -C "$GRYPE_DIR" grype
+          rm -f "$GRYPE_ARCHIVE"
           "${{ env.CVE_DIR }}/grype/grype" db update
 
       - name: Install cve-bin-tool
