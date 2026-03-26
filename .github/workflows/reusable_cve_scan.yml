@@ -69,7 +69,30 @@ jobs:
       - name: Install Trivy
         if: ${{ inputs.run_trivy }}
         run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b "${{ env.CVE_DIR }}/trivy" latest
+          TRIVY_VERSION="0.69.3"
+          TRIVY_DIR="${{ env.CVE_DIR }}/trivy"
+          TRIVY_ARCHIVE="${{ env.CVE_DIR }}/trivy_${TRIVY_VERSION}.tar.gz"
+
+          case "$ARCH" in
+            amd)
+              TRIVY_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+              TRIVY_SHA256="1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75"
+              ;;
+            arm)
+              TRIVY_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-ARM64.tar.gz"
+              TRIVY_SHA256="7e3924a974e912e57b4a99f65ece7931f8079584dae12eb7845024f97087bdfd"
+              ;;
+            *)
+              echo "Unsupported ARCH value: $ARCH"
+              exit 1
+              ;;
+          esac
+
+          mkdir -p "$TRIVY_DIR"
+          curl -fsSL "$TRIVY_URL" -o "$TRIVY_ARCHIVE"
+          echo "${TRIVY_SHA256}  ${TRIVY_ARCHIVE}" | sha256sum -c -
+          tar -xzf "$TRIVY_ARCHIVE" -C "$TRIVY_DIR" trivy
+          rm -f "$TRIVY_ARCHIVE"
 
       - name: Install Grype
         if: ${{ inputs.run_grype }}
