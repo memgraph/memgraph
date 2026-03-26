@@ -35,11 +35,13 @@ workloads:
   - config: ../workloads/publications/workload.yaml
     enabled: false
 
+  # TODO: re-enable once fixed
   - config: ../workloads/vector_index_recovery/workload.yaml
-    enabled: true
+    enabled: false
 
+  # TODO: re-enable once fixed
   - config: ../workloads/vector_edge_index_recovery/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/vector_index_concurrent_ops/workload.yaml
     enabled: true

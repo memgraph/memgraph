@@ -1269,9 +1269,11 @@ void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
 }  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitConfigKeyValuePair(MemgraphCypher::ConfigKeyValuePairContext *ctx) {
-  MG_ASSERT(ctx->literal().size() == 2);
-  return std::pair{std::any_cast<Expression *>(ctx->literal(0)->accept(this)),
-                   std::any_cast<Expression *>(ctx->literal(1)->accept(this))};
+  auto *key = std::any_cast<Expression *>(ctx->literal(0)->accept(this));
+  auto *value = ctx->parameter()
+                    ? static_cast<Expression *>(std::any_cast<ParameterLookup *>(ctx->parameter()->accept(this)))
+                    : std::any_cast<Expression *>(ctx->literal(1)->accept(this));
+  return std::pair{key, value};
 }
 
 antlrcpp::Any CypherMainVisitor::visitConfigMap(MemgraphCypher::ConfigMapContext *ctx) {
