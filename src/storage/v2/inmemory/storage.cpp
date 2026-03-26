@@ -3175,6 +3175,26 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
   }
 
   if (!wal_file_) {
+#if USE_JEMALLOC
+    {
+      memory::ArenaAwareAllocator<durability::WalFile> alloc{config_.arena_idx};
+      auto *raw = alloc.allocate(1);
+      try {
+        std::construct_at(raw,
+                          recovery_.wal_directory_,
+                          uuid(),
+                          epoch_id,
+                          config_.salient.items,
+                          name_id_mapper_.get(),
+                          wal_seq_num_++,
+                          &file_retainer_);
+      } catch (...) {
+        alloc.deallocate(raw, 1);
+        throw;
+      }
+      wal_file_.reset(raw);
+    }
+#else
     wal_file_ = std::make_unique<durability::WalFile>(recovery_.wal_directory_,
                                                       uuid(),
                                                       epoch_id,
@@ -3182,6 +3202,7 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
                                                       name_id_mapper_.get(),
                                                       wal_seq_num_++,
                                                       &file_retainer_);
+#endif
   }
 
   return true;
