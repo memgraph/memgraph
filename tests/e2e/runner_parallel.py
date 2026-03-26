@@ -42,6 +42,9 @@ if DISABLE_NODE:
 # Keep port ranges for each worker well-separated to avoid collisions.
 DEFAULT_PORT_OFFSET_STEP = 1000
 PORT_NAMESPACE_BASE = 10000
+DEFAULT_BOLT_PORT = 7687
+DEFAULT_MONITORING_PORT = 7444
+DEFAULT_METRICS_PORT = 9091
 PORT_AFTER_COLON_RE = re.compile(r"(?<=:)(\d{2,5})(?=(?:['\"\s]|$))")
 PORT_KEYWORD_RE = re.compile(r"(?i)(\bPORT\s+)(\d{2,5})")
 
@@ -146,6 +149,7 @@ def _offset_port_flags(args, port_offset):
         "--replication-port",
         "--rpc-port",
         "--monitoring-port",
+        "--metrics-port",
     }
 
     updated = list(args)
@@ -175,6 +179,7 @@ def _extract_ports_from_args(args):
         "--replication-port",
         "--rpc-port",
         "--monitoring-port",
+        "--metrics-port",
     }
 
     ports = set()
@@ -216,6 +221,7 @@ def _replace_port_flags_with_map(args, port_map):
         "--replication-port",
         "--rpc-port",
         "--monitoring-port",
+        "--metrics-port",
     }
 
     updated = list(args)
@@ -265,6 +271,41 @@ def _offset_query_collection(queries, port_map):
     return updated
 
 
+def _has_port_flag(args, flag):
+    if not args:
+        return False
+    for arg in args:
+        if arg == flag:
+            return True
+        if isinstance(arg, str) and arg.startswith(f"{flag}="):
+            return True
+    return False
+
+
+def _ensure_default_listener_ports(args):
+    normalized = list(args or [])
+    if not _has_port_flag(normalized, "--bolt-port"):
+        normalized += ["--bolt-port", str(DEFAULT_BOLT_PORT)]
+    if not _has_port_flag(normalized, "--monitoring-port"):
+        normalized += ["--monitoring-port", str(DEFAULT_MONITORING_PORT)]
+    if not _has_port_flag(normalized, "--metrics-port"):
+        normalized += ["--metrics-port", str(DEFAULT_METRICS_PORT)]
+    return normalized
+
+
+def _extract_bolt_port_from_args(args):
+    if not args:
+        return DEFAULT_BOLT_PORT
+    for i, arg in enumerate(args):
+        if arg == "--bolt-port" and i + 1 < len(args) and str(args[i + 1]).isdigit():
+            return int(args[i + 1])
+        if isinstance(arg, str) and arg.startswith("--bolt-port="):
+            value = arg.split("=", 1)[1]
+            if value.isdigit():
+                return int(value)
+    return DEFAULT_BOLT_PORT
+
+
 def _build_port_map(workload, worker_slot, port_offset_step):
     namespace_start = PORT_NAMESPACE_BASE + worker_slot * port_offset_step
     namespace_end = namespace_start + port_offset_step - 1
@@ -306,6 +347,10 @@ def _build_port_map(workload, worker_slot, port_offset_step):
 
 def _prepare_workload_for_worker(workload, worker_slot, port_offset_step):
     prepared = copy.deepcopy(workload)
+    if "cluster" in prepared:
+        for _, config in prepared["cluster"].items():
+            config["args"] = _ensure_default_listener_ports(config.get("args", []))
+
     port_map, namespace_start = _build_port_map(prepared, worker_slot, port_offset_step)
     suffix = f"-w{worker_slot}"
 
@@ -329,11 +374,13 @@ def _prepare_workload_for_worker(workload, worker_slot, port_offset_step):
 
 
 def _run_and_capture(command, env):
-    proc = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+    proc = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
     if proc.stdout:
         print(proc.stdout, end="" if proc.stdout.endswith("\n") else "\n")
     if proc.stderr:
         print(proc.stderr, end="" if proc.stderr.endswith("\n") else "\n", file=sys.stderr)
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, command, output=proc.stdout, stderr=proc.stderr)
 
 
 def run_single_workload(workload, worker_slot, args_dict):
@@ -354,6 +401,9 @@ def run_single_workload(workload, worker_slot, args_dict):
     env["MEMGRAPH_PARALLEL_PROCESS_INDEX"] = str(worker_slot)
     env["MEMGRAPH_PORT_OFFSET"] = str(port_namespace_start)
     env["MEMGRAPH_PORT_NAMESPACE_START"] = str(port_namespace_start)
+    if "cluster" in prepared and prepared["cluster"]:
+        first_instance_config = next(iter(prepared["cluster"].values()))
+        env["MEMGRAPH_BOLT_PORT"] = str(_extract_bolt_port_from_args(first_instance_config.get("args", [])))
 
     gdb_port = None
     if args_gdb:
