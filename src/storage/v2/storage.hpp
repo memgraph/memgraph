@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "common_function_signatures.hpp"
 #include "mg_procedure.h"
 #include "storage/v2/access_type.hpp"
@@ -1132,6 +1134,7 @@ class Storage {
   StorageMode storage_mode_;
 
   metrics::DatabaseMetricHandles *metric_handles_{nullptr};
+  std::optional<double> snapshot_recovery_latency_s_;
 
   Indices indices_;
   Constraints constraints_;
