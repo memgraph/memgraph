@@ -104,7 +104,7 @@ jobs:
           case "$ARCH" in
             amd)
               GRYPE_URL="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
-              GRYPE_SHA256="bf9ebac0de0c6865eb216e55cc9a27cc5b887cab2c30bbfdb584ba933c38f22c"
+              GRYPE_SHA256="aaa98d27d2d7efd9317c6a1ad6d9b15f3e65bab320e7d03bde41e251387bb71c"
               ;;
             arm)
               GRYPE_URL="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_arm64.tar.gz"
