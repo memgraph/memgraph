@@ -24,12 +24,7 @@
 #include "replication_coordination_glue/handler.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_handler/system_rpc.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/metrics_timer.hpp"
-
-namespace memgraph::metrics {
-extern const Event SystemRecoveryRpc_us;
-}  // namespace memgraph::metrics
 
 namespace memgraph::replication {
 
@@ -94,7 +89,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
   });
   try {
-    utils::MetricsTimer const timer{metrics::SystemRecoveryRpc_us};
+    utils::MetricsTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
     auto stream = std::invoke([&]() {
 #ifdef MG_ENTERPRISE

@@ -11,10 +11,10 @@
 
 #pragma once
 
+#include "metrics/prometheus_metrics.hpp"
 #include "replication/config.hpp"
 #include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/metrics_timer.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
@@ -22,10 +22,6 @@
 #include "utils/thread_pool.hpp"
 
 #include <concepts>
-
-namespace memgraph::metrics {
-extern const Event FrequentHeartbeatRpc_us;
-}  // namespace memgraph::metrics
 
 namespace memgraph::replication {
 struct ReplicationClient;
@@ -57,7 +53,7 @@ struct ReplicationClient {
                             fail_cb = std::forward<FF>(fail_callback),
                             failed_attempts = 0UL]() mutable {
                              // Measure callbacks also to see how long it takes between scheduled runs
-                             utils::MetricsTimer const timer{metrics::FrequentHeartbeatRpc_us};
+                             utils::MetricsTimer const timer{metrics::Metrics().global.frequent_heartbeat_rpc_seconds};
                              try {
                                {
                                  auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
