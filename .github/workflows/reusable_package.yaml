@@ -286,6 +286,9 @@ jobs:
 
       - name: Run Docker smoke tests
         if: ${{ env.FOR_DOCKER == 'true' && inputs.run_smoke_tests }}
+        env:
+          MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+          MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
         run: |
           # Test against the latest release version
           last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
