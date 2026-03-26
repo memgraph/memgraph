@@ -123,6 +123,11 @@
   [e]
   (string/includes? (str e) "Write queries are forbidden on the replica"))
 
+(defn main-reached-rpc-timeout?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Main reached an RPC timeout"))
+
 (defn strict-sync-replica-down?
   "Accepts exception e as argument."
   [e]
