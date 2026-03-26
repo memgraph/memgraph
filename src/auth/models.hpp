@@ -114,6 +114,11 @@ constexpr FineGrainedPermission kAllLabelPermissions =
 constexpr FineGrainedPermission kAllEdgeTypePermissions =
     memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
     memgraph::auth::FineGrainedPermission::READ | memgraph::auth::FineGrainedPermission::SET_PROPERTY;
+
+// Cypher UPDATE on node labels expands to these discrete permissions (Memgraph 3.9+).
+constexpr FineGrainedPermission kVertexLabelUpdatePermissions =
+    FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL | FineGrainedPermission::SET_PROPERTY |
+    FineGrainedPermission::DELETE_EDGE | FineGrainedPermission::CREATE_EDGE;
 #endif
 
 // Function that converts a permission to its string representation.
