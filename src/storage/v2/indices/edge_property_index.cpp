@@ -31,7 +31,7 @@ EdgePropertyIndexAbortProcessor::EdgePropertyIndexAbortProcessor(std::span<Prope
   }
 }
 
-bool EdgePropertyIndexAbortProcessor::IsInteresting(PropertyId property) {
+bool EdgePropertyIndexAbortProcessor::IsInteresting(PropertyId property) const {
   return cleanup_collection_.contains(property);
 }
 

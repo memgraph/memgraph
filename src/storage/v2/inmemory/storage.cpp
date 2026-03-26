@@ -4254,16 +4254,18 @@ bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, Property
 }
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
-  return {transaction_.active_indices_->label_->ListIndices(transaction_.start_timestamp),
-          transaction_.active_indices_->label_properties_->ListIndices(transaction_.start_timestamp),
-          transaction_.active_indices_->edge_type_->ListIndices(transaction_.start_timestamp),
+  return {
+      .label = transaction_.active_indices_->label_->ListIndices(transaction_.start_timestamp),
+      .label_properties = transaction_.active_indices_->label_properties_->ListIndices(transaction_.start_timestamp),
+      .edge_type = transaction_.active_indices_->edge_type_->ListIndices(transaction_.start_timestamp),
+      .edge_type_property =
           transaction_.active_indices_->edge_type_properties_->ListIndices(transaction_.start_timestamp),
-          transaction_.active_indices_->edge_property_->ListIndices(transaction_.start_timestamp),
-          storage_->indices_.text_index_.ListIndices(),
-          storage_->indices_.text_edge_index_.ListIndices(),
-          storage_->indices_.point_index_.ListIndices(),
-          storage_->indices_.vector_index_.ListIndices(),
-          storage_->indices_.vector_edge_index_.ListIndices()};
+      .edge_property = transaction_.active_indices_->edge_property_->ListIndices(transaction_.start_timestamp),
+      .text_indices = storage_->indices_.text_index_.ListIndices(),
+      .text_edge_indices = storage_->indices_.text_edge_index_.ListIndices(),
+      .point_label_property = storage_->indices_.point_index_.ListIndices(),
+      .vector_indices_spec = storage_->indices_.vector_index_.ListIndices(),
+      .vector_edge_indices_spec = storage_->indices_.vector_edge_index_.ListIndices()};
 }
 
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {

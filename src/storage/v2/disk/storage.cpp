@@ -2536,15 +2536,16 @@ bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /
 }
 
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
-  return {transaction_.active_indices_->label_->ListIndices(transaction_.start_timestamp),
-          transaction_.active_indices_->label_properties_->ListIndices(transaction_.start_timestamp),
-          {/* edge type indices */},
-          {/* edge_type_property */},
-          {/*edge property*/},
-          storage_->indices_.text_index_.ListIndices(),
-          {/* text edge indices */},
-          {/* point indices */},
-          {/* vector indices */}};
+  return {
+      .label = transaction_.active_indices_->label_->ListIndices(transaction_.start_timestamp),
+      .label_properties = transaction_.active_indices_->label_properties_->ListIndices(transaction_.start_timestamp),
+      .edge_type = {/* edge type indices */},
+      .edge_type_property = {/* edge_type_property */},
+      .edge_property = {/*edge property*/},
+      .text_indices = storage_->indices_.text_index_.ListIndices(),
+      .text_edge_indices = {/* text edge indices */},
+      .point_label_property = {/* point indices */},
+      .vector_indices_spec = {/* vector indices */}};
 }
 
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {

@@ -65,9 +65,9 @@ struct EdgeTypePropertyIndexAbortProcessor {
   void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
                                Edge *edge, PropertyValue value);
 
-  bool IsInteresting(PropertyId id);
+  bool IsInteresting(PropertyId id) const;
 
-  bool IsInteresting(EdgeTypeId edge_type, PropertyId property);
+  bool IsInteresting(EdgeTypeId edge_type, PropertyId property) const;
 
   std::set<PropertyId> interesting_properties_;
   EdgeTypePropertyIndexAbortableInfo cleanup_collection_;

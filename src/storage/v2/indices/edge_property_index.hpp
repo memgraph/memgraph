@@ -63,7 +63,7 @@ struct EdgePropertyIndexAbortProcessor {
                                Edge *edge, PropertyValue value);
 
   EdgePropertyIndexAbortableInfo cleanup_collection_;
-  bool IsInteresting(PropertyId property);
+  bool IsInteresting(PropertyId property) const;
 };
 
 struct EdgePropertyIndexActiveIndices {

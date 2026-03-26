@@ -33,9 +33,11 @@ EdgeTypePropertyIndexAbortProcessor::EdgeTypePropertyIndexAbortProcessor(
   }
 }
 
-bool EdgeTypePropertyIndexAbortProcessor::IsInteresting(PropertyId id) { return interesting_properties_.contains(id); }
+bool EdgeTypePropertyIndexAbortProcessor::IsInteresting(PropertyId id) const {
+  return interesting_properties_.contains(id);
+}
 
-bool EdgeTypePropertyIndexAbortProcessor::IsInteresting(EdgeTypeId edge_type, PropertyId property) {
+bool EdgeTypePropertyIndexAbortProcessor::IsInteresting(EdgeTypeId edge_type, PropertyId property) const {
   return cleanup_collection_.contains({edge_type, property});
 }
 }  // namespace memgraph::storage

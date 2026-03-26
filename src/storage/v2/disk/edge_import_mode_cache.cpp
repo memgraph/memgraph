@@ -61,7 +61,7 @@ bool EdgeImportModeCache::CreateIndex(
     LabelId label, const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
   auto updater = in_memory_indices_.MakeUpdater();
-  bool res = mem_label_index->CreateIndexOnePass(label, vertices_.access(), parallel_exec_info, updater);
+  const bool res = mem_label_index->CreateIndexOnePass(label, vertices_.access(), parallel_exec_info, updater);
   if (!res) return false;
   scanned_labels_.insert(label);
   return true;
