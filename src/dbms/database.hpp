@@ -14,10 +14,15 @@
 #include <memory>
 #include <optional>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
 
 namespace memgraph::dbms {
 
@@ -181,6 +186,12 @@ class Database {
     storage_->StopAllBackgroundTasks();
   }
 
+  ~Database();
+
+  metrics::DatabaseMetricHandles const *metric_handles() const { return metric_handles_; }
+
+  metrics::DatabaseMetricHandles *metric_handles() { return metric_handles_; }
+
  private:
   std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
@@ -189,6 +200,8 @@ class Database {
 
   // TODO: Move to a better place
   query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
+
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 };
 
 }  // namespace memgraph::dbms

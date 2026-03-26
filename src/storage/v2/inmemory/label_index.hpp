@@ -11,6 +11,10 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
 #include <span>
 
 #include "storage/v2/common_function_signatures.hpp"
@@ -45,9 +49,10 @@ class InMemoryLabelIndex : public LabelIndex {
     IndividualIndex() {}
 
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
     utils::SkipList<Entry> skiplist{};
     IndexStatus status{};
+    prometheus::Gauge *gauge_{nullptr};
   };
 
   struct AllIndicesEntry {
@@ -213,6 +218,8 @@ class InMemoryLabelIndex : public LabelIndex {
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(LabelId label, uint64_t commit_timestamp);
 
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
+
   void RunGC();
 
   void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats);
@@ -228,6 +235,8 @@ class InMemoryLabelIndex : public LabelIndex {
  private:
   auto CleanupAllIndices() -> void;
   auto GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex>;
+
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

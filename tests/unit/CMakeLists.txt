@@ -894,6 +894,11 @@ add_unit_test(counter
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(prometheus_metrics
+    SOURCES prometheus_metrics.cpp
+    LINK_TARGETS mg-metrics
+)
+
 # Test coordination
 if (MG_ENTERPRISE)
     add_unit_test(coordinator_utils

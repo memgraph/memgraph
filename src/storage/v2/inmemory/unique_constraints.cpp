@@ -15,6 +15,7 @@
 #include <bitset>
 #include <ranges>
 #include <tuple>
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -309,13 +310,14 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 
 InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() {
   if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+    if (gauge_) gauge_->Decrement();
   }
 }
 
-void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp) {
+void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+  gauge_ = gauge;
+  if (gauge_) gauge_->Increment();
 }
 
 // --- ActiveConstraints implementation ---
@@ -546,7 +548,8 @@ bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
                                                   uint64_t commit_timestamp) {
   auto constraint = GetIndividualConstraint(label, properties);
   if (!constraint) return false;
-  constraint->Publish(commit_timestamp);
+  auto *gauge = metric_handles_ ? metric_handles_->active_unique_constraints : nullptr;
+  constraint->Publish(commit_timestamp, gauge);
   return true;
 }
 
@@ -668,6 +671,24 @@ void InMemoryUniqueConstraints::Clear() {
 
 void InMemoryUniqueConstraints::DropGraphClearConstraints() {
   container_.WithLock([](ContainerPtr &container) { container = std::make_shared<Container const>(); });
+}
+
+void InMemoryUniqueConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  if (!metric_handles_) return;
+  auto *gauge = metric_handles_->active_unique_constraints;
+  container_.WithReadLock([&](ContainerPtr const &ptr) {
+    double count = 0;
+    for (auto const &[label, by_properties] : *ptr) {
+      for (auto const &[props, constraint] : by_properties) {
+        if (constraint->status.IsReady()) {
+          constraint->gauge_ = gauge;
+          ++count;
+        }
+      }
+    }
+    gauge->Set(count);
+  });
 }
 
 void InMemoryUniqueConstraints::RunGC() {

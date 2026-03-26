@@ -19,6 +19,7 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
@@ -27,11 +28,6 @@
 #include "storage/v2/view.hpp"
 #include "utils/bound.hpp"
 #include "utils/temporal.hpp"
-
-namespace memgraph::metrics {
-extern const Event DeletedNodes;
-extern const Event DeletedEdges;
-}  // namespace memgraph::metrics
 
 namespace {
 template <typename T>
@@ -324,9 +320,10 @@ void TTL::Configure(bool should_run_edge_ttl) {
           // TODO: on sync replication error it should not continue since it commits
           continue;
         }
-        // Telemetry
-        memgraph::metrics::IncrementCounter(memgraph::metrics::DeletedNodes, n_deleted);
-        memgraph::metrics::IncrementCounter(memgraph::metrics::DeletedEdges, n_edges_deleted);
+        if (metric_handles_) {
+          metric_handles_->deleted_nodes->Increment(static_cast<double>(n_deleted));
+          metric_handles_->deleted_edges->Increment(static_cast<double>(n_edges_deleted));
+        }
 
       } catch (const std::exception &e) {
         spdlog::trace("TTL error; retrying later: {}", e.what());

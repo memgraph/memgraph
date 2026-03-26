@@ -11,6 +11,10 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
 #include <cstdint>
 #include <map>
 #include <utility>
@@ -58,10 +62,11 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
  public:
   struct IndividualIndex {
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp);
+    void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
 
     utils::SkipList<Entry> skip_list_;
     IndexStatus status_{};
+    prometheus::Gauge *gauge_{nullptr};
   };
 
   struct IndicesContainer {
@@ -245,6 +250,8 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(PropertyId property, uint64_t commit_timestamp);
 
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
+
   /// Returns false if there was no index to drop
   bool DropIndex(PropertyId property) override;
 
@@ -259,6 +266,8 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
  private:
   auto GetIndividualIndex(PropertyId property) const -> std::shared_ptr<IndividualIndex>;
   void CleanupAllIndicies();
+
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer const>()};

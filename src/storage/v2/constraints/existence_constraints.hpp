@@ -11,6 +11,14 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 #include <functional>
 #include <memory>
 #include <optional>
@@ -62,6 +70,7 @@ class ExistenceConstraints {
   /// This pattern matches indices and unique constraints for consistency.
   struct IndividualConstraint {
     ConstraintStatus status{};
+    prometheus::Gauge *gauge_{nullptr};
     ~IndividualConstraint();
   };
 
@@ -121,9 +130,12 @@ class ExistenceConstraints {
 
   void DropGraphClearConstraints();
 
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
+
  private:
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
 
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> constraints_{std::make_shared<Container const>()};
 };
 

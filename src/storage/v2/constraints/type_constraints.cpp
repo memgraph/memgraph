@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/constraints/type_constraints.hpp"
+#include "metrics/prometheus_metrics.hpp"
 
 #include <optional>
 #include <set>
@@ -51,7 +52,7 @@ namespace {
 
 TypeConstraints::IndividualConstraint::~IndividualConstraint() {
   if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTypeConstraints);
+    if (gauge_) gauge_->Decrement();
   }
 }
 
@@ -199,7 +200,8 @@ void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, Type
 
   // Commit status in-place (shared_ptr allows modification without copy-on-write)
   constraint->status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTypeConstraints);
+  constraint->gauge_ = metric_handles_ ? metric_handles_->active_type_constraints : nullptr;
+  if (constraint->gauge_) constraint->gauge_->Increment();
 }
 
 bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
@@ -227,6 +229,22 @@ bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeCon
 
     container = std::move(new_container);
     return true;
+  });
+}
+
+void TypeConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  if (!metric_handles_) return;
+  auto *gauge = metric_handles_->active_type_constraints;
+  container_.WithReadLock([&](ContainerPtr const &ptr) {
+    double count = 0;
+    for (auto const &[key, constraint] : ptr->constraints_) {
+      if (constraint->status.IsReady()) {
+        constraint->gauge_ = gauge;
+        ++count;
+      }
+    }
+    gauge->Set(count);
   });
 }
 

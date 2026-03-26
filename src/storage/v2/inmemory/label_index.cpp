@@ -11,6 +11,7 @@
 
 #include "storage/v2/inmemory/label_index.hpp"
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
@@ -82,18 +83,20 @@ auto InMemoryLabelIndex::GetIndividualIndex(LabelId label) const -> std::shared_
 auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) -> bool {
   auto index = GetIndividualIndex(label);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  auto *gauge = metric_handles_ ? metric_handles_->active_label_indices : nullptr;
+  index->Publish(commit_timestamp, gauge);
   return true;
 }
 
-void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
+  gauge_ = gauge;
+  if (gauge_) gauge_->Increment();
 }
 
 InMemoryLabelIndex::IndividualIndex::~IndividualIndex() {
   if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
+    if (gauge_) gauge_->Decrement();
   }
 }
 
@@ -429,6 +432,22 @@ void InMemoryLabelIndex::DropGraphClearIndices() {
   stats_->clear();
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &all_indices) {
     all_indices = std::make_unique<std::vector<AllIndicesEntry>>();
+  });
+}
+
+void InMemoryLabelIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  if (!metric_handles_) return;
+  auto *gauge = metric_handles_->active_label_indices;
+  index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &ptr) {
+    double count = 0;
+    for (auto const &[label, idx] : *ptr) {
+      if (idx->status.IsReady()) {
+        idx->gauge_ = gauge;
+        ++count;
+      }
+    }
+    gauge->Set(count);
   });
 }
 

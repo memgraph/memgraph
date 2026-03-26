@@ -33,7 +33,7 @@
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/logging.hpp"
-#include "glue/MonitoringServerT.hpp"
+#include "glue/PrometheusServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
@@ -41,6 +41,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -59,7 +60,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/readable_size.hpp"
@@ -75,10 +75,6 @@
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
-
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-}  // namespace memgraph::metrics
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -303,14 +299,14 @@ int main(int argc, char **argv) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
       mem_log_scheduler.SetInterval(std::chrono::seconds(3));
-      mem_log_scheduler.Run("Memory check", [] {
+      mem_log_scheduler.Run("Memory check", [peak_gauge = memgraph::metrics::Metrics().global.peak_memory_res_bytes] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn(memgraph::utils::MessageWithLink(
               "Running out of available RAM, only {} MB left.", *free_ram / 1024, "https://memgr.ph/ram"));
 
         auto memory_res = memgraph::utils::GetMemoryRES();
-        memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
+        peak_gauge->Set(std::max(static_cast<double>(memory_res), peak_gauge->Value()));
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -841,18 +837,17 @@ int main(int argc, char **argv) {
     spdlog::error("Skipping adding logger sync for websocket.");
   }
 
-// TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
-  memgraph::glue::MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
-  spdlog::trace("Metrics server created.");
+  memgraph::glue::PrometheusServerT prometheus_server{
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &memgraph::metrics::Metrics(), &context};
+  spdlog::trace("Prometheus metrics server created.");
 #endif
 
   // Handler for regular termination signals
   auto shutdown = [
 #ifdef MG_ENTERPRISE
                       &coordinator_state,
-                      &metrics_server,
+                      &prometheus_server,
 #endif
                       &websocket_server,
                       &server,
@@ -894,7 +889,7 @@ int main(int argc, char **argv) {
     interpreter_context_.Shutdown();
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
-    metrics_server.Shutdown();
+    prometheus_server.Shutdown();
     if (coordinator_state && coordinator_state->IsCoordinator()) {
       // Coordinator instance destruction will handle the complete shutdown
       coordinator_state.reset();
@@ -912,8 +907,8 @@ int main(int argc, char **argv) {
   spdlog::trace("Web socket server started.");
 
 #ifdef MG_ENTERPRISE
-  metrics_server.Start();
-  spdlog::trace("Metrics server started");
+  prometheus_server.Start();
+  spdlog::trace("Prometheus metrics server started");
 #endif
 
   if (!FLAGS_init_data_file.empty()) {
@@ -942,7 +937,7 @@ int main(int argc, char **argv) {
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
-  metrics_server.AwaitShutdown();
+  prometheus_server.AwaitShutdown();
 #endif
   try {
     memgraph::query::procedure::gModuleRegistry.UnloadAllModules();

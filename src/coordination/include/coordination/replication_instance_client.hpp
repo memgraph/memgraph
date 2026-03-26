@@ -16,38 +16,19 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/replication_lag_info.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/client.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/metrics_timer.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/scheduler.hpp"
-
-namespace memgraph::metrics {
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define GenerateRpcCounterEvents(RPC) \
-  extern const Event RPC##Success;    \
-  extern const Event RPC##Fail;       \
-  extern const Event RPC##_us;
-
-// clang-format off
-GenerateRpcCounterEvents(PromoteToMainRpc)
-GenerateRpcCounterEvents(DemoteMainToReplicaRpc)
-GenerateRpcCounterEvents(RegisterReplicaOnMainRpc)
-GenerateRpcCounterEvents(UnregisterReplicaRpc)
-GenerateRpcCounterEvents(EnableWritingOnMainRpc)
-GenerateRpcCounterEvents(StateCheckRpc)
-GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
-GenerateRpcCounterEvents(UpdateDataInstanceConfigRpc)
-// clang-format on
-}  // namespace memgraph::metrics
 
 namespace memgraph::coordination {
 
 template <rpc::IsRpc T>
 struct RpcInfo {
-  static const metrics::Event succCounter;
-  static const metrics::Event failCounter;
-  static const metrics::Event timerLabel;
+  static prometheus::Counter *succ_counter(metrics::GlobalMetricHandles &g);
+  static prometheus::Counter *fail_counter(metrics::GlobalMetricHandles &g);
+  static prometheus::Histogram *histogram(metrics::GlobalMetricHandles &g);
 };
 
 class CoordinatorInstance;
@@ -85,21 +66,26 @@ class ReplicationInstanceClient {
 
   template <rpc::IsRpc T, typename... Args>
   auto SendRpc(Args &&...args) const -> bool {
-    utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
+    auto &g = metrics::Metrics().global;
+    auto const _t0 = std::chrono::high_resolution_clock::now();
+    utils::OnScopeExit const _timer{[&] {
+      RpcInfo<T>::histogram(g)->Observe(
+          std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+    }};
     try {
       auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...);
 
       if (!stream.SendAndWait().arg_) {
         spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
-        metrics::IncrementCounter(RpcInfo<T>::failCounter);
+        RpcInfo<T>::fail_counter(g)->Increment();
         return false;
       }
 
-      metrics::IncrementCounter(RpcInfo<T>::succCounter);
+      RpcInfo<T>::succ_counter(g)->Increment();
       return true;
     } catch (rpc::RpcFailedException const &e) {
       spdlog::error("Failed to receive response to {}. Error occurred: {}", T::Request::kType.name, e.what());
-      metrics::IncrementCounter(RpcInfo<T>::failCounter);
+      RpcInfo<T>::fail_counter(g)->Increment();
       return false;
     }
   }

@@ -11,6 +11,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 
@@ -64,6 +65,23 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
         std::make_unique<storage::DiskStorage>(std::move(config), std::move(invalidator), database_protector_factory);
   } else {
     storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
+  }
+
+  metric_handles_ = metrics::Metrics().AddDatabase(storage_->name(), [s = storage_.get()] {
+    auto const info = s->GetBaseInfo();
+    return metrics::StorageSnapshot{
+        .vertex_count = info.vertex_count,
+        .edge_count = info.edge_count,
+        .disk_usage = info.disk_usage,
+        .memory_res = info.memory_res,
+    };
+  });
+  storage_->SetMetricHandles(metric_handles_);
+}
+
+Database::~Database() {
+  if (metric_handles_) {
+    metrics::Metrics().RemoveDatabase(metric_handles_);
   }
 }
 

@@ -12,6 +12,7 @@
 #include "replication/replication_client.hpp"
 
 #include "flags/coord_flag_env_handler.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
@@ -20,10 +21,8 @@
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/atomic_utils.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/message.hpp"
-#include "utils/metrics_timer.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
@@ -59,17 +58,6 @@ constexpr auto StateToString(ReplicaState const &replica_state) -> std::string_v
 }
 }  // namespace
 
-namespace memgraph::metrics {
-extern const Event HeartbeatRpc_us;
-extern const Event PrepareCommitRpc_us;
-extern const Event ReplicaStream_us;
-extern const Event StartTxnReplication_us;
-extern const Event FinalizeTxnReplication_us;
-extern const Event ReplicaRecoverySuccess;
-extern const Event ReplicaRecoveryFail;
-extern const Event ReplicaRecoverySkip;
-}  // namespace memgraph::metrics
-
 namespace memgraph::storage {
 ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client,
                                                    utils::UUID const main_uuid)
@@ -82,7 +70,11 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // stream should be destroyed so that RPC lock is released before taking engine lock
   std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
       std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
-        utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
+        auto const _t0 = std::chrono::high_resolution_clock::now();
+        utils::OnScopeExit const _timer{[&] {
+          metrics::Metrics().global.heartbeat_rpc_seconds->Observe(
+              std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+        }};
 
         // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
         // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
@@ -327,7 +319,11 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
 auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, DatabaseProtector const &protector,
                                                            uint64_t const durability_commit_timestamp)
     -> std::optional<ReplicaStream> {
-  utils::MetricsTimer const timer{metrics::StartTxnReplication_us};
+  auto const _t0 = std::chrono::high_resolution_clock::now();
+  utils::OnScopeExit const _timer{[&] {
+    metrics::Metrics().global.start_txn_replication_seconds->Observe(
+        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+  }};
   auto locked_state = replica_state_.Lock();
   spdlog::trace(
       "Starting transaction replication for replica {} in state {}", client_.name_, StateToString(*locked_state));
@@ -359,7 +355,11 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     }
     case READY: {
       try {
-        utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
+        auto const _t0_stream = std::chrono::high_resolution_clock::now();
+        utils::OnScopeExit const _timer_stream{[&] {
+          metrics::Metrics().global.replica_stream_seconds->Observe(
+              std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0_stream).count());
+        }};
         std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
 
         // Try to obtain RPC stream for ASYNC replica. It is OK to fail.
@@ -438,7 +438,11 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
-  utils::MetricsTimer const timer{metrics::FinalizeTxnReplication_us};
+  auto const _t0 = std::chrono::high_resolution_clock::now();
+  utils::OnScopeExit const _timer{[&] {
+    metrics::Metrics().global.finalize_txn_replication_seconds->Observe(
+        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+  }};
   auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
     spdlog::trace("Finalizing 1st phase on replica {} in state {}", client_.name_, StateToString(state));
 
@@ -509,7 +513,11 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
-  utils::MetricsTimer const timer{metrics::FinalizeTxnReplication_us};
+  auto const _t0 = std::chrono::high_resolution_clock::now();
+  utils::OnScopeExit const _timer{[&] {
+    metrics::Metrics().global.finalize_txn_replication_seconds->Observe(
+        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+  }};
   auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
     spdlog::trace("Finalizing transaction on replica {} in state {}", client_.name_, StateToString(state));
 
@@ -621,7 +629,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
     spdlog::info("Replica {} is not in RECOVERY state anymore for db {}, ending the recovery task.",
                  client_.name_,
                  main_db_name);
-    metrics::IncrementCounter(metrics::ReplicaRecoverySkip);
+    metrics::Metrics().global.replica_recovery_skip->Increment();
     return;
   }
 
@@ -830,7 +838,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
       atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
-      metrics::IncrementCounter(metrics::ReplicaRecoveryFail);
+      metrics::Metrics().global.replica_recovery_fail->Increment();
       return;
     }
     // If recovery failed, set the state to MAYBE_BEHIND because replica for sure didn't recover completely
@@ -841,14 +849,14 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
       };
       atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
-      metrics::IncrementCounter(metrics::ReplicaRecoveryFail);
+      metrics::Metrics().global.replica_recovery_fail->Increment();
       return;
     }
   }
 
   // Success here means that the recovery finished. Doesn't matter if there are some commits which happened during
   // the recovery, the important thing here is that it finished.
-  metrics::IncrementCounter(metrics::ReplicaRecoverySuccess);
+  metrics::Metrics().global.replica_recovery_success->Increment();
 
   // Protect the exit from the recovery. Otherwise, FinalizeTransactionReplication()
   // could check that the replica state isn't replicating, this recovery sets the
@@ -917,7 +925,11 @@ void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) 
 }
 
 replication::PrepareCommitRes ReplicaStream::Finalize() {
-  utils::MetricsTimer const timer{metrics::PrepareCommitRpc_us};
+  auto const _t0 = std::chrono::high_resolution_clock::now();
+  utils::OnScopeExit const _timer{[&] {
+    metrics::Metrics().global.prepare_commit_rpc_seconds->Observe(
+        std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - _t0).count());
+  }};
   return stream_.SendAndWaitProgress();
 }
 }  // namespace memgraph::storage
