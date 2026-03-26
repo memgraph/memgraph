@@ -252,11 +252,11 @@ class DiskStorage final : public Storage {
                                          VertexAccessor *to_vertex) override;
 
     bool LabelIndexReady(LabelId label) const override {
-      return transaction_.active_indices_.label_->IndexReady(label);
+      return transaction_.active_indices_->label_->IndexReady(label);
     }
 
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
-      return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
+      return transaction_.active_indices_->label_properties_->IndexReady(label, properties);
     }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override;

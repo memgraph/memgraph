@@ -21,6 +21,10 @@
 
 namespace memgraph::storage {
 
+struct ActiveIndicesUpdater;
+struct LabelPropertyIndexActiveIndices;
+struct LabelPropertyIndexAbortProcessor;
+
 /** Representation for a range of property values, which may be:
  * - BOUNDED: including only values between a lower and upper bounds. By setting
  *            both bounds to the same inclusive value, BOUNDED can also be used
@@ -167,6 +171,9 @@ struct PropertiesPermutationHelper {
   std::map<PropertyId, std::vector<std::size_t>> grouped_by_outer_prop_id_;
 };
 
+using LabelPropertyIndexAbortableInfo =
+    std::map<LabelId, std::map<PropertiesPaths const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
+
 class LabelPropertyIndex {
  public:
   // Because of composite index we need to track more info
@@ -177,58 +184,9 @@ class LabelPropertyIndex {
     friend auto operator<=>(IndexInfo const &, IndexInfo const &) = default;
   };
 
-  using AbortableInfo =
-      std::map<LabelId,
-               std::map<PropertiesPaths const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
-
-  struct ActiveIndices;
-
-  struct AbortProcessor {
-    // TODO: this is a filter for only relevant indicies? If so it should be based off the ActiveIndices
-    //       + via constructor
-    std::map<LabelId, std::map<PropertyId, std::vector<IndexInfo>>> l2p;
-    std::map<PropertyId, std::map<LabelId, std::vector<IndexInfo>>> p2l;
-
-    void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
-    void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
-
-    // collection
-    AbortableInfo cleanup_collection;
-  };
-
-  struct ActiveIndices {
-    virtual ~ActiveIndices() = default;
-
-    virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
-
-    virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
-
-    virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                     const Transaction &tx) = 0;
-
-    virtual bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
-
-    virtual bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
-
-    virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                                    std::span<PropertyPath const> properties) const
-        -> std::vector<LabelPropertiesIndicesInfo> = 0;
-
-    virtual auto ListIndices(uint64_t start_timestamp) const
-        -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> = 0;
-
-    virtual auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t = 0;
-
-    virtual auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                        std::span<PropertyValue const> values) const -> uint64_t = 0;
-
-    virtual auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                        std::span<PropertyValueRange const> bounds) const -> uint64_t = 0;
-
-    virtual auto GetAbortProcessor() const -> AbortProcessor = 0;
-
-    virtual void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) = 0;
-  };
+  using AbortableInfo = LabelPropertyIndexAbortableInfo;
+  using AbortProcessor = LabelPropertyIndexAbortProcessor;
+  using ActiveIndices = LabelPropertyIndexActiveIndices;
 
   LabelPropertyIndex() = default;
   LabelPropertyIndex(const LabelPropertyIndex &) = delete;
@@ -238,9 +196,57 @@ class LabelPropertyIndex {
 
   virtual ~LabelPropertyIndex() = default;
 
-  virtual bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) = 0;
+  virtual bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
+                         ActiveIndicesUpdater const &updater) = 0;
   virtual void DropGraphClearIndices() = 0;
-  virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
+  virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
+};
+
+struct LabelPropertyIndexAbortProcessor {
+  // TODO: this is a filter for only relevant indicies? If so it should be based off the ActiveIndices
+  //       + via constructor
+  std::map<LabelId, std::map<PropertyId, std::vector<LabelPropertyIndex::IndexInfo>>> l2p;
+  std::map<PropertyId, std::map<LabelId, std::vector<LabelPropertyIndex::IndexInfo>>> p2l;
+
+  void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
+  void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
+
+  // collection
+  LabelPropertyIndexAbortableInfo cleanup_collection;
+};
+
+struct LabelPropertyIndexActiveIndices {
+  virtual ~LabelPropertyIndexActiveIndices() = default;
+
+  virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
+
+  virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
+
+  virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                                   const Transaction &tx) = 0;
+
+  virtual bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
+
+  virtual bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
+
+  virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                                  std::span<PropertyPath const> properties) const
+      -> std::vector<LabelPropertiesIndicesInfo> = 0;
+
+  virtual auto ListIndices(uint64_t start_timestamp) const
+      -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> = 0;
+
+  virtual auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t = 0;
+
+  virtual auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                      std::span<PropertyValue const> values) const -> uint64_t = 0;
+
+  virtual auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                      std::span<PropertyValueRange const> bounds) const -> uint64_t = 0;
+
+  virtual auto GetAbortProcessor() const -> LabelPropertyIndexAbortProcessor = 0;
+
+  virtual void AbortEntries(LabelPropertyIndexAbortableInfo const &info, uint64_t start_timestamp) = 0;
 };
 
 }  // namespace memgraph::storage
