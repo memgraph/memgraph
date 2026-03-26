@@ -7,7 +7,7 @@ function print_help () {
     echo "Optional arguments:"
     echo -e "\t-h|--help\t\tPrint help."
     echo -e "\t--latest\t\tTag image as latest version."
-    echo -e "\t--keep-image-loaded\tKeep built image loaded in local Docker daemon."
+    echo -e "\t--keep-image-loaded <true|false>\tKeep built image loaded in local Docker daemon (default false)."
 }
 
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
