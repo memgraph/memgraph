@@ -160,7 +160,6 @@ target_link_libraries(mg-query
     mg::system
     mg-flags
     mg-dbms
-    mg-events
     mg-parameters
     mg::planner
     PRIVATE

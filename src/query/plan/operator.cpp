@@ -60,7 +60,6 @@
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/java_string_formatter.hpp"
 #include "utils/likely.hpp"
@@ -114,62 +113,6 @@ namespace rv = r::views;
   void class_name::set_input(std::shared_ptr<LogicalOperator>) { \
     LOG_FATAL("Operator " #class_name " has no single input!");  \
   }
-
-namespace memgraph::metrics {
-extern const Event OnceOperator;
-extern const Event CreateNodeOperator;
-extern const Event CreateExpandOperator;
-extern const Event ScanAllOperator;
-extern const Event ScanAllByLabelOperator;
-extern const Event ScanAllByLabelPropertiesOperator;
-extern const Event ScanAllByIdOperator;
-extern const Event ScanAllByEdgeOperator;
-extern const Event ScanAllByEdgeTypeOperator;
-extern const Event ScanAllByEdgeTypePropertyOperator;
-extern const Event ScanAllByEdgeTypePropertyValueOperator;
-extern const Event ScanAllByEdgeTypePropertyRangeOperator;
-extern const Event ScanAllByEdgePropertyOperator;
-extern const Event ScanAllByEdgePropertyValueOperator;
-extern const Event ScanAllByEdgePropertyRangeOperator;
-extern const Event ScanAllByEdgeIdOperator;
-extern const Event ScanAllByPointDistanceOperator;
-extern const Event ScanAllByPointWithinbboxOperator;
-extern const Event ExpandOperator;
-extern const Event ExpandVariableOperator;
-extern const Event ConstructNamedPathOperator;
-extern const Event FilterOperator;
-extern const Event ProduceOperator;
-extern const Event DeleteOperator;
-extern const Event SetPropertyOperator;
-extern const Event SetPropertiesOperator;
-extern const Event SetLabelsOperator;
-extern const Event RemovePropertyOperator;
-extern const Event RemoveLabelsOperator;
-extern const Event EdgeUniquenessFilterOperator;
-extern const Event AccumulateOperator;
-extern const Event AggregateOperator;
-extern const Event SkipOperator;
-extern const Event LimitOperator;
-extern const Event OrderByOperator;
-extern const Event MergeOperator;
-extern const Event OptionalOperator;
-extern const Event UnwindOperator;
-extern const Event DistinctOperator;
-extern const Event UnionOperator;
-extern const Event CartesianOperator;
-extern const Event CallProcedureOperator;
-extern const Event ForeachOperator;
-extern const Event EmptyResultOperator;
-extern const Event EvaluatePatternFilterOperator;
-extern const Event ApplyOperator;
-extern const Event IndexedJoinOperator;
-extern const Event HashJoinOperator;
-extern const Event RollUpApplyOperator;
-extern const Event PeriodicCommitOperator;
-extern const Event PeriodicSubqueryOperator;
-extern const Event SetNestedPropertyOperator;
-extern const Event RemoveNestedPropertyOperator;
-}  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
 
