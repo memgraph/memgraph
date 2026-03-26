@@ -258,7 +258,19 @@ jobs:
           --src-dir $PACKAGE_ARTIFACT_DIR \
           --dest-dir $DOCKER_ARTIFACT_DIR \
           --generate-sbom $GENERATE_SBOM \
-          --malloc $malloc --custom-mirror $USE_CUSTOM_MIRROR
+          --malloc $malloc \
+          --custom-mirror $USE_CUSTOM_MIRROR \
+          --keep-image-loaded ${{ inputs.run_smoke_tests }}
+          image_archive="$(ls -1t "$DOCKER_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+          if [[ -z "$image_archive" ]]; then
+            echo "Error: Could not find docker image archive in '$DOCKER_ARTIFACT_DIR'."
+            exit 1
+          fi
+          image_tag="$(basename "$image_archive")"
+          image_tag="${image_tag#memgraph-}"
+          image_tag="${image_tag%-docker.tar.gz}"
+          echo "IMAGE_TAG=$image_tag" >> $GITHUB_ENV
+          echo "Resolved IMAGE_TAG=$image_tag"
 
       - name: "Generate Build SBOM"
         if: ${{ env.GENERATE_SBOM == 'true'  && env.FOR_DOCKER != 'true' }}
@@ -271,6 +283,34 @@ jobs:
         with:
           name: memgraph-sbom
           path: sbom/
+
+      - name: Run Docker smoke tests
+        if: ${{ env.FOR_DOCKER == 'true' && inputs.run_smoke_tests }}
+        env:
+          MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+          MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+        run: |
+          # Test against the latest release version
+          last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+          last_version="${last_version#v}"
+          if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+            last_version="${last_version}-relwithdebinfo"
+          fi
+          echo "Resolved LAST_VERSION=$last_version"
+          docker pull "memgraph/memgraph:${last_version}"
+
+          export MEMGRAPH_NEXT_DOCKERHUB_IMAGE="memgraph/memgraph:${IMAGE_TAG}"
+          export MEMGRAPH_LAST_DOCKERHUB_IMAGE="memgraph/memgraph:${last_version}"
+
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph smoke \
+            --next-image $MEMGRAPH_NEXT_DOCKERHUB_IMAGE \
+            --last-image $MEMGRAPH_LAST_DOCKERHUB_IMAGE
 
       - name: "Rename Package"
         if: github.ref == 'refs/heads/master' && !inputs.ref
@@ -360,44 +400,3 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/docker_cleanup.sh
-
-  SetupSmokeTest:
-    runs-on: [self-hosted]
-    needs: [PackageAndUpload]
-    if: ${{ inputs.run_smoke_tests && inputs.push_to_s3 }}
-    outputs:
-      last_version: ${{ steps.get-latest-tag.outputs.last_version }}
-    steps:
-      - name: Checkout repository and submodules
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
-
-      - name: Get Latest Tag
-        id: get-latest-tag
-        run: |
-          tag="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
-          clean_tag="${tag#v}"
-          if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
-            clean_tag="${clean_tag}-relwithdebinfo"
-          fi
-          echo "Found latest tag: ${clean_tag}"
-          echo "last_version=$clean_tag" >> $GITHUB_OUTPUT
-
-  RunSmokeTests:
-    if: ${{ inputs.run_smoke_tests }}
-    needs: [PackageAndUpload, SetupSmokeTest]
-    uses: ./.github/workflows/reusable_smoke_test_docker.yml
-    with:
-      arch: "${{ inputs.arch }}"
-      next_version: "${{ needs.PackageAndUpload.outputs.package_s3_url }}"
-      last_version: "${{ needs.SetupSmokeTest.outputs.last_version }}"
-      malloc: false
-      cuda: false
-      relwithdebinfo: ${{ inputs.build_type == 'RelWithDebInfo' }}
-      ref: ${{ inputs.ref }}
-      image_type: "memgraph"
-    secrets: inherit
