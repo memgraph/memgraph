@@ -38,10 +38,9 @@ namespace memgraph::memory {
 namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DbArenaHooks global_graph_arena_hooks{};
-}  // namespace
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extent_hooks_t *old_hooks = nullptr;
+}  // namespace
 
 #endif
 
