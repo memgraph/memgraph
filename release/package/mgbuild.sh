@@ -79,7 +79,6 @@ DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
 DEFAULT_RUST_VERSION="1.89"
-DEFAULT_MAGE_RUST_VERSION="1.85"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -1362,7 +1361,7 @@ copy_heaptrack() {
 build_mage() {
   echo -e "${GREEN_BOLD}Building MAGE${RESET}"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  local rust_version=$DEFAULT_MAGE_RUST_VERSION
+  local rust_version=$DEFAULT_RUST_VERSION
   local config_only=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
