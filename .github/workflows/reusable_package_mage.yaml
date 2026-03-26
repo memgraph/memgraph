@@ -529,6 +529,13 @@ jobs:
         run: |
           docker stop $MAGE_CONTAINER || true
 
+      - name: Save docker image
+        if: ${{ inputs.push_to_github || inputs.push_to_s3 }}
+        run: |
+          mkdir -p output
+          docker save ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG | gzip > output/${ARTIFACT_NAME}.tar.gz
+          du -h output/${ARTIFACT_NAME}.tar.gz
+
       - name: Run Docker smoke tests
         if: ${{ inputs.run_smoke_tests == true }}
         run: |
@@ -540,20 +547,16 @@ jobs:
           echo "Resolved LAST_VERSION=$last_version"
           docker pull "${DOCKER_REPOSITORY_NAME}:${last_version}"
 
+          export MEMGRAPH_NEXT_DOCKERHUB_IMAGE="${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG"
+          export MEMGRAPH_LAST_DOCKERHUB_IMAGE="${DOCKER_REPOSITORY_NAME}:${last_version}"
+
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os $OS \
             --arch $ARCH \
             test-mage smoke \
-            --next-image "${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG" \
-            --last-image "${DOCKER_REPOSITORY_NAME}:${last_version}"
-
-      - name: Save docker image
-        if: ${{ inputs.push_to_github || inputs.push_to_s3 }}
-        run: |
-          mkdir -p output
-          docker save ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG | gzip > output/${ARTIFACT_NAME}.tar.gz
-          du -h output/${ARTIFACT_NAME}.tar.gz
+            --next-image $MEMGRAPH_NEXT_DOCKERHUB_IMAGE \
+            --last-image $MEMGRAPH_LAST_DOCKERHUB_IMAGE
 
       - name: Push query module archive to GitHub
         if: ${{ inputs.push_to_github }}
