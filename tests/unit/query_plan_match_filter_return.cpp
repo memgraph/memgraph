@@ -201,9 +201,8 @@ TYPED_TEST(MatchReturnFixture, ScanAllWithAuthChecker) {
   {
     auto user = memgraph::auth::User{"global_update_deny_label"};
     user.fine_grained_access_handler().label_permissions().GrantGlobal(
-        static_cast<memgraph::auth::FineGrainedPermission>(
-            memgraph::auth::FineGrainedPermission::SET_LABEL | memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
-            memgraph::auth::FineGrainedPermission::SET_PROPERTY | memgraph::auth::FineGrainedPermission::READ));
+        static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::kVertexLabelUpdatePermissions |
+                                                           memgraph::auth::FineGrainedPermission::READ));
     user.fine_grained_access_handler().label_permissions().Deny({labelName}, memgraph::auth::kAllLabelPermissions);
 
     test_hypothesis(user, memgraph::storage::View::OLD, 0);
