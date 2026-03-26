@@ -309,11 +309,13 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
 }
 
 bool FineGrainedAuthChecker::HasUnrestrictedAccessToVertices() const {
-  return HasAllGlobalPrivilegesOnVertices() && !GetCachedLabelPermissions().HasAnyRuleDenies();
+  auto const &permissions = GetCachedLabelPermissions();
+  return HasAllGlobalPrivilegesOnVertices() && !permissions.HasAnyRuleDenies() && permissions.GetRules().empty();
 }
 
 bool FineGrainedAuthChecker::HasUnrestrictedAccessToEdges() const {
-  return HasAllGlobalPrivilegesOnEdges() && !GetCachedEdgePermissions().HasAnyRuleDenies();
+  auto const &permissions = GetCachedEdgePermissions();
+  return HasAllGlobalPrivilegesOnEdges() && !permissions.HasAnyRuleDenies() && permissions.GetRules().empty();
 }
 
 void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
