@@ -790,6 +790,10 @@ void Storage::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
   indices_.SetMetricHandles(metric_handles);
   constraints_.SetMetricHandles(metric_handles);
   ttl_.SetMetricHandles(metric_handles);
+  if (metric_handles && snapshot_recovery_latency_s_) {
+    metric_handles->snapshot_recovery_latency_seconds->Observe(*snapshot_recovery_latency_s_);
+    snapshot_recovery_latency_s_.reset();
+  }
 }
 
 }  // namespace memgraph::storage
