@@ -50,6 +50,10 @@ RpcInfoMetrics(UpdateDataInstanceConfigRpc)
 
 auto ReplicationInstanceClient::InstanceName() const -> std::string const & { return instance_name_; }
 
+void ReplicationInstanceClient::UpdateHealthCheckFrequencySec(std::chrono::seconds const &new_config) const {
+  instance_checker_.SetInterval(new_config);
+}
+
 void ReplicationInstanceClient::StartStateCheck() {
   if (instance_checker_.IsRunning()) {
     return;

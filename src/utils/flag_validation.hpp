@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -108,6 +108,18 @@
   DEFINE_VALIDATED_FLAG(int32, flag_name, default_value, description, std::int32_t, validation_body)
 #define DEFINE_VALIDATED_HIDDEN_int32(flag_name, default_value, description, validation_body) \
   DEFINE_VALIDATED_HIDDEN_FLAG(int32, flag_name, default_value, description, std::int32_t, validation_body)
+
+/// Define an integer command line flag with validation.
+///
+/// @sa DEFINE_VALIDATED_bool
+/// @sa DEFINE_VALIDATED_int64
+/// @sa DEFINE_VALIDATED_uint64
+/// @sa DEFINE_VALIDATED_double
+/// @sa DEFINE_VALIDATED_string
+#define DEFINE_VALIDATED_uint32(flag_name, default_value, description, validation_body) \
+  DEFINE_VALIDATED_FLAG(uint32, flag_name, default_value, description, std::uint32_t, validation_body)
+#define DEFINE_VALIDATED_HIDDEN_uint32(flag_name, default_value, description, validation_body) \
+  DEFINE_VALIDATED_HIDDEN_FLAG(uint32, flag_name, default_value, description, std::uint32_t, validation_body)
 
 /// Define an integer command line flag with validation.
 ///
