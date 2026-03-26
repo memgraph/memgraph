@@ -236,6 +236,28 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificLabelDenyRequir
   ASSERT_FALSE(auth_checker.HasUnrestrictedAccessToVertices());
 }
 
+// Global grant on * plus a grant-only rule that narrows permissions on a label must still attach the FGA checker:
+// FineGrainedAccessPermissions::Has denies permissions not covered by the matching rule, even when no explicit DENY
+// bitmask is set on any rule.
+TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificLabelGrantOnlyRequiresAuthChecker) {
+  memgraph::auth::User user{"test"};
+  auto &label_perms = user.fine_grained_access_handler().label_permissions();
+  label_perms.GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  label_perms.Grant({"l3"}, memgraph::auth::FineGrainedPermission::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  ASSERT_TRUE(auth_checker.HasAllGlobalPrivilegesOnVertices());
+  ASSERT_FALSE(auth_checker.HasUnrestrictedAccessToVertices());
+
+  ASSERT_TRUE(
+      auth_checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  ASSERT_TRUE(
+      auth_checker.Has(this->v3, memgraph::storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  ASSERT_FALSE(auth_checker.Has(
+      this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE));
+}
+
 TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificEdgeTypeDenyRequiresAuthChecker) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
@@ -247,6 +269,22 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificEdgeTypeDenyReq
   ASSERT_FALSE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_TRUE(auth_checker.HasAllGlobalPrivilegesOnEdges());
   ASSERT_FALSE(auth_checker.HasUnrestrictedAccessToEdges());
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificEdgeTypeGrantOnlyRequiresAuthChecker) {
+  memgraph::auth::User user{"test"};
+  auto &edge_perms = user.fine_grained_access_handler().edge_type_permissions();
+  edge_perms.GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
+  edge_perms.Grant({"edge_type_2"}, memgraph::auth::FineGrainedPermission::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  ASSERT_TRUE(auth_checker.HasAllGlobalPrivilegesOnEdges());
+  ASSERT_FALSE(auth_checker.HasUnrestrictedAccessToEdges());
+
+  ASSERT_TRUE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  ASSERT_TRUE(auth_checker.Has(this->r4, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  ASSERT_FALSE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE));
 }
 
 TEST(AuthChecker, Generate) {
