@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,26 +11,26 @@
 
 #pragma once
 
-#include "utils/event_histogram.hpp"
-
 #include <chrono>
+
+#include <prometheus/histogram.h>
 
 namespace memgraph::utils {
 
-template <typename TDuration = std::chrono::microseconds>
 class MetricsTimer {
  public:
-  explicit MetricsTimer(const metrics::Event event_type)
-      : event_type_(event_type), start_time_(std::chrono::high_resolution_clock::now()) {}
+  explicit MetricsTimer(prometheus::Histogram *histogram)
+      : histogram_(histogram), start_time_(std::chrono::high_resolution_clock::now()) {}
 
   ~MetricsTimer() {
-    metrics::Measure(
-        event_type_,
-        std::chrono::duration_cast<TDuration>(std::chrono::high_resolution_clock::now() - start_time_).count());
+    if (histogram_) {
+      histogram_->Observe(
+          std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start_time_).count());
+    }
   }
 
  private:
-  metrics::Event event_type_;
+  prometheus::Histogram *histogram_;
   std::chrono::high_resolution_clock::time_point start_time_;
 };
 
