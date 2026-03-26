@@ -11,6 +11,11 @@
 
 #pragma once
 
+#include <atomic>
+#include <expected>
+#include <memory>
+#include <string>
+
 #include <openssl/ssl.h>
 #include <openssl/types.h>
 #include <atomic>
@@ -69,6 +74,19 @@ class ClientContext final {
   SSL_CTX *ctx_;
 };
 
+enum class SSL_CTX_ERR_TYPE : uint8_t {
+  FAIL_CERT_FILE,
+  FAIL_KEY_FILE,
+  FAIL_SET_OPTIONS,
+  FAIL_LOAD_CA,
+  FAIL_SET_SSL_VERIFICATION_MODE
+};
+
+struct SSL_CTX_Error {
+  SSL_CTX_ERR_TYPE err_type;
+  std::string_view msg;
+};
+
 /**
  * This class represents a context that should be used with network servers. One
  * context can be reused between multiple servers (note: this mainly depends on
@@ -87,8 +105,7 @@ class ServerContext final {
    * to check that the client certificate is valid, then you need to supply a
    * valid `ca_file` as well.
    */
-  ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file = "",
-                bool verify_peer = false);
+  ServerContext(std::string key_file, std::string cert_file, std::string ca_file = "", bool verify_peer = false);
 
   // This object can't be copied because the underlying SSL implementation is
   // messy and ownership can't be handled correctly.
@@ -106,7 +123,13 @@ class ServerContext final {
 
   bool use_ssl() const;
 
+  [[nodiscard]] auto reload() -> std::expected<void, SSL_CTX_Error>;
+
  private:
+  std::string key_file_;
+  std::string cert_file_;
+  std::string ca_file_;
+  bool verify_peer_;
   std::atomic<std::shared_ptr<boost::asio::ssl::context>> ctx_;
 };
 
