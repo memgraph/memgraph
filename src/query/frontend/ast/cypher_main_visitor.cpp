@@ -4359,13 +4359,6 @@ antlrcpp::Any CypherMainVisitor::visitDeleteDescription(MemgraphCypher::DeleteDe
   return description_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowDescriptionQuery(MemgraphCypher::ShowDescriptionQueryContext *ctx) {
-  auto *description_query = storage_->Create<DescriptionQuery>();
-  description_query->action_ = DescriptionQuery::Action::SHOW;
-  FillDescriptionTarget(ctx->descriptionTarget(), description_query);
-  return description_query;
-}
-
 antlrcpp::Any CypherMainVisitor::visitShowDescriptions(MemgraphCypher::ShowDescriptionsContext * /*ctx*/) {
   auto *description_query = storage_->Create<DescriptionQuery>();
   description_query->action_ = DescriptionQuery::Action::SHOW_ALL;

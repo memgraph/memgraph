@@ -884,7 +884,6 @@ userProfileQuery : createUserProfile
 descriptionQuery
     : setDescription
     | deleteDescription
-    | showDescriptionQuery
     | showDescriptions
     ;
 
@@ -894,10 +893,6 @@ setDescription
 
 deleteDescription
     : DELETE DESCRIPTION ON descriptionTarget
-    ;
-
-showDescriptionQuery
-    : SHOW DESCRIPTION ON descriptionTarget
     ;
 
 showDescriptions

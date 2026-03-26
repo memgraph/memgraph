@@ -4307,7 +4307,7 @@ class DescriptionQuery : public memgraph::query::Query {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action : uint8_t { SET, DELETE, SHOW, SHOW_ALL };
+  enum class Action : uint8_t { SET, DELETE, SHOW_ALL };
 
   DEFVISITABLE(QueryVisitor<void>);
 

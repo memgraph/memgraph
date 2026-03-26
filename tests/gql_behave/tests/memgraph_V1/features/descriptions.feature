@@ -1,6 +1,6 @@
 Feature: Server-side descriptions
 
-    Scenario: Set and show label description
+    Scenario: Set label description
         Given an empty graph
         When executing query:
             """
@@ -9,13 +9,13 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON LABEL :Person
+            SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description     |
-            | 'A person node' |
+            | type    | label      | start_node_labels | end_node_labels | property | description     |
+            | 'label' | ['Person'] | null              | null            | null     | 'A person node' |
 
-    Scenario: Set and show edge type description
+    Scenario: Set edge type description
         Given an empty graph
         When executing query:
             """
@@ -24,13 +24,13 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON EDGE TYPE :KNOWS
+            SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description          |
-            | 'Knows relationship' |
+            | type        | label   | start_node_labels | end_node_labels | property | description          |
+            | 'edge type' | 'KNOWS' | null              | null            | null     | 'Knows relationship' |
 
-    Scenario: Set and show label-scoped property description
+    Scenario: Set label-scoped property description
         Given an empty graph
         When executing query:
             """
@@ -39,11 +39,11 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON LABEL PROPERTY :Person(age)
+            SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description         |
-            | 'Age of the person' |
+            | type             | label      | start_node_labels | end_node_labels | property | description         |
+            | 'label property' | ['Person'] | null              | null            | 'age'    | 'Age of the person' |
 
     Scenario: Show all descriptions
         Given an empty graph
@@ -62,9 +62,9 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | type             | label        | start_node_labels | end_node_labels | property | description          |
-            | 'label'          | ['Person']   | null              | null            | null     | 'A person node'      |
-            | 'label property' | ['Person']   | null              | null            | 'name'   | 'Name of the person' |
+            | type             | label      | start_node_labels | end_node_labels | property | description          |
+            | 'label'          | ['Person'] | null              | null            | null     | 'A person node'      |
+            | 'label property' | ['Person'] | null              | null            | 'name'   | 'Name of the person' |
 
     Scenario: Delete description
         Given an empty graph
@@ -98,11 +98,11 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON LABEL :Person
+            SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description           |
-            | 'Updated description' |
+            | type    | label      | start_node_labels | end_node_labels | property | description           |
+            | 'label' | ['Person'] | null              | null            | null     | 'Updated description' |
 
     Scenario: Multi-label description is stored as a single combo entry
         Given an empty graph
@@ -113,23 +113,11 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON LABEL :Person:Student
-            """
-        Then the result should be:
-            | description        |
-            | 'A student person' |
-        When executing query:
-            """
-            SHOW DESCRIPTION ON LABEL :Person
-            """
-        Then the result should be empty
-        When executing query:
-            """
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | type             | label                  | start_node_labels | end_node_labels | property | description        |
-            | 'label'          | ['Person', 'Student']  | null              | null            | null     | 'A student person' |
+            | type    | label                 | start_node_labels | end_node_labels | property | description        |
+            | 'label' | ['Person', 'Student'] | null              | null            | null     | 'A student person' |
 
     Scenario: Label-scoped property descriptions are independent per label
         Given an empty graph
@@ -145,26 +133,12 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON LABEL PROPERTY :Person(age)
-            """
-        Then the result should be:
-            | description         |
-            | 'Age of the person' |
-        When executing query:
-            """
-            SHOW DESCRIPTION ON LABEL PROPERTY :Student(age)
-            """
-        Then the result should be:
-            | description          |
-            | 'Age of the student' |
-        When executing query:
-            """
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | type             | label        | start_node_labels | end_node_labels | property | description          |
-            | 'label property' | ['Person']   | null              | null            | 'age'    | 'Age of the person'  |
-            | 'label property' | ['Student']  | null              | null            | 'age'    | 'Age of the student' |
+            | type             | label       | start_node_labels | end_node_labels | property | description          |
+            | 'label property' | ['Person']  | null              | null            | 'age'    | 'Age of the person'  |
+            | 'label property' | ['Student'] | null              | null            | 'age'    | 'Age of the student' |
 
     Scenario: Multi-label property description
         Given an empty graph
@@ -175,23 +149,11 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON LABEL PROPERTY :Person:Student(age)
-            """
-        Then the result should be:
-            | description               |
-            | 'Age of a student person' |
-        When executing query:
-            """
-            SHOW DESCRIPTION ON LABEL PROPERTY :Person(age)
-            """
-        Then the result should be empty
-        When executing query:
-            """
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | type             | label                  | start_node_labels | end_node_labels | property | description               |
-            | 'label property' | ['Person', 'Student']  | null              | null            | 'age'    | 'Age of a student person' |
+            | type             | label                 | start_node_labels | end_node_labels | property | description               |
+            | 'label property' | ['Person', 'Student'] | null              | null            | 'age'    | 'Age of a student person' |
         When executing query:
             """
             DELETE DESCRIPTION ON LABEL PROPERTY :Person:Student(age)
@@ -203,7 +165,7 @@ Feature: Server-side descriptions
             """
         Then the result should be empty
 
-    Scenario: Set and show database description
+    Scenario: Set database description
         Given an empty graph
         When executing query:
             """
@@ -212,20 +174,13 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON DATABASE memgraph
-            """
-        Then the result should be:
-            | description              |
-            | 'The main graph database' |
-        When executing query:
-            """
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | type             | label      | start_node_labels | end_node_labels | property | description               |
-            | 'database'       | 'memgraph' | null              | null            | null     | 'The main graph database' |
+            | type       | label      | start_node_labels | end_node_labels | property | description               |
+            | 'database' | 'memgraph' | null              | null            | null     | 'The main graph database' |
 
-    Scenario: Set and show edge-type-scoped property description
+    Scenario: Set edge-type-scoped property description
         Given an empty graph
         When executing query:
             """
@@ -234,18 +189,11 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON EDGE TYPE PROPERTY :KNOWS(since)
-            """
-        Then the result should be:
-            | description                       |
-            | 'Year the relationship started'   |
-        When executing query:
-            """
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | type                  | label   | start_node_labels | end_node_labels | property | description                     |
-            | 'edge type property'  | 'KNOWS' | null              | null            | 'since'  | 'Year the relationship started' |
+            | type                 | label   | start_node_labels | end_node_labels | property | description                     |
+            | 'edge type property' | 'KNOWS' | null              | null            | 'since'  | 'Year the relationship started' |
 
     Scenario: Setting description on wrong database throws error
         Given an empty graph
@@ -263,15 +211,7 @@ Feature: Server-side descriptions
             """
         Then an error should be raised
 
-    Scenario: Showing description on wrong database throws error
-        Given an empty graph
-        When executing query:
-            """
-            SHOW DESCRIPTION ON DATABASE other_db
-            """
-        Then an error should be raised
-
-    Scenario: Set and show global property description
+    Scenario: Set global property description
         Given an empty graph
         When executing query:
             """
@@ -280,18 +220,11 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON PROPERTY age
-            """
-        Then the result should be:
-            | description    |
-            | 'Age in years' |
-        When executing query:
-            """
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | type             | label | start_node_labels | end_node_labels | property | description    |
-            | 'property'       | null  | null              | null            | 'age'    | 'Age in years' |
+            | type       | label | start_node_labels | end_node_labels | property | description    |
+            | 'property' | null  | null              | null            | 'age'    | 'Age in years' |
         When executing query:
             """
             DELETE DESCRIPTION ON PROPERTY age
@@ -303,7 +236,7 @@ Feature: Server-side descriptions
             """
         Then the result should be empty
 
-    Scenario: Set and show edge type pattern description
+    Scenario: Set edge type pattern description
         Given an empty graph
         When executing query:
             """
@@ -312,11 +245,11 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location)
+            SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description           |
-            | 'city is a location'  |
+            | type        | label | start_node_labels | end_node_labels  | property | description          |
+            | 'edge type' | 'IS'  | ['City']          | ['Location']     | null     | 'city is a location' |
 
     Scenario: Delete edge type pattern description
         Given an empty graph
@@ -332,7 +265,7 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON EDGE TYPE (:City)-[:IS]->(:Location)
+            SHOW DESCRIPTIONS
             """
         Then the result should be empty
 
@@ -348,10 +281,10 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | type             | label   | start_node_labels | end_node_labels | property | description           |
-            | 'edge type'      | 'KNOWS' | ['Person']        | ['Person']      | null     | 'person knows person' |
+            | type        | label   | start_node_labels | end_node_labels | property | description           |
+            | 'edge type' | 'KNOWS' | ['Person']        | ['Person']      | null     | 'person knows person' |
 
-    Scenario: Set and show multi-label edge type pattern description
+    Scenario: Multi-label edge type pattern description
         Given an empty graph
         When executing query:
             """
@@ -360,16 +293,11 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student)
+            SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description                |
-            | 'Employee mentors student' |
-        When executing query:
-            """
-            SHOW DESCRIPTION ON EDGE TYPE (:Person)-[:MENTORS]->(:Person)
-            """
-        Then the result should be empty
+            | type        | label     | start_node_labels           | end_node_labels            | property | description                |
+            | 'edge type' | 'MENTORS' | ['Employee', 'Person']      | ['Person', 'Student']      | null     | 'Employee mentors student' |
         When executing query:
             """
             DELETE DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student)
@@ -377,11 +305,11 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student)
+            SHOW DESCRIPTIONS
             """
         Then the result should be empty
 
-    Scenario: Set and show edge type pattern property description
+    Scenario: Set and delete edge type pattern property description
         Given an empty graph
         When executing query:
             """
@@ -390,11 +318,11 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since)
+            SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | description     |
-            | 'Year they met' |
+            | type                 | label   | start_node_labels | end_node_labels | property | description     |
+            | 'edge type property' | 'KNOWS' | ['Person']        | ['Person']      | 'since'  | 'Year they met' |
         When executing query:
             """
             DELETE DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since)
@@ -402,14 +330,6 @@ Feature: Server-side descriptions
         Then the result should be empty
         When executing query:
             """
-            SHOW DESCRIPTION ON EDGE TYPE PROPERTY (:Person)-[:KNOWS]->(:Person)(since)
-            """
-        Then the result should be empty
-
-    Scenario: Show description on label with no description returns empty
-        Given an empty graph
-        When executing query:
-            """
-            SHOW DESCRIPTION ON LABEL :Unknown
+            SHOW DESCRIPTIONS
             """
         Then the result should be empty
