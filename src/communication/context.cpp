@@ -102,6 +102,12 @@ boost::asio::ssl::context &ServerContext::context_clone() { return *ctx_.load(st
 bool ServerContext::use_ssl() const { return ctx_.load(std::memory_order_acquire) != nullptr; }
 
 auto ServerContext::reload() -> std::expected<void, SSL_CTX_Error> {
+  if (key_file_.empty() || cert_file_.empty()) {
+    return std::unexpected{
+        SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FLAGS_NOT_CONFIGURED,
+                      .msg = "Unable to reload SSL configuration because key or certificate file aren't set."}};
+  }
+
   namespace ssl = boost::asio::ssl;
 
   auto new_ctx = std::make_shared<boost::asio::ssl::context>(ssl::context::tls_server);

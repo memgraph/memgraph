@@ -16,5 +16,6 @@ endfunction()
 
 copy_server_e2e_python_files(common.py)
 copy_server_e2e_python_files(test_ssl_hot_reload.py)
+copy_server_e2e_python_files(test_ssl_reload_no_ssl.py)
 copy_e2e_files(server ssl_reload_test.crt)
 copy_e2e_files(server ssl_reload_test.key)
