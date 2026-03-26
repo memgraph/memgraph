@@ -41,6 +41,7 @@ if DISABLE_NODE:
 
 # Keep port ranges for each worker well-separated to avoid collisions.
 DEFAULT_PORT_OFFSET_STEP = 1000
+PORT_NAMESPACE_BASE = 10000
 PORT_AFTER_COLON_RE = re.compile(r"(?<=:)(\d{2,5})(?=(?:['\"\s]|$))")
 PORT_KEYWORD_RE = re.compile(r"(?i)(\bPORT\s+)(\d{2,5})")
 
@@ -163,57 +164,168 @@ def _offset_port_flags(args, port_offset):
     return updated
 
 
-def _offset_ports_in_query(query, port_offset):
-    if not isinstance(query, str) or port_offset == 0:
+def _extract_ports_from_args(args):
+    if not args:
+        return set()
+
+    offsettable_flags = {
+        "--bolt-port",
+        "--management-port",
+        "--coordinator-port",
+        "--replication-port",
+        "--rpc-port",
+        "--monitoring-port",
+    }
+
+    ports = set()
+    for i, arg in enumerate(args):
+        if arg in offsettable_flags and i + 1 < len(args) and str(args[i + 1]).isdigit():
+            ports.add(int(args[i + 1]))
+            continue
+
+        for flag in offsettable_flags:
+            prefix = f"{flag}="
+            if isinstance(arg, str) and arg.startswith(prefix):
+                value = arg[len(prefix) :]
+                if value.isdigit():
+                    ports.add(int(value))
+                break
+    return ports
+
+
+def _extract_ports_from_query(query):
+    if not isinstance(query, str):
+        return set()
+
+    ports = set()
+    for match in PORT_AFTER_COLON_RE.finditer(query):
+        ports.add(int(match.group(1)))
+    for match in PORT_KEYWORD_RE.finditer(query):
+        ports.add(int(match.group(2)))
+    return ports
+
+
+def _replace_port_flags_with_map(args, port_map):
+    if not args:
+        return args
+
+    offsettable_flags = {
+        "--bolt-port",
+        "--management-port",
+        "--coordinator-port",
+        "--replication-port",
+        "--rpc-port",
+        "--monitoring-port",
+    }
+
+    updated = list(args)
+    for i, arg in enumerate(updated):
+        if arg in offsettable_flags and i + 1 < len(updated) and str(updated[i + 1]).isdigit():
+            original = int(updated[i + 1])
+            updated[i + 1] = str(port_map.get(original, original))
+            continue
+
+        for flag in offsettable_flags:
+            prefix = f"{flag}="
+            if isinstance(arg, str) and arg.startswith(prefix):
+                value = arg[len(prefix) :]
+                if value.isdigit():
+                    original = int(value)
+                    updated[i] = f"{prefix}{port_map.get(original, original)}"
+                break
+    return updated
+
+
+def _offset_ports_in_query(query, port_map):
+    if not isinstance(query, str) or not port_map:
         return query
 
     def replace_colon_port(match):
-        value = int(match.group(1))
-        return str(value + port_offset)
+        original = int(match.group(1))
+        return str(port_map.get(original, original))
 
     def replace_port_keyword(match):
-        value = int(match.group(2))
-        return f"{match.group(1)}{value + port_offset}"
+        original = int(match.group(2))
+        return f"{match.group(1)}{port_map.get(original, original)}"
 
     updated = PORT_AFTER_COLON_RE.sub(replace_colon_port, query)
     updated = PORT_KEYWORD_RE.sub(replace_port_keyword, updated)
     return updated
 
 
-def _offset_query_collection(queries, port_offset):
+def _offset_query_collection(queries, port_map):
     if not isinstance(queries, list):
         return queries
     updated = []
     for query in queries:
         if isinstance(query, list):
-            updated.append([_offset_ports_in_query(inner, port_offset) for inner in query])
+            updated.append([_offset_ports_in_query(inner, port_map) for inner in query])
         else:
-            updated.append(_offset_ports_in_query(query, port_offset))
+            updated.append(_offset_ports_in_query(query, port_map))
     return updated
+
+
+def _build_port_map(workload, worker_slot, port_offset_step):
+    namespace_start = PORT_NAMESPACE_BASE + worker_slot * port_offset_step
+    namespace_end = namespace_start + port_offset_step - 1
+    if namespace_end > 65535:
+        raise RuntimeError(
+            f"Port namespace exhausted for worker {worker_slot}: "
+            f"{namespace_start}-{namespace_end} exceeds 65535. "
+            f"Use fewer workers or a smaller --port-offset-step."
+        )
+
+    discovered_ports = set()
+    discovered_ports.update(_extract_ports_from_args(workload.get("args", [])))
+
+    if "cluster" in workload:
+        for config in workload["cluster"].values():
+            discovered_ports.update(_extract_ports_from_args(config.get("args", [])))
+            for setup_query in config.get("setup_queries", []):
+                if isinstance(setup_query, list):
+                    for nested_query in setup_query:
+                        discovered_ports.update(_extract_ports_from_query(nested_query))
+                else:
+                    discovered_ports.update(_extract_ports_from_query(setup_query))
+            for validation in config.get("validation_queries", []):
+                if isinstance(validation, dict) and "query" in validation:
+                    discovered_ports.update(_extract_ports_from_query(validation["query"]))
+
+    sorted_ports = sorted(discovered_ports)
+    if len(sorted_ports) > port_offset_step:
+        raise RuntimeError(
+            f"Worker {worker_slot} needs {len(sorted_ports)} unique ports, "
+            f"but --port-offset-step is {port_offset_step}. Increase --port-offset-step."
+        )
+
+    port_map = {}
+    for index, original in enumerate(sorted_ports):
+        port_map[original] = namespace_start + index
+    return port_map, namespace_start
 
 
 def _prepare_workload_for_worker(workload, worker_slot, port_offset_step):
     prepared = copy.deepcopy(workload)
-    port_offset = worker_slot * port_offset_step
+    port_map, namespace_start = _build_port_map(prepared, worker_slot, port_offset_step)
     suffix = f"-w{worker_slot}"
 
     if "cluster" in prepared:
         for _, config in prepared["cluster"].items():
-            config["args"] = _offset_port_flags(config.get("args", []), port_offset)
+            config["args"] = _replace_port_flags_with_map(config.get("args", []), port_map)
             if "setup_queries" in config:
-                config["setup_queries"] = _offset_query_collection(config["setup_queries"], port_offset)
+                config["setup_queries"] = _offset_query_collection(config["setup_queries"], port_map)
             if "validation_queries" in config:
                 for validation in config["validation_queries"]:
                     if isinstance(validation, dict) and "query" in validation:
-                        validation["query"] = _offset_ports_in_query(validation["query"], port_offset)
+                        validation["query"] = _offset_ports_in_query(validation["query"], port_map)
 
             if "log_file" in config and isinstance(config["log_file"], str):
                 config["log_file"] = _append_suffix(config["log_file"], suffix)
             if "data_directory" in config and isinstance(config["data_directory"], str):
                 config["data_directory"] = _append_suffix(config["data_directory"], suffix)
 
-    prepared["args"] = _offset_port_flags(prepared.get("args", []), port_offset)
-    return prepared
+    prepared["args"] = _replace_port_flags_with_map(prepared.get("args", []), port_map)
+    return prepared, namespace_start
 
 
 def _run_and_capture(command, env):
@@ -233,20 +345,30 @@ def run_single_workload(workload, worker_slot, args_dict):
     args_debug = args_dict["debug"]
     args_gdb = args_dict["gdb"]
     args_gdb_port = args_dict["gdb_port"]
-    port_offset = worker_slot * args_dict["port_offset_step"]
 
     # Keep logging visible in the captured stream for each isolated workload.
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
 
     env = os.environ.copy()
+    prepared, port_namespace_start = _prepare_workload_for_worker(workload, worker_slot, args_dict["port_offset_step"])
     env["MEMGRAPH_PARALLEL_PROCESS_INDEX"] = str(worker_slot)
-    env["MEMGRAPH_PORT_OFFSET"] = str(port_offset)
+    env["MEMGRAPH_PORT_OFFSET"] = str(port_namespace_start)
+    env["MEMGRAPH_PORT_NAMESPACE_START"] = str(port_namespace_start)
 
-    prepared = _prepare_workload_for_worker(workload, worker_slot, args_dict["port_offset_step"])
+    gdb_port = None
+    if args_gdb:
+        gdb_port = 50000 + worker_slot
+        if gdb_port > 65535:
+            raise RuntimeError(f"Computed gdb port {gdb_port} exceeds 65535")
 
     try:
         with redirect_stdout(output_stdout), redirect_stderr(output_stderr):
-            log.info("%s STARTED (worker=%d, port_offset=%d).", workload_name, worker_slot, port_offset)
+            log.info(
+                "%s STARTED (worker=%d, port_namespace_start=%d).",
+                workload_name,
+                worker_slot,
+                port_namespace_start,
+            )
 
             if "pre_set_workload" in prepared:
                 binary = os.path.join(BUILD_DIR, prepared["pre_set_workload"])
@@ -256,7 +378,6 @@ def run_single_workload(workload, worker_slot, args_dict):
                 procdir = ""
                 if "proc" in prepared:
                     procdir = os.path.join(BUILD_DIR, prepared["proc"])
-                gdb_port = (args_gdb_port + port_offset) if args_gdb else None
                 interactive_mg_runner.start_all(prepared["cluster"], procdir, keep_directories=False, gdb_port=gdb_port)
 
             if args_debug:
@@ -301,7 +422,7 @@ def run_single_workload(workload, worker_slot, args_dict):
         "error": error,
         "elapsed": elapsed,
         "worker_slot": worker_slot,
-        "port_offset": port_offset,
+        "port_offset": port_namespace_start,
         "stdout": output_stdout.getvalue(),
         "stderr": output_stderr.getvalue(),
     }
@@ -319,6 +440,15 @@ def _print_result(result):
     if result["stderr"]:
         print(result["stderr"], end="" if result["stderr"].endswith("\n") else "\n", file=sys.stderr)
     print("=" * len(header.lstrip("\n")))
+
+
+def _terminate_pool(pool):
+    processes = getattr(pool, "_processes", {})
+    for process in processes.values():
+        try:
+            process.terminate()
+        except Exception:
+            pass
 
 
 def run(args):
@@ -346,6 +476,7 @@ def run(args):
     pending_workloads = list(workloads)
     failed = []
     futures = {}
+    stop_due_to_failure = False
 
     with ProcessPoolExecutor(max_workers=worker_count) as pool:
         for worker_slot in range(worker_count):
@@ -357,14 +488,34 @@ def run(args):
             done, _ = wait(list(futures.keys()), return_when=FIRST_COMPLETED)
             for finished in done:
                 worker_slot = futures.pop(finished)
-                result = finished.result()
+                try:
+                    result = finished.result()
+                except Exception as exc:
+                    result = {
+                        "name": f"<worker {worker_slot}>",
+                        "success": False,
+                        "error": str(exc),
+                        "elapsed": 0.0,
+                        "worker_slot": worker_slot,
+                        "port_offset": worker_slot * args.port_offset_step,
+                        "stdout": "",
+                        "stderr": traceback.format_exc(),
+                    }
                 _print_result(result)
                 if not result["success"]:
                     failed.append(result)
-                if pending_workloads:
+                    stop_due_to_failure = True
+                    pending_workloads = []
+                    for future in list(futures.keys()):
+                        future.cancel()
+                    _terminate_pool(pool)
+                    break
+                if pending_workloads and not stop_due_to_failure:
                     workload = pending_workloads.pop(0)
                     future = pool.submit(run_single_workload, workload, worker_slot, args_dict)
                     futures[future] = worker_slot
+            if stop_due_to_failure:
+                break
 
     if failed:
         failed_names = ", ".join(result["name"] for result in failed)
