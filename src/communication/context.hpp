@@ -13,7 +13,9 @@
 
 #include <openssl/ssl.h>
 #include <openssl/types.h>
+#include <atomic>
 #include <boost/asio/ssl/context.hpp>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -94,8 +96,8 @@ class ServerContext final {
   ServerContext &operator=(const ServerContext &) = delete;
 
   // Move constructor/assignment that handle ownership change correctly.
-  ServerContext(ServerContext &&other) noexcept;
-  ServerContext &operator=(ServerContext &&other) noexcept;
+  ServerContext(ServerContext &&other) = delete;
+  ServerContext &operator=(ServerContext &&other) = delete;
 
   ~ServerContext();
 
@@ -105,7 +107,7 @@ class ServerContext final {
   bool use_ssl() const;
 
  private:
-  std::optional<boost::asio::ssl::context> ctx_;
+  std::atomic<std::shared_ptr<boost::asio::ssl::context>> ctx_;
 };
 
 }  // namespace memgraph::communication
