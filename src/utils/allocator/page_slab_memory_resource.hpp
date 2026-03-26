@@ -111,6 +111,9 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
 
   bool do_is_equal(memory_resource const &other) const noexcept final { return std::addressof(other) == this; }
 
+ public:
+  void set_upstream(std::pmr::memory_resource *upstream) noexcept { upstream_ = upstream; }
+
  private:
   std::pmr::memory_resource *upstream_ = std::pmr::get_default_resource();
   header *pages = nullptr;

@@ -226,14 +226,25 @@ struct delta_container {
       : arena_upstream_{std::move(other.arena_upstream_)},
         memory_resource_{std::move(other.memory_resource_)},
         deltas_{std::move(other.deltas_)},
-        size_{std::exchange(other.size_, 0)} {}
+        size_{std::exchange(other.size_, 0)} {
+    if (memory_resource_) {
+      memory_resource_->set_upstream(&arena_upstream_);
+    }
+  }
 
   // move assign: needed because of size_
   delta_container &operator=(delta_container &&other) noexcept {
+    if (this == &other) return *this;
     std::swap(arena_upstream_, other.arena_upstream_);
     std::swap(memory_resource_, other.memory_resource_);
     std::swap(deltas_, other.deltas_);
     std::swap(size_, other.size_);
+    if (memory_resource_) {
+      memory_resource_->set_upstream(&arena_upstream_);
+    }
+    if (other.memory_resource_) {
+      other.memory_resource_->set_upstream(&other.arena_upstream_);
+    }
     other.clear();
     return *this;
   }
