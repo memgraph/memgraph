@@ -38,28 +38,11 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_chunked_iterable.hpp"
 #include "storage/v2/vertices_iterable.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 
 namespace memgraph::metrics {
 struct DatabaseMetricHandles;
-extern const Event SnapshotCreationLatency_us;
-
-extern const Event ActiveLabelIndices;
-extern const Event ActiveLabelPropertyIndices;
-extern const Event ActiveEdgeTypeIndices;
-extern const Event ActiveEdgeTypePropertyIndices;
-extern const Event ActiveEdgePropertyIndices;
-extern const Event ActivePointIndices;
-extern const Event ActiveTextIndices;
-extern const Event ActiveTextEdgeIndices;
-extern const Event ActiveVectorIndices;
-extern const Event ActiveVectorEdgeIndices;
-
-extern const Event ActiveExistenceConstraints;
-extern const Event ActiveUniqueConstraints;
-extern const Event ActiveTypeConstraints;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -144,13 +127,6 @@ struct StorageInfo {
   utils::CompressionLevel property_store_compression_level;
   uint64_t schema_vertex_count;
   uint64_t schema_edge_count;
-};
-
-struct EventInfo {
-  std::string name;
-  std::string type;
-  std::string event_type;
-  uint64_t value;
 };
 
 static inline nlohmann::json ToJson(const StorageInfo &info) {
@@ -294,8 +270,6 @@ class Storage {
   IsolationLevel GetIsolationLevel() const noexcept;
 
   virtual StorageInfo GetBaseInfo() = 0;
-
-  static std::vector<EventInfo> GetMetrics() noexcept;
 
   virtual StorageInfo GetInfo() = 0;
 

@@ -57,17 +57,6 @@ constexpr auto StateToString(ReplicaState const &replica_state) -> std::string_v
 }
 }  // namespace
 
-namespace memgraph::metrics {
-extern const Event HeartbeatRpc_us;
-extern const Event PrepareCommitRpc_us;
-extern const Event ReplicaStream_us;
-extern const Event StartTxnReplication_us;
-extern const Event FinalizeTxnReplication_us;
-extern const Event ReplicaRecoverySuccess;
-extern const Event ReplicaRecoveryFail;
-extern const Event ReplicaRecoverySkip;
-}  // namespace memgraph::metrics
-
 namespace memgraph::storage {
 ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client,
                                                    utils::UUID const main_uuid)
