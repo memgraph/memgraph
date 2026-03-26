@@ -3024,7 +3024,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // To avoid holding the SpinLock across the heavy index-cleanup work we swap the
   // list out under the lock, process off-lock, then splice everything back.
   if (light_edges) {
-    uint64_t post_cleanup_epoch = light_edge_iterable_tracker_.CurrentEpoch();
+    const uint64_t post_cleanup_epoch = light_edge_iterable_tracker_.CurrentEpoch();
     std::list<LightEdgeGraveyardEntry> local_graveyard;
     light_edge_graveyard_.WithLock([&](auto &graveyard) { local_graveyard.swap(graveyard); });
 
