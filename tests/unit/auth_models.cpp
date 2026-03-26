@@ -1042,18 +1042,17 @@ TEST(AuthModule, UserSerialization) {
                                {kMatching, "ANY"}})});
   ASSERT_EQ(json, user.Serialize());
 
-  user.fine_grained_access_handler().label_permissions().Grant({"ExactLabel"},
-                                                               memgraph::auth::FineGrainedPermission::SET_LABEL |
-                                                                   memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
-                                                                   memgraph::auth::FineGrainedPermission::SET_PROPERTY,
-                                                               memgraph::auth::MatchingMode::EXACTLY);
+  user.fine_grained_access_handler().label_permissions().Grant(
+      {"ExactLabel"}, memgraph::auth::kVertexLabelUpdatePermissions, memgraph::auth::MatchingMode::EXACTLY);
   json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
       {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})},
                                {kGranted, 0},
                                {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
                                {kMatching, "ANY"}}),
-       nlohmann::json::object(
-           {{kSymbols, nlohmann::json::array({"ExactLabel"})}, {kGranted, 98}, {kDenied, 0}, {kMatching, "EXACTLY"}})});
+       nlohmann::json::object({{kSymbols, nlohmann::json::array({"ExactLabel"})},
+                               {kGranted, static_cast<uint64_t>(memgraph::auth::kVertexLabelUpdatePermissions)},
+                               {kDenied, 0},
+                               {kMatching, "EXACTLY"}})});
   ASSERT_EQ(json, user.Serialize());
 
   user.fine_grained_access_handler().label_permissions().Grant({"ReadLabel"},
@@ -1063,8 +1062,10 @@ TEST(AuthModule, UserSerialization) {
                                {kGranted, 0},
                                {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
                                {kMatching, "ANY"}}),
-       nlohmann::json::object(
-           {{kSymbols, nlohmann::json::array({"ExactLabel"})}, {kGranted, 98}, {kDenied, 0}, {kMatching, "EXACTLY"}}),
+       nlohmann::json::object({{kSymbols, nlohmann::json::array({"ExactLabel"})},
+                               {kGranted, static_cast<uint64_t>(memgraph::auth::kVertexLabelUpdatePermissions)},
+                               {kDenied, 0},
+                               {kMatching, "EXACTLY"}}),
        nlohmann::json::object(
            {{kSymbols, nlohmann::json::array({"ReadLabel"})}, {kGranted, 1}, {kDenied, 0}, {kMatching, "ANY"}})});
   ASSERT_EQ(json, user.Serialize());
@@ -1081,8 +1082,10 @@ TEST(AuthModule, UserSerialization) {
                                {kGranted, 0},
                                {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
                                {kMatching, "ANY"}}),
-       nlohmann::json::object(
-           {{kSymbols, nlohmann::json::array({"ExactLabel"})}, {kGranted, 98}, {kDenied, 0}, {kMatching, "EXACTLY"}}),
+       nlohmann::json::object({{kSymbols, nlohmann::json::array({"ExactLabel"})},
+                               {kGranted, static_cast<uint64_t>(memgraph::auth::kVertexLabelUpdatePermissions)},
+                               {kDenied, 0},
+                               {kMatching, "EXACTLY"}}),
        nlohmann::json::object(
            {{kSymbols, nlohmann::json::array({"ReadLabel"})}, {kGranted, 1}, {kDenied, 0}, {kMatching, "ANY"}}),
        nlohmann::json::object(
