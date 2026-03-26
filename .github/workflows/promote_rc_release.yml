@@ -120,7 +120,7 @@ jobs:
           exit 1
 
       - name: Setup AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
         with:
           aws-access-key-id: ${{ secrets.AWS_AK_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SAK }}
@@ -202,7 +202,7 @@ jobs:
           exit 1
 
       - name: Setup AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
         with:
           aws-access-key-id: ${{ secrets.AWS_AK_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SAK }}
@@ -389,7 +389,7 @@ jobs:
           echo "s3_input_arm=s3://${rc_bucket}/${mage_rc_dir}/${docker_tar_arm}" >> $GITHUB_ENV
 
       - name: Setup AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
         with:
           aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
