@@ -16,8 +16,9 @@
 #include <sys/types.h>
 #include <zlib.h>
 #include <array>
-#include <memory>
 #include <string_view>
+#include <utility>
+#include "utils/db_aware_allocator.hpp"
 #include "utils/enum.hpp"
 
 namespace memgraph::utils {
@@ -46,44 +47,89 @@ utils::CompressionLevel ParseCompressionLevel();
 namespace memgraph::utils {
 
 struct CompressedBuffer {
-  CompressedBuffer(std::unique_ptr<uint8_t[]> data, uint32_t compressed_size, uint32_t original_size)
-      : data_(std::move(data)), compressed_size_(compressed_size), original_size_(original_size) {}
+  CompressedBuffer(uint8_t *data, uint32_t compressed_size, uint32_t original_size)
+      : data_(data), compressed_size_(compressed_size), original_size_(original_size) {}
 
   CompressedBuffer() = default;
-  CompressedBuffer(CompressedBuffer &&other) noexcept = default;
-  CompressedBuffer &operator=(CompressedBuffer &&other) noexcept = default;
+
+  ~CompressedBuffer() { Free(); }
+
+  CompressedBuffer(CompressedBuffer &&other) noexcept
+      : data_(std::exchange(other.data_, nullptr)),
+        compressed_size_(std::exchange(other.compressed_size_, 0)),
+        original_size_(std::exchange(other.original_size_, 0)) {}
+
+  CompressedBuffer &operator=(CompressedBuffer &&other) noexcept {
+    if (this != &other) {
+      Free();
+      data_ = std::exchange(other.data_, nullptr);
+      compressed_size_ = std::exchange(other.compressed_size_, 0);
+      original_size_ = std::exchange(other.original_size_, 0);
+    }
+    return *this;
+  }
 
   auto original_size() const -> uint32_t { return original_size_; }
 
-  auto view() -> std::span<uint8_t> { return std::span{data_.get(), compressed_size_}; }
+  auto view() -> std::span<uint8_t> { return std::span{data_, compressed_size_}; }
 
-  auto view() const -> std::span<uint8_t const> { return std::span{data_.get(), compressed_size_}; }
+  auto view() const -> std::span<uint8_t const> { return std::span{data_, compressed_size_}; }
+
+  void Free() {
+    if (data_) {
+      memgraph::memory::DbAwareAllocator<uint8_t>{}.deallocate(data_, compressed_size_);
+      data_ = nullptr;
+    }
+  }
+
+  uint8_t *release() {
+    compressed_size_ = 0;
+    return std::exchange(data_, nullptr);
+  }
 
  private:
-  std::unique_ptr<uint8_t[]> data_;
+  uint8_t *data_{nullptr};
   uint32_t compressed_size_ = 0;
   uint32_t original_size_ = 0;
 };
 
 struct DecompressedBuffer {
-  DecompressedBuffer(std::unique_ptr<uint8_t[]> data, uint32_t original_size)
-      : data_(std::move(data)), original_size_(original_size) {}
+  DecompressedBuffer(uint8_t *data, uint32_t original_size) : data_(data), original_size_(original_size) {}
 
   DecompressedBuffer() = default;
-  DecompressedBuffer(DecompressedBuffer &&other) noexcept = default;
-  DecompressedBuffer &operator=(DecompressedBuffer &&other) noexcept = default;
 
-  auto view() -> std::span<uint8_t> { return std::span{data_.get(), original_size_}; }
+  ~DecompressedBuffer() { Free(); }
 
-  auto view() const -> std::span<uint8_t const> { return std::span{data_.get(), original_size_}; }
+  DecompressedBuffer(DecompressedBuffer &&other) noexcept
+      : data_(std::exchange(other.data_, nullptr)), original_size_(std::exchange(other.original_size_, 0)) {}
 
-  void release() {
-    data_.release();
+  DecompressedBuffer &operator=(DecompressedBuffer &&other) noexcept {
+    if (this != &other) {
+      Free();
+      data_ = std::exchange(other.data_, nullptr);
+      original_size_ = std::exchange(other.original_size_, 0);
+    }
+    return *this;
+  }
+
+  auto view() -> std::span<uint8_t> { return std::span{data_, original_size_}; }
+
+  auto view() const -> std::span<uint8_t const> { return std::span{data_, original_size_}; }
+
+  void Free() {
+    if (data_) {
+      memgraph::memory::DbAwareAllocator<uint8_t>{}.deallocate(data_, original_size_);
+      data_ = nullptr;
+    }
+  }
+
+  uint8_t *release() {
     original_size_ = 0;
+    return std::exchange(data_, nullptr);
   }
 
  private:
-  std::unique_ptr<uint8_t[]> data_;
+  uint8_t *data_{nullptr};
   uint32_t original_size_ = 0;
 };
 
