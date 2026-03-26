@@ -78,40 +78,14 @@ SSL_CTX *ClientContext::context() { return ctx_; }
 
 bool ClientContext::use_ssl() { return use_ssl_; }
 
-ServerContext::ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file,
-                             bool verify_peer) {
-  namespace ssl = boost::asio::ssl;
-  auto new_ctx = std::make_shared<boost::asio::ssl::context>(ssl::context::tls_server);
-
-  // NOLINTNEXTLINE(hicpp-signed-bitwise)
-  new_ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
-                       ssl::context::single_dh_use);
-  new_ctx->set_default_verify_paths();
-  // TODO: add support for encrypted private keys
-  // TODO: add certificate revocation list (CRL)
-  boost::system::error_code ec;
-  new_ctx->use_certificate_chain_file(cert_file, ec);
-  MG_ASSERT(!ec, "Couldn't load server certificate from file {}. Error: {}", cert_file, ec.message());
-  new_ctx->use_private_key_file(key_file, ssl::context::pem, ec);
-  MG_ASSERT(!ec, "Couldn't load server private key from file {}. Error: {}", key_file, ec.message());
-
-  new_ctx->set_options(SSL_OP_NO_SSLv3, ec);
-  MG_ASSERT(!ec, "Setting options to SSL context failed! Error: {}", ec.message());
-
-  if (!ca_file.empty()) {
-    // Load the certificate authority file.
-    boost::system::error_code ec;
-    new_ctx->load_verify_file(ca_file, ec);
-    MG_ASSERT(!ec, "Couldn't load certificate authority from file {}. Error: {}", ca_file, ec.message());
-
-    if (verify_peer) {
-      // Enable verification of the client certificate.
-      // NOLINTNEXTLINE(hicpp-signed-bitwise)
-      new_ctx->set_verify_mode(ssl::verify_peer | ssl::verify_fail_if_no_peer_cert, ec);
-      MG_ASSERT(!ec, "Setting SSL verification mode failed! Error: {}", ec.message());
-    }
+ServerContext::ServerContext(std::string key_file, std::string cert_file, std::string ca_file, bool const verify_peer)
+    : key_file_(std::move(key_file)),
+      cert_file_(std::move(cert_file)),
+      ca_file_(std::move(ca_file)),
+      verify_peer_(verify_peer) {
+  if (auto const res = reload(); !res.has_value()) {
+    LOG_FATAL(res.error().msg);
   }
-  ctx_.store(std::move(new_ctx), std::memory_order_release);
 }
 
 ServerContext::~ServerContext() = default;
@@ -121,5 +95,66 @@ SSL_CTX *ServerContext::context() { return ctx_.load(std::memory_order_acquire)-
 boost::asio::ssl::context &ServerContext::context_clone() { return *ctx_.load(std::memory_order_acquire); }
 
 bool ServerContext::use_ssl() const { return ctx_.load(std::memory_order_acquire) != nullptr; }
+
+auto ServerContext::reload() -> std::expected<void, SSL_CTX_Error> {
+  namespace ssl = boost::asio::ssl;
+
+  auto new_ctx = std::make_shared<boost::asio::ssl::context>(ssl::context::tls_server);
+
+  // NOLINTNEXTLINE(hicpp-signed-bitwise)
+  new_ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
+                       ssl::context::single_dh_use);
+  new_ctx->set_default_verify_paths();
+  // TODO: add support for encrypted private keys
+  // TODO: add certificate revocation list (CRL)
+  boost::system::error_code ec;
+  // NOLINTNEXTLINE(bugprone-unused-return-value)
+  new_ctx->use_certificate_chain_file(cert_file_, ec);
+  if (ec) {
+    auto err_msg = fmt::format("Couldn't load server certificate from file {}. Error: {}", cert_file_, ec.message());
+    spdlog::error(err_msg);
+    return std::unexpected{SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_CERT_FILE, .msg = std::move(err_msg)}};
+  }
+  // NOLINTNEXTLINE(bugprone-unused-return-value)
+  new_ctx->use_private_key_file(key_file_, ssl::context::pem, ec);
+  if (ec) {
+    auto err_msg = fmt::format("Couldn't load server private key from file {}. Error: {}", key_file_, ec.message());
+    spdlog::error(err_msg);
+    return std::unexpected{SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_KEY_FILE, .msg = std::move(err_msg)}};
+  }
+  // NOLINTNEXTLINE(bugprone-unused-return-value)
+  new_ctx->set_options(SSL_OP_NO_SSLv3, ec);
+  if (ec) {
+    auto err_msg = fmt::format("Setting options to SSL context failed! Error: {}", ec.message());
+    spdlog::error(err_msg);
+    return std::unexpected{SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_SET_OPTIONS, .msg = std::move(err_msg)}};
+  }
+
+  if (!ca_file_.empty()) {
+    // Load the certificate authority file.
+    boost::system::error_code ec;
+    // NOLINTNEXTLINE(bugprone-unused-return-value)
+    new_ctx->load_verify_file(ca_file_, ec);
+    if (ec) {
+      auto err_msg = fmt::format("Couldn't load certificate authority from file {}. Error: {}", ca_file_, ec.message());
+      spdlog::error(err_msg);
+      return std::unexpected{SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_LOAD_CA, .msg = std::move(err_msg)}};
+    }
+
+    if (verify_peer_) {
+      // Enable verification of the client certificate.
+      // NOLINTNEXTLINE(hicpp-signed-bitwise, bugprone-unused-return-value)
+      new_ctx->set_verify_mode(ssl::verify_peer | ssl::verify_fail_if_no_peer_cert, ec);
+      if (ec) {
+        auto err_msg = fmt::format("Setting SSL verification mode failed! Error: {}", ec.message());
+        spdlog::error(err_msg);
+        return std::unexpected{
+            SSL_CTX_Error{.err_type = SSL_CTX_ERR_TYPE::FAIL_SET_SSL_VERIFICATION_MODE, .msg = std::move(err_msg)}};
+      }
+    }
+  }
+  ctx_.store(std::move(new_ctx), std::memory_order_release);
+  return {};
+}
 
 }  // namespace memgraph::communication

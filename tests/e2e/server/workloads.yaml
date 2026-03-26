@@ -1,7 +1,7 @@
 cert_file: &cert_file "$PROJECT_DIR/tests/e2e/memgraph-selfsigned.crt"
 key_file: &key_file "$PROJECT_DIR/tests/e2e/memgraph-selfsigned.key"
-reload_cert_file: &reload_cert_file "$PROJECT_DIR/tests/e2e/server/ssl_reload_test.crt"
-reload_key_file: &reload_key_file "$PROJECT_DIR/tests/e2e/server/ssl_reload_test.key"
+reload_cert_file: &reload_cert_file "$BUILD_DIR/tests/e2e/server/ssl_reload_test.crt"
+reload_key_file: &reload_key_file "$BUILD_DIR/tests/e2e/server/ssl_reload_test.key"
 bolt_port: &bolt_port "7687"
 template_cluster: &template_cluster
   cluster:

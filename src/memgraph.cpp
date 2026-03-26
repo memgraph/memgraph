@@ -692,6 +692,19 @@ int main(int argc, char **argv) {
     io_n_threads = 1U;
   }
 
+  // Used by interpreter context
+  std::string service_name = "Bolt";
+  auto bolt_server_context = !FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()
+                                 ? ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file)
+                                 : ServerContext{};
+  if (bolt_server_context.use_ssl()) {
+    service_name = "BoltS";
+    spdlog::info("Using secure Bolt connection (with SSL)");
+  } else {
+    spdlog::warn(
+        memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
+  }
+
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config,
       settings.get(),
@@ -699,6 +712,7 @@ int main(int argc, char **argv) {
       &dbms_handler,
       repl_state,
       system,
+      &bolt_server_context,
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
@@ -764,18 +778,6 @@ int main(int argc, char **argv) {
   }
 #endif
 
-  std::string service_name = "Bolt";
-  auto context = !FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()
-                     ? ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file)
-                     : ServerContext{};
-  if (context.use_ssl()) {
-    service_name = "BoltS";
-    spdlog::info("Using secure Bolt connection (with SSL)");
-  } else {
-    spdlog::warn(
-        memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
-  }
-
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{boost::asio::ip::make_address(FLAGS_bolt_address),
                                                                      static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
@@ -791,7 +793,7 @@ int main(int argc, char **argv) {
                                           .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
 #endif
 
-  memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, io_n_threads);
+  memgraph::glue::ServerT server(server_endpoint, &session_context, &bolt_server_context, service_name, io_n_threads);
 
   const auto machine_id = memgraph::utils::GetMachineId();
 
@@ -830,7 +832,7 @@ int main(int argc, char **argv) {
 
   memgraph::communication::websocket::SafeAuth websocket_auth{auth_.get()};
   memgraph::communication::websocket::Server websocket_server{
-      {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
+      {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &bolt_server_context, websocket_auth};
 
   spdlog::trace("Websocket server created.");
   if (!websocket_server.HasErrorHappened()) {
@@ -844,7 +846,7 @@ int main(int argc, char **argv) {
 // TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
   memgraph::glue::MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &bolt_server_context};
   spdlog::trace("Metrics server created.");
 #endif
 

@@ -4813,16 +4813,15 @@ PreparedQuery PrepareDropAllConstraintsQuery(ParsedQuery parsed_query, bool in_e
 }
 
 PreparedQuery PrepareReloadSSLQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                    std::vector<Notification> *notifications) {
+                                    std::vector<Notification> *notifications, InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw ReloadSSLMulticommandTxException();
   }
 
-  // TODO: (andi) Do you need some database accessor? If not/yes, do you need also to specialize access type for this
-  // query
-
-  std::function<void(Notification &)> handler = [](Notification & /*notification*/) mutable {
-
+  std::function<void(Notification &)> handler = [interpreter_context](Notification & /*notification*/) mutable {
+    if (auto const res = interpreter_context->bolt_server_context_->reload(); !res.has_value()) {
+      throw QueryRuntimeException(res.error().msg);
+    }
   };
   Notification notification(SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloading SSL for Bolt server");
 
@@ -8611,6 +8610,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<CreateVectorEdgeIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareCreateVectorEdgeIndexQuery(
           std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
+      // NOLINTNEXTLINE (bugprone-branch-clone)
     } else if (utils::Downcast<TtlQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
       prepared_query = PrepareTtlQuery(std::move(parsed_query),
@@ -8622,8 +8622,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       throw EnterpriseOnlyException();
 #endif  // MG_ENTERPRISE
     } else if (utils::Downcast<ReloadSSLQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareReloadSSLQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications);
+      prepared_query = PrepareReloadSSLQuery(
+          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
