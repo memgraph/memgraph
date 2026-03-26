@@ -296,8 +296,8 @@ Feature: Server-side descriptions
             SHOW DESCRIPTIONS
             """
         Then the result should be:
-            | type        | label     | start_node_labels           | end_node_labels            | property | description                |
-            | 'edge type' | 'MENTORS' | ['Employee', 'Person']      | ['Person', 'Student']      | null     | 'Employee mentors student' |
+            | type        | label     | start_node_labels        | end_node_labels            | property   | description                |
+            | 'edge type' | 'MENTORS' | [Person, 'Employee']     | ['Person', 'Student']      | null       | 'Employee mentors student' |
         When executing query:
             """
             DELETE DESCRIPTION ON EDGE TYPE (:Person:Employee)-[:MENTORS]->(:Person:Student)
