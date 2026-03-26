@@ -199,7 +199,7 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   // test default settings
   ASSERT_TRUE(cluster_state.GetSyncFailoverOnly());
   ASSERT_EQ(cluster_state.GetDeltasBatchProgressSize(), 100'000);
-  ASSERT_EQ(cluster_state.GetInstanceDownTimeoutSec(), std::chrono::seconds{5});
+  ASSERT_EQ(cluster_state.GetInstanceDownTimeoutSec(), 5);
   ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{1});
 
   // NOLINTNEXTLINE
@@ -225,7 +225,7 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   ASSERT_EQ(cluster_state.GetMaxFailoverReplicaLag(), 25);
   ASSERT_EQ(cluster_state.GetMaxReplicaReadLag(), 10);
   ASSERT_EQ(cluster_state.GetDeltasBatchProgressSize(), 50'000);
-  ASSERT_EQ(cluster_state.GetInstanceDownTimeoutSec(), std::chrono::seconds{10});
+  ASSERT_EQ(cluster_state.GetInstanceDownTimeoutSec(), 10);
   ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{3});
 }
 
@@ -269,6 +269,6 @@ TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
   ASSERT_EQ(deserialized_cluster_state.GetMaxFailoverReplicaLag(), std::numeric_limits<uint64_t>::max());
   ASSERT_EQ(deserialized_cluster_state.GetMaxReplicaReadLag(), std::numeric_limits<uint64_t>::max());
   // by default read 5 and 1
-  ASSERT_EQ(deserialized_cluster_state.GetInstanceDownTimeoutSec(), std::chrono::seconds{5});
+  ASSERT_EQ(deserialized_cluster_state.GetInstanceDownTimeoutSec(), 5);
   ASSERT_EQ(deserialized_cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{1});
 }
