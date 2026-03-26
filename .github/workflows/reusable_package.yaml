@@ -258,7 +258,9 @@ jobs:
           --src-dir $PACKAGE_ARTIFACT_DIR \
           --dest-dir $DOCKER_ARTIFACT_DIR \
           --generate-sbom $GENERATE_SBOM \
-          --malloc $malloc --custom-mirror $USE_CUSTOM_MIRROR
+          --malloc $malloc \
+          --custom-mirror $USE_CUSTOM_MIRROR \
+          --keep-image-loaded ${{ inputs.run_smoke_tests }}
           image_archive="$(ls -1t "$DOCKER_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
           if [[ -z "$image_archive" ]]; then
             echo "Error: Could not find docker image archive in '$DOCKER_ARTIFACT_DIR'."
@@ -292,6 +294,7 @@ jobs:
             last_version="${last_version}-relwithdebinfo"
           fi
           echo "Resolved LAST_VERSION=$last_version"
+          docker pull "memgraph/memgraph:${last_version}"
 
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
