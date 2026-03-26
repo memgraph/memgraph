@@ -89,7 +89,7 @@ jobs:
           esac
 
           mkdir -p "$TRIVY_DIR"
-          curl -fsSL "$TRIVY_URL" -o "$TRIVY_ARCHIVE"
+          curl --proto '=https' --tlsv1.2 -fsSL "$TRIVY_URL" -o "$TRIVY_ARCHIVE"
           echo "${TRIVY_SHA256}  ${TRIVY_ARCHIVE}" | sha256sum -c -
           tar -xzf "$TRIVY_ARCHIVE" -C "$TRIVY_DIR" trivy
           rm -f "$TRIVY_ARCHIVE"
@@ -117,7 +117,7 @@ jobs:
           esac
 
           mkdir -p "$GRYPE_DIR"
-          curl -fsSL "$GRYPE_URL" -o "$GRYPE_ARCHIVE"
+          curl --proto '=https' --tlsv1.2 -fsSL "$GRYPE_URL" -o "$GRYPE_ARCHIVE"
           echo "${GRYPE_SHA256}  ${GRYPE_ARCHIVE}" | sha256sum -c -
           tar -xzf "$GRYPE_ARCHIVE" -C "$GRYPE_DIR" grype
           rm -f "$GRYPE_ARCHIVE"
@@ -131,7 +131,7 @@ jobs:
 
       - name: Download Docker Image
         run: |
-          curl -L "$IMAGE_URL" -o "${{ env.CVE_DIR }}/image.tar.gz"
+          curl --proto '=https' --tlsv1.2 -L "$IMAGE_URL" -o "${{ env.CVE_DIR }}/image.tar.gz"
 
       - name: Load into Docker
         if: ${{ inputs.run_cbt }}
@@ -176,7 +176,7 @@ jobs:
       - name: Download CVE Database
         if: ${{ inputs.run_cbt }}
         run: |
-          curl --fail --silent --show-error -L https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/CVE-database/cve-bin-tool-cve.db.tar.gz \
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error -L https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/CVE-database/cve-bin-tool-cve.db.tar.gz \
             -o "${{ env.CVE_DIR }}/cve-bin-tool-cve.db.tar.gz"
           if [ ! -s "${{ env.CVE_DIR }}/cve-bin-tool-cve.db.tar.gz" ]; then
             echo "CVE database download failed or empty" >&2
@@ -245,7 +245,7 @@ jobs:
               CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-arm64"
           fi
 
-          curl -L -o cyclonedx "$CYCLONEDXURL"
+          curl --proto '=https' --tlsv1.2 -L -o cyclonedx "$CYCLONEDXURL"
           chmod +x cyclonedx
 
           if [[ "$RUN_TRIVY" == "true" && "$RUN_GRYPE" == "true" ]]; then
