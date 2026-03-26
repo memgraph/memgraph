@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,8 @@
 
 #pragma once
 
-#include <optional>
+#include <atomic>
+#include <memory>
 #include <string>
 
 #include <openssl/ssl.h>
@@ -94,8 +95,8 @@ class ServerContext final {
   ServerContext &operator=(const ServerContext &) = delete;
 
   // Move constructor/assignment that handle ownership change correctly.
-  ServerContext(ServerContext &&other) noexcept;
-  ServerContext &operator=(ServerContext &&other) noexcept;
+  ServerContext(ServerContext &&other) = delete;
+  ServerContext &operator=(ServerContext &&other) = delete;
 
   ~ServerContext();
 
@@ -105,7 +106,7 @@ class ServerContext final {
   bool use_ssl() const;
 
  private:
-  std::optional<boost::asio::ssl::context> ctx_;
+  std::atomic<std::shared_ptr<boost::asio::ssl::context>> ctx_;
 };
 
 }  // namespace memgraph::communication

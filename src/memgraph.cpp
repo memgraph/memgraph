@@ -764,16 +764,18 @@ int main(int argc, char **argv) {
   }
 #endif
 
-  ServerContext context;
   std::string service_name = "Bolt";
-  if (!FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()) {
-    context = ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file);
+  auto context = !FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()
+                     ? ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file)
+                     : ServerContext{};
+  if (context.use_ssl()) {
     service_name = "BoltS";
     spdlog::info("Using secure Bolt connection (with SSL)");
   } else {
     spdlog::warn(
         memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
+
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{boost::asio::ip::make_address(FLAGS_bolt_address),
                                                                      static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
