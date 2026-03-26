@@ -544,6 +544,12 @@ jobs:
           if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
             last_version="${last_version}-relwithdebinfo"
           fi
+          if [[ "$MALLOC" == "true" ]]; then
+            last_version="${last_version}-malloc"
+          fi
+          if [[ "$CUDA" == "true" ]]; then
+            last_version="${last_version}-cuda"
+          fi
           echo "Resolved LAST_VERSION=$last_version"
           docker pull "${DOCKER_REPOSITORY_NAME}:${last_version}"
 
