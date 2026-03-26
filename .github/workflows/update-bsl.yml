@@ -47,7 +47,7 @@ jobs:
           sed -i "s/CHANGE DATE:.*$/CHANGE DATE:            $BSL_DATE/" licenses/BSL.txt
 
       - name: Create PR
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0  # v8.1.0
         with:
           commit-message: "Update BSL change date to ${{ env.BSL_DATE }}"
           title: "Update BSL change date to ${{ env.BSL_DATE }}"
