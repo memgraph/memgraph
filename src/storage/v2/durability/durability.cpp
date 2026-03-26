@@ -38,11 +38,9 @@
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/name_id_mapper.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
-#include "utils/timer.hpp"
 
 #include "fmt/format.h"
 
@@ -77,10 +75,6 @@ class fmt::formatter<PropertyPathFormatter> {
     return out;
   }
 };
-
-namespace memgraph::metrics {
-extern const Event SnapshotRecoveryLatency_us;
-}  // namespace memgraph::metrics
 
 namespace memgraph::storage::durability {
 
@@ -569,7 +563,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   }
 
   auto *const epoch_history = &repl_storage_state.history;
-  utils::Timer timer;
 
   auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_);
   MG_ASSERT(maybe_snapshot_files.has_value(), "Couldn't recover data because of the failure to read snapshot files");
@@ -798,8 +791,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                                     indices_constraints,
                                     config.salient.items.properties_on_edges);
 
-  memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
-                             std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
   spdlog::trace("Epoch id: {}. Last durable commit timestamp: {}.",
                 std::string(repl_storage_state.epoch_.id()),
                 repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);

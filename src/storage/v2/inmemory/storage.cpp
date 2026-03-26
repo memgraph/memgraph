@@ -345,6 +345,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Disable ttl until after recovery and role switch / write enabled
     ttl_.SetUserCheck([]() -> bool { return false; });
     // Recover data
+    utils::Timer recovery_timer;
     auto info = recovery_.RecoverData(
         uuid(),
         repl_storage_state_,
@@ -363,6 +364,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         name(),
         &ttl_,
         &description_store_);
+    snapshot_recovery_latency_s_ = recovery_timer.Elapsed().count();
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
