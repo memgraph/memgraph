@@ -555,10 +555,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             common_message);
       }
       case RAFT_LOG_ERROR:
-        throw QueryRuntimeException(
-            "Writing to Raft log failed - the operation may or may not have taken the effect. It is safe to retry, "
-            "however, before retrying, please check the state with the 'SHOW INSTANCES' query and whether the command "
-            "took effect");
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -595,10 +592,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             common_message);
       }
       case RAFT_LOG_ERROR:
-        throw QueryRuntimeException(
-            "Writing to Raft log failed - the operation may or may not have taken the effect. It is safe to retry, "
-            "however, before retrying, please check the state with the 'SHOW INSTANCES' query and whether the command "
-            "took effect");
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -656,10 +650,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         break;
       }
       case coordination::SetCoordinatorSettingStatus::RAFT_LOG_ERROR:
-        throw QueryRuntimeException(
-            "Writing to Raft log failed - the operation may or may not have taken the effect. It is safe to retry, "
-            "however, before retrying, please check the state with the 'SHOW INSTANCES' query and whether the command "
-            "took effect");
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case coordination::SetCoordinatorSettingStatus::UNKNOWN_SETTING: {
         throw QueryRuntimeException("Setting {} doesn't exist on coordinators.", setting_name);
       }
@@ -736,10 +727,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             common_message);
       }
       case RAFT_LOG_ERROR:
-        throw QueryRuntimeException(
-            "Writing to Raft log failed - the operation may or may not have taken the effect. It is safe to retry, "
-            "however, before retrying, please check the state with the 'SHOW INSTANCES' query and whether the command "
-            "took effect");
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -871,10 +859,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't add coordinator since instance with such coordinator server already exists!");
       case RAFT_LOG_ERROR:
-        throw QueryRuntimeException(
-            "Writing to Raft log failed - the operation may or may not have taken the effect. It is safe to retry, "
-            "however, before retrying, please check the state with the 'SHOW INSTANCES' query and whether the command "
-            "took effect");
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -955,10 +940,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             common_message);
       }
       case RAFT_LOG_ERROR:
-        throw QueryRuntimeException(
-            "Writing to Raft log failed - the operation may or may not have taken the effect. It is safe to retry, "
-            "however, before retrying, please check the state with the 'SHOW INSTANCES' query and whether the command "
-            "took effect");
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
