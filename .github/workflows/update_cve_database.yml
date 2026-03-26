@@ -35,7 +35,7 @@ jobs:
           pip install git+https://github.com/mattkjames7/cve-bin-tool.git@fix-osv-update
 
       - name: Update CVE database
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60  # v4.0.0
         with:
           timeout_minutes: 40
           max_attempts: 3
