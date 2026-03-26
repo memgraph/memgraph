@@ -102,6 +102,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "StopTTL"sv;
     case NotificationCode::PARALLEL_EXECUTION_FALLBACK:
       return "ParallelExecutionFallback"sv;
+    case NotificationCode::RELOAD_SSL:
+      return "ReloadSSL"sv;
   }
 }
 }  // namespace

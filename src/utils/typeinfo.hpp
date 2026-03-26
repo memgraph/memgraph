@@ -343,6 +343,7 @@ enum class TypeId : uint64_t {
   AST_LOAD_JSONL,
   AST_DISTINCT,
   AST_PARAMETER_QUERY,
+  AST_RELOAD_SSL_QUERY,
 
   // Symbol
   SYMBOL = 4000,

@@ -36,6 +36,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
+                      | BOLT_SERVER
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
                       | BUILD
@@ -158,6 +159,7 @@ memgraphCypherKeyword : cypherKeyword
                       | READ_FILE
                       | RECOVER
                       | REGISTER
+                      | RELOAD
                       | RENAME
                       | REPLACE
                       | REPLICA
@@ -180,6 +182,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SETTINGS
                       | SNAPSHOT
                       | SNAPSHOTS
+                      | SSL
                       | START
                       | STATE
                       | STATISTICS
@@ -284,6 +287,7 @@ query : cypherQuery
       | ttlQuery
       | setSessionTraceQuery
       | userProfileQuery
+      | reloadSSLQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -830,6 +834,8 @@ startTtlQuery: ENABLE TTL ( ( EVERY period=literal ) ( AT time=literal )?
 ttlQuery: stopTtlQuery
         | startTtlQuery
         ;
+
+reloadSSLQuery: RELOAD SSL FOR BOLT_SERVER ;
 
 typeConstraintType : BOOLEAN
              | STRING
