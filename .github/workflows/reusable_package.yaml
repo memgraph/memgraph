@@ -283,7 +283,7 @@ jobs:
           path: sbom/
 
       - name: Run Docker smoke tests
-        if: ${{ env.FOR_DOCKER == 'true' && inputs.run_smoke_tests == 'true' }}
+        if: ${{ env.FOR_DOCKER == 'true' && inputs.run_smoke_tests }}
         run: |
           # Test against the latest release version
           last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
