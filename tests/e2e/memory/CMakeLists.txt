@@ -65,3 +65,12 @@ copy_e2e_python_files_from_parent_folder(memory ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(memory ".." mg_utils.py)
 
 copy_e2e_files(memory workloads.yaml)
+
+add_dependencies(memgraph__e2e
+    global_memory_limit
+    global_memory_limit_proc
+    query_memory_limit_proc_multi_thread
+    query_memory_limit_proc
+    global_memory_limit_thread_proc
+    proc_memory_limit
+)

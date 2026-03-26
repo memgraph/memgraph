@@ -70,7 +70,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 
 #if USE_JEMALLOC
   // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
-  memory::DbArenaFullScope db_arena_scope{ArenaIdx()};
+  const memory::DbArenaFullScope db_arena_scope{ArenaIdx()};
 #endif
 
   config.arena_idx = ArenaIdx();
@@ -106,7 +106,7 @@ void Database::SwitchToOnDisk() {
   auto preserved_factory = storage_->get_database_protector_factory();
 
 #if USE_JEMALLOC
-  memory::DbArenaFullScope db_arena_scope{ArenaIdx()};
+  const memory::DbArenaFullScope db_arena_scope{ArenaIdx()};
 #endif
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(
       std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);

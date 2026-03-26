@@ -204,7 +204,7 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
   return false;
 }
 
-void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id,
+void UnlinkAndRemoveDeltas(delta_container &deltas,
                            std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_edges,
                            std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
                            IndexPerformanceTracker &impact_tracker) {
@@ -1280,16 +1280,11 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
 
   // 1.b.1) unlink, gathering the removals
   for (auto &gc_deltas : linked_undo_buffers) {
-    UnlinkAndRemoveDeltas(
-        gc_deltas.deltas_, gc_deltas.transaction_id_, current_deleted_edges, current_deleted_vertices, impact_tracker);
+    UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, impact_tracker);
   }
 
   // STEP 2) this transaction's deltas
-  UnlinkAndRemoveDeltas(transaction_.deltas,
-                        transaction_.transaction_id,
-                        current_deleted_edges,
-                        current_deleted_vertices,
-                        impact_tracker);
+  UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, impact_tracker);
 
   // STEP 3) clear all deltas after unlinking is complete
   linked_undo_buffers.clear();

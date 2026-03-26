@@ -13,6 +13,7 @@
 
 namespace memgraph::storage {
 
+namespace {
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Iterator it,
                             utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Iterator end,
                             std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
@@ -25,6 +26,7 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex, memory::ArenaAwareAllocator<
   }
   return it;
 }
+}  // namespace
 
 AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self,
                                         utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Iterator it)
