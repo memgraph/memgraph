@@ -469,14 +469,8 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
 
   auto const raft_state_data_instances = raft_state_->GetDataInstancesContext();
 
-  // Reconciliation shouldn't be done on single coordinator
-  if (raft_state_->GetCoordinatorInstancesAux().size() == kDisconnectedCluster && raft_state_data_instances.empty()) {
-    return ReconcileClusterStateStatus::SUCCESS;
-  }
-
-  // There is nothing to do if we don't have any instances
+  // Reconciliation shouldn't be done on single coordinator and if there are no data instances
   if (raft_state_data_instances.empty()) {
-    spdlog::trace("Exiting ReconcileClusterState. Didn't get any replication instances.");
     return ReconcileClusterStateStatus::SUCCESS;
   }
 
