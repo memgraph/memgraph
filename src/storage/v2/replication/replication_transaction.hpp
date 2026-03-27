@@ -13,6 +13,8 @@
 
 #include <expected>
 #include <optional>
+#include <string>
+#include <vector>
 
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -25,6 +27,11 @@ namespace memgraph::storage {
 
 struct CommitArgs;
 
+struct ShipDeltasError {
+  io::network::ClientCommunicationError error;
+  std::vector<std::string> timed_out_replicas;
+};
+
 using ReplicationStorageClientList =
     utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>;
 
@@ -32,7 +39,7 @@ class TransactionReplication {
  public:
   // This will block until we retrieve RPC streams for all STRICT_SYNC and SYNC replicas. It is OK to not be able to
   // obtain the RPC lock for the ASYNC replica.
-  TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage, CommitArgs const &commit_args,
+  TransactionReplication(uint64_t durability_commit_timestamp, Storage *storage, CommitArgs const &commit_args,
                          ReplicationStorageClientList &clients);
 
   ~TransactionReplication() = default;
@@ -70,18 +77,23 @@ class TransactionReplication {
 
   // RPC stream won't be destroyed at the end of this function
   auto ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args)
-      -> std::expected<void, io::network::ClientCommunicationError>;
+      -> std::expected<void, ShipDeltasError>;
 
   auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseProtector const &protector,
                            uint64_t durability_commit_timestamp) -> bool;
 
   auto ShouldRunTwoPC() const -> bool { return run_two_phase_commit; }
 
+  auto CollectStartTxnErrors() const -> std::optional<StartTxnReplicationErrors>;
+
  private:
+  // TODO: (andi) I think you can simulate reset() by setting error instead of value
   std::vector<std::optional<ReplicaStream>> streams;
+  // nullopt if connecting to replica went passed successfully, else error stored
+  std::vector<std::optional<StartTxnReplicationError>> errors_;
   utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>::ReadLockedPtr
       locked_clients;
-  bool run_two_phase_commit = false;
+  bool run_two_phase_commit{false};
 };
 
 }  // namespace memgraph::storage
