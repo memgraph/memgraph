@@ -31,7 +31,6 @@
 #include "coordination/coordinator_state_manager.hpp"
 #include "coordination/log_level.hpp"
 #include "kvstore/kvstore.hpp"
-#include "nlohmann/json.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"

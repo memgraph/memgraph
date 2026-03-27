@@ -17,6 +17,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <ranges>
 #include <string>
 #include <thread>
 

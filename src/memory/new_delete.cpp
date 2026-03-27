@@ -19,7 +19,6 @@
 #include <jemalloc/jemalloc.h>
 #else
 #include <malloc.h>
-#include <cstdlib>
 #endif
 
 #include "utils/memory_tracker.hpp"

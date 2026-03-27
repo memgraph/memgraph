@@ -21,11 +21,12 @@ Prerequisites:
       COMMAND ${CMAKE_COMMAND} -E env CFLAGS= CXXFLAGS= CARGO_TARGET_DIR=... ${CARGO_CMD}
 
 Usage:
-  python3 tools/analyze_ftime_trace.py [BUILD_DIR]
+  python3 tools/analyze_ftime_trace.py [BUILD_DIR] [N]
 
-  BUILD_DIR defaults to ./build. The script recursively finds all *.cpp.json
-  files, parses Source begin/end events, and prints the top 100 headers ranked
-  by total parse time (ms) across all TUs.
+  BUILD_DIR defaults to ./build. N defaults to 100 (number of top headers to
+  show). The script recursively finds all *.cpp.json files, parses Source
+  begin/end events, prints total single-threaded compile time, and ranks
+  headers by total parse time (ms) across all TUs.
 
 Output columns:
   Rank       - Position by total parse time
@@ -52,8 +53,9 @@ def parse_trace_file(path):
 
     events = data if isinstance(data, list) else data.get("traceEvents", [])
 
-    # Source events use begin/end format: ph="b" and ph="e" with matching id
-    begin_events = {}  # id -> (name, ts)
+    # Source events use begin/end format: ph="b" and ph="e" with matching
+    # (tid, id) pair.  IDs can repeat across threads, so we key on both.
+    begin_events = {}  # (tid, id) -> (name, ts)
     header_times = defaultdict(float)
 
     for ev in events:
@@ -69,12 +71,13 @@ def parse_trace_file(path):
                     header_times[detail] += ev["dur"]
             continue
 
+        key = (ev.get("tid"), eid)
         if ph == "b":
             detail = ev.get("args", {}).get("detail", "")
-            begin_events[eid] = (detail, ev.get("ts", 0))
+            begin_events[key] = (detail, ev.get("ts", 0))
         elif ph == "e":
-            if eid in begin_events:
-                detail, begin_ts = begin_events.pop(eid)
+            if key in begin_events:
+                detail, begin_ts = begin_events.pop(key)
                 dur = ev.get("ts", 0) - begin_ts
                 if detail and dur > 0:
                     header_times[detail] += dur
@@ -90,9 +93,12 @@ def main():
     # Filter to only .cpp.json files (ftime-trace output)
     json_files = [f for f in json_files if f.endswith(".cpp.json")]
 
+    n_top = int(sys.argv[2]) if len(sys.argv) > 2 else 100
+
     print(f"Found {len(json_files)} trace files in {build_dir}")
 
     global_times = defaultdict(lambda: {"total_us": 0, "count": 0})
+    total_wall_us = 0  # sum of per-TU wall-clock compile times
 
     for i, jf in enumerate(json_files):
         if (i + 1) % 50 == 0:
@@ -102,13 +108,32 @@ def main():
             global_times[header]["total_us"] += us
             global_times[header]["count"] += 1
 
+        # Extract per-TU wall time from the "ExecuteCompiler" or top-level "X" event
+        try:
+            with open(jf) as f:
+                data = json.load(f)
+            events = data if isinstance(data, list) else data.get("traceEvents", [])
+            tu_dur = 0
+            for ev in events:
+                if ev.get("ph") == "X":
+                    dur = ev.get("dur", 0)
+                    if dur > tu_dur:
+                        tu_dur = dur
+            total_wall_us += tu_dur
+        except (json.JSONDecodeError, IOError):
+            pass
+
     # Sort by total time
     sorted_headers = sorted(global_times.items(), key=lambda x: x[1]["total_us"], reverse=True)
 
-    print(f"\nTop 100 most expensive headers (by total parse time across all TUs):")
+    total_wall_s = total_wall_us / 1_000_000
+    print(f"\nTotal single-threaded compile time: {total_wall_s:.1f}s ({total_wall_s/60:.1f}m)")
+    print(f"  ({len(json_files)} translation units)\n")
+
+    print(f"Top {n_top} most expensive headers (by total parse time across all TUs):")
     print(f"{'Rank':>4}  {'Total (ms)':>10}  {'Avg (ms)':>8}  {'TUs':>4}  Header")
     print("-" * 120)
-    for i, (header, info) in enumerate(sorted_headers[:100]):
+    for i, (header, info) in enumerate(sorted_headers[:n_top]):
         total_ms = info["total_us"] / 1000
         avg_ms = total_ms / info["count"] if info["count"] else 0
         print(f"{i+1:>4}  {total_ms:>10.1f}  {avg_ms:>8.1f}  {info['count']:>4}  {header}")

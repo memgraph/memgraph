@@ -35,7 +35,6 @@
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/log_level.hpp"
 #include "coordination/utils.hpp"
-#include "nlohmann/json.hpp"
 #include "utils/logging.hpp"
 
 #include <cstdlib>

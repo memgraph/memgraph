@@ -13,8 +13,6 @@
 
 #include <nlohmann/json.hpp>
 
-#include "nlohmann/json.hpp"
-
 namespace memgraph::storage {
 
 void to_json(nlohmann::json &data, SalientConfig::Items const &items) {
