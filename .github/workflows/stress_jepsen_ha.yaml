@@ -46,7 +46,7 @@ on:
     - cron: "0 0 * * *"  # Run daily at midnight
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && (endsWith(github.run_number, '0') || endsWith(github.run_number, '2') || endsWith(github.run_number, '4') || endsWith(github.run_number, '6') || endsWith(github.run_number, '8')) || 'jepsen-scheduled' }}
+  group: ${{ github.event_name == 'workflow_dispatch' && (endsWith(github.run_number, '0') || endsWith(github.run_number, '2') || endsWith(github.run_number, '4') || endsWith(github.run_number, '6') || endsWith(github.run_number, '8')) && 'jepsen-manual-slot-0' || github.event_name == 'workflow_dispatch' && 'jepsen-manual-slot-1' || 'jepsen-scheduled' }}
   cancel-in-progress: false
 
 jobs:
