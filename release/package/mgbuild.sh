@@ -162,6 +162,7 @@ print_help () {
   echo -e "  --dest-dir string             Specify a custom path for destination directory on host. Provide relative path inside memgraph directory."
   echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
   echo -e "                                This directory should contain the memgraph package."
+  echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
 
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login (default empty)"
@@ -830,6 +831,7 @@ package_docker() {
   local generate_sbom=false
   local malloc=false
   local custom_mirror=false
+  local keep_image_loaded=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
@@ -852,6 +854,10 @@ package_docker() {
         [[ "$2" == "true" ]] && custom_mirror=true
         shift 2
       ;;
+      --keep-image-loaded)
+        keep_image_loaded=$2
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -867,10 +873,10 @@ package_docker() {
 
   if [[ "$build_type" == "Release" ]]; then
     echo "Package release"
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc
+    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   else
     echo "Package other"
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc
+    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)

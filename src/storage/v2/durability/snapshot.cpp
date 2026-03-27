@@ -10549,7 +10549,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write label indices.
     {
-      auto label = transaction->active_indices_.label_->ListIndices(transaction->start_timestamp);
+      auto label = transaction->active_indices_->label_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(label.size());
       for (const auto &item : label) {
         write_mapping(item);
@@ -10562,7 +10562,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     // Write label indices statistics.
     {
       // NOTE: On-disk does not support snapshots
-      auto labels = transaction->active_indices_.label_->ListIndices(transaction->start_timestamp);
+      auto labels = transaction->active_indices_->label_->ListIndices(transaction->start_timestamp);
       const auto size_pos = snapshot.GetPosition();
       snapshot.WriteUint(0);  // Just a place holder
       unsigned i = 0;
@@ -10589,7 +10589,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write label+properties indices.
     {
-      auto label_property = transaction->active_indices_.label_properties_->ListIndices(transaction->start_timestamp);
+      auto label_property = transaction->active_indices_->label_properties_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(label_property.size());
       for (const auto &[label, property_paths] : label_property) {
         write_mapping(label);
@@ -10611,7 +10611,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       // NOTE: On-disk does not support snapshots
       auto *inmem_index = static_cast<InMemoryLabelPropertyIndex *>(storage->indices_.label_property_index_.get());
       auto label_property_path_pair =
-          transaction->active_indices_.label_properties_->ListIndices(transaction->start_timestamp);
+          transaction->active_indices_->label_properties_->ListIndices(transaction->start_timestamp);
       const auto size_pos = snapshot.GetPosition();
       snapshot.WriteUint(0);  // Just a place holder
       unsigned i = 0;
@@ -10649,7 +10649,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     offset_edge_indices = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_EDGE_INDICES);
     {
-      auto edge_type = transaction->active_indices_.edge_type_->ListIndices(transaction->start_timestamp);
+      auto edge_type = transaction->active_indices_->edge_type_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
         write_mapping(item);
@@ -10661,7 +10661,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write edge-type + property indices.
     {
-      auto edge_type = transaction->active_indices_.edge_type_properties_->ListIndices(transaction->start_timestamp);
+      auto edge_type = transaction->active_indices_->edge_type_properties_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
         write_mapping(item.first);
@@ -10674,7 +10674,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write global edge property indices.
     {
-      auto indices = transaction->active_indices_.edge_property_->ListIndices(transaction->start_timestamp);
+      auto indices = transaction->active_indices_->edge_property_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(indices.size());
       for (const auto &property : indices) {
         write_mapping(property);

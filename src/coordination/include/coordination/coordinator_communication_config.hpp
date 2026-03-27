@@ -19,7 +19,6 @@
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/uuid.hpp"
 
-#include <chrono>
 #include <string>
 #include <utility>
 #include <variant>
@@ -50,8 +49,6 @@ struct CoordinatorInstanceInitConfig {
   std::filesystem::path durability_dir;
   std::string coordinator_hostname;
   std::string nuraft_log_file;
-  std::chrono::seconds instance_down_timeout_sec;
-  std::chrono::seconds instance_health_check_frequency_sec;
 };
 
 struct LogStoreDurability {

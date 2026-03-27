@@ -3116,6 +3116,8 @@ def test_coord_settings(test_name):
     max_failover_replica_lag = "max_failover_replica_lag"
     max_replica_read_lag = "max_replica_read_lag"
     deltas_batch_progress_size = "deltas_batch_progress_size"
+    instance_down_timeout_sec = "instance_down_timeout_sec"
+    instance_health_check_frequency_sec = "instance_health_check_frequency_sec"
 
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
 
@@ -3124,12 +3126,18 @@ def test_coord_settings(test_name):
     assert max_failover_replica_lag in settings, f"Missing setting key: {max_failover_replica_lag}"
     assert max_replica_read_lag in settings, f"Missing setting key: {max_replica_read_lag}"
     assert deltas_batch_progress_size in settings, f"Missing setting key: {deltas_batch_progress_size}"
+    assert instance_down_timeout_sec in settings, f"Missing setting key: {instance_down_timeout_sec}"
+    assert (
+        instance_health_check_frequency_sec in settings
+    ), f"Missing setting key: {instance_health_check_frequency_sec}"
 
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "true"
     assert settings[max_failover_replica_lag] == f"{2**64-1}"
     assert settings[max_replica_read_lag] == f"{2**64-1}"
     assert settings[deltas_batch_progress_size] == "100000"
+    assert settings[instance_down_timeout_sec] == "5"
+    assert settings[instance_health_check_frequency_sec] == "1"
 
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'enabled_reads_on_main' to 'true'")
 
@@ -3156,24 +3164,32 @@ def test_coord_settings(test_name):
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'max_failover_replica_lag' to '25'")
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'max_replica_read_lag' to '10'")
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'deltas_batch_progress_size' to '10000'")
+    execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'instance_down_timeout_sec' to '15'")
+    execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'instance_health_check_frequency_sec' to '3'")
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
     assert settings[max_failover_replica_lag] == "25"
     assert settings[max_replica_read_lag] == "10"
     assert settings[deltas_batch_progress_size] == "10000"
+    assert settings[instance_down_timeout_sec] == "15"
+    assert settings[instance_health_check_frequency_sec] == "3"
     settings = dict(execute_and_fetch_all(coord_cursor_2, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
     assert settings[max_failover_replica_lag] == "25"
     assert settings[max_replica_read_lag] == "10"
     assert settings[deltas_batch_progress_size] == "10000"
+    assert settings[instance_down_timeout_sec] == "15"
+    assert settings[instance_health_check_frequency_sec] == "3"
     settings = dict(execute_and_fetch_all(coord_cursor_1, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
     assert settings[max_failover_replica_lag] == "25"
     assert settings[max_replica_read_lag] == "10"
     assert settings[deltas_batch_progress_size] == "10000"
+    assert settings[instance_down_timeout_sec] == "15"
+    assert settings[instance_health_check_frequency_sec] == "3"
 
 
 def test_update_config(test_name):
