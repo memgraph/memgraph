@@ -59,7 +59,8 @@ int main(int argc, char **argv) {
                                                            nullptr,
                                                            &dbms_handler,
                                                            repl_state,
-                                                           system_state
+                                                           system_state,
+                                                           nullptr
 #ifdef MG_ENTERPRISE
                                                            ,
                                                            std::nullopt,
