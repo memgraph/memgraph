@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,20 +11,24 @@
 
 #include "requests/requests.hpp"
 
-#include <cstdio>
-
 #include <curl/curl.h>
+#include <curl/system.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
+#include <chrono>
+#include <compare>
+#include <cstdio>
 #include <ctre.hpp>
+#include <exception>
+#include <nlohmann/json.hpp>
+#include <optional>
+#include <sstream>
+#include <utility>
 
+#include "spdlog/spdlog.h"
 #include "utils/counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/likely.hpp"
-
-#include <nlohmann/json.hpp>
-#include "spdlog/spdlog.h"
-#include "utils/logging.hpp"
 
 namespace memgraph::requests {
 

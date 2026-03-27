@@ -10,8 +10,9 @@
 // licenses/APL.txt.
 
 #include "glue/auth.hpp"
+
 #include "auth/models.hpp"
-#include "query/exceptions.hpp"
+#include "frontend/ast/query/auth_query.hpp"
 
 namespace memgraph::glue {
 

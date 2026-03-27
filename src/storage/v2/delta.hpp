@@ -17,7 +17,7 @@
 #include "storage/v2/delta_action.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_fwd.hpp"
 #include "utils/allocator/page_slab_memory_resource.hpp"
 #include "utils/logging.hpp"
 #include "utils/spin_lock.hpp"
@@ -287,21 +287,10 @@ struct Delta {
       : commit_info(commit_info), command_id(command_id), label{.action = Action::REMOVE_LABEL, .value = label} {}
 
   Delta(SetPropertyTag /*tag*/, PropertyId key, PropertyValue const &value, CommitInfo *commit_info,
-        uint64_t command_id, utils::PageSlabMemoryResource *res)
-      : commit_info(commit_info),
-        command_id(command_id),
-        property{.action = Action::SET_PROPERTY,
-                 .key = key,
-                 .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(value)} {}
+        uint64_t command_id, utils::PageSlabMemoryResource *res);
 
   Delta(SetPropertyTag /*tag*/, Vertex *out_vertex, PropertyId key, PropertyValue value, CommitInfo *commit_info,
-        uint64_t command_id, utils::PageSlabMemoryResource *res)
-      : commit_info(commit_info),
-        command_id(command_id),
-        property{.action = Action::SET_PROPERTY,
-                 .key = key,
-                 .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(std::move(value)),
-                 .out_vertex = out_vertex} {}
+        uint64_t command_id, utils::PageSlabMemoryResource *res);
 
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, CommitInfo *commit_info,
         uint64_t command_id)

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/dump.hpp"
+#include <range/v3/all.hpp>
 
 #include <algorithm>
 #include <limits>
@@ -29,7 +30,6 @@
 #include "query/trigger_context.hpp"
 #include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
-#include "range/v3/all.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/description_store.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"

@@ -11,9 +11,13 @@
 
 #include "edge_type_index.hpp"
 
-#include "utils/exceptions.hpp"
+#include <memory>
+#include <span>
+#include <vector>
 
 #include "spdlog/spdlog.h"
+#include "storage/v2/edge_ref.hpp"
+#include "storage/v2/id_types.hpp"
 
 namespace memgraph::storage {
 

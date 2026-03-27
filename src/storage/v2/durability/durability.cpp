@@ -12,6 +12,7 @@
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <range/v3/all.hpp>
 
 #include <cerrno>
 #include <cstring>

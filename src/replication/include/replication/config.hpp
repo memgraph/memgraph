@@ -11,13 +11,13 @@
 
 #pragma once
 
-#include "io/network/endpoint.hpp"
-#include "replication_coordination_glue/mode.hpp"
-
 #include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
+
+#include "io/network/endpoint.hpp"
+#include "replication_coordination_glue/mode.hpp"
 
 namespace memgraph::replication {
 

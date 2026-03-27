@@ -13,10 +13,20 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <sys/types.h>
+#include <atomic>
+#include <cstdint>
+#include <libnuraft/basic_types.hxx>
+#include <libnuraft/log_store.hxx>
+#include <libnuraft/nuraft.hxx>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <utility>
+#include <vector>
+
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/logger_wrapper.hpp"
-
-#include <libnuraft/nuraft.hxx>
 #include "kvstore/kvstore.hpp"
 
 namespace memgraph::coordination {

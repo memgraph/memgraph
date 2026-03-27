@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,11 +14,15 @@
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <openssl/types.h>
+#include <cstddef>
+#include <cstdint>
 
 // Centos 7 OpenSSL includes libkrb5 which has brings in macros TRUE and FALSE. undef to prevent issues.
 #undef TRUE
 #undef FALSE
 
+#include <optional>
 #include <span>
 #include <string_view>
 

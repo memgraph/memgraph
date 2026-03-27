@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/durability/snapshot.hpp"
+#include <range/v3/all.hpp>
 
 #include <fmt/core.h>
 #include <sys/sendfile.h>

@@ -16,6 +16,7 @@
 #include <variant>
 
 #include "dbms/database.hpp"
+#include "dbms/database_protector.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"

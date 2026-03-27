@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <range/v3/all.hpp>
 #include <ranges>
 #include <unordered_set>
 

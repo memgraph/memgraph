@@ -8,11 +8,13 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
 #include <string>
-
-#include <nlohmann/json_fwd.hpp>
+#include <string_view>
+#include <utility>
 
 namespace memgraph::auth {
 /// Need to be stable, auth durability depends on this

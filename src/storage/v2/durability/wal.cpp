@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <range/v3/all.hpp>
 #include <type_traits>
 #include <unordered_map>
 

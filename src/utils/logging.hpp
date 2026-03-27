@@ -17,14 +17,17 @@
 #else
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_OFF
 #endif
+#include <fmt/base.h>
+#include <fmt/format.h>
+#include <spdlog/common.h>
 #include <array>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <optional>
 #include <source_location>
 #include <string>
-
-#include <fmt/format.h>
+#include <string_view>
 // NOTE: fmt 9+ introduced fmt/std.h, it's important because of, e.g., std::path formatting. toolchain-v4 has fmt 8,
 // the guard is here because of fmt 8 compatibility.
 #if FMT_VERSION > 90000
@@ -32,7 +35,6 @@
 #endif
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/spdlog.h>
-
 #include <boost/preprocessor/comparison/equal.hpp>
 #include <boost/preprocessor/control/if.hpp>
 #include <boost/preprocessor/variadic/size.hpp>

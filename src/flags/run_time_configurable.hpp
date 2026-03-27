@@ -11,7 +11,10 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
+#include <memory>
 #include <string>
+
 #include "utils/observer.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
