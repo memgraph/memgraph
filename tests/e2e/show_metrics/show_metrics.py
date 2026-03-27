@@ -389,8 +389,9 @@ def test_general_gauges_reflect_graph_state(memgraph):
     assert get_metric_value(memgraph, "EdgeCount", "ON CURRENT") == initial_edges + 1
 
     memgraph.execute("MATCH (n) DETACH DELETE n")
-    assert get_metric_value(memgraph, "VertexCount", "ON CURRENT") == initial_vertices
-    assert get_metric_value(memgraph, "EdgeCount", "ON CURRENT") == initial_edges
+    memgraph.execute("FREE MEMORY")
+    assert get_metric_value(memgraph, "VertexCount", "ON CURRENT") == 0
+    assert get_metric_value(memgraph, "EdgeCount", "ON CURRENT") == 0
 
 
 def test_on_current_syntax(memgraph):
@@ -410,6 +411,7 @@ def test_per_database_metric_isolation(connect):
 
     execute_and_fetch_all(cursor, "USE DATABASE memgraph")
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    execute_and_fetch_all(cursor, "FREE MEMORY")
 
     def get_value(on_clause, name):
         rows = execute_and_fetch_all(cursor, f"SHOW METRICS INFO {on_clause}")
