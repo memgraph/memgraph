@@ -314,7 +314,7 @@ class Session final {
       // This function guarantees that all data will be written to the socket
       // even if the socket is non-blocking. It will use a non-busy wait to send
       // all data.
-      return socket_.Write(data, len, have_more);
+      return socket_.Write(data, len, have_more).has_value();
     }
   }
 
