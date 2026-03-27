@@ -25,6 +25,49 @@ Feature: Vector search related features
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
             | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'label+property_vector' |
 
+    Scenario: Create vector index with parameterized config with all options
+        Given an empty graph
+        And parameters are:
+            | config | {dimension: 2, capacity: 10, metric: "cos", resize_coefficient: 2, scalar_kind: "i8"} |
+        And having executed
+            """
+            CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG $config
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'label+property_vector' |
+
+    Scenario: Create vector index with parameterized config values
+        Given an empty graph
+        And parameters are:
+            | dim | 2  |
+            | cap | 10 |
+        And having executed
+            """
+            CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": $dim, "capacity": $cap}
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+
+    Scenario: Create vector index with parameterized config that is not a map raises error
+        Given an empty graph
+        And parameters are:
+            | config | 42 |
+        When executing query:
+            """
+            CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG $config
+            """
+        Then an error should be raised
+
     Scenario: Add node to vector index
         Given an empty graph
         And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10

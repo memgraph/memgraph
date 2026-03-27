@@ -13,6 +13,7 @@
 #include <rocksdb/utilities/transaction.h>
 
 #include "storage/v2/disk/label_index.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
@@ -56,8 +57,8 @@ DiskLabelIndex::DiskLabelIndex(const Config &config) {
       kvstore_->options_, rocksdb::TransactionDBOptions(), config.disk.label_index_directory, &kvstore_->db_));
 }
 
-auto DiskLabelIndex::GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> {
-  return std::make_unique<DiskLabelIndex::ActiveIndices>(index_);
+auto DiskLabelIndex::GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> {
+  return std::make_shared<DiskLabelIndex::ActiveIndices>(index_);
 }
 
 void DiskLabelIndex::ActiveIndices::AbortEntries(AbortableInfo const &, uint64_t start_timestamp) {}
@@ -170,8 +171,8 @@ void DiskLabelIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_label, V
 }
 
 /// TODO: andi Here will come Bloom filter deletion
-bool DiskLabelIndex::DropIndex(LabelId label) {
-  if (!(index_.erase(label) > 0)) {
+bool DiskLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &updater) {
+  if (!index_.contains(label)) {
     return false;
   }
   auto disk_transaction = CreateAllReadingRocksDBTransaction();
@@ -189,7 +190,12 @@ bool DiskLabelIndex::DropIndex(LabelId label) {
     }
   }
 
-  return CommitWithTimestamp(disk_transaction.get(), 0);
+  if (!CommitWithTimestamp(disk_transaction.get(), 0)) {
+    return false;
+  }
+  index_.erase(label);
+  updater(GetActiveIndices());
+  return true;
 }
 
 bool DiskLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const { return index_.contains(label); }
