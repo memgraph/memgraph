@@ -63,7 +63,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
     // Prioritize timeout error
     if (!finalized.has_value() &&
         (status.has_value() || status.error() != io::network::ClientCommunicationError::TIMEOUT_ERROR)) {
-      status.swap(finalized);
+      status = std::move(finalized);
     }
   }
   return status;
