@@ -4794,24 +4794,19 @@ PreparedQuery PrepareReloadSSLQuery(ParsedQuery parsed_query, bool in_explicit_t
   if (in_explicit_transaction) {
     throw ReloadSSLMulticommandTxException();
   }
-
-  std::function<void(Notification &)> handler = [interpreter_context](Notification & /*notification*/) mutable {
-    if (auto const res = interpreter_context->bolt_server_context_->reload(); !res.has_value()) {
-      throw QueryRuntimeException(res.error().msg);
-    }
-  };
-  Notification notification(SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloading SSL for Bolt server");
-
-  return PreparedQuery{.header = {},
-                       .privileges = std::move(parsed_query.required_privileges),
-                       .query_handler =
-                           [handler = std::move(handler), notifications, notification = std::move(notification)](
-                               AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
-                             handler(notification);
-                             notifications->push_back(notification);
-                             return QueryHandlerResult::COMMIT;
-                           },
-                       .rw_type = RWType::NONE};
+  return PreparedQuery{
+      .header = {},
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler =
+          [interpreter_context, notifications](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+            if (auto const res = interpreter_context->bolt_server_context_->reload(); !res.has_value()) {
+              throw QueryRuntimeException(res.error().msg);
+            }
+            notifications->emplace_back(
+                SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloading SSL for Bolt server");
+            return QueryHandlerResult::COMMIT;
+          },
+      .rw_type = RWType::NONE};
 }
 
 #ifdef MG_ENTERPRISE
@@ -8532,6 +8527,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(SessionTraceQuery & /*unused*/) override {}
 
+  void Visit(ReloadSSLQuery & /*unused*/) override { /*No need for storage*/ }
+
   // Some queries require an active transaction in order to be prepared.
   // Unique access required
   void Visit(PointIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
@@ -8561,8 +8558,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     // if using IN_MEMORY_TRANSACTIONAL otherwise UNIQUE
     accessor_type_ = storage::StorageAccessType::UNIQUE;
   }
-
-  void Visit(ReloadSSLQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 
   void Visit(RecoverSnapshotQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
 

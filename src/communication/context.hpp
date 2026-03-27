@@ -67,7 +67,7 @@ class ClientContext final {
 
   SSL_CTX *context();
 
-  bool use_ssl();
+  auto use_ssl() const -> bool;
 
  private:
   bool use_ssl_;
@@ -85,7 +85,7 @@ enum class SSL_CTX_ERR_TYPE : uint8_t {
 
 struct SSL_CTX_Error {
   SSL_CTX_ERR_TYPE err_type;
-  std::string_view msg;
+  std::string msg;
 };
 
 /**
@@ -112,8 +112,6 @@ class ServerContext final {
   // messy and ownership can't be handled correctly.
   ServerContext(const ServerContext &) = delete;
   ServerContext &operator=(const ServerContext &) = delete;
-
-  // Move constructor/assignment that handle ownership change correctly.
   ServerContext(ServerContext &&other) = delete;
   ServerContext &operator=(ServerContext &&other) = delete;
 
@@ -130,7 +128,7 @@ class ServerContext final {
   std::string key_file_;
   std::string cert_file_;
   std::string ca_file_;
-  bool verify_peer_;
+  bool verify_peer_{false};
   std::atomic<std::shared_ptr<boost::asio::ssl::context>> ctx_;
 };
 
