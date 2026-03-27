@@ -1343,6 +1343,8 @@ class SkipList final : detail::SkipListNode_base {
 
         size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
 
+        // TODO: Update allocator to accept alignment. Think about all the other versions that might be needed: number +
+        // size, align, etc
         char *raw = gc_.get_allocator().allocate(node_bytes);
         new_node = reinterpret_cast<TNode *>(raw);
         new (new_node) TNode(top_layer, std::forward<TObjUniv>(object));

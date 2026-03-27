@@ -26,7 +26,6 @@ void *JeNew(size_t size, int flags);
 #endif
 
 namespace memgraph::memory {
-
 template <typename T>
 [[nodiscard]] T *DbAllocate(std::size_t n, unsigned idx) {
 #if USE_JEMALLOC
