@@ -1087,7 +1087,7 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          test-memgraph e2e-parallel $(nproc)
+          test-memgraph e2e-parallel --nprocesses $(nproc)
 
       - name: Ensure localstack is down
         run: |
