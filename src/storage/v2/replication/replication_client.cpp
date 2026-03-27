@@ -12,6 +12,7 @@
 #include "replication/replication_client.hpp"
 
 #include "flags/coord_flag_env_handler.hpp"
+#include "memory/db_arena.hpp"
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
@@ -217,11 +218,13 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                   main_db_name);
     replica_state_.WithLock([&](auto &state) {
       state = ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([main_storage, gk = protector.clone(), this] {
-        this->RecoverReplica(/*replica_last_commit_ts*/ 0,
-                             main_storage,
-                             true);  // needs force reset so we need to recover from 0.
-      });
+      client_.thread_pool_.AddTask(
+          [main_storage, gk = protector.clone(), this, arena_idx = main_storage->config_.arena_idx] {
+            const memory::DbArenaFullScope db_arena_scope{arena_idx};
+            this->RecoverReplica(/*replica_last_commit_ts*/ 0,
+                                 main_storage,
+                                 true);  // needs force reset so we need to recover from 0.
+          });
     });
 #else
     // when using community replication print error when branching point is encountered and set the state to DIVERGED
@@ -260,7 +263,11 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       client_.thread_pool_.AddTask([main_storage,
                                     current_commit_timestamp = heartbeat_res.current_commit_timestamp_,
                                     gk = protector.clone(),
-                                    this] { this->RecoverReplica(current_commit_timestamp, main_storage); });
+                                    arena_idx = main_storage->config_.arena_idx,
+                                    this] {
+        const memory::DbArenaFullScope db_arena_scope{arena_idx};
+        this->RecoverReplica(current_commit_timestamp, main_storage);
+      });
     }
   });
 }
@@ -279,9 +286,11 @@ void ReplicationStorageClient::LogRpcFailure() const {
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector) {
-  client_.thread_pool_.AddTask([main_storage, protector = protector.clone(), this]() {
-    this->TryCheckReplicaStateSync(main_storage, *protector);
-  });
+  client_.thread_pool_.AddTask(
+      [main_storage, protector = protector.clone(), arena_idx = main_storage->config_.arena_idx, this]() {
+        const memory::DbArenaFullScope db_arena_scope{arena_idx};
+        this->TryCheckReplicaStateSync(main_storage, *protector);
+      });
 }
 
 void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, DatabaseProtector const &protector) const {
@@ -289,11 +298,13 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
       "Force recovering replica {} for db {}", client_.name_, static_cast<InMemoryStorage *>(main_storage)->name());
   replica_state_.WithLock([&](auto &state) {
     state = ReplicaState::RECOVERY;
-    client_.thread_pool_.AddTask([main_storage, gk = protector.clone(), this] {
-      this->RecoverReplica(/*replica_last_commit_ts*/ 0,
-                           main_storage,
-                           true);  // needs force reset so we need to recover from 0.
-    });
+    client_.thread_pool_.AddTask(
+        [main_storage, gk = protector.clone(), this, arena_idx = main_storage->config_.arena_idx] {
+          const memory::DbArenaFullScope db_arena_scope{arena_idx};
+          this->RecoverReplica(/*replica_last_commit_ts*/ 0,
+                               main_storage,
+                               true);  // needs force reset so we need to recover from 0.
+        });
   });
 }
 
@@ -504,7 +515,8 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
 
 bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
                                                               std::optional<ReplicaStream> &&replica_stream,
-                                                              uint64_t durability_commit_timestamp) const {
+                                                              uint64_t durability_commit_timestamp,
+                                                              unsigned arena_idx) const {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -541,7 +553,9 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   auto task = [this,
                protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
-               durability_commit_timestamp]() mutable -> bool {
+               durability_commit_timestamp,
+               arena_idx]() mutable -> bool {
+    const memory::DbArenaFullScope db_arena_scope{arena_idx};
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
       auto response = replica_stream_obj->Finalize();

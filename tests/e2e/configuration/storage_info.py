@@ -33,6 +33,7 @@ default_storage_info_dict = {
     "session_isolation_level": "",
     "next_session_isolation_level": "",
     "storage_mode": "IN_MEMORY_TRANSACTIONAL",
+    "db_memory_tracked": "",  # machine dependent
 }
 
 
@@ -67,6 +68,7 @@ def test_does_default_config_match():
         "allocation_limit",
         "graph_memory_tracked",
         "vector_index_memory_tracked",
+        "db_memory_tracked",
         "vm_max_map_count",
     ]
     # Number of different data-points returned by SHOW STORAGE INFO

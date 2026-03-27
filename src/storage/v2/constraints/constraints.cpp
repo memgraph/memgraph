@@ -23,7 +23,7 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode) {
     switch (storage_mode) {
       case StorageMode::IN_MEMORY_TRANSACTIONAL:
       case StorageMode::IN_MEMORY_ANALYTICAL:
-        unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
+        unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>(config.arena_idx);
         break;
       case StorageMode::ON_DISK_TRANSACTIONAL:
         unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);

@@ -19,6 +19,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "memory/db_arena.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -29,7 +30,7 @@
 
 namespace memgraph::storage {
 
-using VertexKey = utils::small_vector<LabelId>;
+using VertexKey = utils::small_vector<LabelId, memory::DbAwareAllocator<LabelId>>;
 
 /**
  * @brief Hash the VertexKey (vector of labels) in an order independent way.

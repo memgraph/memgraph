@@ -535,8 +535,7 @@ class DiskStorage final : public Storage {
       utils::SkipList<Vertex> *indexed_vertices);
 
   VertexAccessor CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
-                                      storage::Gid gid, utils::small_vector<LabelId> label_ids,
-                                      PropertyStore properties, Delta *delta);
+                                      storage::Gid gid, VertexKey label_ids, PropertyStore properties, Delta *delta);
 
   std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(Transaction *transaction, std::string_view key,
                                                                      std::string_view value, std::string &&ts);

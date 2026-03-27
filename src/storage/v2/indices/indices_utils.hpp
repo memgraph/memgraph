@@ -22,8 +22,9 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
+#include "memory/db_arena.hpp"
+
 #include <atomic>
-#include <thread>
 
 namespace memgraph::storage {
 
@@ -242,9 +243,9 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
   return exists && !deleted && current_value_equal_to_value;
 }
 
-template <typename TSkipListAccessorFactory, typename TFunc>
-inline void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
-                                           TSkipListAccessorFactory &&accessor_factory, const TFunc &func,
+template <typename TVerticesAccessor, typename TSkipListAccessorFactory, typename TFunc>
+inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipListAccessorFactory &&accessor_factory,
+                                           const TFunc &func,
                                            durability::ParallelizedSchemaCreationInfo const &parallel_exec_info) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
@@ -260,11 +261,11 @@ inline void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &ve
   // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
   auto maybe_error = utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock>{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&, func /*local copy incase there is local state*/]() {
+      threads.emplace_back(parallel_exec_info.arena_idx, [&, func /*local copy incase there is local state*/]() {
         auto acc = accessor_factory();
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
@@ -293,9 +294,9 @@ inline void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &ve
   }
 }
 
-template <typename TSkipListAccessorFactory, typename TFunc>
-inline void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices,
-                                        TSkipListAccessorFactory &&accessor_factory, const TFunc &func) {
+template <typename TVerticesAccessor, typename TSkipListAccessorFactory, typename TFunc>
+inline void PopulateIndexOnSingleThread(TVerticesAccessor &vertices, TSkipListAccessorFactory &&accessor_factory,
+                                        const TFunc &func) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   auto acc = accessor_factory();
@@ -306,10 +307,9 @@ inline void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &verti
 
 struct PopulateCancel : std::exception {};
 
-template <typename TSkipListAccessorFactory, typename TFunc>
-inline void PopulateIndexDispatch(utils::SkipList<Vertex>::Accessor &vertices,
-                                  TSkipListAccessorFactory &&accessor_factory, const TFunc &insert_function,
-                                  CheckCancelFunction &&cancel_check,
+template <typename TVerticesAccessor, typename TSkipListAccessorFactory, typename TFunc>
+inline void PopulateIndexDispatch(TVerticesAccessor &vertices, TSkipListAccessorFactory &&accessor_factory,
+                                  const TFunc &insert_function, CheckCancelFunction &&cancel_check,
                                   std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info) {
   auto checked_insert_function =
       [&, cancel_check = std::move(cancel_check) /*need to be owned, if parallel these will be copied per thread*/](
@@ -332,9 +332,8 @@ inline void PopulateIndexDispatch(utils::SkipList<Vertex>::Accessor &vertices,
 }
 
 // @TODO Is `Create` the correct term here? Should this be `PopulateIndexOnSingleThread`?
-template <typename TSkiplistIter, typename TIndex, typename TFunc>
-inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
-                                      const TFunc &func) {
+template <typename TVerticesAccessor, typename TSkiplistIter, typename TIndex, typename TFunc>
+inline void CreateIndexOnSingleThread(TVerticesAccessor &vertices, TSkiplistIter it, TIndex &index, const TFunc &func) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   try {
@@ -349,9 +348,8 @@ inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertice
   }
 }
 
-template <typename TIndex, typename TSKiplistIter, typename TFunc>
-inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TSKiplistIter skiplist_iter,
-                                         TIndex &index,
+template <typename TVerticesAccessor, typename TIndex, typename TSKiplistIter, typename TFunc>
+inline void CreateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSKiplistIter skiplist_iter, TIndex &index,
                                          const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
                                          const TFunc &func) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -368,11 +366,11 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
   // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
   utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&]() mutable {
+      threads.emplace_back(parallel_exec_info.arena_idx, [&]() {
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {

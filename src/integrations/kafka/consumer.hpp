@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -87,6 +87,7 @@ struct ConsumerInfo {
   int64_t batch_size;
   std::unordered_map<std::string, std::string> public_configs{};
   std::unordered_map<std::string, std::string> private_configs{};
+  unsigned arena_idx{0};  // jemalloc arena to pin on the consumer thread (0 = default)
 };
 
 /// Memgraphs Kafka consumer wrapper.
@@ -159,6 +160,8 @@ class Consumer final : public RdKafka::EventCb {
   [[nodiscard]] std::expected<void, std::string> SetConsumerOffsets(int64_t offset);
 
   const ConsumerInfo &Info() const;
+
+  void SetArenaIdx(unsigned idx) noexcept { info_.arena_idx = idx; }
 
  private:
   void event_cb(RdKafka::Event &event) override;

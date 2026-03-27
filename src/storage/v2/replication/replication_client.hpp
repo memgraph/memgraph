@@ -190,7 +190,7 @@ class ReplicationStorageClient {
                                                 uint64_t durability_commit_timestamp) const;
 
   bool FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
-                                      uint64_t durability_commit_timestamp) const;
+                                      uint64_t durability_commit_timestamp, unsigned arena_idx) const;
 
   [[nodiscard]] bool SendFinalizeCommitRpc(bool const decision, utils::UUID const &storage_uuid,
                                            uint64_t const durability_commit_timestamp,

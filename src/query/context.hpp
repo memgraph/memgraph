@@ -126,6 +126,9 @@ struct ExecutionContext {
   bool is_main{true};
   std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
   utils::PriorityThreadPool *worker_pool{nullptr};
+  // jemalloc arena index for the database owning this query.  0 = unset / no jemalloc.
+  // Used in PullPlan::Pull to pin thread.arena so all allocations are attributed to the DB.
+  unsigned db_arena_idx{0};
 
   auto commit_args() -> storage::CommitArgs;
 };

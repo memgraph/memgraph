@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -75,6 +75,18 @@ extern "C" void *malloc(size_t size) {
   void *const res = je_malloc(size);
   if (res == nullptr) [[unlikely]] {
     failed_alloc_tracking(size);
+  }
+  return res;
+}
+
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+__attribute__((visibility("default"))) void *JeMalloc(size_t size, int flags) {
+  if (!alloc_tracking(size, flags)) [[unlikely]] {
+    return nullptr;
+  }
+  void *const res = je_mallocx(size, flags);
+  if (res == nullptr) [[unlikely]] {
+    failed_alloc_tracking(size, flags);
   }
   return res;
 }

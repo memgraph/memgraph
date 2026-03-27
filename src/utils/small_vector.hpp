@@ -40,9 +40,14 @@ namespace memgraph::utils {
 //  ├─────────┼─────────┤
 //  │Val1     │Val2     │
 //  └─────────┴─────────┘
-template <typename T>
-struct small_vector {
+//
+// Alloc must be stateless (empty type) to preserve the 16B sizeof guarantee.
+// The default std::allocator<T> is stateless.  DbAwareAllocator<T> is also
+// stateless and routes heap allocations to the DB jemalloc arena via TLS.
+template <typename T, typename Alloc = std::allocator<T>>
+struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
   using value_type = T;
+  using allocator_type = Alloc;
   using reference = value_type &;
   using const_reference = value_type const &;
   using pointer = value_type *;
@@ -205,16 +210,26 @@ struct small_vector {
     }
   }
 
-  small_vector(const small_vector &other) : size_{other.size_}, capacity_{std::max(other.size_, kSmallCapacity)} {
+  explicit small_vector(allocator_type const &alloc) noexcept : Alloc(alloc) {
+    if constexpr (!usingSmallBuffer(kSmallCapacity)) {
+      buffer_ = nullptr;
+    }
+  }
+
+  small_vector(const small_vector &other)
+      : Alloc(std::allocator_traits<Alloc>::select_on_container_copy_construction(other.get_allocator())),
+        size_{other.size_},
+        capacity_{std::max(other.size_, kSmallCapacity)} {
     // NOTE 1: smallest capacity is kSmallCapacity
     // NOTE 2: upon copy construct we only need enough capacity to satisfy size requirement
     if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(operator new(capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
+      buffer_ = std::allocator_traits<Alloc>::allocate(get_alloc(), capacity_);
     }
     std::ranges::uninitialized_copy(other, *this);
   }
 
-  small_vector(small_vector &&other) noexcept : size_{other.size_}, capacity_{other.capacity_} {
+  small_vector(small_vector &&other) noexcept
+      : Alloc(std::move(other.get_alloc())), size_{other.size_}, capacity_{other.capacity_} {
     // NOTE 1: moved from vector, new capacity is kSmallCapacity
     // NOTE 2: either move the buffer or move into the small buffer
     if (usingSmallBuffer(other.capacity_)) {
@@ -231,14 +246,17 @@ struct small_vector {
     if (std::addressof(other) == this) [[unlikely]] {
       return *this;
     }
+    if constexpr (std::allocator_traits<Alloc>::propagate_on_container_copy_assignment::value) {
+      get_alloc() = other.get_alloc();
+    }
     // NOTE : ensure we have enough capacity
     if (capacity_ < other.size_) {
-      auto *new_data = reinterpret_cast<pointer>(operator new(other.size_ * sizeof(T), std::align_val_t{alignof(T)}));
+      auto *new_data = std::allocator_traits<Alloc>::allocate(get_alloc(), other.size_);
       // NOTE: move values to the new buffer
       std::ranges::uninitialized_move(begin(), end(), new_data, new_data + size_);
       std::destroy(begin(), end());
       if (!usingSmallBuffer(capacity_)) {
-        operator delete(buffer_, std::align_val_t{alignof(T)});
+        std::allocator_traits<Alloc>::deallocate(get_alloc(), buffer_, capacity_);
       }
       buffer_ = new_data;
       capacity_ = other.size_;
@@ -295,11 +313,14 @@ struct small_vector {
     } else {
       std::destroy(begin(), end());
       if (!usingSmallBuffer(capacity_)) {
-        operator delete(buffer_, std::align_val_t{alignof(T)});
+        std::allocator_traits<Alloc>::deallocate(get_alloc(), buffer_, capacity_);
       }
       size_ = std::exchange(other.size_, 0);
       capacity_ = std::exchange(other.capacity_, kSmallCapacity);
       buffer_ = std::exchange(other.buffer_, nullptr);
+    }
+    if constexpr (std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value) {
+      get_alloc() = std::move(other.get_alloc());
     }
     return *this;
   }
@@ -307,7 +328,7 @@ struct small_vector {
   ~small_vector() {
     std::destroy(begin(), end());
     if (!usingSmallBuffer(capacity_)) {
-      operator delete(buffer_, std::align_val_t{alignof(T)});
+      std::allocator_traits<Alloc>::deallocate(get_alloc(), buffer_, capacity_);
     }
   }
 
@@ -319,23 +340,23 @@ struct small_vector {
   // TODO: generalise to not just vector
   explicit small_vector(std::vector<T> &&other) : size_(other.size()), capacity_{std::max(size_, kSmallCapacity)} {
     if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(operator new(capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
+      buffer_ = std::allocator_traits<Alloc>::allocate(get_alloc(), capacity_);
     }
     std::ranges::uninitialized_move(other.begin(), other.end(), begin(), end());
   }
 
   template <typename It>
   explicit small_vector(It first, It last)
-      : size_(std::distance(first, last)), capacity_{std::max(size_, kSmallCapacity)} {
+      : size_(static_cast<uint32_t>(std::distance(first, last))), capacity_{std::max(size_, kSmallCapacity)} {
     if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(operator new(capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
+      buffer_ = std::allocator_traits<Alloc>::allocate(get_alloc(), capacity_);
     }
     std::ranges::uninitialized_copy(first, last, begin(), end());
   }
 
   explicit small_vector(uint32_t count) : size_(count), capacity_(std::max(size_, kSmallCapacity)) {
     if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
+      buffer_ = std::allocator_traits<Alloc>::allocate(get_alloc(), capacity_);
     }
     std::uninitialized_default_construct_n(begin(), size_);
   }
@@ -400,7 +421,7 @@ struct small_vector {
 
     if (size_ == 0) {
       // special case, reset to default small_vector
-      operator delete(buffer_, std::align_val_t{alignof(T)});
+      std::allocator_traits<Alloc>::deallocate(get_alloc(), buffer_, capacity_);
       capacity_ = kSmallCapacity;
       if constexpr (!usingSmallBuffer(kSmallCapacity)) {
         buffer_ = nullptr;
@@ -415,7 +436,8 @@ struct small_vector {
     if constexpr (usingSmallBuffer(kSmallCapacity)) {
       if (size_ <= kSmallCapacity) {
         // get information about old buffer
-        auto buffer = buffer_;
+        auto *old_buffer = buffer_;
+        auto old_capacity = capacity_;
         auto src_b = begin();
         auto src_e = end();
         // make into small buffer
@@ -424,14 +446,14 @@ struct small_vector {
         // move, destroy, delete
         std::uninitialized_move(src_b, src_e, dst_b);
         std::destroy(src_b, src_e);
-        operator delete(buffer, std::align_val_t{alignof(T)});
+        std::allocator_traits<Alloc>::deallocate(get_alloc(), old_buffer, old_capacity);
         return;
       }
     }
 
     pointer new_data;
     try {
-      new_data = reinterpret_cast<pointer>(operator new(size_ * sizeof(T), std::align_val_t{alignof(T)}));
+      new_data = std::allocator_traits<Alloc>::allocate(get_alloc(), size_);
     } catch (...) {
       // couldn't allocate smaller buffer... do nothing
       return;
@@ -439,7 +461,7 @@ struct small_vector {
 
     std::uninitialized_move(begin(), end(), new_data);
     std::destroy(begin(), end());
-    operator delete(buffer_, std::align_val_t{alignof(T)});
+    std::allocator_traits<Alloc>::deallocate(get_alloc(), buffer_, capacity_);
     buffer_ = new_data;
     capacity_ = size_;
   }
@@ -449,11 +471,11 @@ struct small_vector {
       return;
     }
 
-    auto *new_data = reinterpret_cast<pointer>(operator new(new_capacity * sizeof(T), std::align_val_t{alignof(T)}));
+    auto *new_data = std::allocator_traits<Alloc>::allocate(get_alloc(), new_capacity);
     std::uninitialized_move(begin(), end(), new_data);
     std::destroy(begin(), end());
     if (!usingSmallBuffer(capacity_)) {
-      operator delete(buffer_, std::align_val_t{alignof(T)});
+      std::allocator_traits<Alloc>::deallocate(get_alloc(), buffer_, capacity_);
     }
     buffer_ = new_data;
     capacity_ = new_capacity;
@@ -541,12 +563,18 @@ struct small_vector {
 
   friend bool operator==(small_vector const &lhs, small_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
 
+  allocator_type get_allocator() const noexcept { return static_cast<Alloc const &>(*this); }
+
   // kSmallCapacity can be 0; in that case we disable the small buffer
   constexpr static std::uint32_t kSmallCapacity = sizeof(value_type *) / sizeof(value_type);
 
   constexpr bool usingSmallBuffer() { return kSmallCapacity != 0 && capacity_ == kSmallCapacity; }
 
  private:
+  Alloc &get_alloc() noexcept { return static_cast<Alloc &>(*this); }
+
+  Alloc const &get_alloc() const noexcept { return static_cast<Alloc const &>(*this); }
+
   constexpr static bool usingSmallBuffer(uint32_t capacity) {
     return kSmallCapacity != 0 && capacity == kSmallCapacity;
   }
@@ -562,5 +590,6 @@ struct small_vector {
 };
 
 static_assert(sizeof(small_vector<int>) == 16);
+static_assert(sizeof(small_vector<int, std::allocator<int>>) == 16, "EBO must keep small_vector at 16 bytes");
 
 }  // namespace memgraph::utils

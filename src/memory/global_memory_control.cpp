@@ -11,6 +11,7 @@
 
 #include <cstdint>
 
+#include "db_arena.hpp"
 #include "global_memory_control.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -30,112 +31,14 @@ namespace memgraph::memory {
 
 #if USE_JEMALLOC
 
-static void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t alignment, bool *zero,
-                      bool *commit, unsigned arena_ind);
-static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind);
-static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind);
-static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
-                      unsigned arena_ind);
-static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
-                        unsigned arena_ind);
-static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
-                            unsigned arena_ind);
+// Single DbArenaHooks instance for all startup arenas — they all share the same
+// default (base) hooks and feed graph_memory_tracker (which rolls up to total_memory_tracker).
+namespace {
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DbArenaHooks global_graph_arena_hooks{};
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extent_hooks_t *old_hooks = nullptr;
-
-static extent_hooks_t custom_hooks = {
-    .alloc = &my_alloc,
-    .dalloc = &my_dalloc,
-    .destroy = &my_destroy,
-    .commit = &my_commit,
-    .decommit = &my_decommit,
-    .purge_lazy = nullptr,
-    .purge_forced = &my_purge_forced,
-    .split = nullptr,
-    .merge = nullptr,
-};
-
-static const extent_hooks_t *new_hooks = &custom_hooks;
-
-void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t alignment, bool *zero, bool *commit,
-               unsigned arena_ind) {
-  // This needs to be before, to throw exception in case of too big alloc
-  if (*commit) [[likely]] {
-    // This needs to be here so it doesn't get incremented in case the first TrackAlloc throws an exception
-    const bool ok = memgraph::utils::graph_memory_tracker.Alloc(static_cast<int64_t>(size));
-    if (!ok) return nullptr;
-  }
-
-  auto *ptr = old_hooks->alloc(extent_hooks, new_addr, size, alignment, zero, commit, arena_ind);
-  if (ptr == nullptr) [[unlikely]] {
-    if (*commit) {
-      memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(size));
-    }
-    return ptr;
-  }
-
-  return ptr;
-}
-
-static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
-  auto err = old_hooks->dalloc(extent_hooks, addr, size, committed, arena_ind);
-
-  if (err) [[unlikely]] {
-    return err;
-  }
-
-  if (committed) [[likely]] {
-    memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(size));
-  }
-
-  return false;
-}
-
-static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
-  if (committed) [[likely]] {
-    memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(size));
-  }
-
-  old_hooks->destroy(extent_hooks, addr, size, committed, arena_ind);
-}
-
-static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
-                      unsigned arena_ind) {
-  auto err = old_hooks->commit(extent_hooks, addr, size, offset, length, arena_ind);
-
-  if (err) {
-    return err;
-  }
-
-  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
-  [[maybe_unused]] const auto ok = memgraph::utils::graph_memory_tracker.Alloc(static_cast<int64_t>(length));
-  DMG_ASSERT(ok);
-  return false;
-}
-
-static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
-                        unsigned arena_ind) {
-  MG_ASSERT(old_hooks && old_hooks->decommit);
-  auto err = old_hooks->decommit(extent_hooks, addr, size, offset, length, arena_ind);
-
-  if (err) {
-    return err;
-  }
-
-  memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(length));
-  return false;
-}
-
-static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t size, size_t offset, size_t length,
-                            unsigned arena_ind) {
-  MG_ASSERT(old_hooks && old_hooks->purge_forced);
-  auto err = old_hooks->purge_forced(extent_hooks, addr, size, offset, length, arena_ind);
-
-  if (err) [[unlikely]] {
-    return err;
-  }
-  memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(length));
-  return false;
-}
+}  // namespace
 
 #endif
 
@@ -175,13 +78,10 @@ void SetHooks() {
     MG_ASSERT(current_old_hooks->split);
     MG_ASSERT(current_old_hooks->merge);
 
-    // First arena
+    // First arena: capture old_hooks and initialise the shared hooks struct.
     if (old_hooks == nullptr) {
       old_hooks = current_old_hooks;
-      // Setup remaining hooks (reuse from old hooks)
-      custom_hooks.purge_lazy = old_hooks->purge_lazy;
-      custom_hooks.split = old_hooks->split;
-      custom_hooks.merge = old_hooks->merge;
+      InitDbArenaHooks(global_graph_arena_hooks, &utils::graph_memory_tracker, old_hooks);
     } else {
       MG_ASSERT(old_hooks == current_old_hooks, "Inconsistent jemalloc hooks across arenas");
     }
@@ -193,7 +93,8 @@ void SetHooks() {
       LOG_FATAL("Error setting jemalloc hooks for jemalloc arena {}", i);
     }
 
-    // Update hooks
+    // Install tracker hooks.
+    const extent_hooks_t *new_hooks = &global_graph_arena_hooks.hooks;
     err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&new_hooks, sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting custom hooks for jemalloc arena {}", i);
