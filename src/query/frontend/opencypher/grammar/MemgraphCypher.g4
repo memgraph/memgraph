@@ -186,7 +186,6 @@ memgraphCypherKeyword : cypherKeyword
                       | SETTINGS
                       | SNAPSHOT
                       | SNAPSHOTS
-                      | SSL
                       | START
                       | STATE
                       | STATISTICS
@@ -203,6 +202,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TERMINATE
                       | TEXT
                       | TIMEOUT
+                      | TLS
                       | TO
                       | TOPICS
                       | TRACE
@@ -840,7 +840,7 @@ ttlQuery: stopTtlQuery
         | startTtlQuery
         ;
 
-reloadSSLQuery: RELOAD SSL FOR BOLT_SERVER ;
+reloadSSLQuery: RELOAD BOLT_SERVER TLS ;
 
 typeConstraintType : BOOLEAN
              | STRING

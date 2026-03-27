@@ -17,14 +17,14 @@ from common import connect, execute_and_fetch_all
 
 def test_ssl_reload_without_ssl_configured():
     """
-    When Memgraph is started without SSL, RELOAD SSL FOR BOLT_SERVER
+    When Memgraph is started without SSL, RELOAD BOLT_SERVER TLS
     should return a meaningful error, not crash.
     """
     conn = connect()
     cursor = conn.cursor()
 
     with pytest.raises(Exception):
-        execute_and_fetch_all(cursor, "RELOAD SSL FOR BOLT_SERVER;")
+        execute_and_fetch_all(cursor, "RELOAD BOLT_SERVER TLS;")
 
     # Server should still be functional after the failed reload
     result = execute_and_fetch_all(conn.cursor(), "RETURN 1 AS n")

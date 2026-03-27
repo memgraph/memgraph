@@ -88,10 +88,10 @@ def get_server_cert_cn(host="127.0.0.1", port=7687):
 
 
 def reload_ssl(conn=None):
-    """Execute RELOAD SSL FOR BOLT_SERVER on a connection. Opens a new one if none provided."""
+    """Execute RELOAD BOLT_SERVER TLS on a connection. Opens a new one if none provided."""
     if conn is None:
         conn = connect_ssl()
-    execute_and_fetch_all(conn.cursor(), "RELOAD SSL FOR BOLT_SERVER;")
+    execute_and_fetch_all(conn.cursor(), "RELOAD BOLT_SERVER TLS;")
     return conn
 
 
@@ -280,7 +280,7 @@ def test_ssl_hot_reload_invalid_cert_keeps_old():
 
     # Reload should fail gracefully
     try:
-        execute_and_fetch_all(conn.cursor(), "RELOAD SSL FOR BOLT_SERVER;")
+        execute_and_fetch_all(conn.cursor(), "RELOAD BOLT_SERVER TLS;")
     except Exception:
         pass  # Expected to fail or return error
 
