@@ -533,10 +533,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case IS_MAIN:
         throw QueryRuntimeException(
             "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!");
-      case NO_MAIN:
-        throw QueryRuntimeException(
-            "The replica cannot be unregisted because the current main is down. Retry when the cluster has an active "
-            "leader!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER: {
@@ -555,10 +551,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             common_message);
       }
       case RAFT_LOG_ERROR:
-        throw QueryRuntimeException("Couldn't unregister replica instance since raft server couldn't append the log!");
-      case RPC_FAILED:
-        throw QueryRuntimeException(
-            "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -595,12 +588,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             common_message);
       }
       case RAFT_LOG_ERROR:
-        throw QueryRuntimeException(
-            "Couldn't demote instance to replica since raft server couldn't append the log. "
-            "Coordinator may not be leader anymore!");
-      case RPC_FAILED:
-        throw QueryRuntimeException(
-            "Couldn't demote instance to replica because current main instance couldn't unregister replica!");
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -608,6 +596,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
             "find out what happened!");
+      case ALREADY_REPLICA:
+        throw QueryRuntimeException("Instance {} is already a replica!", instance_name);
       case SUCCESS:
         break;
     }
@@ -655,11 +645,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         spdlog::info("The request for updating coordinator setting was accepted by Raft storage.");
         break;
       }
-      case coordination::SetCoordinatorSettingStatus::RAFT_LOG_ERROR: {
-        throw QueryRuntimeException(
-            "Raft storage didn't accept a configuration change. The most probable reason is that coordinators cannot "
-            "form a consensus or that the currently active instance is not the leader.");
-      }
+      case coordination::SetCoordinatorSettingStatus::RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case coordination::SetCoordinatorSettingStatus::UNKNOWN_SETTING: {
         throw QueryRuntimeException("Setting {} doesn't exist on coordinators.", setting_name);
       }
@@ -736,11 +723,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             common_message);
       }
       case RAFT_LOG_ERROR:
-        throw QueryRuntimeException("Couldn't register replica instance since raft server couldn't append the log!");
-      case RPC_FAILED:
-        throw QueryRuntimeException(
-            "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
-            "find out more info!");
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -872,8 +855,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't add coordinator since instance with such coordinator server already exists!");
       case RAFT_LOG_ERROR:
-        throw QueryRuntimeException(
-            "Couldn't add coordinator because Raft log couldn't be accepted. Please try again!");
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
@@ -954,12 +936,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             common_message);
       }
       case RAFT_LOG_ERROR:
-        throw QueryRuntimeException("Couldn't promote instance since raft server couldn't append the log!");
-      case COULD_NOT_PROMOTE_TO_MAIN:
-        throw QueryRuntimeException(
-            "Couldn't set replica instance to main! Check coordinator and replica for more logs");
-      case ENABLE_WRITING_FAILED:
-        throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case LEADER_NOT_FOUND:
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
