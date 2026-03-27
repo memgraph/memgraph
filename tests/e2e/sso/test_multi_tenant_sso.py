@@ -275,9 +275,9 @@ def test_sso_show_current_role_with_multi_role(multi_tenant_setup):
 
 
 def test_architect_privileges(multi_tenant_setup):
-    """Test architect user with architect and user privileges."""
+    """Test architect role with full privileges in architect_db."""
 
-    response = base64.b64encode(b"multi_role_architect").decode("utf-8")
+    response = base64.b64encode(b"architect_user").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
