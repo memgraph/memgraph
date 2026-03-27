@@ -176,6 +176,7 @@ inline void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unuse
 #if USE_JEMALLOC
 void *JeMalloc(size_t size, int flags);
 
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 __attribute__((visibility("default"))) void *JeNew(size_t size, int flags) {
   auto *ptr = JeMalloc(size, flags);
   if (ptr != nullptr) [[likely]] {

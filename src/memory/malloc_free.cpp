@@ -79,6 +79,7 @@ extern "C" void *malloc(size_t size) {
   return res;
 }
 
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 __attribute__((visibility("default"))) void *JeMalloc(size_t size, int flags) {
   if (!alloc_tracking(size, flags)) [[unlikely]] {
     return nullptr;

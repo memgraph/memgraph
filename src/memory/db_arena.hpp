@@ -77,7 +77,7 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
 
  private:
   void *do_allocate(std::size_t bytes, std::size_t alignment) override {
-    return DbAllocate<uint8_t>(bytes, arena_idx_);
+    return DbAllocateBytes(bytes, arena_idx_, alignment);
   }
 
   void do_deallocate(void *p, [[maybe_unused]] std::size_t bytes,
