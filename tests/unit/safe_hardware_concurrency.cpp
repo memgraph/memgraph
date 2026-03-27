@@ -14,7 +14,6 @@
 
 #include "utils/system_info.hpp"
 
-// Regression test for #2891
 TEST(SafeHardwareConcurrency, AlwaysReturnsNonZero) {
   auto hw_threads = std::thread::hardware_concurrency();
   auto safe_default = memgraph::utils::GetSafeHardwareConcurrency();
