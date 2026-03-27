@@ -6438,7 +6438,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         std::vector<std::vector<TypedValue>> results;
         results.reserve(metric_rows.size());
         for (auto const &m : metric_rows) {
-          results.push_back({TypedValue(m.name), TypedValue(m.type), TypedValue(m.metric_type), TypedValue(m.value)});
+          results.push_back({TypedValue(m.name),
+                             TypedValue(m.type),
+                             TypedValue(m.metric_type),
+                             std::visit([](auto v) { return TypedValue(v); }, m.value)});
         }
         std::ranges::sort(results, [](auto const &record_1, auto const &record_2) {
           auto const key_1 = std::tie(record_1[1].ValueString(), record_1[2].ValueString(), record_1[0].ValueString());

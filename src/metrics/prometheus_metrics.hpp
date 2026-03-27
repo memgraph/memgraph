@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include <cstdint>
 #include <expected>
 #include <functional>
 #include <list>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include <prometheus/counter.h>
@@ -29,7 +31,7 @@ struct MetricInfo {
   std::string name;
   std::string type;
   std::string metric_type;
-  double value;
+  std::variant<int64_t, double> value;
 };
 
 struct StorageSnapshot {
