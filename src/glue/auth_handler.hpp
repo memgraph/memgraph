@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,8 +27,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
  public:
   explicit AuthQueryHandler(memgraph::auth::SynchedAuth *auth);
 
-  bool CreateUser(const std::string &username, const std::optional<std::string> &password,
-                  system::Transaction *system_tx) override;
+  query::CreateUserResult CreateUser(const std::string &username, const std::optional<std::string> &password,
+                                     system::Transaction *system_tx) override;
 
   bool DropUser(const std::string &username, system::Transaction *system_tx) override;
 
@@ -39,19 +39,19 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
                       const std::optional<std::string> &newPassword, system::Transaction *system_tx) override;
 
 #ifdef MG_ENTERPRISE
-  void GrantDatabase(const std::string &db_name, const std::string &user_or_role,
+  void GrantDatabase(const std::string &db_name, const std::string &user_or_role, auth::UserOrRoleType type,
                      system::Transaction *system_tx) override;
 
-  void DenyDatabase(const std::string &db_name, const std::string &user_or_role,
+  void DenyDatabase(const std::string &db_name, const std::string &user_or_role, auth::UserOrRoleType type,
                     system::Transaction *system_tx) override;
 
-  void RevokeDatabase(const std::string &db_name, const std::string &user_or_role,
+  void RevokeDatabase(const std::string &db_name, const std::string &user_or_role, auth::UserOrRoleType type,
                       system::Transaction *system_tx) override;
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(
       const std::string &user, const std::vector<std::string> &roles) override;
 
-  void SetMainDatabase(std::string_view db_name, const std::string &user_or_role,
+  void SetMainDatabase(std::string_view db_name, const std::string &user_or_role, auth::UserOrRoleType type,
                        system::Transaction *system_tx) override;
 
   void DeleteDatabase(std::string_view db_name, system::Transaction *system_tx) override;
@@ -67,10 +67,10 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   std::vector<memgraph::query::TypedValue> GetUsernames() override;
 
-  std::vector<memgraph::query::TypedValue> GetRolenames() override;
+  std::vector<std::pair<std::string, bool>> GetRolenames() override;
 
-  std::vector<std::string> GetRolenamesForUser(const std::string &username,
-                                               std::optional<std::string> db_name) override;
+  std::vector<std::pair<std::string, bool>> GetRolenamesForUser(const std::string &username,
+                                                                std::optional<std::string> db_name) override;
 
   std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) override;
 
@@ -79,11 +79,20 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) override;
 
-  void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
-                  system::Transaction *system_tx) override;
+  void ClearRoles(const std::string &username, const std::vector<std::string> &roles,
+                  const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) override;
+
+  void AddRoles(const std::string &username, const std::vector<std::string> &roles,
+                const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) override;
+
+  void RevokeRoles(const std::string &username, const std::vector<std::string> &roles,
+                   const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) override;
+
+  using query::AuthQueryHandler::GetPrivileges;
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
-                                                                      std::optional<std::string>) override;
+                                                                      std::optional<std::string>,
+                                                                      auth::UserOrRoleType type) override;
 
   void GrantPrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
@@ -96,10 +105,10 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           &edge_type_privileges
 #endif
       ,
-      system::Transaction *system_tx) override;
+      auth::UserOrRoleType type, system::Transaction *system_tx) override;
 
   void DenyPrivilege(const std::string &user_or_role,
-                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges, auth::UserOrRoleType type,
                      system::Transaction *system_tx) override;
 
   void RevokePrivilege(
@@ -113,7 +122,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           &edge_type_privileges
 #endif
       ,
-      system::Transaction *system_tx) override;
+      auth::UserOrRoleType type, system::Transaction *system_tx) override;
 
 // User profiles
 #ifdef MG_ENTERPRISE
@@ -157,13 +166,13 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun
 #endif
       ,
-      system::Transaction *system_tx);
+      auth::UserOrRoleType type, system::Transaction *system_tx);
 
 #ifdef MG_ENTERPRISE
   void GrantImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
-                            system::Transaction *system_tx) override;
+                            auth::UserOrRoleType type, system::Transaction *system_tx) override;
   void DenyImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
-                           system::Transaction *system_tx) override;
+                           auth::UserOrRoleType type, system::Transaction *system_tx) override;
 #endif
 };
 }  // namespace memgraph::glue

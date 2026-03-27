@@ -5,11 +5,11 @@ show_privileges: &show_privileges
       log_file: "show_privileges.log"
       setup_queries: [
         "CREATE USER admin;",
-        "GRANT ALL PRIVILEGES TO admin",
-        "GRANT DATABASE * TO admin",
+        "GRANT ALL PRIVILEGES TO USER admin",
+        "GRANT DATABASE * TO USER admin",
         "CREATE ROLE admin_role;",
-        "GRANT ALL PRIVILEGES TO admin_role",
-        "GRANT DATABASE * TO admin_role",
+        "GRANT ALL PRIVILEGES TO ROLE admin_role",
+        "GRANT DATABASE * TO ROLE admin_role",
       ]
       validation_queries: []
 
@@ -20,11 +20,11 @@ show_privileges_cluster: &show_privileges_cluster
       log_file: "show_privileges.log"
       setup_queries: [
         "CREATE USER admin;",
-        "GRANT ALL PRIVILEGES TO admin",
-        "GRANT DATABASE * TO admin",
+        "GRANT ALL PRIVILEGES TO USER admin",
+        "GRANT DATABASE * TO USER admin",
         "CREATE ROLE admin_role;",
-        "GRANT ALL PRIVILEGES TO admin_role",
-        "GRANT DATABASE * TO admin_role",
+        "GRANT ALL PRIVILEGES TO ROLE admin_role",
+        "GRANT DATABASE * TO ROLE admin_role",
         "CREATE DATABASE test_db;",
         "CREATE DATABASE `test-db`;"
       ]
