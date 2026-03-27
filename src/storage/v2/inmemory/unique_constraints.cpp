@@ -308,16 +308,11 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 
 // --- IndividualConstraint implementation ---
 
-InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() {
-  if (status.IsReady()) {
-    if (gauge_) gauge_->Decrement();
-  }
-}
+InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() = default;
 
 void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = gauge;
-  if (gauge_) gauge_->Increment();
+  gauge_ = ::metrics::ScopedGauge{gauge};
 }
 
 // --- ActiveConstraints implementation ---
@@ -561,15 +556,17 @@ auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<Pro
   }
 
   auto erased = container_.WithLock([&](ContainerPtr &container) -> bool {
+    auto label_it = container->find(label);
+    if (label_it == container->end()) return false;
+    auto props_it = label_it->second.find(properties);
+    if (props_it == label_it->second.end()) return false;
+    props_it->second->gauge_.release();
+
     auto new_container = std::make_shared<Container>(*container);
-    auto label_it = new_container->find(label);
-    if (label_it == new_container->end()) {
-      return false;
-    }
-    auto const count = label_it->second.erase(properties);
-    if (count == 0) return false;
-    if (label_it->second.empty()) {
-      new_container->erase(label_it);
+    auto new_label_it = new_container->find(label);
+    new_label_it->second.erase(properties);
+    if (new_label_it->second.empty()) {
+      new_container->erase(new_label_it);
     }
 
     container = std::move(new_container);
@@ -682,7 +679,7 @@ void InMemoryUniqueConstraints::SetMetricHandles(metrics::DatabaseMetricHandles 
     for (auto const &[label, by_properties] : *ptr) {
       for (auto const &[props, constraint] : by_properties) {
         if (constraint->status.IsReady()) {
-          constraint->gauge_ = gauge;
+          constraint->gauge_ = ::metrics::ScopedGauge{gauge};
           ++count;
         }
       }
