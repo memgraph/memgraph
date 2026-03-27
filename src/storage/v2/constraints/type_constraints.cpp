@@ -50,11 +50,7 @@ namespace {
 
 // --- IndividualConstraint implementation ---
 
-TypeConstraints::IndividualConstraint::~IndividualConstraint() {
-  if (status.IsReady()) {
-    if (gauge_) gauge_->Decrement();
-  }
-}
+TypeConstraints::IndividualConstraint::~IndividualConstraint() = default;
 
 // --- ActiveConstraints implementation ---
 
@@ -200,8 +196,7 @@ void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, Type
 
   // Commit status in-place (shared_ptr allows modification without copy-on-write)
   constraint->status.Commit(commit_timestamp);
-  constraint->gauge_ = metric_handles_ ? metric_handles_->active_type_constraints : nullptr;
-  if (constraint->gauge_) constraint->gauge_->Increment();
+  constraint->gauge_ = ::metrics::ScopedGauge{metric_handles_ ? metric_handles_->active_type_constraints : nullptr};
 }
 
 bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
@@ -213,6 +208,7 @@ bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeCon
     if (it->second->type != type) {
       return false;
     }
+    it->second->gauge_.release();
 
     // Copy-on-write: create new container without this constraint
     auto new_container = std::make_shared<Container>(*container);
@@ -240,7 +236,7 @@ void TypeConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_ha
     double count = 0;
     for (auto const &[key, constraint] : ptr->constraints_) {
       if (constraint->status.IsReady()) {
-        constraint->gauge_ = gauge;
+        constraint->gauge_ = ::metrics::ScopedGauge{gauge};
         ++count;
       }
     }
