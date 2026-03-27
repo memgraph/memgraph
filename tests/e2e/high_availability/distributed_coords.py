@@ -2673,5 +2673,182 @@ def test_update_config(test_name):
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
 
 
+def test_register_instance_while_no_main(test_name):
+    # Goal: verify that REGISTER INSTANCE succeeds when there is no main in the cluster.
+    # 1. Start cluster with 3 instances and 3 coordinators, instance_3 is main.
+    # 2. Demote instance_3 so all instances are replicas — no main exists.
+    # 3. Start a 4th data instance and register it on the coordinator.
+    # 4. Promote instance_3 back to main.
+    # 5. Verify SHOW INSTANCES shows all 4 data instances with correct roles.
+    # 6. Verify SHOW REPLICAS on instance_3 (main) includes all 3 replicas.
+
+    # 1
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    initial_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(initial_data, partial(show_instances, coord_cursor_3))
+
+    # 2 — demote main so cluster has no main
+    execute_and_fetch_all(coord_cursor_3, "DEMOTE INSTANCE instance_3;")
+
+    all_replicas_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
+    ]
+    mg_sleep_and_assert(all_replicas_data, partial(show_instances, coord_cursor_3))
+
+    # 3 — start a new data instance and register it while no main exists
+    instance_4_description = {
+        "instance_4": {
+            "args": [
+                "--bolt-port",
+                "7693",
+                "--log-level",
+                "TRACE",
+                "--management-port",
+                "10014",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/instance_4.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_4",
+            "setup_queries": [],
+        },
+    }
+    interactive_mg_runner.start(instance_4_description, "instance_4")
+
+    execute_and_fetch_all(
+        coord_cursor_3,
+        "REGISTER INSTANCE instance_4 WITH CONFIG "
+        "{'bolt_server': 'localhost:7693', 'management_server': 'localhost:10014', 'replication_server': 'localhost:10004'};",
+    )
+
+    # 4 — promote instance_3 back to main
+    execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_3 TO MAIN;")
+
+    # 5 — verify coordinator sees all 4 data instances with correct roles
+    expected_instances = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+        ("instance_4", "localhost:7693", "", "localhost:10014", "up", "replica"),
+    ]
+    mg_sleep_and_assert(expected_instances, partial(show_instances, coord_cursor_3))
+
+    # 6 — verify SHOW REPLICAS on main includes all 3 replicas
+    main_cursor = connect(host="localhost", port=7689).cursor()
+    expected_replicas = [
+        (
+            "instance_1",
+            "localhost:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "localhost:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_4",
+            "localhost:10004",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_replicas, partial(show_replicas, main_cursor))
+
+
+def test_unregister_instance_while_no_main(test_name):
+    # Goal: verify that UNREGISTER INSTANCE succeeds when there is no main in the cluster.
+    # 1. Start cluster with 3 instances and 3 coordinators, instance_3 is main.
+    # 2. Demote instance_3 so all instances are replicas — no main exists.
+    # 3. Unregister instance_1 while no main exists.
+    # 4. Promote instance_3 back to main.
+    # 5. Verify SHOW INSTANCES no longer lists instance_1.
+    # 6. Verify SHOW REPLICAS on instance_3 (main) only lists instance_2.
+
+    # 1
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    initial_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(initial_data, partial(show_instances, coord_cursor_3))
+
+    # 2 — demote main so cluster has no main
+    execute_and_fetch_all(coord_cursor_3, "DEMOTE INSTANCE instance_3;")
+
+    all_replicas_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
+    ]
+    mg_sleep_and_assert(all_replicas_data, partial(show_instances, coord_cursor_3))
+
+    # 3 — unregister instance_1 while no main exists
+    execute_and_fetch_all(coord_cursor_3, "UNREGISTER INSTANCE instance_1;")
+
+    # 4 — promote instance_3 back to main
+    execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_3 TO MAIN;")
+
+    # 5 — verify coordinator no longer shows instance_1
+    expected_instances = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_instances, partial(show_instances, coord_cursor_3))
+
+    # 6 — verify SHOW REPLICAS on main only lists instance_2
+    main_cursor = connect(host="localhost", port=7689).cursor()
+    expected_replicas = [
+        (
+            "instance_2",
+            "localhost:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_replicas, partial(show_replicas, main_cursor))
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

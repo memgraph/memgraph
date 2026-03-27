@@ -92,7 +92,6 @@ extern const Event DataFailover_us;
 
 namespace memgraph::coordination {
 namespace {
-constexpr int kDisconnectedCluster = 1;
 constexpr std::string_view kUp{"up"};
 constexpr std::string_view kDown{"down"};
 }  // namespace
@@ -676,7 +675,12 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
       ranges::to<ReplicationClientsInfo>();
 
   if (!new_main_connector->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info))) {
-    return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
+    spdlog::warn(
+        "Failed to promote instance {} to main. The change is however peristed in Raft so promotion will be tried "
+        "again in the reconciliation loop. No need for you to retry the operation.",
+        new_main_name);
+  } else {
+    spdlog::info("Successfully promoted instance {} to main", new_main_name);
   }
 
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
@@ -714,16 +718,21 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
 
   data_instance->status = ReplicationRole::REPLICA;
 
-  if (!repl_instance->SendRpc<DemoteMainToReplicaRpc>(data_instance->config.replication_client_info)) {
-    return DemoteInstanceCoordinatorStatus::RPC_FAILED;
-  }
-
   // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const delta_state{.data_instances_ = data_instances_cache};
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances_cache)};
 
   if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     spdlog::error("Aborting demoting instance. Writing to Raft failed.");
     return DemoteInstanceCoordinatorStatus::RAFT_LOG_ERROR;
+  }
+
+  if (!repl_instance->SendRpc<DemoteMainToReplicaRpc>(data_instance->config.replication_client_info)) {
+    spdlog::warn(
+        "Failed to demote instance {} to replica. Operation still persisted in Raft, demotion will be tried in the "
+        "reconciliation loop again",
+        instance_name);
+  } else {
+    spdlog::info("Successfully demoted instance {} to replica.", instance_name);
   }
 
   return DemoteInstanceCoordinatorStatus::SUCCESS;
@@ -743,28 +752,28 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
-  auto const data_instances_cache = raft_state_->GetDataInstancesContext();
+  auto data_instances = raft_state_->GetDataInstancesContext();
 
-  if (std::ranges::any_of(data_instances_cache, [new_instance_name = config.instance_name](auto const &instance) {
+  if (std::ranges::any_of(data_instances, [new_instance_name = config.instance_name](auto const &instance) {
         return instance.config.instance_name == new_instance_name;
       })) {
     return RegisterInstanceCoordinatorStatus::NAME_EXISTS;
   }
 
-  if (std::ranges::any_of(data_instances_cache, [&config](auto const &instance) {
+  if (std::ranges::any_of(data_instances, [&config](auto const &instance) {
         return instance.config.ManagementSocketAddress() == config.ManagementSocketAddress();
       })) {
     return RegisterInstanceCoordinatorStatus::MGMT_ENDPOINT_EXISTS;
   }
 
-  if (std::ranges::any_of(data_instances_cache, [&config](auto const &instance) {
+  if (std::ranges::any_of(data_instances, [&config](auto const &instance) {
         return instance.config.ReplicationSocketAddress() == config.ReplicationSocketAddress();
       })) {
     return RegisterInstanceCoordinatorStatus::REPL_ENDPOINT_EXISTS;
   }
 
   if (config.replication_client_info.replication_mode == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
-    if (std::ranges::any_of(data_instances_cache, [](auto const &instance) {
+    if (std::ranges::any_of(data_instances, [](auto const &instance) {
           return instance.config.replication_client_info.replication_mode ==
                  replication_coordination_glue::ReplicationMode::SYNC;
         })) {
@@ -772,7 +781,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     }
 
   } else if (config.replication_client_info.replication_mode == replication_coordination_glue::ReplicationMode::SYNC) {
-    if (std::ranges::any_of(data_instances_cache, [](auto const &instance) {
+    if (std::ranges::any_of(data_instances, [](auto const &instance) {
           return instance.config.replication_client_info.replication_mode ==
                  replication_coordination_glue::ReplicationMode::STRICT_SYNC;
         })) {
@@ -782,7 +791,6 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
-  auto data_instances = raft_state_->GetDataInstancesContext();
   data_instances.emplace_back(config, ReplicationRole::REPLICA, curr_main_uuid);
 
   // NOLINTNEXTLINE
@@ -800,7 +808,12 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
   // From the user's perspective, as soon as the log is committed to Raft logs, the in-memory state will eventually
   // become correct. Best effort here.
   if (!new_instance->SendRpc<DemoteMainToReplicaRpc>(config.replication_client_info, curr_main_uuid)) {
-    spdlog::error("Failed to demote instance {} to replica.", config.instance_name);
+    spdlog::warn(
+        "Failed to demote instance {} to replica. The operation is still persisted in Raft logs. Sending RPC will be "
+        "retried in the next iteration of the reconciliation loop.",
+        config.instance_name);
+  } else {
+    spdlog::trace("Successfully demoted instance {} to replica.", config.instance_name);
   }
 
   if (auto const main_name = raft_state_->TryGetCurrentMainName(); main_name.has_value()) {
@@ -810,7 +823,11 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
     if (auto const &current_main = maybe_current_main->get();
         !current_main.SendRpc<RegisterReplicaOnMainRpc>(curr_main_uuid, config.replication_client_info)) {
-      spdlog::error("Failed to register instance {} on the current main instance {}.", config.instance_name, main_name);
+      spdlog::warn(
+          "Failed to register instance {} on the current main instance {}. The operation is still persisted in Raft "
+          "logs and will be retried in the next iteration of the reconciliation loop.",
+          config.instance_name,
+          main_name);
     }
   }
 
@@ -852,13 +869,6 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::IS_MAIN;
   }
 
-  auto curr_main = std::ranges::find_if(repl_instances_, is_current_main);
-  // If there is no main in the cluster, the replica cannot be unregistered. We would commit the state without replica
-  // in Raft but the in-memory state would still contain it.
-  if (curr_main == repl_instances_.end()) {
-    return UnregisterInstanceCoordinatorStatus::NO_MAIN;
-  }
-
   auto new_data_instances = raft_state_->GetDataInstancesContext();
   auto const [first, last] = std::ranges::remove_if(new_data_instances, [instance_name](auto const &data_instance) {
     return data_instance.config.instance_name == instance_name;
@@ -873,15 +883,25 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
-  auto const name_matches = [instance_name](auto const &instance) { return instance.InstanceName() == instance_name; };
-
-  // Even if RPC fails, this is still a success from user's perspective because we will retry this operation in the
-  // reconciliation loop. Best effort RPC handling
-  if (!curr_main->SendRpc<UnregisterReplicaRpc>(instance_name)) {
-    spdlog::error("Failed to unregister replica from the current main");
+  auto curr_main = std::ranges::find_if(repl_instances_, is_current_main);
+  // If there is no main in the cluster, we still persist the operation in the Raft and future main will unregister it
+  // at some point later
+  if (curr_main != repl_instances_.end()) {
+    // Even if RPC fails, this is still a success from user's perspective because we will retry this operation in the
+    // reconciliation loop. Best effort RPC handling
+    if (!curr_main->SendRpc<UnregisterReplicaRpc>(instance_name)) {
+      spdlog::warn(
+          "Failed to unregister replica {} from the current main. The operation is still persisted in Raft log and RPC "
+          "will be sent again automatically in the next iteration of the reconciliation loop",
+          instance_name);
+    } else {
+      spdlog::info("Replica {} successfully unregistered from the current main.", instance_name);
+    }
   }
+
   // We can delete connector for the instance we are removing indepedently from the RPC result
-  std::erase_if(repl_instances_, name_matches);
+  std::erase_if(repl_instances_,
+                [instance_name](auto const &instance) { return instance.InstanceName() == instance_name; });
   // Update cache entry
   replicas_num_txns_cache_.erase(std::string{instance_name});
 
@@ -1168,9 +1188,11 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
                           replica_inmem_instance->get().InstanceName(),
                           instance_name);
           } else {
-            spdlog::error("Failed to register replica {} on the current main {}",
-                          replica_inmem_instance->get().InstanceName(),
-                          instance_name);
+            spdlog::warn(
+                "Failed to register replica {} on the current main {}. The operation will be retried in the next "
+                "iteration of the reconciliation loop.",
+                replica_inmem_instance->get().InstanceName(),
+                instance_name);
           }
         }
       }
@@ -1237,15 +1259,21 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 
       if (!instance.SendRpc<DemoteMainToReplicaRpc>(instance_raft_cache->config.replication_client_info,
                                                     curr_main_uuid)) {
-        spdlog::error("Couldn't demote instance {} to replica.", instance_name);
+        spdlog::warn(
+            "Couldn't demote instance {} to replica. The operation will be retried in the next iteration of the "
+            "reconciliation loop.",
+            instance_name);
         return;
       }
     }
 
     if (!instance_state.inner_state.uuid || *instance_state.inner_state.uuid != curr_main_uuid) {
       if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
-        spdlog::error(
-            "Failed to set new uuid for replica instance {} to {}.", instance_name, std::string{curr_main_uuid});
+        spdlog::warn(
+            "Failed to set new uuid for replica instance {} to {}. The operation will be retried in the next iteration "
+            "of the reconciliation loop.",
+            instance_name,
+            std::string{curr_main_uuid});
       } else {
         spdlog::trace("Set UUID on instance {} to {}", instance_name, std::string{curr_main_uuid});
       }
@@ -1255,7 +1283,10 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
   if (auto const deltas_batch_progress_size = raft_state_->GetDeltasBatchProgressSize();
       deltas_batch_progress_size != instance_state.deltas_batch_progress_size) {
     if (!instance.SendRpc<UpdateDataInstanceConfigRpc>(deltas_batch_progress_size)) {
-      spdlog::error("Couldn't update deltas_batch_progress_size on data instance {}", instance_name);
+      spdlog::warn(
+          "Couldn't update deltas_batch_progress_size on data instance {}. The operation will be retried in the next "
+          "iteration of the reconciliation loop.",
+          instance_name);
       return;
     }
   }
