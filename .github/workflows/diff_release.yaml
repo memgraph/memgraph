@@ -399,7 +399,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph e2e
+          test-memgraph e2e-parallel --nprocesses $(nproc)
 
       - name: Ensure localstack is down
         run: |
