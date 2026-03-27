@@ -1,0 +1,13 @@
+query: >
+    CALL cross_database.bolt('MATCH (n:Person) WHERE n.age > 28 RETURN n.name AS name, n.age AS age ORDER BY n.age', {
+        host: 'localhost',
+        port: 7687
+    })
+    YIELD row
+    RETURN row.name AS name, row.age AS age
+
+output:
+    - name: 'Alice'
+      age: 30
+    - name: 'Charlie'
+      age: 35
