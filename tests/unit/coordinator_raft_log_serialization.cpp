@@ -87,3 +87,45 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
   auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
   ASSERT_EQ(delta_state, decoded_log_state);
 }
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithInstanceSettings) {
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.instance_down_timeout_sec_ = 15,
+                                                 .instance_health_check_frequency_sec_ = 5};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_EQ(decoded_log_state.instance_down_timeout_sec_, 15);
+  ASSERT_EQ(decoded_log_state.instance_health_check_frequency_sec_, 5);
+}
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateAllSettings) {
+  DataInstanceConfig config{.instance_name = "instance3",
+                            .mgt_server = Endpoint{"127.0.0.1", 10'112},
+                            .replication_client_info = {.instance_name = "instance_name",
+                                                        .replication_mode = ReplicationMode::ASYNC,
+                                                        .replication_server = Endpoint{"127.0.0.1", 10'001}}};
+
+  std::vector<DataInstanceContext> data_instances;
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
+
+  std::vector<CoordinatorInstanceContext> coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = data_instances,
+                                                 .coordinator_instances_ = coord_instances,
+                                                 .current_main_uuid_ = UUID{},
+                                                 .enabled_reads_on_main_ = true,
+                                                 .sync_failover_only_ = false,
+                                                 .max_failover_replica_lag_ = 100,
+                                                 .max_replica_read_lag_ = 50,
+                                                 .deltas_batch_progress_size_ = 25'000,
+                                                 .instance_down_timeout_sec_ = 10,
+                                                 .instance_health_check_frequency_sec_ = 3};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+}

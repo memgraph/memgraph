@@ -421,7 +421,7 @@ class Storage {
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> {
-      return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+      return transaction_.active_indices_->label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
     virtual bool EdgeTypeIndexReady(EdgeTypeId edge_type) const = 0;
@@ -950,7 +950,7 @@ class Storage {
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
 
     bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
-      return transaction_.active_indices_.CheckIndicesAreReady(required_indices);
+      return transaction_.active_indices_->CheckIndicesAreReady(required_indices);
     }
 
     bool TransactionHasSerializationError() const { return transaction_.has_serialization_error; }
@@ -1076,15 +1076,8 @@ class Storage {
     return repl_storage_state_.GetReplicaState(name);
   }
 
-  auto GetActiveIndices() const -> ActiveIndices {
-    return ActiveIndices{
-        indices_.label_index_->GetActiveIndices(),
-        indices_.label_property_index_->GetActiveIndices(),
-        indices_.edge_type_index_->GetActiveIndices(),
-        indices_.edge_type_property_index_->GetActiveIndices(),
-        indices_.edge_property_index_->GetActiveIndices(),
-    };
-  }
+  /// Returns the current snapshot of active indices
+  auto GetActiveIndices() const -> ActiveIndicesPtr { return indices_.active_indices_.ReadCopy(); }
 
   auto GetActiveConstraints() const -> ActiveConstraints {
     return ActiveConstraints{constraints_.existence_constraints_->GetActiveConstraints(),

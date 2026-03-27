@@ -36,6 +36,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
@@ -1316,7 +1317,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
-    auto index_abort_processor = storage_->indices_.GetAbortProcessor(transaction_.active_indices_);
+    auto index_abort_processor = storage_->indices_.GetAbortProcessor(*transaction_.active_indices_);
 
     auto const has_any_unique_constraints = !transaction_.active_constraints_.unique_->empty();
     if (has_any_unique_constraints && transaction_.constraint_verification_info &&
@@ -1661,7 +1662,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     // Cleanup INDICES
     index_abort_processor.Process(storage_->indices_,
-                                  transaction_.active_indices_,
+                                  *transaction_.active_indices_,
                                   transaction_.start_timestamp,
                                   mem_storage->name_id_mapper_.get());
     for (auto const &[edge_type_prop, prop_edges] : vector_edge_type_property_restore) {
@@ -1754,18 +1755,24 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
-  if (!mem_label_index->RegisterIndex(label)) {
+  auto updater = storage_->indices_.MakeUpdater();
+  if (!mem_label_index->RegisterIndex(label, updater)) {
     return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
   DowngradeToReadIfValid();
   if (!mem_label_index
-           ->PopulateIndex(
-               label, in_memory->vertices_.access(), std::nullopt, std::nullopt, &transaction_, std::move(cancel_check))
+           ->PopulateIndex(label,
+                           in_memory->vertices_.access(),
+                           std::nullopt,
+                           updater,
+                           std::nullopt,
+                           &transaction_,
+                           std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
-  // Wrapper will make sure plan cache is cleared
 
+  // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
       [=](uint64_t commit_timestamp) { return mem_label_index->PublishIndex(label, commit_timestamp); });
 
@@ -1785,7 +1792,8 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  if (!mem_label_property_index->RegisterIndex(label, properties)) {
+  auto updater = storage_->indices_.MakeUpdater();
+  if (!mem_label_property_index->RegisterIndex(label, properties, updater)) {
     return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
   DowngradeToReadIfValid();
@@ -1794,6 +1802,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
                            properties,
                            in_memory->vertices_.access(),
                            std::nullopt,
+                           updater,
                            std::nullopt,
                            &transaction_,
                            std::move(cancel_check))
@@ -1824,13 +1833,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
             "Create index requires a unique or read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
-  if (!mem_edge_type_index->RegisterIndex(edge_type)) {
+  auto updater = storage_->indices_.MakeUpdater();
+  if (!mem_edge_type_index->RegisterIndex(edge_type, updater)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   DowngradeToReadIfValid();
   if (!mem_edge_type_index
            ->PopulateIndex(
-               edge_type, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check))
+               edge_type, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -1856,13 +1866,19 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-  if (!mem_edge_type_property_index->RegisterIndex(edge_type, property)) {
+  auto updater = storage_->indices_.MakeUpdater();
+  if (!mem_edge_type_property_index->RegisterIndex(edge_type, property, updater)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   DowngradeToReadIfValid();
   if (!mem_edge_type_property_index
-           ->PopulateIndex(
-               edge_type, property, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check))
+           ->PopulateIndex(edge_type,
+                           property,
+                           in_memory->vertices_.access(),
+                           updater,
+                           std::nullopt,
+                           &transaction_,
+                           std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -1888,13 +1904,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-  if (!mem_edge_property_index->RegisterIndex(property)) {
+  auto updater = storage_->indices_.MakeUpdater();
+  if (!mem_edge_property_index->RegisterIndex(property, updater)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   DowngradeToReadIfValid();
   if (!mem_edge_property_index
            ->PopulateIndex(
-               property, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check))
+               property, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -1913,9 +1930,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
             "Dropping label index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
+  auto updater = storage_->indices_.MakeUpdater();
 
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_label_index->DropIndex(label); });
+  auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_label_index->DropIndex(label, updater); });
   if (!was_dropped) {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -1933,10 +1951,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
+  auto updater = storage_->indices_.MakeUpdater();
 
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto was_dropped =
-      storage_->invalidator_->invalidate_now([&] { return mem_label_property_index->DropIndex(label, properties); });
+  auto was_dropped = storage_->invalidator_->invalidate_now(
+      [&] { return mem_label_property_index->DropIndex(label, properties, updater); });
   if (!was_dropped) {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -1953,8 +1972,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
             "Dropping edge-type index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+  auto updater = storage_->indices_.MakeUpdater();
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_edge_type_index->DropIndex(edge_type); });
+  auto was_dropped =
+      storage_->invalidator_->invalidate_now([&] { return mem_edge_type_index->DropIndex(edge_type, updater); });
   if (!was_dropped) {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -1974,9 +1995,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+  auto updater = storage_->indices_.MakeUpdater();
   // Done inside the wrapper to ensure plan cache invalidation is safe
   auto was_dropped = storage_->invalidator_->invalidate_now(
-      [&] { return mem_edge_type_property_index->DropIndex(edge_type, property); });
+      [&] { return mem_edge_type_property_index->DropIndex(edge_type, property, updater); });
   if (!was_dropped) {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -1997,8 +2019,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
+  auto updater = storage_->indices_.MakeUpdater();
   auto was_dropped =
-      storage_->invalidator_->invalidate_now([&] { return mem_edge_property_index->DropIndex(property); });
+      storage_->invalidator_->invalidate_now([&] { return mem_edge_property_index->DropIndex(property, updater); });
   if (!was_dropped) {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -2233,7 +2256,7 @@ std::expected<void, StorageTypeConstraintDroppingError> InMemoryStorage::InMemor
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
-  auto *active_indices = static_cast<InMemoryLabelIndex::ActiveIndices *>(transaction_.active_indices_.label_.get());
+  auto *active_indices = static_cast<InMemoryLabelIndex::ActiveIndices *>(transaction_.active_indices_->label_.get());
   return VerticesIterable(active_indices->Vertices(label, view, storage_, &transaction_));
 }
 
@@ -2241,7 +2264,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, std::span<storage::PropertyPath const> properties,
     std::span<storage::PropertyValueRange const> property_ranges, View view) {
   auto *active_indices =
-      static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_.label_properties_.get());
+      static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
   return VerticesIterable(active_indices->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
 }
 
@@ -2254,7 +2277,7 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(View 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(LabelId label, View view,
                                                                            size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto *active_indices = static_cast<InMemoryLabelIndex::ActiveIndices *>(transaction_.active_indices_.label_.get());
+  auto *active_indices = static_cast<InMemoryLabelIndex::ActiveIndices *>(transaction_.active_indices_->label_.get());
   return VerticesChunkedIterable(
       active_indices->ChunkedVertices(label, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
 }
@@ -2264,20 +2287,20 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
     std::span<storage::PropertyValueRange const> property_ranges, View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto *active_indices =
-      static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_.label_properties_.get());
+      static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
   return VerticesChunkedIterable(active_indices->ChunkedVertices(
       label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
   auto *active_indices =
-      static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_.edge_type_.get());
+      static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_->edge_type_.get());
   return EdgesIterable(active_indices->Edges(edge_type, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property, View view) {
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
-      transaction_.active_indices_.edge_type_properties_.get());
+      transaction_.active_indices_->edge_type_properties_.get());
   return EdgesIterable(
       active_indices->Edges(edge_type, property, std::nullopt, std::nullopt, view, storage_, &transaction_));
 }
@@ -2285,7 +2308,7 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Pro
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
                                                        const PropertyValue &value, View view) {
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
-      transaction_.active_indices_.edge_type_properties_.get());
+      transaction_.active_indices_->edge_type_properties_.get());
   return EdgesIterable(active_indices->Edges(edge_type,
                                              property,
                                              utils::MakeBoundInclusive(value),
@@ -2300,21 +2323,21 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Pro
                                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                        View view) {
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
-      transaction_.active_indices_.edge_type_properties_.get());
+      transaction_.active_indices_->edge_type_properties_.get());
   return EdgesIterable(
       active_indices->Edges(edge_type, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, View view) {
   auto *mem_edge_property_active_indices =
-      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesIterable(
       mem_edge_property_active_indices->Edges(property, std::nullopt, std::nullopt, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, const PropertyValue &value, View view) {
   auto *mem_edge_property_active_indices =
-      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesIterable(mem_edge_property_active_indices->Edges(
       property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, storage_, &transaction_));
 }
@@ -2324,7 +2347,7 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property,
                                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                        View view) {
   auto *mem_edge_property_active_indices =
-      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesIterable(
       mem_edge_property_active_indices->Edges(property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
@@ -2334,7 +2357,7 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId 
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
-      static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_.edge_type_.get());
+      static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_->edge_type_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(
       edge_type, std::move(vertices_acc), std::move(edges_acc), view, storage_, &transaction_, num_chunks));
 }
@@ -2344,7 +2367,7 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId 
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
-      transaction_.active_indices_.edge_type_properties_.get());
+      transaction_.active_indices_->edge_type_properties_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
                                                            property,
                                                            std::move(vertices_acc),
@@ -2363,7 +2386,7 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
-      transaction_.active_indices_.edge_type_properties_.get());
+      transaction_.active_indices_->edge_type_properties_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
                                                            property,
                                                            std::move(vertices_acc),
@@ -2381,7 +2404,7 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId 
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
-      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
                                                            std::move(vertices_acc),
                                                            std::move(edges_acc),
@@ -2398,7 +2421,7 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId 
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
-      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
                                                            std::move(vertices_acc),
                                                            std::move(edges_acc),
@@ -2416,7 +2439,7 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
-      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
                                                            std::move(vertices_acc),
                                                            std::move(edges_acc),
@@ -2454,7 +2477,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   uint64_t start_timestamp = 0;
   uint64_t last_durable_ts = 0;
   std::optional<PointIndexContext> point_index_context;
-  std::optional<ActiveIndices> active_indices;
+  ActiveIndicesPtr active_indices;
   std::optional<ActiveConstraints> active_constraints;
   {
     auto guard = std::lock_guard{engine_lock_};
@@ -2477,7 +2500,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           storage_mode,
           false,
           *std::move(point_index_context),
-          *std::move(active_indices),
+          std::move(active_indices),
           *std::move(active_constraints),
           std::move(async_index_helper),
           last_durable_ts};
@@ -3882,7 +3905,6 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
                                                            recovery_info,
                                                            recovered_snapshot.indices_constraints,
                                                            config_.salient.items.properties_on_edges);
-
     spdlog::trace("Successfully recovered from snapshot {}", local_path);
 
     // Destroying current wal file
@@ -4239,6 +4261,7 @@ void InMemoryStorage::Clear() {
   // Clear indices, constraints and metadata
   indices_.DropGraphClearIndices();
   constraints_.DropGraphClearConstraints();
+
   edges_metadata_.clear();
   edges_metadata_.run_gc();
   stored_node_labels_.clear();
@@ -4262,16 +4285,18 @@ bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, Property
 }
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
-  return {transaction_.active_indices_.label_->ListIndices(transaction_.start_timestamp),
-          transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
-          transaction_.active_indices_.edge_type_->ListIndices(transaction_.start_timestamp),
-          transaction_.active_indices_.edge_type_properties_->ListIndices(transaction_.start_timestamp),
-          transaction_.active_indices_.edge_property_->ListIndices(transaction_.start_timestamp),
-          storage_->indices_.text_index_.ListIndices(),
-          storage_->indices_.text_edge_index_.ListIndices(),
-          storage_->indices_.point_index_.ListIndices(),
-          storage_->indices_.vector_index_.ListIndices(),
-          storage_->indices_.vector_edge_index_.ListIndices()};
+  return {
+      .label = transaction_.active_indices_->label_->ListIndices(transaction_.start_timestamp),
+      .label_properties = transaction_.active_indices_->label_properties_->ListIndices(transaction_.start_timestamp),
+      .edge_type = transaction_.active_indices_->edge_type_->ListIndices(transaction_.start_timestamp),
+      .edge_type_property =
+          transaction_.active_indices_->edge_type_properties_->ListIndices(transaction_.start_timestamp),
+      .edge_property = transaction_.active_indices_->edge_property_->ListIndices(transaction_.start_timestamp),
+      .text_indices = storage_->indices_.text_index_.ListIndices(),
+      .text_edge_indices = storage_->indices_.text_edge_index_.ListIndices(),
+      .point_label_property = storage_->indices_.point_index_.ListIndices(),
+      .vector_indices_spec = storage_->indices_.vector_index_.ListIndices(),
+      .vector_edge_indices_spec = storage_->indices_.vector_edge_index_.ListIndices()};
 }
 
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {

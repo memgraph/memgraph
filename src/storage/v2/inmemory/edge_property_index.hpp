@@ -236,17 +236,19 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                          ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  bool RegisterIndex(PropertyId property);
+  bool RegisterIndex(PropertyId property, ActiveIndicesUpdater const &updater);
   auto PopulateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                     ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(PropertyId property, uint64_t commit_timestamp);
 
   /// Returns false if there was no index to drop
-  bool DropIndex(PropertyId property) override;
+  bool DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) override;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
@@ -254,7 +256,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
 
   void RunGC();
 
-  auto GetActiveIndices() const -> std::unique_ptr<EdgePropertyIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<EdgePropertyIndex::ActiveIndices> override;
 
  private:
   auto GetIndividualIndex(PropertyId property) const -> std::shared_ptr<IndividualIndex>;

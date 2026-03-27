@@ -7,6 +7,7 @@ function print_help () {
     echo "Optional arguments:"
     echo -e "\t-h|--help\t\tPrint help."
     echo -e "\t--latest\t\tTag image as latest version."
+    echo -e "\t--keep-image-loaded <true|false>\tKeep built image loaded in local Docker daemon (default false)."
 }
 
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -20,6 +21,7 @@ src_path=""
 custom_mirror=false
 generate_sbom=false
 malloc=false
+keep_image_loaded=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --latest)
@@ -61,6 +63,10 @@ while [[ $# -gt 0 ]]; do
     ;;
     --malloc)
         malloc=$2
+        shift 2
+    ;;
+    --keep-image-loaded)
+        keep_image_loaded=$2
         shift 2
     ;;
     *)
@@ -144,5 +150,7 @@ if [[ "$generate_sbom" == true ]]; then
   cd ../../
   ./tools/ci/sbom/docker-sbom.sh "${tag}"
 fi
-docker image rm $image_name || true
+if [[ "$keep_image_loaded" != "true" ]]; then
+  docker image rm $image_name || true
+fi
 echo "Built Docker image at '${working_dir}/${image_package_name}'"
