@@ -60,7 +60,6 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     :
 #if USE_JEMALLOC
       db_arena_(&db_memory_tracker_),
-      arena_scope_(ArenaIdx()),
 #endif
       trigger_store_(config.durability.storage_directory / "triggers", ArenaIdx()),
       streams_{config.durability.storage_directory / "streams"},

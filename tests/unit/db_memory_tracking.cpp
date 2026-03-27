@@ -239,6 +239,118 @@ TEST_F(DbMemoryTrackingTest, StorageCreateNodesIncreasesDbMemory) {
                            << before << " after=" << after;
 }
 
+TEST_F(DbMemoryTrackingTest, StorageCreateVerticesWithLabelsAndPropertiesIncreasesDbMemory) {
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
+  auto db_acc_opt = db_gk.access();
+  ASSERT_TRUE(db_acc_opt);
+  auto &db = *db_acc_opt;
+
+  const unsigned arena_idx = db->ArenaIdx();
+  ASSERT_NE(arena_idx, 0U);
+
+  unsigned prev_arena = 0;
+  std::size_t arena_sz = sizeof(unsigned);
+  je_mallctl("thread.arena", &prev_arena, &arena_sz, const_cast<unsigned *>(&arena_idx), arena_sz);
+  auto restore = [&] { je_mallctl("thread.arena", nullptr, nullptr, &prev_arena, sizeof(unsigned)); };
+
+  auto label_a = db->storage()->NameToLabel("Person");
+  auto label_b = db->storage()->NameToLabel("Employee");
+  auto prop_name = db->storage()->NameToProperty("name");
+  auto prop_age = db->storage()->NameToProperty("age");
+
+  const int64_t before = db->DbMemoryUsage();
+
+  static constexpr int kNodeCount = 500;
+  {
+    auto acc = db->Access();
+    for (int i = 0; i < kNodeCount; ++i) {
+      auto v = acc->CreateVertex();
+      ASSERT_NO_ERROR(v.AddLabel(label_a));
+      ASSERT_NO_ERROR(v.AddLabel(label_b));
+      // String property triggers heap allocation for the property value.
+      ASSERT_NO_ERROR(
+          v.SetProperty(prop_name, memgraph::storage::PropertyValue(std::string("Alice_") + std::to_string(i))));
+      ASSERT_NO_ERROR(v.SetProperty(prop_age, memgraph::storage::PropertyValue(i)));
+    }
+    acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  }
+
+  const int64_t after = db->DbMemoryUsage();
+  restore();
+
+  EXPECT_GT(after, before) << "Creating " << kNodeCount
+                           << " vertices with labels and properties must increase DbMemoryUsage. "
+                           << "before=" << before << " after=" << after;
+}
+
+// Each vertex gets kEdgesPerVertex outgoing edges to distinct targets.
+// When kEdgesPerVertex exceeds the inline capacity of the adjacency-list small
+// vector, the vector spills to heap — those allocations must be attributed to
+// this DB's arena and reflected in DbMemoryUsage().
+TEST_F(DbMemoryTrackingTest, StorageCreateEdgesWithMultipleConnectionsIncreasesDbMemory) {
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
+  auto db_acc_opt = db_gk.access();
+  ASSERT_TRUE(db_acc_opt);
+  auto &db = *db_acc_opt;
+
+  const unsigned arena_idx = db->ArenaIdx();
+  ASSERT_NE(arena_idx, 0U);
+
+  unsigned prev_arena = 0;
+  std::size_t arena_sz = sizeof(unsigned);
+  je_mallctl("thread.arena", &prev_arena, &arena_sz, const_cast<unsigned *>(&arena_idx), arena_sz);
+  auto restore = [&] { je_mallctl("thread.arena", nullptr, nullptr, &prev_arena, sizeof(unsigned)); };
+
+  auto edge_type = db->storage()->NameToEdgeType("KNOWS");
+  auto prop_weight = db->storage()->NameToProperty("weight");
+
+  const int64_t before = db->DbMemoryUsage();
+
+  // 1 hub vertex + kSpokes targets, each target gets kEdgesPerVertex edges
+  // from additional source vertices to stress the adjacency-list small vector.
+  static constexpr int kSpokes = 32;          // targets hanging off the hub
+  static constexpr int kEdgesPerVertex = 16;  // enough to spill small-vector inline storage
+
+  {
+    auto acc = db->Access();
+
+    // Create hub and spokes.
+    auto hub = acc->CreateVertex();
+    std::vector<memgraph::storage::VertexAccessor> spokes;
+    spokes.reserve(kSpokes);
+    for (int i = 0; i < kSpokes; ++i) {
+      spokes.push_back(acc->CreateVertex());
+    }
+
+    // Hub → every spoke (stresses hub's out-edge adjacency list).
+    for (int i = 0; i < kSpokes; ++i) {
+      auto edge = acc->CreateEdge(&hub, &spokes[i], edge_type);
+      ASSERT_TRUE(edge.HasValue());
+      ASSERT_NO_ERROR(edge->SetProperty(prop_weight, memgraph::storage::PropertyValue(static_cast<double>(i) * 0.5)));
+    }
+
+    // Additional source vertices each pointing to every spoke (stresses spoke
+    // in-edge lists and triggers small-vector heap spill).
+    for (int s = 0; s < kEdgesPerVertex; ++s) {
+      auto src = acc->CreateVertex();
+      for (int i = 0; i < kSpokes; ++i) {
+        auto edge = acc->CreateEdge(&src, &spokes[i], edge_type);
+        ASSERT_TRUE(edge.HasValue());
+        ASSERT_NO_ERROR(edge->SetProperty(prop_weight, memgraph::storage::PropertyValue(static_cast<double>(s + i))));
+      }
+    }
+
+    acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  }
+
+  const int64_t after = db->DbMemoryUsage();
+  restore();
+
+  EXPECT_GT(after, before) << "Creating vertices with " << kEdgesPerVertex
+                           << " edges each (small-vector spill) must increase DbMemoryUsage. "
+                           << "before=" << before << " after=" << after;
+}
+
 #else  // !USE_JEMALLOC
 
 TEST_F(DbMemoryTrackingTest, ArenaIdxIsZeroWithoutJemalloc) {

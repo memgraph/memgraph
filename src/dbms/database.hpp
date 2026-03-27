@@ -202,8 +202,7 @@ class Database {
   //!< allocations roll up into the global graph tracker → total_memory_tracker hierarchy.
   utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker};
 #if USE_JEMALLOC
-  memory::DbArena db_arena_;          //!< Per-DB jemalloc arena with tracking hooks
-  memory::DbArenaScope arena_scope_;  //!< Pins this thread to db_arena_ during initialization
+  memory::DbArena db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
 #endif
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
   query::stream::Streams streams_;                  //!< Streams associated with the storage

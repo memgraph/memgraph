@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 // Forward declaration
 namespace memgraph::utils {
@@ -97,7 +98,7 @@ struct CrossThreadMemoryTracking {
   CrossThreadMemoryTracking &operator=(CrossThreadMemoryTracking &&other) noexcept;
 
  private:
-  unsigned prev_arena_{0};
+  std::optional<unsigned> prev_arena_;
 #else
   explicit CrossThreadMemoryTracking(unsigned /*arena_idx*/ = 0) {}
 
