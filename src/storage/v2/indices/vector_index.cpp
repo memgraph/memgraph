@@ -78,7 +78,7 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
   }
   if (r::any_of(pimpl->index_by_id_, [&](const auto &id_index_item) {
         auto &index_spec = id_index_item.second.spec;
-        return spec.label_id == index_spec.label_id && spec.property == index_spec.property;
+        return spec.label_filter == index_spec.label_filter && spec.property == index_spec.property;
       })) {
     return std::nullopt;
   }
@@ -153,7 +153,7 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
   }
   auto &index_item = it->second;
   auto &spec = index_item.spec;
-  if (!std::ranges::contains(vertex.labels, spec.label_id)) {
+  if (!spec.label_filter.Matches(vertex.labels)) {
     return;
   }
   auto property = vertex.properties.GetProperty(spec.property, decoder);
@@ -221,6 +221,9 @@ void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedP
     if (it == matching_index_properties.end()) continue;
 
     const auto index_id = it->second;
+    auto &index_item = pimpl->index_by_id_.at(index_id);
+    if (!index_item.spec.label_filter.Matches(vertex->labels)) continue;
+
     auto old_property_value = vertex->properties.GetProperty(property_id, decoder);
     if (old_property_value.IsNull()) continue;
 
@@ -228,7 +231,6 @@ void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedP
     // vector.
     auto vector_property = old_property_value.IsVectorIndexId() ? old_property_value.ValueVectorIndexList()
                                                                 : ListToVector(old_property_value);
-    auto &index_item = pimpl->index_by_id_.at(index_id);
     UpdateVectorIndex(index_item.mg_index, index_item.spec, vertex, vector_property);
 
     // In case of vector index id, we add the index id to the list of already stored index ids.
@@ -288,9 +290,9 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
   } else if (value.IsNull()) {
     // If value is null, we have to remove the vertex from all indices that contain it (by label).
     auto indices = GetIndicesByProperty(property);
-    auto vertex_has_label = [&](const auto &label_id_pair) { return r::contains(vertex->labels, label_id_pair.first); };
-    r::for_each(indices | rv::filter(vertex_has_label),
-                [&](const auto &label_id_pair) { RemoveVertexFromIndex(vertex, label_id_pair.second); });
+    auto vertex_matches = [&](const auto &id_filter_pair) { return id_filter_pair.second->Matches(vertex->labels); };
+    r::for_each(indices | rv::filter(vertex_matches),
+                [&](const auto &id_filter_pair) { RemoveVertexFromIndex(vertex, id_filter_pair.first); });
   }
   // Otherwise, we don't update the index.
 }
@@ -330,7 +332,7 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
     auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
 
     result.emplace_back(spec.index_name,
-                        spec.label_id,
+                        spec.label_filter,
                         spec.property,
                         NameFromMetric(mg_index.index.metric().metric_kind()),
                         static_cast<std::uint16_t>(mg_index.index.dimensions()),
@@ -361,7 +363,11 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
   for (auto &[_, index_item] : pimpl->index_by_id_) {
     auto &[mg_index, spec] = index_item;
     encoder->WriteString(spec.index_name);
-    write_mapping(spec.label_id);
+    encoder->WriteUint(static_cast<uint64_t>(spec.label_filter.mode));
+    encoder->WriteUint(spec.label_filter.labels.size());
+    for (const auto &label : spec.label_filter.labels) {
+      write_mapping(label);
+    }
     write_mapping(spec.property);
     encoder->WriteString(NameFromMetric(spec.metric_kind));
     encoder->WriteUint(spec.dimension);
@@ -400,7 +406,7 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
 std::optional<uint64_t> VectorIndex::ApproximateNodesVectorCount(LabelId label, PropertyId property) const {
   auto it = r::find_if(pimpl->index_by_id_, [&](const auto &id_index_item) {
     const auto &spec = id_index_item.second.spec;
-    return spec.label_id == label && spec.property == property;
+    return spec.label_filter.IsAffectedByLabel(label) && spec.property == property;
   });
   if (it != pimpl->index_by_id_.end()) {
     auto guard = utils::SharedResourceLockGuard(it->second.mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
@@ -481,7 +487,7 @@ utils::small_vector<uint64_t> VectorIndex::GetVectorIndexIdsForVertex(Vertex *ve
   result.reserve(static_cast<uint32_t>(pimpl->index_by_id_.size()));
   for (const auto &[index_id, index_item] : pimpl->index_by_id_) {
     if (index_item.spec.property != property) continue;
-    if (!std::ranges::contains(vertex->labels, index_item.spec.label_id)) continue;
+    if (!index_item.spec.label_filter.Matches(vertex->labels)) continue;
     result.push_back(index_id);
   }
   return result;
@@ -491,19 +497,19 @@ std::unordered_map<PropertyId, uint64_t> VectorIndex::GetIndicesByLabel(LabelId 
   std::unordered_map<PropertyId, uint64_t> result;
   result.reserve(pimpl->index_by_id_.size());
   for (const auto &[index_id, index_item] : pimpl->index_by_id_) {
-    if (index_item.spec.label_id == label) {
+    if (index_item.spec.label_filter.IsAffectedByLabel(label)) {
       result.emplace(index_item.spec.property, index_id);
     }
   }
   return result;
 }
 
-std::unordered_map<LabelId, uint64_t> VectorIndex::GetIndicesByProperty(PropertyId property) const {
-  std::unordered_map<LabelId, uint64_t> result;
-  result.reserve(pimpl->index_by_id_.size());
+std::vector<std::pair<uint64_t, VectorLabelFilter const *>> VectorIndex::GetIndicesByProperty(
+    PropertyId property) const {
+  std::vector<std::pair<uint64_t, VectorLabelFilter const *>> result;
   for (const auto &[index_id, index_item] : pimpl->index_by_id_) {
     if (index_item.spec.property == property) {
-      result.emplace(index_item.spec.label_id, index_id);
+      result.emplace_back(index_id, &index_item.spec.label_filter);
     }
   }
   return result;
@@ -525,7 +531,7 @@ void VectorIndex::AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, A
         UpdateOnSetProperty(property, value, vertex);
       } else {
         DMG_ASSERT(value.IsNull(), "Unexpected property value type in abort processor of vector index");
-        for (const auto &[_, index_id] : GetIndicesByProperty(property)) {
+        for (const auto &[index_id, _] : GetIndicesByProperty(property)) {
           RemoveVertexFromIndex(vertex, index_id);
         }
       }
@@ -538,10 +544,16 @@ void VectorIndex::AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, A
 VectorIndex::AbortProcessor VectorIndex::GetAbortProcessor() const {
   AbortProcessor res{};
   for (const auto &[_, index_item] : pimpl->index_by_id_) {
-    const auto label = index_item.spec.label_id;
+    const auto &filter = index_item.spec.label_filter;
     const auto property = index_item.spec.property;
-    res.l2p[label].push_back(property);
-    res.p2l[property].push_back(label);
+    if (filter.mode == VectorLabelMode::WILDCARD) {
+      res.wildcard_properties.insert(property);
+    } else {
+      for (const auto &label : filter.labels) {
+        res.l2p[label].push_back(property);
+        res.p2l[property].push_back(label);
+      }
+    }
   }
   return res;
 }
@@ -570,10 +582,17 @@ void VectorIndex::AbortProcessor::CollectOnLabelAddition(LabelId label, Vertex *
 
 void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
                                                           Vertex *vertex) {
-  if (p2l.empty()) return;
-  auto has_any_label = [&](auto label) { return r::contains(vertex->labels, label); };
-  auto labels = p2l.find(propId);
-  if (labels == p2l.end() || !r::any_of(labels->second, has_any_label)) return;
+  auto should_collect = false;
+  if (wildcard_properties.contains(propId)) {
+    should_collect = true;
+  } else if (!p2l.empty()) {
+    auto has_any_label = [&](auto label) { return r::contains(vertex->labels, label); };
+    auto labels = p2l.find(propId);
+    if (labels != p2l.end() && r::any_of(labels->second, has_any_label)) {
+      should_collect = true;
+    }
+  }
+  if (!should_collect) return;
   auto &[_, label_to_remove, property_to_abort] = cleanup_collection[vertex];
   property_to_abort[propId] = old_value;
 }
@@ -582,7 +601,7 @@ void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, con
 
 std::vector<VectorIndexRecoveryInfo *> VectorIndexRecovery::FindMatchingIndices(
     LabelId label, std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
-  auto has_label = [&](auto &ri) { return ri.spec.label_id == label; };
+  auto has_label = [&](auto &ri) { return ri.spec.label_filter.IsAffectedByLabel(label); };
   auto to_ptr = [](auto &ri) { return &ri; };
   return recovery_info_vec | rv::filter(has_label) | rv::transform(to_ptr) |
          r::to<std::vector<VectorIndexRecoveryInfo *>>();
@@ -652,6 +671,7 @@ void VectorIndexRecovery::UpdateOnLabelAddition(LabelId label, Vertex *vertex, N
 
   auto vertex_properties = vertex->properties.ExtractPropertyIds();
   for (auto *recovery_info : matching_indices) {
+    if (!recovery_info->spec.label_filter.Matches(vertex->labels)) continue;
     if (r::contains(vertex_properties, recovery_info->spec.property)) {
       auto old_property_value = vertex->properties.GetProperty(recovery_info->spec.property);
       auto vector_to_add = ExtractVectorForRecovery(old_property_value, vertex, recovery_info_vec, name_id_mapper);
@@ -711,7 +731,7 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, const Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
   auto is_relevant = [&](const VectorIndexRecoveryInfo &ri) {
-    return ri.spec.property == property && r::contains(vertex->labels, ri.spec.label_id);
+    return ri.spec.property == property && ri.spec.label_filter.Matches(vertex->labels);
   };
 
   std::vector<VectorIndexRecoveryInfo *> matching;

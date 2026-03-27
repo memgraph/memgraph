@@ -65,7 +65,7 @@ class VectorIndexTest : public testing::Test {
 
     // Create a specification for the index
     const auto spec = VectorIndexSpec{.index_name = test_index.data(),
-                                      .label_id = label,
+                                      .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {label}},
                                       .property = property,
                                       .metric_kind = metric,
                                       .dimension = dimension,
@@ -465,7 +465,7 @@ TEST_F(VectorIndexTest, IndexCreationFailsWhenNodeHasNonVectorPropertyAndDatabas
     const auto label_id = unique_acc->NameToLabel(label);
     const auto property_id = unique_acc->NameToProperty(prop_name);
     const auto spec = VectorIndexSpec{.index_name = test_index.data(),
-                                      .label_id = label_id,
+                                      .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {label_id}},
                                       .property = property_id,
                                       .metric_kind = metric,
                                       .dimension = 2,
@@ -533,7 +533,7 @@ class VectorIndexRecoveryTest : public testing::Test {
   static VectorIndexRecoveryInfo CreateRecoveryInfo(const std::string &name = "test_index",
                                                     std::size_t capacity = kNumNodes) {
     return VectorIndexRecoveryInfo{.spec = VectorIndexSpec{.index_name = name,
-                                                           .label_id = LabelId::FromUint(1),
+                                                           .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {LabelId::FromUint(1)}},
                                                            .property = PropertyId::FromUint(1),
                                                            .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
                                                            .dimension = kDimension,
@@ -610,7 +610,7 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
   }
 
   VectorIndexRecoveryInfo recovery_info{.spec = VectorIndexSpec{.index_name = "precomputed_index",
-                                                                .label_id = LabelId::FromUint(1),
+                                                                .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {LabelId::FromUint(1)}},
                                                                 .property = PropertyId::FromUint(1),
                                                                 .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
                                                                 .dimension = kDimension,
