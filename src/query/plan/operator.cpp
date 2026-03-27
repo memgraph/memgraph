@@ -334,6 +334,8 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
           throw PeriodicCommitException(
               "PeriodicCommit failed: At least one STRICT_SYNC replica has not confirmed committing last transaction. "
               "Transaction will be aborted on all instances.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
+          spdlog::warn("PeriodicCommit warning: {}", rpc::kRpcTimeoutMsg);
         } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
           throw PeriodicCommitException(
               "PeriodicCommit failed: Unable to commit due to constraint "

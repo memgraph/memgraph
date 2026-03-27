@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: ''
+      replication_mode:
+        description: 'Replication mode for data instances: sync (default) or strict_sync'
+        required: false
+        type: string
+        default: 'sync'
       ref:
         description: 'Branch or tag to checkout'
         required: false
@@ -33,6 +38,7 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   INPUT_IMAGE: ${{ inputs.memgraph_image }}
   WORKLOAD_PATH: ${{ inputs.workload }}
+  REPLICATION_MODE: ${{ inputs.replication_mode }}
 
 jobs:
   stress_test_standalone:
