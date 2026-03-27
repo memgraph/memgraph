@@ -13,17 +13,19 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <stdint.h>
+#include <filesystem>
+#include <memory>
+#include <nlohmann/json_fwd.hpp>
+#include <string>
+#include <utility>
+#include <variant>
+
 #include "coordination/constants.hpp"
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/uuid.hpp"
-
-#include <string>
-#include <utility>
-#include <variant>
-
-#include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::coordination {
 

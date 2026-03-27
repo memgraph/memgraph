@@ -11,6 +11,10 @@
 
 #include "utils/resource_monitoring.hpp"
 
+#include <stdint.h>
+
+#include "utils/memory_tracker.hpp"
+
 namespace memgraph::utils {
 
 bool TransactionsMemoryResource::Allocate(size_t size) {

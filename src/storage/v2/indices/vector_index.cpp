@@ -10,7 +10,8 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/vector_index.hpp"
-#include <range/v3/algorithm/contains.hpp>
+
+#include <range/v3/all.hpp>
 #include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"

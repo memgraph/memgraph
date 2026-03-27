@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,19 +9,32 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fmt/format.h>
+#include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
+#include <cctype>
+#include <functional>
 #include <map>
+#include <nlohmann/json.hpp>
+#include <range/v3/algorithm/any_of.hpp>
+#include <range/v3/functional/bind_back.hpp>
+#include <range/v3/iterator/basic_iterator.hpp>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/utility/get.hpp>
+#include <range/v3/view/drop_while.hpp>
+#include <range/v3/view/single.hpp>
+#include <range/v3/view/split.hpp>
+#include <range/v3/view/take_while.hpp>
+#include <range/v3/view/transform.hpp>
+#include <range/v3/view/view.hpp>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
-#include <nlohmann/json.hpp>
 #include "flags/experimental.hpp"
-#include "range/v3/all.hpp"
 #include "utils/flag_validation.hpp"
-
-#include <spdlog/spdlog.h>
-#include <range/v3/view/split.hpp>
-#include <range/v3/view/transform.hpp>
 
 // Bolt server flags.
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)

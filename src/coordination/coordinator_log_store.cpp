@@ -12,14 +12,24 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_log_store.hpp"
+
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <stddef.h>
+#include <exception>
+#include <libnuraft/buffer.hxx>
+#include <libnuraft/buffer_serializer.hxx>
+#include <libnuraft/log_entry.hxx>
+#include <libnuraft/log_val_type.hxx>
+#include <nlohmann/json.hpp>
+#include <optional>
+#include <ranges>
+#include <string>
+
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_state_manager.hpp"
 #include "utils/logging.hpp"
-
-#include <ranges>
-
-#include <nlohmann/json.hpp>
 
 namespace memgraph::coordination {
 using nuraft::buffer_serializer;

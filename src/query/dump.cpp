@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/dump.hpp"
+#include <range/v3/all.hpp>
 
 #include <algorithm>
 #include <limits>

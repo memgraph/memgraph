@@ -24,6 +24,7 @@
 #include "integrations/pulsar/consumer.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/view.hpp"

@@ -12,8 +12,9 @@
 #include "query/stream/sources.hpp"
 
 #include <nlohmann/json.hpp>
+#include <utility>
 
-#include "integrations/constants.hpp"
+#include "stream/common.hpp"
 
 namespace memgraph::query::stream {
 KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,

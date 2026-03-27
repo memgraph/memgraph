@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "glue/auth_checker.hpp"
+#include <range/v3/all.hpp>
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"

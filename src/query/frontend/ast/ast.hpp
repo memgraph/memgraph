@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <range/v3/view/transform.hpp>
 #include <unordered_map>
 #include <variant>
 #include <vector>

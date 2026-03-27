@@ -10,9 +10,9 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#include <utility>
 
 #include "query_memory_control.hpp"
-
 #include "utils/logging.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/resource_monitoring.hpp"
@@ -139,17 +139,21 @@ ThreadTrackingBlocker::~ThreadTrackingBlocker() {
 #if USE_JEMALLOC
 CrossThreadMemoryTracking::CrossThreadMemoryTracking()
     : query_tracker(GetQueryTracker()), user_tracker(GetUserTracker()) {}
+
 void CrossThreadMemoryTracking::StartTracking() const {
   if (query_tracker) memgraph::memory::StartTrackingCurrentThread(query_tracker);
   if (user_tracker) memgraph::memory::StartTrackingUserResource(user_tracker);
 }
+
 void CrossThreadMemoryTracking::StopTracking() const {
   if (query_tracker) memgraph::memory::StopTrackingCurrentThread();
   if (user_tracker) memgraph::memory::StopTrackingUserResource();
 }
+
 CrossThreadMemoryTracking::CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept
     : query_tracker(std::exchange(other.query_tracker, nullptr)),
       user_tracker(std::exchange(other.user_tracker, nullptr)) {}
+
 CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemoryTracking &&other) noexcept {
   if (this != &other) {
     query_tracker = std::exchange(other.query_tracker, nullptr);

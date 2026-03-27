@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <range/v3/algorithm/find.hpp>
+#include <range/v3/all.hpp>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"

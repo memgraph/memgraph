@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "storage/v2/id_types.hpp"
 
 namespace memgraph::storage {

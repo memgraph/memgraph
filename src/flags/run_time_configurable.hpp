@@ -10,8 +10,11 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <stdint.h>
 #include <chrono>
+#include <memory>
 #include <string>
+
 #include "utils/observer.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"

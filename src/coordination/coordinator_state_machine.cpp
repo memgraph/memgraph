@@ -13,16 +13,28 @@
 
 #include "coordination/coordinator_state_machine.hpp"
 
+#include <fmt/format.h>
+#include <exception>
+#include <iterator>
+#include <libnuraft/buffer.hxx>
+#include <libnuraft/buffer_serializer.hxx>
+#include <libnuraft/snapshot.hxx>
+#include <limits>
+#include <nlohmann/json.hpp>
+#include <regex>
+#include <utility>
+
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"
+#include "coordination/log_level.hpp"
+#include "kvstore/kvstore.hpp"
+#include "nlohmann/json.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
-
-#include <nlohmann/json.hpp>
-#include <regex>
 
 using nuraft::cluster_config;
 using nuraft::ptr;
