@@ -126,6 +126,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: [ "replication/replicate_vector_edge_index.py" ]
 
+  - name: "Replicate descriptions"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "replication/replicate_descriptions.py" ]
+
   - name: "Replicate text index"
     binary: "tests/e2e/pytest_runner.sh"
     args: [ "replication/replicate_text_index.py" ]

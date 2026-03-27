@@ -31,6 +31,8 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &
   max_failover_replica_lag_ = other.max_failover_replica_lag_;
   max_replica_read_lag_ = other.max_replica_read_lag_;
   deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
+  instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
+  instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   // NOLINTEND
 }
 
@@ -48,6 +50,8 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   max_failover_replica_lag_ = other.max_failover_replica_lag_;
   max_replica_read_lag_ = other.max_replica_read_lag_;
   deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
+  instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
+  instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   return *this;
 }
 
@@ -59,7 +63,9 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other
       sync_failover_only_{other.sync_failover_only_},
       max_failover_replica_lag_(other.max_failover_replica_lag_),
       max_replica_read_lag_(other.max_replica_read_lag_),
-      deltas_batch_progress_size_(other.deltas_batch_progress_size_) {}
+      deltas_batch_progress_size_(other.deltas_batch_progress_size_),
+      instance_down_timeout_sec_(other.instance_down_timeout_sec_),
+      instance_health_check_frequency_sec_(other.instance_health_check_frequency_sec_) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -76,6 +82,8 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   max_failover_replica_lag_ = other.max_failover_replica_lag_;
   max_replica_read_lag_ = other.max_replica_read_lag_;
   deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
+  instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
+  instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   return *this;
 }
 
@@ -131,6 +139,14 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
 
   if (delta_state.deltas_batch_progress_size_.has_value()) {
     deltas_batch_progress_size_ = *delta_state.deltas_batch_progress_size_;
+  }
+
+  if (delta_state.instance_down_timeout_sec_.has_value()) {
+    instance_down_timeout_sec_ = *delta_state.instance_down_timeout_sec_;
+  }
+
+  if (delta_state.instance_health_check_frequency_sec_.has_value()) {
+    instance_health_check_frequency_sec_ = *delta_state.instance_health_check_frequency_sec_;
   }
 }
 
@@ -202,6 +218,16 @@ auto CoordinatorClusterState::GetDeltasBatchProgressSize() const -> uint64_t {
   return deltas_batch_progress_size_;
 }
 
+auto CoordinatorClusterState::GetInstanceDownTimeoutSec() const -> uint32_t {
+  auto lock = std::shared_lock{app_lock_};
+  return instance_down_timeout_sec_;
+}
+
+auto CoordinatorClusterState::GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds {
+  auto lock = std::shared_lock{app_lock_};
+  return std::chrono::seconds{instance_health_check_frequency_sec_};
+}
+
 void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
   auto lock = std::lock_guard{app_lock_};
   coordinator_instances_ = std::move(coordinator_instances);
@@ -242,6 +268,16 @@ void CoordinatorClusterState::SetDeltasBatchProgressSize(uint64_t const deltas_b
   deltas_batch_progress_size_ = deltas_batch_progress_size;
 }
 
+void CoordinatorClusterState::SetInstanceDownTimeoutSec(uint32_t const timeout_sec) {
+  auto lock = std::lock_guard{app_lock_};
+  instance_down_timeout_sec_ = timeout_sec;
+}
+
+void CoordinatorClusterState::SetInstanceHealthCheckFreqSec(uint32_t const check_freq_sec) {
+  auto lock = std::lock_guard{app_lock_};
+  instance_health_check_frequency_sec_ = check_freq_sec;
+}
+
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
   j = nlohmann::json{{kDataInstances.data(), state.GetDataInstancesContext()},
                      {kMainUUID.data(), state.GetCurrentMainUUID()},
@@ -252,7 +288,10 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
                      {kMaxFailoverLagOnReplica.data(), state.GetMaxFailoverReplicaLag()},
                      // Added in 3.6.0 version
                      {kMaxReplicaReadLag.data(), state.GetMaxReplicaReadLag()},
-                     {kDeltasBatchProgressSize.data(), state.GetDeltasBatchProgressSize()}};
+                     {kDeltasBatchProgressSize.data(), state.GetDeltasBatchProgressSize()},
+                     // Added in 3.10.0 version
+                     {kInstanceDownTimeoutSec.data(), state.GetInstanceDownTimeoutSec()},
+                     {kInstanceHealthCheckFreqSec.data(), state.GetInstanceHealthCheckFrequencySec().count()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
@@ -285,6 +324,17 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
   uint64_t const deltas_batch_progress_size =
       j.value(kDeltasBatchProgressSize.data(), replication_coordination_glue::kDefaultDeltasBatchProgressSize);
   instance_state.SetDeltasBatchProgressSize(deltas_batch_progress_size);
+
+  // From 3.10 on
+  {
+    uint32_t const instance_down_timeout_sec = j.value(kInstanceDownTimeoutSec.data(), 5);
+    instance_state.SetInstanceDownTimeoutSec(instance_down_timeout_sec);
+  }
+
+  {
+    uint32_t const check_freq_sec = j.value(kInstanceHealthCheckFreqSec.data(), 1);
+    instance_state.SetInstanceHealthCheckFreqSec(check_freq_sec);
+  }
 }
 
 }  // namespace memgraph::coordination

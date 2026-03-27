@@ -71,7 +71,8 @@ class RaftState {
   auto IsLeader() const -> bool;
   auto GetLeaderId() const -> int32_t;
 
-  auto AppendClusterUpdate(CoordinatorClusterStateDelta const &delta_state) const -> bool;
+  // Waits until log is committed
+  auto AppendLogAndWaitForCommit(CoordinatorClusterStateDelta const &delta_state) const -> bool;
 
   auto GetDataInstancesContext() const -> std::vector<DataInstanceContext>;
   auto GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext>;
@@ -101,6 +102,8 @@ class RaftState {
   auto GetMaxFailoverReplicaLag() const -> uint64_t;
   auto GetMaxReplicaReadLag() const -> uint64_t;
   auto GetDeltasBatchProgressSize() const -> uint64_t;
+  auto GetInstanceDownTimeoutSec() const -> uint32_t;
+  auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
 
  private:
   uint16_t coordinator_port_;

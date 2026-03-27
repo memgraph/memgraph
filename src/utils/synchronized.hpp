@@ -92,8 +92,7 @@ class Synchronized {
   ~Synchronized() = default;
 
   class LockedPtr {
-   private:
-    friend class Synchronized<T, TMutex>;
+    friend class Synchronized;
 
     LockedPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
 
@@ -110,8 +109,7 @@ class Synchronized {
   };
 
   class ReadLockedPtr {
-   private:
-    friend class Synchronized<T, TMutex>;
+    friend class Synchronized;
 
     ReadLockedPtr(const T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
 
@@ -131,8 +129,7 @@ class Synchronized {
   // This is a non-const version of ReadLockedPtr. It should be used only when modifying the object which is already
   // thread-safe.
   class MutableSharedLockPtr {
-   private:
-    friend class Synchronized<T, TMutex>;
+    friend class Synchronized;
 
     MutableSharedLockPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
 
@@ -161,12 +158,14 @@ class Synchronized {
 
   template <class TCallable>
   auto WithLock(TCallable &&callable) {
-    return callable(*Lock());
+    auto lock = Lock();
+    return callable(*lock);
   }
 
   template <class TCallable>
   auto TryWithLock(TCallable &&callable) {
-    return callable(*TryLock());
+    auto lock = TryLock();
+    return callable(*lock);
   }
 
   LockedPtr operator->() { return LockedPtr(&object_, &mutex_); }
@@ -191,13 +190,24 @@ class Synchronized {
   template <class TCallable>
     requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
   auto WithReadLock(TCallable &&callable) const {
-    return callable(*ReadLock());
+    auto lock = ReadLock();
+    return callable(*lock);
   }
 
   template <class TCallable>
     requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
   auto TryWithReadLock(TCallable &&callable) const {
-    return callable(*TryReadLock());
+    auto lock = TryReadLock();
+    return callable(*lock);
+  }
+
+  /// Returns a copy of the protected object under a read lock.
+  /// Prefer this over WithReadLock(std::identity{}) — it is clearer and obviously correct
+  template <typename = void>
+    requires SharedMutex<TMutex>
+  T ReadCopy() const {
+    auto lock = ReadLock();
+    return *lock;
   }
 
   template <typename = void>
@@ -215,7 +225,8 @@ class Synchronized {
   template <class TCallable>
     requires SharedMutex<TMutex>
   auto WithMutableSharedLock(TCallable &&callable) {
-    return callable(*MutableSharedLock());
+    auto lock = MutableSharedLock();
+    return callable(*lock);
   }
 
   template <typename = void>

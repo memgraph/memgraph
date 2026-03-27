@@ -129,7 +129,7 @@ size_t PropertyValueRange::hash() const noexcept {
   return seed;
 }
 
-void LabelPropertyIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex *vertex) {
+void LabelPropertyIndexAbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex *vertex) {
   const auto &it = p2l.find(propId);
   if (it == p2l.end()) return;
 
@@ -146,11 +146,11 @@ void LabelPropertyIndex::AbortProcessor::CollectOnPropertyChange(PropertyId prop
   }
 }
 
-void LabelPropertyIndex::AbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
+void LabelPropertyIndexAbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
   const auto &it = l2p.find(label);
   if (it == l2p.end()) return;
 
-  auto dedup = std::set<IndexInfo>{};
+  auto dedup = std::set<LabelPropertyIndex::IndexInfo>{};
   for (const auto &[property, index_info] : it->second) {
     for (auto const &info : index_info) {
       dedup.insert(info);
