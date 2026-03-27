@@ -98,6 +98,7 @@ class Memgraph(ConanFile):
         self.tool_requires("ccache/4.12.1")
         self.tool_requires("antlr4/4.13.1")
 
+        self.test_requires("approvaltests.cpp/10.13.0")
         self.test_requires("benchmark/1.9.4")
         self.test_requires("gtest/1.17.0")
 
