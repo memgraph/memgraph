@@ -76,7 +76,7 @@ ClientContext::~ClientContext() {
 
 SSL_CTX *ClientContext::context() { return ctx_; }
 
-bool ClientContext::use_ssl() { return use_ssl_; }
+auto ClientContext::use_ssl() const -> bool { return use_ssl_; }
 
 ServerContext::ServerContext(std::string key_file, std::string cert_file, std::string ca_file, bool const verify_peer)
     : key_file_(std::move(key_file)),
@@ -90,9 +90,17 @@ ServerContext::ServerContext(std::string key_file, std::string cert_file, std::s
 
 ServerContext::~ServerContext() = default;
 
-SSL_CTX *ServerContext::context() { return ctx_.load(std::memory_order_acquire)->native_handle(); }
+SSL_CTX *ServerContext::context() {
+  auto ptr = ctx_.load(std::memory_order_acquire);
+  MG_ASSERT(ptr, "Trying to use uninitialized SSL context");
+  return ptr->native_handle();
+}
 
-boost::asio::ssl::context &ServerContext::context_clone() { return *ctx_.load(std::memory_order_acquire); }
+boost::asio::ssl::context &ServerContext::context_clone() {
+  auto ptr = ctx_.load(std::memory_order_acquire);
+  MG_ASSERT(ptr, "Trying to use uninitialized SSL context");
+  return *ptr;
+}
 
 bool ServerContext::use_ssl() const { return ctx_.load(std::memory_order_acquire) != nullptr; }
 
