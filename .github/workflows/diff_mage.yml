@@ -82,7 +82,7 @@ jobs:
           echo "S3 Destination Directory: $S3_DEST_DIR"
 
   amd_mage_tests:
-    name: "MAGE Tests (AMD)${{ !inputs.run_amd && ' / Build and test MAGE' || '' }}"
+    name: "MAGE Tests (AMD)${{ !inputs.run_amd && ' / Build and Test MAGE' || '' }}"
     needs: get-pr-number
     if: ${{ inputs.run_amd }}
     uses: ./.github/workflows/reusable_package_mage.yaml
@@ -96,7 +96,7 @@ jobs:
     secrets: inherit
 
   arm_mage_tests:
-    name: "MAGE Tests (ARM)${{ !inputs.run_arm && ' / Build and test MAGE' || '' }}"
+    name: "MAGE Tests (ARM)${{ !inputs.run_arm && ' / Build and Test MAGE' || '' }}"
     needs: get-pr-number
     if: ${{ inputs.run_arm }}
     uses: ./.github/workflows/reusable_package_mage.yaml
@@ -110,7 +110,7 @@ jobs:
     secrets: inherit
 
   cuda_mage_tests:
-    name: "MAGE Tests (CUDA)${{ !inputs.run_cuda && ' / Build and test MAGE' || '' }}"
+    name: "MAGE Tests (CUDA)${{ !inputs.run_cuda && ' / Build and Test MAGE' || '' }}"
     needs: get-pr-number
     if: ${{ inputs.run_cuda }}
     uses: ./.github/workflows/reusable_package_mage.yaml
