@@ -40,19 +40,7 @@ struct PageAlignedAllocator {
     auto size = std::max(n * sizeof(T), PAGE_SIZE);
     // Round up to the nearest multiple of PAGE_SIZE
     size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
-#if USE_JEMALLOC
-    if (arena_idx_ != 0) {
-      // Route to the DB arena; MALLOCX_ALIGN ensures the page alignment
-      // requirement is met (PAGE_SIZE > alignof(std::max_align_t)).
-      int flags = MALLOCX_ARENA(arena_idx_) | MALLOCX_TCACHE_NONE | MALLOCX_ALIGN(PAGE_SIZE);
-      void *ptr = je_mallocx(size, flags);
-      if (!ptr) throw std::bad_alloc{};
-      return static_cast<T *>(ptr);
-    }
-#endif
-    // we must use new/delete as it will correctly throw appropriate exception
-    void *ptr = operator new(size, std::align_val_t{PAGE_SIZE});
-    return static_cast<T *>(ptr);
+    return memory::DbAllocate<T>(size / sizeof(T), arena_idx_);
   }
 
   void deallocate(T *p, std::size_t) const noexcept {

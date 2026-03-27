@@ -173,6 +173,25 @@ inline void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unuse
 
 }  // namespace
 
+#ifdef USE_JEMALLOC
+void *JeMalloc(size_t size, int flags);
+
+__attribute__((visibility("default"))) void *JeNew(size_t size, int flags) {
+  auto *ptr = JeMalloc(size, flags);
+  if (ptr != nullptr) [[likely]] {
+    return ptr;
+  }
+
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+  auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg();
+  if (maybe_msg) {
+    throw memgraph::utils::OutOfMemoryException{std::move(*maybe_msg)};
+  }
+
+  throw std::bad_alloc{};
+}
+#endif
+
 __attribute__((visibility("default"))) void *operator new(const std::size_t size) {
   TrackMemory(size);
   return newImpl(size);
