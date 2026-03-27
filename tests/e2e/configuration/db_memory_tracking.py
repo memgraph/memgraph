@@ -159,8 +159,7 @@ def test_db_memory_grows_with_parallel_execution():
     db_memory_tracked must increase when a read query runs with USING PARALLEL EXECUTION.
 
     This exercises the CrossThreadMemoryTracking fix: worker pool threads now pin the DB
-    arena via je_mallctl so their allocations (sort buffers, aggregation accumulators, etc.)
-    are attributed to the correct DB MemoryTracker.
+    arena via the TLS flag so their database allocations are attributed to the correct DB MemoryTracker.
     """
     conn = connect()
     cursor = conn.cursor()

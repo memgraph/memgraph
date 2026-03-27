@@ -88,10 +88,9 @@ struct DbAwareAllocator {
     return DbAllocate<T>(n, idx);
   }
 
-  // NOTE: jemalloc tracks the owning arena per-extent in its own metadata.
-  //          je_free(p) always routes to the correct arena regardless of which
-  //          thread calls it, so GC can safely free query-thread allocations.
   void deallocate(T *p, [[maybe_unused]] std::size_t n) noexcept {
+    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata. je_free(p) always routes to the correct
+    // arena regardless of which thread calls it, so GC can safely free query-thread allocations.
     ::operator delete(static_cast<void *>(p), n * sizeof(T), std::align_val_t{alignof(T)});
   }
 
@@ -134,10 +133,9 @@ struct ArenaAwareAllocator {
 
   [[nodiscard]] T *allocate(std::size_t n) { return DbAllocate<T>(n, arena_idx_); }
 
-  // NOTE: jemalloc tracks the owning arena per-extent in its own metadata.
-  //          je_free(p) always routes to the correct arena regardless of which
-  //          thread calls it, so GC can safely free query-thread allocations.
   void deallocate(T *p, [[maybe_unused]] std::size_t n) noexcept {
+    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata. je_free(p) always routes to the correct
+    // arena regardless of which thread calls it, so GC can safely free query-thread allocations.
     ::operator delete(static_cast<void *>(p), n * sizeof(T), std::align_val_t{alignof(T)});
   }
 
