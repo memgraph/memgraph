@@ -46,6 +46,8 @@ def authenticate(response: str, scheme: str):
     keytab_path = config["keytab"]
     if keytab_path:
         os.environ["KRB5_KTNAME"] = keytab_path
+    else:
+        os.environ.pop("KRB5_KTNAME", None)
 
     service_principal = config["service_principal"]
     if not service_principal:
@@ -58,7 +60,10 @@ def authenticate(response: str, scheme: str):
 
     try:
         import gssapi
+    except ImportError:
+        return {"authenticated": False, "errors": "gssapi package not installed. Run: pip install gssapi"}
 
+    try:
         server_name = gssapi.Name(service_principal, gssapi.NameType.kerberos_principal)
         server_creds = gssapi.Credentials(name=server_name, usage="accept")
         ctx = gssapi.SecurityContext(creds=server_creds, usage="accept")
