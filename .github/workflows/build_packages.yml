@@ -1,4 +1,4 @@
-name: "Post-PR Merge: Build and Upload MAGE Packages"
+name: "Build and Upload MAGE Packages for a Pull Request"
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         description: "PR number to use for the build (e.g., 1234)"
         required: true
 
-run-name: "Build and Upload Packages for PR merge"
+run-name: "Build and Upload Packages for a Pull Request"
 
 jobs:
   get-pr-number:
@@ -26,6 +26,10 @@ jobs:
         id: get_pr
         run: |
           PR_NUMBER=${{ github.event.inputs.pr_number }}
+          if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "PR number is not a number"
+            exit 1
+          fi
           echo "Using manually provided PR number: $PR_NUMBER"
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "PR Number: $PR_NUMBER"
