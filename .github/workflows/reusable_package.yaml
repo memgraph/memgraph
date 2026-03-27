@@ -94,7 +94,7 @@ jobs:
           echo -e "Passed: Dest dir $S3_DEST_DIR has a valid official format."
 
       - name: "Set up repository"
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0 # Required because of release/get_version.py
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
@@ -279,7 +279,7 @@ jobs:
 
       - name: "Upload SBOM Files"
         if: ${{ env.GENERATE_SBOM == 'true' }}
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: memgraph-sbom
           path: sbom/
@@ -374,7 +374,7 @@ jobs:
 
       - name: "Upload to Github"
         if: ${{  inputs.push_to_github == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: "${{ env.FOR_DOCKER == 'true' && env.DOCKER_ARTIFACT_DIR || env.PACKAGE_ARTIFACT_DIR }}/memgraph*"

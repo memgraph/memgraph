@@ -62,7 +62,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -127,7 +127,7 @@ jobs:
 
       - name: Save test data
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         if: failure()
         with:
           name: "GQL Behave Tests(Release build)${{ env.RUN_ID }}"
@@ -135,7 +135,7 @@ jobs:
 
       - name: Save quality assurance status
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "GQL Behave Status${{ env.RUN_ID }}"
           path: |
@@ -171,7 +171,7 @@ jobs:
       - name: Save enterprise DEB package
         if: ${{ env.RUN_ID == '' }}
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "Enterprise DEB package"
           path: build/output/${{ env.OS }}/memgraph*.deb
@@ -198,7 +198,7 @@ jobs:
     timeout-minutes: 80
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -332,7 +332,7 @@ jobs:
     timeout-minutes: 110
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -426,7 +426,7 @@ jobs:
 
       - name: Save test data
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         if: failure()
         with:
           name: "Test data(Release build)${{ env.RUN_ID }}"
@@ -454,7 +454,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -556,7 +556,7 @@ jobs:
 
       - name: Save stress and durability test logs
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         if: failure()
         with:
           name: "Stress and Durability Test Logs${{ env.RUN_ID }}"
@@ -584,7 +584,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -657,7 +657,7 @@ jobs:
 
       - name: Save test data
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         if: failure()
         with:
           name: "Query modules tests(Release build)${{ env.RUN_ID }}"
