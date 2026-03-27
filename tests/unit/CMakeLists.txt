@@ -78,7 +78,7 @@ add_unit_test(event_map
 
 add_unit_test(interpreter
     SOURCES interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
-    LINK_TARGETS mg-communication mg-query mg-glue
+    LINK_TARGETS mg-communication mg-query mg-glue mg-utils
 )
 
 add_unit_test(plan_pretty_print
@@ -121,6 +121,11 @@ add_unit_test(query_parallel_plan
     LINK_TARGETS mg-query
 )
 
+add_unit_test(cursor_awaitable
+    SOURCES cursor_awaitable.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_plan_accumulate_aggregate
     SOURCES query_plan_accumulate_aggregate.cpp
     LINK_TARGETS mg-query mg-glue
@@ -154,6 +159,11 @@ add_unit_test(query_plan_operator_to_string
 add_unit_test(query_plan_read_write_typecheck
     SOURCES query_plan_read_write_typecheck.cpp ${CMAKE_SOURCE_DIR}/src/query/plan/read_write_type_checker.cpp
     LINK_TARGETS mg-query
+)
+
+add_unit_test(query_plan_yield
+    SOURCES query_plan_yield.cpp
+    LINK_TARGETS mg-query mg-glue
 )
 
 add_unit_test(query_plan_v2_create_set_remove_delete
