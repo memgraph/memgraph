@@ -1,6 +1,6 @@
 name: Stress test large
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
+  group: stress-test-large-global
   cancel-in-progress: true
 
 on:
