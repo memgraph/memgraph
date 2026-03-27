@@ -21,8 +21,10 @@ struct DatabaseMetricHandles;
 
 #include <functional>
 #include <memory>
+
 #include <optional>
 #include <variant>
+#include "metrics/scoped_gauge.hpp"
 
 #include "absl/container/flat_hash_map.h"
 #include "storage/v2/constraint_verification_info.hpp"
@@ -70,7 +72,7 @@ class ExistenceConstraints {
   /// This pattern matches indices and unique constraints for consistency.
   struct IndividualConstraint {
     ConstraintStatus status{};
-    prometheus::Gauge *gauge_{nullptr};
+    ::metrics::ScopedGauge gauge_{};
     ~IndividualConstraint();
   };
 

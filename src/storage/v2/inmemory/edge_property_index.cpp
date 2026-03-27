@@ -261,22 +261,16 @@ bool InMemoryEdgePropertyIndex::PublishIndex(PropertyId property, uint64_t commi
 
 void InMemoryEdgePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status_.Commit(commit_timestamp);
-  gauge_ = gauge;
-  if (gauge_) gauge_->Increment();
+  gauge_ = ::metrics::ScopedGauge{gauge};
 }
 
-InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() {
-  if (status_.IsReady()) {
-    if (gauge_) gauge_->Decrement();
-  }
-}
+InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() = default;
 
 bool InMemoryEdgePropertyIndex::DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) {
   auto const result = index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
-    {
-      auto const it = indices_container->indices_.find(property);
-      if (it == indices_container->indices_.cend()) return false;
-    }
+    auto const it = indices_container->indices_.find(property);
+    if (it == indices_container->indices_.cend()) return false;
+    it->second->gauge_.release();
 
     auto new_container = std::make_shared<IndicesContainer>();
     for (auto const &[existing_property, index] : indices_container->indices_) {
@@ -422,7 +416,7 @@ void InMemoryEdgePropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles 
     double count = 0;
     for (auto const &[property, idx] : ptr->indices_) {
       if (idx->status_.IsReady()) {
-        idx->gauge_ = gauge;
+        idx->gauge_ = ::metrics::ScopedGauge{gauge};
         ++count;
       }
     }

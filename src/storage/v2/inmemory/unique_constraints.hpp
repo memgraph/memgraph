@@ -18,6 +18,8 @@ class Gauge;
 #include <memory>
 #include <optional>
 #include <variant>
+
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
@@ -74,7 +76,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
     utils::SkipList<Entry> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
-    prometheus::Gauge *gauge_{nullptr};
+    ::metrics::ScopedGauge gauge_{};
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
