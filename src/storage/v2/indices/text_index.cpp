@@ -26,6 +26,7 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
     nlohmann::json mappings = {};
     mappings["properties"] = {};
     mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
+    mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
     mappings["properties"]["gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
 
     auto [_, success] = index_.try_emplace(
@@ -64,10 +65,12 @@ std::vector<TextIndexData *> TextIndex::GetIndicesMatchingProperties(std::span<T
   return result;
 }
 
-void TextIndex::AddNodeToTextIndex(std::int64_t gid, nlohmann::json properties, mgcxx::text_search::Context &context) {
-  if (properties.empty()) return;
+void TextIndex::AddNodeToTextIndex(std::int64_t gid, nlohmann::json properties, std::string all_property_values,
+                                   mgcxx::text_search::Context &context) {
+  if (all_property_values.empty()) return;
   nlohmann::json document = {};
   document["data"] = std::move(properties);
+  document["all"] = std::move(all_property_values);
   document["gid"] = static_cast<std::uint64_t>(gid);
 
   try {
@@ -137,8 +140,10 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
     auto vertex_properties = index_info.properties.empty()
                                  ? v.Properties(View::NEW).value()
                                  : v.PropertiesByPropertyIds(index_info.properties, View::NEW).value();
-    TextIndex::AddNodeToTextIndex(
-        v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper), index_data.context);
+    TextIndex::AddNodeToTextIndex(v.Gid().AsInt(),
+                                  SerializeProperties(vertex_properties, name_id_mapper),
+                                  StringifyProperties(vertex_properties),
+                                  index_data.context);
   }
   try {
     mgcxx::text_search::commit(index_data.context);
@@ -173,8 +178,10 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipList<Ve
       if (properties_to_index.empty()) continue;
 
       auto properties_to_index_map = ExtractProperties(vertex.properties, properties_to_index);
-      TextIndex::AddNodeToTextIndex(
-          vertex.gid.AsInt(), SerializeProperties(properties_to_index_map, name_id_mapper), context);
+      TextIndex::AddNodeToTextIndex(vertex.gid.AsInt(),
+                                    SerializeProperties(properties_to_index_map, name_id_mapper),
+                                    StringifyProperties(properties_to_index_map),
+                                    context);
     }
 
     try {
@@ -233,13 +240,15 @@ std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, c
         break;
       case text_search_mode::REGEX:
         search_results = mgcxx::text_search::regex_search_gids_pinned(
-            context, searcher,
-            mgcxx::text_search::SearchInput{.search_fields = {"data"}, .search_query = lowered_query, .limit = limit});
+            context,
+            searcher,
+            mgcxx::text_search::SearchInput{.search_fields = {"all"}, .search_query = lowered_query, .limit = limit});
         break;
       case text_search_mode::ALL_PROPERTIES:
         search_results = mgcxx::text_search::search_gids_pinned(
-            context, searcher,
-            mgcxx::text_search::SearchInput{.search_fields = {"data"}, .search_query = lowered_query, .limit = limit});
+            context,
+            searcher,
+            mgcxx::text_search::SearchInput{.search_fields = {"all"}, .search_query = lowered_query, .limit = limit});
         break;
       default:
         throw query::TextSearchException("Unsupported search mode.");
@@ -325,6 +334,7 @@ void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mappe
     struct PreparedDoc {
       std::int64_t gid;
       nlohmann::json properties;
+      std::string all_property_values;
     };
 
     std::vector<std::int64_t> gids_to_remove;
@@ -339,7 +349,9 @@ void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mappe
       auto vertex_properties = index_data_ptr->properties.empty()
                                    ? vertex->properties.Properties()
                                    : ExtractProperties(vertex->properties, index_data_ptr->properties);
-      docs_to_add.push_back({vertex->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper)});
+      docs_to_add.push_back({vertex->gid.AsInt(),
+                             SerializeProperties(vertex_properties, name_id_mapper),
+                             StringifyProperties(vertex_properties)});
     }
 
     // Lock only for tantivy writer operations
@@ -351,7 +363,8 @@ void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mappe
                                             kDoSkipCommit);
       }
       for (auto &doc : docs_to_add) {
-        TextIndex::AddNodeToTextIndex(doc.gid, std::move(doc.properties), index_data_ptr->context);
+        TextIndex::AddNodeToTextIndex(
+            doc.gid, std::move(doc.properties), std::move(doc.all_property_values), index_data_ptr->context);
       }
       mgcxx::text_search::commit(index_data_ptr->context);
     } catch (const std::exception &e) {

@@ -27,6 +27,7 @@ void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const Text
     nlohmann::json mappings = {};
     mappings["properties"] = {};
     mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
+    mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
     mappings["properties"]["edge_gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
     mappings["properties"]["from_vertex_gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
     mappings["properties"]["to_vertex_gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
@@ -70,10 +71,12 @@ std::vector<TextEdgeIndexData *> TextEdgeIndex::GetIndicesMatchingProperties(
 }
 
 void TextEdgeIndex::AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
-                                       nlohmann::json properties, mgcxx::text_search::Context &context) {
-  if (properties.empty()) return;
+                                       nlohmann::json properties, std::string all_property_values,
+                                       mgcxx::text_search::Context &context) {
+  if (all_property_values.empty()) return;
   nlohmann::json document = {};
   document["data"] = std::move(properties);
+  document["all"] = std::move(all_property_values);
   document["edge_gid"] = static_cast<std::uint64_t>(edge_gid);
   document["from_vertex_gid"] = static_cast<std::uint64_t>(from_vertex_gid);
   document["to_vertex_gid"] = static_cast<std::uint64_t>(to_vertex_gid);
@@ -130,6 +133,7 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
                                         edge.FromVertex().Gid().AsInt(),
                                         edge.ToVertex().Gid().AsInt(),
                                         SerializeProperties(edge_properties, name_id_mapper),
+                                        StringifyProperties(edge_properties),
                                         index_data.context);
     }
   }
@@ -174,6 +178,7 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
                                           vertex.gid.AsInt(),
                                           to_vertex->gid.AsInt(),
                                           SerializeProperties(properties_to_index_map, name_id_mapper),
+                                          StringifyProperties(properties_to_index_map),
                                           context);
       }
     }
@@ -235,13 +240,15 @@ std::vector<TextEdgeSearchResult> TextEdgeIndex::Search(const std::string &index
         break;
       case text_search_mode::REGEX:
         search_results = mgcxx::text_search::regex_search_edge_gids_pinned(
-            context, searcher,
-            mgcxx::text_search::SearchInput{.search_fields = {"data"}, .search_query = lowered_query, .limit = limit});
+            context,
+            searcher,
+            mgcxx::text_search::SearchInput{.search_fields = {"all"}, .search_query = lowered_query, .limit = limit});
         break;
       case text_search_mode::ALL_PROPERTIES:
         search_results = mgcxx::text_search::search_edge_gids_pinned(
-            context, searcher,
-            mgcxx::text_search::SearchInput{.search_fields = {"data"}, .search_query = lowered_query, .limit = limit});
+            context,
+            searcher,
+            mgcxx::text_search::SearchInput{.search_fields = {"all"}, .search_query = lowered_query, .limit = limit});
         break;
       default:
         throw query::TextSearchException("Unsupported search mode.");
@@ -332,6 +339,7 @@ void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_m
       std::int64_t from_vertex_gid;
       std::int64_t to_vertex_gid;
       nlohmann::json properties;
+      std::string all_property_values;
     };
 
     std::vector<std::int64_t> gids_to_remove;
@@ -349,7 +357,8 @@ void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_m
       docs_to_add.push_back({edge_with_vertices.edge->gid.AsInt(),
                              edge_with_vertices.from_vertex->gid.AsInt(),
                              edge_with_vertices.to_vertex->gid.AsInt(),
-                             SerializeProperties(edge_properties, name_id_mapper)});
+                             SerializeProperties(edge_properties, name_id_mapper),
+                             StringifyProperties(edge_properties)});
     }
 
     // Lock only for tantivy writer operations
@@ -362,8 +371,12 @@ void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_m
             kDoSkipCommit);
       }
       for (auto &doc : docs_to_add) {
-        TextEdgeIndex::AddEdgeToTextIndex(
-            doc.edge_gid, doc.from_vertex_gid, doc.to_vertex_gid, std::move(doc.properties), index_data_ptr->context);
+        TextEdgeIndex::AddEdgeToTextIndex(doc.edge_gid,
+                                          doc.from_vertex_gid,
+                                          doc.to_vertex_gid,
+                                          std::move(doc.properties),
+                                          std::move(doc.all_property_values),
+                                          index_data_ptr->context);
       }
       mgcxx::text_search::commit(index_data_ptr->context);
     } catch (const std::exception &e) {

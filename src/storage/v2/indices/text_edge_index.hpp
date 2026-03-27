@@ -56,7 +56,8 @@ class TextEdgeIndex {
       std::span<TextEdgeIndexData *const> edge_type_indices, std::span<const PropertyId> properties);
 
   static void AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
-                                 nlohmann::json properties, mgcxx::text_search::Context &context);
+                                 nlohmann::json properties, std::string all_property_values,
+                                 mgcxx::text_search::Context &context);
 
  public:
   explicit TextEdgeIndex(const std::filesystem::path &storage_dir)

@@ -52,7 +52,8 @@ class TextIndex {
   static std::vector<TextIndexData *> GetIndicesMatchingProperties(std::span<TextIndexData *const> label_indices,
                                                                    std::span<const PropertyId> properties);
 
-  static void AddNodeToTextIndex(std::int64_t gid, nlohmann::json properties, mgcxx::text_search::Context &context);
+  static void AddNodeToTextIndex(std::int64_t gid, nlohmann::json properties, std::string all_property_values,
+                                 mgcxx::text_search::Context &context);
 
  public:
   explicit TextIndex(const std::filesystem::path &storage_dir)

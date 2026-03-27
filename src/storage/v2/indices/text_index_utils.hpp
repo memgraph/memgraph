@@ -66,6 +66,9 @@ std::string MakeIndexPath(const std::string &base_path, std::string_view index_n
 // Serialize properties to JSON format
 nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, NameIdMapper *name_id_mapper);
 
+// Convert properties to string representation (space-joined values for the "all" text field)
+std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
+
 // Extract properties from the property store and return them as a map
 std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
                                                       std::span<PropertyId const> properties);

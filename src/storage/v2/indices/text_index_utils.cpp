@@ -18,6 +18,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/string.hpp"
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -88,6 +89,34 @@ nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &pr
     }
   }
   return serialized_properties;
+}
+
+std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties) {
+  std::vector<std::string> indexable_properties_as_string;
+  for (const auto &[_, prop_value] : properties) {
+    switch (prop_value.type()) {
+      case PropertyValue::Type::Bool:
+        indexable_properties_as_string.emplace_back(prop_value.ValueBool() ? "true" : "false");
+        break;
+      case PropertyValue::Type::Int:
+        indexable_properties_as_string.push_back(std::to_string(prop_value.ValueInt()));
+        break;
+      case PropertyValue::Type::Double:
+        indexable_properties_as_string.push_back(std::to_string(prop_value.ValueDouble()));
+        break;
+      case PropertyValue::Type::String:
+        indexable_properties_as_string.push_back(prop_value.ValueString());
+        break;
+      case PropertyValue::Type::Null:
+      case PropertyValue::Type::List:
+      case PropertyValue::Type::Map:
+      case PropertyValue::Type::TemporalData:
+      case PropertyValue::Type::ZonedTemporalData:
+      default:
+        continue;
+    }
+  }
+  return utils::Join(indexable_properties_as_string, " ");
 }
 
 std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
