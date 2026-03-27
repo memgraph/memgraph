@@ -12,12 +12,42 @@
 #pragma once
 
 #include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/replication/enums.hpp"
 
+#include <string>
 #include <variant>
+#include <vector>
 
 namespace memgraph::storage {
 
-struct TimeoutReplicationError {};
+struct FailedToConnectErr {};
+
+struct FailedToGetAsyncRpcLock {};
+
+struct GenericRpcError {};
+
+struct ReplicaNotInSyncErr {};
+
+struct ReplicaDivergedErr {};
+
+using StartTxnReplicationError =
+    std::variant<FailedToConnectErr, FailedToGetAsyncRpcLock, GenericRpcError, ReplicaNotInSyncErr, ReplicaDivergedErr>;
+
+struct StartTxnReplicationFailure {
+  std::string replica_name;
+  std::string mode;
+  StartTxnReplicationError error;
+};
+
+struct StartTxnReplicationErrors {
+  std::vector<StartTxnReplicationFailure> failures;
+  bool two_phase_commit_aborted{false};
+};
+
+struct TimeoutReplicationError {
+  std::vector<std::string> replica_names;
+  bool transaction_aborted{false};
+};
 
 struct SyncReplicationError {};
 
@@ -44,7 +74,7 @@ inline bool operator==(const SerializationError & /*err1*/, const SerializationE
 
 using StorageManipulationError =
     std::variant<ConstraintViolation, SyncReplicationError, StrictSyncReplicationError, SerializationError,
-                 PersistenceError, ReplicaShouldNotWriteError, TimeoutReplicationError>;
+                 PersistenceError, ReplicaShouldNotWriteError, TimeoutReplicationError, StartTxnReplicationErrors>;
 
 using StorageIndexDefinitionError = std::variant<IndexDefinitionError, IndexDefinitionAlreadyExistsError,
                                                  IndexDefinitionConfigError, IndexDefinitionCancelationError>;

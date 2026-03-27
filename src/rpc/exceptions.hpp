@@ -11,20 +11,29 @@
 
 #pragma once
 
+#include <fmt/core.h>
+#include <fmt/ranges.h>
+
+#include <span>
+#include <string>
+
 #include "utils/exceptions.hpp"
 
 namespace memgraph::rpc {
 
-constexpr auto kRpcTimeoutMsg =
-    "Main reached an RPC timeout while waiting for the response from at least one replica. One possible "
-    "reason for this error is that some replica is down and in that case make sure to recover "
-    "replica. If all of your replicas "
-    "are up and running normally, then please try setting a smaller parameter value for "
-    "'deltas_batch_progress_size' using 'SET COORDINATOR SETTING' query on the coordinator. If you have "
-    "at least one STRICT_SYNC replica in the cluster then this transaction will be aborted. In the other "
-    "scenario, the transaction "
-    "will be committed on the main and eventually replicated to replicas that didn't accept transaction "
-    "now.";
+inline auto RpcTimeoutMsg(std::span<const std::string> replica_names, bool transaction_aborted) -> std::string {
+  return fmt::format(
+      "Main reached an RPC timeout while replicating to [{}]. {} One possible "
+      "reason for this error is that the replica is down and in that case make sure to recover "
+      "it. If all of your replicas "
+      "are up and running normally, then please try setting a smaller parameter value for "
+      "'deltas_batch_progress_size' using 'SET COORDINATOR SETTING' query on the coordinator.",
+      fmt::join(replica_names, ", "),
+      transaction_aborted
+          ? "The transaction has been aborted on all instances."
+          : "The transaction has been committed on the main and will eventually be replicated to replicas that "
+            "didn't accept the transaction.");
+}
 
 /// Exception that is thrown whenever a RPC call fails.
 /// This exception inherits `std::exception` directly because
@@ -36,6 +45,13 @@ class RpcFailedException : public utils::BasicException {
   explicit RpcFailedException(std::string_view const msg) : utils::BasicException(msg) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
+};
+
+class RpcFailedToConnectException final : public RpcFailedException {
+ public:
+  RpcFailedToConnectException() : RpcFailedException("Failed to establish socket connection") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedToConnectException);
 };
 
 class RpcTimeoutException final : public RpcFailedException {

@@ -24,6 +24,7 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/snapshot_progress.hpp"
 #include "storage/v2/storage.hpp"
@@ -181,7 +182,7 @@ class InMemoryStorage final : public Storage {
     [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,
                                                     CommitArgs const &commit_args)
-        -> std::expected<void, io::network::ClientCommunicationError>;
+        -> std::expected<void, ShipDeltasError>;
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;

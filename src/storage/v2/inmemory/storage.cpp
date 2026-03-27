@@ -1065,10 +1065,18 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
           FinalizeCommitPhase(durability_commit_timestamp);
+
+          if (auto start_errors = replicating_txn.CollectStartTxnErrors()) {
+            start_errors->two_phase_commit_aborted = false;
+            return std::unexpected{StorageManipulationError{std::move(*start_errors)}};
+          }
+
           // Throw exception if we couldn't commit on one of SYNC replica
           if (!repl_prepare_phase_status.has_value()) {
-            if (repl_prepare_phase_status.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
-              return std::unexpected{TimeoutReplicationError{}};
+            if (repl_prepare_phase_status.error().error == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
+              return std::unexpected{TimeoutReplicationError{
+                  .replica_names = std::move(repl_prepare_phase_status.error().timed_out_replicas),
+                  .transaction_aborted = false}};
             }
             return std::unexpected{SyncReplicationError{}};
           }
@@ -1077,6 +1085,13 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
         // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
         // cluster.
+        // This is OK because if we have STRICT_SYNC and ASYNC replicas, we ran StartTxnReplication only for STRICT_SYNC
+        // replicas
+        if (auto start_errors = replicating_txn.CollectStartTxnErrors()) {
+          start_errors->two_phase_commit_aborted = true;
+          return std::unexpected{StorageManipulationError{std::move(*start_errors)}};
+        }
+
         if (repl_prepare_phase_status.has_value()) {
           // All replicas voted yes, hence they want to commit the current transaction
           FinalizeCommitPhase(durability_commit_timestamp);
@@ -1095,8 +1110,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           engine_guard.unlock();
           AbortAndResetCommitTs();
 
-          if (repl_prepare_phase_status.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
-            return std::unexpected{TimeoutReplicationError{}};
+          if (repl_prepare_phase_status.error().error == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
+            return std::unexpected{TimeoutReplicationError{
+                .replica_names = std::move(repl_prepare_phase_status.error().timed_out_replicas),
+                .transaction_aborted = true}};
           }
           return std::unexpected{StrictSyncReplicationError{}};
         }
@@ -3157,7 +3174,7 @@ void InMemoryStorage::FinalizeWalFile() {
 auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                                      TransactionReplication &replicating_txn,
                                                                      CommitArgs const &commit_args)
-    -> std::expected<void, io::network::ClientCommunicationError> {
+    -> std::expected<void, ShipDeltasError> {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // If replica executes this:

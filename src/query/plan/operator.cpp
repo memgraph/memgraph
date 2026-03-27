@@ -324,7 +324,7 @@ constexpr auto kAlwaysFalse = false;
 
 void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
   std::visit(
-      []<typename T>(const T & /* unused */) {
+      []<typename T>(const T &arg) {
         using ErrorType = std::remove_cvref_t<T>;
         if constexpr (std::is_same_v<ErrorType, storage::SyncReplicationError>) {
           spdlog::warn(
@@ -334,8 +334,13 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
           throw PeriodicCommitException(
               "PeriodicCommit failed: At least one STRICT_SYNC replica has not confirmed committing last transaction. "
               "Transaction will be aborted on all instances.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::StartTxnReplicationErrors>) {
+          if (arg.two_phase_commit_aborted) {
+            throw PeriodicCommitException("PeriodicCommit failed: transaction replication could not start.");
+          }
+          spdlog::warn("PeriodicCommit warning: transaction replication could not start for some replicas");
         } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
-          spdlog::warn("PeriodicCommit warning: {}", rpc::kRpcTimeoutMsg);
+          spdlog::warn("PeriodicCommit warning: {}", rpc::RpcTimeoutMsg(arg.replica_names, arg.transaction_aborted));
         } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
           throw PeriodicCommitException(
               "PeriodicCommit failed: Unable to commit due to constraint "
