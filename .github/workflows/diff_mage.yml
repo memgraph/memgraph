@@ -42,36 +42,65 @@ env:
   RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
 
 jobs:
+  get-pr-number:
+    name: "Get PR Number"
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.get_pr.outputs.pr_number }}
+    steps:
+      - name: Resolve PR number for merge queue
+        id: get_pr
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          PR_NUMBER=$(echo "$MERGE_GROUP_HEAD_REF" | sed -n 's/.*pr-\([0-9]\+\).*/\1/p')
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER=$(echo "$REF_NAME" | sed -n 's/.*pr-\([0-9]\+\).*/\1/p')
+          fi
+          if [ "$EVENT_NAME" = "merge_group" ] && [ -z "$PR_NUMBER" ]; then
+            echo "Unable to resolve PR number from merge queue refs."
+            exit 1
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
   amd_mage_tests:
     name: "MAGE Tests (AMD)"
+    needs: get-pr-number
     if: ${{ inputs.run_amd }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: amd
       push_to_github: false
-      push_to_s3: false
+      push_to_s3: ${{ github.event_name == 'merge_group' }}
+      s3_dest_dir: ${{ github.event_name == 'merge_group' && format('pr-build/mage/pr{0}', needs.get-pr-number.outputs.pr_number) || 'mage-unofficial' }}
       run_tests: true
     secrets: inherit
 
   arm_mage_tests:
     name: "MAGE Tests (ARM)"
+    needs: get-pr-number
     if: ${{ inputs.run_arm }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: arm
       push_to_github: false
-      push_to_s3: false
+      push_to_s3: ${{ github.event_name == 'merge_group' }}
+      s3_dest_dir: ${{ github.event_name == 'merge_group' && format('pr-build/mage/pr{0}', needs.get-pr-number.outputs.pr_number) || 'mage-unofficial' }}
       run_tests: true
     secrets: inherit
 
   cuda_mage_tests:
     name: "MAGE Tests (CUDA)"
+    needs: get-pr-number
     if: ${{ inputs.run_cuda }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: amd
       push_to_github: false
-      push_to_s3: false
+      push_to_s3: ${{ github.event_name == 'merge_group' }}
+      s3_dest_dir: ${{ github.event_name == 'merge_group' && format('pr-build/mage/pr{0}', needs.get-pr-number.outputs.pr_number) || 'mage-unofficial' }}
       run_tests: true
       cuda: true
     secrets: inherit
