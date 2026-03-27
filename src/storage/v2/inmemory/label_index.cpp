@@ -90,15 +90,10 @@ auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) 
 
 void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = gauge;
-  if (gauge_) gauge_->Increment();
+  gauge_ = ::metrics::ScopedGauge{gauge};
 }
 
-InMemoryLabelIndex::IndividualIndex::~IndividualIndex() {
-  if (status.IsReady()) {
-    if (gauge_) gauge_->Decrement();
-  }
-}
+InMemoryLabelIndex::IndividualIndex::~IndividualIndex() = default;
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&index_accessor,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info) {
@@ -226,12 +221,11 @@ void InMemoryLabelIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Ve
 
 bool InMemoryLabelIndex::DropIndex(LabelId label) {
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> bool {
-    {
-      auto it = index->find(label);
-      if (it == index->end()) [[unlikely]] {
-        return false;
-      }
+    auto it = index->find(label);
+    if (it == index->end()) [[unlikely]] {
+      return false;
     }
+    it->second->gauge_.release();
     auto new_index = std::make_shared<IndexContainer>(*index);
     new_index->erase(label);
     index = std::move(new_index);
@@ -443,7 +437,7 @@ void InMemoryLabelIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric
     double count = 0;
     for (auto const &[label, idx] : *ptr) {
       if (idx->status.IsReady()) {
-        idx->gauge_ = gauge;
+        idx->gauge_ = ::metrics::ScopedGauge{gauge};
         ++count;
       }
     }

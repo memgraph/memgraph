@@ -18,6 +18,7 @@ class Gauge;
 #include <map>
 #include <utility>
 
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -167,7 +168,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
     utils::SkipList<Entry> skip_list_;
     IndexStatus status_{};
-    prometheus::Gauge *gauge_{nullptr};
+    ::metrics::ScopedGauge gauge_{};
   };
 
   struct IndicesContainer {

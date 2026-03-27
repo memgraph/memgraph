@@ -17,6 +17,7 @@ class Gauge;
 
 #include <span>
 
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
@@ -57,7 +58,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     PropertiesPermutationHelper const permutations_helper;
     utils::SkipList<Entry> skiplist{};
     IndexStatus status{};
-    prometheus::Gauge *gauge_{nullptr};
+    ::metrics::ScopedGauge gauge_{};
   };
 
   struct Compare {

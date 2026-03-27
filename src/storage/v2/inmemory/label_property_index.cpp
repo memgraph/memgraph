@@ -514,15 +514,10 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
 
 void InMemoryLabelPropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = gauge;
-  if (gauge_) gauge_->Increment();
+  gauge_ = ::metrics::ScopedGauge{gauge};
 }
 
-InMemoryLabelPropertyIndex::IndividualIndex::~IndividualIndex() {
-  if (status.IsReady()) {
-    if (gauge_) gauge_->Decrement();
-  }
-}
+InMemoryLabelPropertyIndex::IndividualIndex::~IndividualIndex() = default;
 
 auto InMemoryLabelPropertyIndex::GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
     -> std::shared_ptr<IndividualIndex> {
@@ -680,6 +675,7 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
     });
 
     // new erase the index
+    it2->second->gauge_.release();
     properties_map.erase(it2);
     if (properties_map.empty()) {
       new_index->indices_.erase(it1);
@@ -1138,7 +1134,7 @@ void InMemoryLabelPropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles
     for (auto const &[label, by_properties] : ptr->indices_) {
       for (auto const &[props, idx] : by_properties) {
         if (idx->status.IsReady()) {
-          idx->gauge_ = gauge;
+          idx->gauge_ = ::metrics::ScopedGauge{gauge};
           ++count;
         }
       }

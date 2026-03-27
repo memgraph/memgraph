@@ -195,15 +195,10 @@ bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyI
 
 void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = gauge;
-  if (gauge_) gauge_->Increment();
+  gauge_ = ::metrics::ScopedGauge{gauge};
 }
 
-InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() {
-  if (status.IsReady()) {
-    if (gauge_) gauge_->Decrement();
-  }
-}
+InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() = default;
 
 bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property,
                                                        utils::SkipList<Vertex>::Accessor vertices,
@@ -219,12 +214,11 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, Pro
 
 bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId property) {
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {
-    {
-      auto it = index_container->find({edge_type, property});
-      if (it == index_container->end()) [[unlikely]] {
-        return false;
-      }
+    auto it = index_container->find({edge_type, property});
+    if (it == index_container->end()) [[unlikely]] {
+      return false;
     }
+    it->second->gauge_.release();
 
     auto new_container = std::make_shared<IndexContainer>(*index_container);
     new_container->erase({edge_type, property});
@@ -423,7 +417,7 @@ void InMemoryEdgeTypePropertyIndex::SetMetricHandles(metrics::DatabaseMetricHand
     double count = 0;
     for (auto const &[key, idx] : *ptr) {
       if (idx->status.IsReady()) {
-        idx->gauge_ = gauge;
+        idx->gauge_ = ::metrics::ScopedGauge{gauge};
         ++count;
       }
     }
