@@ -211,7 +211,7 @@ class InMemoryLabelIndex : public LabelIndex {
 
   explicit InMemoryLabelIndex(unsigned arena_idx = 0) : arena_idx_(arena_idx) {}
 
-  auto GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;
 
   auto RegisterIndex(LabelId, ActiveIndicesUpdater const &updater) -> bool;
   auto PopulateIndex(LabelId label, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,

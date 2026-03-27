@@ -227,7 +227,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   bool RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater);
-  auto PopulateIndex(EdgeTypeId insert_function,
+  auto PopulateIndex(EdgeTypeId edge_type,
                      utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
