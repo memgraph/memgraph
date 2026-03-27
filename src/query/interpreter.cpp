@@ -2982,9 +2982,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  // Pin this thread's jemalloc arena to the owning database's arena so all
-  // allocations during this pull (SkipList nodes, std::string, etc.) are
-  // attributed to the database's MemoryTracker via extent hooks.
+  // Update the TLS arena index used to route allocations to the correct database arena.
   // The previous arena is restored on scope exit so pool threads are unaffected.
   const memory::DbArenaFullScope db_arena_scope{ctx_.db_arena_idx};
 

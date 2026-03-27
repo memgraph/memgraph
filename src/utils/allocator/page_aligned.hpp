@@ -42,11 +42,9 @@ struct PageAlignedAllocator {
   }
 
   void deallocate(T *p, std::size_t) const noexcept {
-#if USE_JEMALLOC
-    je_free(p);
-#else
+    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata. je_free(p) always routes to the correct
+    // arena regardless of which thread calls it, so GC can safely free query-thread allocations.
     operator delete(p, std::align_val_t{PAGE_SIZE});
-#endif
   }
 
   friend bool operator==(PageAlignedAllocator const &lhs, PageAlignedAllocator const &rhs) noexcept {

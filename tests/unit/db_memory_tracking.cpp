@@ -14,6 +14,8 @@
 #include <filesystem>
 #include <vector>
 
+#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
+
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
 #include "storage/v2/config.hpp"
@@ -94,7 +96,7 @@ TEST_F(DbMemoryTrackingTest, AllocationInArenaIsTracked) {
   const int64_t after = db->DbMemoryUsage();
 
   for (void *p : ptrs) {
-    je_free(p);
+    ::operator delete(static_cast<void *>(p), kAllocSize);
   }
 
   // At least 1 MiB should be attributed — extent hook granularity varies but
@@ -120,7 +122,7 @@ TEST_F(DbMemoryTrackingTest, AllocationsOutsideArenaAreNotTracked) {
     ptrs.push_back(je_mallocx(kAllocSize, MALLOCX_TCACHE_NONE));  // default arena
   }
   for (void *p : ptrs) {
-    je_free(p);
+    ::operator delete(static_cast<void *>(p), kAllocSize);
   }
 
   const int64_t after = db->DbMemoryUsage();
@@ -161,7 +163,7 @@ TEST_F(DbMemoryTrackingTest, TwoDbsTrackedIndependently) {
   const int64_t after1 = (*acc1)->DbMemoryUsage();
   const int64_t after2 = (*acc2)->DbMemoryUsage();
 
-  for (void *p : ptrs) je_free(p);
+  for (void *p : ptrs) ::operator delete(static_cast<void *>(p), kAllocSize);
 
   EXPECT_GT(after1, before1 + static_cast<int64_t>(1 * 1024 * 1024))
       << "DB1 tracker should grow after allocations in its arena";
@@ -193,7 +195,7 @@ TEST_F(DbMemoryTrackingTest, GraphMemoryTrackerIncludesDbMemory) {
   const int64_t graph_after = memgraph::utils::graph_memory_tracker.Amount();
   const int64_t db_after = db->DbMemoryUsage();
 
-  for (void *p : ptrs) je_free(p);
+  for (void *p : ptrs) ::operator delete(static_cast<void *>(p), kAllocSize);
 
   const int64_t db_delta = db_after - db_before;
   const int64_t graph_delta = graph_after - graph_before;
@@ -325,7 +327,7 @@ TEST_F(DbMemoryTrackingTest, StorageCreateEdgesWithMultipleConnectionsIncreasesD
     // Hub → every spoke (stresses hub's out-edge adjacency list).
     for (int i = 0; i < kSpokes; ++i) {
       auto edge = acc->CreateEdge(&hub, &spokes[i], edge_type);
-      ASSERT_TRUE(edge.HasValue());
+      ASSERT_TRUE(edge.has_value());
       ASSERT_NO_ERROR(edge->SetProperty(prop_weight, memgraph::storage::PropertyValue(static_cast<double>(i) * 0.5)));
     }
 
@@ -335,7 +337,7 @@ TEST_F(DbMemoryTrackingTest, StorageCreateEdgesWithMultipleConnectionsIncreasesD
       auto src = acc->CreateVertex();
       for (int i = 0; i < kSpokes; ++i) {
         auto edge = acc->CreateEdge(&src, &spokes[i], edge_type);
-        ASSERT_TRUE(edge.HasValue());
+        ASSERT_TRUE(edge.has_value());
         ASSERT_NO_ERROR(edge->SetProperty(prop_weight, memgraph::storage::PropertyValue(static_cast<double>(s + i))));
       }
     }

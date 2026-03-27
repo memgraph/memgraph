@@ -82,11 +82,9 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
 
   void do_deallocate(void *p, [[maybe_unused]] std::size_t bytes,
                      [[maybe_unused]] std::size_t alignment) noexcept override {
-#if USE_JEMALLOC
-    je_free(p);
-#else
+    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata. je_free(p) always routes to the correct
+    // arena regardless of which thread calls it, so GC can safely free query-thread allocations.
     ::operator delete(p, bytes, std::align_val_t{alignment});
-#endif
   }
 
   bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override {
