@@ -12,8 +12,8 @@
 #include <filesystem>
 #include <range/v3/all.hpp>
 
+#include <mgcxx_text_search.hpp>
 #include <nlohmann/json.hpp>
-#include "query/exceptions.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -93,7 +93,6 @@ nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &pr
 }
 
 std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties) {
-  // Property types that are indexed in Tantivy are Bool, Int, Double, and String.
   std::vector<std::string> indexable_properties_as_string;
   for (const auto &[_, prop_value] : properties) {
     switch (prop_value.type()) {
@@ -109,7 +108,6 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
       case PropertyValue::Type::String:
         indexable_properties_as_string.push_back(prop_value.ValueString());
         break;
-      // NOTE: As the following types aren't indexed in Tantivy, they don't appear in the property value string either.
       case PropertyValue::Type::Null:
       case PropertyValue::Type::List:
       case PropertyValue::Type::Map:
@@ -177,43 +175,30 @@ void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span
   }
 }
 
-mgcxx::text_search::SearchOutput PerformTextSearch(mgcxx::text_search::Context &context,
-                                                   const std::string &search_query, text_search_mode search_mode,
-                                                   std::size_t limit) {
-  switch (search_mode) {
-    case text_search_mode::SPECIFIED_PROPERTIES:
-      return mgcxx::text_search::search(
-          context,
-          mgcxx::text_search::SearchInput{.search_query = ToLowerCasePreservingBooleanOperators(search_query),
-                                          .return_fields = {"metadata"},
-                                          .limit = limit});
-    case text_search_mode::REGEX:
-      return mgcxx::text_search::regex_search(
-          context,
-          mgcxx::text_search::SearchInput{.search_fields = {"all"},
-                                          .search_query = ToLowerCasePreservingBooleanOperators(search_query),
-                                          .return_fields = {"metadata"},
-                                          .limit = limit});
-    case text_search_mode::ALL_PROPERTIES:
-      return mgcxx::text_search::search(
-          context,
-          mgcxx::text_search::SearchInput{.search_fields = {"all"},
-                                          .search_query = ToLowerCasePreservingBooleanOperators(search_query),
-                                          .return_fields = {"metadata"},
-                                          .limit = limit});
-    default:
-      throw query::TextSearchException(
-          "Unsupported search mode: please use one of text_search.search, text_search.search_all, or "
-          "text_search.regex_search.");
-  }
-}
-
 bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
                           std::span<const PropertyId> properties_to_check) {
   if (index_properties.empty()) {
     return true;
   }
   return r::any_of(properties_to_check, [&](auto property_id) { return r::contains(index_properties, property_id); });
+}
+
+struct TextSearchSession::Impl {
+  absl::flat_hash_map<const void *, rust::Box<mgcxx::text_search::SearcherContext>> searchers;
+};
+
+TextSearchSession::TextSearchSession() : impl_(std::make_unique<Impl>()) {}
+
+TextSearchSession::~TextSearchSession() = default;
+TextSearchSession::TextSearchSession(TextSearchSession &&) noexcept = default;
+TextSearchSession &TextSearchSession::operator=(TextSearchSession &&) noexcept = default;
+
+mgcxx::text_search::SearcherContext *TextSearchSession::GetOrAcquire(const void *index_key,
+                                                                     mgcxx::text_search::Context &ctx) {
+  auto it = impl_->searchers.find(index_key);
+  if (it != impl_->searchers.end()) return &*it->second;
+  auto [inserted, _] = impl_->searchers.emplace(index_key, mgcxx::text_search::acquire_searcher(ctx));
+  return &*inserted->second;
 }
 
 }  // namespace memgraph::storage

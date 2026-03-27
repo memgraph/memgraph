@@ -18,6 +18,7 @@
 #include "storage/v2/view.hpp"
 
 namespace r = ranges;
+namespace rv = r::views;
 
 namespace memgraph::storage {
 
@@ -25,9 +26,9 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
   try {
     nlohmann::json mappings = {};
     mappings["properties"] = {};
-    mappings["properties"]["metadata"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
     mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
     mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
+    mappings["properties"]["gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
 
     auto [_, success] = index_.try_emplace(
         index_info.index_name,
@@ -65,14 +66,13 @@ std::vector<TextIndexData *> TextIndex::GetIndicesMatchingProperties(std::span<T
   return result;
 }
 
-void TextIndex::AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties,
-                                   const std::string &property_values_as_str, mgcxx::text_search::Context &context) {
-  if (property_values_as_str.empty()) return;
+void TextIndex::AddNodeToTextIndex(std::int64_t gid, nlohmann::json properties, std::string all_property_values,
+                                   mgcxx::text_search::Context &context) {
+  if (all_property_values.empty()) return;
   nlohmann::json document = {};
-  document["data"] = properties;
-  document["all"] = property_values_as_str;
-  document["metadata"] = {};
-  document["metadata"]["gid"] = gid;
+  document["data"] = std::move(properties);
+  document["all"] = std::move(all_property_values);
+  document["gid"] = static_cast<std::uint64_t>(gid);
 
   try {
     mgcxx::text_search::add_document(
@@ -217,25 +217,51 @@ void TextIndex::DropIndex(const std::string &index_name) {
 bool TextIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
 
 std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, const std::string &search_query,
-                                                text_search_mode search_mode, std::size_t limit) {
-  auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
-    if (const auto it = index_.find(index_name); it != index_.end()) {
-      return it->second.context;
-    }
+                                                text_search_mode search_mode, std::size_t limit,
+                                                const Transaction &tx) {
+  auto it = index_.find(index_name);
+  if (it == index_.end()) {
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
-  });
-
-  const auto search_results = PerformTextSearch(context, search_query, search_mode, limit);
-  std::vector<TextSearchResult> found_nodes;
-  found_nodes.reserve(search_results.docs.size());
-  for (const auto &doc : search_results.docs) {
-    // Create string using both data pointer and length to avoid buffer overflow
-    // The CXX .data() method may not null-terminate the string properly
-    const std::string doc_string(doc.data.data(), doc.data.length());
-    const auto doc_json = nlohmann::json::parse(doc_string);
-    found_nodes.emplace_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()), doc.score);
   }
-  return found_nodes;
+  auto &index_data = it->second;
+  auto &context = index_data.context;
+
+  if (!tx.text_search_session_) {
+    tx.text_search_session_ = std::make_unique<TextSearchSession>();
+  }
+  auto &searcher = *tx.text_search_session_->GetOrAcquire(&index_data, context);
+
+  mgcxx::text_search::GidScoreOutput search_results;
+  try {
+    const auto lowered_query = ToLowerCasePreservingBooleanOperators(search_query);
+    switch (search_mode) {
+      case text_search_mode::SPECIFIED_PROPERTIES:
+        search_results = mgcxx::text_search::search_gids_pinned(
+            context, searcher, mgcxx::text_search::SearchInput{.search_query = lowered_query, .limit = limit});
+        break;
+      case text_search_mode::REGEX:
+        search_results = mgcxx::text_search::regex_search_gids_pinned(
+            context,
+            searcher,
+            mgcxx::text_search::SearchInput{.search_fields = {"all"}, .search_query = lowered_query, .limit = limit});
+        break;
+      case text_search_mode::ALL_PROPERTIES:
+        search_results = mgcxx::text_search::search_gids_pinned(
+            context,
+            searcher,
+            mgcxx::text_search::SearchInput{.search_fields = {"all"}, .search_query = lowered_query, .limit = limit});
+        break;
+      default:
+        throw query::TextSearchException("Unsupported search mode.");
+    }
+  } catch (const std::exception &e) {
+    throw query::TextSearchException("Tantivy error: {}", e.what());
+  }
+
+  return search_results.docs | rv::transform([](const auto &doc) -> TextSearchResult {
+           return {.vertex_gid = storage::Gid::FromInt(doc.gid), .score = doc.score};
+         }) |
+         r::to<std::vector>();
 }
 
 std::string TextIndex::Aggregate(const std::string &index_name, const std::string &search_query,
@@ -251,7 +277,7 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
     aggregation_result = mgcxx::text_search::aggregate(
         context,
         mgcxx::text_search::SearchInput{
-            .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
+            .search_fields = {"data"}, .search_query = search_query, .aggregation_query = aggregation_query});
 
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
@@ -305,22 +331,41 @@ void TextIndex::Clear() {
 
 void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
   for (const auto &[index_data_ptr, pending] : tx.text_index_change_collector_) {
-    // Take exclusive lock to properly serialize all updates and hold it for the entire operation
+    // Prepare documents outside the lock to minimize critical section
+    struct PreparedDoc {
+      std::int64_t gid;
+      nlohmann::json properties;
+      std::string all_property_values;
+    };
+
+    std::vector<std::int64_t> gids_to_remove;
+    gids_to_remove.reserve(pending.to_remove.size());
+    for (const auto *vertex : pending.to_remove) {
+      gids_to_remove.push_back(vertex->gid.AsInt());
+    }
+
+    std::vector<PreparedDoc> docs_to_add;
+    docs_to_add.reserve(pending.to_add.size());
+    for (const auto *vertex : pending.to_add) {
+      auto vertex_properties = index_data_ptr->properties.empty()
+                                   ? vertex->properties.Properties()
+                                   : ExtractProperties(vertex->properties, index_data_ptr->properties);
+      docs_to_add.push_back({vertex->gid.AsInt(),
+                             SerializeProperties(vertex_properties, name_id_mapper),
+                             StringifyProperties(vertex_properties)});
+    }
+
+    // Lock only for tantivy writer operations
     const std::lock_guard lock(index_data_ptr->write_mutex);
     try {
-      for (const auto *vertex : pending.to_remove) {
-        auto search_node_to_be_deleted =
-            mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt())};
-        mgcxx::text_search::delete_document(index_data_ptr->context, search_node_to_be_deleted, kDoSkipCommit);
+      for (auto gid : gids_to_remove) {
+        mgcxx::text_search::delete_document(index_data_ptr->context,
+                                            mgcxx::text_search::SearchInput{.search_query = fmt::format("gid:{}", gid)},
+                                            kDoSkipCommit);
       }
-      for (const auto *vertex : pending.to_add) {
-        auto vertex_properties = index_data_ptr->properties.empty()
-                                     ? vertex->properties.Properties()
-                                     : ExtractProperties(vertex->properties, index_data_ptr->properties);
-        TextIndex::AddNodeToTextIndex(vertex->gid.AsInt(),
-                                      SerializeProperties(vertex_properties, name_id_mapper),
-                                      StringifyProperties(vertex_properties),
-                                      index_data_ptr->context);
+      for (auto &doc : docs_to_add) {
+        TextIndex::AddNodeToTextIndex(
+            doc.gid, std::move(doc.properties), std::move(doc.all_property_values), index_data_ptr->context);
       }
       mgcxx::text_search::commit(index_data_ptr->context);
     } catch (const std::exception &e) {
