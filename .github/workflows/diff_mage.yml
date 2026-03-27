@@ -76,6 +76,7 @@ jobs:
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ github.event_name == 'merge_group' && format('pr-build/mage/pr{0}', needs.get-pr-number.outputs.pr_number) || 'mage-unofficial' }}
       run_tests: true
+      print_output_url: ${{ github.event_name == 'merge_group' }}
     secrets: inherit
 
   arm_mage_tests:
@@ -89,6 +90,7 @@ jobs:
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ github.event_name == 'merge_group' && format('pr-build/mage/pr{0}', needs.get-pr-number.outputs.pr_number) || 'mage-unofficial' }}
       run_tests: true
+      print_output_url: ${{ github.event_name == 'merge_group' }}
     secrets: inherit
 
   cuda_mage_tests:
@@ -99,8 +101,7 @@ jobs:
     with:
       arch: amd
       push_to_github: false
-      push_to_s3: ${{ github.event_name == 'merge_group' }}
-      s3_dest_dir: ${{ github.event_name == 'merge_group' && format('pr-build/mage/pr{0}', needs.get-pr-number.outputs.pr_number) || 'mage-unofficial' }}
+      push_to_s3: false
       run_tests: true
       cuda: true
     secrets: inherit
