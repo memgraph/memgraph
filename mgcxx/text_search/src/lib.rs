@@ -109,6 +109,64 @@ impl ffi::SearchInput {
     }
 }
 
+fn owned_value_to_json(val: OwnedValue) -> serde_json::Value {
+    match val {
+        OwnedValue::Null => serde_json::Value::Null,
+        OwnedValue::Str(s) => serde_json::Value::String(s),
+        OwnedValue::U64(n) => serde_json::json!(n),
+        OwnedValue::I64(n) => serde_json::json!(n),
+        OwnedValue::F64(n) => serde_json::json!(n),
+        OwnedValue::Bool(b) => serde_json::Value::Bool(b),
+        OwnedValue::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(owned_value_to_json).collect())
+        }
+        OwnedValue::Object(entries) => {
+            let map: serde_json::Map<String, serde_json::Value> = entries
+                .into_iter()
+                .map(|(k, v)| (k, owned_value_to_json(v)))
+                .collect();
+            serde_json::Value::Object(map)
+        }
+        other => match serde_json::to_value(&other) {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!(
+                    "Failed to serialize OwnedValue to JSON in owned_value_to_json: value={:?}, error={}",
+                    other,
+                    e
+                );
+                serde_json::Value::Null
+            }
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_owned_value_to_json_nested() {
+        let doc = OwnedValue::Object(vec![
+            ("name".to_string(), OwnedValue::Str("test".to_string())),
+            ("count".to_string(), OwnedValue::I64(-3)),
+            ("tags".to_string(), OwnedValue::Array(vec![
+                OwnedValue::Bool(true),
+                OwnedValue::U64(42),
+            ])),
+            ("nested".to_string(), OwnedValue::Object(vec![
+                ("x".to_string(), OwnedValue::F64(1.5)),
+            ])),
+            ("empty".to_string(), OwnedValue::Null),
+        ]);
+        assert_eq!(
+            owned_value_to_json(doc),
+            json!({"name": "test", "count": -3, "tags": [true, 42u64], "nested": {"x": 1.5}, "empty": null})
+        );
+    }
+}
+
 pub struct TantivyContext {
     pub index_path: std::path::PathBuf,
     pub schema: Schema,
@@ -578,27 +636,8 @@ fn search(
                 Some(f) => f,
                 None => continue,
             };
-            // TODO(gitbuda): Shouldn't not just be JSON -> deduce from mappings!
-            let field_as_tantivy_json = match field_data {
-                OwnedValue::Object(f) => f,
-                _ => {
-                    // TODO(gitbuda): Is error here the best?
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("Unable to convert field data to json"),
-                    ));
-                }
-            };
-            let field_as_json = match serde_json::to_value(field_as_tantivy_json) {
-                Ok(f) => f,
-                Err(_) => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("Unable to convert field data to json"),
-                    ));
-                }
-            };
-            data.insert(name.to_string(), field_as_json);
+            let owned: OwnedValue = field_data.into();
+            data.insert(name.to_string(), owned_value_to_json(owned));
         }
 
         docs.push(ffi::DocumentOutput {
@@ -678,27 +717,8 @@ fn regex_search(
                 Some(f) => f,
                 None => continue,
             };
-            // TODO(gitbuda): Shouldn't not just be JSON -> deduce from mappings!
-            let field_as_tantivy_json = match field_data {
-                OwnedValue::Object(f) => f,
-                _ => {
-                    // TODO(gitbuda): Is error here the best?
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("Unable to convert field data to json. Data we have: {:?}", field_data),
-                    ));
-                }
-            };
-            let field_as_json = match serde_json::to_value(field_as_tantivy_json) {
-                Ok(f) => f,
-                Err(_) => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("Unable to convert field data to json"),
-                    ));
-                }
-            };
-            data.insert(name.to_string(), field_as_json);
+            let owned: OwnedValue = field_data.into();
+            data.insert(name.to_string(), owned_value_to_json(owned));
         }
         docs.push(ffi::DocumentOutput {
             data: match to_string(&data) {
