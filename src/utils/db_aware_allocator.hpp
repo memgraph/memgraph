@@ -26,18 +26,27 @@ void *JeNew(size_t size, int flags);
 #endif
 
 namespace memgraph::memory {
-template <typename T>
-[[nodiscard]] T *DbAllocate(std::size_t n, unsigned idx) {
+// Allocate `bytes` bytes with the given `alignment`, attributed to arena `idx`.
+// Returns void* — use DbAllocate<T> for typed element-count based allocation.
+[[nodiscard]] inline void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
 #if USE_JEMALLOC
   if (idx != 0) {
     int flags = MALLOCX_ARENA(idx) | MALLOCX_TCACHE_NONE;
-    if constexpr (alignof(T) > alignof(std::max_align_t)) {
-      flags |= MALLOCX_ALIGN(alignof(T));
+    if (alignment > alignof(std::max_align_t)) {
+      flags |= MALLOCX_ALIGN(alignment);
     }
-    return static_cast<T *>(JeNew(n * sizeof(T), flags));
+    return JeNew(bytes, flags);
   }
 #endif
-  return static_cast<T *>(::operator new(n * sizeof(T), std::align_val_t{alignof(T)}));
+  return ::operator new(bytes, std::align_val_t{alignment});
+}
+
+// Allocate `n` elements of type T, attributed to arena `idx`.
+// alignment defaults to alignof(T) — pass explicitly only when a stricter
+// alignment is required (e.g. page-aligned allocations).
+template <typename T>
+[[nodiscard]] T *DbAllocate(std::size_t n, unsigned idx) {
+  return static_cast<T *>(DbAllocateBytes(n * sizeof(T), idx, alignof(T)));
 }
 
 // Thread-local arena index for the currently active database.

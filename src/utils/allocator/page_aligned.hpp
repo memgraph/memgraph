@@ -15,9 +15,7 @@
 #include <cstddef>
 #include <new>
 
-#if USE_JEMALLOC
-#include <jemalloc/jemalloc.h>
-#endif
+#include "utils/db_aware_allocator.hpp"
 
 namespace memgraph::utils {
 
@@ -40,7 +38,7 @@ struct PageAlignedAllocator {
     auto size = std::max(n * sizeof(T), PAGE_SIZE);
     // Round up to the nearest multiple of PAGE_SIZE
     size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
-    return memory::DbAllocate<T>(size / sizeof(T), arena_idx_);
+    return static_cast<T *>(memory::DbAllocateBytes(size, arena_idx_, PAGE_SIZE));
   }
 
   void deallocate(T *p, std::size_t) const noexcept {
