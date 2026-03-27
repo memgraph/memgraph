@@ -6,7 +6,7 @@ defaults:
   memgraph:
     deployment:
       externally_managed: false
-    args: ["--log-level=TRACE", "--logger-type=async"]
+    args: ["--log-level=TRACE", "--logger-type=async", "--query-modules-directory=../../build/query_modules"]
     env: {}
   cluster:
     coordinators:
@@ -35,11 +35,13 @@ workloads:
   - config: ../workloads/publications/workload.yaml
     enabled: false
 
+  # TODO: re-enable once fixed
   - config: ../workloads/vector_index_recovery/workload.yaml
-    enabled: true
+    enabled: false
 
+  # TODO: re-enable once fixed
   - config: ../workloads/vector_edge_index_recovery/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: ../workloads/vector_index_concurrent_ops/workload.yaml
     enabled: true

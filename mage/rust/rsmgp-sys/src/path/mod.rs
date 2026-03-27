@@ -77,8 +77,8 @@ impl Path {
         self.ptr = new_ptr;
     }
 
-    pub fn size(&self) -> u64 {
-        unsafe { invoke_mgp_func!(u64, ffi::mgp_path_size, self.ptr).unwrap() }
+    pub fn size(&self) -> usize {
+        unsafe { invoke_mgp_func!(usize, ffi::mgp_path_size, self.ptr).unwrap() }
     }
 
     /// Makes a new [Path] based on the starting [Vertex] object.
@@ -109,7 +109,7 @@ impl Path {
         }
     }
 
-    pub fn vertex_at(&self, index: u64) -> Result<Vertex> {
+    pub fn vertex_at(&self, index: usize) -> Result<Vertex> {
         unsafe {
             let mgp_vertex = invoke_mgp_func_with_res!(
                 *mut mgp_vertex,
@@ -122,7 +122,7 @@ impl Path {
         }
     }
 
-    pub fn edge_at(&self, index: u64) -> Result<Edge> {
+    pub fn edge_at(&self, index: usize) -> Result<Edge> {
         unsafe {
             let mgp_edge = invoke_mgp_func_with_res!(
                 *mut mgp_edge,

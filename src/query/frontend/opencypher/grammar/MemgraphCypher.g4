@@ -63,6 +63,8 @@ memgraphCypherKeyword : cypherKeyword
                       | DELIMITER
                       | DEMOTE
                       | DENY
+                      | DESCRIPTION
+                      | DESCRIPTIONS
                       | DIRECTORY
                       | DISABLE
                       | DO
@@ -110,6 +112,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ISOLATION
                       | JSONL
                       | KAFKA
+                      | LABEL
                       | LABELS
                       | LAG
                       | LEADERSHIP
@@ -148,6 +151,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PERIODIC
                       | POINT
                       | PORT
+                      | PROPERTY
                       | PRIVILEGES
                       | PROFILE_RESTRICTION
                       | PROFILES
@@ -284,6 +288,7 @@ query : cypherQuery
       | ttlQuery
       | setSessionTraceQuery
       | userProfileQuery
+      | descriptionQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -593,7 +598,7 @@ socketAddress : literal ;
 registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC | STRICT_SYNC )
                 TO socketAddress ;
 
-configKeyValuePair : literal ':' literal ;
+configKeyValuePair : literal ':' ( literal | parameter ) ;
 
 configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
@@ -883,3 +888,40 @@ userProfileQuery : createUserProfile
                  | clearUserProfile
                  | showResourceConsumption
                  ;
+
+descriptionQuery
+    : setDescription
+    | deleteDescription
+    | showDescriptions
+    ;
+
+setDescription
+    : SET DESCRIPTION ON descriptionTarget StringLiteral
+    ;
+
+deleteDescription
+    : DELETE DESCRIPTION ON descriptionTarget
+    ;
+
+showDescriptions
+    : SHOW DESCRIPTIONS
+    ;
+
+edgeTypePatternNode
+    : '(' ( ':' labelName )+ ')'
+    ;
+
+edgeTypePattern
+    : edgeTypePatternNode '-' '[' ':' labelName ']' '-' '>' edgeTypePatternNode
+    ;
+
+descriptionTarget
+    : LABEL ':' labelName ( ':' labelName )*
+    | EDGE TYPE PROPERTY edgeTypePattern '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE edgeTypePattern
+    | EDGE TYPE ':' labelName
+    | LABEL PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE PROPERTY ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | PROPERTY propertyKeyName
+    | DATABASE symbolicName
+    ;

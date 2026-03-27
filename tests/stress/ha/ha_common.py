@@ -231,13 +231,18 @@ def _run_query(
 ) -> Any:
     """
     Internal query runner. Returns None if SYNC replica error occurs
-    (write succeeded on MAIN). Retries on transient routing/connection errors.
-    Prints FATAL and re-raises on other errors.
+    (write succeeded on MAIN). Retries on transient routing/connection errors
+    and serialization errors. Prints FATAL and re-raises on other errors.
     """
-    max_retries = 3
-    retry_delay = 2
+    max_connection_retries = 3
+    connection_retry_delay = 2.0
+    max_transient_retries = 15
+    transient_base_delay = 0.25
 
-    for attempt in range(1, max_retries + 1):
+    connection_attempt = 0
+    transient_attempt = 0
+
+    while True:
         driver = _get_or_create_driver(instance_name, protocol, auth=auth)
         try:
             with driver.session(database=database) as session:
@@ -253,16 +258,36 @@ def _run_query(
                 print(f"\nWARN: Sync replica error (instance={instance_name}, query={query!r}): {e}")
                 return None
             if isinstance(e, ServiceUnavailable) or WRITE_ON_REPLICA_ERROR in str(e):
+                connection_attempt += 1
                 pid = os.getpid()
                 key = (pid, instance_name, protocol.value, auth[0], auth[1])
                 _driver_cache.pop(key, None)
-                if attempt < max_retries:
+                if connection_attempt <= max_connection_retries:
                     print(
-                        f"\nWARN: Routing/connection error (attempt {attempt}/{max_retries}), "
-                        f"retrying in {retry_delay}s... (instance={instance_name}, query={query!r}): {e}"
+                        f"\nWARN: Routing/connection error (attempt {connection_attempt}/{max_connection_retries}), "
+                        f"retrying in {connection_retry_delay}s... (instance={instance_name}, query={query!r}): {e}"
                     )
-                    time.sleep(retry_delay)
+                    time.sleep(connection_retry_delay)
                     continue
+                print(f"\nFATAL: {e} (instance={instance_name}, protocol={protocol.value}, query={query!r})")
+                raise
+            if isinstance(e, TransientError):
+                transient_attempt += 1
+                if transient_attempt <= max_transient_retries:
+                    delay = min(transient_base_delay * (2 ** (transient_attempt - 1)), 16.0)
+                    print(
+                        f"\nWARN: Transient error (attempt {transient_attempt}/{max_transient_retries}), "
+                        f"retrying in {delay:.2f}s... (instance={instance_name}, query={query!r}): {e}"
+                    )
+                    time.sleep(delay)
+                    continue
+                print(
+                    f"\nFATAL: {e} (instance={instance_name}, protocol={protocol.value}, query={query!r})\n"
+                    f"Note: TransientError retries exhausted ({max_transient_retries} attempts). "
+                    "This likely means sustained transaction contention under parallel load. "
+                    "Increase retries or tune the load before treating it as a product bug or a flaw in the stress scenario."
+                )
+                raise
             print(f"\nFATAL: {e} (instance={instance_name}, protocol={protocol.value}, query={query!r})")
             raise
 
@@ -334,6 +359,10 @@ def _run_with_manual_retries(
             retriable = isinstance(e, (TransientError, ServiceUnavailable)) or WRITE_ON_REPLICA_ERROR in str(e)
             if not retriable:
                 raise
+            if isinstance(e, ServiceUnavailable) or WRITE_ON_REPLICA_ERROR in str(e):
+                pid = os.getpid()
+                key = (pid, instance_name, protocol.value, auth[0], auth[1])
+                _driver_cache.pop(key, None)
             if attempt == max_retries:
                 print(
                     f"\nWARN: Retriable error after {max_retries} retries (instance={instance_name}, query={query!r}): {e}"

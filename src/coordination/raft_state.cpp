@@ -506,19 +506,28 @@ auto RaftState::YieldLeadership() const -> void { raft_server_->yield_leadership
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
-auto RaftState::AppendClusterUpdate(CoordinatorClusterStateDelta const &delta_state) const -> bool {
+// If operation passed successfully we know that this coordinator committed the log and that the log is
+// replicated on the majority of coordinators
+auto RaftState::AppendLogAndWaitForCommit(CoordinatorClusterStateDelta const &delta_state) const -> bool {
   auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
+    // Most probable reason is that the coordinator is not the leader
     spdlog::error("Failed to accept request for updating cluster state.");
     return false;
   }
   spdlog::trace("Request for updating cluster state accepted.");
 
+  // blocking operation
+  // leader will step down if cannot rach a majority
+  [[maybe_unused]] auto blocked = res->get();
+
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to update cluster state. Error code {}", static_cast<int>(res->get_result_code()));
+    spdlog::warn("Failed to update cluster state. Error code {}", static_cast<int>(res->get_result_code()));
     return false;
   }
+
+  spdlog::trace("Log is committed");
 
   return true;
 }
@@ -590,6 +599,12 @@ auto RaftState::GetMaxFailoverReplicaLag() const -> uint64_t { return state_mach
 auto RaftState::GetMaxReplicaReadLag() const -> uint64_t { return state_machine_->GetMaxReplicaReadLag(); }
 
 auto RaftState::GetDeltasBatchProgressSize() const -> uint64_t { return state_machine_->GetDeltasBatchProgressSize(); }
+
+auto RaftState::GetInstanceDownTimeoutSec() const -> uint32_t { return state_machine_->GetInstanceDownTimeoutSec(); }
+
+auto RaftState::GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds {
+  return state_machine_->GetInstanceHealthCheckFrequencySec();
+}
 
 }  // namespace memgraph::coordination
 

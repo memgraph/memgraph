@@ -18,7 +18,7 @@ jobs:
   release_benchmarks:
     name: "Daily benchmarks"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 500
+    timeout-minutes: 550
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
     #  - macro-benchmark: 3 minutes
@@ -26,7 +26,8 @@ jobs:
     #  - extended planner improvements mgbench: 15 minutes
     #  - mgbench-supernode: 1.5 minute
     #  - mgbench-load-parquet: 4 minutes
-    #  10 iterations would take about 435 minutes, leaving 65 minutes to allow
+    #  - mgbench-vector-search-index: 5 minutes
+    #  10 iterations would take about 485 minutes, leaving 65 minutes to allow
     #  for building memgraph and variations in benchmark times.
     env:
       ARCH: "amd"
@@ -43,7 +44,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
 
@@ -115,6 +116,19 @@ jobs:
             ${{ github.run_id }} \
             ${{ github.run_number }} \
             $BRANCH_NAME
+
+      - name: Run and upload mgbench-vector-search-index
+        id: mgbench-vector-search-index
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-vector-search-index \
+            vector-search-index \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
 
       - name: Run and upload macro benchmarks
         id: macro-benchmark
@@ -195,7 +209,7 @@ jobs:
 
       - name: Set Job Status
         run: |
-          success=${{ steps.macro-benchmark.outcome == 'success' && steps.mgbench-supernode.outcome == 'success' && steps.mgbench.outcome == 'success' && steps.planner.outcome == 'success' }}
+          success=${{ steps.macro-benchmark.outcome == 'success' && steps.mgbench-supernode.outcome == 'success' && steps.mgbench.outcome == 'success' && steps.planner.outcome == 'success' && steps.load-parquet.outcome == 'success' && steps.mgbench-vector-search-index.outcome == 'success' }}
           echo "success=$success" >> $GITHUB_OUTPUT
           if [ "$success" == "true" ]; then
             echo "All benchmarks succeeded"

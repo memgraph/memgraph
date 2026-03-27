@@ -607,6 +607,11 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     } else {
       info.offset_ttl = SnapshotInfo::kInvalidOffset;
     }
+    if (*version >= kDescriptionSupport) {
+      info.offset_descriptions = read_offset();
+    } else {
+      info.offset_descriptions = SnapshotInfo::kInvalidOffset;
+    }
   }
 
   // Read metadata.
@@ -9042,6 +9047,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                              NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                              Config const &config, EnumStore *enum_store,
                                              SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
+                                             memgraph::storage::DescriptionStore *description_store,
                                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // Cleanup of loaded data in case of failure.
 
@@ -9819,6 +9825,92 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     spdlog::info("TTL data recovered.");
   }
 
+  // Recover description store data if available
+  if (info.offset_descriptions != SnapshotInfo::kInvalidOffset && description_store) {
+    spdlog::info("Recovering description store data.");
+    if (!snapshot.SetPosition(info.offset_descriptions))
+      throw RecoveryFailure("Couldn't read description store data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_DESCRIPTIONS) {
+      throw RecoveryFailure("Couldn't read section descriptions marker!");
+    }
+
+    auto count = snapshot.ReadUint();
+    if (!count) throw RecoveryFailure("Couldn't read description store count!");
+
+    auto read_string = [&](const char *what) {
+      auto val = snapshot.ReadString();
+      if (!val) throw RecoveryFailure(fmt::format("Couldn't read {} for description!", what));
+      return *val;
+    };
+    auto read_label_ids = [&] {
+      auto label_count = snapshot.ReadUint();
+      if (!label_count) throw RecoveryFailure("Couldn't read label count for description!");
+      std::vector<LabelId> ids;
+      ids.reserve(*label_count);
+      for (uint64_t j = 0; j < *label_count; ++j)
+        ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(read_string("label name"))));
+      return ids;
+    };
+
+    for (uint64_t i = 0; i < *count; ++i) {
+      auto kind_raw = snapshot.ReadUint();
+      if (!kind_raw) throw RecoveryFailure("Couldn't read description target kind!");
+      auto kind = static_cast<DescriptionTargetKind>(*kind_raw);
+
+      switch (kind) {
+        case DescriptionTargetKind::LABEL:
+          description_store->SetLabel(read_label_ids(), read_string("label description"));
+          break;
+        case DescriptionTargetKind::EDGE_TYPE: {
+          auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
+          description_store->SetEdgeType(et, read_string("edge type description"));
+          break;
+        }
+        case DescriptionTargetKind::LABEL_PROPERTY: {
+          auto labels = read_label_ids();
+          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+          description_store->SetLabelProperty(labels, prop, read_string("label-property description"));
+          break;
+        }
+        case DescriptionTargetKind::EDGE_TYPE_PROPERTY: {
+          auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
+          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+          description_store->SetEdgeTypeProperty(et, prop, read_string("edge-type-property description"));
+          break;
+        }
+        case DescriptionTargetKind::PROPERTY: {
+          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+          description_store->SetProperty(prop, read_string("property description"));
+          break;
+        }
+        case DescriptionTargetKind::EDGE_TYPE_PATTERN: {
+          auto from_labels = read_label_ids();
+          auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
+          auto to_labels = read_label_ids();
+          description_store->SetEdgeTypePattern(
+              from_labels, et, to_labels, read_string("edge type pattern description"));
+          break;
+        }
+        case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
+          auto from_labels = read_label_ids();
+          auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
+          auto to_labels = read_label_ids();
+          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+          description_store->SetEdgeTypePatternProperty(
+              from_labels, et, to_labels, prop, read_string("edge type pattern property description"));
+          break;
+        }
+        case DescriptionTargetKind::DATABASE:
+          description_store->SetDatabase(read_string("database description"));
+          break;
+      }
+    }
+
+    spdlog::info("Description store data recovered.");
+  }
+
   spdlog::info("Metadata recovered.");
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
@@ -9830,6 +9922,18 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
+RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path const &path,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        utils::SkipList<EdgeMetadata> *edges_metadata,
+                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                        NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                                        Config const &config, EnumStore *enum_store,
+                                        SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
+                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                    edge_count, config, enum_store, schema_info, ttl, nullptr, snapshot_info);
+}
+
 }  // namespace
 
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
@@ -9837,7 +9941,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
-                               memgraph::storage::ttl::TTL *ttl,
+                               memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   Decoder snapshot;
   const auto version = snapshot.Initialize(path, kSnapshotMagic);
@@ -10045,6 +10149,21 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     case 32U:
       [[fallthrough]];
     case 33U: {
+      return LoadSnapshotVersion33(snapshot,
+                                   path,
+                                   vertices,
+                                   edges,
+                                   edges_metadata,
+                                   epoch_history,
+                                   name_id_mapper,
+                                   edge_count,
+                                   config,
+                                   enum_store,
+                                   schema_info,
+                                   ttl,
+                                   snapshot_info);
+    }
+    case 34U: {
       return LoadCurrentVersionSnapshot(snapshot,
                                         path,
                                         vertices,
@@ -10057,6 +10176,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                         enum_store,
                                         schema_info,
                                         ttl,
+                                        description_store,
                                         snapshot_info);
     }
     default: {
@@ -10228,6 +10348,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   uint64_t offset_edge_batches = 0;
   uint64_t offset_vertex_batches = 0;
   uint64_t offset_ttl = 0;
+  uint64_t offset_descriptions = 0;
 
   auto write_offsets = [&] {
     snapshot.WriteUint(offset_edges);
@@ -10242,6 +10363,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     snapshot.WriteUint(offset_edge_batches);
     snapshot.WriteUint(offset_vertex_batches);
     snapshot.WriteUint(offset_ttl);
+    snapshot.WriteUint(offset_descriptions);
   };
 
   {
@@ -10547,7 +10669,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write label indices.
     {
-      auto label = transaction->active_indices_.label_->ListIndices(transaction->start_timestamp);
+      auto label = transaction->active_indices_->label_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(label.size());
       for (const auto &item : label) {
         write_mapping(item);
@@ -10560,7 +10682,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     // Write label indices statistics.
     {
       // NOTE: On-disk does not support snapshots
-      auto labels = transaction->active_indices_.label_->ListIndices(transaction->start_timestamp);
+      auto labels = transaction->active_indices_->label_->ListIndices(transaction->start_timestamp);
       const auto size_pos = snapshot.GetPosition();
       snapshot.WriteUint(0);  // Just a place holder
       unsigned i = 0;
@@ -10587,7 +10709,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write label+properties indices.
     {
-      auto label_property = transaction->active_indices_.label_properties_->ListIndices(transaction->start_timestamp);
+      auto label_property = transaction->active_indices_->label_properties_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(label_property.size());
       for (const auto &[label, property_paths] : label_property) {
         write_mapping(label);
@@ -10609,7 +10731,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       // NOTE: On-disk does not support snapshots
       auto *inmem_index = static_cast<InMemoryLabelPropertyIndex *>(storage->indices_.label_property_index_.get());
       auto label_property_path_pair =
-          transaction->active_indices_.label_properties_->ListIndices(transaction->start_timestamp);
+          transaction->active_indices_->label_properties_->ListIndices(transaction->start_timestamp);
       const auto size_pos = snapshot.GetPosition();
       snapshot.WriteUint(0);  // Just a place holder
       unsigned i = 0;
@@ -10647,7 +10769,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     offset_edge_indices = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_EDGE_INDICES);
     {
-      auto edge_type = transaction->active_indices_.edge_type_->ListIndices(transaction->start_timestamp);
+      auto edge_type = transaction->active_indices_->edge_type_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
         write_mapping(item);
@@ -10659,7 +10781,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write edge-type + property indices.
     {
-      auto edge_type = transaction->active_indices_.edge_type_properties_->ListIndices(transaction->start_timestamp);
+      auto edge_type = transaction->active_indices_->edge_type_properties_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
         write_mapping(item.first);
@@ -10672,7 +10794,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     // Write global edge property indices.
     {
-      auto indices = transaction->active_indices_.edge_property_->ListIndices(transaction->start_timestamp);
+      auto indices = transaction->active_indices_->edge_property_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(indices.size());
       for (const auto &property : indices) {
         write_mapping(property);
@@ -10942,6 +11064,70 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     // Write TTL always disabled in community edition
     snapshot.WriteBool(false);
 #endif
+
+    if (snapshot_aborted()) {
+      return std::nullopt;
+    }
+  }
+
+  // Write description store data
+  {
+    offset_descriptions = snapshot.GetPosition();
+    snapshot.WriteMarker(Marker::SECTION_DESCRIPTIONS);
+
+    auto const entries = storage->description_store_.GetAll();
+    snapshot.WriteUint(entries.size());
+
+    auto write_label_names = [&](std::span<LabelId const> labels) {
+      snapshot.WriteUint(labels.size());
+      for (auto id : labels) snapshot.WriteString(storage->name_id_mapper_->IdToName(id.AsUint()));
+    };
+
+    auto id_to_name = [&](auto id) { return storage->name_id_mapper_->IdToName(id.AsUint()); };
+
+    for (auto const &entry : entries) {
+      snapshot.WriteUint(static_cast<uint64_t>(entry.kind));
+      switch (entry.kind) {
+        case DescriptionTargetKind::LABEL:
+          write_label_names(entry.labels);
+          snapshot.WriteString(entry.description);
+          break;
+        case DescriptionTargetKind::EDGE_TYPE:
+          snapshot.WriteString(id_to_name(entry.edge_type));
+          snapshot.WriteString(entry.description);
+          break;
+        case DescriptionTargetKind::LABEL_PROPERTY:
+          write_label_names(entry.labels);
+          snapshot.WriteString(id_to_name(entry.property));
+          snapshot.WriteString(entry.description);
+          break;
+        case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+          snapshot.WriteString(id_to_name(entry.edge_type));
+          snapshot.WriteString(id_to_name(entry.property));
+          snapshot.WriteString(entry.description);
+          break;
+        case DescriptionTargetKind::PROPERTY:
+          snapshot.WriteString(id_to_name(entry.property));
+          snapshot.WriteString(entry.description);
+          break;
+        case DescriptionTargetKind::EDGE_TYPE_PATTERN:
+          write_label_names(entry.from_labels);
+          snapshot.WriteString(id_to_name(entry.edge_type));
+          write_label_names(entry.to_labels);
+          snapshot.WriteString(entry.description);
+          break;
+        case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
+          write_label_names(entry.from_labels);
+          snapshot.WriteString(id_to_name(entry.edge_type));
+          write_label_names(entry.to_labels);
+          snapshot.WriteString(id_to_name(entry.property));
+          snapshot.WriteString(entry.description);
+          break;
+        case DescriptionTargetKind::DATABASE:
+          snapshot.WriteString(entry.description);
+          break;
+      }
+    }
 
     if (snapshot_aborted()) {
       return std::nullopt;

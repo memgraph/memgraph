@@ -61,7 +61,7 @@ jobs:
       short_version: ${{ steps.create_short_version.outputs.short_version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -315,7 +315,7 @@ jobs:
       last_image_version: ${{ steps.set_last_image_version.outputs.last_image_version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
@@ -350,7 +350,7 @@ jobs:
       amd_mage_image_url: ${{ steps.set_image_urls.outputs.amd_mage_image_url }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
@@ -373,6 +373,7 @@ jobs:
     needs: [SetupISSUImageOutputs, PrepareReleaseBranch]
     uses: ./.github/workflows/reusable_issu_test.yaml
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: amd

@@ -49,7 +49,7 @@ jobs:
     timeout-minutes: 70
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -125,7 +125,7 @@ jobs:
 
       - name: Save drivers test report
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         if: always()
         with:
           name: "HA_drivers_report${{ env.RUN_ID }}"
@@ -143,7 +143,7 @@ jobs:
 
       - name: Save cppcheck and clang-format errors
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "Code coverage(Debug build)${{ env.RUN_ID }}"
           path: tools/github/cppcheck_and_clang_format.txt
@@ -170,7 +170,7 @@ jobs:
     timeout-minutes: 80
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
