@@ -343,7 +343,9 @@ struct WalEnumAlterUpdate {
 struct WalVectorIndexCreate {
   friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
   using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
-                               std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
+                               std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>,
+                               VersionDependant<kVectorIndexMultiLabel, std::uint8_t>,
+                               VersionDependant<kVectorIndexMultiLabel, std::vector<std::string>>>;
   std::string index_name;
   std::string label;
   std::string property;
@@ -351,13 +353,17 @@ struct WalVectorIndexCreate {
   std::uint16_t dimension;
   std::uint16_t resize_coefficient;
   std::size_t capacity;
-  std::optional<std::uint8_t> scalar_kind;  //!< Optional scalar kind, if not set, scalar is not used
+  std::optional<std::uint8_t> scalar_kind;
+  std::optional<std::uint8_t> label_mode;
+  std::optional<std::vector<std::string>> extra_labels;
 };
 
 struct WalVectorEdgeIndexCreate {
   friend bool operator==(const WalVectorEdgeIndexCreate &, const WalVectorEdgeIndexCreate &) = default;
   using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
-                               std::size_t, uint8_t>;
+                               std::size_t, uint8_t,
+                               VersionDependant<kVectorIndexMultiLabel, std::uint8_t>,
+                               VersionDependant<kVectorIndexMultiLabel, std::vector<std::string>>>;
   std::string index_name;
   std::string edge_type;
   std::string property;
@@ -366,6 +372,8 @@ struct WalVectorEdgeIndexCreate {
   std::uint16_t resize_coefficient;
   std::size_t capacity;
   std::uint8_t scalar_kind;
+  std::optional<std::uint8_t> edge_type_mode;
+  std::optional<std::vector<std::string>> extra_edge_types;
 };
 
 struct WalVectorIndexDrop {

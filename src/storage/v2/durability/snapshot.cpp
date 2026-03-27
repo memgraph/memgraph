@@ -4127,7 +4127,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
         auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
+                                    .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {get_label_from_id(*label)}},
                                     .property = get_property_from_id(*property),
                                     .metric_kind = metric_kind,
                                     .dimension = static_cast<uint16_t>(*dimension),
@@ -4754,7 +4754,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
         auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
+                                    .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {get_label_from_id(*label)}},
                                     .property = get_property_from_id(*property),
                                     .metric_kind = metric_kind,
                                     .dimension = static_cast<uint16_t>(*dimension),
@@ -5373,7 +5373,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
         auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
+                                    .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {get_label_from_id(*label)}},
                                     .property = get_property_from_id(*property),
                                     .metric_kind = metric_kind,
                                     .dimension = static_cast<uint16_t>(*dimension),
@@ -5994,7 +5994,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
         auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
+                                    .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {get_label_from_id(*label)}},
                                     .property = get_property_from_id(*property),
                                     .metric_kind = metric_kind,
                                     .dimension = static_cast<uint16_t>(*dimension),
@@ -6617,7 +6617,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
         auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
+                                    .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {get_label_from_id(*label)}},
                                     .property = get_property_from_id(*property),
                                     .metric_kind = metric_kind,
                                     .dimension = static_cast<uint16_t>(*dimension),
@@ -6666,15 +6666,15 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
                      name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_edge_indices.emplace_back(
-            std::move(index_name.value()),
-            get_edge_type_from_id(*edge_type),
-            get_property_from_id(*property),
-            metric_kind,
-            static_cast<uint16_t>(*dimension),
-            static_cast<uint16_t>(*resize_coefficient),
-            *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+        indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .edge_types = {get_edge_type_from_id(*edge_type)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -7289,7 +7289,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
         auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
+                                    .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {get_label_from_id(*label)}},
                                     .property = get_property_from_id(*property),
                                     .metric_kind = metric_kind,
                                     .dimension = static_cast<uint16_t>(*dimension),
@@ -7338,15 +7338,15 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_edge_indices.emplace_back(
-            std::move(index_name.value()),
-            get_edge_type_from_id(*edge_type),
-            get_property_from_id(*property),
-            metric_kind,
-            static_cast<uint16_t>(*dimension),
-            static_cast<uint16_t>(*resize_coefficient),
-            *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+        indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .edge_types = {get_edge_type_from_id(*edge_type)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -7971,7 +7971,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
         auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
+                                    .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {get_label_from_id(*label)}},
                                     .property = get_property_from_id(*property),
                                     .metric_kind = metric_kind,
                                     .dimension = static_cast<uint16_t>(*dimension),
@@ -8020,15 +8020,15 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_edge_indices.emplace_back(
-            std::move(index_name.value()),
-            get_edge_type_from_id(*edge_type),
-            get_property_from_id(*property),
-            metric_kind,
-            static_cast<uint16_t>(*dimension),
-            static_cast<uint16_t>(*resize_coefficient),
-            *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+        indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .edge_types = {get_edge_type_from_id(*edge_type)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -8720,7 +8720,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
         auto spec = VectorIndexSpec{.index_name = std::move(index_name.value()),
-                                    .label_id = get_label_from_id(*label),
+                                    .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {get_label_from_id(*label)}},
                                     .property = get_property_from_id(*property),
                                     .metric_kind = metric_kind,
                                     .dimension = static_cast<uint16_t>(*dimension),
@@ -8771,15 +8771,15 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
                      name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
-        indices_constraints.indices.vector_edge_indices.emplace_back(
-            std::move(index_name.value()),
-            get_edge_type_from_id(*edge_type),
-            get_property_from_id(*property),
-            metric_kind,
-            static_cast<uint16_t>(*dimension),
-            static_cast<uint16_t>(*resize_coefficient),
-            *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+        indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .edge_types = {get_edge_type_from_id(*edge_type)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = metric_kind,
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)});
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -9502,7 +9502,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector index scalar kind!");
 
         VectorIndexSpec spec{.index_name = std::move(*index_name),
-                             .label_id = get_label_from_id(*label),
+                             .label_filter = VectorLabelFilter{.mode = VectorLabelMode::SINGLE, .labels = {get_label_from_id(*label)}},
                              .property = get_property_from_id(*property),
                              .metric_kind = MetricFromName(*metric),
                              .dimension = static_cast<uint16_t>(*dimension),
@@ -9567,15 +9567,15 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         auto scalar_kind = snapshot.ReadUint();
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector edge index scalar kind!");
 
-        indices_constraints.indices.vector_edge_indices.emplace_back(
-            std::move(index_name.value()),
-            get_edge_type_from_id(*edge_type),
-            get_property_from_id(*property),
-            MetricFromName(*metric),
-            static_cast<uint16_t>(*dimension),
-            static_cast<uint16_t>(*resize_coefficient),
-            *capacity,
-            static_cast<unum::usearch::scalar_kind_t>(*scalar_kind));
+        indices_constraints.indices.vector_edge_indices.emplace_back(VectorEdgeIndexSpec{
+            .index_name = std::move(index_name.value()),
+            .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorEdgeTypeMode::SINGLE, .edge_types = {get_edge_type_from_id(*edge_type)}},
+            .property = get_property_from_id(*property),
+            .metric_kind = MetricFromName(*metric),
+            .dimension = static_cast<uint16_t>(*dimension),
+            .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),
+            .capacity = *capacity,
+            .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(*scalar_kind)});
       }
       spdlog::info("Vector edge indices are recovered.");
     }
@@ -10826,17 +10826,19 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     {
       auto vector_edge_indices = storage->indices_.vector_edge_index_.ListIndices();
       snapshot.WriteUint(vector_edge_indices.size());
-      for (const auto
-               &[index_name, edge_type_id, property, metric, dimension, resize_coefficient, capacity, scalar_kind] :
-           vector_edge_indices) {
-        snapshot.WriteString(index_name);
-        write_mapping(edge_type_id);
-        write_mapping(property);
-        snapshot.WriteString(NameFromMetric(metric));
-        snapshot.WriteUint(dimension);
-        snapshot.WriteUint(resize_coefficient);
-        snapshot.WriteUint(capacity);
-        snapshot.WriteUint(static_cast<uint64_t>(scalar_kind));
+      for (const auto &spec : vector_edge_indices) {
+        snapshot.WriteString(spec.index_name);
+        snapshot.WriteUint(static_cast<uint64_t>(spec.edge_type_filter.mode));
+        snapshot.WriteUint(spec.edge_type_filter.edge_types.size());
+        for (const auto &et : spec.edge_type_filter.edge_types) {
+          write_mapping(et);
+        }
+        write_mapping(spec.property);
+        snapshot.WriteString(NameFromMetric(spec.metric_kind));
+        snapshot.WriteUint(spec.dimension);
+        snapshot.WriteUint(spec.resize_coefficient);
+        snapshot.WriteUint(spec.capacity);
+        snapshot.WriteUint(static_cast<uint64_t>(spec.scalar_kind));
       }
       if (snapshot_aborted()) {
         return std::nullopt;

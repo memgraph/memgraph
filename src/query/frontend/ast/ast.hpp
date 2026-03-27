@@ -2371,6 +2371,13 @@ class CreateTextEdgeIndexQuery : public memgraph::query::Query {
 
 using ConfigMap = std::unordered_map<Expression *, Expression *>;
 
+enum class VectorLabelMode : uint8_t {
+  SINGLE = 0,
+  WILDCARD = 1,
+  ANY_OF = 2,
+  ALL_OF = 3,
+};
+
 class VectorIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -2385,7 +2392,8 @@ class VectorIndexQuery : public memgraph::query::Query {
 
   memgraph::query::VectorIndexQuery::Action action_;
   std::string index_name_;
-  memgraph::query::LabelIx label_;
+  memgraph::query::VectorLabelMode label_mode_{VectorLabelMode::SINGLE};
+  std::vector<memgraph::query::LabelIx> labels_;
   memgraph::query::PropertyIx property_;
   std::variant<ConfigMap, Expression *> config_;
 
@@ -2393,7 +2401,10 @@ class VectorIndexQuery : public memgraph::query::Query {
     VectorIndexQuery *object = storage->Create<VectorIndexQuery>();
     object->action_ = action_;
     object->index_name_ = index_name_;
-    object->label_ = storage->GetLabelIx(label_.name);
+    object->label_mode_ = label_mode_;
+    for (const auto &label : labels_) {
+      object->labels_.push_back(storage->GetLabelIx(label.name));
+    }
     object->property_ = storage->GetPropertyIx(property_.name);
     object->config_ =
         std::visit(utils::Overloaded{[storage](const ConfigMap &map) -> std::variant<ConfigMap, Expression *> {
@@ -2411,11 +2422,12 @@ class VectorIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  VectorIndexQuery(Action action, std::string index_name, LabelIx label, PropertyIx property,
-                   std::variant<ConfigMap, Expression *> config)
+  VectorIndexQuery(Action action, std::string index_name, VectorLabelMode label_mode, std::vector<LabelIx> labels,
+                   PropertyIx property, std::variant<ConfigMap, Expression *> config)
       : action_(action),
         index_name_(std::move(index_name)),
-        label_(std::move(label)),
+        label_mode_(label_mode),
+        labels_(std::move(labels)),
         property_(std::move(property)),
         config_(std::move(config)) {}
 
@@ -2434,14 +2446,18 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   std::string index_name_;
-  memgraph::query::EdgeTypeIx edge_type_;
+  memgraph::query::VectorLabelMode edge_type_mode_{VectorLabelMode::SINGLE};
+  std::vector<memgraph::query::EdgeTypeIx> edge_types_;
   memgraph::query::PropertyIx property_;
   std::variant<ConfigMap, Expression *> config_;
 
   CreateVectorEdgeIndexQuery *Clone(AstStorage *storage) const override {
     CreateVectorEdgeIndexQuery *object = storage->Create<CreateVectorEdgeIndexQuery>();
     object->index_name_ = index_name_;
-    object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
+    object->edge_type_mode_ = edge_type_mode_;
+    for (const auto &et : edge_types_) {
+      object->edge_types_.push_back(storage->GetEdgeTypeIx(et.name));
+    }
     object->property_ = storage->GetPropertyIx(property_.name);
     object->config_ =
         std::visit(utils::Overloaded{[storage](const ConfigMap &map) -> std::variant<ConfigMap, Expression *> {
@@ -2459,10 +2475,12 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  CreateVectorEdgeIndexQuery(std::string index_name, EdgeTypeIx edge_type, PropertyIx property,
+  CreateVectorEdgeIndexQuery(std::string index_name, VectorLabelMode edge_type_mode,
+                             std::vector<EdgeTypeIx> edge_types, PropertyIx property,
                              std::variant<ConfigMap, Expression *> config)
       : index_name_(std::move(index_name)),
-        edge_type_(std::move(edge_type)),
+        edge_type_mode_(edge_type_mode),
+        edge_types_(std::move(edge_types)),
         property_(std::move(property)),
         config_(std::move(config)) {}
 

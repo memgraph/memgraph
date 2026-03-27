@@ -11,8 +11,11 @@
 
 #pragma once
 
+#include <algorithm>
 #include <list>
 #include <map>
+#include <span>
+
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
@@ -20,14 +23,65 @@
 
 namespace memgraph::storage {
 
+enum class VectorEdgeTypeMode : uint8_t {
+  SINGLE = 0,
+  WILDCARD = 1,
+  ANY_OF = 2,
+  ALL_OF = 3,
+};
+
+struct VectorEdgeTypeFilter {
+  VectorEdgeTypeMode mode{VectorEdgeTypeMode::SINGLE};
+  std::vector<EdgeTypeId> edge_types;
+
+  bool Matches(EdgeTypeId edge_type) const {
+    if (edge_types.empty() && mode != VectorEdgeTypeMode::WILDCARD) return false;
+    switch (mode) {
+      case VectorEdgeTypeMode::WILDCARD:
+        return true;
+      case VectorEdgeTypeMode::SINGLE:
+        return edge_type == edge_types[0];
+      case VectorEdgeTypeMode::ANY_OF:
+      case VectorEdgeTypeMode::ALL_OF:
+        return std::ranges::contains(edge_types, edge_type);
+    }
+    return false;
+  }
+
+  bool IsAffectedByEdgeType(EdgeTypeId edge_type) const {
+    if (mode == VectorEdgeTypeMode::WILDCARD) return false;
+    return std::ranges::contains(edge_types, edge_type);
+  }
+
+  friend bool operator==(const VectorEdgeTypeFilter &, const VectorEdgeTypeFilter &) = default;
+
+  template <typename NameResolver>
+  std::string Format(NameResolver &&resolver) const {
+    if (edge_types.empty() && mode != VectorEdgeTypeMode::WILDCARD) return "";
+    switch (mode) {
+      case VectorEdgeTypeMode::WILDCARD:
+        return ":*";
+      case VectorEdgeTypeMode::SINGLE:
+        return ":" + resolver(edge_types[0]);
+      case VectorEdgeTypeMode::ANY_OF: {
+        std::string result = ":" + resolver(edge_types[0]);
+        for (std::size_t i = 1; i < edge_types.size(); ++i) result += "|" + resolver(edge_types[i]);
+        return result;
+      }
+      case VectorEdgeTypeMode::ALL_OF: {
+        std::string result = ":" + resolver(edge_types[0]);
+        for (std::size_t i = 1; i < edge_types.size(); ++i) result += "&" + resolver(edge_types[i]);
+        return result;
+      }
+    }
+    return "";
+  }
+};
+
 /// @struct VectorEdgeIndexSpec
-/// @brief Represents a specification for creating a vector index in the system.
-///
-/// This structure includes the index name, the label and property on which the index is created,
-/// and the configuration options for the index in the form of a JSON object.
 struct VectorEdgeIndexSpec {
   std::string index_name;
-  EdgeTypeId edge_type_id;
+  VectorEdgeTypeFilter edge_type_filter;
   PropertyId property;
   unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
@@ -39,10 +93,9 @@ struct VectorEdgeIndexSpec {
 };
 
 /// @struct VectorEdgeIndexInfo
-/// @brief Represents information about a vector index in the system.
 struct VectorEdgeIndexInfo {
   std::string index_name;
-  EdgeTypeId edge_type_id;
+  VectorEdgeTypeFilter edge_type_filter;
   PropertyId property;
   std::string metric;
   std::uint16_t dimension;
