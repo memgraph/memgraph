@@ -77,16 +77,7 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
 
  private:
   void *do_allocate(std::size_t bytes, std::size_t alignment) override {
-#if USE_JEMALLOC
-    if (arena_idx_ != 0) {
-      int flags = MALLOCX_ARENA(arena_idx_) | MALLOCX_TCACHE_NONE;
-      if (alignment > alignof(std::max_align_t)) flags |= MALLOCX_ALIGN(alignment);
-      void *p = je_mallocx(bytes, flags);
-      if (!p) throw std::bad_alloc{};
-      return p;
-    }
-#endif
-    return ::operator new(bytes, std::align_val_t{alignment});
+    return DbAllocate<uint8_t>(bytes, arena_idx_);
   }
 
   void do_deallocate(void *p, [[maybe_unused]] std::size_t bytes,

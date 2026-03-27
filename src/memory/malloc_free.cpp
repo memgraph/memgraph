@@ -79,6 +79,17 @@ extern "C" void *malloc(size_t size) {
   return res;
 }
 
+__attribute__((visibility("default"))) void *JeMalloc(size_t size, int flags) {
+  if (!alloc_tracking(size, flags)) [[unlikely]] {
+    return nullptr;
+  }
+  void *const res = je_mallocx(size, flags);
+  if (res == nullptr) [[unlikely]] {
+    failed_alloc_tracking(size, flags);
+  }
+  return res;
+}
+
 extern "C" void *calloc(size_t count, size_t size) {
   if (!alloc_tracking(count * size)) [[unlikely]] {
     return nullptr;

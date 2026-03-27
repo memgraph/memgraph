@@ -24,7 +24,23 @@
 #include <jemalloc/jemalloc.h>
 #endif
 
+void *JeNew(size_t size, int flags);
+
 namespace memgraph::memory {
+
+template <typename T>
+[[nodiscard]] T *DbAllocate(std::size_t n, unsigned idx) {
+#if USE_JEMALLOC
+  if (idx != 0) {
+    int flags = MALLOCX_ARENA(idx) | MALLOCX_TCACHE_NONE;
+    if constexpr (alignof(T) > alignof(std::max_align_t)) {
+      flags |= MALLOCX_ALIGN(alignof(T));
+    }
+    return static_cast<T *>(JeNew(n * sizeof(T), flags));
+  }
+#endif
+  return static_cast<T *>(::operator new(n * sizeof(T), std::align_val_t{alignof(T)}));
+}
 
 // Thread-local arena index for the currently active database.
 // 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
@@ -61,30 +77,15 @@ struct DbAwareAllocator {
   explicit DbAwareAllocator(DbAwareAllocator<U> const & /*unused*/) noexcept {}
 
   [[nodiscard]] T *allocate(std::size_t n) {
-#if USE_JEMALLOC
     const unsigned idx = tls_db_arena_idx;
-    if (idx != 0) {
-      int flags = MALLOCX_ARENA(idx) | MALLOCX_TCACHE_NONE;
-      if constexpr (alignof(T) > alignof(std::max_align_t)) {
-        flags |= MALLOCX_ALIGN(alignof(T));
-      }
-      void *p = je_mallocx(n * sizeof(T), flags);
-      if (!p) throw std::bad_alloc{};
-      return static_cast<T *>(p);
-    }
-#endif
-    return static_cast<T *>(::operator new(n * sizeof(T), std::align_val_t{alignof(T)}));
+    return DbAllocate<T>(n, idx);
   }
 
-  // DEVNOTE: jemalloc tracks the owning arena per-extent in its own metadata.
+  // NOTE: jemalloc tracks the owning arena per-extent in its own metadata.
   //          je_free(p) always routes to the correct arena regardless of which
   //          thread calls it, so GC can safely free query-thread allocations.
   void deallocate(T *p, [[maybe_unused]] std::size_t n) noexcept {
-#if USE_JEMALLOC
-    je_free(p);
-#else
     ::operator delete(static_cast<void *>(p), n * sizeof(T), std::align_val_t{alignof(T)});
-#endif
   }
 
   template <typename U>
@@ -124,27 +125,13 @@ struct ArenaAwareAllocator {
 
   unsigned arena_idx() const noexcept { return arena_idx_; }
 
-  [[nodiscard]] T *allocate(std::size_t n) {
-#if USE_JEMALLOC
-    if (arena_idx_ != 0) {
-      int flags = MALLOCX_ARENA(arena_idx_) | MALLOCX_TCACHE_NONE;
-      if constexpr (alignof(T) > alignof(std::max_align_t)) {
-        flags |= MALLOCX_ALIGN(alignof(T));
-      }
-      void *p = je_mallocx(n * sizeof(T), flags);
-      if (!p) throw std::bad_alloc{};
-      return static_cast<T *>(p);
-    }
-#endif
-    return static_cast<T *>(::operator new(n * sizeof(T), std::align_val_t{alignof(T)}));
-  }
+  [[nodiscard]] T *allocate(std::size_t n) { return DbAllocate<T>(n, arena_idx_); }
 
+  // NOTE: jemalloc tracks the owning arena per-extent in its own metadata.
+  //          je_free(p) always routes to the correct arena regardless of which
+  //          thread calls it, so GC can safely free query-thread allocations.
   void deallocate(T *p, [[maybe_unused]] std::size_t n) noexcept {
-#if USE_JEMALLOC
-    je_free(p);
-#else
     ::operator delete(static_cast<void *>(p), n * sizeof(T), std::align_val_t{alignof(T)});
-#endif
   }
 
   template <typename U>
