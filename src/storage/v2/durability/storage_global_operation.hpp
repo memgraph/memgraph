@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,6 +47,8 @@ enum class StorageMetadataOperation {
   VECTOR_EDGE_INDEX_CREATE,
   VECTOR_INDEX_DROP,
   TTL_OPERATION,
+  DESCRIPTION_SET,
+  DESCRIPTION_DELETE,
 };
 
 }  // namespace memgraph::storage::durability

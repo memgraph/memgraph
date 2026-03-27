@@ -91,6 +91,7 @@ const std::vector<Permission> kPermissionsAll = {
     Permission::PROFILE_RESTRICTION,
     Permission::PARALLEL_EXECUTION,
     Permission::SERVER_SIDE_PARAMETERS,
+    Permission::SERVER_SIDE_DESCRIPTIONS,
 };
 
 #ifdef MG_ENTERPRISE
@@ -179,6 +180,8 @@ std::string PermissionToString(Permission permission) {
       return "PARALLEL_EXECUTION";
     case Permission::SERVER_SIDE_PARAMETERS:
       return "SERVER_SIDE_PARAMETERS";
+    case Permission::SERVER_SIDE_DESCRIPTIONS:
+      return "SERVER_SIDE_DESCRIPTIONS";
   }
 }
 
