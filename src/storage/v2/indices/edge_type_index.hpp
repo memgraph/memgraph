@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <algorithm>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <span>

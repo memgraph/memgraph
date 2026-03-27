@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "io/network/stream_buffer.hpp"

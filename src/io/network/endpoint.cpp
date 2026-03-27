@@ -12,15 +12,15 @@
 #include "io/network/endpoint.hpp"
 
 #include <arpa/inet.h>
-#include <errno.h>
 #include <fmt/format.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <spdlog/spdlog.h>
-#include <stddef.h>
 #include <sys/socket.h>
 #include <array>
+#include <cerrno>
 #include <compare>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <limits>

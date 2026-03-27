@@ -12,8 +12,8 @@
 #include "utils/readable_size.hpp"
 
 #include <fmt/format.h>
-#include <stddef.h>
 #include <array>
+#include <cstddef>
 
 namespace memgraph::utils {
 

@@ -11,10 +11,10 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <iterator>
 #include <mutex>
 #include <utility>

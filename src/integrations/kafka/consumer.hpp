@@ -13,9 +13,9 @@
 
 #include <librdkafka/rdkafka.h>
 #include <librdkafka/rdkafkacpp.h>
-#include <stdint.h>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <expected>
 #include <functional>
 #include <memory>

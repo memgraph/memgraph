@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <chrono>
+#include <cstdint>
 #include <expected>
 #include <optional>
 #include <string>

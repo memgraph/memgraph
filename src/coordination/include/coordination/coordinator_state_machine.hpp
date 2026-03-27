@@ -14,9 +14,9 @@
 #ifdef MG_ENTERPRISE
 
 #include <spdlog/spdlog.h>
-#include <stdint.h>
 #include <sys/types.h>
 #include <atomic>
+#include <cstdint>
 #include <libnuraft/async.hxx>
 #include <libnuraft/basic_types.hxx>
 #include <libnuraft/ptr.hxx>

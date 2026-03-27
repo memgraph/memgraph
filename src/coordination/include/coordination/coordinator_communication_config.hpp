@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <stdint.h>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <nlohmann/json_fwd.hpp>

@@ -14,10 +14,10 @@
 #include <spdlog/logger.h>
 #include <spdlog/sinks/sink.h>
 #include <spdlog/spdlog.h>
-#include <stdint.h>
-#include <time.h>
 #include <algorithm>
 #include <array>
+#include <cstdint>
+#include <ctime>
 #include <expected>
 #include <functional>
 #include <iostream>

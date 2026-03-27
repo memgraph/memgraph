@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <stdint.h>
+#include <cstdint>
 #include <libnuraft/nuraft.hxx>
 #include <libnuraft/ptr.hxx>
 #include <limits>

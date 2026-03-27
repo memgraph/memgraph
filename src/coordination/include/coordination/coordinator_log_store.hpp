@@ -13,9 +13,9 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <stdint.h>
 #include <sys/types.h>
 #include <atomic>
+#include <cstdint>
 #include <libnuraft/basic_types.hxx>
 #include <libnuraft/log_store.hxx>
 #include <libnuraft/nuraft.hxx>

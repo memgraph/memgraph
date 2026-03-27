@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
 #include <sys/types.h>
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string_view>
 #include <utility>

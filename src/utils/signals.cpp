@@ -11,7 +11,7 @@
 
 #include "utils/signals.hpp"
 
-#include <stddef.h>
+#include <cstddef>
 
 namespace memgraph::utils {
 

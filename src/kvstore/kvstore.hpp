@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <stddef.h>
+#include <cstddef>
 #include <filesystem>
 #include <iterator>
 #include <map>

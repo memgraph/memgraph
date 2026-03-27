@@ -11,8 +11,8 @@
 
 #include "flags/run_time_configurable.hpp"
 
-#include <stddef.h>
 #include <atomic>
+#include <cstddef>
 #include <expected>
 #include <functional>
 #include <optional>

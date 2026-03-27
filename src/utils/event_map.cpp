@@ -11,8 +11,8 @@
 
 #include "utils/event_map.hpp"
 
-#include <stddef.h>
 #include <algorithm>
+#include <cstddef>
 #include <iterator>
 #include <nlohmann/json.hpp>
 

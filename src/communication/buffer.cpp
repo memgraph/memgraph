@@ -11,7 +11,7 @@
 
 #include "communication/buffer.hpp"
 
-#include <string.h>
+#include <cstring>
 
 #include "utils/logging.hpp"
 

@@ -12,8 +12,8 @@
 #pragma once
 
 #include <spdlog/spdlog.h>
-#include <stdint.h>
 #include <concepts>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <range/v3/range/conversion.hpp>

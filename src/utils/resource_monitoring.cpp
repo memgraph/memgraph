@@ -11,7 +11,7 @@
 
 #include "utils/resource_monitoring.hpp"
 
-#include <stdint.h>
+#include <cstdint>
 
 #include "utils/memory_tracker.hpp"
 

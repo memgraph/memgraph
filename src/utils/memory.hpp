@@ -15,12 +15,12 @@
 
 #pragma once
 
-#include <limits.h>
 #include <pthread.h>
-#include <stdint.h>
 #include <array>
 #include <atomic>
+#include <climits>
 #include <cstddef>
+#include <cstdint>
 #include <forward_list>
 #include <iostream>
 #include <limits>

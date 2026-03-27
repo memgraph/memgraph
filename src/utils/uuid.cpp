@@ -11,8 +11,8 @@
 
 #include "utils/uuid.hpp"
 
-#include <stddef.h>
 #include <array>
+#include <cstddef>
 #include <nlohmann/json.hpp>
 
 #include "slk/serialization.hpp"

@@ -12,8 +12,8 @@
 #include "general.hpp"
 
 #include <gflags/gflags.h>
-#include <stdint.h>
 #include <algorithm>
+#include <cstdint>
 #include <iostream>
 #include <iterator>
 #include <limits>

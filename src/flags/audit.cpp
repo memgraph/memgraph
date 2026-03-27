@@ -11,7 +11,7 @@
 #include "flags/audit.hpp"
 
 #include <gflags/gflags.h>
-#include <stdint.h>
+#include <cstdint>
 
 #include "utils/flag_validation.hpp"
 

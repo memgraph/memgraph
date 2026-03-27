@@ -15,7 +15,7 @@
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
-#include <stddef.h>
+#include <cstddef>
 #include <exception>
 #include <libnuraft/buffer.hxx>
 #include <libnuraft/buffer_serializer.hxx>

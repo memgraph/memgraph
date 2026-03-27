@@ -13,8 +13,8 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <stdint.h>
 #include <algorithm>
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <iterator>

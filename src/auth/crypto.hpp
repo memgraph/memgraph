@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <stddef.h>
+#include <cstddef>
 #include <cstdint>
 #include <nlohmann/json_fwd.hpp>
 #include <optional>

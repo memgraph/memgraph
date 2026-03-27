@@ -20,7 +20,7 @@
 // First import nuraft.hxx then logger.hxx to avoid problem with __interface_body__
 #include <libnuraft/nuraft.hxx>
 #include <libnuraft/logger.hxx>
-#include <stddef.h>
+#include <cstddef>
 #include <string>
 #include <memory>
 

@@ -13,7 +13,7 @@
 
 #include "storage/v2/indices/edge_type_index.hpp"
 
-#include <stdint.h>
+#include <cstdint>
 
 namespace memgraph::storage {
 

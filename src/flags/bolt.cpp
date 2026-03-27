@@ -12,8 +12,8 @@
 #include "flags/bolt.hpp"
 
 #include <gflags/gflags.h>
-#include <stdint.h>
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <thread>
 

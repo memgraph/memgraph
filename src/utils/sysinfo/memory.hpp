@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 #include <fstream>
 #include <iosfwd>
 #include <limits>

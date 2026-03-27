@@ -12,8 +12,6 @@
 #pragma once
 
 #include <spdlog/spdlog.h>
-#include <stdint.h>
-#include <string.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -21,6 +19,8 @@
 #include <cmath>
 #include <compare>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <limits>
 #include <mutex>
 #include <new>

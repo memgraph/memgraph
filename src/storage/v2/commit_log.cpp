@@ -11,7 +11,7 @@
 
 #include "storage/v2/commit_log.hpp"
 
-#include <stddef.h>
+#include <cstddef>
 #include <limits>
 #include <mutex>
 #include <utility>

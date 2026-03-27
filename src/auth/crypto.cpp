@@ -7,7 +7,6 @@
 //
 #include "auth/crypto.hpp"
 
-#include <ctype.h>
 #include <gflags/gflags.h>
 #include <libbcrypt/bcrypt.h>
 #include <openssl/evp.h>
@@ -16,6 +15,7 @@
 #include <openssl/types.h>
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <expected>
 #include <functional>
 #include <iomanip>

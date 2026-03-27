@@ -12,7 +12,7 @@
 /// @file commit_log.hpp
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
 #include "utils/memory.hpp"
 #include "utils/spin_lock.hpp"

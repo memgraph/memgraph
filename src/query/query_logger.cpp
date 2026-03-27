@@ -13,7 +13,7 @@
 #include <spdlog/common.h>
 #include <spdlog/logger.h>
 #include <spdlog/sinks/daily_file_sink.h>
-#include <time.h>
+#include <ctime>
 #include <sstream>
 #include <string>
 #include <utility>

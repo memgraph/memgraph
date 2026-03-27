@@ -11,14 +11,14 @@
 
 #include "utils/async_timer.hpp"
 
-#include <errno.h>
 #include <pthread.h>
 #include <sys/syscall.h>
-#include <time.h>
 #include <unistd.h>
 #include <atomic>
+#include <cerrno>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 #include <limits>
 #include <mutex>
 #include <utility>

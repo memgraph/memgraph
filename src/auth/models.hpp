@@ -8,10 +8,10 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <algorithm>
 #include <compare>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <nlohmann/json_fwd.hpp>
 #include <optional>

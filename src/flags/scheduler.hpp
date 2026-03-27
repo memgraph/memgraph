@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
 #include "gflags/gflags.h"
 

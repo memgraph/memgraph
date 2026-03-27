@@ -10,11 +10,11 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <signal.h>
-#include <stdint.h>
 #include <sys/types.h>
-#include <time.h>
 #include <atomic>
+#include <csignal>
+#include <cstdint>
+#include <ctime>
 #include <memory>
 
 #include "utils/logging.hpp"

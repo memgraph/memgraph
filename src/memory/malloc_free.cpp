@@ -13,9 +13,9 @@
 #if USE_JEMALLOC
 
 #include <jemalloc/jemalloc.h>
-#include <stdlib.h>
 #include <cerrno>
 #include <cstddef>
+#include <cstdlib>
 
 #include "query_memory_control.hpp"
 

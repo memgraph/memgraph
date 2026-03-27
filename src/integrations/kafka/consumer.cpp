@@ -15,11 +15,11 @@
 #include <librdkafka/rdkafka.h>
 #include <librdkafka/rdkafkacpp.h>
 #include <spdlog/spdlog.h>
-#include <stddef.h>
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <compare>
+#include <cstddef>
 #include <exception>
 #include <iterator>
 #include <memory>

@@ -12,7 +12,6 @@
 #include <poll.h>
 #include <sched.h>
 #include <seccomp.h>
-#include <signal.h>
 #include <spdlog/spdlog.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
@@ -21,6 +20,7 @@
 #include <array>
 #include <cerrno>
 #include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>

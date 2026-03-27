@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <nlohmann/json_fwd.hpp>
 #include <string>

@@ -13,10 +13,10 @@
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
-#include <stddef.h>
-#include <stdint.h>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <libnuraft/asio_service.hxx>
 #include <libnuraft/async.hxx>

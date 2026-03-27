@@ -15,9 +15,9 @@
 #include <pulsar/Consumer.h>
 #include <pulsar/Message.h>
 #include <pulsar/MessageId.h>
-#include <stdint.h>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <span>

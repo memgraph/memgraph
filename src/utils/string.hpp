@@ -12,11 +12,11 @@
 /** @file */
 #pragma once
 
-#include <ctype.h>
-#include <stdint.h>
-#include <string.h>
 #include <algorithm>
+#include <cctype>
 #include <charconv>
+#include <cstdint>
+#include <cstring>
 #include <iomanip>
 #include <iterator>
 #include <locale>

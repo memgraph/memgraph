@@ -11,8 +11,8 @@
 
 #include "io/network/addrinfo.hpp"
 
-#include <errno.h>
 #include <sys/socket.h>
+#include <cerrno>
 #include <concepts>
 #include <cstring>
 #include <iterator>

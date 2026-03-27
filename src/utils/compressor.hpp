@@ -14,11 +14,11 @@
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <gflags/gflags_declare.h>
-#include <stdint.h>
 #include <sys/types.h>
 #include <zlib.h>
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>

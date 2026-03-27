@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 #include <nlohmann/json_fwd.hpp>
 #include <optional>
 #include <variant>

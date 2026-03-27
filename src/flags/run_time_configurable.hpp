@@ -10,8 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
-#include <stdint.h>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
 

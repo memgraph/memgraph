@@ -10,9 +10,9 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <stddef.h>
-#include <stdint.h>
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <functional>
