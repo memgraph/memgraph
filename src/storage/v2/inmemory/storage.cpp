@@ -1336,11 +1336,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::vector<Gid> my_deleted_vertices;
     std::vector<Gid> my_deleted_edges;
 
-    std::map<EdgeTypePropKey,
-             std::vector<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>>>>
-        vector_edge_type_property_restore;  // No need to cleanup, because edge type can't be removed and when null
-                                            // property is set, it's like removing the property from the index
-
     // TWO passes needed here
     // Abort will modify objects to restore state to how they were before this txn
     // The passes will find the head delta for each object and process the whole object,
@@ -1369,37 +1364,17 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 auto prop_id = current->property.key;
                 auto *from_vertex = current->property.out_vertex;
 
-                const auto &vector_indexed_edge_types = index_abort_processor.vector_edge_.p2et.find(prop_id);
-                auto vec_prop_is_interesting =
-                    vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end();
-
                 auto processor_prop_is_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
-                if (processor_prop_is_interesting || vec_prop_is_interesting) {
+                if (processor_prop_is_interesting) {
                   // TODO: MVCC collect out_edges (including ones deleted this txn)
                   //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
                   //       ATM we don't handle that corner case. Setting a property on an edge that would then be
                   //       removed
-
-                  if (processor_prop_is_interesting) {
-                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                      if (edge_ref.ptr != edge) continue;
-                      index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
-                    }
-                  }
-
-                  // Collect edge vector
-                  if (vec_prop_is_interesting) {
-                    // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
-                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                      if (edge_ref.ptr != edge) continue;
-                      // handle vector index -> we need to check if the edge type is indexed in the vector index
-                      if (r::find(vector_indexed_edge_types->second, edge_type) !=
-                          vector_indexed_edge_types->second.end()) {
-                        // this edge type is indexed in the vector index
-                        vector_edge_type_property_restore[EdgeTypePropKey{edge_type, prop_id}].emplace_back(
-                            *current->property.value, std::make_tuple(from_vertex, to_vertex, edge));
-                      }
-                    }
+                  for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                    if (edge_ref.ptr != edge) continue;
+                    index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
+                    index_abort_processor.vector_edge_.CollectOnPropertyChange(
+                        edge_type, prop_id, *current->property.value, from_vertex, to_vertex, edge);
                   }
                 }
 
@@ -1662,10 +1637,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                   *transaction_.active_indices_,
                                   transaction_.start_timestamp,
                                   mem_storage->name_id_mapper_.get());
-    for (auto const &[edge_type_prop, prop_edges] : vector_edge_type_property_restore) {
-      storage_->indices_.vector_edge_index_.RestoreEntries(edge_type_prop, prop_edges);
-    }
-
     // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
     if (!my_deleted_edges.empty() && mem_storage->config_.salient.items.enable_edges_metadata) {
       auto edges_metadata_acc = mem_storage->edges_metadata_.access();
@@ -2082,7 +2053,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   if (vector_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
-  } else if (vector_edge_index.DropIndex(index_name)) {
+  } else if (vector_edge_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   } else {
     return std::unexpected{IndexDefinitionError{}};
@@ -2114,7 +2085,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector edge index with the same name as vector index on nodes
   if (vector_index.IndexExists(spec.index_name, in_memory->name_id_mapper_.get()) ||
-      !vector_edge_index.CreateIndex(spec, vertices_acc)) {
+      !vector_edge_index.CreateIndex(spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
@@ -2979,11 +2950,20 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   // EDGES
   if (!current_deleted_edges.empty()) {
+    auto edge_acc = edges_.access();
+
     if (!indices_.vector_edge_index_.Empty()) {
-      indices_.RemoveEdgesFromVectorEdgeIndices(current_deleted_edges);
+      // Resolve GIDs to Edge* BEFORE skip-list removal while Edge* is still valid.
+      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
+                                     auto it = edge_acc.find(gid);
+                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
+                                     return &*it;
+                                   }) |
+                                   std::ranges::to<std::vector>();
+
+      indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
     }
 
-    auto edge_acc = edges_.access();
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
@@ -3021,15 +3001,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto edge_acc = edges_.access();
 
     if (!indices_.vector_edge_index_.Empty()) {
-      // Collect deleted edge GIDs BEFORE skip-list removal while Edge* is still valid.
-      std::list<Gid> analytical_deleted_edge_gids;
-      for (auto const &edge : edge_acc) {
-        if (edge.delta() == nullptr && edge.deleted()) {
-          analytical_deleted_edge_gids.push_back(edge.gid);
-        }
-      }
-      if (!analytical_deleted_edge_gids.empty()) {
-        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edge_gids);
+      // Collect deleted Edge* BEFORE skip-list removal while Edge* is still valid.
+      auto const analytical_deleted_edges =
+          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
+          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
+
+      if (!analytical_deleted_edges.empty()) {
+        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
       }
     }
 
