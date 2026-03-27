@@ -173,7 +173,7 @@ inline void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unuse
 
 }  // namespace
 
-#ifdef USE_JEMALLOC
+#if USE_JEMALLOC
 void *JeMalloc(size_t size, int flags);
 
 __attribute__((visibility("default"))) void *JeNew(size_t size, int flags) {
