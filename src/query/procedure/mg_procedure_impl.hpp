@@ -26,6 +26,7 @@
 #include "query/db_accessor.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/point.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/map.hpp"
@@ -74,6 +75,9 @@ struct mgp_value {
   mgp_value(mgp_local_date_time *, allocator_type) noexcept;
   mgp_value(mgp_duration *, allocator_type) noexcept;
   mgp_value(mgp_zoned_date_time *, allocator_type) noexcept;
+  mgp_value(mgp_point_2d *, allocator_type) noexcept;
+  mgp_value(mgp_point_3d *, allocator_type) noexcept;
+  mgp_value(mgp_enum *, allocator_type) noexcept;
 
   /// Construct by copying memgraph::query::TypedValue using memgraph::utils::MemoryResource.
   /// mgp_graph is needed to construct mgp_vertex and mgp_edge.
@@ -81,8 +85,10 @@ struct mgp_value {
   mgp_value(const memgraph::query::TypedValue &, mgp_graph *, allocator_type);
 
   /// Construct by copying memgraph::storage::PropertyValue using memgraph::utils::MemoryResource.
+  /// Optional DbAccessor is needed to resolve Enum values to names.
   /// @throw std::bad_alloc
-  mgp_value(const memgraph::storage::PropertyValue &, memgraph::storage::NameIdMapper *, allocator_type);
+  mgp_value(const memgraph::storage::PropertyValue &, memgraph::storage::NameIdMapper *, allocator_type,
+            memgraph::query::DbAccessor *db_accessor = nullptr);
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_value(const mgp_value &) = delete;
@@ -129,6 +135,9 @@ struct mgp_value {
     mgp_local_date_time *local_date_time_v;
     mgp_duration *duration_v;
     mgp_zoned_date_time *zoned_date_time_v;
+    mgp_point_2d *point_2d_v;
+    mgp_point_3d *point_3d_v;
+    mgp_enum *enum_v;
   };
 };
 
@@ -381,6 +390,83 @@ struct mgp_duration {
 
   allocator_type alloc;
   memgraph::utils::Duration duration;
+};
+
+struct mgp_point_2d {
+  using allocator_type = memgraph::utils::Allocator<mgp_point_2d>;
+
+  static_assert(std::is_nothrow_copy_constructible_v<memgraph::storage::Point2d>);
+
+  mgp_point_2d(const memgraph::storage::Point2d &point, allocator_type alloc) noexcept : alloc(alloc), point(point) {}
+
+  mgp_point_2d(const mgp_point_2d &other, allocator_type alloc) noexcept : alloc(alloc), point(other.point) {}
+
+  mgp_point_2d(mgp_point_2d &&other, allocator_type alloc) noexcept : alloc(alloc), point(other.point) {}
+
+  mgp_point_2d(mgp_point_2d &&other) noexcept : alloc(other.alloc), point(other.point) {}
+
+  mgp_point_2d(const mgp_point_2d &) = delete;
+  mgp_point_2d &operator=(const mgp_point_2d &) = delete;
+  mgp_point_2d &operator=(mgp_point_2d &&) = delete;
+  ~mgp_point_2d() = default;
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
+
+  allocator_type alloc;
+  memgraph::storage::Point2d point;
+};
+
+struct mgp_point_3d {
+  using allocator_type = memgraph::utils::Allocator<mgp_point_3d>;
+
+  static_assert(std::is_nothrow_copy_constructible_v<memgraph::storage::Point3d>);
+
+  mgp_point_3d(const memgraph::storage::Point3d &point, allocator_type alloc) noexcept : alloc(alloc), point(point) {}
+
+  mgp_point_3d(const mgp_point_3d &other, allocator_type alloc) noexcept : alloc(alloc), point(other.point) {}
+
+  mgp_point_3d(mgp_point_3d &&other, allocator_type alloc) noexcept : alloc(alloc), point(other.point) {}
+
+  mgp_point_3d(mgp_point_3d &&other) noexcept : alloc(other.alloc), point(other.point) {}
+
+  mgp_point_3d(const mgp_point_3d &) = delete;
+  mgp_point_3d &operator=(const mgp_point_3d &) = delete;
+  mgp_point_3d &operator=(mgp_point_3d &&) = delete;
+  ~mgp_point_3d() = default;
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
+
+  allocator_type alloc;
+  memgraph::storage::Point3d point;
+};
+
+struct mgp_enum {
+  using allocator_type = memgraph::utils::Allocator<mgp_enum>;
+
+  mgp_enum(std::string_view type_name, std::string_view value_name, allocator_type alloc)
+      : alloc(alloc), type_name(type_name, alloc.resource()), value_name(value_name, alloc.resource()) {}
+
+  mgp_enum(const mgp_enum &other, allocator_type alloc)
+      : alloc(alloc), type_name(other.type_name, alloc.resource()), value_name(other.value_name, alloc.resource()) {}
+
+  mgp_enum(mgp_enum &&other, allocator_type alloc)
+      : alloc(alloc),
+        type_name(std::move(other.type_name), alloc.resource()),
+        value_name(std::move(other.value_name), alloc.resource()) {}
+
+  mgp_enum(mgp_enum &&other) noexcept
+      : alloc(other.alloc), type_name(std::move(other.type_name)), value_name(std::move(other.value_name)) {}
+
+  mgp_enum(const mgp_enum &) = delete;
+  mgp_enum &operator=(const mgp_enum &) = delete;
+  mgp_enum &operator=(mgp_enum &&) = delete;
+  ~mgp_enum() = default;
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
+
+  allocator_type alloc;
+  memgraph::utils::pmr::string type_name;
+  memgraph::utils::pmr::string value_name;
 };
 
 struct mgp_list {

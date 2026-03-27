@@ -194,6 +194,33 @@ class DurationType : public CypherType {
   bool SatisfiesType(const query::TypedValue &value) const override { return value.IsDuration(); }
 };
 
+class Point2dType : public CypherType {
+ public:
+  std::string_view GetPresentableName() const override { return "POINT_2D"; }
+
+  bool SatisfiesType(const mgp_value &value) const override;
+
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsPoint2d(); }
+};
+
+class Point3dType : public CypherType {
+ public:
+  std::string_view GetPresentableName() const override { return "POINT_3D"; }
+
+  bool SatisfiesType(const mgp_value &value) const override;
+
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsPoint3d(); }
+};
+
+class EnumType : public CypherType {
+ public:
+  std::string_view GetPresentableName() const override { return "ENUM"; }
+
+  bool SatisfiesType(const mgp_value &value) const override;
+
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsEnum(); }
+};
+
 // Composite Types
 
 class ListType : public CypherType {

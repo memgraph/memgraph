@@ -35,6 +35,7 @@ namespace mgp {
 class VectorSearchException : public std::exception {
  public:
   explicit VectorSearchException(std::string message) : message_(std::move(message)) {}
+
   const char *what() const noexcept override { return message_.c_str(); }
 
  private:
@@ -44,6 +45,7 @@ class VectorSearchException : public std::exception {
 class TextSearchException : public std::exception {
  public:
   explicit TextSearchException(std::string message) : message_(std::move(message)) {}
+
   const char *what() const noexcept override { return message_.c_str(); }
 
  private:
@@ -53,6 +55,7 @@ class TextSearchException : public std::exception {
 class IndexException : public std::exception {
  public:
   explicit IndexException(std::string message) : message_(std::move(message)) {}
+
   const char *what() const noexcept override { return message_.c_str(); }
 
  private:
@@ -62,6 +65,7 @@ class IndexException : public std::exception {
 class ValueException : public std::exception {
  public:
   explicit ValueException(std::string message) : message_(std::move(message)) {}
+
   const char *what() const noexcept override { return message_.c_str(); }
 
  private:
@@ -71,6 +75,7 @@ class ValueException : public std::exception {
 class NotFoundException : public std::exception {
  public:
   explicit NotFoundException(std::string message) : message_(std::move(message)) {}
+
   const char *what() const noexcept override { return message_.c_str(); }
 
  private:
@@ -80,6 +85,7 @@ class NotFoundException : public std::exception {
 class MustAbortException : public std::exception {
  public:
   explicit MustAbortException(std::string message) : message_(std::move(message)) {}
+
   const char *what() const noexcept override { return message_.c_str(); }
 
  private:
@@ -118,6 +124,9 @@ class Node;
 class Relationship;
 struct MapItem;
 class Duration;
+class Point2d;
+class Point3d;
+class Enum;
 class Value;
 class QueryExecution;
 class ExecutionResult;
@@ -125,9 +134,11 @@ class ExecutionHeaders;
 class ExecutionRow;
 
 struct StealType {};
+
 inline constexpr StealType steal_type{};
 
 struct RefType {};
+
 inline constexpr RefType ref_type{};
 
 namespace MemoryDispatcher {
@@ -156,6 +167,7 @@ struct UnsupportedMgpMemory {
   void operator=(mgp_memory *) __attribute__((diagnose_if(
       true, "mgp::memory must not be used as of v2.18.1. Please use MemoryDispatcherGuard instead.", "error")));
 };
+
 inline UnsupportedMgpMemory memory;  // NOSONAR
 
 class MemoryDispatcherGuard final {
@@ -715,6 +727,7 @@ class Map {
  private:
   mgp_map *ptr_;
 };
+
 /* #endregion */
 
 /* #region Graph elements (Node, Relationship & Path) */
@@ -924,6 +937,7 @@ class Path {
  private:
   mgp_path *ptr_;
 };
+
 /* #endregion */
 
 /* #region Temporal types (Date, LocalTime, LocalDateTime, Duration) */
@@ -1250,6 +1264,138 @@ class ZonedDateTime {
 
 /* #endregion */
 
+/* #region Point2d */
+
+/// @brief Wrapper class for @ref mgp_point_2d.
+class Point2d {
+ private:
+  friend class Value;
+  friend class Record;
+  friend class Result;
+
+ public:
+  /// @brief Creates a Point2d object from the copy of the given @ref mgp_point_2d.
+  explicit Point2d(mgp_point_2d *ptr);
+  /// @brief Creates a Point2d object from the copy of the given @ref mgp_point_2d.
+  explicit Point2d(const mgp_point_2d *const_ptr);
+
+  /// @brief Creates a Point2d from components.
+  Point2d(double x, double y, int srid);
+
+  Point2d(const Point2d &other);
+  Point2d(Point2d &&other) noexcept;
+
+  Point2d &operator=(const Point2d &other);
+  Point2d &operator=(Point2d &&other) noexcept;
+
+  ~Point2d();
+
+  /// @brief Returns the x coordinate.
+  double X() const;
+  /// @brief Returns the y coordinate.
+  double Y() const;
+  /// @brief Returns the SRID.
+  int Srid() const;
+
+  bool operator==(const Point2d &other) const;
+  bool operator!=(const Point2d &other) const;
+
+  std::string ToString() const;
+
+ private:
+  mgp_point_2d *ptr_;
+};
+
+/* #endregion */
+
+/* #region Point3d */
+
+/// @brief Wrapper class for @ref mgp_point_3d.
+class Point3d {
+ private:
+  friend class Value;
+  friend class Record;
+  friend class Result;
+
+ public:
+  /// @brief Creates a Point3d object from the copy of the given @ref mgp_point_3d.
+  explicit Point3d(mgp_point_3d *ptr);
+  /// @brief Creates a Point3d object from the copy of the given @ref mgp_point_3d.
+  explicit Point3d(const mgp_point_3d *const_ptr);
+
+  /// @brief Creates a Point3d from components.
+  Point3d(double x, double y, double z, int srid);
+
+  Point3d(const Point3d &other);
+  Point3d(Point3d &&other) noexcept;
+
+  Point3d &operator=(const Point3d &other);
+  Point3d &operator=(Point3d &&other) noexcept;
+
+  ~Point3d();
+
+  /// @brief Returns the x coordinate.
+  double X() const;
+  /// @brief Returns the y coordinate.
+  double Y() const;
+  /// @brief Returns the z coordinate.
+  double Z() const;
+  /// @brief Returns the SRID.
+  int Srid() const;
+
+  bool operator==(const Point3d &other) const;
+  bool operator!=(const Point3d &other) const;
+
+  std::string ToString() const;
+
+ private:
+  mgp_point_3d *ptr_;
+};
+
+/* #endregion */
+
+/* #region Enum */
+
+/// @brief Wrapper class for @ref mgp_enum.
+class Enum {
+ private:
+  friend class Value;
+  friend class Record;
+  friend class Result;
+
+ public:
+  /// @brief Creates an Enum object from the copy of the given @ref mgp_enum.
+  explicit Enum(mgp_enum *ptr);
+  /// @brief Creates an Enum object from the copy of the given @ref mgp_enum.
+  explicit Enum(const mgp_enum *const_ptr);
+
+  /// @brief Creates an Enum from type name and value name.
+  Enum(std::string_view type_name, std::string_view value_name);
+
+  Enum(const Enum &other);
+  Enum(Enum &&other) noexcept;
+
+  Enum &operator=(const Enum &other);
+  Enum &operator=(Enum &&other) noexcept;
+
+  ~Enum();
+
+  /// @brief Returns the type name.
+  std::string_view TypeName() const;
+  /// @brief Returns the value name.
+  std::string_view ValueName() const;
+
+  bool operator==(const Enum &other) const;
+  bool operator!=(const Enum &other) const;
+
+  std::string ToString() const;
+
+ private:
+  mgp_enum *ptr_;
+};
+
+/* #endregion */
+
 /* #endregion */
 
 /* #region Value */
@@ -1269,7 +1415,10 @@ enum class Type : uint8_t {
   LocalTime,
   LocalDateTime,
   Duration,
-  ZonedDateTime
+  ZonedDateTime,
+  Point2d,
+  Point3d,
+  Enum
 };
 
 /// @brief Wrapper class for @ref mgp_value.
@@ -1281,6 +1430,9 @@ class Value {
   friend class LocalTime;
   friend class LocalDateTime;
   friend class Duration;
+  friend class Point2d;
+  friend class Point3d;
+  friend class Enum;
   friend class Record;
   friend class Result;
 
@@ -1366,6 +1518,21 @@ class Value {
   /// @note The behavior of accessing `zoned_date_time` after performing this operation is undefined.
   explicit Value(ZonedDateTime &&zoned_date_time);
 
+  /// @brief Constructs a Point2d value from the copy of the given `point`.
+  explicit Value(const Point2d &point);
+  /// @brief Constructs a Point2d value and takes ownership of the given `point`.
+  explicit Value(Point2d &&point);
+
+  /// @brief Constructs a Point3d value from the copy of the given `point`.
+  explicit Value(const Point3d &point);
+  /// @brief Constructs a Point3d value and takes ownership of the given `point`.
+  explicit Value(Point3d &&point);
+
+  /// @brief Constructs an Enum value from the copy of the given `enum_v`.
+  explicit Value(const Enum &enum_v);
+  /// @brief Constructs an Enum value and takes ownership of the given `enum_v`.
+  explicit Value(Enum &&enum_v);
+
   Value(const Value &other);
   Value(Value &&other) noexcept;
 
@@ -1428,6 +1595,15 @@ class Value {
   /// @pre Value type needs to be Type::LocalDateTime.
   ZonedDateTime ValueZonedDateTime() const;
   ZonedDateTime ValueZonedDateTime();
+  /// @pre Value type needs to be Type::Point2d.
+  Point2d ValuePoint2d() const;
+  Point2d ValuePoint2d();
+  /// @pre Value type needs to be Type::Point3d.
+  Point3d ValuePoint3d() const;
+  Point3d ValuePoint3d();
+  /// @pre Value type needs to be Type::Enum.
+  Enum ValueEnum() const;
+  Enum ValueEnum();
 
   /// @brief Returns whether the value is null.
   bool IsNull() const;
@@ -1461,6 +1637,12 @@ class Value {
   bool IsDuration() const;
   /// @brief Returns whether the value is a @ref ZonedDateTime object.
   bool IsZonedDateTime() const;
+  /// @brief Returns whether the value is a @ref Point2d object.
+  bool IsPoint2d() const;
+  /// @brief Returns whether the value is a @ref Point3d object.
+  bool IsPoint3d() const;
+  /// @brief Returns whether the value is an @ref Enum object.
+  bool IsEnum() const;
 
   /// @exception std::runtime_error Unknown value type.
   bool operator==(const Value &other) const;
@@ -1995,6 +2177,15 @@ inline bool ZonedDateTimesEqual(mgp_zoned_date_time *zoned_date_time1, mgp_zoned
   return mgp::zoned_date_time_equal(zoned_date_time1, zoned_date_time2);
 }
 
+/// @brief Returns whether two MGP API Point2d objects are equal.
+inline bool Point2dsEqual(mgp_point_2d *p1, mgp_point_2d *p2) { return mgp::point_2d_equal(p1, p2); }
+
+/// @brief Returns whether two MGP API Point3d objects are equal.
+inline bool Point3dsEqual(mgp_point_3d *p1, mgp_point_3d *p2) { return mgp::point_3d_equal(p1, p2); }
+
+/// @brief Returns whether two MGP API Enum objects are equal.
+inline bool EnumsEqual(mgp_enum *e1, mgp_enum *e2) { return mgp::enum_equal(e1, e2); }
+
 /// @brief Returns whether two MGP API values are equal.
 inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
   if (value1 == value2) {
@@ -2038,6 +2229,12 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
       return util::ZonedDateTimesEqual(mgp::value_get_zoned_date_time(value1), mgp::value_get_zoned_date_time(value2));
     case MGP_VALUE_TYPE_DURATION:
       return util::DurationsEqual(mgp::value_get_duration(value1), mgp::value_get_duration(value2));
+    case MGP_VALUE_TYPE_POINT_2D:
+      return util::Point2dsEqual(mgp::value_get_point_2d(value1), mgp::value_get_point_2d(value2));
+    case MGP_VALUE_TYPE_POINT_3D:
+      return util::Point3dsEqual(mgp::value_get_point_3d(value1), mgp::value_get_point_3d(value2));
+    case MGP_VALUE_TYPE_ENUM:
+      return util::EnumsEqual(mgp::value_get_enum(value1), mgp::value_get_enum(value2));
   }
   throw ValueException("Invalid value; does not match any Memgraph type.");
 }
@@ -2112,6 +2309,12 @@ inline Type ToAPIType(mgp_value_type type) {
       return Type::Duration;
     case MGP_VALUE_TYPE_ZONED_DATE_TIME:
       return Type::ZonedDateTime;
+    case MGP_VALUE_TYPE_POINT_2D:
+      return Type::Point2d;
+    case MGP_VALUE_TYPE_POINT_3D:
+      return Type::Point3d;
+    case MGP_VALUE_TYPE_ENUM:
+      return Type::Enum;
   }
   throw ValueException("Unknown type error!");
 }
@@ -2609,6 +2812,7 @@ inline Labels::Iterator Labels::cend() { return Iterator(this, Size()); }
 // List:
 
 inline List::List(mgp_list *ptr) : ptr_(mgp::MemHandlerCallback(list_copy, ptr)) {}
+
 inline List::List(mgp_list *ptr, StealType) : ptr_(ptr) {}
 
 inline List::List(const mgp_list *const_ptr)
@@ -3171,6 +3375,7 @@ inline std::string Relationship::ToString() const {
 
   return from.ToString() + "-" + relationship + "->" + to.ToString();
 }
+
 // Path:
 
 inline Path::Path(mgp_path *ptr) : ptr_(mgp::MemHandlerCallback(path_copy, ptr)) {}
@@ -3478,12 +3683,9 @@ inline LocalDateTime::LocalDateTime(std::string_view string)
 
 inline LocalDateTime::LocalDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond,
                                     int microsecond) {
-  struct mgp_date_parameters date_params {
-    .year = year, .month = month, .day = day
-  };
-  struct mgp_local_time_parameters local_time_params {
-    .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond
-  };
+  struct mgp_date_parameters date_params{.year = year, .month = month, .day = day};
+  struct mgp_local_time_parameters local_time_params{
+      .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond};
   mgp_local_date_time_parameters params{.date_parameters = &date_params, .local_time_parameters = &local_time_params};
   ptr_ = mgp::MemHandlerCallback(local_date_time_from_parameters, &params);
 }
@@ -3494,12 +3696,9 @@ inline LocalDateTime::LocalDateTime(LocalDateTime &&other) noexcept : ptr_(other
 
 inline ZonedDateTime::ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond,
                                     int microsecond, int offset_in_minutes) {
-  struct mgp_date_parameters date_params {
-    .year = year, .month = month, .day = day
-  };
-  struct mgp_local_time_parameters local_time_params {
-    .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond
-  };
+  struct mgp_date_parameters date_params{.year = year, .month = month, .day = day};
+  struct mgp_local_time_parameters local_time_params{
+      .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond};
   mgp_zoned_date_time_parameters params{.date_parameters = &date_params,
                                         .local_time_parameters = &local_time_params,
                                         .timezone_info = {.offset_in_minutes = offset_in_minutes},
@@ -3509,12 +3708,9 @@ inline ZonedDateTime::ZonedDateTime(int year, int month, int day, int hour, int 
 
 inline ZonedDateTime::ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond,
                                     int microsecond, std::string_view timezone_name) {
-  struct mgp_date_parameters date_params {
-    .year = year, .month = month, .day = day
-  };
-  struct mgp_local_time_parameters local_time_params {
-    .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond
-  };
+  struct mgp_date_parameters date_params{.year = year, .month = month, .day = day};
+  struct mgp_local_time_parameters local_time_params{
+      .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond};
   mgp_zoned_date_time_parameters params{.date_parameters = &date_params,
                                         .local_time_parameters = &local_time_params,
                                         .timezone_info = {.timezone_name = timezone_name.data()},
@@ -3610,8 +3806,15 @@ inline bool LocalDateTime::operator<(const LocalDateTime &other) const {
 }
 
 inline std::string LocalDateTime::ToString() const {
-  return std::format("{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:03d}{:03d}", Year(), Month(), Day(), Hour(), Minute(),
-                     Second(), Millisecond(), Microsecond());
+  return std::format("{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:03d}{:03d}",
+                     Year(),
+                     Month(),
+                     Day(),
+                     Hour(),
+                     Minute(),
+                     Second(),
+                     Millisecond(),
+                     Microsecond());
 }
 
 // Duration:
@@ -3805,10 +4008,168 @@ inline ZonedDateTime ZonedDateTime::Now() {
 
 /* #endregion */
 
+/* #region Point2d */
+
+inline Point2d::Point2d(mgp_point_2d *ptr) : ptr_(mgp::MemHandlerCallback(point_2d_copy, ptr)) {}
+
+inline Point2d::Point2d(const mgp_point_2d *const_ptr)
+    : ptr_(mgp::MemHandlerCallback(point_2d_copy, const_cast<mgp_point_2d *>(const_ptr))) {}
+
+inline Point2d::Point2d(const Point2d &other) : Point2d(other.ptr_) {}
+
+inline Point2d::Point2d(Point2d &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
+
+inline Point2d &Point2d::operator=(const Point2d &other) {
+  if (this != &other) {
+    mgp::point_2d_destroy(ptr_);
+    ptr_ = mgp::MemHandlerCallback(point_2d_copy, other.ptr_);
+  }
+  return *this;
+}
+
+inline Point2d &Point2d::operator=(Point2d &&other) noexcept {
+  if (this != &other) {
+    mgp::point_2d_destroy(ptr_);
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+
+inline Point2d::Point2d(double x, double y, int srid) { ptr_ = mgp::MemHandlerCallback(point_2d_make, x, y, srid); }
+
+inline Point2d::~Point2d() {
+  if (ptr_ != nullptr) {
+    mgp::point_2d_destroy(ptr_);
+  }
+}
+
+inline double Point2d::X() const { return mgp::point_2d_get_x(ptr_); }
+
+inline double Point2d::Y() const { return mgp::point_2d_get_y(ptr_); }
+
+inline int Point2d::Srid() const { return mgp::point_2d_get_srid(ptr_); }
+
+inline bool Point2d::operator==(const Point2d &other) const { return util::Point2dsEqual(ptr_, other.ptr_); }
+
+inline bool Point2d::operator!=(const Point2d &other) const { return !(*this == other); }
+
+inline std::string Point2d::ToString() const { return std::format("Point2d(x={}, y={}, srid={})", X(), Y(), Srid()); }
+
+/* #endregion */
+
+/* #region Point3d */
+
+inline Point3d::Point3d(mgp_point_3d *ptr) : ptr_(mgp::MemHandlerCallback(point_3d_copy, ptr)) {}
+
+inline Point3d::Point3d(const mgp_point_3d *const_ptr)
+    : ptr_(mgp::MemHandlerCallback(point_3d_copy, const_cast<mgp_point_3d *>(const_ptr))) {}
+
+inline Point3d::Point3d(const Point3d &other) : Point3d(other.ptr_) {}
+
+inline Point3d::Point3d(Point3d &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
+
+inline Point3d &Point3d::operator=(const Point3d &other) {
+  if (this != &other) {
+    mgp::point_3d_destroy(ptr_);
+    ptr_ = mgp::MemHandlerCallback(point_3d_copy, other.ptr_);
+  }
+  return *this;
+}
+
+inline Point3d &Point3d::operator=(Point3d &&other) noexcept {
+  if (this != &other) {
+    mgp::point_3d_destroy(ptr_);
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+
+inline Point3d::Point3d(double x, double y, double z, int srid) {
+  ptr_ = mgp::MemHandlerCallback(point_3d_make, x, y, z, srid);
+}
+
+inline Point3d::~Point3d() {
+  if (ptr_ != nullptr) {
+    mgp::point_3d_destroy(ptr_);
+  }
+}
+
+inline double Point3d::X() const { return mgp::point_3d_get_x(ptr_); }
+
+inline double Point3d::Y() const { return mgp::point_3d_get_y(ptr_); }
+
+inline double Point3d::Z() const { return mgp::point_3d_get_z(ptr_); }
+
+inline int Point3d::Srid() const { return mgp::point_3d_get_srid(ptr_); }
+
+inline bool Point3d::operator==(const Point3d &other) const { return util::Point3dsEqual(ptr_, other.ptr_); }
+
+inline bool Point3d::operator!=(const Point3d &other) const { return !(*this == other); }
+
+inline std::string Point3d::ToString() const {
+  return std::format("Point3d(x={}, y={}, z={}, srid={})", X(), Y(), Z(), Srid());
+}
+
+/* #endregion */
+
+/* #region Enum */
+
+inline Enum::Enum(mgp_enum *ptr) : ptr_(mgp::MemHandlerCallback(enum_copy, ptr)) {}
+
+inline Enum::Enum(const mgp_enum *const_ptr)
+    : ptr_(mgp::MemHandlerCallback(enum_copy, const_cast<mgp_enum *>(const_ptr))) {}
+
+inline Enum::Enum(const Enum &other) : Enum(other.ptr_) {}
+
+inline Enum::Enum(Enum &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
+
+inline Enum &Enum::operator=(const Enum &other) {
+  if (this != &other) {
+    mgp::enum_destroy(ptr_);
+    ptr_ = mgp::MemHandlerCallback(enum_copy, other.ptr_);
+  }
+  return *this;
+}
+
+inline Enum &Enum::operator=(Enum &&other) noexcept {
+  if (this != &other) {
+    mgp::enum_destroy(ptr_);
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+
+inline Enum::Enum(std::string_view type_name, std::string_view value_name) {
+  ptr_ = mgp::MemHandlerCallback(enum_make, type_name.data(), value_name.data());
+}
+
+inline Enum::~Enum() {
+  if (ptr_ != nullptr) {
+    mgp::enum_destroy(ptr_);
+  }
+}
+
+inline std::string_view Enum::TypeName() const { return mgp::enum_get_type_name(ptr_); }
+
+inline std::string_view Enum::ValueName() const { return mgp::enum_get_value_name(ptr_); }
+
+inline bool Enum::operator==(const Enum &other) const { return util::EnumsEqual(ptr_, other.ptr_); }
+
+inline bool Enum::operator!=(const Enum &other) const { return !(*this == other); }
+
+inline std::string Enum::ToString() const { return std::format("{}::{}", TypeName(), ValueName()); }
+
+/* #endregion */
+
 /* #region Value */
 
 inline Value::Value(mgp_value *ptr) : ptr_(mgp::MemHandlerCallback(value_copy, ptr)) {}
+
 inline Value::Value(StealType /*steal*/, mgp_value *ptr) : ptr_{ptr} {}
+
 inline Value::Value(RefType /*ref*/, mgp_value *ptr)
     : ptr_(reinterpret_cast<mgp_value *>(reinterpret_cast<uintptr_t>(ptr) | uintptr_t{1})) {}
 
@@ -3899,6 +4260,29 @@ inline Value::Value(ZonedDateTime &&zoned_date_time) {
   zoned_date_time.ptr_ = nullptr;
 }
 
+inline Value::Value(const Point2d &point)
+    : ptr_(mgp::value_make_point_2d(mgp::MemHandlerCallback(point_2d_copy, point.ptr_))) {}
+
+inline Value::Value(Point2d &&point) {
+  ptr_ = mgp::value_make_point_2d(point.ptr_);
+  point.ptr_ = nullptr;
+}
+
+inline Value::Value(const Point3d &point)
+    : ptr_(mgp::value_make_point_3d(mgp::MemHandlerCallback(point_3d_copy, point.ptr_))) {}
+
+inline Value::Value(Point3d &&point) {
+  ptr_ = mgp::value_make_point_3d(point.ptr_);
+  point.ptr_ = nullptr;
+}
+
+inline Value::Value(const Enum &enum_v) : ptr_(mgp::value_make_enum(mgp::MemHandlerCallback(enum_copy, enum_v.ptr_))) {}
+
+inline Value::Value(Enum &&enum_v) {
+  ptr_ = mgp::value_make_enum(enum_v.ptr_);
+  enum_v.ptr_ = nullptr;
+}
+
 inline Value::Value(const Value &other) : Value(other.ptr()) {}
 
 inline Value::Value(Value &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
@@ -3946,6 +4330,7 @@ inline bool Value::ValueBool() const {
   }
   return mgp::value_get_bool(this->ptr());
 }
+
 inline bool Value::ValueBool() {
   if (Type() != Type::Bool) {
     throw ValueException("Type of value is wrong: expected Bool.");
@@ -3959,6 +4344,7 @@ inline std::int64_t Value::ValueInt() const {
   }
   return mgp::value_get_int(this->ptr());
 }
+
 inline std::int64_t Value::ValueInt() {
   if (Type() != Type::Int) {
     throw ValueException("Type of value is wrong: expected Int.");
@@ -3972,6 +4358,7 @@ inline double Value::ValueDouble() const {
   }
   return mgp::value_get_double(this->ptr());
 }
+
 inline double Value::ValueDouble() {
   if (Type() != Type::Double) {
     throw ValueException("Type of value is wrong: expected Double.");
@@ -3988,6 +4375,7 @@ inline double Value::ValueNumeric() const {
   }
   return mgp::value_get_double(this->ptr());
 }
+
 inline double Value::ValueNumeric() {
   if (Type() != Type::Int && Type() != Type::Double) {
     throw ValueException("Type of value is wrong: expected Int or Double.");
@@ -4004,6 +4392,7 @@ inline std::string_view Value::ValueString() const {
   }
   return mgp::value_get_string(this->ptr());
 }
+
 inline std::string_view Value::ValueString() {
   if (Type() != Type::String) {
     throw ValueException("Type of value is wrong: expected String.");
@@ -4017,6 +4406,7 @@ inline List Value::ValueList() const {
   }
   return List(mgp::value_get_list(this->ptr()));
 }
+
 inline List Value::ValueList() {
   if (Type() != Type::List) {
     throw ValueException("Type of value is wrong: expected List.");
@@ -4030,6 +4420,7 @@ inline Map Value::ValueMap() const {
   }
   return Map(mgp::value_get_map(this->ptr()));
 }
+
 inline Map Value::ValueMap() {
   if (Type() != Type::Map) {
     throw ValueException("Type of value is wrong: expected Map.");
@@ -4043,6 +4434,7 @@ inline Node Value::ValueNode() const {
   }
   return Node(mgp::value_get_vertex(this->ptr()));
 }
+
 inline Node Value::ValueNode() {
   if (Type() != Type::Node) {
     throw ValueException("Type of value is wrong: expected Node.");
@@ -4056,6 +4448,7 @@ inline Relationship Value::ValueRelationship() const {
   }
   return Relationship(mgp::value_get_edge(this->ptr()));
 }
+
 inline Relationship Value::ValueRelationship() {
   if (Type() != Type::Relationship) {
     throw ValueException("Type of value is wrong: expected Relationship.");
@@ -4069,6 +4462,7 @@ inline Path Value::ValuePath() const {
   }
   return Path(mgp::value_get_path(this->ptr()));
 }
+
 inline Path Value::ValuePath() {
   if (Type() != Type::Path) {
     throw ValueException("Type of value is wrong: expected Path.");
@@ -4082,6 +4476,7 @@ inline Date Value::ValueDate() const {
   }
   return Date(mgp::value_get_date(this->ptr()));
 }
+
 inline Date Value::ValueDate() {
   if (Type() != Type::Date) {
     throw ValueException("Type of value is wrong: expected Date.");
@@ -4095,6 +4490,7 @@ inline LocalTime Value::ValueLocalTime() const {
   }
   return LocalTime(mgp::value_get_local_time(this->ptr()));
 }
+
 inline LocalTime Value::ValueLocalTime() {
   if (Type() != Type::LocalTime) {
     throw ValueException("Type of value is wrong: expected LocalTime.");
@@ -4108,6 +4504,7 @@ inline LocalDateTime Value::ValueLocalDateTime() const {
   }
   return LocalDateTime(mgp::value_get_local_date_time(this->ptr()));
 }
+
 inline LocalDateTime Value::ValueLocalDateTime() {
   if (Type() != Type::LocalDateTime) {
     throw ValueException("Type of value is wrong: expected LocalDateTime.");
@@ -4121,6 +4518,7 @@ inline Duration Value::ValueDuration() const {
   }
   return Duration(mgp::value_get_duration(this->ptr()));
 }
+
 inline Duration Value::ValueDuration() {
   if (Type() != Type::Duration) {
     throw ValueException("Type of value is wrong: expected Duration.");
@@ -4134,11 +4532,54 @@ inline ZonedDateTime Value::ValueZonedDateTime() const {
   }
   return ZonedDateTime(mgp::value_get_zoned_date_time(this->ptr()));
 }
+
 inline ZonedDateTime Value::ValueZonedDateTime() {
   if (Type() != Type::ZonedDateTime) {
     throw ValueException("Type of value is wrong: expected ZonedDateTime.");
   }
   return ZonedDateTime(mgp::value_get_zoned_date_time(this->ptr()));
+}
+
+inline Point2d Value::ValuePoint2d() const {
+  if (Type() != Type::Point2d) {
+    throw ValueException("Type of value is wrong: expected Point2d.");
+  }
+  return Point2d(mgp::value_get_point_2d(this->ptr()));
+}
+
+inline Point2d Value::ValuePoint2d() {
+  if (Type() != Type::Point2d) {
+    throw ValueException("Type of value is wrong: expected Point2d.");
+  }
+  return Point2d(mgp::value_get_point_2d(this->ptr()));
+}
+
+inline Point3d Value::ValuePoint3d() const {
+  if (Type() != Type::Point3d) {
+    throw ValueException("Type of value is wrong: expected Point3d.");
+  }
+  return Point3d(mgp::value_get_point_3d(this->ptr()));
+}
+
+inline Point3d Value::ValuePoint3d() {
+  if (Type() != Type::Point3d) {
+    throw ValueException("Type of value is wrong: expected Point3d.");
+  }
+  return Point3d(mgp::value_get_point_3d(this->ptr()));
+}
+
+inline Enum Value::ValueEnum() const {
+  if (Type() != Type::Enum) {
+    throw ValueException("Type of value is wrong: expected Enum.");
+  }
+  return Enum(mgp::value_get_enum(this->ptr()));
+}
+
+inline Enum Value::ValueEnum() {
+  if (Type() != Type::Enum) {
+    throw ValueException("Type of value is wrong: expected Enum.");
+  }
+  return Enum(mgp::value_get_enum(this->ptr()));
 }
 
 inline bool Value::IsNull() const { return mgp::value_is_null(this->ptr()); }
@@ -4172,6 +4613,12 @@ inline bool Value::IsLocalDateTime() const { return mgp::value_is_local_date_tim
 inline bool Value::IsDuration() const { return mgp::value_is_duration(this->ptr()); }
 
 inline bool Value::IsZonedDateTime() const { return mgp::value_is_zoned_date_time(this->ptr()); }
+
+inline bool Value::IsPoint2d() const { return mgp::value_is_point_2d(this->ptr()); }
+
+inline bool Value::IsPoint3d() const { return mgp::value_is_point_3d(this->ptr()); }
+
+inline bool Value::IsEnum() const { return mgp::value_is_enum(this->ptr()); }
 
 inline bool Value::operator==(const Value &other) const { return util::ValuesEqual(this->ptr(), other.ptr()); }
 
@@ -4336,85 +4783,113 @@ inline Record::Record(mgp_result_record *record) : record_(record) {}
 
 inline void Record::Insert(const char *field_name, bool value) {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_bool, value);
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, std::int64_t value) {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_int, value);
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, double value) {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_double, value);
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, std::string_view value) {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_string, value.data());
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const char *value) {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_string, value);
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const List &list) {
   auto *mgp_val = mgp::value_make_list(mgp::MemHandlerCallback(list_copy, list.ptr_));
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Map &map) {
   auto *mgp_val = mgp::value_make_map(mgp::MemHandlerCallback(map_copy, map.ptr_));
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Node &node) {
   auto *mgp_val = mgp::value_make_vertex(mgp::MemHandlerCallback(vertex_copy, node.ptr_));
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Relationship &relationship) {
   auto *mgp_val = mgp::value_make_edge(mgp::MemHandlerCallback(edge_copy, relationship.ptr_));
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Path &path) {
   auto *mgp_val = mgp::value_make_path(mgp::MemHandlerCallback(path_copy, path.ptr_));
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Date &date) {
   auto *mgp_val = mgp::value_make_date(mgp::MemHandlerCallback(date_copy, date.ptr_));
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const LocalTime &local_time) {
   auto *mgp_val = mgp::value_make_local_time(mgp::MemHandlerCallback(local_time_copy, local_time.ptr_));
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const LocalDateTime &local_date_time) {
   auto *mgp_val = mgp::value_make_local_date_time(mgp::MemHandlerCallback(local_date_time_copy, local_date_time.ptr_));
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Record::Insert(const char *field_name, const Duration &duration) {
   auto *mgp_val = mgp::value_make_duration(mgp::MemHandlerCallback(duration_copy, duration.ptr_));
-  { mgp::result_record_insert(record_, field_name, mgp_val); }
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
@@ -4478,43 +4953,57 @@ inline Result::Result(mgp_func_result *result) : result_(result) {}
 
 inline void Result::SetValue() {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_null);
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(bool value) {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_bool, value);
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(std::int64_t value) {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_int, value);
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(double value) {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_double, value);
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(std::string_view value) {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_string, value.data());
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const char *value) {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_string, value);
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const List &list) {
   auto *mgp_val = mgp::value_make_list(mgp::MemHandlerCallback(list_copy, list.ptr_));
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
@@ -4527,7 +5016,9 @@ inline void Result::SetValue(List &&list) {
 
 inline void Result::SetValue(const Map &map) {
   auto *mgp_val = mgp::value_make_map(mgp::MemHandlerCallback(map_copy, map.ptr_));
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
@@ -4540,43 +5031,57 @@ inline void Result::SetValue(Map &&map) {
 
 inline void Result::SetValue(const Node &node) {
   auto *mgp_val = mgp::value_make_vertex(mgp::MemHandlerCallback(vertex_copy, node.ptr_));
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const Relationship &relationship) {
   auto *mgp_val = mgp::value_make_edge(mgp::MemHandlerCallback(edge_copy, relationship.ptr_));
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const Path &path) {
   auto *mgp_val = mgp::value_make_path(mgp::MemHandlerCallback(path_copy, path.ptr_));
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const Date &date) {
   auto *mgp_val = mgp::value_make_date(mgp::MemHandlerCallback(date_copy, date.ptr_));
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const LocalTime &local_time) {
   auto *mgp_val = mgp::value_make_local_time(mgp::MemHandlerCallback(local_time_copy, local_time.ptr_));
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const LocalDateTime &local_date_time) {
   auto *mgp_val = mgp::value_make_local_date_time(mgp::MemHandlerCallback(local_date_time_copy, local_date_time.ptr_));
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
 inline void Result::SetValue(const Duration &duration) {
   auto *mgp_val = mgp::value_make_duration(mgp::MemHandlerCallback(duration_copy, duration.ptr_));
-  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
   mgp::value_destroy(mgp_val);
 }
 
@@ -4783,9 +5288,10 @@ inline constexpr std::string_view kAggregationResultsKey = "aggregation_results"
 
 inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
                             text_search_mode search_mode, std::size_t limit) {
-  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(),
-                                                      search_query.data(), search_mode, limit),
-                              StealType{});
+  auto results_or_error =
+      Map(mgp::MemHandlerCallback(
+              graph_search_text_index, memgraph_graph, index_name.data(), search_query.data(), search_mode, limit),
+          StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
       throw TextSearchException{"The error message is not a string!"};
@@ -4806,9 +5312,10 @@ inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_na
 
 inline List SearchTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
                                 text_search_mode search_mode, std::size_t limit) {
-  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_edge_index, memgraph_graph, index_name.data(),
-                                                      search_query.data(), search_mode, limit),
-                              StealType{});
+  auto results_or_error =
+      Map(mgp::MemHandlerCallback(
+              graph_search_text_edge_index, memgraph_graph, index_name.data(), search_query.data(), search_mode, limit),
+          StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
       throw TextSearchException{"The error message is not a string!"};
@@ -4829,8 +5336,11 @@ inline List SearchTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view inde
 
 inline std::string AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string_view index_name,
                                           std::string_view search_query, std::string_view aggregation_query) {
-  auto results_or_error = Map(mgp::MemHandlerCallback(graph_aggregate_over_text_index, memgraph_graph,
-                                                      index_name.data(), search_query.data(), aggregation_query.data()),
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_aggregate_over_text_index,
+                                                      memgraph_graph,
+                                                      index_name.data(),
+                                                      search_query.data(),
+                                                      aggregation_query.data()),
                               StealType{});
 
   if (results_or_error.KeyExists(kErrorMsgKey)) {
@@ -4854,8 +5364,11 @@ inline std::string AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string
 
 inline std::string AggregateOverTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view index_name,
                                               std::string_view search_query, std::string_view aggregation_query) {
-  auto results_or_error = Map(mgp::MemHandlerCallback(graph_aggregate_over_text_edge_index, memgraph_graph,
-                                                      index_name.data(), search_query.data(), aggregation_query.data()),
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_aggregate_over_text_edge_index,
+                                                      memgraph_graph,
+                                                      index_name.data(),
+                                                      search_query.data(),
+                                                      aggregation_query.data()),
                               StealType{});
 
   if (results_or_error.KeyExists(kErrorMsgKey)) {
@@ -4877,9 +5390,10 @@ inline std::string AggregateOverTextEdgeIndex(mgp_graph *memgraph_graph, std::st
 
 inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
                               size_t result_size) {
-  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index, memgraph_graph, index_name.data(),
-                                                      query_vector.GetPtr(), result_size),
-                              StealType{});
+  auto results_or_error =
+      Map(mgp::MemHandlerCallback(
+              graph_search_vector_index, memgraph_graph, index_name.data(), query_vector.GetPtr(), result_size),
+          StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
       throw VectorSearchException{"The error message is not a string!"};
@@ -4891,9 +5405,10 @@ inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_
 
 inline List SearchVectorIndexOnEdges(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
                                      size_t result_size) {
-  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index_on_edges, memgraph_graph,
-                                                      index_name.data(), query_vector.GetPtr(), result_size),
-                              StealType{});
+  auto results_or_error = Map(
+      mgp::MemHandlerCallback(
+          graph_search_vector_index_on_edges, memgraph_graph, index_name.data(), query_vector.GetPtr(), result_size),
+      StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
       throw VectorSearchException{"The error message is not a string!"};
@@ -5072,6 +5587,39 @@ struct hash<mgp::Map> {
 };
 
 template <>
+struct hash<mgp::Point2d> {
+  size_t operator()(const mgp::Point2d &x) const {
+    size_t seed = 0;
+    seed ^= std::hash<double>{}(x.X()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= std::hash<double>{}(x.Y()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= std::hash<int>{}(x.Srid()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    return seed;
+  }
+};
+
+template <>
+struct hash<mgp::Point3d> {
+  size_t operator()(const mgp::Point3d &x) const {
+    size_t seed = 0;
+    seed ^= std::hash<double>{}(x.X()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= std::hash<double>{}(x.Y()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= std::hash<double>{}(x.Z()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= std::hash<int>{}(x.Srid()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    return seed;
+  }
+};
+
+template <>
+struct hash<mgp::Enum> {
+  size_t operator()(const mgp::Enum &x) const {
+    size_t seed = 0;
+    seed ^= std::hash<std::string_view>{}(x.TypeName()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= std::hash<std::string_view>{}(x.ValueName()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    return seed;
+  }
+};
+
+template <>
 struct hash<mgp::Value> {
   size_t operator()(const mgp::Value &x) const {
     switch (x.Type()) {
@@ -5109,6 +5657,12 @@ struct hash<mgp::Value> {
         return std::hash<mgp::Duration>{}(x.ValueDuration());
       case mgp::Type::ZonedDateTime:
         return std::hash<mgp::ZonedDateTime>{}(x.ValueZonedDateTime());
+      case mgp::Type::Point2d:
+        return std::hash<mgp::Point2d>{}(x.ValuePoint2d());
+      case mgp::Type::Point3d:
+        return std::hash<mgp::Point3d>{}(x.ValuePoint3d());
+      case mgp::Type::Enum:
+        return std::hash<mgp::Enum>{}(x.ValueEnum());
     }
     throw mg_exception::InvalidArgumentException();
   }

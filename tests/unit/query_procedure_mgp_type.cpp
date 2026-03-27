@@ -19,6 +19,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/point.hpp"
 
 #include "disk_test_utils.hpp"
 #include "test_utils.hpp"
@@ -515,4 +516,51 @@ TYPED_TEST(CypherType, ListOfNullSatisfiesType) {
     EXPECT_FALSE(null_type->impl->SatisfiesType(tv_list));
   }
   mgp_value_destroy(mgp_list_v);
+}
+
+TYPED_TEST(CypherType, PresentableNamePointAndEnumTypes) {
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_2d)->impl->GetPresentableName(), "POINT_2D");
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_3d)->impl->GetPresentableName(), "POINT_3D");
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_enum)->impl->GetPresentableName(), "ENUM");
+}
+
+TYPED_TEST(CypherType, Point2dSatisfiesType) {
+  mgp_memory memory{memgraph::utils::NewDeleteResource()};
+  mgp_point_2d *pt = nullptr;
+  ASSERT_EQ(mgp_point_2d_make(1.0, 2.0, 4326, &memory, &pt), mgp_error::MGP_ERROR_NO_ERROR);
+  auto *mgp_pt_val = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_point_2d, pt);
+
+  CheckSatisfiesTypesAndNullable(
+      mgp_pt_val,
+      memgraph::query::TypedValue(
+          memgraph::storage::Point2d(memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0)),
+      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_2d)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_pt_val,
+                                           memgraph::query::TypedValue(memgraph::storage::Point2d(
+                                               memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0)),
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_3d),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_enum)});
+  mgp_value_destroy(mgp_pt_val);
+}
+
+TYPED_TEST(CypherType, Point3dSatisfiesType) {
+  mgp_memory memory{memgraph::utils::NewDeleteResource()};
+  mgp_point_3d *pt = nullptr;
+  ASSERT_EQ(mgp_point_3d_make(1.0, 2.0, 3.0, 4979, &memory, &pt), mgp_error::MGP_ERROR_NO_ERROR);
+  auto *mgp_pt_val = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_point_3d, pt);
+
+  CheckSatisfiesTypesAndNullable(
+      mgp_pt_val,
+      memgraph::query::TypedValue(
+          memgraph::storage::Point3d(memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0)),
+      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_3d)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_pt_val,
+                                           memgraph::query::TypedValue(memgraph::storage::Point3d(
+                                               memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0)),
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_2d),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_enum)});
+  mgp_value_destroy(mgp_pt_val);
 }
