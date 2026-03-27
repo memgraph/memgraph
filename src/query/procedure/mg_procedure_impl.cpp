@@ -343,11 +343,11 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
     case memgraph::query::TypedValue::Type::Enum:
-      throw std::logic_error{"mgp_value for TypedValue::Type::Enum doesn't exist."};
+      return MGP_VALUE_TYPE_ENUM;
     case memgraph::query::TypedValue::Type::Point2d:
-      throw std::logic_error{"mgp_value for TypedValue::Type::Point2d doesn't exist."};
+      return MGP_VALUE_TYPE_POINT_2D;
     case memgraph::query::TypedValue::Type::Point3d:
-      throw std::logic_error{"mgp_value for TypedValue::Type::Point3d doesn't exist."};
+      return MGP_VALUE_TYPE_POINT_3D;
     case memgraph::query::TypedValue::Type::Function:
       throw std::logic_error{"mgp_value for TypedValue::Type::Function doesn't exist."};
     case memgraph::query::TypedValue::Type::Graph:
@@ -470,6 +470,12 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
       return memgraph::query::TypedValue(val.duration_v->duration, alloc);
     case MGP_VALUE_TYPE_ZONED_DATE_TIME:
       return memgraph::query::TypedValue(val.zoned_date_time_v->zoned_date_time, alloc);
+    case MGP_VALUE_TYPE_POINT_2D:
+      return memgraph::query::TypedValue(val.point_2d_v->point, alloc);
+    case MGP_VALUE_TYPE_POINT_3D:
+      return memgraph::query::TypedValue(val.point_3d_v->point, alloc);
+    case MGP_VALUE_TYPE_ENUM:
+      throw std::logic_error{"Cannot convert Enum mgp_value to TypedValue without EnumStore context"};
   }
 }
 
@@ -540,6 +546,24 @@ mgp_value::mgp_value(mgp_zoned_date_time *val, allocator_type alloc) noexcept
 
 mgp_value::mgp_value(mgp_duration *val, allocator_type alloc) noexcept
     : type(MGP_VALUE_TYPE_DURATION), alloc(alloc), duration_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
+}
+
+mgp_value::mgp_value(mgp_point_2d *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_POINT_2D), alloc(alloc), point_2d_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
+}
+
+mgp_value::mgp_value(mgp_point_3d *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_POINT_3D), alloc(alloc), point_3d_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
+}
+
+mgp_value::mgp_value(mgp_enum *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_ENUM), alloc(alloc), enum_v(val) {
   MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
             "Unable to take ownership of a pointer with different allocator.");
 }
@@ -681,11 +705,43 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, al
       zoned_date_time_v = allocator.new_object<mgp_zoned_date_time>(tv.ValueZonedDateTime());
       break;
     }
+    case MGP_VALUE_TYPE_POINT_2D: {
+      memgraph::utils::Allocator<mgp_point_2d> allocator(alloc);
+      point_2d_v = allocator.new_object<mgp_point_2d>(tv.ValuePoint2d());
+      break;
+    }
+    case MGP_VALUE_TYPE_POINT_3D: {
+      memgraph::utils::Allocator<mgp_point_3d> allocator(alloc);
+      point_3d_v = allocator.new_object<mgp_point_3d>(tv.ValuePoint3d());
+      break;
+    }
+    case MGP_VALUE_TYPE_ENUM: {
+      // Enum from TypedValue requires graph context to resolve names
+      if (graph) {
+        auto *db_accessor = graph->getImpl();
+        auto name_result = db_accessor->EnumToName(tv.ValueEnum());
+        if (name_result.has_value()) {
+          // Format is "TypeName::ValueName", split on "::"
+          const auto &full_name = name_result.value();
+          auto sep_pos = full_name.find("::");
+          std::string_view type_name = std::string_view(full_name).substr(0, sep_pos);
+          std::string_view value_name =
+              sep_pos != std::string::npos ? std::string_view(full_name).substr(sep_pos + 2) : "";
+          memgraph::utils::Allocator<mgp_enum> allocator(alloc);
+          enum_v = allocator.new_object<mgp_enum>(type_name, value_name);
+        } else {
+          throw std::logic_error{"Failed to resolve enum value to name."};
+        }
+      } else {
+        throw std::logic_error{"Cannot convert Enum TypedValue without graph context."};
+      }
+      break;
+    }
   }
 }
 
 mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::storage::NameIdMapper *name_id_mapper,
-                     allocator_type alloc)
+                     allocator_type alloc, memgraph::query::DbAccessor *db_accessor)
     : alloc(alloc) {
   switch (pv.type()) {
     case memgraph::storage::PropertyValue::Type::Null:
@@ -768,7 +824,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       mgp_map::map_type items(alloc);
       for (const auto &item : pv.ValueMap()) {
         auto key_as_name = name_id_mapper->IdToName(item.first.AsUint());
-        auto value = mgp_value(item.second, name_id_mapper, alloc);
+        auto value = mgp_value(item.second, name_id_mapper, alloc, db_accessor);
         items.emplace(std::move(key_as_name), std::move(value));
       }
       memgraph::utils::Allocator<mgp_map> allocator(alloc);
@@ -814,21 +870,32 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       break;
     }
     case memgraph::storage::PropertyValue::Type::Enum: {
-      throw std::logic_error{
-          "mgp_value for PropertyValue::Type::Enum doesn't exist. Contact Memgraph team under team@memgraph.com or "
-          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
+      if (db_accessor) {
+        auto name_result = db_accessor->EnumToName(pv.ValueEnum());
+        if (name_result.has_value()) {
+          const auto &full_name = name_result.value();
+          auto sep_pos = full_name.find("::");
+          std::string_view type_name = std::string_view(full_name).substr(0, sep_pos);
+          std::string_view value_name =
+              sep_pos != std::string::npos ? std::string_view(full_name).substr(sep_pos + 2) : "";
+          type = MGP_VALUE_TYPE_ENUM;
+          enum_v = NewRawMgpObject<mgp_enum>(alloc.resource(), type_name, value_name);
+        } else {
+          throw std::logic_error{"Failed to resolve enum value to name."};
+        }
+      } else {
+        throw std::logic_error{"mgp_value for PropertyValue::Type::Enum requires DbAccessor for name resolution."};
+      }
       break;
     }
     case memgraph::storage::PropertyValue::Type::Point2d: {
-      throw std::logic_error{
-          "mgp_value for PropertyValue::Type::Point2d doesn't exist. Contact Memgraph team under team@memgraph.com or "
-          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
+      type = MGP_VALUE_TYPE_POINT_2D;
+      point_2d_v = NewRawMgpObject<mgp_point_2d>(alloc.resource(), pv.ValuePoint2d());
       break;
     }
     case memgraph::storage::PropertyValue::Type::Point3d: {
-      throw std::logic_error{
-          "mgp_value for PropertyValue::Type::Point3d doesn't exist. Contact Memgraph team under team@memgraph.com or "
-          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
+      type = MGP_VALUE_TYPE_POINT_3D;
+      point_3d_v = NewRawMgpObject<mgp_point_3d>(alloc.resource(), pv.ValuePoint3d());
       break;
     }
     case memgraph::storage::PropertyValue::Type::VectorIndexId: {
@@ -903,6 +970,18 @@ mgp_value::mgp_value(const mgp_value &other, allocator_type alloc) : type(other.
       zoned_date_time_v = NewRawMgpObject<mgp_zoned_date_time>(alloc, *other.zoned_date_time_v);
       break;
     }
+    case MGP_VALUE_TYPE_POINT_2D: {
+      point_2d_v = NewRawMgpObject<mgp_point_2d>(alloc, *other.point_2d_v);
+      break;
+    }
+    case MGP_VALUE_TYPE_POINT_3D: {
+      point_3d_v = NewRawMgpObject<mgp_point_3d>(alloc, *other.point_3d_v);
+      break;
+    }
+    case MGP_VALUE_TYPE_ENUM: {
+      enum_v = NewRawMgpObject<mgp_enum>(alloc, *other.enum_v);
+      break;
+    }
   }
 }
 
@@ -950,6 +1029,15 @@ void DeleteValueMember(mgp_value *value) noexcept {
       return;
     case MGP_VALUE_TYPE_ZONED_DATE_TIME:
       allocator.delete_object(value->zoned_date_time_v);
+      return;
+    case MGP_VALUE_TYPE_POINT_2D:
+      allocator.delete_object(value->point_2d_v);
+      return;
+    case MGP_VALUE_TYPE_POINT_3D:
+      allocator.delete_object(value->point_3d_v);
+      return;
+    case MGP_VALUE_TYPE_ENUM:
+      allocator.delete_object(value->enum_v);
       return;
   }
 }
@@ -1069,6 +1157,33 @@ mgp_value::mgp_value(mgp_value &&other, allocator_type alloc) : type(other.type)
         zoned_date_time_v = NewRawMgpObject<mgp_zoned_date_time>(alloc.resource(), *other.zoned_date_time_v);
       }
       break;
+    case MGP_VALUE_TYPE_POINT_2D:
+      static_assert(std::is_pointer_v<decltype(point_2d_v)>, "Expected to move point_2d_v by copying pointers.");
+      if (*other.GetMemoryResource() == *alloc.resource()) {
+        point_2d_v = other.point_2d_v;
+        other.type = MGP_VALUE_TYPE_NULL;
+      } else {
+        point_2d_v = NewRawMgpObject<mgp_point_2d>(alloc.resource(), *other.point_2d_v);
+      }
+      break;
+    case MGP_VALUE_TYPE_POINT_3D:
+      static_assert(std::is_pointer_v<decltype(point_3d_v)>, "Expected to move point_3d_v by copying pointers.");
+      if (*other.GetMemoryResource() == *alloc.resource()) {
+        point_3d_v = other.point_3d_v;
+        other.type = MGP_VALUE_TYPE_NULL;
+      } else {
+        point_3d_v = NewRawMgpObject<mgp_point_3d>(alloc.resource(), *other.point_3d_v);
+      }
+      break;
+    case MGP_VALUE_TYPE_ENUM:
+      static_assert(std::is_pointer_v<decltype(enum_v)>, "Expected to move enum_v by copying pointers.");
+      if (*other.GetMemoryResource() == *alloc.resource()) {
+        enum_v = other.enum_v;
+        other.type = MGP_VALUE_TYPE_NULL;
+      } else {
+        enum_v = NewRawMgpObject<mgp_enum>(alloc.resource(), *other.enum_v);
+      }
+      break;
   }
   DeleteValueMember(&other);
   other.type = MGP_VALUE_TYPE_NULL;
@@ -1138,6 +1253,9 @@ DEFINE_MGP_VALUE_MAKE(local_time)
 DEFINE_MGP_VALUE_MAKE(local_date_time)
 DEFINE_MGP_VALUE_MAKE(duration)
 DEFINE_MGP_VALUE_MAKE(zoned_date_time)
+DEFINE_MGP_VALUE_MAKE(point_2d)
+DEFINE_MGP_VALUE_MAKE(point_3d)
+DEFINE_MGP_VALUE_MAKE(enum)
 
 namespace {
 mgp_value_type MgpValueGetType(const mgp_value &val) noexcept { return val.type; }
@@ -1172,6 +1290,9 @@ DEFINE_MGP_VALUE_IS(local_time, LOCAL_TIME)
 DEFINE_MGP_VALUE_IS(local_date_time, LOCAL_DATE_TIME)
 DEFINE_MGP_VALUE_IS(duration, DURATION)
 DEFINE_MGP_VALUE_IS(zoned_date_time, ZONED_DATE_TIME)
+DEFINE_MGP_VALUE_IS(point_2d, POINT_2D)
+DEFINE_MGP_VALUE_IS(point_3d, POINT_3D)
+DEFINE_MGP_VALUE_IS(enum, ENUM)
 
 mgp_error mgp_value_get_bool(mgp_value *val, int *result) {
   *result = val->bool_v ? 1 : 0;
@@ -1211,6 +1332,13 @@ DEFINE_MGP_VALUE_GET(local_time)
 DEFINE_MGP_VALUE_GET(local_date_time)
 DEFINE_MGP_VALUE_GET(duration)
 DEFINE_MGP_VALUE_GET(zoned_date_time)
+DEFINE_MGP_VALUE_GET(point_2d)
+DEFINE_MGP_VALUE_GET(point_3d)
+
+mgp_error mgp_value_get_enum(mgp_value *val, mgp_enum **result) {
+  *result = val->enum_v;
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
 
 mgp_error mgp_list_make_empty(size_t capacity, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions(
@@ -1942,6 +2070,108 @@ mgp_error mgp_duration_sub(mgp_duration *first, mgp_duration *second, mgp_memory
       result);
 }
 
+mgp_error mgp_point_2d_copy(mgp_point_2d *point, mgp_memory *memory, mgp_point_2d **result) {
+  return WrapExceptions([point, memory] { return NewRawMgpObject<mgp_point_2d>(memory, *point); }, result);
+}
+
+void mgp_point_2d_destroy(mgp_point_2d *point) { DeleteRawMgpObject(point); }
+
+mgp_error mgp_point_3d_copy(mgp_point_3d *point, mgp_memory *memory, mgp_point_3d **result) {
+  return WrapExceptions([point, memory] { return NewRawMgpObject<mgp_point_3d>(memory, *point); }, result);
+}
+
+void mgp_point_3d_destroy(mgp_point_3d *point) { DeleteRawMgpObject(point); }
+
+mgp_error mgp_enum_copy(mgp_enum *val, mgp_memory *memory, mgp_enum **result) {
+  return WrapExceptions([val, memory] { return NewRawMgpObject<mgp_enum>(memory, *val); }, result);
+}
+
+void mgp_enum_destroy(mgp_enum *val) { DeleteRawMgpObject(val); }
+
+mgp_error mgp_point_2d_make(double x, double y, int srid, mgp_memory *memory, mgp_point_2d **result) {
+  return WrapExceptions(
+      [x, y, srid, memory] {
+        auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{static_cast<uint16_t>(srid)});
+        if (!crs_opt) {
+          throw std::invalid_argument{"Invalid SRID for Point2d"};
+        }
+        return NewRawMgpObject<mgp_point_2d>(memory, memgraph::storage::Point2d{*crs_opt, x, y});
+      },
+      result);
+}
+
+mgp_error mgp_point_2d_get_x(mgp_point_2d *point, double *result) {
+  return WrapExceptions([point] { return point->point.x(); }, result);
+}
+
+mgp_error mgp_point_2d_get_y(mgp_point_2d *point, double *result) {
+  return WrapExceptions([point] { return point->point.y(); }, result);
+}
+
+mgp_error mgp_point_2d_get_srid(mgp_point_2d *point, int *result) {
+  return WrapExceptions(
+      [point] { return static_cast<int>(memgraph::storage::CrsToSrid(point->point.crs()).value_of()); }, result);
+}
+
+mgp_error mgp_point_2d_equal(mgp_point_2d *first, mgp_point_2d *second, int *result) {
+  return WrapExceptions([first, second] { return first->point == second->point; }, result);
+}
+
+mgp_error mgp_point_3d_make(double x, double y, double z, int srid, mgp_memory *memory, mgp_point_3d **result) {
+  return WrapExceptions(
+      [x, y, z, srid, memory] {
+        auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{static_cast<uint16_t>(srid)});
+        if (!crs_opt) {
+          throw std::invalid_argument{"Invalid SRID for Point3d"};
+        }
+        return NewRawMgpObject<mgp_point_3d>(memory, memgraph::storage::Point3d{*crs_opt, x, y, z});
+      },
+      result);
+}
+
+mgp_error mgp_point_3d_get_x(mgp_point_3d *point, double *result) {
+  return WrapExceptions([point] { return point->point.x(); }, result);
+}
+
+mgp_error mgp_point_3d_get_y(mgp_point_3d *point, double *result) {
+  return WrapExceptions([point] { return point->point.y(); }, result);
+}
+
+mgp_error mgp_point_3d_get_z(mgp_point_3d *point, double *result) {
+  return WrapExceptions([point] { return point->point.z(); }, result);
+}
+
+mgp_error mgp_point_3d_get_srid(mgp_point_3d *point, int *result) {
+  return WrapExceptions(
+      [point] { return static_cast<int>(memgraph::storage::CrsToSrid(point->point.crs()).value_of()); }, result);
+}
+
+mgp_error mgp_point_3d_equal(mgp_point_3d *first, mgp_point_3d *second, int *result) {
+  return WrapExceptions([first, second] { return first->point == second->point; }, result);
+}
+
+mgp_error mgp_enum_make(const char *type_name, const char *value_name, mgp_memory *memory, mgp_enum **result) {
+  return WrapExceptions(
+      [type_name, value_name, memory] {
+        return NewRawMgpObject<mgp_enum>(memory, std::string_view{type_name}, std::string_view{value_name});
+      },
+      result);
+}
+
+mgp_error mgp_enum_get_type_name(mgp_enum *val, const char **result) {
+  return WrapExceptions([val] { return val->type_name.c_str(); }, result);
+}
+
+mgp_error mgp_enum_get_value_name(mgp_enum *val, const char **result) {
+  return WrapExceptions([val] { return val->value_name.c_str(); }, result);
+}
+
+mgp_error mgp_enum_equal(mgp_enum *first, mgp_enum *second, int *result) {
+  return WrapExceptions(
+      [first, second] { return first->type_name == second->type_name && first->value_name == second->value_name; },
+      result);
+}
+
 /// Plugin Result
 
 mgp_error mgp_result_set_error_msg(mgp_result *res, const char *msg) {
@@ -2182,6 +2412,12 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value,
       throw ValueConversionException{"An edge is not a valid property value!"};
     case MGP_VALUE_TYPE_PATH:
       throw ValueConversionException{"A path is not a valid property value!"};
+    case MGP_VALUE_TYPE_POINT_2D:
+      return memgraph::storage::PropertyValue{value.point_2d_v->point};
+    case MGP_VALUE_TYPE_POINT_3D:
+      return memgraph::storage::PropertyValue{value.point_3d_v->point};
+    case MGP_VALUE_TYPE_ENUM:
+      throw ValueConversionException{"Cannot convert Enum mgp_value back to PropertyValue without EnumStore context!"};
   }
 }
 
@@ -2253,6 +2489,12 @@ memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_value
       throw ValueConversionException{"An edge is not a valid property value!"};
     case MGP_VALUE_TYPE_PATH:
       throw ValueConversionException{"A path is not a valid property value!"};
+    case MGP_VALUE_TYPE_POINT_2D:
+      throw ValueConversionException{"Point2d to ExternalPropertyValue conversion not yet supported!"};
+    case MGP_VALUE_TYPE_POINT_3D:
+      throw ValueConversionException{"Point3d to ExternalPropertyValue conversion not yet supported!"};
+    case MGP_VALUE_TYPE_ENUM:
+      throw ValueConversionException{"Enum to ExternalPropertyValue conversion not yet supported!"};
   }
 }
 }  // namespace
@@ -4510,6 +4752,9 @@ DEFINE_MGP_TYPE_GETTER(Date, date);
 DEFINE_MGP_TYPE_GETTER(LocalTime, local_time);
 DEFINE_MGP_TYPE_GETTER(LocalDateTime, local_date_time);
 DEFINE_MGP_TYPE_GETTER(Duration, duration);
+DEFINE_MGP_TYPE_GETTER(Point2d, point_2d);
+DEFINE_MGP_TYPE_GETTER(Point3d, point_3d);
+DEFINE_MGP_TYPE_GETTER(Enum, enum);
 
 mgp_error mgp_type_list(mgp_type *type, mgp_type **result) {
   return WrapExceptions(
@@ -4676,6 +4921,9 @@ mgp_error MgpAddOptArg(TCall &callable, const std::string name, mgp_type &type, 
       case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
       case MGP_VALUE_TYPE_DURATION:
       case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      case MGP_VALUE_TYPE_POINT_2D:
+      case MGP_VALUE_TYPE_POINT_3D:
+      case MGP_VALUE_TYPE_ENUM:
         break;
     }
     // Default value must be of required `type`.

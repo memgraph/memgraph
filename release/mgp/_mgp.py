@@ -145,7 +145,6 @@ class OutOfRangeError(Exception):
 
 
 class LogicErrorError(Exception):
-
     pass
 
 
@@ -238,6 +237,18 @@ def type_duration():
 
 
 def type_any():
+    pass
+
+
+def type_point_2d():
+    pass
+
+
+def type_point_3d():
+    pass
+
+
+def type_enum():
     pass
 
 

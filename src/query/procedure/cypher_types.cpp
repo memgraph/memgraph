@@ -49,6 +49,12 @@ bool LocalDateTimeType::SatisfiesType(const mgp_value &value) const {
 
 bool DurationType::SatisfiesType(const mgp_value &value) const { return value.type == MGP_VALUE_TYPE_DURATION; }
 
+bool Point2dType::SatisfiesType(const mgp_value &value) const { return value.type == MGP_VALUE_TYPE_POINT_2D; }
+
+bool Point3dType::SatisfiesType(const mgp_value &value) const { return value.type == MGP_VALUE_TYPE_POINT_3D; }
+
+bool EnumType::SatisfiesType(const mgp_value &value) const { return value.type == MGP_VALUE_TYPE_ENUM; }
+
 bool ListType::SatisfiesType(const mgp_value &value) const {
   if (value.type != MGP_VALUE_TYPE_LIST) {
     return false;

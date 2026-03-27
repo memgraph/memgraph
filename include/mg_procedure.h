@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -184,6 +184,15 @@ struct mgp_zoned_date_time;
 /// Duration stored in Memgraph.
 struct mgp_duration;
 
+/// Opaque container for a 2D point value (x, y, srid).
+struct mgp_point_2d;
+
+/// Opaque container for a 3D point value (x, y, z, srid).
+struct mgp_point_3d;
+
+/// Opaque container for an enum value (type_name, value_name).
+struct mgp_enum;
+
 /// All available types that can be stored in a mgp_value
 enum mgp_value_type {
   // NOTE: New types need to be appended, so as not to break ABI.
@@ -201,7 +210,10 @@ enum mgp_value_type {
   MGP_VALUE_TYPE_LOCAL_TIME,
   MGP_VALUE_TYPE_LOCAL_DATE_TIME,
   MGP_VALUE_TYPE_DURATION,
-  MGP_VALUE_TYPE_ZONED_DATE_TIME
+  MGP_VALUE_TYPE_ZONED_DATE_TIME,
+  MGP_VALUE_TYPE_POINT_2D,
+  MGP_VALUE_TYPE_POINT_3D,
+  MGP_VALUE_TYPE_ENUM
 };
 
 enum mgp_error mgp_value_copy(struct mgp_value *val, struct mgp_memory *memory, struct mgp_value **result);
@@ -450,6 +462,54 @@ enum mgp_error mgp_value_get_duration(struct mgp_value *val, struct mgp_duration
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_zoned_date_time(struct mgp_value *val, struct mgp_zoned_date_time **result);
 
+/// Create a mgp_value storing a mgp_point_2d. Ownership of the point is transferred
+/// to the created mgp_value and destroying the mgp_value will destroy the mgp_point_2d.
+/// Therefore, if a mgp_value is successfully created you must not call mgp_point_2d_destroy
+/// on the given point.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_point_2d(struct mgp_point_2d *val, struct mgp_value **result);
+
+/// Create a mgp_value storing a mgp_point_3d. Ownership of the point is transferred
+/// to the created mgp_value and destroying the mgp_value will destroy the mgp_point_3d.
+/// Therefore, if a mgp_value is successfully created you must not call mgp_point_3d_destroy
+/// on the given point.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_point_3d(struct mgp_point_3d *val, struct mgp_value **result);
+
+/// Create a mgp_value storing a mgp_enum. Ownership of the enum is transferred
+/// to the created mgp_value and destroying the mgp_value will destroy the mgp_enum.
+/// Therefore, if a mgp_value is successfully created you must not call mgp_enum_destroy
+/// on the given enum.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_enum(struct mgp_enum *val, struct mgp_value **result);
+
+/// Result is non-zero if the given mgp_value stores a 2D point.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_point_2d(struct mgp_value *val, int *result);
+
+/// Result is non-zero if the given mgp_value stores a 3D point.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_point_3d(struct mgp_value *val, int *result);
+
+/// Result is non-zero if the given mgp_value stores an enum value.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_enum(struct mgp_value *val, int *result);
+
+/// Get the contained 2D point.
+/// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_get_point_2d(struct mgp_value *val, struct mgp_point_2d **result);
+
+/// Get the contained 3D point.
+/// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_get_point_3d(struct mgp_value *val, struct mgp_point_3d **result);
+
+/// Get the contained enum value.
+/// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_get_enum(struct mgp_value *val, struct mgp_enum **result);
+
 /// Create an empty list with given capacity.
 /// You need to free the created instance with mgp_list_destroy.
 /// The created list will have allocated enough memory for `capacity` elements
@@ -670,6 +730,7 @@ enum mgp_error mgp_result_reserve(struct mgp_result *res, size_t n);
 /// mgp_error::MGP_ERROR_LOGIC_ERROR `val` does not satisfy the type of the field name `field_name`.
 enum mgp_error mgp_result_record_insert(struct mgp_result_record *record, const char *field_name,
                                         struct mgp_value *val);
+
 ///@}
 
 /// @name Graph Constructs
@@ -1275,10 +1336,12 @@ struct mgp_local_date_time_parameters {
 struct mgp_zoned_date_time_parameters {
   struct mgp_date_parameters *date_parameters;
   struct mgp_local_time_parameters *local_time_parameters;
+
   union {
     int32_t offset_in_minutes;
     const char *timezone_name;
   } timezone_info;
+
   int is_named_timezone;
 };
 
@@ -1509,6 +1572,85 @@ enum mgp_error mgp_duration_add(struct mgp_duration *first, struct mgp_duration 
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_duration.
 enum mgp_error mgp_duration_sub(struct mgp_duration *first, struct mgp_duration *second, struct mgp_memory *memory,
                                 struct mgp_duration **result);
+
+/// Copy a mgp_point_2d.
+/// Resulting pointer must be freed with mgp_point_2d_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_point_2d.
+enum mgp_error mgp_point_2d_copy(struct mgp_point_2d *point, struct mgp_memory *memory, struct mgp_point_2d **result);
+
+/// Free the memory used by a mgp_point_2d.
+void mgp_point_2d_destroy(struct mgp_point_2d *point);
+
+/// Copy a mgp_point_3d.
+/// Resulting pointer must be freed with mgp_point_3d_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_point_3d.
+enum mgp_error mgp_point_3d_copy(struct mgp_point_3d *point, struct mgp_memory *memory, struct mgp_point_3d **result);
+
+/// Free the memory used by a mgp_point_3d.
+void mgp_point_3d_destroy(struct mgp_point_3d *point);
+
+/// Copy a mgp_enum.
+/// Resulting pointer must be freed with mgp_enum_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_enum.
+enum mgp_error mgp_enum_copy(struct mgp_enum *val, struct mgp_memory *memory, struct mgp_enum **result);
+
+/// Free the memory used by a mgp_enum.
+void mgp_enum_destroy(struct mgp_enum *val);
+
+/// Create a mgp_point_2d from components.
+/// Resulting pointer must be freed with mgp_point_2d_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_point_2d.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if srid is not a valid 2D SRID.
+enum mgp_error mgp_point_2d_make(double x, double y, int srid, struct mgp_memory *memory, struct mgp_point_2d **result);
+
+/// Get the x coordinate of the point.
+enum mgp_error mgp_point_2d_get_x(struct mgp_point_2d *point, double *result);
+
+/// Get the y coordinate of the point.
+enum mgp_error mgp_point_2d_get_y(struct mgp_point_2d *point, double *result);
+
+/// Get the SRID of the point.
+enum mgp_error mgp_point_2d_get_srid(struct mgp_point_2d *point, int *result);
+
+/// Result is non-zero if given points are equal, otherwise 0.
+enum mgp_error mgp_point_2d_equal(struct mgp_point_2d *first, struct mgp_point_2d *second, int *result);
+
+/// Create a mgp_point_3d from components.
+/// Resulting pointer must be freed with mgp_point_3d_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_point_3d.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if srid is not a valid 3D SRID.
+enum mgp_error mgp_point_3d_make(double x, double y, double z, int srid, struct mgp_memory *memory,
+                                 struct mgp_point_3d **result);
+
+/// Get the x coordinate of the point.
+enum mgp_error mgp_point_3d_get_x(struct mgp_point_3d *point, double *result);
+
+/// Get the y coordinate of the point.
+enum mgp_error mgp_point_3d_get_y(struct mgp_point_3d *point, double *result);
+
+/// Get the z coordinate of the point.
+enum mgp_error mgp_point_3d_get_z(struct mgp_point_3d *point, double *result);
+
+/// Get the SRID of the point.
+enum mgp_error mgp_point_3d_get_srid(struct mgp_point_3d *point, int *result);
+
+/// Result is non-zero if given points are equal, otherwise 0.
+enum mgp_error mgp_point_3d_equal(struct mgp_point_3d *first, struct mgp_point_3d *second, int *result);
+
+/// Create a mgp_enum from type name and value name strings.
+/// Resulting pointer must be freed with mgp_enum_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_enum.
+enum mgp_error mgp_enum_make(const char *type_name, const char *value_name, struct mgp_memory *memory,
+                             struct mgp_enum **result);
+
+/// Get the type name of the enum value.
+enum mgp_error mgp_enum_get_type_name(struct mgp_enum *val, const char **result);
+
+/// Get the value name of the enum value.
+enum mgp_error mgp_enum_get_value_name(struct mgp_enum *val, const char **result);
+
+/// Result is non-zero if given enum values are equal, otherwise 0.
+enum mgp_error mgp_enum_equal(struct mgp_enum *first, struct mgp_enum *second, int *result);
 ///@}
 
 /// Advance the iterator to the next vertex and return it.
@@ -1610,6 +1752,18 @@ enum mgp_error mgp_type_local_date_time(struct mgp_type **result);
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_duration(struct mgp_type **result);
 
+/// Get the type representing a 2D point.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
+enum mgp_error mgp_type_point_2d(struct mgp_type **result);
+
+/// Get the type representing a 3D point.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
+enum mgp_error mgp_type_point_3d(struct mgp_type **result);
+
+/// Get the type representing an enum value.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
+enum mgp_error mgp_type_enum(struct mgp_type **result);
+
 /// Build a type representing either a `null` value or a value of given `type`.
 ///
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
@@ -1641,8 +1795,12 @@ struct mgp_func;
 
 /// All available log levels that can be used in mgp_log function
 MGP_ENUM_CLASS mgp_log_level{
-    MGP_LOG_LEVEL_TRACE, MGP_LOG_LEVEL_DEBUG, MGP_LOG_LEVEL_INFO,
-    MGP_LOG_LEVEL_WARN,  MGP_LOG_LEVEL_ERROR, MGP_LOG_LEVEL_CRITICAL,
+    MGP_LOG_LEVEL_TRACE,
+    MGP_LOG_LEVEL_DEBUG,
+    MGP_LOG_LEVEL_INFO,
+    MGP_LOG_LEVEL_WARN,
+    MGP_LOG_LEVEL_ERROR,
+    MGP_LOG_LEVEL_CRITICAL,
 };
 
 /// Entry-point for a query module read procedure, invoked through openCypher.
