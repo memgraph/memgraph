@@ -87,7 +87,8 @@ class ReplicationInstanceConnector {
  private:
   ReplicationInstanceClient client_;
   mutable TimedFailureDetector timed_failure_detector_;
+  ReplicationClientInfo repl_client_info_;
 };
 
 }  // namespace memgraph::coordination
-#endif `
+#endif
