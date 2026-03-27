@@ -126,13 +126,13 @@ bool InMemoryEdgeTypeIndex::CreateIndexOnePass(
   return PublishIndex(edge_type, 0);
 }
 
-auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId insert_function,
+auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type,
                                           utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
                                           ActiveIndicesUpdater const &updater,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info,
                                           Transaction const *tx, CheckCancelFunction cancel_check)
     -> std::expected<void, IndexPopulateError> {
-  auto index = GetIndividualIndex(insert_function);
+  auto index = GetIndividualIndex(edge_type);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
   }
@@ -142,13 +142,13 @@ auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId insert_function,
     if (tx) {
       // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
       auto const insert_func = [&](Vertex &from_vertex, auto &index_accessor) {
-        TryInsertEdgeTypeIndex(from_vertex, insert_function, index_accessor, snapshot_info, *tx);
+        TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, snapshot_info, *tx);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_func, std::move(cancel_check), {} /*TODO: parallel*/);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const insert_func = [&](Vertex &from_vertex, auto &index_accessor) {
-        TryInsertEdgeTypeIndex(from_vertex, insert_function, index_accessor, snapshot_info);
+        TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, snapshot_info);
       };
       PopulateIndexDispatch(vertices, accessor_factory, insert_func, std::move(cancel_check), {} /*TODO: parallel*/);
     }
