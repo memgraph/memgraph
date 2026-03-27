@@ -342,6 +342,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     auto indexed_scan = GenScanByIndex(scan);
     if (indexed_scan) {
+      if (!order_by_stack_.empty() && order_by_stack_.back().valid) {
+        CheckOrderByElimination(indexed_scan.get(), scan.output_symbol_);
+      }
       SetOnParent(std::move(indexed_scan));
     }
     return true;
@@ -700,11 +703,25 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
+    auto ctx = TryExtractOrderByContext(op);
+    if (ctx) {
+      order_by_stack_.emplace_back(std::move(*ctx));
+    } else {
+      // Push an invalid context so PostVisit always has a matching pop.
+      order_by_stack_.emplace_back(OrderByContext{
+          .op = &op, .scan_symbol = {}, .property_paths = {}, .valid = false, .should_eliminate = false});
+    }
     return true;
   }
 
-  bool PostVisit(OrderBy &) override {
+  bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
+    DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in PostVisit");
+    auto ctx = std::move(order_by_stack_.back());
+    order_by_stack_.pop_back();
+    if (ctx.should_eliminate) {
+      SetOnParent(op.input());
+    }
     return true;
   }
 
@@ -874,6 +891,24 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
 
+  // ORDER BY elimination state
+  // A stack is used because nested OrderBy operators can appear in the same branch
+  // (e.g., WITH n ORDER BY n.prop RETURN n ORDER BY n.prop). Each PreVisit pushes
+  // a context and each PostVisit pops it, so inner OrderBy processing doesn't clobber
+  // outer state.
+  // Lifetime: each entry is pushed in PreVisit(OrderBy) and popped in PostVisit(OrderBy).
+  // CheckOrderByElimination uses ctx.op only during the tree walk between these two visits,
+  // so the OrderBy node is guaranteed to be alive and in the tree.
+  struct OrderByContext {
+    OrderBy *op;
+    Symbol scan_symbol;                                 // symbol all ORDER BY PropertyLookups reference
+    std::vector<storage::PropertyPath> property_paths;  // ORDER BY properties converted to storage paths
+    bool valid;             // true if all expressions are simple ASC PropertyLookups on same symbol
+    bool should_eliminate;  // set by CheckOrderByElimination, consumed in PostVisit
+  };
+
+  std::vector<OrderByContext> order_by_stack_;
+
   struct LabelPropertyIndex {
     LabelIx label;
     std::vector<storage::PropertyPath> properties;  // need props ids to associate
@@ -896,6 +931,177 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     int64_t vertex_count;
     int64_t num_of_index_hints;
   };
+
+  /// Given a Produce and a tracked variable name, resolve what output name carries that variable.
+  /// Returns the output name if found (identity mapping returns same name, rename returns new name).
+  /// Returns std::nullopt if the variable is not passed through as a direct Identifier
+  /// (e.g., projected as a complex expression like n.prop AS val, or dropped entirely).
+  static std::optional<std::string> ResolveProduceMapping(Produce *produce, const std::string &tracked_name) {
+    for (const auto *ne : produce->named_expressions_) {
+      auto *ident = dynamic_cast<Identifier *>(ne->expression_);
+      if (!ident || ident->name_ != tracked_name) continue;
+      // Found: this named expression takes our tracked variable as input.
+      // Return the output name (may be the same for identity, or different for a rename).
+      return ne->name_;
+    }
+    // The tracked variable is not directly referenced by any named expression's input.
+    // This means the variable is either dropped or only referenced inside a complex expression
+    // (e.g., RETURN n.prop AS p). Elimination is unsafe.
+    return std::nullopt;
+  }
+
+  auto TryExtractOrderByContext(OrderBy &op) -> std::optional<OrderByContext> {
+    const auto &orderings = op.compare_.orderings();
+    const auto &order_by_exprs = op.order_by_;
+
+    if (orderings.empty()) return std::nullopt;
+
+    // All orderings must be ASC
+    // TODO(ivan): Support DESC elimination — SkipList-backed indexes can be iterated in reverse,
+    //       so DESC ordering could also be eliminated if the scan supports a reverse mode.
+    for (const auto &ord : orderings) {
+      if (ord.ordering() != Ordering::ASC) return std::nullopt;
+    }
+
+    OrderByContext ctx{.op = &op, .scan_symbol = {}, .property_paths = {}, .valid = false, .should_eliminate = false};
+
+    bool first = true;
+    for (auto *expr : order_by_exprs) {
+      // Each expression must be a PropertyLookup
+      auto *prop_lookup = dynamic_cast<PropertyLookup *>(expr);
+      if (!prop_lookup) return std::nullopt;
+
+      // The expression under the PropertyLookup must be an Identifier
+      auto *ident = dynamic_cast<Identifier *>(prop_lookup->expression_);
+      if (!ident) return std::nullopt;
+
+      const auto &sym = symbol_table_->at(*ident);
+
+      if (first) {
+        ctx.scan_symbol = sym;
+        first = false;
+      } else {
+        // All property lookups must reference the same symbol
+        if (ctx.scan_symbol != sym) return std::nullopt;
+      }
+
+      // Convert property_path_ (vector<PropertyIx>) to storage::PropertyPath.
+      // PropertyPath wraps vector<PropertyId>; build it directly to avoid reserve/insert overhead.
+      std::vector<storage::PropertyId> prop_ids;
+      prop_ids.reserve(prop_lookup->property_path_.size());
+      for (const auto &pix : prop_lookup->property_path_) {
+        prop_ids.push_back(GetProperty(pix));
+      }
+      ctx.property_paths.emplace_back(std::move(prop_ids));
+    }
+
+    ctx.valid = true;
+    return ctx;
+  }
+
+  // TODO: Extend ORDER BY elimination to edge property index scans (ScanAllByEdgePropertyRange,
+  //       ScanAllByEdgeTypePropertyRange) — they are also SkipList-backed and return data in ASC order.
+  void CheckOrderByElimination(LogicalOperator *new_scan, const Symbol &scan_symbol) {
+    DMG_ASSERT(!order_by_stack_.empty(), "CheckOrderByElimination called with empty stack");
+    auto &ctx = order_by_stack_.back();
+
+    // The new scan must be ScanAllByLabelProperties.
+    // Note: there is no separate ScanAllByLabelPropertyValue or ScanAllByLabelPropertyRange —
+    // ScanAllByLabelProperties handles all label+property scan variants (equality, range, composite).
+    if (new_scan->GetTypeInfo() != ScanAllByLabelProperties::kType) return;
+
+    // Track the scan symbol's name as it flows upward through Produce operators.
+    // A WITH/RETURN clause can rename the variable (e.g., WITH n AS m), so we propagate
+    // the name through each Produce we encounter. After the walk, we compare the
+    // tracked name with the ORDER BY symbol to see if they refer to the same variable.
+    std::string tracked_name = scan_symbol.name();
+    // pre_last_produce_name tracks the name BEFORE the last Produce rename. This is needed
+    // because Cypher's ORDER BY has dual-scope semantics: it can reference both the input
+    // and output names of the Produce directly under it (e.g., RETURN n AS m ORDER BY n.prop
+    // and RETURN n AS m ORDER BY m.prop are both valid).
+    std::string pre_last_produce_name = tracked_name;
+
+    // Verify all operators between OrderBy and ScanAll are order-preserving.
+    // Walk prev_ops_ backwards from the scan's position to find OrderBy.
+    // prev_ops_ contains operators from root down to the scan's parent.
+    // The scan itself is NOT in prev_ops_ (it was popped in PostVisit).
+    // We need to check operators between OrderBy (exclusive) and ScanAll (exclusive).
+    // OrderBy is guaranteed to be in prev_ops_ (pushed in PreVisit, we're between Pre/PostVisit).
+    for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
+      auto *op = *it;
+      // Check if this operator is order-preserving. An operator is order-preserving if it does not
+      // reorder its input rows. It may filter (1:1) or multiply (1:N via nested loop) rows.
+      //
+      // 1:N operators (Expand, ExpandVariable, Unwind, Optional, Apply) are safe here because
+      // they preserve the relative ordering of the *input* symbol's properties. Since we verify
+      // that ORDER BY references the scan symbol (not a symbol introduced by expansion), the
+      // scan-symbol property values remain sorted even when rows are multiplied.
+      //
+      // Operators that are NOT order-preserving: Aggregate (hash grouping), OrderBy (reorders),
+      // Cartesian (cross product), CallProcedure (output order undefined).
+      // Note: Union preserves order within each branch but not across both, so it's not safe here.
+      // HashJoin/IndexedJoin preserve left-input order but are unlikely between OrderBy and ScanAll;
+      // they could be added if needed.
+      //
+      // Produce preserves row order but can rename variables. We resolve the mapping to track
+      // the scan symbol through renames (e.g., WITH n AS m updates tracked_name from "n" to "m").
+      const auto &type_info = op->GetTypeInfo();
+      if (type_info == Produce::kType) {
+        // Produce is order-preserving. Resolve what name carries our tracked variable through.
+        // Save the pre-rename name for dual-scope comparison (see comment above).
+        pre_last_produce_name = tracked_name;
+        auto resolved = ResolveProduceMapping(dynamic_cast<Produce *>(op), tracked_name);
+        if (!resolved) return;  // variable dropped or complex expression — block elimination
+        tracked_name = std::move(*resolved);
+        continue;
+      }
+      bool order_preserving = type_info == Filter::kType ||                 // removes rows, 1:1
+                              type_info == ConstructNamedPath::kType ||     // builds path value, 1:1
+                              type_info == EdgeUniquenessFilter::kType ||   // removes rows, 1:1
+                              type_info == Limit::kType ||                  // truncates, 1:1
+                              type_info == Skip::kType ||                   // drops first N, 1:1
+                              type_info == Expand::kType ||                 // 1:N, preserves input-symbol order
+                              type_info == ExpandVariable::kType ||         // 1:N, preserves input-symbol order
+                              type_info == Optional::kType ||               // 1:1 or 1:N, preserves input-symbol order
+                              type_info == Distinct::kType ||               // streaming dedup, emits in input order
+                              type_info == EvaluatePatternFilter::kType ||  // EXISTS subquery, essentially a filter
+                              type_info == RollUpApply::kType ||  // pattern comprehension, collects into list, 1:1
+                              type_info == Apply::kType ||        // CALL subquery, 1:N, preserves input-symbol order
+                              type_info == Unwind::kType;         // 1:N, preserves input-symbol order
+      if (!order_preserving) return;
+    }
+
+    // The ORDER BY symbol must match the tracked scan symbol. We check both tracked_name
+    // (output scope, after all Produce renames) and pre_last_produce_name (input scope of the
+    // last Produce before OrderBy) because Cypher's ORDER BY can reference either scope.
+    // Example: RETURN n AS m ORDER BY m.prop → tracked_name "m" matches.
+    //          RETURN n AS m ORDER BY n.prop → pre_last_produce_name "n" matches.
+    const auto &ob_name = ctx.scan_symbol.name();
+    if (tracked_name != ob_name && pre_last_produce_name != ob_name) return;
+
+    // Match ORDER BY properties against the index as a strict prefix.
+    //
+    // For composite indexes, the ORDER BY columns must exactly match a leading prefix
+    // of the index columns, in the same order. For example, with index (a, b, c):
+    //   ORDER BY a       → OK (prefix of length 1)
+    //   ORDER BY a, b    → OK (prefix of length 2)
+    //   ORDER BY a, b, c → OK (full match)
+    //   ORDER BY b       → NOT OK (not a prefix)
+    //   ORDER BY a, c    → NOT OK (gap — b is missing)
+    //
+    // Equality-pinned columns are NOT skipped: even though WHERE a = 5 makes column a
+    // constant, ORDER BY must still start from the first index column to be eliminated.
+    auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(new_scan);
+    const auto &index_properties = scan_by_props->properties_;
+
+    if (ctx.property_paths.size() > index_properties.size()) return;
+
+    for (size_t i = 0; i < ctx.property_paths.size(); ++i) {
+      if (index_properties[i] != ctx.property_paths[i]) return;
+    }
+
+    ctx.should_eliminate = true;
+  }
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
 
@@ -1822,11 +2028,10 @@ std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalO
   impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints, parameters);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
-    // This shouldn't happen in real use case, because IndexLookupRewriter
-    // removes Filter operations and they cannot be the root op. In case we
-    // somehow missed this, raise NotYetImplemented instead of MG_ASSERT
-    // crashing the application.
-    throw utils::NotYetImplemented("optimizing index lookup");
+    // The root operator was removed (e.g., OrderBy elimination or Filter removal).
+    // Since the internal tree uses shared_ptr but this function returns unique_ptr,
+    // we clone the new root subtree to get a properly-owned unique_ptr hierarchy.
+    return rewriter.new_root_->Clone(ast_storage);
   }
   return root_op;
 }
