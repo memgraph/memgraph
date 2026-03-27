@@ -25,6 +25,7 @@
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
+#include "utils/system_info.hpp"
 
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -112,13 +113,13 @@ DEFINE_bool(storage_parallel_snapshot_creation, false,
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_snapshot_thread_count,
-              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+              std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
                        memgraph::storage::Config::Durability().snapshot_thread_count),
               "The number of threads used to create snapshots.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
-              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+              std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
                        memgraph::storage::Config::Durability().recovery_thread_count),
               "The number of threads used to recover persisted data from disk.");
 

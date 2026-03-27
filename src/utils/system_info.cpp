@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "utils/file.hpp"
@@ -217,6 +218,11 @@ RuntimeEnv DetectRuntimeEnv() {
     return RuntimeEnv::KUBERNETES;
   }
   return RuntimeEnv::NO_KUBERNETES;
+}
+
+unsigned GetSafeHardwareConcurrency(unsigned fallback) {
+  auto hw = std::thread::hardware_concurrency();
+  return hw != 0 ? hw : fallback;
 }
 
 }  // namespace memgraph::utils
