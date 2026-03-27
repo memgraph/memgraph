@@ -45,25 +45,6 @@ on:
   schedule:
     - cron: "0 0 * * *"  # Run daily at midnight
 
-
-concurrency:
-  group: >-
-    ${{
-      github.event_name == 'workflow_dispatch' &&
-      (
-        endsWith(github.run_id, '0') ||
-        endsWith(github.run_id, '2') ||
-        endsWith(github.run_id, '4') ||
-        endsWith(github.run_id, '6') ||
-        endsWith(github.run_id, '8')
-      ) &&
-      'jepsen-manual-slot-0' ||
-      github.event_name == 'workflow_dispatch' &&
-      'jepsen-manual-slot-1' ||
-      'jepsen-scheduled'
-    }}
-  cancel-in-progress: false
-
 jobs:
   determine-sync:
     if: ${{ github.event_name != 'workflow_dispatch' }}
