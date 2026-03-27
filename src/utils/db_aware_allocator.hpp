@@ -22,9 +22,8 @@
 
 #if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
-#endif
-
 void *JeNew(size_t size, int flags);
+#endif
 
 namespace memgraph::memory {
 
