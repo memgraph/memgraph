@@ -1060,6 +1060,7 @@ copy_memgraph() {
 ##################### TESTS ######################
 ##################################################
 test_memgraph() {
+  local test_name="$1"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_VENV="source ve3/bin/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
@@ -1070,9 +1071,58 @@ test_memgraph() {
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
   local default_benchmark_result_file='benchmark_result.json'
 
+  resolve_native_ha_monitoring_targets() {
+    local monitoring_targets_output
+    monitoring_targets_output="$(docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR/tests/stress/ha/native/deployment && ./deployment.sh monitoring-targets \"$build_container\"")"
+
+    while IFS='=' read -r key value; do
+      case "$key" in
+        MEMGRAPH_METRICS_TARGETS)
+          [[ -n "$value" && -z "${MEMGRAPH_METRICS_TARGETS:-}" ]] && export MEMGRAPH_METRICS_TARGETS="$value"
+        ;;
+        MEMGRAPH_LOG_WS_TARGETS)
+          [[ -n "$value" && -z "${MEMGRAPH_LOG_WS_TARGETS:-}" ]] && export MEMGRAPH_LOG_WS_TARGETS="$value"
+        ;;
+      esac
+    done <<< "$monitoring_targets_output"
+  }
+
+  resolve_docker_ha_monitoring_targets() {
+    local monitoring_targets_output
+    monitoring_targets_output="$("$PROJECT_ROOT/tests/stress/ha/docker/deployment/deployment.sh" monitoring-targets host.docker.internal)"
+
+    while IFS='=' read -r key value; do
+      case "$key" in
+        MEMGRAPH_METRICS_TARGETS)
+          [[ -n "$value" && -z "${MEMGRAPH_METRICS_TARGETS:-}" ]] && export MEMGRAPH_METRICS_TARGETS="$value"
+        ;;
+        MEMGRAPH_LOG_WS_TARGETS)
+          [[ -n "$value" && -z "${MEMGRAPH_LOG_WS_TARGETS:-}" ]] && export MEMGRAPH_LOG_WS_TARGETS="$value"
+        ;;
+      esac
+    done <<< "$monitoring_targets_output"
+
+    export MONITORING_USE_HOST_NETWORK="true"
+  }
+
+  if [[ "$enable_monitoring" == "true" ]]; then
+    if [[ "$test_name" == "stress-native-ha" ]]; then
+      resolve_native_ha_monitoring_targets
+    elif [[ "$test_name" == "stress-docker-ha" ]]; then
+      resolve_docker_ha_monitoring_targets
+    fi
+    if [[ -z "$service_name" ]]; then
+      service_name="$test_name"
+      echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+    fi
+    start_monitoring
+  fi
+
+  trap stop_monitoring EXIT INT TERM
+
   # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
-  echo "Running $1 test on $build_container..."
-  case "$1" in
+  echo "Running $test_name test on $build_container..."
+  case "$test_name" in
     unit)
       if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
         docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$(nproc)'
@@ -1587,7 +1637,17 @@ package_mage_docker() {
 }
 
 test_mage() {
-  # TODO: move other tests into this function like the test_memgraph function
+  local test_name="$1"
+
+  if [[ "$enable_monitoring" == "true" ]]; then
+    if [[ -z "$service_name" ]]; then
+      service_name="mage-$test_name"
+      echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+    fi
+    start_monitoring
+  fi
+
+  trap stop_monitoring EXIT INT TERM
 
   function create_e2e_test_env() {
     cd $PROJECT_ROOT/mage
@@ -1939,6 +1999,36 @@ build_ssl() {
 
   echo "OpenSSL built and uploaded to conan cache"
 }
+
+start_monitoring() {
+  local metrics_targets="${MEMGRAPH_METRICS_TARGETS:-$build_container:9091}"
+  local log_ws_targets="${MEMGRAPH_LOG_WS_TARGETS:-$build_container:7444}"
+
+  echo -e "${GREEN_BOLD}Setting up monitoring...${RESET}"
+  echo -e "${GREEN_BOLD}Cluster id: ${RED_BOLD}$cluster_id${RESET}"
+  echo -e "${GREEN_BOLD}Cluster env: ${RED_BOLD}$cluster_env${RESET}"
+  echo -e "${GREEN_BOLD}Service name: ${RED_BOLD}$service_name${RESET}"
+  echo -e "${GREEN_BOLD}Metrics targets: ${RED_BOLD}$metrics_targets${RESET}"
+  echo -e "${GREEN_BOLD}Log websocket targets: ${RED_BOLD}$log_ws_targets${RESET}"
+
+  # start the monitoring stack
+  cd $PROJECT_ROOT/tools/ci/monitoring
+  MONITORING_SERVER_HOST=$monitoring_host \
+  CLUSTER_ID=$cluster_id \
+  CLUSTER_ENV=$cluster_env \
+  SERVICE_NAME=$service_name \
+  MEMGRAPH_METRICS_TARGETS=$metrics_targets \
+  MEMGRAPH_LOG_WS_TARGETS=$log_ws_targets \
+  ./up.sh
+}
+
+stop_monitoring() {
+  echo -e "${GREEN_BOLD}Stopping monitoring...${RESET}"
+  cd $PROJECT_ROOT/tools/ci/monitoring
+  ./down.sh
+}
+
+
 ##################################################
 ################### PARSE ARGS ###################
 ##################################################
@@ -1963,6 +2053,11 @@ conan_cache_dir=""
 command=""
 build_container=""
 cugraph=false
+enable_monitoring=false
+monitoring_host=""
+cluster_id=""
+cluster_env=""
+service_name=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)
@@ -2029,6 +2124,26 @@ while [[ $# -gt 0 ]]; do
       conan_cache_dir=$2
       shift 2
     ;;
+    --enable-monitoring)
+      enable_monitoring=true
+      shift 1
+    ;;
+    --monitoring-host)
+      monitoring_host=$2
+      shift 2
+    ;;
+    --cluster-id)
+      cluster_id=$2
+      shift 2
+    ;;
+    --cluster-env)
+      cluster_env=$2
+      shift 2
+    ;;
+    --service-name)
+      service_name=$2
+      shift 2
+    ;;
     *)
       if [[ "$1" =~ ^--.* ]]; then
         echo -e "Error: Unknown option '$1'"
@@ -2042,6 +2157,13 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
+
+# only allow monitoring if all variables are set
+if [[ "$enable_monitoring" == "true" && (-z "$monitoring_host" || -z "$cluster_id" || -z "$cluster_env") ]]; then
+  echo -e "Error: Monitoring is enabled but not all monitoring variables are set"
+  echo -e "Provide --monitoring-host, --cluster-id and --cluster-env"
+  exit 1
+fi
 
 if [[ -z "$conan_cache_dir" ]]; then
   conan_cache_dir="$HOME/.conan2-ci"
