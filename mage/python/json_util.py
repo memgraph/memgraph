@@ -1,5 +1,4 @@
 import json
-from datetime import date, datetime, time, timedelta
 from io import TextIOWrapper
 from pathlib import Path
 from typing import Any
@@ -10,13 +9,18 @@ import mgp
 
 
 def _convert_value_to_json_compatible(value: Any) -> Any:
-    """Helper function to convert Memgraph values to JSON-compatible Python types."""
+    """Helper function to convert Memgraph values to JSON-compatible Python types.
+
+    For Vertex, Edge, and Path objects, a domain-specific structure is returned
+    (with "type", "id", "labels", etc.). For property values, temporal types,
+    lists, dicts, and primitives, conversion is delegated to ``mgp.to_dict``.
+    """
     if isinstance(value, mgp.Vertex):
         return {
             "type": "node",
             "id": value.id,
             "labels": [label.name for label in value.labels],
-            "properties": {k: _convert_value_to_json_compatible(v) for k, v in value.properties.items()},
+            "properties": value.properties.to_dict(),
         }
     elif isinstance(value, mgp.Edge):
         return {
@@ -25,7 +29,7 @@ def _convert_value_to_json_compatible(value: Any) -> Any:
             "start": value.from_vertex.id,
             "end": value.to_vertex.id,
             "relationship_type": value.type.name,
-            "properties": {k: _convert_value_to_json_compatible(v) for k, v in value.properties.items()},
+            "properties": value.properties.to_dict(),
         }
     elif isinstance(value, mgp.Path):
         return {
@@ -35,25 +39,8 @@ def _convert_value_to_json_compatible(value: Any) -> Any:
             "nodes": [_convert_value_to_json_compatible(v) for v in value.vertices],
             "relationships": [_convert_value_to_json_compatible(e) for e in value.edges],
         }
-    elif isinstance(value, (list, tuple)):
-        return [_convert_value_to_json_compatible(item) for item in value]
-    elif isinstance(value, dict):
-        return {k: _convert_value_to_json_compatible(v) for k, v in value.items()}
-    elif isinstance(value, (datetime, date)):
-        return value.isoformat()
-    elif isinstance(value, time):
-        return value.isoformat()
-    elif isinstance(value, timedelta):
-        total_seconds = value.total_seconds()
-        hours = int(total_seconds // 3600)
-        minutes = int((total_seconds % 3600) // 60)
-        seconds = int(total_seconds % 60)
-        microseconds = value.microseconds
-        return f"P0DT{hours}H{minutes}M{seconds}.{microseconds:06d}S"
-    elif isinstance(value, (int, float, str, bool)) or value is None:
-        return value
     else:
-        return str(value)
+        return mgp.to_dict(value)
 
 
 def extract_objects(file: TextIOWrapper):
