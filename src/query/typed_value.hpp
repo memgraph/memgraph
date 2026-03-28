@@ -616,32 +616,31 @@ class TypedValue {
    * @throw TypedValueException if the values cannot be compared, i.e. they are
    *        not either Null, numeric or a character string type.
    */
-  // TODO: why not `!(b < a)` or C++20 auto generated
-  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return a < b || a == b; }
+  // For ordering operators: if < returns null (incomparable), all ordering operators return null
+  friend TypedValue operator<=(const TypedValue &a, const TypedValue &b) {
+    TypedValue lt = a < b;
+    if (lt.IsNull()) return lt;
+    if (lt.ValueBool()) return lt;  // a < b is true, so a <= b is true
+    return a == b;                  // a < b is false, check equality
+  }
 
   /**
    * Compare TypedValues and return true, false or Null.
    *
-   * Null is returned if either of the two values is Null.
+   * Null is returned if either of the two values is Null or incomparable.
    * The resulting value uses the same MemoryResource as the left hand side
    * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
    */
-  friend TypedValue operator>(const TypedValue &a, const TypedValue &b) { return !(a <= b); }
+  friend TypedValue operator>(const TypedValue &a, const TypedValue &b) { return b < a; }
 
   /**
    * Compare TypedValues and return true, false or Null.
    *
-   * Null is returned if either of the two values is Null.
+   * Null is returned if either of the two values is Null or incomparable.
    * The resulting value uses the same MemoryResource as the left hand side
    * argument.
-   *
-   * @throw TypedValueException if the values cannot be compared, i.e. they are
-   *        not either Null, numeric or a character string type.
    */
-  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return !(a < b); }
+  friend TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return b <= a; }
 
   // arithmetic operators
 
