@@ -40,6 +40,11 @@ env:
   BUILD_TYPE: 'RelWithDebInfo'
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-stress-jepsen"
   OS: 'debian-12'
   TOOLCHAIN: 'v7'
   NODES_NO: 6
@@ -115,6 +120,26 @@ jobs:
           cd tests/jepsen
           ./run.sh unit-tests --binary ../../build/memgraph
 
+      - name: Start Jepsen monitoring (workload)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          if [[ "${{ inputs.mt }}" == "true" ]]; then
+            SERVICE_NAME="jepsen-ha-mt"
+            COMPOSE_SUFFIX="ha-mt"
+          else
+            SERVICE_NAME="jepsen-hacreate"
+            COMPOSE_SUFFIX="hacreate"
+          fi
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-${COMPOSE_SUFFIX}" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="$CLUSTER_ID" \
+          CLUSTER_ENV="$CLUSTER_ENV" \
+          SERVICE_NAME="$SERVICE_NAME" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
+
       - name: Run Jepsen workload
         env:
             INPUT_CONCURRENCY: ${{ inputs.concurrency }}
@@ -172,6 +197,20 @@ jobs:
         run: |
           cd tests/jepsen
           ./run.sh cluster-refresh --nodes-no $NODES_NO
+
+      - name: Stop Jepsen monitoring (workload)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          if [[ "${{ inputs.mt }}" == "true" ]]; then
+            COMPOSE_SUFFIX="ha-mt"
+          else
+            COMPOSE_SUFFIX="hacreate"
+          fi
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-${COMPOSE_SUFFIX}" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
 
       - name: Stop mgbuild container
         if: always()
