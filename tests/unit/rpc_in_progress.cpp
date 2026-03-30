@@ -26,9 +26,8 @@ using memgraph::communication::ServerContext;
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
 using memgraph::rpc::GenericRpcFailedException;
+using memgraph::rpc::RpcTimeoutException;
 using memgraph::rpc::Server;
-using memgraph::slk::Load;
-using memgraph::slk::Save;
 
 using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
@@ -174,7 +173,7 @@ TEST(RpcInProgress, Timeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
-  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
 }
 
 TEST(RpcInProgress, NoTimeout) {

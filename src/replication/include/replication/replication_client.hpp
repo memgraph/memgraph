@@ -97,7 +97,10 @@ struct ReplicationClient {
           if (check(stream.SendAndWait())) {
             return true;
           }
-        } catch (rpc::GenericRpcFailedException const &) {
+
+        }
+        // NOLINTNEXTLINE(bugprone-empty-catch)
+        catch (rpc::RpcFailedException const &) {  // timeout exception not handled in a specific way
           // swallow error, fallthrough to error handling
         }
         // This replica needs SYSTEM recovery
@@ -111,7 +114,7 @@ struct ReplicationClient {
       }
 
       return task();
-    } catch (rpc::GenericRpcFailedException const &) {
+    } catch (rpc::RpcFailedException const &) {  // timeout exception not handled in a specific way
       // This replica needs SYSTEM recovery
       state_.WithLock([](auto &state) { state = State::BEHIND; });
       return false;

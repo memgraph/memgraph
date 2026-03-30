@@ -317,6 +317,12 @@ void Socket::SetTimeout(int64_t sec, int64_t usec) {
   MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)), "Can't set socket timeout");
 }
 
+// NOLINTNEXTLINE(readability-make-member-function-const)
+void Socket::SetUserTimeout(int timeout_ms) {
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_USER_TIMEOUT, &timeout_ms, sizeof(timeout_ms)),
+            "Can't set TCP_USER_TIMEOUT");
+}
+
 int Socket::ErrorStatus() const {
   int optval = 0;
   socklen_t optlen = sizeof(optval);
@@ -359,7 +365,8 @@ std::optional<Socket> Socket::Accept() {
 
 // Not const because of C-API
 // NOLINTNEXTLINE
-bool Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optional<int> timeout_ms) {
+auto Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optional<int> timeout_ms)
+    -> std::expected<void, ClientCommunicationError> {
   // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
   // connection dies mid-write, the socket will only return an EPIPE error.
   constexpr unsigned msg_nosignal = MSG_NOSIGNAL;
@@ -369,25 +376,33 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optiona
     auto written = send(socket_, data, len, static_cast<int>(flags));
     if (written == -1) {
       if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-        // Terminal error, return failure.
-        return false;
+        if (errno == ETIMEDOUT) {
+          spdlog::warn("TCP_USER_TIMEOUT triggered on socket write (fd={}): unacknowledged data exceeded timeout",
+                       socket_);
+        } else {
+          spdlog::warn("Socket write error (fd={}, errno={}): {}", socket_, errno, strerror(errno));
+        }
+        return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
       }
       // Non-fatal error, retry after the socket is ready. This is here to
       // implement a non-busy wait. If we just continue with the loop we have a
       // busy wait.
-      if (!WaitForReadyWrite(timeout_ms)) return false;
+      if (!WaitForReadyWrite(timeout_ms)) {
+        return std::unexpected{ClientCommunicationError::TIMEOUT_ERROR};
+      }
     } else if (written == 0) {
       // The client closed the connection.
-      return false;
+      return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
     } else {
       len -= written;
       data += written;
     }
   }
-  return true;
+  return {};
 }
 
-bool Socket::Write(std::string_view s, bool have_more, std::optional<int> timeout_ms) {
+auto Socket::Write(std::string_view s, bool have_more, std::optional<int> timeout_ms)
+    -> std::expected<void, ClientCommunicationError> {
   return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more, timeout_ms);
 }
 
