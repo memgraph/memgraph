@@ -184,13 +184,13 @@ struct mgp_zoned_date_time;
 /// Duration stored in Memgraph.
 struct mgp_duration;
 
-/// Opaque container for a 2D point value (x, y, srid).
+/// 2D point stored in Memgraph.
 struct mgp_point_2d;
 
-/// Opaque container for a 3D point value (x, y, z, srid).
+/// 3D point stored in Memgraph.
 struct mgp_point_3d;
 
-/// Opaque container for an enum value (type_name, value_name).
+/// Enum value stored in Memgraph.
 struct mgp_enum;
 
 /// All available types that can be stored in a mgp_value
