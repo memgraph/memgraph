@@ -154,6 +154,7 @@ target_link_libraries(mg-query
     mg::storage
     mg-license
     mg-utils
+    mg-events
     mg-kvstore
     mg-memory-utils
     mg::csv
