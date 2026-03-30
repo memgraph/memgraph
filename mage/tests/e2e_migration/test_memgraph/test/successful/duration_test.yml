@@ -1,0 +1,11 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.duration_col AS duration_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.duration_col) AS duration_col_type, toString(row.duration_col) AS duration_col
+
+output:
+  - duration_col_type: 'DURATION'
+    duration_col: 'P1DT2H3M4S'
