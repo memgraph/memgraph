@@ -208,6 +208,7 @@ class DbmsHandler {
                   *name_view,
                   std::string(db->uuid()),
                   std::string(config.uuid));
+    db->DetachMetrics();
     // Defer drop
     (void)Delete_(db->name());
     // Second attempt
