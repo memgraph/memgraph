@@ -2,7 +2,8 @@
 name: Bug report
 about: Create a report to help us improve
 title: ""
-labels: bug
+labels:
+type: Bug
 ---
 
 **Memgraph version**
@@ -20,7 +21,9 @@ A clear and concise description of what the bug is.
 Steps to reproduce the behavior:
 1. Run the following query '...'
 2. Click on '....'
-3. ... IDEALLY: link to the workload info (DATASET & QUERIES) ...
+3. IDEALLY:
+    * link to the workload info (DATASET & QUERIES)
+    * **if you can, please also provide the full code to reproduce the issue**.
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.

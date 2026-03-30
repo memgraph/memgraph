@@ -11,11 +11,11 @@
 
 #pragma once
 #include <string>
+#include <string_view>
 #include <utility>
 
-#include "utils/uuid.hpp"
-
 #include "spdlog/spdlog.h"  // Needed
+#include "utils/uuid.hpp"
 
 namespace memgraph::replication {
 

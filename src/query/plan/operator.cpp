@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan/operator.hpp"
+#include <range/v3/all.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -37,8 +38,7 @@
 
 #include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
-#include "memory/query_memory_control.hpp"
-#include "query/common.hpp"
+#include "query/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -334,6 +334,8 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
           throw PeriodicCommitException(
               "PeriodicCommit failed: At least one STRICT_SYNC replica has not confirmed committing last transaction. "
               "Transaction will be aborted on all instances.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
+          spdlog::warn("PeriodicCommit warning: {}", rpc::kRpcTimeoutMsg);
         } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
           throw PeriodicCommitException(
               "PeriodicCommit failed: Unable to commit due to constraint "

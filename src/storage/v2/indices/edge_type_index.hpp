@@ -11,13 +11,17 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <span>
+#include <tuple>
+#include <variant>
+#include <vector>
+
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
-
-#include <algorithm>
-#include <map>
-#include <span>
-#include <vector>
 
 namespace memgraph::storage {
 

@@ -11,13 +11,21 @@
 
 #pragma once
 
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <gflags/gflags_declare.h>
 #include <sys/types.h>
 #include <zlib.h>
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
+#include <string>
 #include <string_view>
+#include <utility>
+
 #include "utils/enum.hpp"
 
 namespace memgraph::utils {

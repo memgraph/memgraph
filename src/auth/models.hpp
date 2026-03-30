@@ -9,16 +9,25 @@
 #pragma once
 
 #include <algorithm>
+#include <compare>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
+#include <ranges>
 #include <set>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
-
-#include <nlohmann/json_fwd.hpp>
 #include <utility>
 #include <variant>
+#include <vector>
+
 #include "auth/profiles/user_profiles.hpp"
 #include "crypto.hpp"
 #include "dbms/constants.hpp"

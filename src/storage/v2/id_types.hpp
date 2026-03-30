@@ -11,13 +11,17 @@
 
 #pragma once
 
+#include <bit>
+#include <boost/container_hash/hash.hpp>
+#include <boost/functional/hash.hpp>
 #include <compare>
+#include <cstddef>
 #include <cstdint>
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <type_traits>
-
-#include <boost/functional/hash.hpp>
+#include <typeindex>
 
 namespace memgraph::storage {
 

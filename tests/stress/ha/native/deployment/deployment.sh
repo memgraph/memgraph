@@ -175,11 +175,18 @@ setup_ha() {
         exit 1
     fi
 
-    echo "Registering instances..."
+    # Determine replication mode clause
+    local repl_mode="${REPLICATION_MODE:-sync}"
+    local repl_clause=""
+    if [[ "$repl_mode" == "strict_sync" ]]; then
+        repl_clause="AS STRICT_SYNC"
+    fi
+
+    echo "Registering instances (replication mode: $repl_mode)..."
     if ! echo "
-    REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7687\", \"management_server\": \"127.0.0.1:13011\", \"replication_server\": \"127.0.0.1:10001\"};
-    REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7688\", \"management_server\": \"127.0.0.1:13012\", \"replication_server\": \"127.0.0.1:10002\"};
-    REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7689\", \"management_server\": \"127.0.0.1:13013\", \"replication_server\": \"127.0.0.1:10003\"};
+    REGISTER INSTANCE instance_1 $repl_clause WITH CONFIG {\"bolt_server\": \"127.0.0.1:7687\", \"management_server\": \"127.0.0.1:13011\", \"replication_server\": \"127.0.0.1:10001\"};
+    REGISTER INSTANCE instance_2 $repl_clause WITH CONFIG {\"bolt_server\": \"127.0.0.1:7688\", \"management_server\": \"127.0.0.1:13012\", \"replication_server\": \"127.0.0.1:10002\"};
+    REGISTER INSTANCE instance_3 $repl_clause WITH CONFIG {\"bolt_server\": \"127.0.0.1:7689\", \"management_server\": \"127.0.0.1:13013\", \"replication_server\": \"127.0.0.1:10003\"};
     SET INSTANCE instance_1 TO MAIN;
     " | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691; then
         echo "ERROR: Failed to register instances"

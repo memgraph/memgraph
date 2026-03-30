@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,20 @@
 
 #pragma once
 
+#include <pulsar/Client.h>
+#include <pulsar/Consumer.h>
+#include <pulsar/Message.h>
+#include <pulsar/MessageId.h>
 #include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <thread>
-
-#include <pulsar/Client.h>
+#include <vector>
 
 namespace memgraph::integrations::pulsar {
 

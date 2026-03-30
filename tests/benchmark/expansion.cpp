@@ -13,6 +13,7 @@
 #include <memory>
 
 #include "communication/result_stream_faker.hpp"
+#include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,15 @@
 
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "utils/exceptions.hpp"
@@ -204,6 +208,7 @@ class KVStore final {
 
    private:
     struct impl;
+
     std::unique_ptr<impl> pimpl_;
   };
 
@@ -213,6 +218,7 @@ class KVStore final {
 
  private:
   struct impl;
+
   std::unique_ptr<impl> pimpl_;
 };
 

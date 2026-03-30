@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <filesystem>
+#include <range/v3/all.hpp>
 
 #include <mgcxx_text_search.hpp>
 #include <nlohmann/json.hpp>

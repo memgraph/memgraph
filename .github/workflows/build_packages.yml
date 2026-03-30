@@ -1,10 +1,6 @@
-name: "Post-PR Merge: Build and Upload MAGE Packages"
+name: "Build and Upload MAGE Packages for a Pull Request"
 
 on:
-  pull_request:
-    types: [closed]
-    branches:
-      - master
   workflow_dispatch:
     inputs:
       pr_number:
@@ -12,11 +8,10 @@ on:
         description: "PR number to use for the build (e.g., 1234)"
         required: true
 
-run-name: "Build and Upload Packages for PR merge"
+run-name: "Build and Upload Packages for a Pull Request"
 
 jobs:
   get-pr-number:
-    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch'
     name: "Get PR Number"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     outputs:
@@ -30,19 +25,16 @@ jobs:
       - name: Get PR Number
         id: get_pr
         run: |
-          # Get the PR number from the event or manual input
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            PR_NUMBER=${{ github.event.inputs.pr_number }}
-            echo "Using manually provided PR number: $PR_NUMBER"
-          else
-            PR_NUMBER=${{ github.event.pull_request.number }}
-            echo "Using PR number from merged PR: $PR_NUMBER"
+          PR_NUMBER=${{ github.event.inputs.pr_number }}
+          if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "PR number is not a number"
+            exit 1
           fi
+          echo "Using manually provided PR number: $PR_NUMBER"
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "PR Number: $PR_NUMBER"
 
   build-packages-mage:
-    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch'
     name: "Build ${{ matrix.arch }} Package"
     needs: get-pr-number
     uses: ./.github/workflows/reusable_package_mage.yaml

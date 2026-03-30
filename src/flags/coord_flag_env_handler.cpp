@@ -9,21 +9,29 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
-#include <string>
-#include <string_view>
-
-#include "flags/coord_flag_env_handler.hpp"
-#include "flags/coordination.hpp"
-
-#include <fmt/core.h>
-#include <spdlog/spdlog.h>
+#include <format>
+#include <functional>
+#include <meta/meta.hpp>
+#include <optional>
+#include <range/v3/functional/bind_back.hpp>
+#include <range/v3/iterator/basic_iterator.hpp>
 #include <range/v3/range/conversion.hpp>
+#include <range/v3/utility/get.hpp>
 #include <range/v3/view/drop_while.hpp>
 #include <range/v3/view/take_while.hpp>
 #include <range/v3/view/transform.hpp>
+#include <range/v3/view/view.hpp>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "flags/coord_flag_env_handler.hpp"
+#include "flags/coordination.hpp"
 
 namespace memgraph::flags {
 

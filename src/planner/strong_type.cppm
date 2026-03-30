@@ -13,6 +13,8 @@ module;
 
 #include "strong_type/strong_type.hpp"
 
+#include <strong_type/type.hpp>
+
 export module rollbear.strong_type;
 
 // Re-export the strong namespace members that are currently used across the planner module

@@ -13,6 +13,8 @@
 
 #include "coordination/logger_wrapper.hpp"
 
+#include "coordination/logger.hpp"
+
 namespace memgraph::coordination {
 
 LoggerWrapper::LoggerWrapper(Logger *logger) : logger_(logger) {}
