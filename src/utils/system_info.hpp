@@ -56,12 +56,12 @@ RuntimeEnv DetectRuntimeEnv();
 
 /**
  * Returns the number of hardware threads available, with a guaranteed
- * minimum fallback. std::thread::hardware_concurrency() can return 0 on
- * some platforms when the value cannot be determined. This function
- * ensures a safe non-zero default.
+ * non-zero result. Tries std::thread::hardware_concurrency() first,
+ * falls back to parsing /proc/cpuinfo, and finally uses the numeric
+ * fallback if neither source succeeds.
  *
- * @param fallback Value to use if hardware_concurrency() returns 0 (default: 2).
- * @return Number of hardware threads, at least `fallback`.
+ * @param fallback Value to use as a last resort (default: 2).
+ * @return Number of hardware threads, always > 0.
  */
 unsigned GetSafeHardwareConcurrency(unsigned fallback = 2);
 

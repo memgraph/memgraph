@@ -1063,4 +1063,7 @@ if (MG_ENTERPRISE)
     )
 endif ()
 
-add_unit_test(safe_hardware_concurrency safe_hardware_concurrency.cpp)
+add_unit_test(safe_hardware_concurrency
+    SOURCES safe_hardware_concurrency.cpp
+    LINK_TARGETS mg-utils
+)

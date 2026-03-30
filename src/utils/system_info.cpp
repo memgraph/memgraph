@@ -14,6 +14,7 @@
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <sys/utsname.h>
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <nlohmann/json.hpp>
@@ -220,8 +221,19 @@ RuntimeEnv DetectRuntimeEnv() {
   return RuntimeEnv::NO_KUBERNETES;
 }
 
+namespace {
+unsigned LogicalCPUCoresFromProcCpuinfo() {
+  auto lines = utils::ReadLines("/proc/cpuinfo");
+  return static_cast<unsigned>(
+      std::ranges::count_if(lines, [](const auto &line) { return line.starts_with("processor"); }));
+}
+}  // namespace
+
 unsigned GetSafeHardwareConcurrency(unsigned fallback) {
   auto hw = std::thread::hardware_concurrency();
+  if (hw != 0) return hw;
+
+  hw = LogicalCPUCoresFromProcCpuinfo();
   return hw != 0 ? hw : fallback;
 }
 
