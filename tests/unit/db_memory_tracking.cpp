@@ -18,7 +18,9 @@
 
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
+#include "replication/state.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -351,6 +353,129 @@ TEST_F(DbMemoryTrackingTest, StorageCreateEdgesWithMultipleConnectionsIncreasesD
   EXPECT_GT(after, before) << "Creating vertices with " << kEdgesPerVertex
                            << " edges each (small-vector spill) must increase DbMemoryUsage. "
                            << "before=" << before << " after=" << after;
+}
+
+// -----------------------------------------------------------------------
+// Snapshot recovery preserves per-DB memory attribution
+// -----------------------------------------------------------------------
+//
+// Flow:
+//   1. Create a DB with PERIODIC_SNAPSHOT_WITH_WAL mode.
+//   2. Pin this test thread to the DB arena (full pin via je_mallctl) and create
+//      a rich dataset: vertices, labels, properties, edges.
+//   3. Measure DbMemoryUsage() — call it `before_snapshot`.
+//   4. Take a manual snapshot.
+//   5. Destroy the DB (let the Gatekeeper go out of scope).
+//   6. Recreate the same DB from the same directory with recover_on_startup = true.
+//      Recovery runs on the scheduler / GC threads which are already fully pinned.
+//   7. Measure DbMemoryUsage() — call it `after_recovery`.
+//   8. Assert after_recovery > 0 and within 2× of before_snapshot.
+//
+// This validates that snapshot recovery re-attributes data objects to the
+// new DB's arena rather than the default arena, so the tracker is non-zero.
+TEST_F(DbMemoryTrackingTest, SnapshotRecoveryPreservesDbMemoryTracking) {
+  const auto snap_dir = data_dir_ / "snap_recovery";
+  std::filesystem::create_directories(snap_dir);
+
+  // ---- Phase 1: build dataset and take snapshot ----
+  int64_t before_snapshot = 0;
+  {
+    auto cfg = MakeConfig(snap_dir);
+    cfg.durability.snapshot_wal_mode =
+        memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    cfg.durability.recover_on_startup = false;
+    cfg.durability.snapshot_on_exit = false;
+
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{cfg};
+    auto acc_opt = db_gk.access();
+    ASSERT_TRUE(acc_opt);
+    auto &db = *acc_opt;
+
+    const unsigned arena_idx = db->ArenaIdx();
+    ASSERT_NE(arena_idx, 0U);
+
+    // Full-pin this thread to the DB arena so all operator-new allocations
+    // during vertex/edge creation go through the DB extent hooks.
+    unsigned prev_arena = 0;
+    std::size_t arena_sz = sizeof(unsigned);
+    je_mallctl("thread.arena", &prev_arena, &arena_sz, const_cast<unsigned *>(&arena_idx), arena_sz);
+
+    auto label_person = db->storage()->NameToLabel("Person");
+    auto label_employee = db->storage()->NameToLabel("Employee");
+    auto prop_name = db->storage()->NameToProperty("name");
+    auto prop_age = db->storage()->NameToProperty("age");
+    auto edge_type = db->storage()->NameToEdgeType("KNOWS");
+
+    static constexpr int kNodes = 500;
+
+    std::vector<memgraph::storage::Gid> vertex_gids;
+    vertex_gids.reserve(kNodes);
+
+    {
+      auto txn = db->Access();
+      for (int i = 0; i < kNodes; ++i) {
+        auto v = txn->CreateVertex();
+        ASSERT_NO_ERROR(v.AddLabel(label_person));
+        ASSERT_NO_ERROR(v.AddLabel(label_employee));
+        ASSERT_NO_ERROR(
+            v.SetProperty(prop_name, memgraph::storage::PropertyValue(std::string("User_") + std::to_string(i))));
+        ASSERT_NO_ERROR(v.SetProperty(prop_age, memgraph::storage::PropertyValue(i % 80)));
+        vertex_gids.push_back(v.Gid());
+      }
+      txn->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+    }
+
+    // Add edges between consecutive vertices to stress adjacency-list spill.
+    {
+      auto txn = db->Access();
+      for (int i = 0; i < kNodes - 1; ++i) {
+        auto src_opt = txn->FindVertex(vertex_gids[i], memgraph::storage::View::NEW);
+        auto dst_opt = txn->FindVertex(vertex_gids[i + 1], memgraph::storage::View::NEW);
+        ASSERT_TRUE(src_opt && dst_opt);
+        auto src = *src_opt;
+        auto dst = *dst_opt;
+        ASSERT_TRUE(txn->CreateEdge(&src, &dst, edge_type).has_value());
+      }
+      txn->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+    }
+
+    before_snapshot = db->DbMemoryUsage();
+    ASSERT_GT(before_snapshot, 0) << "DB memory should be non-zero after creating dataset";
+
+    // Create snapshot while arena is still pinned.
+    auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db->storage());
+    auto snap_result = storage->CreateSnapshot();
+    ASSERT_TRUE(snap_result.has_value()) << "Snapshot creation must succeed";
+
+    // Restore test thread's original arena before the DB is destroyed.
+    je_mallctl("thread.arena", nullptr, nullptr, &prev_arena, sizeof(unsigned));
+  }  // DB destroyed here — jemalloc arena returned to pool.
+
+  // ---- Phase 2: recover from snapshot ----
+  {
+    auto cfg = MakeConfig(snap_dir);
+    cfg.durability.snapshot_wal_mode =
+        memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    cfg.durability.recover_on_startup = true;
+    cfg.durability.snapshot_on_exit = false;
+
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{cfg};
+    auto acc_opt = db_gk.access();
+    ASSERT_TRUE(acc_opt);
+    auto &db = *acc_opt;
+
+    const int64_t after_recovery = db->DbMemoryUsage();
+
+    EXPECT_GT(after_recovery, 0) << "DbMemoryUsage must be non-zero after snapshot recovery. before_snapshot="
+                                 << before_snapshot;
+
+    // Recovered memory should be in the same order of magnitude as what was
+    // tracked before snapshotting. Allow 2× slack (jemalloc arena re-numbering,
+    // extent rounding, jemalloc tcache warm-up on new arena).
+    EXPECT_LT(after_recovery, before_snapshot * 2)
+        << "Recovered memory should not be more than 2× the pre-snapshot usage. "
+        << "before_snapshot=" << before_snapshot << " after_recovery=" << after_recovery;
+  }
 }
 
 #else  // !USE_JEMALLOC
