@@ -171,8 +171,8 @@ class VectorEdgeIndex {
   /// @brief Looks up the endpoint vertices for an edge in any vector index.
   std::pair<Vertex *, Vertex *> GetEdgeEndpoints(Edge *edge) const;
 
-  /// @brief Gets all properties that have vector indices for the given edge type.
-  std::unordered_map<PropertyId, uint64_t> GetIndicesByEdgeType(EdgeTypeId edge_type) const;
+  /// @brief Finds the index ID for the given (edge_type, property) pair.
+  std::optional<uint64_t> GetIndexIdForEdgeTypeProperty(EdgeTypeId edge_type, PropertyId property) const;
 
   /// @brief Gets all edge types that have vector indices for the given property.
   std::unordered_map<EdgeTypeId, uint64_t> GetIndicesByProperty(PropertyId property) const;

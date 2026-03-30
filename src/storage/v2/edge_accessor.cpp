@@ -44,11 +44,10 @@ std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storag
                                                                  const PropertyValue &value) {
   if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
   if (storage->indices_.vector_edge_index_.Empty()) return std::nullopt;
-  auto indices_by_et = storage->indices_.vector_edge_index_.GetIndicesByEdgeType(edge_type);
-  auto it = indices_by_et.find(property);
-  if (it == indices_by_et.end()) return std::nullopt;
-  return PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{it->second},
-                                                        .vector = ListToVector(value)});
+  auto index_id = storage->indices_.vector_edge_index_.GetIndexIdForEdgeTypeProperty(edge_type, property);
+  if (!index_id) return std::nullopt;
+  return PropertyValue(
+      PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{*index_id}, .vector = ListToVector(value)});
 }
 
 void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, const Config &config, Edge *edge,

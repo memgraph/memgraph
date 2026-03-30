@@ -213,6 +213,7 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, utils::SkipList<Ver
   auto &index_item = it->second;
   auto &mg_index = index_item.mg_index;
   auto &spec = index_item.spec;
+  std::vector<Edge *> dropped_edges;
   {
     auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
 
@@ -234,16 +235,10 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, utils::SkipList<Ver
         }
       }
     }
-  }
-  // Collect edges from the dropped index before erasing
-  std::vector<Edge *> dropped_edges;
-  {
-    auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+
     auto const size = mg_index.index.size();
-    if (size > 0) {
-      dropped_edges.resize(size);
-      mg_index.index.export_keys(dropped_edges.data(), 0, size);
-    }
+    dropped_edges.resize(size);
+    mg_index.index.export_keys(dropped_edges.data(), 0, size);
   }
   pimpl->index_by_id_.erase(it);
   // Clean up endpoints for edges no longer in any index.
@@ -497,14 +492,14 @@ std::pair<Vertex *, Vertex *> VectorEdgeIndex::GetEdgeEndpoints(Edge *edge) cons
   return it->second;
 }
 
-std::unordered_map<PropertyId, uint64_t> VectorEdgeIndex::GetIndicesByEdgeType(EdgeTypeId edge_type) const {
-  std::unordered_map<PropertyId, uint64_t> result;
+std::optional<uint64_t> VectorEdgeIndex::GetIndexIdForEdgeTypeProperty(EdgeTypeId edge_type,
+                                                                       PropertyId property) const {
   for (const auto &[index_id, index_item] : pimpl->index_by_id_) {
-    if (index_item.spec.edge_type_id == edge_type) {
-      result.emplace(index_item.spec.property, index_id);
+    if (index_item.spec.edge_type_id == edge_type && index_item.spec.property == property) {
+      return index_id;
     }
   }
-  return result;
+  return std::nullopt;
 }
 
 std::unordered_map<EdgeTypeId, uint64_t> VectorEdgeIndex::GetIndicesByProperty(PropertyId property) const {
