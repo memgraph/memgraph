@@ -53,6 +53,9 @@ TYPED_TEST(CypherType, PresentableNameSimpleTypes) {
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node)->impl->GetPresentableName(), "NODE");
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship)->impl->GetPresentableName(), "RELATIONSHIP");
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)->impl->GetPresentableName(), "PATH");
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_2d)->impl->GetPresentableName(), "POINT_2D");
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_3d)->impl->GetPresentableName(), "POINT_3D");
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_enum)->impl->GetPresentableName(), "ENUM");
 }
 
 TYPED_TEST(CypherType, PresentableNameCompositeTypes) {
@@ -517,12 +520,6 @@ TYPED_TEST(CypherType, ListOfNullSatisfiesType) {
     EXPECT_FALSE(null_type->impl->SatisfiesType(tv_list));
   }
   mgp_value_destroy(mgp_list_v);
-}
-
-TYPED_TEST(CypherType, PresentableNamePointAndEnumTypes) {
-  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_2d)->impl->GetPresentableName(), "POINT_2D");
-  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_3d)->impl->GetPresentableName(), "POINT_3D");
-  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_enum)->impl->GetPresentableName(), "ENUM");
 }
 
 TYPED_TEST(CypherType, Point2dSatisfiesType) {
