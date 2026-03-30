@@ -76,6 +76,11 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
 std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
                                                       std::span<PropertyId const> properties);
 
+// Filter which properties to index: if index_properties is empty, return all entity_properties;
+// otherwise return the intersection.
+std::vector<PropertyId> FilterPropertiesToIndex(std::span<const PropertyId> index_properties,
+                                                std::vector<PropertyId> entity_properties);
+
 // Check if index properties match the given properties
 bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
                           std::span<const PropertyId> properties_to_check);

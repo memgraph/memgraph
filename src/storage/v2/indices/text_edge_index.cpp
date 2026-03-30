@@ -148,37 +148,32 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
                                  NameIdMapper *name_id_mapper,
                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
-  auto index_directory_already_exists = std::filesystem::exists(index_path);
+  auto needs_rebuild = !std::filesystem::exists(index_path);
   try {
     CreateTantivyIndex(index_path, index_info);
   } catch (const query::TextSearchException &) {
-    if (!index_directory_already_exists) throw;
+    if (needs_rebuild) throw;
+    // It's possible that index on disk has incompatible schema if, for example, new required properties were added to
+    // the index spec in new versions
     spdlog::warn("Text edge index {} has incompatible schema on disk, rebuilding.", index_info.index_name);
-    std::filesystem::remove_all(index_path);
-    index_directory_already_exists = false;
+    std::error_code ec;
+    std::filesystem::remove_all(index_path, ec);
+    if (ec)
+      throw query::TextSearchException(
+          "Failed to remove stale text edge index {}: {}", index_info.index_name, ec.message());
+    needs_rebuild = true;
     CreateTantivyIndex(index_path, index_info);
   }
 
-  if (!index_directory_already_exists) {
-    // If index didn't exist, we need to index all edges. (This happens if we recover only from the snapshot)
+  if (needs_rebuild) {
     auto &context = index_.at(index_info.index_name).context;
-    std::vector<PropertyId> properties_to_index;
-    properties_to_index.reserve(index_info.properties.size());
-
     for (const auto &vertex : vertices) {
       for (const auto &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
         if (edge_type != index_info.edge_type) continue;
 
         auto *edge = edge_ref.ptr;
-        auto edge_properties = edge->properties.ExtractPropertyIds();
-        properties_to_index.clear();
-        if (index_info.properties.empty()) {
-          properties_to_index = std::move(edge_properties);
-        } else {
-          std::ranges::copy_if(index_info.properties, std::back_inserter(properties_to_index), [&](auto property) {
-            return std::ranges::contains(edge_properties, property);
-          });
-        }
+        auto properties_to_index =
+            FilterPropertiesToIndex(index_info.properties, edge->properties.ExtractPropertyIds());
         if (properties_to_index.empty()) continue;
 
         auto properties_to_index_map = ExtractProperties(edge->properties, properties_to_index);

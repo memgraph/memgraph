@@ -174,6 +174,17 @@ void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span
   }
 }
 
+std::vector<PropertyId> FilterPropertiesToIndex(std::span<const PropertyId> index_properties,
+                                                std::vector<PropertyId> entity_properties) {
+  if (index_properties.empty()) return entity_properties;
+  std::vector<PropertyId> result;
+  result.reserve(index_properties.size());
+  std::ranges::copy_if(index_properties, std::back_inserter(result), [&](auto prop) {
+    return std::ranges::contains(entity_properties, prop);
+  });
+  return result;
+}
+
 bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
                           std::span<const PropertyId> properties_to_check) {
   if (index_properties.empty()) {
