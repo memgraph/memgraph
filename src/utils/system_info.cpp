@@ -234,7 +234,7 @@ unsigned GetSafeHardwareConcurrency(unsigned fallback) {
   if (hw != 0) return hw;
 
   hw = LogicalCPUCoresFromProcCpuinfo();
-  return hw != 0 ? hw : fallback;
+  return hw != 0 ? hw : std::max(fallback, 1U);
 }
 
 }  // namespace memgraph::utils
