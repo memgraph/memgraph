@@ -196,21 +196,6 @@ class Database {
 
   int64_t DbMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
 
-  /**
-   * @brief jemalloc arena index owned by this database (0 if not using jemalloc).
-   *        Allocations on threads with tls_db_arena_idx == ArenaIdx() are attributed
-   *        to this database's memory tracker.
-   */
-  unsigned ArenaIdx() const noexcept {
-#if USE_JEMALLOC
-    return db_arena_.idx();
-#else
-    return 0;
-#endif
-  }
-
-  int64_t DbMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
-
  private:
   //!< Tracks committed OS pages in db_arena_. Parent=graph_memory_tracker so per-DB
   //!< allocations roll up into the global graph tracker → total_memory_tracker hierarchy.

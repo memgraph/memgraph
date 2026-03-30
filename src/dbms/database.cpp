@@ -67,9 +67,9 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 #endif
       trigger_store_(
           std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers", ArenaIdx())),
+      after_commit_trigger_pool_{1},
       streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
-      plan_cache_{FLAGS_query_plan_cache_max_size},
-      after_commit_trigger_pool_{1} {
+      plan_cache_{FLAGS_query_plan_cache_max_size} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
 #if USE_JEMALLOC
@@ -78,7 +78,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 #endif
 
   config.arena_idx = ArenaIdx();
-  streams_.SetArenaIdx(ArenaIdx());
+  streams()->SetArenaIdx(ArenaIdx());
 
 #if USE_JEMALLOC
   // Pin the after-commit trigger thread to this DB's arena so trigger allocations are attributed correctly.
