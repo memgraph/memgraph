@@ -240,10 +240,6 @@ def type_zoned_date_time():
     pass
 
 
-def type_any():
-    pass
-
-
 def type_point_2d():
     pass
 
@@ -253,6 +249,10 @@ def type_point_3d():
 
 
 def type_enum():
+    pass
+
+
+def type_any():
     pass
 
 
