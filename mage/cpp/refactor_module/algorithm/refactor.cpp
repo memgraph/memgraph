@@ -903,7 +903,7 @@ void MergeRels(mgp::Node &source_node, mgp::Node &target_node, mgp::Graph &graph
   auto in_rels = source_node.InRelationships();
   for (const auto &rel : in_rels) {
     mgp::Relationship new_rel = graph.CreateRelationship(rel.From(), target_node, rel.Type());
-    std::unordered_map<std::string, mgp::Value> props = rel.Properties();
+    const std::unordered_map<std::string, mgp::Value> props = rel.Properties();
     for (const auto &[key, value] : props) {
       new_rel.SetProperty(key, value);
     }
@@ -912,7 +912,7 @@ void MergeRels(mgp::Node &source_node, mgp::Node &target_node, mgp::Graph &graph
   auto out_rels = source_node.OutRelationships();
   for (const auto &rel : out_rels) {
     mgp::Relationship new_rel = graph.CreateRelationship(target_node, rel.To(), rel.Type());
-    std::unordered_map<std::string, mgp::Value> props = rel.Properties();
+    const std::unordered_map<std::string, mgp::Value> props = rel.Properties();
     for (const auto &[key, value] : props) {
       new_rel.SetProperty(key, value);
     }
