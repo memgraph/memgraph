@@ -13,6 +13,10 @@
 
 #include <cstdint>
 
+#include "rpc/exceptions.hpp"
+#include "slk/serialization.hpp"
+#include "utils/typeinfo.hpp"
+
 namespace memgraph::rpc {
 
 // Extend this enum when changing protocol and if you need ProtocolMessageHeader

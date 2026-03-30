@@ -208,6 +208,9 @@
                   (utils/sync-replica-down? e)
                   (assoc op :type :info :value "SYNC replica is down")
 
+                  (utils/main-reached-rpc-timeout? e)
+                  (assoc op :type :info :value "RPC timeout")
+
                   (utils/cannot-get-shared-access? e)
                   (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
 
@@ -259,10 +262,11 @@
               (utils/process-service-unavailable-exc op node))
             (catch Exception e
               (if (or (utils/sync-replica-down? e)
-                      (utils/cannot-get-shared-access? e))
+                      (utils/cannot-get-shared-access? e)
+                      (utils/main-reached-rpc-timeout? e))
                   ; If sync replica is down during initialization, that is fine. Our current SYNC replication will still continue to replicate to this
                   ; replica and transaction will commit on main.
-                (assoc op :type :ok)
+                (assoc op :type :info)
 
                 (if (or (utils/query-forbidden-on-replica? e)
                         (utils/query-forbidden-on-main? e))

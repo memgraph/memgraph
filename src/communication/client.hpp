@@ -22,6 +22,7 @@
 #undef TRUE
 #undef FALSE
 
+#include <expected>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -86,7 +87,8 @@ class Client final {
    * succeeded and `false` if it didn't.
    * Propagates timeout_ms to Socket::WaitForReadyRead.
    */
-  bool Read(size_t len, bool exactly_len = true, std::optional<int> timeout_ms = std::nullopt);
+  [[nodiscard]] auto Read(size_t len, bool exactly_len = true, std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, io::network::ClientCommunicationError>;
 
   /**
    * This function returns a pointer to the read data that is currently stored
@@ -115,19 +117,24 @@ class Client final {
    * TODO (mferencevic): the `have_more` flag currently isn't supported when
    * using OpenSSL
    */
-  bool Write(const uint8_t *data, size_t len, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
+  [[nodiscard]] auto Write(const uint8_t *data, size_t len, bool have_more = false,
+                           std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, io::network::ClientCommunicationError>;
 
   /**
    * This function writes data to the socket.
    */
-  bool Write(std::span<const uint8_t> data, bool have_more = false, std::optional<int> timeout_ms = std::nullopt) {
+  [[nodiscard]] auto Write(std::span<const uint8_t> data, bool have_more = false,
+                           std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, io::network::ClientCommunicationError> {
     return Write(data.data(), data.size(), have_more, timeout_ms);
   }
 
   /**
    * This function writes data to the socket.
    */
-  bool Write(std::string_view str, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
+  [[nodiscard]] auto Write(std::string_view str, bool have_more = false, std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, io::network::ClientCommunicationError>;
 
   const io::network::Endpoint &endpoint() const;
 
