@@ -2103,7 +2103,7 @@ mgp_error mgp_point_2d_get_y(mgp_point_2d *point, double *result) {
   return WrapExceptions([point] { return point->point.y(); }, result);
 }
 
-mgp_error mgp_point_2d_get_srid(mgp_point_2d *point, int *result) {
+mgp_error mgp_point_2d_get_srid(mgp_point_2d *point, uint16_t *result) {
   return WrapExceptions(
       [point] { return static_cast<uint16_t>(memgraph::storage::CrsToSrid(point->point.crs()).value_of()); }, result);
 }
@@ -2136,7 +2136,7 @@ mgp_error mgp_point_3d_get_z(mgp_point_3d *point, double *result) {
   return WrapExceptions([point] { return point->point.z(); }, result);
 }
 
-mgp_error mgp_point_3d_get_srid(mgp_point_3d *point, int *result) {
+mgp_error mgp_point_3d_get_srid(mgp_point_3d *point, uint16_t *result) {
   return WrapExceptions(
       [point] { return static_cast<uint16_t>(memgraph::storage::CrsToSrid(point->point.crs()).value_of()); }, result);
 }
