@@ -86,7 +86,6 @@ class TransactionReplication {
   auto CollectStartTxnErrors() const -> std::vector<ReplicaFailure>;
 
  private:
-  // TODO: (andi) I think you can simulate reset() by setting error instead of value
   std::vector<std::optional<ReplicaStream>> streams;
   // nullopt if connecting to replica went passed successfully, else error stored
   std::vector<std::optional<StartTxnReplicationError>> errors_;

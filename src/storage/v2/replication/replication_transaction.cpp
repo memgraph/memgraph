@@ -133,7 +133,8 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
 auto TransactionReplication::CollectStartTxnErrors() const -> std::vector<ReplicaFailure> {
   std::vector<ReplicaFailure> result;
   for (auto &&[client, maybe_err] : ranges::views::zip(*locked_clients, errors_)) {
-    if (maybe_err.has_value()) {
+    // ASYNC replica errors are not reported — fire-and-forget
+    if (maybe_err.has_value() && client->Mode() != replication_coordination_glue::ReplicationMode::ASYNC) {
       result.push_back({.name = client->Name(),
                         .mode = ReplicationModeToString(client->Mode()),
                         .reason = StartTxnErrorToReason(*maybe_err)});

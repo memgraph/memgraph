@@ -128,15 +128,13 @@
   [e]
   (string/includes? (str e) "Main reached an RPC timeout"))
 
-(defn strict-sync-replica-down?
+(defn is-replica-down?
   "Accepts exception e as argument."
   [e]
-  (string/includes? (str e) "Failed to replicate to STRICT_SYNC replica"))
+  (or (string/includes? (str e) "Failed to replicate to STRICT_SYNC replica")
+      (string/includes? (str e) "Failed to replicate to SYNC replica")
+      (string/includes? (str e) "Failed to replicate to ASYNC replica")))
 
-(defn sync-replica-down?
-  "Accepts exception e as argument."
-  [e]
-  (string/includes? (str e) "Failed to replicate to SYNC replica"))
 
 (defn main-became-replica?
   "Accepts exception e as argument."
