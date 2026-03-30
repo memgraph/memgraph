@@ -85,7 +85,7 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
       strict_sync_replicas_succ &= commit_res;
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       if (decision) {
-        client->FinalizeTransactionReplication(
+        (void)client->FinalizeTransactionReplication(
             protector, std::move(replica_stream), durability_commit_timestamp, arena_idx_);
       } else if (replica_stream) {
         // Reconnect needed because we optimistically prepared PrepareCommitReq message already.
