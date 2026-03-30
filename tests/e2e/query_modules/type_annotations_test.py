@@ -55,6 +55,29 @@ def test_enum_type_accepted():
     assert "Good" in s
 
 
+def test_zoned_date_time_type_accepted():
+    """ZonedDateTime value passes the type check via C++ procedure."""
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'CALL type_annotations_cpp.zoned_date_time_to_string(datetime({year: 2024, month: 4, day: 21, hour: 14, minute: 15, second: 16, timezone: "UTC"})) YIELD result RETURN result;',
+    )
+    s = result[0][0]
+    # Returns the microsecond timestamp; just verify we got a non-zero numeric string
+    assert s.isdigit()
+    assert int(s) > 0
+
+
+def test_zoned_date_time_type_mismatch():
+    """Passing wrong type to a ZonedDateTime-typed parameter should fail."""
+    cursor = connect().cursor()
+    with pytest.raises(Exception):
+        execute_and_fetch_all(
+            cursor,
+            "CALL type_annotations_cpp.zoned_date_time_to_string(42) YIELD result RETURN result;",
+        )
+
+
 def test_point2d_type_mismatch():
     """Passing wrong type to a Point2d-typed parameter should fail."""
     cursor = connect().cursor()
