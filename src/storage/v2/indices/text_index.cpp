@@ -228,13 +228,13 @@ std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, c
   auto &index_data = it->second;
   auto &context = index_data.context;
 
-  if (!tx.text_search_session_) {
-    tx.text_search_session_ = std::make_unique<TextSearchSession>();
-  }
-  auto &searcher = *tx.text_search_session_->GetOrAcquire(&index_data, context);
-
   mgcxx::text_search::GidScoreOutput search_results;
   try {
+    if (!tx.text_search_session_) {
+      tx.text_search_session_ = std::make_unique<TextSearchSession>();
+    }
+    auto &searcher = *tx.text_search_session_->GetOrAcquire(&index_data, context);
+
     const auto lowered_query = ToLowerCasePreservingBooleanOperators(search_query);
     switch (search_mode) {
       case text_search_mode::SPECIFIED_PROPERTIES:
@@ -254,7 +254,9 @@ std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, c
             mgcxx::text_search::SearchInput{.search_fields = {"all"}, .search_query = lowered_query, .limit = limit});
         break;
       default:
-        throw query::TextSearchException("Unsupported search mode.");
+        throw query::TextSearchException(
+            "Unsupported search mode: please use one of text_search.search, text_search.search_all, or "
+            "text_search.regex_search.");
     }
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
