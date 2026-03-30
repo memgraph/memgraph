@@ -772,7 +772,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       memgraph::utils::pmr::vector<mgp_value> elems(alloc);
       elems.reserve(pv.ValueList().size());
       for (const auto &elem : pv.ValueList()) {
-        elems.emplace_back(elem, name_id_mapper, alloc);
+        elems.emplace_back(elem, name_id_mapper);
       }
       memgraph::utils::Allocator<mgp_list> allocator(alloc);
       list_v = allocator.new_object<mgp_list>(std::move(elems));
