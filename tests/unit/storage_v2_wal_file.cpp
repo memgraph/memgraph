@@ -55,13 +55,12 @@ class DeltaGenerator final {
         : gen_(gen),
           transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
                        gen->storage_mode_, false, memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(),
-                       memgraph::storage::ActiveIndices{
+                       std::make_shared<memgraph::storage::ActiveIndices>(
                            std::make_unique<memgraph::storage::InMemoryLabelIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgeTypeIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
-                           std::make_unique<memgraph::storage::InMemoryEdgePropertyIndex::ActiveIndices>(),
-                       },
+                           std::make_unique<memgraph::storage::InMemoryEdgePropertyIndex::ActiveIndices>()),
                        memgraph::storage::ActiveConstraints{
                            std::make_unique<memgraph::storage::ExistenceConstraints::ActiveConstraints>(),
                            std::make_unique<memgraph::storage::InMemoryUniqueConstraints::ActiveConstraints>(),
@@ -514,6 +513,20 @@ class DeltaGenerator final {
         });
         break;
       }
+      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_SET: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          memgraph::storage::durability::EncodeDescriptionSet(
+              encoder, *storage_->name_id_mapper_, memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {}, "");
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::DESCRIPTION_DELETE: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          memgraph::storage::durability::EncodeDescriptionDelete(
+              encoder, *storage_->name_id_mapper_, memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {});
+        });
+        break;
+      }
     }
     if (valid_) {
       UpdateStats(timestamp_, 1);
@@ -601,6 +614,10 @@ class DeltaGenerator final {
             return {WalVectorIndexDrop{vector_index_name}};
           case TTL_OPERATION:
             return {WalTtlOperation{TtlOperationType::ENABLE, std::nullopt, std::nullopt, false}};
+          case DESCRIPTION_SET:
+            return {WalDescriptionSet{memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {}, ""}};
+          case DESCRIPTION_DELETE:
+            return {WalDescriptionDelete{memgraph::storage::DescriptionTargetKind::DATABASE, {}, {}, {}}};
         }
       });
       data_.emplace_back(timestamp_, data);

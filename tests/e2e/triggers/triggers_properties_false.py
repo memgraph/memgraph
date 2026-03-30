@@ -10,21 +10,17 @@
 # licenses/APL.txt.
 
 import sys
-import time
 
 import mgclient
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, execute_and_fetch_all, wait_for_results
 
 
 @pytest.fixture(scope="function")
 def multi_db(request, connect):
+    # connect fixture already cleans up (drops clean db, triggers, data)
     cursor = connect.cursor()
     if request.param:
-        try:
-            execute_and_fetch_all(cursor, "DROP DATABASE clean")
-        except Exception:
-            pass
         execute_and_fetch_all(cursor, "CREATE DATABASE clean")
         execute_and_fetch_all(cursor, "USE DATABASE clean")
     yield connect
@@ -68,13 +64,7 @@ def test_create_on_create(ba_commit, multi_db):
     """
     execute_and_fetch_all(cursor, QUERY_CREATE_EDGE)
 
-    NUM_OF_RETRIES = 3
-    SLEEP_TIME = 0.1
-    created_edges = []
-    while len(created_edges) == 0 and NUM_OF_RETRIES > 0:
-        created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
-        time.sleep(SLEEP_TIME)
-        NUM_OF_RETRIES -= 1
+    created_edges = wait_for_results(cursor, "MATCH (n:CreatedEdge) RETURN n")
 
     # check that there is no cross contamination between databases
     if len(databases) == 2:  # multi db mode
@@ -139,11 +129,9 @@ def test_create_on_delete(ba_commit, multi_db):
     # See if trigger was triggered
     nodes = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN n")
     assert len(nodes) == 4
-    # Check how many edges got deleted
-    deleted_edges = execute_and_fetch_all(cursor, "MATCH (n:DeletedEdge) RETURN n")
+    # Check how many edges got deleted (with retry for AFTER COMMIT async triggers)
+    deleted_edges = wait_for_results(cursor, "MATCH (n:DeletedEdge) RETURN n")
     assert len(deleted_edges) == 1
-    # execute_and_fetch_all(cursor, "DROP TRIGGER DeleteTriggerEdgesCount")
-    # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")``
 
     # check that there is no cross contamination between databases
     if len(databases) == 2:  # multi db mode

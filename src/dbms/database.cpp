@@ -10,11 +10,14 @@
 // licenses/APL.txt.
 
 #include "dbms/database.hpp"
-#include "dbms/inmemory/storage_helper.hpp"
-#include "storage/v2/disk/storage.hpp"
-#include "storage/v2/storage_mode.hpp"
 
 #include <memory>
+
+#include "dbms/inmemory/storage_helper.hpp"
+#include "query/stream/streams.hpp"
+#include "query/trigger.hpp"
+#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
@@ -51,9 +54,11 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
+Database::~Database() = default;
+
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : trigger_store_(config.durability.storage_directory / "triggers"),
-      streams_{config.durability.storage_directory / "streams"},
+    : trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
+      streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
@@ -65,6 +70,20 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   } else {
     storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
   }
+}
+
+DatabaseInfo Database::GetInfo() const {
+  DatabaseInfo info;
+  info.storage_info = storage_->GetInfo();
+  info.triggers = trigger_store_->GetTriggerInfo().size();
+  info.streams = streams_->GetStreamInfo().size();
+  return info;
+}
+
+void Database::StopAllBackgroundTasks() {
+  streams()->Shutdown();
+  thread_pool()->ShutDown();
+  storage_->StopAllBackgroundTasks();
 }
 
 void Database::SwitchToOnDisk() {

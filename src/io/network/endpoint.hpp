@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,10 +14,12 @@
 #include <netinet/in.h>
 #include <cstdint>
 #include <iosfwd>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
 #include <string>
-
-#include <nlohmann/json_fwd.hpp>
+#include <string_view>
+#include <tuple>
+#include <variant>
 
 namespace memgraph::io::network {
 

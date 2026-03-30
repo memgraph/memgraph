@@ -3654,7 +3654,8 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       nullptr /* schema_info */,
       [](auto in) { return std::nullopt; },
       "memgraph",
-      &ttl);
+      &ttl,
+      nullptr /* description_store */);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
   const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);
@@ -4339,6 +4340,103 @@ TEST_F(DurabilityTest, WalNonSequentialDeltaEncoding) {
   }
 }
 
+TEST_F(DurabilityTest, WalNonSequentialInterleavedSubchainsEmitEdgeCreateOncePerEdge) {
+  memgraph::storage::Config config{};
+  config.durability.storage_directory = storage_directory;
+  config.durability.snapshot_wal_mode =
+      memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+
+  memgraph::storage::Gid v1_gid, v2_gid, v3_gid, v4_gid;
+  memgraph::storage::Gid tx1_edge1_gid, tx1_edge2_gid, tx2_edge_gid;
+
+  {
+    std::unique_ptr<memgraph::storage::Storage> storage(std::make_unique<memgraph::storage::InMemoryStorage>(config));
+    auto const commit = [](auto &accessor) {
+      ASSERT_TRUE(accessor->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    };
+    auto const find_vertex = [](auto &accessor, auto gid) {
+      return accessor->FindVertex(gid, memgraph::storage::View::OLD);
+    };
+    auto const create_edge = [&find_vertex](auto &accessor,
+                                            auto from_gid,
+                                            auto to_gid,
+                                            const char *edge_type) -> std::optional<memgraph::storage::Gid> {
+      auto from = find_vertex(accessor, from_gid);
+      auto to = find_vertex(accessor, to_gid);
+      if (!from.has_value() || !to.has_value()) return std::nullopt;
+      auto edge = accessor->CreateEdge(&*from, &*to, accessor->NameToEdgeType(edge_type));
+      if (!edge.has_value()) return std::nullopt;
+      return edge->Gid();
+    };
+
+    {
+      auto acc = storage->Access(memgraph::storage::WRITE);
+      auto v1 = acc->CreateVertex();
+      auto v2 = acc->CreateVertex();
+      auto v3 = acc->CreateVertex();
+      auto v4 = acc->CreateVertex();
+      v1_gid = v1.Gid();
+      v2_gid = v2.Gid();
+      v3_gid = v3.Gid();
+      v4_gid = v4.Gid();
+      commit(acc);
+    }
+
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
+    auto tx1_edge1 = create_edge(tx1, v1_gid, v2_gid, "T1Edge1");
+    ASSERT_TRUE(tx1_edge1.has_value());
+    tx1_edge1_gid = *tx1_edge1;
+
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
+    auto tx2_edge = create_edge(tx2, v1_gid, v3_gid, "T2Edge");
+    ASSERT_TRUE(tx2_edge.has_value());
+    tx2_edge_gid = *tx2_edge;
+
+    auto tx1_edge2 = create_edge(tx1, v1_gid, v4_gid, "T1Edge2");
+    ASSERT_TRUE(tx1_edge2.has_value());
+    tx1_edge2_gid = *tx1_edge2;
+
+    commit(tx1);
+    tx2->Abort();
+  }
+
+  ASSERT_EQ(GetWalsList().size(), 1);
+
+  auto const edge_create_counts = [&]() {
+    std::unordered_map<uint64_t, uint64_t> counts;
+    auto path = GetWalsList().front();
+    auto info = memgraph::storage::durability::ReadWalInfo(path);
+    memgraph::storage::durability::Decoder wal;
+    wal.Initialize(path, memgraph::storage::durability::kWalMagic);
+    wal.SetPosition(info.offset_deltas);
+
+    for (uint64_t i = 0; i < info.num_deltas; ++i) {
+      [[maybe_unused]] auto timestamp = memgraph::storage::durability::ReadWalDeltaHeader(&wal);
+      auto data = memgraph::storage::durability::ReadWalDeltaData(&wal);
+      auto *edge_create = std::get_if<memgraph::storage::durability::WalEdgeCreate>(&data.data_);
+      if (!edge_create) continue;
+      ++counts[edge_create->gid.AsUint()];
+    }
+    return counts;
+  }();
+
+  auto const count_for = [&edge_create_counts](memgraph::storage::Gid gid) -> uint64_t {
+    auto it = edge_create_counts.find(gid.AsUint());
+    return it == edge_create_counts.end() ? 0 : it->second;
+  };
+
+  EXPECT_EQ(count_for(tx1_edge1_gid), 1);
+  EXPECT_EQ(count_for(tx1_edge2_gid), 1);
+  EXPECT_EQ(count_for(tx2_edge_gid), 0);
+  EXPECT_EQ(edge_create_counts.size(), 2);
+
+  {
+    for (const auto &[gid, count] : edge_create_counts) {
+      EXPECT_EQ(count, 1) << "Duplicate WalEdgeCreate for edge gid " << gid;
+    }
+  }
+}
+
 TEST_P(DurabilityTest, SnapshotWithNonSequentialDeltas) {
   memgraph::storage::Gid v1_gid, v2_gid, v3_gid;
   memgraph::storage::EdgeTypeId edge_type_1, edge_type_2;
@@ -4428,5 +4526,119 @@ TEST_P(DurabilityTest, SnapshotWithNonSequentialDeltas) {
     ASSERT_TRUE(found_edge2);
 
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
+  // Create descriptions and snapshot.
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+    memgraph::dbms::Database db{config};
+
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      std::vector<std::string> person_labels{"Person"};
+      std::vector<std::string> person_student_labels{"Person", "Student"};
+      acc->SetLabelDescription(person_labels, "A person node");
+      acc->SetLabelDescription(person_student_labels, "A student person");
+      acc->SetEdgeTypeDescription("KNOWS", "Knows relationship");
+      acc->SetLabelPropertyDescription(person_labels, "age", "Age of the person");
+      acc->SetEdgeTypePropertyDescription("KNOWS", "since", "When they met");
+      acc->SetDatabaseDescription("Test database");
+      acc->SetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels, "Person knows person");
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Verify before snapshot.
+    {
+      auto acc = db.Access(memgraph::storage::READ);
+      std::vector<std::string> person_labels{"Person"};
+      std::vector<std::string> person_student_labels{"Person", "Student"};
+      ASSERT_EQ(acc->GetLabelDescription(person_labels), "A person node");
+      ASSERT_EQ(acc->GetLabelDescription(person_student_labels), "A student person");
+      ASSERT_EQ(acc->GetEdgeTypeDescription("KNOWS"), "Knows relationship");
+      ASSERT_EQ(acc->GetLabelPropertyDescription(person_labels, "age"), "Age of the person");
+      ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
+      ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
+      ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
+      ASSERT_EQ(acc->GetAllDescriptions().size(), 7);
+    }
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetWalsList().size(), 0);
+
+  // Recover and verify.
+  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                   .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+  memgraph::dbms::Database db{config};
+
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    std::vector<std::string> person_labels{"Person"};
+    std::vector<std::string> person_student_labels{"Person", "Student"};
+    ASSERT_EQ(acc->GetLabelDescription(person_labels), "A person node");
+    ASSERT_EQ(acc->GetLabelDescription(person_student_labels), "A student person");
+    ASSERT_EQ(acc->GetEdgeTypeDescription("KNOWS"), "Knows relationship");
+    ASSERT_EQ(acc->GetLabelPropertyDescription(person_labels, "age"), "Age of the person");
+    ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
+    ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
+    ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
+    ASSERT_EQ(acc->GetAllDescriptions().size(), 7);
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
+  // Create descriptions without snapshot_on_exit so they go through WAL.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_on_exit = false},
+        .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+    memgraph::dbms::Database db{config};
+
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      std::vector<std::string> person_labels{"Person"};
+      acc->SetLabelDescription(person_labels, "A person node");
+      acc->SetEdgeTypeDescription("KNOWS", "Knows relationship");
+      acc->SetLabelPropertyDescription(person_labels, "age", "Age of the person");
+      acc->SetEdgeTypePropertyDescription("KNOWS", "since", "When they met");
+      acc->SetDatabaseDescription("Test database");
+      acc->SetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels, "Person knows person");
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Delete one description in a separate transaction.
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      std::vector<std::string> person_labels{"Person"};
+      ASSERT_TRUE(acc->DeleteLabelDescription(person_labels));
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Recover and verify.
+  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                   .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+  memgraph::dbms::Database db{config};
+
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    std::vector<std::string> person_labels{"Person"};
+    ASSERT_EQ(acc->GetLabelDescription(person_labels), std::nullopt);
+    ASSERT_EQ(acc->GetEdgeTypeDescription("KNOWS"), "Knows relationship");
+    ASSERT_EQ(acc->GetLabelPropertyDescription(person_labels, "age"), "Age of the person");
+    ASSERT_EQ(acc->GetEdgeTypePropertyDescription("KNOWS", "since"), "When they met");
+    ASSERT_EQ(acc->GetDatabaseDescription(), "Test database");
+    ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
+    ASSERT_EQ(acc->GetAllDescriptions().size(), 5);
   }
 }

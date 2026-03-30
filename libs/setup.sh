@@ -275,6 +275,7 @@ fi
 pushd usearch
 git checkout "$usearch_ref"
 git submodule update --init --recursive
+git apply ../usearch.patch
 popd
 
 # nlohmann_json

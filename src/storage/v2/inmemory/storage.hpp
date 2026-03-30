@@ -25,6 +25,7 @@
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/snapshot_progress.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
@@ -177,9 +178,10 @@ class InMemoryStorage final : public Storage {
 
     void CheckForFastDiscardOfDeltas();
 
-    [[nodiscard]] bool HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
+    [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,
-                                                    CommitArgs const &commit_args);
+                                                    CommitArgs const &commit_args)
+        -> std::expected<void, io::network::ClientCommunicationError>;
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -263,13 +265,13 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label) const override {
-      return transaction_.active_indices_.label_->ApproximateVertexCount(label);
+      return transaction_.active_indices_->label_->ApproximateVertexCount(label);
     }
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const override {
-      return transaction_.active_indices_.label_properties_->ApproximateVertexCount(label, properties);
+      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties);
     }
 
     /// Return approximate number of vertices with the given label and the given
@@ -277,7 +279,7 @@ class InMemoryStorage final : public Storage {
     /// and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValue const> values) const override {
-      return transaction_.active_indices_.label_properties_->ApproximateVertexCount(label, properties, values);
+      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties, values);
     }
 
     /// Return approximate number of vertices with the given label and value for
@@ -285,42 +287,42 @@ class InMemoryStorage final : public Storage {
     /// bounds.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValueRange const> bounds) const override {
-      return transaction_.active_indices_.label_properties_->ApproximateVertexCount(label, properties, bounds);
+      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties, bounds);
     }
 
     uint64_t ApproximateEdgeCount() const override { return storage_->edge_count_.load(std::memory_order_acquire); }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override {
-      return transaction_.active_indices_.edge_type_->ApproximateEdgeCount(edge_type);
+      return transaction_.active_indices_->edge_type_->ApproximateEdgeCount(edge_type);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override {
-      return transaction_.active_indices_.edge_type_properties_->ApproximateEdgeCount(edge_type, property);
+      return transaction_.active_indices_->edge_type_properties_->ApproximateEdgeCount(edge_type, property);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
                                   const PropertyValue &value) const override {
-      return transaction_.active_indices_.edge_type_properties_->ApproximateEdgeCount(edge_type, property, value);
+      return transaction_.active_indices_->edge_type_properties_->ApproximateEdgeCount(edge_type, property, value);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
                                   const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      return transaction_.active_indices_.edge_type_properties_->ApproximateEdgeCount(
+      return transaction_.active_indices_->edge_type_properties_->ApproximateEdgeCount(
           edge_type, property, lower, upper);
     }
 
     uint64_t ApproximateEdgeCount(PropertyId property) const override {
-      return transaction_.active_indices_.edge_property_->ApproximateEdgeCount(property);
+      return transaction_.active_indices_->edge_property_->ApproximateEdgeCount(property);
     }
 
     uint64_t ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const override {
-      return transaction_.active_indices_.edge_property_->ApproximateEdgeCount(property, value);
+      return transaction_.active_indices_->edge_property_->ApproximateEdgeCount(property, value);
     }
 
     uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      return transaction_.active_indices_.edge_property_->ApproximateEdgeCount(property, lower, upper);
+      return transaction_.active_indices_->edge_property_->ApproximateEdgeCount(property, lower, upper);
     }
 
     std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
@@ -373,31 +375,31 @@ class InMemoryStorage final : public Storage {
                                          VertexAccessor *to_vertex) override;
 
     bool LabelIndexReady(LabelId label) const override {
-      return transaction_.active_indices_.label_->IndexReady(label);
+      return transaction_.active_indices_->label_->IndexReady(label);
     }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
-      return transaction_.active_indices_.label_properties_->IndexExists(label, properties);
+      return transaction_.active_indices_->label_properties_->IndexExists(label, properties);
     }
 
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
-      return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
+      return transaction_.active_indices_->label_properties_->IndexReady(label, properties);
     }
 
     bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override {
-      return transaction_.active_indices_.edge_type_->IndexReady(edge_type);
+      return transaction_.active_indices_->edge_type_->IndexReady(edge_type);
     }
 
     bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const override {
-      return transaction_.active_indices_.edge_type_properties_->IndexReady(edge_type, property);
+      return transaction_.active_indices_->edge_type_properties_->IndexReady(edge_type, property);
     }
 
     bool EdgePropertyIndexExists(PropertyId property) const override {
-      return transaction_.active_indices_.edge_property_->IndexExists(property);
+      return transaction_.active_indices_->edge_property_->IndexExists(property);
     }
 
     bool EdgePropertyIndexReady(PropertyId property) const override {
-      return transaction_.active_indices_.edge_property_->IndexReady(property);
+      return transaction_.active_indices_->edge_property_->IndexReady(property);
     }
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;
@@ -742,6 +744,15 @@ class InMemoryStorage final : public Storage {
 
   std::optional<SnapshotFileInfo> ShowNextSnapshot();
 
+  bool IsSnapshotRunning() const { return snapshot_running_.load(std::memory_order_acquire); }
+
+  SnapshotProgressView GetSnapshotProgress() const {
+    return {.phase = snapshot_progress_.phase.load(std::memory_order_acquire),
+            .items_done = snapshot_progress_.items_done.load(std::memory_order_acquire),
+            .items_total = snapshot_progress_.items_total.load(std::memory_order_acquire),
+            .start_time_us = snapshot_progress_.start_time_us.load(std::memory_order_acquire)};
+  }
+
   void CreateSnapshotHandler(std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
@@ -805,6 +816,7 @@ class InMemoryStorage final : public Storage {
   utils::ResourceLock snapshot_lock_;
   std::atomic_bool snapshot_running_{false};
   std::atomic_bool abort_snapshot_{false};
+  SnapshotProgress snapshot_progress_;
 
   std::shared_ptr<utils::Observer<utils::SchedulerInterval>> snapshot_periodic_observer_;
 

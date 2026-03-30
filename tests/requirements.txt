@@ -2,6 +2,7 @@ behave==1.2.6
 boto3==1.40.59
 chardet==4.0.0
 cryptography==44.0.0
+faker==37.3.0
 gensim==4.3.3
 gqlalchemy==1.8.0
 idna==2.10
@@ -15,6 +16,7 @@ numpy==1.26.4
 parse==1.18.0
 parse-type==0.5.2
 pulsar-client==3.5.0
+pyarrow==19.0.1
 PyJWT==2.10.1
 pymgclient==1.5.1
 pyopenssl==25.1.0

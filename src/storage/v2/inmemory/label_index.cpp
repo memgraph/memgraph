@@ -10,7 +10,9 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/label_index.hpp"
+#include <range/v3/all.hpp>
 
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
@@ -44,7 +46,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 
 namespace memgraph::storage {
 
-bool InMemoryLabelIndex::RegisterIndex(LabelId label) {
+bool InMemoryLabelIndex::RegisterIndex(LabelId label, ActiveIndicesUpdater const &updater) {
   return index_.WithLock([&](std::shared_ptr<const IndexContainer> &index) {
     auto const &indices = *index;
     {
@@ -65,6 +67,7 @@ bool InMemoryLabelIndex::RegisterIndex(LabelId label) {
     });
 
     index = std::move(new_index);
+    updater(std::make_shared<ActiveIndices>(index));
     return true;
   });
 }
@@ -158,8 +161,8 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
 auto InMemoryLabelIndex::PopulateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
-    -> std::expected<void, IndexPopulateError> {
+    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info,
+    Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(label);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -186,27 +189,27 @@ auto InMemoryLabelIndex::PopulateIndex(
           vertices, accessor_factory, try_insert_into_index, std::move(cancel_check), parallel_exec_info);
     }
   } catch (const PopulateCancel &) {
-    DropIndex(label);
+    DropIndex(label, updater);
     return std::unexpected{IndexPopulateError::Cancellation};
   } catch (const utils::OutOfMemoryException &) {
-    DropIndex(label);
+    DropIndex(label, updater);
     throw;
   }
 
   return {};
 }
 
-auto InMemoryLabelIndex::GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> {
-  return std::make_unique<ActiveIndices>(index_.WithReadLock(std::identity{}));
+auto InMemoryLabelIndex::GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> {
+  return std::make_shared<ActiveIndices>(index_.ReadCopy());
 }
 
 bool InMemoryLabelIndex::CreateIndexOnePass(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto res = RegisterIndex(label);
+    ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  auto res = RegisterIndex(label, updater);
   if (!res) return false;
-  auto res2 = PopulateIndex(label, std::move(vertices), parallel_exec_info, snapshot_info);
+  auto res2 = PopulateIndex(label, std::move(vertices), parallel_exec_info, updater, snapshot_info);
   if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
@@ -221,7 +224,7 @@ void InMemoryLabelIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Ve
   acc.insert(Entry{vertex_after_update, tx.start_timestamp});
 }
 
-bool InMemoryLabelIndex::DropIndex(LabelId label) {
+bool InMemoryLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &updater) {
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> bool {
     {
       auto it = index->find(label);
@@ -232,6 +235,7 @@ bool InMemoryLabelIndex::DropIndex(LabelId label) {
     auto new_index = std::make_shared<IndexContainer>(*index);
     new_index->erase(label);
     index = std::move(new_index);
+    updater(std::make_shared<ActiveIndices>(index));
     return true;
   });
   CleanupAllIndices();
@@ -262,7 +266,7 @@ std::vector<LabelId> InMemoryLabelIndex::ActiveIndices::ListIndices(uint64_t sta
 void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   CleanupAllIndices();
   auto maybe_stop = utils::ResettableCounter(2048);
-  auto index_container = all_indices_.WithReadLock(std::identity{});
+  auto index_container = all_indices_.ReadCopy();
 
   for (auto &[index, label] : *index_container) {
     // before starting index, check if stop_requested
@@ -346,7 +350,7 @@ uint64_t InMemoryLabelIndex::ActiveIndices::ApproximateVertexCount(LabelId label
 
 void InMemoryLabelIndex::RunGC() {
   CleanupAllIndices();
-  auto cpy = all_indices_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.ReadCopy();
   for (auto &[index, _] : *cpy) {
     index->skiplist.run_gc();
   }

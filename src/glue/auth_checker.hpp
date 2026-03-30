@@ -71,7 +71,7 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
   bool Has(const query::EdgeAccessor &edge,
            query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
-  bool Has(const std::vector<storage::LabelId> &labels,
+  bool Has(std::span<storage::LabelId const> labels,
            query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
   bool Has(const storage::EdgeTypeId &edge_type,

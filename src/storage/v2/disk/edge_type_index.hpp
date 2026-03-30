@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,8 @@
 #pragma once
 
 #include "storage/v2/indices/edge_type_index.hpp"
+
+#include <cstdint>
 
 namespace memgraph::storage {
 
@@ -34,11 +36,11 @@ class DiskEdgeTypeIndex : public EdgeTypeIndex {
     auto GetAbortProcessor() const -> AbortProcessor override;
   };
 
-  bool DropIndex(EdgeTypeId edge_type) override;
+  bool DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) override;
 
   void DropGraphClearIndices() override;
 
-  auto GetActiveIndices() const -> std::unique_ptr<EdgeTypeIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<EdgeTypeIndex::ActiveIndices> override;
 };
 
 }  // namespace memgraph::storage

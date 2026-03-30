@@ -11,6 +11,8 @@
 
 #include "utils/query_memory_tracker.hpp"
 
+#include <mutex>
+
 #include "memory/query_memory_control.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"

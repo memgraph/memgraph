@@ -79,6 +79,8 @@ services:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
+    cap_add:
+      - NET_ADMIN
     container_name: "mgbuild_v7_ubuntu-24.04"
 
   mgbuild_v7_ubuntu-24.04-cugraph:

@@ -11,6 +11,7 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 
@@ -200,6 +201,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(ShowSchemaInfoQuery & /*schema_info_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
   void Visit(SessionTraceQuery & /*session_trace_query*/) override {}
+
+  void Visit(DescriptionQuery & /*description_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS);
+  }
 
   void Visit(UserProfileQuery & /*user_profile_query*/) override {
     AddPrivilege(AuthQuery::Privilege::PROFILE_RESTRICTION);

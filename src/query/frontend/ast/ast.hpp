@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <range/v3/view/transform.hpp>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -33,6 +34,7 @@
 #include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -3923,17 +3925,23 @@ class TransactionQueueQuery : public memgraph::query::Query {
 
   enum class Action { SHOW_TRANSACTIONS, TERMINATE_TRANSACTIONS };
 
+  // Mirrors the grammar's transactionStatus rule (RUNNING | COMMITTING | ABORTING).
+  // Kept as a parser-layer enum so ast.hpp stays free of runtime context headers.
+  enum class StatusFilter : uint8_t { RUNNING, COMMITTING, ABORTING };
+
   TransactionQueueQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::TransactionQueueQuery::Action action_;
   std::vector<Expression *> transaction_id_list_;
+  std::vector<StatusFilter> status_filter_;  // empty = show all statuses
 
   TransactionQueueQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<TransactionQueueQuery>();
     object->action_ = action_;
     object->transaction_id_list_ = transaction_id_list_;
+    object->status_filter_ = status_filter_;
     return object;
   }
 };
@@ -4287,6 +4295,44 @@ class SessionTraceQuery : public memgraph::query::Query {
   SessionTraceQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<SessionTraceQuery>();
     object->enabled_ = enabled_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class DescriptionQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action : uint8_t { SET, DELETE, SHOW_ALL };
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  Action action_;
+  storage::DescriptionTargetKind target_kind_;
+  std::vector<LabelIx> labels_;
+  EdgeTypeIx edge_type_;
+  std::vector<PropertyIx> properties_;
+  std::vector<LabelIx> from_labels_;
+  std::vector<LabelIx> to_labels_;
+  std::string database_name_;
+  std::string description_;
+
+  DescriptionQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DescriptionQuery>();
+    object->action_ = action_;
+    object->target_kind_ = target_kind_;
+    object->labels_ = labels_;
+    object->edge_type_ = edge_type_;
+    object->properties_ = properties_;
+    object->from_labels_ = from_labels_;
+    object->to_labels_ = to_labels_;
+    object->database_name_ = database_name_;
+    object->description_ = description_;
     return object;
   }
 

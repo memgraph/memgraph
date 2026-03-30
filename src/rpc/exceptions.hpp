@@ -11,10 +11,20 @@
 
 #pragma once
 
-#include "io/network/endpoint.hpp"
 #include "utils/exceptions.hpp"
 
 namespace memgraph::rpc {
+
+constexpr auto kRpcTimeoutMsg =
+    "Main reached an RPC timeout while waiting for the response from at least one replica. One possible "
+    "reason for this error is that some replica is down and in that case make sure to recover "
+    "replica. If all of your replicas "
+    "are up and running normally, then please try setting a smaller parameter value for "
+    "'deltas_batch_progress_size' using 'SET COORDINATOR SETTING' query on the coordinator. If you have "
+    "at least one STRICT_SYNC replica in the cluster then this transaction will be aborted. In the other "
+    "scenario, the transaction "
+    "will be committed on the main and eventually replicated to replicas that didn't accept transaction "
+    "now.";
 
 /// Exception that is thrown whenever a RPC call fails.
 /// This exception inherits `std::exception` directly because
@@ -26,6 +36,13 @@ class RpcFailedException : public utils::BasicException {
   explicit RpcFailedException(std::string_view const msg) : utils::BasicException(msg) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
+};
+
+class RpcTimeoutException final : public RpcFailedException {
+ public:
+  RpcTimeoutException() : RpcFailedException("Timeout occurred during RPC calls") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(RpcTimeoutException);
 };
 
 class UnsupportedRpcVersionException final : public RpcFailedException {

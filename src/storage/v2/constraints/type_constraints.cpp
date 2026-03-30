@@ -109,7 +109,7 @@ auto TypeConstraints::ActiveConstraints::Validate(const Vertex &vertex, Property
 }
 
 auto TypeConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveConstraints> {
-  return std::make_unique<ActiveConstraints>(container_.WithReadLock(std::identity{}));
+  return std::make_unique<ActiveConstraints>(container_.ReadCopy());
 }
 
 // --- TypeConstraints methods ---
@@ -117,7 +117,7 @@ auto TypeConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveCons
 [[nodiscard]] auto TypeConstraints::ValidateAllVertices(utils::SkipList<Vertex>::Accessor vertices,
                                                         std::optional<SnapshotObserverInfo> const &snapshot_info) const
     -> std::expected<void, ConstraintViolation> {
-  auto container = container_.WithReadLock(std::identity{});
+  auto container = container_.ReadCopy();
   if (container->constraints_.empty()) {
     return {};
   }
@@ -235,12 +235,66 @@ void TypeConstraints::DropGraphClearConstraints() {
 }
 
 absl::flat_hash_map<PropertyId, TypeConstraintKind> TypeConstraints::GetTypeConstraintsForLabel(LabelId label) const {
-  auto container = container_.WithReadLock(std::identity{});
+  auto container = container_.ReadCopy();
   auto it = container->l2p_constraints_.find(label);
   if (it == container->l2p_constraints_.end()) {
     return {};
   }
   return it->second;
+}
+
+TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &property) {
+  switch (property.type()) {
+    case PropertyValueType::String:
+      return TypeConstraintKind::STRING;
+    case PropertyValueType::Bool:
+      return TypeConstraintKind::BOOLEAN;
+    case PropertyValueType::Int:
+      return TypeConstraintKind::INTEGER;
+    case PropertyValueType::Double:
+      return TypeConstraintKind::FLOAT;
+    case PropertyValueType::List:
+    case PropertyValueType::IntList:
+    case PropertyValueType::DoubleList:
+    case PropertyValueType::NumericList:
+      return TypeConstraintKind::LIST;
+    case PropertyValueType::Map:
+      return TypeConstraintKind::MAP;
+    case PropertyValueType::TemporalData: {
+      auto const temporal = property.ValueTemporalData();
+      switch (temporal.type) {
+        case TemporalType::Date:
+          return TypeConstraintKind::DATE;
+        case TemporalType::LocalTime:
+          return TypeConstraintKind::LOCALTIME;
+        case TemporalType::LocalDateTime:
+          return TypeConstraintKind::LOCALDATETIME;
+        case TemporalType::Duration:
+          return TypeConstraintKind::DURATION;
+      }
+    }
+    case PropertyValueType::ZonedTemporalData:
+      return TypeConstraintKind::ZONEDDATETIME;
+    case PropertyValueType::Enum:
+      return TypeConstraintKind::ENUM;
+    case PropertyValueType::Point2d:
+    case PropertyValueType::Point3d:
+      return TypeConstraintKind::POINT;
+    case PropertyValueType::VectorIndexId:
+      MG_ASSERT(false, "VectorIndexId is not supported for type constraints");
+    case PropertyValueType::Null:
+      MG_ASSERT(false, "Unexpected conversion from PropertyValueType::Null to TypeConstraint::Type");
+  }
+  __builtin_unreachable();
+}
+
+bool PropertyValueMatchesTypeConstraint(const PropertyValue &property, TypeConstraintKind constraint_type) {
+  if (property.IsNull()) return true;
+
+  if (property.type() == PropertyValueType::TemporalData) {
+    return TemporalMatch(property.ValueTemporalData().type, constraint_type);
+  }
+  return PropertyValueToTypeConstraintKind(property) == constraint_type;
 }
 
 }  // namespace memgraph::storage

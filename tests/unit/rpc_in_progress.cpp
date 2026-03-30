@@ -26,9 +26,8 @@ using memgraph::communication::ServerContext;
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
 using memgraph::rpc::GenericRpcFailedException;
+using memgraph::rpc::RpcTimeoutException;
 using memgraph::rpc::Server;
-using memgraph::slk::Load;
-using memgraph::slk::Save;
 
 using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
@@ -41,7 +40,7 @@ TEST(RpcInProgress, SingleProgress) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -86,7 +85,7 @@ TEST(RpcInProgress, MultipleProgresses) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -140,7 +139,7 @@ TEST(RpcInProgress, Timeout) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -174,7 +173,7 @@ TEST(RpcInProgress, Timeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
-  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
 }
 
 TEST(RpcInProgress, NoTimeout) {
@@ -183,7 +182,7 @@ TEST(RpcInProgress, NoTimeout) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 

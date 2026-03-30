@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,9 +11,12 @@
 #include "replication_coordination_glue/mode.hpp"
 
 #include <array>
+#include <iterator>
 #include <nlohmann/json.hpp>
 #include <range/v3/algorithm/find.hpp>
+#include <string>
 #include <string_view>
+#include <utility>
 
 namespace memgraph::replication_coordination_glue {
 

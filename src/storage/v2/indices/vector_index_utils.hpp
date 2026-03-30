@@ -17,10 +17,14 @@
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "range/v3/algorithm/remove.hpp"
+#include "storage/v2/indices/tracked_vector_allocator.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+
+#include "usearch/index_dense.hpp"
 
 // Suppress usearch library warnings
 #if defined(__clang__)
@@ -35,6 +39,16 @@
 #endif
 
 namespace memgraph::storage {
+
+using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t, TrackedVectorAllocator<64>,
+                                                        TrackedVectorAllocator<8>>;
+
+struct synchronized_mg_vector_index_t {
+  mg_vector_index_t index;
+  utils::ResourceLock mutex{};
+
+  explicit synchronized_mg_vector_index_t(mg_vector_index_t &&idx) : index(std::move(idx)) {}
+};
 
 /// @enum VectorIndexType
 /// @brief Represents the type of vector index.
@@ -134,9 +148,9 @@ inline unum::usearch::metric_kind_t MetricFromName(std::string_view name) {
     return unum::usearch::metric_kind_t::sorensen_k;
   }
   throw query::VectorSearchException(
-      fmt::format("Unsupported metric name: {}. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, "
-                  "hamming, tanimoto, and sorensen.",
-                  name));
+      "Unsupported metric name: {}. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, "
+      "hamming, tanimoto, and sorensen.",
+      name);
 }
 
 /// @brief Converts a scalar kind to its string representation.
@@ -239,9 +253,9 @@ inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
   }
 
   throw query::VectorSearchException(
-      fmt::format("Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
-                  "u64, u32, u16, u8, i64, i32, i16, and i8.",
-                  name));
+      "Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
+      "u64, u32, u16, u8, i64, i32, i16, and i8.",
+      name);
 }
 
 /// @brief Converts a distance to a similarity score based on the metric kind.
@@ -266,8 +280,8 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
       return 1.0 / (1.0 + distance);
 
     default:
-      throw query::VectorSearchException(
-          fmt::format("Unsupported metric kind for similarity calculation: {}", NameFromMetric(metric)));
+      throw query::VectorSearchException("Unsupported metric kind for similarity calculation: {}",
+                                         NameFromMetric(metric));
   }
 }
 
@@ -317,7 +331,6 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @brief Updates an entry in the vector index: removes existing entry if present, then adds new vector.
 /// If vector is empty, only removes the entry (if it exists) and returns.
 /// Automatically resizes the index if full during add.
-/// @tparam Index The usearch index type (e.g., index_dense_gt<Key, ...>).
 /// @tparam Key The key type used in the index (e.g., Vertex*, EdgeIndexEntry).
 /// @tparam Spec The index specification type.
 /// @param mg_index The synchronized index wrapper.
@@ -326,42 +339,67 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @param vector The vector to insert into the index.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
 /// @throws query::VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
-template <typename Index, typename Key, typename Spec>
-void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
-                       const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
-  if (!vector.empty() && vector.size() != spec.dimension) {
+template <typename SyncIndex, typename Key, typename Spec>
+void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const utils::small_vector<float> &vector,
+                       std::optional<std::size_t> thread_id = std::nullopt) {
+  if (vector.empty()) {
+    // Setting empty vector on Abort
+    auto guard = std::lock_guard{mg_index.mutex};
+    if (mg_index.index.contains(key)) {  // check again freshly if index contains key
+      mg_index.index.remove(key);
+    }
+    return;
+  }
+
+  if (vector.size() != spec.dimension) {
     throw query::VectorSearchException(
         "Vector index property must have the same number of dimensions as specified in the index.");
   }
 
-  auto thread_id_for_adding = thread_id.value_or(Index::any_thread());
-  {
-    auto locked_index = mg_index.MutableSharedLock();
-    if (locked_index->contains(key)) {
-      locked_index->remove(key);
-    }
-    if (vector.empty()) return;
+  auto thread_id_for_adding = thread_id.value_or(std::remove_reference_t<decltype(mg_index.index)>::any_thread());
 
-    auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
-    if (!result.error) return;
-    if (locked_index->size() >= locked_index->capacity()) {
-      // Error is due to capacity, release the error because we will resize the index.
-      result.error.release();
-    }
-  }
+  // Happy path. Take WRITE lock to allow multiple concurrent writes
   {
-    // In order to resize the index, we need to acquire an exclusive lock.
-    auto exclusively_locked_index = mg_index.Lock();
-    if (exclusively_locked_index->size() >= exclusively_locked_index->capacity()) {
-      const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * exclusively_locked_index->capacity());
-      const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
-      if (!exclusively_locked_index->try_reserve(new_limits)) {
-        throw query::VectorSearchException("Failed to resize vector index.");
-      }
-      spec.capacity = exclusively_locked_index->capacity();
+    auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::WRITE);
+
+    auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
+    if (!result.error) {
+      return;
     }
-    auto result = exclusively_locked_index->add(key, vector.data(), thread_id_for_adding);
+    result.error.release();
   }
+
+  // Hard path
+  // We can come here either because index already contains key or because adding failed
+  // In either case, we need unique lock for removing and for resizing
+  auto guard = std::lock_guard{mg_index.mutex};
+  if (mg_index.index.contains(key)) {  // check again freshly if index contains key
+    mg_index.index.remove(key);
+  }
+
+  // Try to add without resizing (another thread may have already resized)
+  {
+    auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
+    if (!result.error) {
+      return;
+    }
+    result.error.release();
+  }
+
+  // Try to add with resizing
+  const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * mg_index.index.capacity());
+  const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
+  if (!mg_index.index.try_reserve(new_limits)) {
+    throw query::VectorSearchException("Failed to resize vector index.");
+  }
+  spec.capacity = mg_index.index.capacity();
+
+  auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
+  if (!result.error) {
+    return;
+  }
+  result.error.release();
+  throw query::VectorSearchException("Failed to add entry to vector index.");
 }
 
 /// @brief Populates a vector index by iterating over vertices on a single thread.

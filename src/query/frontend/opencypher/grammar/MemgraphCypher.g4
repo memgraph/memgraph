@@ -21,6 +21,7 @@ import Cypher ;
 
 /* Also update src/query/frontend/stripped_lexer_constants.hpp */
 memgraphCypherKeyword : cypherKeyword
+                      | ABORTING
                       | ACTIVE
                       | ADD
                       | AFTER
@@ -44,6 +45,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CLUSTER
                       | COMMIT
                       | COMMITTED
+                      | COMMITTING
                       | CONFIG
                       | CONFIGS
                       | CONSTRAINTS
@@ -61,6 +63,8 @@ memgraphCypherKeyword : cypherKeyword
                       | DELIMITER
                       | DEMOTE
                       | DENY
+                      | DESCRIPTION
+                      | DESCRIPTIONS
                       | DIRECTORY
                       | DISABLE
                       | DO
@@ -108,6 +112,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ISOLATION
                       | JSONL
                       | KAFKA
+                      | LABEL
                       | LABELS
                       | LAG
                       | LEADERSHIP
@@ -146,6 +151,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PERIODIC
                       | POINT
                       | PORT
+                      | PROPERTY
                       | PRIVILEGES
                       | PROFILE_RESTRICTION
                       | PROFILES
@@ -167,6 +173,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLE
                       | ROLES
                       | ROWS
+                      | RUNNING
                       | SCHEMA
                       | SECURITY
                       | SERVER
@@ -281,6 +288,7 @@ query : cypherQuery
       | ttlQuery
       | setSessionTraceQuery
       | userProfileQuery
+      | descriptionQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -416,7 +424,11 @@ transactionQueueQuery : showTransactions
                       | terminateTransactions
                       ;
 
-showTransactions : SHOW TRANSACTIONS ;
+showTransactions : SHOW transactionStatusList? TRANSACTIONS ;
+
+transactionStatusList : transactionStatus ( ',' transactionStatus )* ;
+
+transactionStatus : RUNNING | COMMITTING | ABORTING ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
@@ -586,7 +598,7 @@ socketAddress : literal ;
 registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC | STRICT_SYNC )
                 TO socketAddress ;
 
-configKeyValuePair : literal ':' literal ;
+configKeyValuePair : literal ':' ( literal | parameter ) ;
 
 configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
@@ -868,3 +880,40 @@ userProfileQuery : createUserProfile
                  | clearUserProfile
                  | showResourceConsumption
                  ;
+
+descriptionQuery
+    : setDescription
+    | deleteDescription
+    | showDescriptions
+    ;
+
+setDescription
+    : SET DESCRIPTION ON descriptionTarget StringLiteral
+    ;
+
+deleteDescription
+    : DELETE DESCRIPTION ON descriptionTarget
+    ;
+
+showDescriptions
+    : SHOW DESCRIPTIONS
+    ;
+
+edgeTypePatternNode
+    : '(' ( ':' labelName )+ ')'
+    ;
+
+edgeTypePattern
+    : edgeTypePatternNode '-' '[' ':' labelName ']' '-' '>' edgeTypePatternNode
+    ;
+
+descriptionTarget
+    : LABEL ':' labelName ( ':' labelName )*
+    | EDGE TYPE PROPERTY edgeTypePattern '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE edgeTypePattern
+    | EDGE TYPE ':' labelName
+    | LABEL PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE PROPERTY ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | PROPERTY propertyKeyName
+    | DATABASE symbolicName
+    ;

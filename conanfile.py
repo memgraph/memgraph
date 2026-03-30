@@ -7,7 +7,7 @@ from conan.tools.build import can_run, check_min_cppstd
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain
 from conan.tools.sbom import cyclonedx_1_6
 
-required_conan_version = ">=2.0"
+required_conan_version = ">=2.26.0"
 
 
 class Memgraph(ConanFile):

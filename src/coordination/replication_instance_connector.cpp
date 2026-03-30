@@ -20,7 +20,7 @@
 
 namespace memgraph::coordination {
 
-TimedFailureDetector::TimedFailureDetector(std::chrono::seconds const instance_down_timeout_sec)
+TimedFailureDetector::TimedFailureDetector(uint32_t const instance_down_timeout_sec)
     : instance_down_timeout_sec_(instance_down_timeout_sec) {}
 
 auto TimedFailureDetector::IsAlive() const -> bool { return is_alive_; }
@@ -35,7 +35,7 @@ auto TimedFailureDetector::LastSuccRespMs() const -> std::chrono::milliseconds {
 
 auto TimedFailureDetector::Suspect() -> bool {
   const auto elapsed_time = std::chrono::system_clock::now() - last_response_time_;
-  is_alive_ = elapsed_time < instance_down_timeout_sec_;
+  is_alive_ = elapsed_time < std::chrono::seconds{instance_down_timeout_sec_.load(std::memory_order_acquire)};
   return is_alive_;
 }
 
@@ -44,13 +44,18 @@ auto TimedFailureDetector::Restore() -> void {
   is_alive_ = true;
 }
 
+void TimedFailureDetector::UpdateInstanceDownTimeoutSec(uint32_t const new_config) {
+  instance_down_timeout_sec_.store(new_config, std::memory_order_release);
+}
+
 ReplicationInstanceConnector::ReplicationInstanceConnector(
-    DataInstanceConfig const &config, CoordinatorInstance *coord_instance,
-    const std::chrono::seconds instance_down_timeout_sec,
+    DataInstanceConfig const &config, CoordinatorInstance *coord_instance, uint32_t const instance_down_timeout_sec,
     const std::chrono::seconds instance_health_check_frequency_sec)
     : client_(ReplicationInstanceClient(config.instance_name, config.mgt_server, coord_instance,
                                         instance_health_check_frequency_sec)),
-      timed_failure_detector_(instance_down_timeout_sec) {}
+      timed_failure_detector_(instance_down_timeout_sec),
+      // Stored by value to avoid a dangling pointer: callers build
+      repl_client_info_(config.replication_client_info) {}
 
 // Intentional logical constness
 void ReplicationInstanceConnector::OnSuccessPing() const { timed_failure_detector_.Restore(); }
@@ -68,6 +73,14 @@ auto ReplicationInstanceConnector::InstanceName() const -> std::string const & {
 
 auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool {
   return replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid);
+}
+
+void ReplicationInstanceConnector::UpdateInstanceDownTimeoutSec(uint32_t const new_config) const {
+  timed_failure_detector_.UpdateInstanceDownTimeoutSec(new_config);
+}
+
+void ReplicationInstanceConnector::UpdateHealthCheckFrequencySec(std::chrono::seconds const &new_config) const {
+  client_.UpdateHealthCheckFrequencySec(new_config);
 }
 
 auto ReplicationInstanceConnector::StartStateCheck() -> void { client_.StartStateCheck(); }

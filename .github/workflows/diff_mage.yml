@@ -42,30 +42,77 @@ env:
   RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
 
 jobs:
+  get-pr-number:
+    name: "Get PR Number"
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.get_pr.outputs.pr_number }}
+      s3_dest_dir: ${{ steps.get_dest.outputs.s3_dest_dir }}
+    steps:
+      - name: Resolve PR number for merge queue
+        id: get_pr
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          PR_NUMBER=$(echo "$MERGE_GROUP_HEAD_REF" | sed -n 's/.*pr-\([0-9]\+\).*/\1/p')
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER=$(echo "$REF_NAME" | sed -n 's/.*pr-\([0-9]\+\).*/\1/p')
+          fi
+          if [ "$EVENT_NAME" = "merge_group" ] && [ -z "$PR_NUMBER" ]; then
+            echo "Unable to resolve PR number from merge queue refs."
+            exit 1
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "PR Number: $PR_NUMBER"
+
+      - name: Get S3 Destination Directory
+        id: get_dest
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          PR_NUMBER=${{ steps.get_pr.outputs.pr_number }}
+          if [ "$EVENT_NAME" = "merge_group" ]; then
+            S3_DEST_DIR="pr-build/mage/pr${PR_NUMBER}"
+          else
+            S3_DEST_DIR="mage-unofficial"
+          fi
+          echo "s3_dest_dir=$S3_DEST_DIR" >> "$GITHUB_OUTPUT"
+          echo "S3 Destination Directory: $S3_DEST_DIR"
+
+  # NOTE: the naming of the following jobs is a hack so that the checks in the PR match those in the merge group even if the MAGE tests are not run
   amd_mage_tests:
-    name: "MAGE Tests (AMD)"
+    name: "MAGE Tests (AMD)${{ !inputs.run_amd && ' / Build and Test MAGE' || '' }}"
+    needs: get-pr-number
     if: ${{ inputs.run_amd }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: amd
       push_to_github: false
-      push_to_s3: false
+      push_to_s3: ${{ github.event_name == 'merge_group' }}
+      s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
       run_tests: true
+      print_output_url: ${{ github.event_name == 'merge_group' }}
     secrets: inherit
 
   arm_mage_tests:
-    name: "MAGE Tests (ARM)"
+    name: "MAGE Tests (ARM)${{ !inputs.run_arm && ' / Build and Test MAGE' || '' }}"
+    needs: get-pr-number
     if: ${{ inputs.run_arm }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: arm
       push_to_github: false
-      push_to_s3: false
+      push_to_s3: ${{ github.event_name == 'merge_group' }}
+      s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
       run_tests: true
+      print_output_url: ${{ github.event_name == 'merge_group' }}
     secrets: inherit
 
   cuda_mage_tests:
-    name: "MAGE Tests (CUDA)"
+    name: "MAGE Tests (CUDA)${{ !inputs.run_cuda && ' / Build and Test MAGE' || '' }}"
+    needs: get-pr-number
     if: ${{ inputs.run_cuda }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:

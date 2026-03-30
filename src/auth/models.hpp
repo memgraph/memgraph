@@ -9,16 +9,25 @@
 #pragma once
 
 #include <algorithm>
+#include <compare>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
+#include <ranges>
 #include <set>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
-
-#include <nlohmann/json_fwd.hpp>
 #include <utility>
 #include <variant>
+#include <vector>
+
 #include "auth/profiles/user_profiles.hpp"
 #include "crypto.hpp"
 #include "dbms/constants.hpp"
@@ -61,6 +70,7 @@ enum class Permission : uint64_t {
   PROFILE_RESTRICTION    = 1U << 27U,
   PARALLEL_EXECUTION     = 1U << 28U,
   SERVER_SIDE_PARAMETERS = 1U << 29U,
+  SERVER_SIDE_DESCRIPTIONS = 1U << 30U,
 };
 // clang-format on
 

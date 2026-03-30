@@ -11,7 +11,8 @@
 
 #include "storage/v2/indices/label_index_stats.hpp"
 
-#include <fmt/core.h>
+#include <fmt/format.h>
+
 #include "utils/simple_json.hpp"
 
 namespace memgraph::storage {

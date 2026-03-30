@@ -11,14 +11,19 @@
 
 #include "flags/run_time_configurable.hpp"
 
+#include <atomic>
+#include <cstddef>
+#include <expected>
+#include <functional>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 
 #include "croncpp.h"
+#include "flags/logging.hpp"
 #include "gflags/gflags.h"
-
-#include "flags/log_level.hpp"
 #include "license/license.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
@@ -27,6 +32,7 @@
 #include "utils/observer.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 
@@ -109,6 +115,10 @@ DEFINE_bool(storage_gc_aggressive, false, "Enable aggressive garbage collection.
 DEFINE_uint64(file_download_conn_timeout_sec, 10,
               "Define a timeout for establishing a connection with a remote server during a file download.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(storage_access_timeout_sec, 1, "Query's storage level access timeout in seconds.",
+                        FLAG_IN_RANGE(1, 1'000'000));
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -164,6 +174,9 @@ constexpr auto kAwsEndpointUrlGFlagsKey = "aws_endpoint_url";
 constexpr auto kFileDownloadConnTimeoutSecSettingKey = "file.download_conn_timeout_sec";
 constexpr auto kFileDownloadConnTimeoutSecGFlagsKey = "file_download_conn_timeout_sec";
 
+constexpr auto kStorageAccessTimeoutSecSettingKey = "storage.access_timeout_sec";
+constexpr auto kStorageAccessTimeoutSecGFlagsKey = "storage_access_timeout_sec";
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
@@ -173,6 +186,7 @@ std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
+std::atomic<uint64_t> storage_access_timeout_sec_{1};
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
@@ -503,6 +517,28 @@ void Initialize(utils::Settings &settings) {
       }
 
   );
+
+  /*
+   * Register storage access timeout
+   */
+  register_flag(
+      kStorageAccessTimeoutSecGFlagsKey,
+      kStorageAccessTimeoutSecSettingKey,
+      !kRestore,
+      [](std::string_view val) {
+        storage_access_timeout_sec_.store(utils::ParseStringToUint64(val), std::memory_order_release);
+      },
+      [](auto in) -> utils::Settings::ValidatorResult {
+        try {
+          const auto v = utils::ParseStringToUint64(in);
+          if (v < 1 || v > 1'000'000) {
+            return std::unexpected{"storage.access_timeout_sec must be in range [1, 1000000]"};
+          }
+          return {};
+        } catch (utils::ParseException const &) {
+          return std::unexpected{"storage.access_timeout_sec must be a valid unsigned integer"};
+        }
+      });
 }
 
 std::string GetServerName() {
@@ -571,6 +607,10 @@ auto GetStorageSnapshotInterval() -> std::string {
 }
 
 auto GetFileDownloadConnTimeoutSec() -> uint64_t { return file_download_conn_timeout_sec_; }
+
+auto GetStorageAccessTimeoutSec() -> std::chrono::seconds {
+  return std::chrono::seconds{storage_access_timeout_sec_.load(std::memory_order_acquire)};
+}
 
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Attach(observer);

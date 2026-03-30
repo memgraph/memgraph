@@ -9,15 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <range/v3/all.hpp>
 #include <ranges>
+#include <unordered_set>
 
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/tracked_vector_allocator.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "usearch/index_dense.hpp"
-#include "utils/synchronized.hpp"
+#include "utils/resource_lock.hpp"
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -26,14 +29,20 @@ namespace memgraph::storage {
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
 // operations.
-using mg_vector_edge_index_t = unum::usearch::index_dense_gt<VectorEdgeIndex::EdgeIndexEntry, unum::usearch::uint40_t>;
+using mg_vector_edge_index_t = unum::usearch::index_dense_gt<VectorEdgeIndex::EdgeIndexEntry, unum::usearch::uint40_t,
+                                                             TrackedVectorAllocator<64>, TrackedVectorAllocator<8>>;
 
-using SyncVectorEdgeIndex = utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>;
+struct synchronized_mg_vector_edge_index_t {
+  mg_vector_edge_index_t index;
+  mutable utils::ResourceLock mutex{};
+
+  explicit synchronized_mg_vector_edge_index_t(mg_vector_edge_index_t &&idx) : index(std::move(idx)) {}
+};
 
 struct EdgeTypeIndexItem {
   // unum::usearch::index_dense_gt is thread-safe and supports concurrent operations. However, we still need to use
   // locking because resizing the index requires exclusive access.
-  SyncVectorEdgeIndex mg_index;
+  synchronized_mg_vector_edge_index_t mg_index;
   VectorEdgeIndexSpec spec;
 
   EdgeTypeIndexItem(mg_vector_edge_index_t index, VectorEdgeIndexSpec spec)
@@ -66,7 +75,7 @@ using EdgeIndexEntry = VectorEdgeIndex::EdgeIndexEntry;
 /// @param from_vertex The source vertex whose edges to process.
 /// @param snapshot_info Optional snapshot observer for progress tracking.
 /// @param thread_id Optional thread ID hint for usearch's internal optimizations.
-void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec, Vertex &from_vertex,
+void TryAddEdgesToIndex(synchronized_mg_vector_edge_index_t &mg_index, VectorEdgeIndexSpec &spec, Vertex &from_vertex,
                         std::optional<SnapshotObserverInfo> const &snapshot_info,
                         std::optional<std::size_t> thread_id = std::nullopt) {
   if (from_vertex.deleted()) {
@@ -151,13 +160,13 @@ bool VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &spec) {
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
   auto mg_edge_index = mg_vector_edge_index_t::make(metric);
   if (!mg_edge_index) {
-    throw query::VectorSearchException(fmt::format(
-        "Failed to create vector index {}, error message: {}", spec.index_name, mg_edge_index.error.what()));
+    throw query::VectorSearchException(
+        "Failed to create vector index {}, error message: {}", spec.index_name, mg_edge_index.error.what());
   }
 
   const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
   if (!mg_edge_index.index.try_reserve(limits)) {
-    throw query::VectorSearchException(fmt::format("Failed to reserve memory for vector index {}", spec.index_name));
+    throw query::VectorSearchException("Failed to reserve memory for vector index {}", spec.index_name);
   }
 
   auto [name_it, name_inserted] = pimpl->index_name_to_edge_type_prop_.try_emplace(spec.index_name, edge_type_prop);
@@ -215,15 +224,15 @@ std::vector<VectorEdgeIndexInfo> VectorEdgeIndex::ListVectorIndicesInfo() const 
   result.reserve(pimpl->edge_index_.size());
   for (const auto &[_, index_item] : pimpl->edge_index_) {
     const auto &[mg_index, spec] = index_item;
-    auto locked_index = mg_index.ReadLock();
+    auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
     result.emplace_back(spec.index_name,
                         spec.edge_type_id,
                         spec.property,
-                        NameFromMetric(locked_index->metric().metric_kind()),
-                        static_cast<std::uint16_t>(locked_index->dimensions()),
-                        locked_index->capacity(),
-                        locked_index->size(),
-                        NameFromScalar(locked_index->metric().scalar_kind()));
+                        NameFromMetric(mg_index.index.metric().metric_kind()),
+                        static_cast<std::uint16_t>(mg_index.index.dimensions()),
+                        mg_index.index.capacity(),
+                        mg_index.index.size(),
+                        NameFromScalar(mg_index.index.metric().scalar_kind()));
   }
   return result;
 }
@@ -243,8 +252,8 @@ std::optional<uint64_t> VectorEdgeIndex::ApproximateEdgesVectorCount(EdgeTypeId 
     return std::nullopt;
   }
   auto &[mg_index, _] = it->second;
-  auto locked_index = mg_index.ReadLock();
-  return locked_index->size();
+  auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+  return mg_index.index.size();
 }
 
 VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::string_view index_name,
@@ -252,7 +261,7 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
                                                                       const std::vector<float> &query_vector) const {
   const auto edge_type_prop = pimpl->index_name_to_edge_type_prop_.find(index_name);
   if (edge_type_prop == pimpl->index_name_to_edge_type_prop_.end()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+    throw query::VectorSearchException("Vector index {} does not exist.", index_name);
   }
   auto &[mg_index, _] = pimpl->edge_index_.at(edge_type_prop->second);
 
@@ -260,9 +269,9 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
   VectorSearchEdgeResults result;
   result.reserve(result_set_size);
 
-  auto locked_index = mg_index.ReadLock();
+  auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
   const auto result_keys =
-      locked_index->filtered_search(query_vector.data(), result_set_size, [](const EdgeIndexEntry &entry) {
+      mg_index.index.filtered_search(query_vector.data(), result_set_size, [](const EdgeIndexEntry &entry) {
         auto guard = std::shared_lock{entry.edge->lock};
         return !entry.from_vertex->deleted() && !entry.to_vertex->deleted() && !entry.edge->deleted();
       });
@@ -271,7 +280,7 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
     result.emplace_back(
         entry,
         static_cast<double>(result_keys[i].distance),
-        std::abs(SimilarityFromDistance(locked_index->metric().metric_kind(), result_keys[i].distance)));
+        std::abs(SimilarityFromDistance(mg_index.index.metric().metric_kind(), result_keys[i].distance)));
   }
 
   return result;
@@ -288,25 +297,35 @@ void VectorEdgeIndex::RestoreEntries(
   }
 }
 
-void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
-  auto maybe_stop = utils::ResettableCounter(2048);
-  for (auto &[_, index_item] : pimpl->edge_index_) {
-    if (maybe_stop() && token.stop_requested()) {
-      return;
-    }
-    auto &[mg_index, spec] = index_item;
-    auto locked_index = mg_index.MutableSharedLock();
-    const auto index_size = locked_index->size();
-    std::vector<EdgeIndexEntry> edges_to_remove(index_size);
-    locked_index->export_keys(edges_to_remove.data(), 0, index_size);
+bool VectorEdgeIndex::Empty() const { return pimpl->edge_index_.empty(); }
 
-    auto deleted = edges_to_remove | rv::filter([](const EdgeIndexEntry &entry) {
-                     auto guard = std::shared_lock{entry.edge->lock};
-                     return entry.edge->deleted();
-                   });
-    for (const auto &entry : deleted) {
-      locked_index->remove(entry);
+void VectorEdgeIndex::RemoveEdges(std::list<Gid> const &deleted_edge_gids) const {
+  auto as_uint = deleted_edge_gids | std::views::transform([](auto const &g) { return g.AsUint(); });
+  std::unordered_set<uint64_t> const gids_to_remove(as_uint.begin(), as_uint.end());
+
+  for (auto &[_, index_item] : pimpl->edge_index_) {
+    auto &[mg_index, spec] = index_item;
+
+    // Phase 1: READ_ONLY — export keys and find entries matching deleted GIDs
+    std::vector<EdgeIndexEntry> entries_to_remove;
+    {
+      auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+      auto const index_size = mg_index.index.size();
+      if (index_size == 0) continue;
+      std::vector<EdgeIndexEntry> all_entries(index_size);
+      mg_index.index.export_keys(all_entries.data(), 0, index_size);
+      for (auto const &entry : all_entries) {
+        if (entry.edge != nullptr && gids_to_remove.contains(entry.edge->gid.AsUint())) {
+          entries_to_remove.push_back(entry);
+        }
+      }
     }
+
+    if (entries_to_remove.empty()) continue;
+
+    // Phase 2: UNIQUE — remove matched entries
+    auto guard = std::lock_guard{mg_index.mutex};
+    mg_index.index.remove(entries_to_remove.begin(), entries_to_remove.end());
   }
 }
 
@@ -324,7 +343,7 @@ VectorEdgeIndex::IndexStats VectorEdgeIndex::Analysis() const {
 EdgeTypeId VectorEdgeIndex::GetEdgeTypeId(std::string_view index_name) {
   auto it = pimpl->index_name_to_edge_type_prop_.find(index_name.data());
   if (it == pimpl->index_name_to_edge_type_prop_.end()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+    throw query::VectorSearchException("Vector index {} does not exist.", index_name);
   }
   return it->second.edge_type();
 }
@@ -337,13 +356,13 @@ std::vector<float> VectorEdgeIndex::GetVectorFromEdge(Vertex *from_vertex, Verte
                                                       std::string_view index_name) const {
   const auto edge_type_prop = pimpl->index_name_to_edge_type_prop_.find(index_name);
   if (edge_type_prop == pimpl->index_name_to_edge_type_prop_.end()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+    throw query::VectorSearchException("Vector index {} does not exist.", index_name);
   }
   auto &[mg_index, _] = pimpl->edge_index_.at(edge_type_prop->second);
-  auto locked_index = mg_index.ReadLock();
-  std::vector<float> vector(locked_index->dimensions());
+  auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+  std::vector<float> vector(mg_index.index.dimensions());
   const EdgeIndexEntry entry{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge};
-  locked_index->get(entry, vector.data());
+  if (!mg_index.index.get(entry, vector.data())) return {};
   return vector;
 }
 

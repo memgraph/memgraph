@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <list>
 #include <map>
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
@@ -143,13 +144,18 @@ class VectorEdgeIndex {
       const EdgeTypePropKey &edge_type_prop,
       std::span<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>> const> prop_edges);
 
-  /// @brief Removes obsolete entries from the index.
-  /// @param token A stop token to allow for cancellation of the operation.
-  void RemoveObsoleteEntries(std::stop_token token) const;
+  /// @brief Removes edges from the index by GID.
+  /// Must be called before the edge is removed from the skip list (while the pointer is still valid).
+  /// @param deleted_edge_gids The GIDs of the edges to remove.
+  void RemoveEdges(std::list<Gid> const &deleted_edge_gids) const;
 
   /// @brief Returns the index statistics.
   /// @return The index statistics.
   IndexStats Analysis() const;
+
+  /// @brief Checks if any vector index exists.
+  /// @return true if no vector indices exist, false otherwise.
+  bool Empty() const;
 
   /// @brief Returns the EdgeTypeId for the given index name.
   /// @param index_name The name of the index.

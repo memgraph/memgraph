@@ -42,7 +42,9 @@
 #include "storage/v2/vertex_info_cache.hpp"
 #include "utils/pmr/list.hpp"
 
-#include <rocksdb/utilities/transaction.h>
+namespace rocksdb {
+class Transaction;
+}  // namespace rocksdb
 
 namespace memgraph::storage {
 
@@ -103,7 +105,7 @@ struct AsyncIndexHelper {
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
-              ActiveIndices active_indices, ActiveConstraints active_constraints,
+              ActiveIndicesPtr active_indices, ActiveConstraints active_constraints,
               AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
@@ -247,7 +249,7 @@ struct Transaction {
 
   /// Concurrent safe indices that existed at the beginning of the transaction
   /// Used to insert new entries, and during planning to speed up scans
-  ActiveIndices active_indices_;
+  ActiveIndicesPtr active_indices_;
   /// Concurrent safe constraints that existed at the beginning of the transaction
   /// Used for constraint validation during commit
   ActiveConstraints active_constraints_;

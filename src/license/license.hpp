@@ -11,9 +11,14 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <expected>
+#include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
@@ -88,7 +93,7 @@ struct LicenseChecker {
   LicenseChecker operator=(LicenseChecker &&) = delete;
 
   void CheckEnvLicense(utils::Settings &settings);
-  void SetLicenseInfoOverride(std::string license_key, std::string organization_name, utils::Settings &settings);
+  void SetCliLicense(std::string license_key, std::string organization_name, utils::Settings &settings);
   void EnableTesting(LicenseType license_type = LicenseType::ENTERPRISE);
   void DisableTesting();
   // Checks if license is valid and if enterprise is enabled
@@ -105,11 +110,10 @@ struct LicenseChecker {
   void Finalize() { scheduler_.Stop(); }
 
  private:
-  std::pair<std::string, std::string> ExtractLicenseInfo(const utils::Settings &settings) const;
-  void RevalidateLicense(const utils::Settings &settings);
-  void RevalidateLicense(const std::string &license_key, const std::string &organization_name);
+  void RevalidateLicense(utils::Settings &settings);
 
-  std::optional<std::pair<std::string, std::string>> license_info_override_;
+  std::optional<std::pair<std::string, std::string>> cli_license_info_;
+  std::optional<std::pair<std::string, std::string>> env_license_info_;
   mutable utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_{std::nullopt};
   bool enterprise_enabled_{false};
   std::atomic<bool> is_valid_{false};

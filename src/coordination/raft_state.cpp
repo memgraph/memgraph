@@ -11,25 +11,59 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <atomic>
 #include <chrono>
-#include <functional>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <libnuraft/asio_service.hxx>
+#include <libnuraft/async.hxx>
+#include <libnuraft/basic_types.hxx>
+#include <libnuraft/callback.hxx>
+#include <libnuraft/context.hxx>
+#include <libnuraft/log_entry.hxx>
+#include <libnuraft/log_val_type.hxx>
+#include <libnuraft/raft_params.hxx>
+#include <libnuraft/raft_server.hxx>
+#include <libnuraft/rpc_listener.hxx>
+#include <libnuraft/snapshot.hxx>
+#include <libnuraft/srv_config.hxx>
+#include <list>
+#include <map>
+#include <memory>
+#include <nlohmann/json.hpp>
 #include <optional>
+#include <range/v3/iterator/basic_iterator.hpp>
+#include <range/v3/view/view.hpp>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "coordination/constants.hpp"
+#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/coordinator_instance_aux.hpp"
+#include "coordination/coordinator_instance_context.hpp"
+#include "coordination/coordinator_log_store.hpp"
+#include "coordination/coordinator_ops_status.hpp"
+#include "coordination/coordinator_state_machine.hpp"
+#include "coordination/coordinator_state_manager.hpp"
+#include "coordination/logger.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/utils.hpp"
+#include "io/network/endpoint.hpp"
+#include "kvstore/kvstore.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
-
-#include <spdlog/spdlog.h>
-#include <nlohmann/json.hpp>
+#include "utils/uuid.hpp"
 
 namespace {
 constexpr std::string_view kStateMgrDurabilityPath = "network";
@@ -506,19 +540,28 @@ auto RaftState::YieldLeadership() const -> void { raft_server_->yield_leadership
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
-auto RaftState::AppendClusterUpdate(CoordinatorClusterStateDelta const &delta_state) const -> bool {
+// If operation passed successfully we know that this coordinator committed the log and that the log is
+// replicated on the majority of coordinators
+auto RaftState::AppendLogAndWaitForCommit(CoordinatorClusterStateDelta const &delta_state) const -> bool {
   auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
+    // Most probable reason is that the coordinator is not the leader
     spdlog::error("Failed to accept request for updating cluster state.");
     return false;
   }
   spdlog::trace("Request for updating cluster state accepted.");
 
+  // blocking operation
+  // leader will step down if cannot rach a majority
+  [[maybe_unused]] auto blocked = res->get();
+
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to update cluster state. Error code {}", static_cast<int>(res->get_result_code()));
+    spdlog::warn("Failed to update cluster state. Error code {}", static_cast<int>(res->get_result_code()));
     return false;
   }
+
+  spdlog::trace("Log is committed");
 
   return true;
 }
@@ -590,6 +633,12 @@ auto RaftState::GetMaxFailoverReplicaLag() const -> uint64_t { return state_mach
 auto RaftState::GetMaxReplicaReadLag() const -> uint64_t { return state_machine_->GetMaxReplicaReadLag(); }
 
 auto RaftState::GetDeltasBatchProgressSize() const -> uint64_t { return state_machine_->GetDeltasBatchProgressSize(); }
+
+auto RaftState::GetInstanceDownTimeoutSec() const -> uint32_t { return state_machine_->GetInstanceDownTimeoutSec(); }
+
+auto RaftState::GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds {
+  return state_machine_->GetInstanceHealthCheckFrequencySec();
+}
 
 }  // namespace memgraph::coordination
 

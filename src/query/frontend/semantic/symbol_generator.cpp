@@ -189,8 +189,16 @@ bool SymbolGenerator::PreVisit(SingleQuery &) {
 // Union
 
 bool SymbolGenerator::PreVisit(CypherUnion &) {
+  auto const &prev_scope = scopes_.back();
+
   auto next_scope = Scope();
-  next_scope.curr_return_names = scopes_.back().curr_return_names;
+  next_scope.curr_return_names = prev_scope.curr_return_names;
+  // Preserve subquery context flags so that proper scoping is enforced in UNION branches.
+  // Without this, subsequent UNION branches incorrectly access outer scope symbols directly
+  // instead of requiring explicit WITH imports.
+  // Currently only CALL and EXISTS subqueries can contain complete queries with UNION.
+  next_scope.in_call_subquery = prev_scope.in_call_subquery;
+  next_scope.in_exists_subquery = prev_scope.in_exists_subquery;
 
   scopes_.pop_back();
   scopes_.push_back(next_scope);
@@ -458,9 +466,13 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // here, so that they can be checked after visiting Match.
     scope.identifiers_in_match.emplace_back(&ident);
   } else if (scope.in_call_subquery && !scope.in_with) {
+    // Currently only CALL uses WITH to import symbols from outer scope
+    // EXISTS implicitly imports outer scope symbols
     if (!scope.symbols.contains(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) {
       throw UnboundVariableError(ident.name_);
     }
+    // TODO: we know the symbol is in scope, so can we avoid searching for it again in GetOrCreateSymbol?
+    //       ConsumePredefinedIdentifier will also put the symbol on top of scope
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
   } else {
     // Everything else references a bound symbol.

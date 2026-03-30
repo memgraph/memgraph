@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan/operator.hpp"
+#include <range/v3/all.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -37,8 +38,7 @@
 
 #include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
-#include "memory/query_memory_control.hpp"
-#include "query/common.hpp"
+#include "query/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -331,19 +331,21 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
               "PeriodicCommit warning: At least one SYNC replica has not confirmed the "
               "commit.");
         } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
-          spdlog::warn(
-              "PeriodicCommit warning: At least one STRICT_SYNC replica has not confirmed committing last transaction. "
+          throw PeriodicCommitException(
+              "PeriodicCommit failed: At least one STRICT_SYNC replica has not confirmed committing last transaction. "
               "Transaction will be aborted on all instances.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
+          spdlog::warn("PeriodicCommit warning: {}", rpc::kRpcTimeoutMsg);
         } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
-          throw QueryException(
+          throw PeriodicCommitException(
               "PeriodicCommit failed: Unable to commit due to constraint "
               "violation.");
         } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
-          throw QueryException("PeriodicCommit failed: Unable to commit due to serialization error.");
+          throw PeriodicCommitException("PeriodicCommit failed: Unable to commit due to serialization error.");
         } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
-          throw QueryException("PeriodicCommit failed: Unable to commit due to persistence error.");
+          throw PeriodicCommitException("PeriodicCommit failed: Unable to commit due to persistence error.");
         } else if constexpr (std::is_same_v<ErrorType, storage::ReplicaShouldNotWriteError>) {
-          throw QueryException("PeriodicCommit failed: Queries on replica shouldn't write.");
+          throw PeriodicCommitException("PeriodicCommit failed: Queries on replica shouldn't write.");
         } else {
           static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
         }
@@ -7301,7 +7303,12 @@ class DistinctParallelCursor : public Cursor {
       // local_seen_ for O(1) dedup, local_batch_ preserves insertion order
       if (local_seen_.insert(row).second) {
         local_batch_.emplace_back(std::move(row));
-        std::swap(local_cache_[local_batch_.size() - 1], frame);
+        // Copy, not swap: sub-cursors (e.g. Expand) are stateful and may not
+        // re-set all frame slots on subsequent Pulls if they still have pending
+        // work. Swapping in a Null-initialized cache frame would leave symbols
+        // like the scan edge (tc) as Null, causing TypedValueException in
+        // EdgeUniquenessFilter on the next Pull.
+        local_cache_[local_batch_.size() - 1] = frame;
       }
     }
 
@@ -10639,11 +10646,19 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           case Aggregation::Op::COLLECT_LIST: {
             auto &main_list = main_value.ValueList();
             auto &other_list = other_value.ValueList();
-            // If the item is found in 'other_unique_values', it means it was a duplicate (rejected by merge). We skip
-            // it. If it is NOT found, it means it was moved to 'main', so we add it.
-            for (auto &item : other_list) {
-              if (other_unique_values.contains(item)) {
-                main_list.push_back(std::move(item));
+            if (other_unique_values.empty()) {
+              // Common case for parallel scan: threads process disjoint vertex sets,
+              // so no cross-branch duplicates exist. Bulk-append without any hash lookups.
+              main_list.insert(main_list.end(),
+                               std::make_move_iterator(other_list.begin()),
+                               std::make_move_iterator(other_list.end()));
+            } else {
+              // After merge(), items still in other_unique_values are duplicates — skip them.
+              // Items no longer in other_unique_values were moved to main (unique) — add them.
+              for (auto &item : other_list) {
+                if (!other_unique_values.contains(item)) {
+                  main_list.push_back(std::move(item));
+                }
               }
             }
             break;
@@ -10651,10 +10666,17 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           case Aggregation::Op::COLLECT_MAP: {
             auto &main_map = main_value.ValueMap();
             auto &other_map = other_value.ValueMap();
-            // Check if the VALUE (which is what distinct tracks)  was left behind.
-            for (auto &[key, val] : other_map) {
-              if (other_unique_values.contains(val)) {
+            if (other_unique_values.empty()) {
+              // No cross-branch duplicates — merge all entries directly.
+              for (auto &[key, val] : other_map) {
                 main_map.insert_or_assign(key, std::move(val));
+              }
+            } else {
+              // After merge(), values still in other_unique_values are duplicates — skip them.
+              for (auto &[key, val] : other_map) {
+                if (!other_unique_values.contains(val)) {
+                  main_map.insert_or_assign(key, std::move(val));
+                }
               }
             }
             break;

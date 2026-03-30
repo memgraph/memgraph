@@ -12,15 +12,32 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_state_manager.hpp"
+
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <sys/types.h>
+#include <filesystem>
+#include <libnuraft/srv_config.hxx>
+#include <libnuraft/srv_state.hxx>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <range/v3/iterator/basic_iterator.hpp>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/transform.hpp>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+#include <variant>
+
 #include "coordination/coordination_observer.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/log_level.hpp"
 #include "coordination/utils.hpp"
 #include "utils/logging.hpp"
 
-#include <spdlog/spdlog.h>
-
-#include <nlohmann/json.hpp>
-#include <range/v3/view.hpp>
+#include <cstdlib>
 
 namespace memgraph::coordination {
 using nuraft::cluster_config;
@@ -117,6 +134,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   cluster_config_->get_servers().push_back(my_srv_config_);
 
   HandleVersionMigration();
+  auto lock = std::lock_guard{config_mutex_};
   TryUpdateClusterConfigFromDisk();
 }
 
@@ -125,6 +143,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
 // only after the gap is small enough so it could happen that for the short time window
 // the config doesn't contain this coordinator. This should be temporary and the log which
 // contains the current coordinator should be after shortly accepted.
+// Caller is responsible for obtaining the lock for updating cluster_config_
 void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
   auto const maybe_cluster_config = durability_.Get(kClusterConfigKey);
   if (!maybe_cluster_config) {
@@ -143,32 +162,14 @@ void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
 
 // Called when application is starting up
 auto CoordinatorStateManager::load_config() -> std::shared_ptr<cluster_config> {
-  spdlog::trace("Got request to update config from disk");
+  auto lock = std::lock_guard{config_mutex_};
   TryUpdateClusterConfigFromDisk();
   return cluster_config_;
 }
 
-auto CoordinatorStateManager::GetCoordinatorInstancesAux() const -> std::vector<CoordinatorInstanceAux> {
-  auto const &cluster_config_servers = cluster_config_->get_servers();
-  std::vector<CoordinatorInstanceAux> coord_instances_aux;
-  coord_instances_aux.reserve(cluster_config_servers.size());
-
-  try {
-    std::ranges::transform(cluster_config_servers,
-                           std::back_inserter(coord_instances_aux),
-                           [](auto const &server) -> CoordinatorInstanceAux {
-                             auto j = nlohmann::json::parse(server->get_aux());
-                             return j.template get<CoordinatorInstanceAux>();
-                           });
-  } catch (std::exception const &e) {
-    LOG_FATAL("Error occurred while parsing aux field {}", e.what());
-  }
-
-  return coord_instances_aux;
-}
-
 auto CoordinatorStateManager::save_config(cluster_config const &config) -> void {
-  spdlog::trace("Got request to save config.");
+  auto lock = std::lock_guard{config_mutex_};
+
   std::shared_ptr<buffer> const buf = config.serialize();
   cluster_config_ = cluster_config::deserialize(*buf);
   nlohmann::json json;
@@ -178,10 +179,8 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
     throw StoreClusterConfigException("Failed to store cluster config in RocksDb");
   }
 
-  spdlog::trace("Successfully saved cluster config to the durable storage.");
-
-  NotifyObserver(GetCoordinatorInstancesAux());
-  spdlog::trace("Successfully notified observer about changes in the cluster configuration.");
+  // Lock already taken hence not needed
+  NotifyObserver(GetCoordinatorInstancesAux<false>());
 }
 
 void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
@@ -226,7 +225,17 @@ auto CoordinatorStateManager::load_log_store() -> std::shared_ptr<log_store> { r
 
 auto CoordinatorStateManager::server_id() -> int32 { return my_id_; }
 
-auto CoordinatorStateManager::system_exit(int const exit_code) -> void {}
+auto CoordinatorStateManager::system_exit(int const exit_code) -> void {
+  try {
+    spdlog::critical("NuRaft triggered system exit with code: {}", exit_code);
+    // NOLINTNEXTLINE(bugprone-empty-catch)
+  } catch (std::exception const & /*e*/) {
+  }
+  // Use quick_exit() to terminate immediately without running global destructors.
+  // NuRaft calls ::exit(-1) after this callback, which can cause the static
+  // destruction order fiasco
+  std::quick_exit(exit_code);
+}
 
 auto CoordinatorStateManager::GetSrvConfig() const -> std::shared_ptr<srv_config> { return my_srv_config_; }
 

@@ -78,6 +78,12 @@
   [f]
   {:type :info :f f})
 
+
+(defn asked-to-abort-shutdown?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Transaction was asked to abort because of database shutdown"))
+
 (defn not-main-anymore?
   "Accepts exception e as argument."
   [e]
@@ -91,7 +97,7 @@
 (defn cannot-get-shared-access?
   "Cannot get shared access to the storage."
   [e]
-  (string/includes? (str e) "Cannot get shared access storage"))
+  (string/includes? (str e) "Cannot get shared access to the storage"))
 
 (defn unique-constraint-violated?
   "Unique constraint was violated."
@@ -101,8 +107,7 @@
 (defn txn-timeout?
   "Txn timeout has occurred."
   [e]
-  (string/includes? (str e) "Transaction was asked to abort because of transaction timeout."
- ))
+  (string/includes? (str e) "Transaction was asked to abort because of transaction timeout."))
 
 (defn server-no-longer-available
   "Accepts exception e as argument."
@@ -123,6 +128,11 @@
   "Accepts exception e as argument."
   [e]
   (string/includes? (str e) "Write queries are forbidden on the replica"))
+
+(defn main-reached-rpc-timeout?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Main reached an RPC timeout"))
 
 (defn strict-sync-replica-down?
   "Accepts exception e as argument."

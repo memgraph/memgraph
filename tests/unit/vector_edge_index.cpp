@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 #include <sys/types.h>
+#include <chrono>
 #include <string_view>
 #include <thread>
 
@@ -18,6 +19,7 @@
 #include "query/exceptions.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
@@ -239,7 +241,7 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
   }
 }
 
-TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesTest) {
+TEST_F(VectorEdgeIndexTest, RemoveEntriesTest) {
   this->CreateEdgeIndex(2, 10);
   Gid edge_gid;
   {
@@ -255,15 +257,11 @@ TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesTest) {
     auto maybe_deleted_edge = acc->DeleteEdge(&edge);
     EXPECT_EQ(maybe_deleted_edge.has_value(), true);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-  }
-  {
-    auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
-  }
-  {
-    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    mem_storage->indices_.vector_edge_index_.RemoveObsoleteEntries(std::stop_token());
+    mem_storage->indices_.vector_edge_index_.RemoveEdges({edge_gid});
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
 }
@@ -517,5 +515,170 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
     EXPECT_EQ(vector.size(), kDimension);
     EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
     EXPECT_EQ(vector[1], static_cast<float>((edge.gid.AsUint()) + 1));
+  }
+}
+
+// Test fixture for GC-related vector edge index tests.
+// Uses periodic GC with a short interval to trigger automatic garbage collection.
+class VectorEdgeIndexGCTest : public testing::Test {
+ public:
+  std::unique_ptr<Storage> storage;
+
+  void SetUp() override {
+    memgraph::storage::Config config;
+    config.gc.type = memgraph::storage::Config::Gc::Type::PERIODIC;
+    config.gc.interval = std::chrono::milliseconds(100);
+    storage = std::make_unique<InMemoryStorage>(config);
+  }
+
+  void TearDown() override { storage.reset(); }
+
+  void CreateEdgeIndex(std::uint16_t dimension, std::size_t capacity) {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto edge_type = unique_acc->NameToEdgeType(test_edge_type.data());
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    const auto spec = VectorEdgeIndexSpec{
+        test_index.data(), edge_type, property, metric, dimension, resize_coefficient, capacity, scalar_kind};
+    EXPECT_FALSE(!unique_acc->CreateVectorEdgeIndex(spec).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  std::tuple<VertexAccessor, VertexAccessor, EdgeAccessor> CreateEdge(Storage::Accessor *accessor,
+                                                                      std::string_view property,
+                                                                      const PropertyValue &property_value,
+                                                                      std::string_view edge_type) {
+    VertexAccessor from_vertex = accessor->CreateVertex();
+    VertexAccessor to_vertex = accessor->CreateVertex();
+    const auto etype = accessor->NameToEdgeType(edge_type);
+    auto edge_result = accessor->CreateEdge(&from_vertex, &to_vertex, etype);
+    MG_ASSERT(edge_result.has_value());
+    auto edge = edge_result.value();
+    MG_ASSERT(edge.SetProperty(accessor->NameToProperty(property), property_value).has_value());
+    return {from_vertex, to_vertex, edge};
+  }
+};
+
+TEST_F(VectorEdgeIndexGCTest, AnalyticalModeDeleteEdgeGCCleansVectorIndex) {
+  this->CreateEdgeIndex(2, 10);
+  PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  Gid edge_gid;
+
+  // Create an edge with a vector property in transactional mode
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify the edge is in the vector index
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
+  }
+
+  // Switch to analytical mode
+  static_cast<InMemoryStorage *>(this->storage.get())->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+
+  // Delete the edge in analytical mode
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    auto maybe_deleted_edge = acc->DeleteEdge(&edge);
+    EXPECT_TRUE(maybe_deleted_edge.has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Switch back to transactional mode — this triggers GC which processes the full-scan path
+  static_cast<InMemoryStorage *>(this->storage.get())->SetStorageMode(StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+  // Verify the edge is no longer in the vector index
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
+  }
+}
+
+TEST_F(VectorEdgeIndexGCTest, AnalyticalModeDeleteMultipleEdgesGCCleansVectorIndex) {
+  this->CreateEdgeIndex(2, 10);
+  PropertyValue properties1(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  PropertyValue properties2(std::vector<PropertyValue>{PropertyValue(2.0), PropertyValue(2.0)});
+  PropertyValue properties3(std::vector<PropertyValue>{PropertyValue(3.0), PropertyValue(3.0)});
+  Gid edge_gid1;
+  Gid edge_gid2;
+
+  // Create three edges
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto [fv1, tv1, e1] = this->CreateEdge(acc.get(), test_property, properties1, test_edge_type);
+    auto [fv2, tv2, e2] = this->CreateEdge(acc.get(), test_property, properties2, test_edge_type);
+    [[maybe_unused]] auto [fv3, tv3, e3] = this->CreateEdge(acc.get(), test_property, properties3, test_edge_type);
+    edge_gid1 = e1.Gid();
+    edge_gid2 = e2.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 3);
+  }
+
+  // Switch to analytical mode and delete two of the three edges
+  static_cast<InMemoryStorage *>(this->storage.get())->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto edge1 = acc->FindEdge(edge_gid1, View::OLD).value();
+    EXPECT_TRUE(acc->DeleteEdge(&edge1).has_value());
+    auto edge2 = acc->FindEdge(edge_gid2, View::OLD).value();
+    EXPECT_TRUE(acc->DeleteEdge(&edge2).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Switch back — triggers GC
+  static_cast<InMemoryStorage *>(this->storage.get())->SetStorageMode(StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+  // Only the third edge should remain in the index
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
+    const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, std::vector<float>{3.0, 3.0});
+    EXPECT_EQ(result.size(), 1);
+  }
+}
+
+TEST_F(VectorEdgeIndexGCTest, TransactionalModeDeleteEdgeGCCleansVectorIndex) {
+  this->CreateEdgeIndex(2, 10);
+  PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  Gid edge_gid;
+
+  // Create an edge
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
+  }
+
+  // Delete the edge in transactional mode
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    EXPECT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Wait for periodic GC to run
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  // Verify the edge is cleaned from the vector index
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
 }
