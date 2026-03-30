@@ -14,6 +14,7 @@
 #include <memory>
 #include <span>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
@@ -35,6 +36,8 @@ struct Edge;
 struct TextIndexData;
 struct TextEdgeIndexData;
 
+using TextIndexKey = std::variant<const TextIndexData *, const TextEdgeIndexData *>;
+
 // Caches pinned tantivy searchers per index for snapshot-consistent reads within a transaction
 class TextSearchSession {
   struct Impl;
@@ -46,7 +49,7 @@ class TextSearchSession {
   TextSearchSession(TextSearchSession &&) noexcept;
   TextSearchSession &operator=(TextSearchSession &&) noexcept;
 
-  mgcxx::text_search::SearcherContext *GetOrAcquire(const void *index_key, mgcxx::text_search::Context &ctx);
+  mgcxx::text_search::SearcherContext *GetOrAcquire(TextIndexKey index_key, mgcxx::text_search::Context &ctx);
 };
 
 inline constexpr std::string_view kTextIndicesDirectory = "text_indices";

@@ -155,8 +155,16 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
 void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
                              NameIdMapper *name_id_mapper, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
-  const auto index_directory_already_exists = std::filesystem::exists(index_path);
-  CreateTantivyIndex(index_path, index_info);
+  auto index_directory_already_exists = std::filesystem::exists(index_path);
+  try {
+    CreateTantivyIndex(index_path, index_info);
+  } catch (const query::TextSearchException &) {
+    if (!index_directory_already_exists) throw;
+    spdlog::warn("Text index {} has incompatible schema on disk, rebuilding.", index_info.index_name);
+    std::filesystem::remove_all(index_path);
+    index_directory_already_exists = false;
+    CreateTantivyIndex(index_path, index_info);
+  }
 
   if (!index_directory_already_exists) {
     // If index didn't exist, we need to index all vertices. (This happens if we recover only from the snapshot)

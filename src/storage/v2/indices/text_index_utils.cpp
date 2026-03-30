@@ -183,7 +183,7 @@ bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
 }
 
 struct TextSearchSession::Impl {
-  absl::flat_hash_map<const void *, rust::Box<mgcxx::text_search::SearcherContext>> searchers;
+  absl::flat_hash_map<TextIndexKey, rust::Box<mgcxx::text_search::SearcherContext>> searchers;
 };
 
 TextSearchSession::TextSearchSession() : impl_(std::make_unique<Impl>()) {}
@@ -192,7 +192,7 @@ TextSearchSession::~TextSearchSession() = default;
 TextSearchSession::TextSearchSession(TextSearchSession &&) noexcept = default;
 TextSearchSession &TextSearchSession::operator=(TextSearchSession &&) noexcept = default;
 
-mgcxx::text_search::SearcherContext *TextSearchSession::GetOrAcquire(const void *index_key,
+mgcxx::text_search::SearcherContext *TextSearchSession::GetOrAcquire(TextIndexKey index_key,
                                                                      mgcxx::text_search::Context &ctx) {
   auto it = impl_->searchers.find(index_key);
   if (it != impl_->searchers.end()) return &*it->second;

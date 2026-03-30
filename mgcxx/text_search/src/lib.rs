@@ -29,7 +29,6 @@ mod ffi {
         tantivyContext: Box<TantivyContext>,
     }
 
-    // TODO(gitbuda): Write all the right combinations.
     /// mappings format (JSON string expected):
     ///   {
     ///     "properties": {
@@ -66,13 +65,15 @@ mod ffi {
         return_fields: Vec<String>,
         aggregation_query: String,
         limit: usize,
-        // TODO(gitbuda): Add stuff like skip.
         // NOTE: Any primitive value here is a bit of a problem because of default value on the C++
         // side.
     }
+    // NOTE: SearchOutput is currently only used by the old search()/regex_search() functions which
+    // are not called from C++ anymore (replaced by the *_gids_pinned variants). Keeping it around
+    // because we will need it once we add single-store mode to the text index (returning full
+    // documents directly from Tantivy instead of doing a separate storage lookup by GID).
     struct SearchOutput {
         docs: Vec<DocumentOutput>,
-        // TODO(gitbuda): Add stuff like page (skip, limit).
     }
 
     struct GidScore {
@@ -114,6 +115,9 @@ mod ffi {
         ) -> Result<()>;
         fn commit(context: &mut Context) -> Result<()>;
         fn rollback(context: &mut Context) -> Result<()>;
+        // NOTE: search() and regex_search() are not currently called from C++ — the optimized
+        // *_gids_pinned variants are used instead. Keeping these because we will need them once we
+        // add single-store mode to the text index (returning full documents from Tantivy).
         fn search(context: &mut Context, input: &SearchInput) -> Result<SearchOutput>;
         fn regex_search(context: &mut Context, input: &SearchInput) -> Result<SearchOutput>;
         fn aggregate(context: &mut Context, input: &SearchInput) -> Result<DocumentOutput>;
@@ -216,13 +220,13 @@ pub struct TantivyContext {
 }
 
 fn init(_log_level: &String) -> Result<(), std::io::Error> {
-    // TODO(gitbuda): Used as a library code inside a C++ application -> align logger format.
+    // NOTE: Logger format is not aligned with the C++ host application.
     let log_init_res = env_logger::try_init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "warn"),
     );
-    // TODO(gitbuda): If more than one module tries to do this -> the later call might fail ->
-    // in that case, this code should be adjusted (or the error should be ignored because the
-    // logger is already initialized) -> if this happens consider what would be the best solution.
+    // NOTE: If more than one module calls env_logger::try_init, the later call will fail because
+    // the logger is already initialized. Currently we treat this as a hard error; if this becomes
+    // a problem, consider ignoring the AlreadyInitialized variant.
     if let Err(e) = log_init_res {
         return Err(Error::new(
                 ErrorKind::Other,
@@ -232,7 +236,6 @@ fn init(_log_level: &String) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-// TODO(gitbuda): Implement full range of extract_schema options.
 fn create_index_schema(
     mappings: &serde_json::Map<String, Value>,
 ) -> Result<Schema, std::io::Error> {
@@ -617,6 +620,8 @@ fn search_get_fields(
     Ok(result)
 }
 
+// NOTE: Not currently called from C++ — replaced by search_gids_pinned(). Keeping for future
+// single-store text index mode where we return full documents directly from Tantivy.
 fn search(
     context: &mut ffi::Context,
     input: &ffi::SearchInput,
@@ -699,6 +704,8 @@ fn search(
     Ok(ffi::SearchOutput { docs })
 }
 
+// NOTE: Not currently called from C++ — replaced by regex_search_gids_pinned(). Keeping for
+// future single-store text index mode where we return full documents directly from Tantivy.
 fn regex_search(
     context: &mut ffi::Context,
     input: &ffi::SearchInput,

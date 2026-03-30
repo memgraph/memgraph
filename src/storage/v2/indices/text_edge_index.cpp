@@ -148,8 +148,16 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
                                  NameIdMapper *name_id_mapper,
                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
-  const auto index_directory_already_exists = std::filesystem::exists(index_path);
-  CreateTantivyIndex(index_path, index_info);
+  auto index_directory_already_exists = std::filesystem::exists(index_path);
+  try {
+    CreateTantivyIndex(index_path, index_info);
+  } catch (const query::TextSearchException &) {
+    if (!index_directory_already_exists) throw;
+    spdlog::warn("Text edge index {} has incompatible schema on disk, rebuilding.", index_info.index_name);
+    std::filesystem::remove_all(index_path);
+    index_directory_already_exists = false;
+    CreateTantivyIndex(index_path, index_info);
+  }
 
   if (!index_directory_already_exists) {
     // If index didn't exist, we need to index all edges. (This happens if we recover only from the snapshot)
@@ -333,7 +341,6 @@ std::optional<uint64_t> TextEdgeIndex::ApproximateEdgesTextCount(std::string_vie
 
 void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
   for (const auto &[index_data_ptr, pending] : tx.text_edge_index_change_collector_) {
-    // Prepare documents outside the lock to minimize critical section
     struct PreparedEdgeDoc {
       std::int64_t edge_gid;
       std::int64_t from_vertex_gid;
@@ -361,7 +368,6 @@ void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_m
                              StringifyProperties(edge_properties)});
     }
 
-    // Lock only for tantivy writer operations
     const std::lock_guard lock(index_data_ptr->write_mutex);
     try {
       for (auto gid : gids_to_remove) {
