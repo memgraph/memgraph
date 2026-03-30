@@ -7,6 +7,7 @@ Portable AI agent skills following the [Agent Skills Standard](https://agentskil
 | Skill | Description |
 |-------|-------------|
 | `memgraph-storage-reviewer` | Expert code reviewer for storage layer (MVCC, WAL, DDL, indices) |
+| `mage-build` | Build the MAGE Docker image using the CI build pipeline |
 
 ## Setup by Tool
 
