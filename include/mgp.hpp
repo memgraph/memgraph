@@ -1709,6 +1709,14 @@ class Record {
   void Insert(const char *field_name, const LocalDateTime &local_date_time);
   /// @brief Inserts a @ref Duration value under field `field_name`.
   void Insert(const char *field_name, const Duration &duration);
+  /// @brief Inserts a @ref ZonedDateTime value under field `field_name`.
+  void Insert(const char *field_name, const ZonedDateTime &zoned_date_time);
+  /// @brief Inserts a @ref Point2d value under field `field_name`.
+  void Insert(const char *field_name, const Point2d &point);
+  /// @brief Inserts a @ref Point3d value under field `field_name`.
+  void Insert(const char *field_name, const Point3d &point);
+  /// @brief Inserts an @ref Enum value under field `field_name`.
+  void Insert(const char *field_name, const Enum &enum_v);
   /// @brief Inserts a @ref Value value under field `field_name`, and then call appropriate insert.
   void Insert(const char *field_name, const Value &value);
 
@@ -1771,6 +1779,14 @@ class Result {
   inline void SetValue(const LocalDateTime &local_date_time);
   /// @brief Sets a @ref Duration value to be returned.
   inline void SetValue(const Duration &duration);
+  /// @brief Sets a @ref ZonedDateTime value to be returned.
+  inline void SetValue(const ZonedDateTime &zoned_date_time);
+  /// @brief Sets a @ref Point2d value to be returned.
+  inline void SetValue(const Point2d &point);
+  /// @brief Sets a @ref Point3d value to be returned.
+  inline void SetValue(const Point3d &point);
+  /// @brief Sets an @ref Enum value to be returned.
+  inline void SetValue(const Enum &enum_v);
 
   void SetErrorMessage(std::string_view error_msg) const;
 
@@ -4143,7 +4159,11 @@ inline Enum &Enum::operator=(Enum &&other) noexcept {
 }
 
 inline Enum::Enum(std::string_view type_name, std::string_view value_name) {
-  ptr_ = mgp::MemHandlerCallback(enum_make, type_name.data(), value_name.data());
+  // enum_make takes const char* (null-terminated). Materialise into std::string
+  // to guarantee null-termination when the caller passes a non-terminated view.
+  const std::string tn{type_name};
+  const std::string vn{value_name};
+  ptr_ = mgp::MemHandlerCallback(enum_make, tn.c_str(), vn.c_str());
 }
 
 inline Enum::~Enum() {
@@ -4893,6 +4913,38 @@ inline void Record::Insert(const char *field_name, const Duration &duration) {
   mgp::value_destroy(mgp_val);
 }
 
+inline void Record::Insert(const char *field_name, const ZonedDateTime &zoned_date_time) {
+  auto *mgp_val = mgp::value_make_zoned_date_time(mgp::MemHandlerCallback(zoned_date_time_copy, zoned_date_time.ptr_));
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
+  mgp::value_destroy(mgp_val);
+}
+
+inline void Record::Insert(const char *field_name, const Point2d &point) {
+  auto *mgp_val = mgp::value_make_point_2d(mgp::MemHandlerCallback(point_2d_copy, point.ptr_));
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
+  mgp::value_destroy(mgp_val);
+}
+
+inline void Record::Insert(const char *field_name, const Point3d &point) {
+  auto *mgp_val = mgp::value_make_point_3d(mgp::MemHandlerCallback(point_3d_copy, point.ptr_));
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
+  mgp::value_destroy(mgp_val);
+}
+
+inline void Record::Insert(const char *field_name, const Enum &enum_v) {
+  auto *mgp_val = mgp::value_make_enum(mgp::MemHandlerCallback(enum_copy, enum_v.ptr_));
+  {
+    mgp::result_record_insert(record_, field_name, mgp_val);
+  }
+  mgp::value_destroy(mgp_val);
+}
+
 inline void Record::Insert(const char *field_name, const Value &value) {
   switch (value.Type()) {
     case Type::Bool:
@@ -4921,6 +4973,14 @@ inline void Record::Insert(const char *field_name, const Value &value) {
       return Insert(field_name, value.ValueLocalDateTime());
     case Type::Duration:
       return Insert(field_name, value.ValueDuration());
+    case Type::ZonedDateTime:
+      return Insert(field_name, value.ValueZonedDateTime());
+    case Type::Point2d:
+      return Insert(field_name, value.ValuePoint2d());
+    case Type::Point3d:
+      return Insert(field_name, value.ValuePoint3d());
+    case Type::Enum:
+      return Insert(field_name, value.ValueEnum());
 
     default:
       throw ValueException("No Record.Insert for this datatype");
@@ -5079,6 +5139,38 @@ inline void Result::SetValue(const LocalDateTime &local_date_time) {
 
 inline void Result::SetValue(const Duration &duration) {
   auto *mgp_val = mgp::value_make_duration(mgp::MemHandlerCallback(duration_copy, duration.ptr_));
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
+  mgp::value_destroy(mgp_val);
+}
+
+inline void Result::SetValue(const ZonedDateTime &zoned_date_time) {
+  auto *mgp_val = mgp::value_make_zoned_date_time(mgp::MemHandlerCallback(zoned_date_time_copy, zoned_date_time.ptr_));
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
+  mgp::value_destroy(mgp_val);
+}
+
+inline void Result::SetValue(const Point2d &point) {
+  auto *mgp_val = mgp::value_make_point_2d(mgp::MemHandlerCallback(point_2d_copy, point.ptr_));
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
+  mgp::value_destroy(mgp_val);
+}
+
+inline void Result::SetValue(const Point3d &point) {
+  auto *mgp_val = mgp::value_make_point_3d(mgp::MemHandlerCallback(point_3d_copy, point.ptr_));
+  {
+    mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  }
+  mgp::value_destroy(mgp_val);
+}
+
+inline void Result::SetValue(const Enum &enum_v) {
+  auto *mgp_val = mgp::value_make_enum(mgp::MemHandlerCallback(enum_copy, enum_v.ptr_));
   {
     mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
   }

@@ -310,6 +310,14 @@ MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&...args) {
   return MgpUniquePtr<U>(NewRawMgpObject<U>(memory->impl, std::forward<TArgs>(args)...), &DeleteRawMgpObject<U>);
 }
 
+/// Split "TypeName::ValueName" into (type_name, value_name) pair.
+std::pair<std::string_view, std::string_view> SplitEnumName(std::string_view full_name) {
+  auto sep_pos = full_name.find("::");
+  auto type_name = full_name.substr(0, sep_pos);
+  auto value_name = sep_pos != std::string_view::npos ? full_name.substr(sep_pos + 2) : std::string_view{};
+  return {type_name, value_name};
+}
+
 mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
   switch (type) {
     case memgraph::query::TypedValue::Type::Null:
@@ -716,25 +724,17 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, al
       break;
     }
     case MGP_VALUE_TYPE_ENUM: {
-      // Enum from TypedValue requires graph context to resolve names
-      if (graph) {
-        auto *db_accessor = graph->getImpl();
-        auto name_result = db_accessor->EnumToName(tv.ValueEnum());
-        if (name_result.has_value()) {
-          // Format is "TypeName::ValueName", split on "::"
-          const auto &full_name = name_result.value();
-          auto sep_pos = full_name.find("::");
-          std::string_view type_name = std::string_view(full_name).substr(0, sep_pos);
-          std::string_view value_name =
-              sep_pos != std::string::npos ? std::string_view(full_name).substr(sep_pos + 2) : "";
-          memgraph::utils::Allocator<mgp_enum> allocator(alloc);
-          enum_v = allocator.new_object<mgp_enum>(type_name, value_name);
-        } else {
-          throw std::logic_error{"Failed to resolve enum value to name."};
-        }
-      } else {
+      if (!graph) {
         throw std::logic_error{"Cannot convert Enum TypedValue without graph context."};
       }
+      auto *db_accessor = graph->getImpl();
+      auto name_result = db_accessor->EnumToName(tv.ValueEnum());
+      if (!name_result.has_value()) {
+        throw std::logic_error{"Failed to resolve enum value to name."};
+      }
+      auto [type_name, value_name] = SplitEnumName(name_result.value());
+      memgraph::utils::Allocator<mgp_enum> allocator(alloc);
+      enum_v = allocator.new_object<mgp_enum>(type_name, value_name);
       break;
     }
   }
@@ -870,22 +870,16 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       break;
     }
     case memgraph::storage::PropertyValue::Type::Enum: {
-      if (db_accessor) {
-        auto name_result = db_accessor->EnumToName(pv.ValueEnum());
-        if (name_result.has_value()) {
-          const auto &full_name = name_result.value();
-          auto sep_pos = full_name.find("::");
-          std::string_view type_name = std::string_view(full_name).substr(0, sep_pos);
-          std::string_view value_name =
-              sep_pos != std::string::npos ? std::string_view(full_name).substr(sep_pos + 2) : "";
-          type = MGP_VALUE_TYPE_ENUM;
-          enum_v = NewRawMgpObject<mgp_enum>(alloc.resource(), type_name, value_name);
-        } else {
-          throw std::logic_error{"Failed to resolve enum value to name."};
-        }
-      } else {
+      if (!db_accessor) {
         throw std::logic_error{"mgp_value for PropertyValue::Type::Enum requires DbAccessor for name resolution."};
       }
+      auto name_result = db_accessor->EnumToName(pv.ValueEnum());
+      if (!name_result.has_value()) {
+        throw std::logic_error{"Failed to resolve enum value to name."};
+      }
+      auto [type_name, value_name] = SplitEnumName(name_result.value());
+      type = MGP_VALUE_TYPE_ENUM;
+      enum_v = NewRawMgpObject<mgp_enum>(alloc.resource(), type_name, value_name);
       break;
     }
     case memgraph::storage::PropertyValue::Type::Point2d: {
@@ -1335,6 +1329,7 @@ DEFINE_MGP_VALUE_GET(zoned_date_time)
 DEFINE_MGP_VALUE_GET(point_2d)
 DEFINE_MGP_VALUE_GET(point_3d)
 
+// Hand-written instead of DEFINE_MGP_VALUE_GET(enum) — `enum` is a C++ keyword.
 mgp_error mgp_value_get_enum(mgp_value *val, mgp_enum **result) {
   *result = val->enum_v;
   return mgp_error::MGP_ERROR_NO_ERROR;
@@ -2490,11 +2485,13 @@ memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_value
     case MGP_VALUE_TYPE_PATH:
       throw ValueConversionException{"A path is not a valid property value!"};
     case MGP_VALUE_TYPE_POINT_2D:
-      throw ValueConversionException{"Point2d to ExternalPropertyValue conversion not yet supported!"};
+      return memgraph::storage::ExternalPropertyValue{value.point_2d_v->point};
     case MGP_VALUE_TYPE_POINT_3D:
-      throw ValueConversionException{"Point3d to ExternalPropertyValue conversion not yet supported!"};
+      return memgraph::storage::ExternalPropertyValue{value.point_3d_v->point};
     case MGP_VALUE_TYPE_ENUM:
-      throw ValueConversionException{"Enum to ExternalPropertyValue conversion not yet supported!"};
+      // mgp_enum stores string names, but ExternalPropertyValue::Enum expects an EnumValueId.
+      // Without EnumStore context we can't resolve the name back to an ID.
+      throw ValueConversionException{"Enum to ExternalPropertyValue conversion requires EnumStore context!"};
   }
 }
 }  // namespace
