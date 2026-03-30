@@ -483,7 +483,9 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
     case MGP_VALUE_TYPE_POINT_3D:
       return memgraph::query::TypedValue(val.point_3d_v->point, alloc);
     case MGP_VALUE_TYPE_ENUM:
-      throw std::logic_error{"Cannot convert Enum mgp_value to TypedValue without EnumStore context"};
+      throw memgraph::utils::BasicException(
+          "Enum values cannot be returned from procedures. "
+          "Returning enum results requires EnumStore context which is not available in this path.");
   }
 }
 

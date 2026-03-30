@@ -3368,6 +3368,9 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       PyErr_Clear();
       throw std::invalid_argument("'mgp.Point2d' has invalid x, y, or srid value");
     }
+    if (srid_long < 0 || srid_long > std::numeric_limits<uint16_t>::max()) {
+      throw std::invalid_argument("'mgp.Point2d' srid must be between 0 and 65535");
+    }
     auto srid = static_cast<uint16_t>(srid_long);
     auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{srid});
     if (!crs_opt) {
@@ -3397,6 +3400,9 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     if (PyErr_Occurred()) {
       PyErr_Clear();
       throw std::invalid_argument("'mgp.Point3d' has invalid x, y, z, or srid value");
+    }
+    if (srid_long < 0 || srid_long > std::numeric_limits<uint16_t>::max()) {
+      throw std::invalid_argument("'mgp.Point3d' srid must be between 0 and 65535");
     }
     auto srid = static_cast<uint16_t>(srid_long);
     auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{srid});
