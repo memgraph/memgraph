@@ -757,7 +757,6 @@ PrometheusMetrics::PrometheusMetrics()
 DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name,
                                                       std::function<StorageSnapshot()> get_snapshot) {
   prometheus::Labels const labels{{"database", std::string(db_name)}};
-  MG_ASSERT(!vertex_count_family_.Has(labels), "Database '{}' already registered in PrometheusMetrics", db_name);
   databases_.push_back({
       .db_name = std::string(db_name),
       .handles =

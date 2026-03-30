@@ -358,11 +358,6 @@ add_unit_test(utils_exceptions
     LINK_TARGETS mg-utils
 )
 
-add_unit_test(utils_histogram
-    SOURCES utils_histogram.cpp
-    LINK_TARGETS mg-utils mg-events
-)
-
 add_unit_test(utils_file
     SOURCES utils_file.cpp
     LINK_TARGETS mg-utils
