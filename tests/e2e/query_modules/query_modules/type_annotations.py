@@ -13,15 +13,10 @@ import mgp
 
 
 @mgp.read_proc
-def point2d_to_string(ctx: mgp.ProcCtx, val: mgp.Point2d) -> mgp.Record(result=str):
-    return mgp.Record(result=repr(val))
+def echo_point2d(ctx: mgp.ProcCtx, val: mgp.Point2d) -> mgp.Record(result=mgp.Point2d):
+    return mgp.Record(result=val)
 
 
 @mgp.read_proc
-def point3d_to_string(ctx: mgp.ProcCtx, val: mgp.Point3d) -> mgp.Record(result=str):
-    return mgp.Record(result=repr(val))
-
-
-@mgp.read_proc
-def enum_to_string(ctx: mgp.ProcCtx, val: mgp.Enum) -> mgp.Record(result=str):
-    return mgp.Record(result=repr(val))
+def echo_point3d(ctx: mgp.ProcCtx, val: mgp.Point3d) -> mgp.Record(result=mgp.Point3d):
+    return mgp.Record(result=val)

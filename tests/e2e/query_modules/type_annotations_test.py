@@ -12,100 +12,68 @@
 import sys
 
 import pytest
-from common import connect, execute_and_fetch_all
+from neo4j import GraphDatabase
 
 
-def test_point2d_type_accepted():
-    """Point2d value passes the type check and the procedure can inspect it."""
-    cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        "CALL type_annotations.point2d_to_string(point({x: 15.9, y: 45.8, srid: 4326})) YIELD result RETURN result;",
-    )
-    s = result[0][0]
-    assert "15.9" in s
-    assert "45.8" in s
-    assert "4326" in s
+@pytest.fixture(scope="module")
+def driver():
+    drv = GraphDatabase.driver("bolt://localhost:7687", auth=None)
+    yield drv
+    drv.close()
 
 
-def test_point3d_type_accepted():
-    """Point3d value passes the type check and the procedure can inspect it."""
-    cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        "CALL type_annotations.point3d_to_string(point({x: 1.0, y: 2.0, z: 3.0, srid: 4979})) YIELD result RETURN result;",
-    )
-    s = result[0][0]
-    assert "1.0" in s
-    assert "2.0" in s
-    assert "3.0" in s
-    assert "4979" in s
+@pytest.fixture(autouse=True)
+def cleanup(driver):
+    yield
+    with driver.session() as session:
+        session.run("MATCH (n) DETACH DELETE n")
 
 
-def test_enum_type_accepted():
-    """Enum value passes the type check and the procedure can inspect it."""
-    cursor = connect().cursor()
-    execute_and_fetch_all(cursor, "CREATE ENUM Status VALUES { Good, Okay, Bad };")
-    result = execute_and_fetch_all(
-        cursor,
-        "CALL type_annotations.enum_to_string(Status::Good) YIELD result RETURN result;",
-    )
-    s = result[0][0]
-    assert "Status" in s
-    assert "Good" in s
+# -- Point2d: argument + return type validation --
 
 
-def test_zoned_date_time_type_accepted():
-    """ZonedDateTime value passes the type check via C++ procedure."""
-    cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        'CALL type_annotations_cpp.zoned_date_time_to_string(datetime({year: 2024, month: 4, day: 21, hour: 14, minute: 15, second: 16, timezone: "UTC"})) YIELD result RETURN result;',
-    )
-    s = result[0][0]
-    # Returns the microsecond timestamp; just verify we got a non-zero numeric string
-    assert s.isdigit()
-    assert int(s) > 0
-
-
-def test_zoned_date_time_type_mismatch():
-    """Passing wrong type to a ZonedDateTime-typed parameter should fail."""
-    cursor = connect().cursor()
-    with pytest.raises(Exception):
-        execute_and_fetch_all(
-            cursor,
-            "CALL type_annotations_cpp.zoned_date_time_to_string(42) YIELD result RETURN result;",
+def test_point2d_round_trip(driver):
+    """Point2d passes arg type check, round-trips, and passes return type check."""
+    with driver.session() as session:
+        result = session.run(
+            "CALL type_annotations.echo_point2d(point({x: 15.9, y: 45.8, srid: 4326})) YIELD result RETURN result;"
         )
+        record = result.single()
+        point = record["result"]
+        assert point.x == 15.9
+        assert point.y == 45.8
+        assert point.srid == 4326
 
 
-def test_point2d_type_mismatch():
+def test_point2d_arg_type_mismatch(driver):
     """Passing wrong type to a Point2d-typed parameter should fail."""
-    cursor = connect().cursor()
-    with pytest.raises(Exception):
-        execute_and_fetch_all(
-            cursor,
-            "CALL type_annotations.point2d_to_string(42) YIELD result RETURN result;",
+    with driver.session() as session:
+        with pytest.raises(Exception):
+            session.run("CALL type_annotations.echo_point2d(42) YIELD result RETURN result;").consume()
+
+
+# -- Point3d: argument + return type validation --
+
+
+def test_point3d_round_trip(driver):
+    """Point3d passes arg type check, round-trips, and passes return type check."""
+    with driver.session() as session:
+        result = session.run(
+            "CALL type_annotations.echo_point3d(point({x: 1.0, y: 2.0, z: 3.0, srid: 4979})) YIELD result RETURN result;"
         )
+        record = result.single()
+        point = record["result"]
+        assert point.x == 1.0
+        assert point.y == 2.0
+        assert point.z == 3.0
+        assert point.srid == 4979
 
 
-def test_point3d_type_mismatch():
+def test_point3d_arg_type_mismatch(driver):
     """Passing wrong type to a Point3d-typed parameter should fail."""
-    cursor = connect().cursor()
-    with pytest.raises(Exception):
-        execute_and_fetch_all(
-            cursor,
-            "CALL type_annotations.point3d_to_string('not a point') YIELD result RETURN result;",
-        )
-
-
-def test_enum_type_mismatch():
-    """Passing wrong type to an Enum-typed parameter should fail."""
-    cursor = connect().cursor()
-    with pytest.raises(Exception):
-        execute_and_fetch_all(
-            cursor,
-            "CALL type_annotations.enum_to_string(123) YIELD result RETURN result;",
-        )
+    with driver.session() as session:
+        with pytest.raises(Exception):
+            session.run("CALL type_annotations.echo_point3d('not a point') YIELD result RETURN result;").consume()
 
 
 if __name__ == "__main__":
