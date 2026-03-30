@@ -266,6 +266,8 @@ inline mgp_type *type_local_date_time() { return MgInvoke<mgp_type *>(mgp_type_l
 
 inline mgp_type *type_duration() { return MgInvoke<mgp_type *>(mgp_type_duration); }
 
+inline mgp_type *type_zoned_date_time() { return MgInvoke<mgp_type *>(mgp_type_zoned_date_time); }
+
 inline mgp_type *type_point_2d() { return MgInvoke<mgp_type *>(mgp_type_point_2d); }
 
 inline mgp_type *type_point_3d() { return MgInvoke<mgp_type *>(mgp_type_point_3d); }

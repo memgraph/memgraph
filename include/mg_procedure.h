@@ -1756,6 +1756,10 @@ enum mgp_error mgp_type_local_date_time(struct mgp_type **result);
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_duration(struct mgp_type **result);
 
+/// Get the type representing a zoned date-time.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
+enum mgp_error mgp_type_zoned_date_time(struct mgp_type **result);
+
 /// Get the type representing a 2D point.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_point_2d(struct mgp_type **result);

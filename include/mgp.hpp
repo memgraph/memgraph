@@ -2286,6 +2286,14 @@ inline mgp_type *ToMGPType(Type type) {
       return mgp::type_local_date_time();
     case Type::Duration:
       return mgp::type_duration();
+    case Type::ZonedDateTime:
+      return mgp::type_zoned_date_time();
+    case Type::Point2d:
+      return mgp::type_point_2d();
+    case Type::Point3d:
+      return mgp::type_point_3d();
+    case Type::Enum:
+      return mgp::type_enum();
     default:
       break;
   }

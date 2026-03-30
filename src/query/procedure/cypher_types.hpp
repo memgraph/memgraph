@@ -194,6 +194,15 @@ class DurationType : public CypherType {
   bool SatisfiesType(const query::TypedValue &value) const override { return value.IsDuration(); }
 };
 
+class ZonedDateTimeType : public CypherType {
+ public:
+  std::string_view GetPresentableName() const override { return "ZONED_DATE_TIME"; }
+
+  bool SatisfiesType(const mgp_value &value) const override;
+
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsZonedDateTime(); }
+};
+
 class Point2dType : public CypherType {
  public:
   std::string_view GetPresentableName() const override { return "POINT_2D"; }

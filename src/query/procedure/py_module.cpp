@@ -1647,6 +1647,7 @@ DEFINE_PY_MGP_MODULE_TYPE(Date, date);
 DEFINE_PY_MGP_MODULE_TYPE(LocalTime, local_time);
 DEFINE_PY_MGP_MODULE_TYPE(LocalDateTime, local_date_time);
 DEFINE_PY_MGP_MODULE_TYPE(Duration, duration);
+DEFINE_PY_MGP_MODULE_TYPE(ZonedDateTime, zoned_date_time);
 DEFINE_PY_MGP_MODULE_TYPE(Point2d, point_2d);
 DEFINE_PY_MGP_MODULE_TYPE(Point3d, point_3d);
 DEFINE_PY_MGP_MODULE_TYPE(Enum, enum);
@@ -1678,6 +1679,7 @@ static PyMethodDef PyMgpModuleMethods[] = {
     {"type_local_time", PyMgpModuleTypeLocalTime, METH_NOARGS, "Get the type representing a LocalTime."},
     {"type_local_date_time", PyMgpModuleTypeLocalDateTime, METH_NOARGS, "Get the type representing a LocalDateTime."},
     {"type_duration", PyMgpModuleTypeDuration, METH_NOARGS, "Get the type representing a Duration."},
+    {"type_zoned_date_time", PyMgpModuleTypeZonedDateTime, METH_NOARGS, "Get the type representing a ZonedDateTime."},
     {"type_point_2d", PyMgpModuleTypePoint2d, METH_NOARGS, "Get the type representing a Point2d."},
     {"type_point_3d", PyMgpModuleTypePoint3d, METH_NOARGS, "Get the type representing a Point3d."},
     {"type_enum", PyMgpModuleTypeEnum, METH_NOARGS, "Get the type representing an Enum."},

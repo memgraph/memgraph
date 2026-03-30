@@ -4745,6 +4745,7 @@ DEFINE_MGP_TYPE_GETTER(Date, date);
 DEFINE_MGP_TYPE_GETTER(LocalTime, local_time);
 DEFINE_MGP_TYPE_GETTER(LocalDateTime, local_date_time);
 DEFINE_MGP_TYPE_GETTER(Duration, duration);
+DEFINE_MGP_TYPE_GETTER(ZonedDateTime, zoned_date_time);
 DEFINE_MGP_TYPE_GETTER(Point2d, point_2d);
 DEFINE_MGP_TYPE_GETTER(Point3d, point_3d);
 DEFINE_MGP_TYPE_GETTER(Enum, enum);
