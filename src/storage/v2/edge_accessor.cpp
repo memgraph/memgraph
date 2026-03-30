@@ -39,9 +39,8 @@ namespace memgraph::storage {
 
 namespace {
 
-std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storage, Edge * /*edge*/,
-                                                                 EdgeTypeId edge_type, PropertyId property,
-                                                                 const PropertyValue &value) {
+std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storage, EdgeTypeId edge_type,
+                                                                 PropertyId property, const PropertyValue &value) {
   if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
   if (storage->indices_.vector_edge_index_.Empty()) return std::nullopt;
   auto index_id = storage->indices_.vector_edge_index_.GetIndexIdForEdgeTypeProperty(edge_type, property);
@@ -216,8 +215,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     DMG_ASSERT(from_vertex_, "Missing from vertex!");
     CreateAndLinkDeltaForEdgeSetProperty(
         transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, *current_value);
-    auto maybe_vector_index_value =
-        TryConvertToVectorEdgeIndexProperty(storage_, edge_.ptr, edge_type_, property, value);
+    auto maybe_vector_index_value = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property, value);
     const auto &value_to_store = maybe_vector_index_value.has_value() ? *maybe_vector_index_value : value;
     edge_.ptr->properties.SetProperty(property, value_to_store);
     storage_->indices_.UpdateOnSetProperty(
@@ -247,8 +245,7 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
 
   if (!storage_->indices_.vector_edge_index_.Empty()) {
     for (auto &[property_id, property_value] : properties) {
-      if (auto converted =
-              TryConvertToVectorEdgeIndexProperty(storage_, edge_.ptr, edge_type_, property_id, property_value)) {
+      if (auto converted = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property_id, property_value)) {
         property_value = std::move(*converted);
       }
     }
@@ -302,8 +299,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 
   if (!storage_->indices_.vector_edge_index_.Empty()) {
     for (auto &[property_id, property_value] : properties) {
-      if (auto converted =
-              TryConvertToVectorEdgeIndexProperty(storage_, edge_.ptr, edge_type_, property_id, property_value)) {
+      if (auto converted = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property_id, property_value)) {
         property_value = std::move(*converted);
       }
     }
