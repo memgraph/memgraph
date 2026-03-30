@@ -189,6 +189,8 @@ class Database {
 
   metrics::DatabaseMetricHandles *metric_handles() { return metric_handles_; }
 
+  void DetachMetrics();
+
  private:
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage

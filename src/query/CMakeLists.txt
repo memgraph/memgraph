@@ -163,6 +163,7 @@ target_link_libraries(mg-query
     mg-utils
     mg-aws
     mg-query-cppm
+    mg-events
     mg-kvstore
     mg-memory-utils
     mg::csv

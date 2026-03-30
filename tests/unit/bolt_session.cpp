@@ -44,6 +44,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   TestSession(TestSessionContext *data, TestInputStream *input_stream, TestOutputStream *output_stream)
       : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
 
+  memgraph::metrics::DatabaseMetricHandles *GetMetricHandles() { return nullptr; }
+
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();

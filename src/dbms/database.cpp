@@ -86,8 +86,14 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 }
 
 Database::~Database() {
+  storage_.reset();
+  DetachMetrics();
+}
+
+void Database::DetachMetrics() {
   if (metric_handles_) {
     metrics::Metrics().RemoveDatabase(metric_handles_);
+    metric_handles_ = nullptr;
   }
 }
 

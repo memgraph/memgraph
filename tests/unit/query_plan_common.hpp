@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -71,7 +71,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
     symbols.emplace_back(context->symbol_table.at(*named_expression));
 
   // stream out results
-  auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource());
+  auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
   std::vector<std::vector<TypedValue>> results;
   while (cursor->Pull(frame, *context)) {
     std::vector<TypedValue> values;
@@ -84,7 +84,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
 
 int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
-  auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource());
+  auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
   int count = 0;
   while (cursor->Pull(frame, *context)) {
     count++;

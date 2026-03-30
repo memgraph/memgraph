@@ -12,12 +12,55 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
 using testing::UnorderedElementsAre;
 
 namespace ms = memgraph::storage;
+
+class StorageV2GcMetricsTest : public testing::Test {
+ protected:
+  void SetUp() override {
+    db_name_ = testing::UnitTest::GetInstance()->current_test_info()->name();
+    InitStorage(std::chrono::seconds(3600));
+  }
+
+  void TearDown() override {
+    storage.reset();
+    memgraph::metrics::Metrics().RemoveDatabase(handles_);
+    handles_ = nullptr;
+  }
+
+  void InitStorage(std::chrono::milliseconds interval) {
+    if (handles_) {
+      storage.reset();
+      memgraph::metrics::Metrics().RemoveDatabase(handles_);
+      handles_ = nullptr;
+    }
+    memgraph::storage::Config config;
+    config.salient.name = db_name_;
+    config.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = interval};
+    storage = std::make_unique<memgraph::storage::InMemoryStorage>(config);
+    handles_ = memgraph::metrics::Metrics().AddDatabase(db_name_, [this] {
+      auto const info = storage->GetBaseInfo();
+      return memgraph::metrics::StorageSnapshot{
+          .vertex_count = info.vertex_count,
+          .edge_count = info.edge_count,
+          .disk_usage = info.disk_usage,
+          .memory_res = info.memory_res,
+      };
+    });
+    storage->SetMetricHandles(handles_);
+  }
+
+  std::unique_ptr<memgraph::storage::Storage> storage;
+  memgraph::metrics::DatabaseMetricHandles *handles_{nullptr};
+
+ private:
+  std::string db_name_;
+};
 
 // TODO: The point of these is not to test GC fully, these are just simple
 // sanity checks. These will be superseded by a more sophisticated stress test
@@ -208,13 +251,11 @@ TEST(StorageV2Gc, Indices) {
   }
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollected) {
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollected) {
   // Need a periodic garbage collector so that certain fast path optimisations
   // aren't taken when cleaning deltas, but with an inter-collection pause large
   // enough that we can step through when debugging, etc, without anything being
   // unexpectedly reclaimed from underneath us.
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
@@ -247,7 +288,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollect
     // - 2 x CREATE_OBJECT, to create the edges
     // - 2 x ADD_IN_EDGE
     // - 2 x ADD_OUT_EDGE
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_->unreleased_delta_objects->Value());
 
     // Commit in order `acc1` and `acc2`. This means that even though `acc2` does
     // have non-sequential deltas, everything downstream from them is committed
@@ -257,7 +298,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollect
     ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
 
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_->unreleased_delta_objects->Value());
   }
 
   {
@@ -265,13 +306,10 @@ TEST(StorageV2Gc, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollect
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_->unreleased_delta_objects->Value());
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithAbortedContributorsAreGarbagedCollected) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithAbortedContributorsAreGarbagedCollected) {
   memgraph::storage::Gid v1_gid, v2_gid;
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
@@ -299,7 +337,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithAbortedContributorsAreGarbagedCollected
     auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
     ASSERT_TRUE(edge2_result.has_value());
 
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_->unreleased_delta_objects->Value());
 
     ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
@@ -307,7 +345,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithAbortedContributorsAreGarbagedCollected
     acc1.reset();
     acc0.reset();
 
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_->unreleased_delta_objects->Value());
   }
 
   // First GC: moves `waiting_gc_deltas_` to `aborted_transactions_` or
@@ -324,13 +362,10 @@ TEST(StorageV2Gc, NonSequentialDeltasWithAbortedContributorsAreGarbagedCollected
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_->unreleased_delta_objects->Value());
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithMultipleAbortsAreGarbageCollected) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithMultipleAbortsAreGarbageCollected) {
   memgraph::storage::Gid v1_gid, v2_gid;
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
@@ -358,7 +393,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithMultipleAbortsAreGarbageCollected) {
     auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
     ASSERT_TRUE(edge2_result.has_value());
 
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_->unreleased_delta_objects->Value());
 
     // Both transactions abort - all deltas should be cleaned up
     acc2->Abort();
@@ -368,7 +403,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithMultipleAbortsAreGarbageCollected) {
     acc1.reset();
     acc0.reset();
 
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_->unreleased_delta_objects->Value());
   }
 
   // First GC: moves from waiting_gc_deltas_ to aborted_transactions_
@@ -389,13 +424,10 @@ TEST(StorageV2Gc, NonSequentialDeltasWithMultipleAbortsAreGarbageCollected) {
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_->unreleased_delta_objects->Value());
 }
 
-TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
+TEST_F(StorageV2GcMetricsTest, DownstreamDeltaChainsAreGarbageCollected) {
   memgraph::storage::Gid v1_gid, v2_gid;
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
@@ -428,7 +460,7 @@ TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
     ASSERT_TRUE(acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3")).has_value());
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_->unreleased_delta_objects->Value());
 
     // Commit TX1, abort TX2 and TX3
     // TX3's deltas are downstream from TX2, which are downstream from TX1
@@ -440,7 +472,7 @@ TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
     acc2.reset();
     acc0.reset();
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_->unreleased_delta_objects->Value());
   }
 
   // Multiple GC cycles to process the downstream chain
@@ -449,13 +481,10 @@ TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_->unreleased_delta_objects->Value());
 }
 
-TEST(StorageV2Gc, MixedCommitAbortCommitNonSequentialDeltasAreGarbageCollected) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
+TEST_F(StorageV2GcMetricsTest, MixedCommitAbortCommitNonSequentialDeltasAreGarbageCollected) {
   memgraph::storage::Gid v1_gid, v2_gid;
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
@@ -488,7 +517,7 @@ TEST(StorageV2Gc, MixedCommitAbortCommitNonSequentialDeltasAreGarbageCollected) 
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
     ASSERT_TRUE(acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3")).has_value());
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_->unreleased_delta_objects->Value());
 
     // TX1 commits, TX2 aborts, TX3 commits
     ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -499,7 +528,7 @@ TEST(StorageV2Gc, MixedCommitAbortCommitNonSequentialDeltasAreGarbageCollected) 
     acc3.reset();
     acc0.reset();
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_->unreleased_delta_objects->Value());
   }
 
   // Multiple GC cycles to handle mixed commit/abort
@@ -508,13 +537,10 @@ TEST(StorageV2Gc, MixedCommitAbortCommitNonSequentialDeltasAreGarbageCollected) 
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_->unreleased_delta_objects->Value());
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithTwoContributorsAreGarbagedCollected) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithTwoContributorsAreGarbagedCollected) {
   memgraph::storage::Gid v1_gid, v2_gid;
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
@@ -549,7 +575,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithTwoContributorsAreGarbagedCollected) {
     auto edge3_result = acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3"));
     ASSERT_TRUE(edge3_result.has_value());
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_->unreleased_delta_objects->Value());
 
     ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc3.reset();
@@ -558,7 +584,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithTwoContributorsAreGarbagedCollected) {
     ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_->unreleased_delta_objects->Value());
   }
 
   {
@@ -566,13 +592,12 @@ TEST(StorageV2Gc, NonSequentialDeltasWithTwoContributorsAreGarbagedCollected) {
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_->unreleased_delta_objects->Value());
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedCollected) {
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithUncommittedContributorsAreGarbagedCollected) {
   // Use periodic GC with short interval to automatically test intermediate states
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
+  InitStorage(std::chrono::milliseconds(100));
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
@@ -606,7 +631,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
     // - 4 x CREATE_OBJECT, to create the edges
     // - 4 x ADD_IN_EDGE
     // - 4 x ADD_OUT_EDGE
-    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(12, handles_->unreleased_delta_objects->Value());
 
     // When acc2 commits, its transaction has non-sequential deltas which are
     // uncommitted, meaning these deltas must sit in the waiting list until
@@ -619,7 +644,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
 
     // At this point acc2 committed but acc1 hasn't - deltas should stay in waiting list
     // Wait for GC to run but deltas should remain due to uncommitted acc1
-    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(12, handles_->unreleased_delta_objects->Value());
 
     ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc1.reset();
@@ -627,12 +652,11 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
 
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-  ASSERT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  ASSERT_EQ(0, handles_->unreleased_delta_objects->Value());
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedCollected_SwapCommitOrder) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithUncommittedContributorsAreGarbagedCollected_SwapCommitOrder) {
+  InitStorage(std::chrono::milliseconds(100));
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
@@ -666,7 +690,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
     // - 4 x CREATE_OBJECT, to create the edges
     // - 4 x ADD_IN_EDGE
     // - 4 x ADD_OUT_EDGE
-    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(12, handles_->unreleased_delta_objects->Value());
 
     // When acc1 commits first, its transaction has non-sequential deltas which are
     // uncommitted, meaning these deltas must sit in the waiting list until
@@ -679,7 +703,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
 
     // At this point acc1 committed but acc2 hasn't - deltas should stay in waiting list
     // Wait for GC to run but deltas should remain due to uncommitted acc2
-    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(12, handles_->unreleased_delta_objects->Value());
 
     ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
@@ -687,7 +711,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
 
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-  ASSERT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  ASSERT_EQ(0, handles_->unreleased_delta_objects->Value());
 }
 
 TEST(StorageV2Gc, ConcurrentEdgeOperationsAbortDeleteRepeat) {
