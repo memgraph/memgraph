@@ -20,3 +20,8 @@ def echo_point2d(ctx: mgp.ProcCtx, val: mgp.Point2d) -> mgp.Record(result=mgp.Po
 @mgp.read_proc
 def echo_point3d(ctx: mgp.ProcCtx, val: mgp.Point3d) -> mgp.Record(result=mgp.Point3d):
     return mgp.Record(result=val)
+
+
+@mgp.read_proc
+def echo_zoned_date_time(ctx: mgp.ProcCtx, val: mgp.ZonedDateTime) -> mgp.Record(result=mgp.ZonedDateTime):
+    return mgp.Record(result=val)

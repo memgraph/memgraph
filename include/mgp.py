@@ -1422,6 +1422,18 @@ LocalDateTime = datetime.datetime
 Duration = datetime.timedelta
 
 
+class ZonedDateTime:
+    """Type annotation marker for zoned date-time values.
+
+    At runtime, zoned date-time values are represented as ``datetime.datetime``
+    objects with ``tzinfo`` set.  This class exists solely so that procedure
+    signatures can distinguish ``ZonedDateTime`` from ``LocalDateTime``
+    (which is also ``datetime.datetime`` but without ``tzinfo``).
+    """
+
+    pass
+
+
 class Point2d:
     """Represents a 2D geographic point with x, y coordinates and SRID."""
 
@@ -1524,7 +1536,9 @@ class Enum:
         return f"Enum(type_name='{self._type_name}', value_name='{self._value_name}')"
 
 
-Any = typing.Union[bool, str, Number, Map, Path, list, Date, LocalTime, LocalDateTime, Duration, Point2d, Point3d, Enum]
+Any = typing.Union[
+    bool, str, Number, Map, Path, list, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Point2d, Point3d, Enum
+]
 
 List = typing.List
 
@@ -1565,6 +1579,7 @@ def _typing_to_cypher_type(type_):
         LocalTime: _mgp.type_local_time(),
         LocalDateTime: _mgp.type_local_date_time(),
         Duration: _mgp.type_duration(),
+        ZonedDateTime: _mgp.type_zoned_date_time(),
         Point2d: _mgp.type_point_2d(),
         Point3d: _mgp.type_point_3d(),
         Enum: _mgp.type_enum(),
@@ -1680,9 +1695,10 @@ def _is_typing_same(type1_, type2_):
         LocalTime: 15,
         LocalDateTime: 16,
         Duration: 17,
-        Point2d: 18,
-        Point3d: 19,
-        Enum: 20,
+        ZonedDateTime: 18,
+        Point2d: 19,
+        Point3d: 20,
+        Enum: 21,
     }
     try:
         return simple_types[type1_] == simple_types[type2_]

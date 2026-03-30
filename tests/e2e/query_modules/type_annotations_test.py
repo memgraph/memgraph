@@ -76,5 +76,29 @@ def test_point3d_arg_type_mismatch(driver):
             session.run("CALL type_annotations.echo_point3d('not a point') YIELD result RETURN result;").consume()
 
 
+# -- ZonedDateTime: argument + return type validation --
+
+
+def test_zoned_date_time_round_trip(driver):
+    """ZonedDateTime passes arg type check, round-trips, and passes return type check."""
+    with driver.session() as session:
+        result = session.run(
+            'CALL type_annotations.echo_zoned_date_time(datetime({year: 2024, month: 4, day: 21, hour: 14, minute: 15, second: 16, timezone: "UTC"})) YIELD result RETURN result;'
+        )
+        record = result.single()
+        dt = record["result"]
+        assert dt.year == 2024
+        assert dt.month == 4
+        assert dt.day == 21
+        assert dt.hour == 14
+
+
+def test_zoned_date_time_arg_type_mismatch(driver):
+    """Passing wrong type to a ZonedDateTime-typed parameter should fail."""
+    with driver.session() as session:
+        with pytest.raises(Exception):
+            session.run("CALL type_annotations.echo_zoned_date_time(42) YIELD result RETURN result;").consume()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
