@@ -24,6 +24,7 @@ namespace memgraph::storage {
 auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args)
     -> std::expected<void, io::network::ClientCommunicationError> {
   if (locked_clients->empty()) return {};
+  spdlog::trace("ShipDeltas starting for {} replicas", locked_clients->size());
 
   MG_ASSERT(commit_args.replication_allowed(),
             "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
