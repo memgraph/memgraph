@@ -898,13 +898,14 @@ void Refactor::RenameType(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
   }
 }
 
-static void MergeRels(mgp::Node &source_node, mgp::Node &target_node, mgp::Graph &graph) {
+namespace {
+void MergeRels(mgp::Node &source_node, mgp::Node &target_node, mgp::Graph &graph) {
   auto in_rels = source_node.InRelationships();
   for (const auto &rel : in_rels) {
     mgp::Relationship new_rel = graph.CreateRelationship(rel.From(), target_node, rel.Type());
     std::unordered_map<std::string, mgp::Value> props = rel.Properties();
-    for (auto iter = props.begin(); iter != props.end(); ++iter) {
-      new_rel.SetProperty(iter->first, iter->second);
+    for (const auto &[key, value] : props) {
+      new_rel.SetProperty(key, value);
     }
   }
 
@@ -912,11 +913,12 @@ static void MergeRels(mgp::Node &source_node, mgp::Node &target_node, mgp::Graph
   for (const auto &rel : out_rels) {
     mgp::Relationship new_rel = graph.CreateRelationship(target_node, rel.To(), rel.Type());
     std::unordered_map<std::string, mgp::Value> props = rel.Properties();
-    for (auto iter = props.begin(); iter != props.end(); ++iter) {
-      new_rel.SetProperty(iter->first, iter->second);
+    for (const auto &[key, value] : props) {
+      new_rel.SetProperty(key, value);
     }
   }
 }
+}  // namespace
 
 void Refactor::MergeNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
