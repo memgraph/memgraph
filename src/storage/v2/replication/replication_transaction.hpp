@@ -28,8 +28,7 @@ namespace memgraph::storage {
 struct CommitArgs;
 
 struct ShipDeltasError {
-  io::network::ClientCommunicationError error;
-  std::vector<std::string> timed_out_replicas;
+  std::vector<ReplicaFailure> failures;
 };
 
 using ReplicationStorageClientList =
@@ -84,7 +83,7 @@ class TransactionReplication {
 
   auto ShouldRunTwoPC() const -> bool { return run_two_phase_commit; }
 
-  auto CollectStartTxnErrors() const -> std::optional<StartTxnReplicationErrors>;
+  auto CollectStartTxnErrors() const -> std::vector<ReplicaFailure>;
 
  private:
   // TODO: (andi) I think you can simulate reset() by setting error instead of value

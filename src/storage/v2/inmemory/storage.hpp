@@ -443,7 +443,6 @@ class InMemoryStorage final : public Storage {
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `IndexDefinitionError`: the index already exists.
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
                                                                  CheckCancelFunction cancel_check) override;
@@ -451,7 +450,6 @@ class InMemoryStorage final : public Storage {
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
@@ -460,7 +458,6 @@ class InMemoryStorage final : public Storage {
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
@@ -469,7 +466,6 @@ class InMemoryStorage final : public Storage {
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type, PropertyId property,
@@ -478,7 +474,6 @@ class InMemoryStorage final : public Storage {
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
@@ -487,14 +482,12 @@ class InMemoryStorage final : public Storage {
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropIndex(
         LabelId label, std::vector<storage::PropertyPath> &&properties) override;
@@ -502,21 +495,18 @@ class InMemoryStorage final : public Storage {
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) override;
 
@@ -538,7 +528,6 @@ class InMemoryStorage final : public Storage {
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `ConstraintViolation`: there is already a vertex existing that would break this new constraint.
     /// * `ConstraintDefinitionError`: the constraint already exists.
     /// @throw std::bad_alloc
@@ -549,14 +538,12 @@ class InMemoryStorage final : public Storage {
     /// Drop an existing existence constraint.
     /// Returns void if the existence constraint has been dropped.
     /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `ConstraintDefinitionError`: the constraint did not exists.
     std::expected<void, StorageExistenceConstraintDroppingError> DropExistenceConstraint(LabelId label,
                                                                                          PropertyId property) override;
 
     /// Create an unique constraint.
     /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `ConstraintViolation`: there are already vertices violating the constraint.
     /// Returns `UniqueConstraints::CreationStatus` otherwise. Value can be:
     /// * `SUCCESS` if the constraint was successfully created,
@@ -569,7 +556,6 @@ class InMemoryStorage final : public Storage {
 
     /// Removes an existing unique constraint.
     /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// Returns `UniqueConstraints::DeletionStatus` otherwise. Value can be:
     /// * `SUCCESS` if constraint was successfully removed,
     /// * `NOT_FOUND` if the specified constraint was not found,

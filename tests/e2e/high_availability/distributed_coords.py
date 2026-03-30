@@ -2354,7 +2354,7 @@ def test_main_reselected_to_become_main(test_name):
     main_cursor = connect(host="localhost", port=7689).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE (n:Node {name: 'node'})")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    assert "Failed to replicate to SYNC replica" in str(e.value)
 
     # check it was written
     def check_data():

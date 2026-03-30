@@ -1058,68 +1058,59 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return {};
   }
 
-  auto res = commit_args.apply_if_main(
-      [&](DatabaseProtector const &protector) -> std::expected<void, StorageManipulationError> {
-        // From this point on, only main executes this
-        // If there are no STRICT_SYNC replicas for the current txn
-        if (!replicating_txn.ShouldRunTwoPC()) {
-          // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp);
+  auto res = commit_args.apply_if_main([&](DatabaseProtector const &protector)
+                                           -> std::expected<void, StorageManipulationError> {
+    // From this point on, only main executes this
+    // If there are no STRICT_SYNC replicas for the current txn
+    if (!replicating_txn.ShouldRunTwoPC()) {
+      // WAL file is already finalized
+      FinalizeCommitPhase(durability_commit_timestamp);
 
-          if (auto start_errors = replicating_txn.CollectStartTxnErrors()) {
-            start_errors->two_phase_commit_aborted = false;
-            return std::unexpected{StorageManipulationError{std::move(*start_errors)}};
-          }
+      auto start_failures = replicating_txn.CollectStartTxnErrors();
+      if (!start_failures.empty()) {
+        return std::unexpected{ReplicationError{.failures = std::move(start_failures), .transaction_committed = true}};
+      }
 
-          // Throw exception if we couldn't commit on one of SYNC replica
-          if (!repl_prepare_phase_status.has_value()) {
-            if (repl_prepare_phase_status.error().error == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
-              return std::unexpected{TimeoutReplicationError{
-                  .replica_names = std::move(repl_prepare_phase_status.error().timed_out_replicas),
-                  .transaction_aborted = false}};
-            }
-            return std::unexpected{SyncReplicationError{}};
-          }
-          return {};
-        }
+      if (!repl_prepare_phase_status.has_value()) {
+        return std::unexpected{
+            ReplicationError{.failures = repl_prepare_phase_status.error().failures, .transaction_committed = true}};
+      }
+      return {};
+    }
 
-        // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
-        // cluster.
-        // This is OK because if we have STRICT_SYNC and ASYNC replicas, we ran StartTxnReplication only for STRICT_SYNC
-        // replicas
-        if (auto start_errors = replicating_txn.CollectStartTxnErrors()) {
-          start_errors->two_phase_commit_aborted = true;
-          return std::unexpected{StorageManipulationError{std::move(*start_errors)}};
-        }
+    // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
+    // cluster.
+    // This is OK because if we have STRICT_SYNC and ASYNC replicas, we ran StartTxnReplication only for STRICT_SYNC
+    // replicas
+    auto start_failures = replicating_txn.CollectStartTxnErrors();
+    if (!start_failures.empty()) {
+      return std::unexpected{ReplicationError{.failures = std::move(start_failures), .transaction_committed = false}};
+    }
 
-        if (repl_prepare_phase_status.has_value()) {
-          // All replicas voted yes, hence they want to commit the current transaction
-          FinalizeCommitPhase(durability_commit_timestamp);
-        }
-        // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
+    if (repl_prepare_phase_status.has_value()) {
+      // All replicas voted yes, hence they want to commit the current transaction
+      FinalizeCommitPhase(durability_commit_timestamp);
+    }
+    // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
 
-        if (mem_storage->wal_file_) {
-          mem_storage->FinalizeWalFile();
-        }
-        // Send to all replicas they can finalize a transaction
-        replicating_txn.FinalizeTransaction(
-            repl_prepare_phase_status.has_value(), mem_storage->uuid(), protector, durability_commit_timestamp);
+    if (mem_storage->wal_file_) {
+      mem_storage->FinalizeWalFile();
+    }
+    // Send to all replicas they can finalize a transaction
+    replicating_txn.FinalizeTransaction(
+        repl_prepare_phase_status.has_value(), mem_storage->uuid(), protector, durability_commit_timestamp);
 
-        if (!repl_prepare_phase_status.has_value()) {
-          // Release engine lock because we don't have to hold it anymore for abort
-          engine_guard.unlock();
-          AbortAndResetCommitTs();
+    if (!repl_prepare_phase_status.has_value()) {
+      // Release engine lock because we don't have to hold it anymore for abort
+      engine_guard.unlock();
+      AbortAndResetCommitTs();
 
-          if (repl_prepare_phase_status.error().error == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
-            return std::unexpected{TimeoutReplicationError{
-                .replica_names = std::move(repl_prepare_phase_status.error().timed_out_replicas),
-                .transaction_aborted = true}};
-          }
-          return std::unexpected{StrictSyncReplicationError{}};
-        }
+      return std::unexpected{
+          ReplicationError{.failures = repl_prepare_phase_status.error().failures, .transaction_committed = false}};
+    }
 
-        return {};
-      });
+    return {};
+  });
   DMG_ASSERT(res, "The commit was not applied!");
   return *std::move(res);
 }
@@ -1230,14 +1221,16 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     CommitArgs commit_args) {
   auto result = PrepareForCommitPhase(std::move(commit_args));
 
-  const auto fatal_error =
-      !result && std::visit(
-                     [](const auto &e) {
-                       // All errors are handled at a higher level.
-                       // Replication errros are not fatal and should procede with finialize transaction
-                       return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
-                     },
-                     result.error());
+  const auto fatal_error = !result && std::visit(
+                                          [](const auto &e) {
+                                            using E = std::remove_cvref_t<decltype(e)>;
+                                            if constexpr (std::is_same_v<E, storage::ReplicationError>) {
+                                              // Replication errors are fatal only if the transaction was aborted
+                                              return !e.transaction_committed;
+                                            }
+                                            return true;  // all other errors are fatal
+                                          },
+                                          result.error());
 
   if (fatal_error) {
     // PrepareForCommitPhase aborted the transaction internally (e.g. constraint/serialization error).

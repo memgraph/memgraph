@@ -326,21 +326,12 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
   std::visit(
       []<typename T>(const T &arg) {
         using ErrorType = std::remove_cvref_t<T>;
-        if constexpr (std::is_same_v<ErrorType, storage::SyncReplicationError>) {
-          spdlog::warn(
-              "PeriodicCommit warning: At least one SYNC replica has not confirmed the "
-              "commit.");
-        } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
-          throw PeriodicCommitException(
-              "PeriodicCommit failed: At least one STRICT_SYNC replica has not confirmed committing last transaction. "
-              "Transaction will be aborted on all instances.");
-        } else if constexpr (std::is_same_v<ErrorType, storage::StartTxnReplicationErrors>) {
-          if (arg.two_phase_commit_aborted) {
-            throw PeriodicCommitException("PeriodicCommit failed: transaction replication could not start.");
+        if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+          if (!arg.transaction_committed) {
+            throw PeriodicCommitException(
+                fmt::format("PeriodicCommit failed: {}", storage::FormatReplicationError(arg)));
           }
-          spdlog::warn("PeriodicCommit warning: transaction replication could not start for some replicas");
-        } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
-          spdlog::warn("PeriodicCommit warning: {}", rpc::RpcTimeoutMsg(arg.replica_names, arg.transaction_aborted));
+          spdlog::warn("PeriodicCommit warning: {}", storage::FormatReplicationError(arg));
         } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
           throw PeriodicCommitException(
               "PeriodicCommit failed: Unable to commit due to constraint "

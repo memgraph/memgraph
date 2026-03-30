@@ -77,8 +77,8 @@ HEAVY_WRITE_QUERY = (
 )
 
 RPC_TIMEOUT_ERROR = "Main reached an RPC timeout"
-RPC_GENERIC_SYNC_ERROR = "At least one SYNC replica has not confirmed"
-RPC_GENERIC_STRICT_SYNC_ERROR = "At least one STRICT_SYNC replica has not confirmed"
+RPC_GENERIC_SYNC_ERROR = "Failed to replicate to SYNC replica"
+RPC_GENERIC_STRICT_SYNC_ERROR = "Failed to replicate to STRICT_SYNC replica"
 
 
 def run_iptables(rule, description):

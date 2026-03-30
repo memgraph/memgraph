@@ -9231,74 +9231,6 @@ std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() 
 
 namespace {
 
-auto FormatStartTxnErrorReason(storage::StartTxnReplicationError const &error) -> std::string {
-  return std::visit(
-      utils::Overloaded{
-          [](storage::FailedToConnectErr const &) -> std::string {
-            return "replica is not in sync with the main or network connection couldn't be established";
-          },
-          [](storage::ReplicaNotInSyncErr const &) -> std::string {
-            return "replica is not in sync with the main or network connection couldn't be established";
-          },
-          [](storage::FailedToGetAsyncRpcLock const &) -> std::string {
-            return "failed to obtain RPC lock (another transaction is in progress)";
-          },
-          [](storage::GenericRpcError const &) -> std::string { return "RPC communication error"; },
-          [](storage::ReplicaDivergedErr const &) -> std::string { return "replica has diverged from main"; },
-      },
-      error);
-}
-
-auto FormatStartTxnErrors(storage::StartTxnReplicationErrors const &errors) -> std::string {
-  // Group failures by (mode, reason) to avoid repeating the same message
-  struct GroupKey {
-    std::string mode;
-    std::string reason;
-
-    auto operator==(GroupKey const &o) const -> bool { return mode == o.mode && reason == o.reason; }
-  };
-
-  std::vector<std::pair<GroupKey, std::vector<std::string>>> groups;
-
-  for (auto const &failure : errors.failures) {
-    GroupKey key{failure.mode, FormatStartTxnErrorReason(failure.error)};
-    auto it = std::ranges::find(groups, key, &std::pair<GroupKey, std::vector<std::string>>::first);
-    if (it != groups.end()) {
-      it->second.push_back(failure.replica_name);
-    } else {
-      groups.emplace_back(std::move(key), std::vector<std::string>{failure.replica_name});
-    }
-  }
-
-  std::string msg;
-  for (auto const &[key, names] : groups) {
-    if (!msg.empty()) msg += " ";
-    if (names.size() == 1) {
-      msg += fmt::format("Failed to replicate to {} replica '{}': {}.", key.mode, names[0], key.reason);
-    } else {
-      std::string joined;
-      for (size_t i = 0; i < names.size(); ++i) {
-        if (i > 0) joined += (i == names.size() - 1) ? " and " : ", ";
-        joined += fmt::format("'{}'", names[i]);
-      }
-      // Pluralize the reason: "replica is" -> "replicas are", "replica has" -> "replicas have"
-      auto plural_reason = key.reason;
-      if (plural_reason.starts_with("replica is")) {
-        plural_reason.replace(0, 10, "replicas are");
-      } else if (plural_reason.starts_with("replica has")) {
-        plural_reason.replace(0, 11, "replicas have");
-      }
-      msg += fmt::format("Failed to replicate to {} replicas {}: {}.", key.mode, joined, plural_reason);
-    }
-  }
-  auto total_replicas = errors.failures.size();
-  msg +=
-      total_replicas == 1 ? " Replica will be recovered automatically." : " Replicas will be recovered automatically.";
-  msg += errors.two_phase_commit_aborted ? " Transaction was aborted on the main instance."
-                                         : " Data is still committed on the main instance.";
-  return msg;
-}
-
 auto make_commit_arg(bool is_main, dbms::DatabaseAccess const &db_acc) {
   if (is_main) {
     auto protector = dbms::DatabaseProtector{db_acc};
@@ -9351,20 +9283,8 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       std::visit(
           [&trigger, &db_accessor]<typename T>(T &&arg) {
             using ErrorType = std::remove_cvref_t<T>;
-            if constexpr (std::is_same_v<ErrorType, storage::SyncReplicationError>) {
-              spdlog::warn("At least one SYNC replica has not confirmed execution of the trigger '{}'.",
-                           trigger.Name());
-            } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
-              spdlog::warn(
-                  "At least one STRICT_SYNC replica has not confirmed execution of the trigger '{}'. Transaction "
-                  "will "
-                  "be "
-                  "aborted. ",
-                  trigger.Name());
-            } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
-              spdlog::warn("{}", rpc::RpcTimeoutMsg(arg.replica_names, arg.transaction_aborted));
-            } else if constexpr (std::is_same_v<ErrorType, storage::StartTxnReplicationErrors>) {
-              spdlog::warn("Trigger commit: {}", FormatStartTxnErrors(arg));
+            if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+              spdlog::warn("Trigger '{}' replication: {}", trigger.Name(), storage::FormatReplicationError(arg));
             } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
               const auto &constraint_violation = arg;
               switch (constraint_violation.type) {
@@ -9592,11 +9512,6 @@ void Interpreter::Commit() {
   };
   utils::OnScopeExit const reset_members(reset_necessary_members);
 
-  bool commit_confirmed_by_all_sync_replicas{true};
-  bool commit_confirmed_by_all_strict_sync_replicas{true};
-  bool rpc_timeout{false};
-  std::vector<std::string> timeout_replica_names;
-  bool timeout_transaction_aborted{false};
   auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
   bool const is_main = (*locked_repl_state)->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
@@ -9613,23 +9528,10 @@ void Interpreter::Commit() {
     const auto &error = maybe_commit_error.error();
 
     std::visit(
-        [&execution_db_accessor = current_db_.execution_db_accessor_,
-         &commit_confirmed_by_all_sync_replicas,
-         &commit_confirmed_by_all_strict_sync_replicas,
-         &rpc_timeout,
-         &timeout_replica_names,
-         &timeout_transaction_aborted]<typename T>(const T &arg) {
+        [&execution_db_accessor = current_db_.execution_db_accessor_]<typename T>(const T &arg) {
           using ErrorType = std::remove_cvref_t<T>;
-          if constexpr (std::is_same_v<ErrorType, storage::SyncReplicationError>) {
-            commit_confirmed_by_all_sync_replicas = false;
-          } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
-            commit_confirmed_by_all_strict_sync_replicas = false;
-          } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
-            rpc_timeout = true;
-            timeout_replica_names = arg.replica_names;
-            timeout_transaction_aborted = arg.transaction_aborted;
-          } else if constexpr (std::is_same_v<ErrorType, storage::StartTxnReplicationErrors>) {
-            throw ReplicationException(FormatStartTxnErrors(arg));
+          if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+            throw ReplicationException(storage::FormatReplicationError(arg));
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
             const auto &constraint_violation = arg;
             auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
@@ -9692,19 +9594,6 @@ void Interpreter::Commit() {
   }
 
   SPDLOG_DEBUG("Finished committing the transaction");
-  if (!commit_confirmed_by_all_sync_replicas) {
-    throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
-  }
-
-  if (!commit_confirmed_by_all_strict_sync_replicas) {
-    throw ReplicationException(
-        "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted "
-        "on all instances.");
-  }
-
-  if (rpc_timeout) {
-    throw ReplicationException(rpc::RpcTimeoutMsg(timeout_replica_names, timeout_transaction_aborted));
-  }
 
   if (IsQueryLoggingActive()) {
     query_logger_->trace("Commit successfully finished!");

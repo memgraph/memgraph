@@ -12,8 +12,34 @@
 #include "storage/v2/replication/replication_transaction.hpp"
 
 #include "storage/v2/commit_args.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
+
+namespace {
+auto ReplicationModeToString(replication_coordination_glue::ReplicationMode mode) -> std::string {
+  switch (mode) {
+    case replication_coordination_glue::ReplicationMode::SYNC:
+      return "SYNC";
+    case replication_coordination_glue::ReplicationMode::ASYNC:
+      return "ASYNC";
+    case replication_coordination_glue::ReplicationMode::STRICT_SYNC:
+      return "STRICT_SYNC";
+  }
+  return "UNKNOWN";
+}
+
+auto StartTxnErrorToReason(StartTxnReplicationError const &error) -> ReplicaFailureReason {
+  return std::visit(utils::Overloaded{
+                        [](FailedToConnectErr const &) { return ReplicaFailureReason::NOT_IN_SYNC; },
+                        [](ReplicaNotInSyncErr const &) { return ReplicaFailureReason::NOT_IN_SYNC; },
+                        [](FailedToGetAsyncRpcLock const &) { return ReplicaFailureReason::FAILED_TO_GET_LOCK; },
+                        [](GenericRpcError const &) { return ReplicaFailureReason::RPC_ERROR; },
+                        [](ReplicaDivergedErr const &) { return ReplicaFailureReason::DIVERGED; },
+                    },
+                    error);
+}
+}  // namespace
 
 // For all replicas, we append transaction end
 // When handling STRICT_SYNC replica, we send deltas as part of the 1st phase of the 2PC protocol and wait for the
@@ -31,7 +57,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
 
   auto const &db_acc = commit_args.database_protector();
   bool const should_run_2pc = ShouldRunTwoPC();
-  std::expected<void, ShipDeltasError> status{};
+  std::vector<ReplicaFailure> failures;
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
     client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                    replica_stream);
@@ -61,21 +87,21 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
     });
 
     if (!finalized.has_value()) {
-      if (finalized.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
-        // Always collect timeout replica names; timeout takes priority over other errors
-        if (!status.has_value()) {
-          status.error().timed_out_replicas.emplace_back(client->Name());
-        } else {
-          status = std::unexpected{
-              ShipDeltasError{.error = finalized.error(), .timed_out_replicas = {std::string{client->Name()}}}};
+      auto const reason = [&] {
+        switch (finalized.error()) {
+          case io::network::ClientCommunicationError::TIMEOUT_ERROR:
+            return ReplicaFailureReason::TIMEOUT;
+          case io::network::ClientCommunicationError::SOCKET_FAILED_TO_CONNECT:
+            return ReplicaFailureReason::NOT_IN_SYNC;
+          default:
+            return ReplicaFailureReason::RPC_ERROR;
         }
-      } else if (status.has_value()) {
-        // First non-timeout error, only set if no error yet
-        status = std::unexpected{ShipDeltasError{.error = finalized.error(), .timed_out_replicas = {}}};
-      }
+      }();
+      failures.push_back({std::string{client->Name()}, ReplicationModeToString(client->Mode()), reason});
     }
   }
-  return status;
+  if (!failures.empty()) return std::unexpected{ShipDeltasError{std::move(failures)}};
+  return {};
 }
 
 // RPC locks will get released at the end of this function for all STRICT_SYNC and ASYNC replicas
@@ -104,29 +130,15 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
   return strict_sync_replicas_succ;
 }
 
-namespace {
-auto ReplicationModeToString(replication_coordination_glue::ReplicationMode mode) -> std::string {
-  switch (mode) {
-    case replication_coordination_glue::ReplicationMode::SYNC:
-      return "SYNC";
-    case replication_coordination_glue::ReplicationMode::ASYNC:
-      return "ASYNC";
-    case replication_coordination_glue::ReplicationMode::STRICT_SYNC:
-      return "STRICT_SYNC";
-  }
-  return "UNKNOWN";
-}
-}  // namespace
-
-auto TransactionReplication::CollectStartTxnErrors() const -> std::optional<StartTxnReplicationErrors> {
-  StartTxnReplicationErrors result;
+auto TransactionReplication::CollectStartTxnErrors() const -> std::vector<ReplicaFailure> {
+  std::vector<ReplicaFailure> result;
   for (auto &&[client, maybe_err] : ranges::views::zip(*locked_clients, errors_)) {
     if (maybe_err.has_value()) {
-      result.failures.push_back(
-          {.replica_name = client->Name(), .mode = ReplicationModeToString(client->Mode()), .error = *maybe_err});
+      result.push_back({.name = client->Name(),
+                        .mode = ReplicationModeToString(client->Mode()),
+                        .reason = StartTxnErrorToReason(*maybe_err)});
     }
   }
-  if (result.failures.empty()) return std::nullopt;
   return result;
 }
 
