@@ -327,6 +327,27 @@ enum mgp_error mgp_value_make_zoned_date_time(struct mgp_zoned_date_time *val, s
 /// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
 enum mgp_error mgp_value_make_duration(struct mgp_duration *val, struct mgp_value **result);
 
+/// Create a mgp_value storing a mgp_point_2d. Ownership of the point is transferred
+/// to the created mgp_value and destroying the mgp_value will destroy the mgp_point_2d.
+/// Therefore, if a mgp_value is successfully created you must not call mgp_point_2d_destroy
+/// on the given point.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_point_2d(struct mgp_point_2d *val, struct mgp_value **result);
+
+/// Create a mgp_value storing a mgp_point_3d. Ownership of the point is transferred
+/// to the created mgp_value and destroying the mgp_value will destroy the mgp_point_3d.
+/// Therefore, if a mgp_value is successfully created you must not call mgp_point_3d_destroy
+/// on the given point.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_point_3d(struct mgp_point_3d *val, struct mgp_value **result);
+
+/// Create a mgp_value storing a mgp_enum. Ownership of the enum is transferred
+/// to the created mgp_value and destroying the mgp_value will destroy the mgp_enum.
+/// Therefore, if a mgp_value is successfully created you must not call mgp_enum_destroy
+/// on the given enum.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_enum(struct mgp_enum *val, struct mgp_value **result);
+
 /// Get the type of the value contained in mgp_value.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_type(struct mgp_value *val, enum mgp_value_type *result);
@@ -390,6 +411,18 @@ enum mgp_error mgp_value_is_duration(struct mgp_value *val, int *result);
 /// Result is non-zero if the given mgp_value stores a zoned date-time.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_zoned_date_time(struct mgp_value *val, int *result);
+
+/// Result is non-zero if the given mgp_value stores a 2D point.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_point_2d(struct mgp_value *val, int *result);
+
+/// Result is non-zero if the given mgp_value stores a 3D point.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_point_3d(struct mgp_value *val, int *result);
+
+/// Result is non-zero if the given mgp_value stores an enum value.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_enum(struct mgp_value *val, int *result);
 
 /// Get the contained boolean value.
 /// Non-zero values represent `true`, while zero represents `false`.
@@ -461,39 +494,6 @@ enum mgp_error mgp_value_get_duration(struct mgp_value *val, struct mgp_duration
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_zoned_date_time(struct mgp_value *val, struct mgp_zoned_date_time **result);
-
-/// Create a mgp_value storing a mgp_point_2d. Ownership of the point is transferred
-/// to the created mgp_value and destroying the mgp_value will destroy the mgp_point_2d.
-/// Therefore, if a mgp_value is successfully created you must not call mgp_point_2d_destroy
-/// on the given point.
-/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
-enum mgp_error mgp_value_make_point_2d(struct mgp_point_2d *val, struct mgp_value **result);
-
-/// Create a mgp_value storing a mgp_point_3d. Ownership of the point is transferred
-/// to the created mgp_value and destroying the mgp_value will destroy the mgp_point_3d.
-/// Therefore, if a mgp_value is successfully created you must not call mgp_point_3d_destroy
-/// on the given point.
-/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
-enum mgp_error mgp_value_make_point_3d(struct mgp_point_3d *val, struct mgp_value **result);
-
-/// Create a mgp_value storing a mgp_enum. Ownership of the enum is transferred
-/// to the created mgp_value and destroying the mgp_value will destroy the mgp_enum.
-/// Therefore, if a mgp_value is successfully created you must not call mgp_enum_destroy
-/// on the given enum.
-/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
-enum mgp_error mgp_value_make_enum(struct mgp_enum *val, struct mgp_value **result);
-
-/// Result is non-zero if the given mgp_value stores a 2D point.
-/// Current implementation always returns without errors.
-enum mgp_error mgp_value_is_point_2d(struct mgp_value *val, int *result);
-
-/// Result is non-zero if the given mgp_value stores a 3D point.
-/// Current implementation always returns without errors.
-enum mgp_error mgp_value_is_point_3d(struct mgp_value *val, int *result);
-
-/// Result is non-zero if the given mgp_value stores an enum value.
-/// Current implementation always returns without errors.
-enum mgp_error mgp_value_is_enum(struct mgp_value *val, int *result);
 
 /// Get the contained 2D point.
 /// Result is undefined if mgp_value does not contain the expected type.
