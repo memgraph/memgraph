@@ -1606,7 +1606,7 @@ TYPED_TEST(CppApiTestFixture, TestPoint2d) {
   auto pt_x = pt_1;
   ASSERT_EQ(pt_x, pt_1);
 
-  // Move assignment
+  // Move — push_back (not emplace_back) to exercise the move constructor
   std::vector<mgp::Point2d> vec;
   vec.push_back(mgp::Point2d(5.0, 6.0, 4326));
   ASSERT_DOUBLE_EQ(vec[0].X(), 5.0);
@@ -1650,7 +1650,7 @@ TYPED_TEST(CppApiTestFixture, TestPoint3d) {
   auto pt_x = pt_1;
   ASSERT_EQ(pt_x, pt_1);
 
-  // Move assignment
+  // Move — push_back (not emplace_back) to exercise the move constructor
   std::vector<mgp::Point3d> vec;
   vec.push_back(mgp::Point3d(4.0, 5.0, 6.0, 9157));
   ASSERT_DOUBLE_EQ(vec[0].Z(), 6.0);
@@ -1693,7 +1693,7 @@ TYPED_TEST(CppApiTestFixture, TestEnum) {
   ASSERT_EQ(e_x, e_1);
   ASSERT_EQ(e_x.TypeName(), "Color");
 
-  // Move assignment
+  // Move — push_back (not emplace_back) to exercise the move constructor
   std::vector<mgp::Enum> vec;
   vec.push_back(mgp::Enum("Status", "Active"));
   ASSERT_EQ(vec[0].TypeName(), "Status");
