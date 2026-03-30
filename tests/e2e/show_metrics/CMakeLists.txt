@@ -5,5 +5,6 @@ endfunction()
 copy_show_metrics_e2e_python_files(common.py)
 copy_show_metrics_e2e_python_files(show_metrics.py)
 copy_show_metrics_e2e_python_files(show_metrics_snapshot.py)
+copy_show_metrics_e2e_python_files(show_metrics_http.py)
 
 copy_e2e_files(show_metrics workloads.yaml)
