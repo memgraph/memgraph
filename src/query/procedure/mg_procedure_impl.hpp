@@ -86,10 +86,8 @@ struct mgp_value {
   mgp_value(const memgraph::query::TypedValue &, mgp_graph *, allocator_type);
 
   /// Construct by copying memgraph::storage::PropertyValue using memgraph::utils::MemoryResource.
-  /// Optional DbAccessor is needed to resolve Enum values to names.
   /// @throw std::bad_alloc
-  mgp_value(const memgraph::storage::PropertyValue &, memgraph::storage::NameIdMapper *, allocator_type,
-            memgraph::query::DbAccessor *db_accessor = nullptr);
+  mgp_value(const memgraph::storage::PropertyValue &, memgraph::storage::NameIdMapper *, allocator_type);
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_value(const mgp_value &) = delete;

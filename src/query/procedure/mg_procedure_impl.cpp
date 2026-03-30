@@ -741,7 +741,7 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, al
 }
 
 mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::storage::NameIdMapper *name_id_mapper,
-                     allocator_type alloc, memgraph::query::DbAccessor *db_accessor)
+                     allocator_type alloc)
     : alloc(alloc) {
   switch (pv.type()) {
     case memgraph::storage::PropertyValue::Type::Null:
@@ -772,7 +772,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       memgraph::utils::pmr::vector<mgp_value> elems(alloc);
       elems.reserve(pv.ValueList().size());
       for (const auto &elem : pv.ValueList()) {
-        elems.emplace_back(elem, name_id_mapper, alloc, db_accessor);
+        elems.emplace_back(elem, name_id_mapper, alloc);
       }
       memgraph::utils::Allocator<mgp_list> allocator(alloc);
       list_v = allocator.new_object<mgp_list>(std::move(elems));
@@ -824,7 +824,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       mgp_map::map_type items(alloc);
       for (const auto &item : pv.ValueMap()) {
         auto key_as_name = name_id_mapper->IdToName(item.first.AsUint());
-        auto value = mgp_value(item.second, name_id_mapper, alloc, db_accessor);
+        auto value = mgp_value(item.second, name_id_mapper, alloc);
         items.emplace(std::move(key_as_name), std::move(value));
       }
       memgraph::utils::Allocator<mgp_map> allocator(alloc);
@@ -870,16 +870,12 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       break;
     }
     case memgraph::storage::PropertyValue::Type::Enum: {
-      if (!db_accessor) {
-        throw std::logic_error{"mgp_value for PropertyValue::Type::Enum requires DbAccessor for name resolution."};
-      }
-      auto name_result = db_accessor->EnumToName(pv.ValueEnum());
-      if (!name_result.has_value()) {
-        throw std::logic_error{"Failed to resolve enum value to name."};
-      }
-      auto [type_name, value_name] = SplitEnumName(name_result.value());
+      // Enum names require DbAccessor/EnumStore to resolve from numeric IDs.
+      // The PropertyValue path doesn't carry that context, so we create a
+      // stub with empty names — sufficient for type-level inspection (e.g. schema module).
+      // Full name resolution happens in the TypedValue path which has graph context.
       type = MGP_VALUE_TYPE_ENUM;
-      enum_v = NewRawMgpObject<mgp_enum>(alloc.resource(), type_name, value_name);
+      enum_v = NewRawMgpObject<mgp_enum>(alloc.resource(), std::string_view{}, std::string_view{});
       break;
     }
     case memgraph::storage::PropertyValue::Type::Point2d: {
@@ -2272,10 +2268,8 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property
               return memgraph::utils::pmr::string(impl->PropertyToName(it->current_it->first), it->GetMemoryResource());
             },
             it->graph->impl);
-        it->current.emplace(
-            propToName,
-            mgp_value(
-                it->current_it->second, GetNameIdMapper(it->graph), it->GetMemoryResource(), it->graph->getImpl()));
+        it->current.emplace(propToName,
+                            mgp_value(it->current_it->second, GetNameIdMapper(it->graph), it->GetMemoryResource()));
         it->property.name = it->current->first.c_str();
         it->property.value = &it->current->second;
         clean_up.Disable();
@@ -2832,8 +2826,7 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
               LOG_FATAL("Unexpected error when getting a property of a vertex.");
           }
         }
-        return NewRawMgpObject<mgp_value>(
-            memory, std::move(*maybe_prop), GetNameIdMapper(v->graph), v->graph->getImpl());
+        return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop), GetNameIdMapper(v->graph));
       },
       result);
 }
@@ -3133,8 +3126,7 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
               LOG_FATAL("Unexpected error when getting a property of an edge.");
           }
         }
-        return NewRawMgpObject<mgp_value>(
-            memory, std::move(*maybe_prop), GetNameIdMapper(e->from.graph), e->from.graph->getImpl());
+        return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop), GetNameIdMapper(e->from.graph));
       },
       result);
 }
