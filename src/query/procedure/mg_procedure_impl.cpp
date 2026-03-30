@@ -1324,12 +1324,7 @@ DEFINE_MGP_VALUE_GET(duration)
 DEFINE_MGP_VALUE_GET(zoned_date_time)
 DEFINE_MGP_VALUE_GET(point_2d)
 DEFINE_MGP_VALUE_GET(point_3d)
-
-// Hand-written instead of DEFINE_MGP_VALUE_GET(enum) — `enum` is a C++ keyword.
-mgp_error mgp_value_get_enum(mgp_value *val, mgp_enum **result) {
-  *result = val->enum_v;
-  return mgp_error::MGP_ERROR_NO_ERROR;
-}
+DEFINE_MGP_VALUE_GET(enum)
 
 mgp_error mgp_list_make_empty(size_t capacity, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions(
