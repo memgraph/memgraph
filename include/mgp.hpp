@@ -1280,7 +1280,7 @@ class Point2d {
   explicit Point2d(const mgp_point_2d *const_ptr);
 
   /// @brief Creates a Point2d from components.
-  Point2d(double x, double y, int srid);
+  Point2d(double x, double y, uint16_t srid);
 
   Point2d(const Point2d &other);
   Point2d(Point2d &&other) noexcept;
@@ -1295,7 +1295,7 @@ class Point2d {
   /// @brief Returns the y coordinate.
   double Y() const;
   /// @brief Returns the SRID.
-  int Srid() const;
+  uint16_t Srid() const;
 
   bool operator==(const Point2d &other) const;
   bool operator!=(const Point2d &other) const;
@@ -1324,7 +1324,7 @@ class Point3d {
   explicit Point3d(const mgp_point_3d *const_ptr);
 
   /// @brief Creates a Point3d from components.
-  Point3d(double x, double y, double z, int srid);
+  Point3d(double x, double y, double z, uint16_t srid);
 
   Point3d(const Point3d &other);
   Point3d(Point3d &&other) noexcept;
@@ -1341,7 +1341,7 @@ class Point3d {
   /// @brief Returns the z coordinate.
   double Z() const;
   /// @brief Returns the SRID.
-  int Srid() const;
+  uint16_t Srid() const;
 
   bool operator==(const Point3d &other) const;
   bool operator!=(const Point3d &other) const;
@@ -4052,7 +4052,9 @@ inline Point2d &Point2d::operator=(Point2d &&other) noexcept {
   return *this;
 }
 
-inline Point2d::Point2d(double x, double y, int srid) { ptr_ = mgp::MemHandlerCallback(point_2d_make, x, y, srid); }
+inline Point2d::Point2d(double x, double y, uint16_t srid) {
+  ptr_ = mgp::MemHandlerCallback(point_2d_make, x, y, srid);
+}
 
 inline Point2d::~Point2d() {
   if (ptr_ != nullptr) {
@@ -4064,7 +4066,7 @@ inline double Point2d::X() const { return mgp::point_2d_get_x(ptr_); }
 
 inline double Point2d::Y() const { return mgp::point_2d_get_y(ptr_); }
 
-inline int Point2d::Srid() const { return mgp::point_2d_get_srid(ptr_); }
+inline uint16_t Point2d::Srid() const { return mgp::point_2d_get_srid(ptr_); }
 
 inline bool Point2d::operator==(const Point2d &other) const { return util::Point2dsEqual(ptr_, other.ptr_); }
 
@@ -4102,7 +4104,7 @@ inline Point3d &Point3d::operator=(Point3d &&other) noexcept {
   return *this;
 }
 
-inline Point3d::Point3d(double x, double y, double z, int srid) {
+inline Point3d::Point3d(double x, double y, double z, uint16_t srid) {
   ptr_ = mgp::MemHandlerCallback(point_3d_make, x, y, z, srid);
 }
 
@@ -4118,7 +4120,7 @@ inline double Point3d::Y() const { return mgp::point_3d_get_y(ptr_); }
 
 inline double Point3d::Z() const { return mgp::point_3d_get_z(ptr_); }
 
-inline int Point3d::Srid() const { return mgp::point_3d_get_srid(ptr_); }
+inline uint16_t Point3d::Srid() const { return mgp::point_3d_get_srid(ptr_); }
 
 inline bool Point3d::operator==(const Point3d &other) const { return util::Point3dsEqual(ptr_, other.ptr_); }
 
@@ -5704,7 +5706,7 @@ struct hash<mgp::Point2d> {
     size_t seed = 0;
     seed ^= std::hash<double>{}(x.X()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     seed ^= std::hash<double>{}(x.Y()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= std::hash<int>{}(x.Srid()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= std::hash<uint16_t>{}(x.Srid()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     return seed;
   }
 };
@@ -5716,7 +5718,7 @@ struct hash<mgp::Point3d> {
     seed ^= std::hash<double>{}(x.X()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     seed ^= std::hash<double>{}(x.Y()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     seed ^= std::hash<double>{}(x.Z()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= std::hash<int>{}(x.Srid()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= std::hash<uint16_t>{}(x.Srid()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     return seed;
   }
 };

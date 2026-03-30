@@ -3361,8 +3361,13 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     }
     double x = PyFloat_AsDouble(py_x.Ptr());
     double y = PyFloat_AsDouble(py_y.Ptr());
-    int srid = static_cast<int>(PyLong_AsLong(py_srid.Ptr()));
-    auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{static_cast<uint16_t>(srid)});
+    long srid_long = PyLong_AsLong(py_srid.Ptr());
+    if ((x == -1.0 || y == -1.0 || srid_long == -1) && PyErr_Occurred()) {
+      PyErr_Clear();
+      throw std::invalid_argument("'mgp.Point2d' has invalid x, y, or srid value");
+    }
+    auto srid = static_cast<uint16_t>(srid_long);
+    auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{srid});
     if (!crs_opt) {
       throw std::invalid_argument("Invalid SRID for Point2d");
     }
@@ -3386,8 +3391,13 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     double x = PyFloat_AsDouble(py_x.Ptr());
     double y = PyFloat_AsDouble(py_y.Ptr());
     double z = PyFloat_AsDouble(py_z.Ptr());
-    int srid = static_cast<int>(PyLong_AsLong(py_srid.Ptr()));
-    auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{static_cast<uint16_t>(srid)});
+    long srid_long = PyLong_AsLong(py_srid.Ptr());
+    if ((x == -1.0 || y == -1.0 || z == -1.0 || srid_long == -1) && PyErr_Occurred()) {
+      PyErr_Clear();
+      throw std::invalid_argument("'mgp.Point3d' has invalid x, y, z, or srid value");
+    }
+    auto srid = static_cast<uint16_t>(srid_long);
+    auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{srid});
     if (!crs_opt) {
       throw std::invalid_argument("Invalid SRID for Point3d");
     }

@@ -772,7 +772,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       memgraph::utils::pmr::vector<mgp_value> elems(alloc);
       elems.reserve(pv.ValueList().size());
       for (const auto &elem : pv.ValueList()) {
-        elems.emplace_back(elem, name_id_mapper);
+        elems.emplace_back(elem, name_id_mapper, alloc, db_accessor);
       }
       memgraph::utils::Allocator<mgp_list> allocator(alloc);
       list_v = allocator.new_object<mgp_list>(std::move(elems));
@@ -2083,10 +2083,10 @@ mgp_error mgp_enum_copy(mgp_enum *val, mgp_memory *memory, mgp_enum **result) {
 
 void mgp_enum_destroy(mgp_enum *val) { DeleteRawMgpObject(val); }
 
-mgp_error mgp_point_2d_make(double x, double y, int srid, mgp_memory *memory, mgp_point_2d **result) {
+mgp_error mgp_point_2d_make(double x, double y, uint16_t srid, mgp_memory *memory, mgp_point_2d **result) {
   return WrapExceptions(
       [x, y, srid, memory] {
-        auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{static_cast<uint16_t>(srid)});
+        auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{srid});
         if (!crs_opt) {
           throw std::invalid_argument{"Invalid SRID for Point2d"};
         }
@@ -2105,17 +2105,17 @@ mgp_error mgp_point_2d_get_y(mgp_point_2d *point, double *result) {
 
 mgp_error mgp_point_2d_get_srid(mgp_point_2d *point, int *result) {
   return WrapExceptions(
-      [point] { return static_cast<int>(memgraph::storage::CrsToSrid(point->point.crs()).value_of()); }, result);
+      [point] { return static_cast<uint16_t>(memgraph::storage::CrsToSrid(point->point.crs()).value_of()); }, result);
 }
 
 mgp_error mgp_point_2d_equal(mgp_point_2d *first, mgp_point_2d *second, int *result) {
   return WrapExceptions([first, second] { return first->point == second->point; }, result);
 }
 
-mgp_error mgp_point_3d_make(double x, double y, double z, int srid, mgp_memory *memory, mgp_point_3d **result) {
+mgp_error mgp_point_3d_make(double x, double y, double z, uint16_t srid, mgp_memory *memory, mgp_point_3d **result) {
   return WrapExceptions(
       [x, y, z, srid, memory] {
-        auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{static_cast<uint16_t>(srid)});
+        auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{srid});
         if (!crs_opt) {
           throw std::invalid_argument{"Invalid SRID for Point3d"};
         }
@@ -2138,7 +2138,7 @@ mgp_error mgp_point_3d_get_z(mgp_point_3d *point, double *result) {
 
 mgp_error mgp_point_3d_get_srid(mgp_point_3d *point, int *result) {
   return WrapExceptions(
-      [point] { return static_cast<int>(memgraph::storage::CrsToSrid(point->point.crs()).value_of()); }, result);
+      [point] { return static_cast<uint16_t>(memgraph::storage::CrsToSrid(point->point.crs()).value_of()); }, result);
 }
 
 mgp_error mgp_point_3d_equal(mgp_point_3d *first, mgp_point_3d *second, int *result) {
@@ -2272,8 +2272,10 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property
               return memgraph::utils::pmr::string(impl->PropertyToName(it->current_it->first), it->GetMemoryResource());
             },
             it->graph->impl);
-        it->current.emplace(propToName,
-                            mgp_value(it->current_it->second, GetNameIdMapper(it->graph), it->GetMemoryResource()));
+        it->current.emplace(
+            propToName,
+            mgp_value(
+                it->current_it->second, GetNameIdMapper(it->graph), it->GetMemoryResource(), it->graph->getImpl()));
         it->property.name = it->current->first.c_str();
         it->property.value = &it->current->second;
         clean_up.Disable();
@@ -2830,7 +2832,8 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
               LOG_FATAL("Unexpected error when getting a property of a vertex.");
           }
         }
-        return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop), GetNameIdMapper(v->graph));
+        return NewRawMgpObject<mgp_value>(
+            memory, std::move(*maybe_prop), GetNameIdMapper(v->graph), v->graph->getImpl());
       },
       result);
 }
@@ -3130,7 +3133,8 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
               LOG_FATAL("Unexpected error when getting a property of an edge.");
           }
         }
-        return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop), GetNameIdMapper(e->from.graph));
+        return NewRawMgpObject<mgp_value>(
+            memory, std::move(*maybe_prop), GetNameIdMapper(e->from.graph), e->from.graph->getImpl());
       },
       result);
 }

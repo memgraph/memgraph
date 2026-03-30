@@ -874,8 +874,10 @@ struct mgp_properties_iterator {
           },
           graph->impl);
 
-      current.emplace(value,
-                      mgp_value(current_it->second, graph->getImpl()->GetStorageAccessor()->GetNameIdMapper(), alloc));
+      current.emplace(
+          value,
+          mgp_value(
+              current_it->second, graph->getImpl()->GetStorageAccessor()->GetNameIdMapper(), alloc, graph->getImpl()));
       property.name = current->first.c_str();
       property.value = &current->second;
     }

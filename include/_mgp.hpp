@@ -955,7 +955,7 @@ inline mgp_point_2d *point_2d_copy(mgp_point_2d *point, mgp_memory *memory) {
 
 inline void point_2d_destroy(mgp_point_2d *point) { mgp_point_2d_destroy(point); }
 
-inline mgp_point_2d *point_2d_make(double x, double y, int srid, mgp_memory *memory) {
+inline mgp_point_2d *point_2d_make(double x, double y, uint16_t srid, mgp_memory *memory) {
   return MgInvoke<mgp_point_2d *>(mgp_point_2d_make, x, y, srid, memory);
 }
 
@@ -963,7 +963,7 @@ inline double point_2d_get_x(mgp_point_2d *point) { return MgInvoke<double>(mgp_
 
 inline double point_2d_get_y(mgp_point_2d *point) { return MgInvoke<double>(mgp_point_2d_get_y, point); }
 
-inline int point_2d_get_srid(mgp_point_2d *point) { return MgInvoke<int>(mgp_point_2d_get_srid, point); }
+inline uint16_t point_2d_get_srid(mgp_point_2d *point) { return MgInvoke<uint16_t>(mgp_point_2d_get_srid, point); }
 
 inline bool point_2d_equal(mgp_point_2d *first, mgp_point_2d *second) {
   return MgInvoke<int>(mgp_point_2d_equal, first, second);
@@ -977,7 +977,7 @@ inline mgp_point_3d *point_3d_copy(mgp_point_3d *point, mgp_memory *memory) {
 
 inline void point_3d_destroy(mgp_point_3d *point) { mgp_point_3d_destroy(point); }
 
-inline mgp_point_3d *point_3d_make(double x, double y, double z, int srid, mgp_memory *memory) {
+inline mgp_point_3d *point_3d_make(double x, double y, double z, uint16_t srid, mgp_memory *memory) {
   return MgInvoke<mgp_point_3d *>(mgp_point_3d_make, x, y, z, srid, memory);
 }
 
@@ -987,7 +987,7 @@ inline double point_3d_get_y(mgp_point_3d *point) { return MgInvoke<double>(mgp_
 
 inline double point_3d_get_z(mgp_point_3d *point) { return MgInvoke<double>(mgp_point_3d_get_z, point); }
 
-inline int point_3d_get_srid(mgp_point_3d *point) { return MgInvoke<int>(mgp_point_3d_get_srid, point); }
+inline uint16_t point_3d_get_srid(mgp_point_3d *point) { return MgInvoke<uint16_t>(mgp_point_3d_get_srid, point); }
 
 inline bool point_3d_equal(mgp_point_3d *first, mgp_point_3d *second) {
   return MgInvoke<int>(mgp_point_3d_equal, first, second);

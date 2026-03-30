@@ -1601,7 +1601,8 @@ void mgp_enum_destroy(struct mgp_enum *val);
 /// Resulting pointer must be freed with mgp_point_2d_destroy.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_point_2d.
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if srid is not a valid 2D SRID.
-enum mgp_error mgp_point_2d_make(double x, double y, int srid, struct mgp_memory *memory, struct mgp_point_2d **result);
+enum mgp_error mgp_point_2d_make(double x, double y, uint16_t srid, struct mgp_memory *memory,
+                                 struct mgp_point_2d **result);
 
 /// Get the x coordinate of the point.
 enum mgp_error mgp_point_2d_get_x(struct mgp_point_2d *point, double *result);
@@ -1610,7 +1611,7 @@ enum mgp_error mgp_point_2d_get_x(struct mgp_point_2d *point, double *result);
 enum mgp_error mgp_point_2d_get_y(struct mgp_point_2d *point, double *result);
 
 /// Get the SRID of the point.
-enum mgp_error mgp_point_2d_get_srid(struct mgp_point_2d *point, int *result);
+enum mgp_error mgp_point_2d_get_srid(struct mgp_point_2d *point, uint16_t *result);
 
 /// Result is non-zero if given points are equal, otherwise 0.
 enum mgp_error mgp_point_2d_equal(struct mgp_point_2d *first, struct mgp_point_2d *second, int *result);
@@ -1619,7 +1620,7 @@ enum mgp_error mgp_point_2d_equal(struct mgp_point_2d *first, struct mgp_point_2
 /// Resulting pointer must be freed with mgp_point_3d_destroy.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_point_3d.
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if srid is not a valid 3D SRID.
-enum mgp_error mgp_point_3d_make(double x, double y, double z, int srid, struct mgp_memory *memory,
+enum mgp_error mgp_point_3d_make(double x, double y, double z, uint16_t srid, struct mgp_memory *memory,
                                  struct mgp_point_3d **result);
 
 /// Get the x coordinate of the point.
@@ -1632,7 +1633,7 @@ enum mgp_error mgp_point_3d_get_y(struct mgp_point_3d *point, double *result);
 enum mgp_error mgp_point_3d_get_z(struct mgp_point_3d *point, double *result);
 
 /// Get the SRID of the point.
-enum mgp_error mgp_point_3d_get_srid(struct mgp_point_3d *point, int *result);
+enum mgp_error mgp_point_3d_get_srid(struct mgp_point_3d *point, uint16_t *result);
 
 /// Result is non-zero if given points are equal, otherwise 0.
 enum mgp_error mgp_point_3d_equal(struct mgp_point_3d *first, struct mgp_point_3d *second, int *result);
@@ -1640,6 +1641,9 @@ enum mgp_error mgp_point_3d_equal(struct mgp_point_3d *first, struct mgp_point_3
 /// Create a mgp_enum from type name and value name strings.
 /// Resulting pointer must be freed with mgp_enum_destroy.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_enum.
+/// @note Enum values are read-only in procedures. They can be received from property reads
+/// but cannot be written back as property values because the name-to-ID resolution
+/// requires internal EnumStore context that is not exposed through the C API.
 enum mgp_error mgp_enum_make(const char *type_name, const char *value_name, struct mgp_memory *memory,
                              struct mgp_enum **result);
 
