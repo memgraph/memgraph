@@ -185,7 +185,10 @@
                               (assoc op :type :info :value {:str "Nodes updated. SYNC replica is down."})
 
                               (utils/main-reached-rpc-timeout? e)
-                              (assoc op :type :info :value "RPC timeout")
+                              (assoc op :type :info :value {:str "RPC timeout"})
+
+                              (utils/asked-to-abort-shutdown? e)
+                              (assoc op :type :info :value {:str "Transaction was asked to abort because of the shutdown."})
 
                               (utils/main-became-replica? e)
                               (assoc op :type :info :value {:str "Cannot commit because instance is not main anymore."})
@@ -228,10 +231,13 @@
                                   (assoc op :type :info :value {:str "TTL edges created. SYNC replica is down."})
 
                                   (utils/main-reached-rpc-timeout? e)
-                                  (assoc op :type :info :value "RPC timeout")
+                                  (assoc op :type :info :value {:str "RPC timeout"})
 
                                   (utils/cannot-get-shared-access? e)
                                   (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
+
+                                  (utils/asked-to-abort-shutdown? e)
+                                  (assoc op :type :info :value {:str "Transaction was asked to abort because of the shutdown."})
 
                                   (utils/main-became-replica? e)
                                   (assoc op :type :info :value {:str "Cannot commit because instance is not main anymore."})
@@ -273,7 +279,10 @@
                                   (assoc op :type :info :value {:str "Edges deleted. SYNC replica is down."})
 
                                   (utils/main-reached-rpc-timeout? e)
-                                  (assoc op :type :info :value "RPC timeout")
+                                  (assoc op :type :info :value {:str "RPC timeout"})
+
+                                  (utils/asked-to-abort-shutdown? e)
+                                  (assoc op :type :info :value {:str "Transaction was asked to abort because of the shutdown."})
 
                                   (utils/cannot-get-shared-access? e)
                                   (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
@@ -378,7 +387,10 @@
                                     (assoc op :type :info :value {:str "SYNC replica is down during import."})
 
                                     (utils/main-reached-rpc-timeout? e)
-                                    (assoc op :type :info :value "RPC timeout")
+                                    (assoc op :type :info :value {:str "RPC timeout"})
+
+                                    (utils/asked-to-abort-shutdown? e)
+                                    (assoc op :type :info :value {:str "Transaction was asked to abort because of the shutdown."})
 
                                     (utils/cannot-get-shared-access? e)
                                     (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
