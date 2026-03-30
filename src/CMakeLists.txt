@@ -1,5 +1,15 @@
 # CMake configuration for the main memgraph library and executable
 
+# Thin INTERFACE target that carries USE_JEMALLOC into every library that
+# includes db_aware_allocator.hpp.  Defined here (before any add_subdirectory)
+# so both mg-utils and mg-memory-utils can consume it without a circular dep.
+add_library(mg-jemalloc-defs INTERFACE)
+if (ENABLE_JEMALLOC)
+  target_compile_definitions(mg-jemalloc-defs INTERFACE USE_JEMALLOC=1)
+else()
+  target_compile_definitions(mg-jemalloc-defs INTERFACE USE_JEMALLOC=0)
+endif()
+
 # add memgraph sub libraries, ordered by dependency
 add_subdirectory(csv)
 add_subdirectory(utils)
