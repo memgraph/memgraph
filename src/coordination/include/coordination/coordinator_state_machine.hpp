@@ -14,14 +14,31 @@
 #ifdef MG_ENTERPRISE
 
 #include <spdlog/spdlog.h>
+#include <sys/types.h>
+#include <atomic>
+#include <cstdint>
+#include <libnuraft/async.hxx>
+#include <libnuraft/basic_types.hxx>
+#include <libnuraft/ptr.hxx>
+#include <libnuraft/state_machine.hxx>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_instance_context.hpp"
 #include "coordination/coordinator_log_store.hpp"
+#include "coordination/data_instance_context.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
-
-#include <optional>
+#include "nlohmann/json_fwd.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
 
@@ -105,6 +122,8 @@ class CoordinatorStateMachine final : public state_machine {
   auto GetMaxFailoverReplicaLag() const -> uint64_t;
   auto GetMaxReplicaReadLag() const -> uint64_t;
   auto GetDeltasBatchProgressSize() const -> uint64_t;
+  auto GetInstanceDownTimeoutSec() const -> uint32_t;
+  auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
 
  private:
   bool HandleMigration(LogStoreVersion stored_version);

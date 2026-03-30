@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <spdlog/common.h>
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/spdlog.h>
+#include <memory>
 #include <string>
 
 namespace memgraph::query {

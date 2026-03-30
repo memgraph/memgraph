@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "glue/auth_handler.hpp"
+#include <range/v3/all.hpp>
 
 #include <optional>
 #include <sstream>

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/dump.hpp"
+#include <range/v3/all.hpp>
 
 #include <algorithm>
 #include <limits>
@@ -29,8 +30,8 @@
 #include "query/trigger_context.hpp"
 #include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
-#include "range/v3/all.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
@@ -506,6 +507,9 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
 
                    // Dump all TTL configuration
                    CreateTTLConfigPullChunk(),
+
+                   // Dump all descriptions
+                   CreateDescriptionsPullChunk(),
 
                    // IMPORTANT NOTE: After this point stuff is restored from their owne KVStore not from our snapshot
 
@@ -1087,6 +1091,93 @@ PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
       stream->Result({TypedValue(os.str())});
     }
     return 0;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateDescriptionsPullChunk() {
+  auto entries = dba_->GetAllDescriptions();
+  auto db_name = db_acc_->name();
+
+  std::vector<std::string> queries;
+  queries.reserve(entries.size());
+
+  for (auto const &entry : entries) {
+    std::ostringstream os;
+    os << "SET DESCRIPTION ON ";
+
+    switch (entry.kind) {
+      case storage::DescriptionTargetKind::DATABASE:
+        os << "DATABASE " << EscapeName(db_name);
+        break;
+      case storage::DescriptionTargetKind::LABEL: {
+        os << "LABEL";
+        for (auto const &label : entry.labels) {
+          os << " :" << EscapeName(dba_->LabelToName(label));
+        }
+        break;
+      }
+      case storage::DescriptionTargetKind::EDGE_TYPE:
+        os << "EDGE TYPE :" << EscapeName(dba_->EdgeTypeToName(entry.edge_type));
+        break;
+      case storage::DescriptionTargetKind::LABEL_PROPERTY: {
+        os << "LABEL PROPERTY";
+        for (auto const &label : entry.labels) {
+          os << " :" << EscapeName(dba_->LabelToName(label));
+        }
+        os << "(" << EscapeName(dba_->PropertyToName(entry.property)) << ")";
+        break;
+      }
+      case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+        os << "EDGE TYPE PROPERTY :" << EscapeName(dba_->EdgeTypeToName(entry.edge_type)) << "("
+           << EscapeName(dba_->PropertyToName(entry.property)) << ")";
+        break;
+      case storage::DescriptionTargetKind::PROPERTY:
+        os << "PROPERTY " << EscapeName(dba_->PropertyToName(entry.property));
+        break;
+      case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN: {
+        os << "EDGE TYPE (";
+        for (auto const &label : entry.from_labels) {
+          os << ":" << EscapeName(dba_->LabelToName(label));
+        }
+        os << ")-[:" << EscapeName(dba_->EdgeTypeToName(entry.edge_type)) << "]->(";
+        for (auto const &label : entry.to_labels) {
+          os << ":" << EscapeName(dba_->LabelToName(label));
+        }
+        os << ")";
+        break;
+      }
+      case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
+        os << "EDGE TYPE PROPERTY (";
+        for (auto const &label : entry.from_labels) {
+          os << ":" << EscapeName(dba_->LabelToName(label));
+        }
+        os << ")-[:" << EscapeName(dba_->EdgeTypeToName(entry.edge_type)) << "]->(";
+        for (auto const &label : entry.to_labels) {
+          os << ":" << EscapeName(dba_->LabelToName(label));
+        }
+        os << ")(" << EscapeName(dba_->PropertyToName(entry.property)) << ")";
+        break;
+      }
+    }
+
+    os << " " << utils::Escape(entry.description) << ";";
+    queries.push_back(os.str());
+  }
+
+  return [global_index = 0U, results = std::move(queries)](
+             AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    size_t local_counter = 0;
+    while (global_index < results.size() && (!n || std::cmp_less(local_counter, *n))) {
+      stream->Result({TypedValue(results[global_index])});
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == results.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
   };
 }
 

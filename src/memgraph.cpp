@@ -616,16 +616,14 @@ int main(int argc, char **argv) {
       constexpr auto kRaftDataDir = "/high_availability/raft_data";
       auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
-      coordinator_state = std::make_shared<CoordinatorState>(CoordinatorInstanceInitConfig{
-          .coordinator_id = coordination_setup.coordinator_id,
-          .coordinator_port = coordination_setup.coordinator_port,
-          .bolt_port = extracted_bolt_port,
-          .management_port = coordination_setup.management_port,
-          .durability_dir = high_availability_data_dir,
-          .coordinator_hostname = coordination_setup.coordinator_hostname,
-          .nuraft_log_file = coordination_setup.nuraft_log_file,
-          .instance_down_timeout_sec = std::chrono::seconds(FLAGS_instance_down_timeout_sec),
-          .instance_health_check_frequency_sec = std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)});
+      coordinator_state = std::make_shared<CoordinatorState>(
+          CoordinatorInstanceInitConfig{.coordinator_id = coordination_setup.coordinator_id,
+                                        .coordinator_port = coordination_setup.coordinator_port,
+                                        .bolt_port = extracted_bolt_port,
+                                        .management_port = coordination_setup.management_port,
+                                        .durability_dir = high_availability_data_dir,
+                                        .coordinator_hostname = coordination_setup.coordinator_hostname,
+                                        .nuraft_log_file = coordination_setup.nuraft_log_file});
     } else {
       coordinator_state = std::make_shared<CoordinatorState>(
           ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});

@@ -17,7 +17,7 @@
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #pragma pop_macro("EOF")  // bring EOF back
 
-#include "query/frontend/ast/ast_storage.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -1360,6 +1360,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return UserProfileQuery*
    */
   antlrcpp::Any visitShowResourceConsumption(MemgraphCypher::ShowResourceConsumptionContext *ctx) override;
+
+  antlrcpp::Any visitDescriptionQuery(MemgraphCypher::DescriptionQueryContext *ctx) override;
+  antlrcpp::Any visitSetDescription(MemgraphCypher::SetDescriptionContext *ctx) override;
+  antlrcpp::Any visitDeleteDescription(MemgraphCypher::DeleteDescriptionContext *ctx) override;
+  antlrcpp::Any visitShowDescriptions(MemgraphCypher::ShowDescriptionsContext *ctx) override;
+  void FillDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx, DescriptionQuery *description_query);
 
  public:
   Query *query() { return query_; }

@@ -14,10 +14,17 @@
 #include <memory>
 #include <optional>
 
-#include "query/stream/streams.hpp"
-#include "query/trigger.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
+
+namespace memgraph::query {
+struct TriggerStore;
+
+namespace stream {
+class Streams;
+}  // namespace stream
+}  // namespace memgraph::query
 
 namespace memgraph::dbms {
 
@@ -43,6 +50,8 @@ class Database {
    */
   explicit Database(storage::Config config,
                     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
+
+  ~Database();
 
   /**
    * @brief Returns the raw storage pointer.
@@ -116,13 +125,7 @@ class Database {
    * @param force_directory Use the configured directory, do not try to decipher the multi-db version
    * @return DatabaseInfo
    */
-  DatabaseInfo GetInfo() const {
-    DatabaseInfo info;
-    info.storage_info = storage_->GetInfo();
-    info.triggers = trigger_store_.GetTriggerInfo().size();
-    info.streams = streams_.GetStreamInfo().size();
-    return info;
-  }
+  DatabaseInfo GetInfo() const;
 
   /**
    * @brief Switch storage to OnDisk
@@ -135,14 +138,14 @@ class Database {
    *
    * @return query::TriggerStore*
    */
-  query::TriggerStore *trigger_store() { return &trigger_store_; }
+  query::TriggerStore *trigger_store() { return trigger_store_.get(); }
 
   /**
    * @brief Returns the raw Streams pointer
    *
    * @return query::stream::Streams*
    */
-  query::stream::Streams *streams() { return &streams_; }
+  query::stream::Streams *streams() { return streams_.get(); }
 
   /**
    * @brief Returns the raw ThreadPool pointer (used for after commit triggers)
@@ -175,20 +178,14 @@ class Database {
    * This does not affect stream's, trigger's or ttl's durable data. We will restore to the state prior to shutdown.
    *
    */
-  void StopAllBackgroundTasks() {
-    streams()->Shutdown();
-    thread_pool()->ShutDown();
-    storage_->StopAllBackgroundTasks();
-  }
+  void StopAllBackgroundTasks();
 
  private:
-  std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
-  query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
-  utils::ThreadPool after_commit_trigger_pool_{1};  //!< Thread pool for executing after commit triggers
-  query::stream::Streams streams_;                  //!< Streams associated with the storage
-
-  // TODO: Move to a better place
-  query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
+  std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
+  std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
+  utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
+  std::unique_ptr<query::stream::Streams> streams_;     //!< Streams associated with the storage
+  query::PlanCacheLRU plan_cache_;                      //!< Plan cache associated with the storage
 };
 
 }  // namespace memgraph::dbms

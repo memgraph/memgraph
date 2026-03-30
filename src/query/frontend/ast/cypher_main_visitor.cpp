@@ -13,6 +13,7 @@
 #include <any>
 #include <cstring>
 #include <iterator>
+#include <range/v3/all.hpp>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -1269,9 +1270,11 @@ void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
 }  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitConfigKeyValuePair(MemgraphCypher::ConfigKeyValuePairContext *ctx) {
-  MG_ASSERT(ctx->literal().size() == 2);
-  return std::pair{std::any_cast<Expression *>(ctx->literal(0)->accept(this)),
-                   std::any_cast<Expression *>(ctx->literal(1)->accept(this))};
+  auto *key = std::any_cast<Expression *>(ctx->literal(0)->accept(this));
+  auto *value = ctx->parameter()
+                    ? static_cast<Expression *>(std::any_cast<ParameterLookup *>(ctx->parameter()->accept(this)))
+                    : std::any_cast<Expression *>(ctx->literal(1)->accept(this));
+  return std::pair{key, value};
 }
 
 antlrcpp::Any CypherMainVisitor::visitConfigMap(MemgraphCypher::ConfigMapContext *ctx) {
@@ -4274,6 +4277,95 @@ auto CypherMainVisitor::ExtractOperators(std::vector<antlr4::tree::ParseTree *> 
     }
   }
   return operators;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDescriptionQuery(MemgraphCypher::DescriptionQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "DescriptionQuery should have exactly one child!");
+  // Description string and labels are resolved at parse time, so caching would serve stale values.
+  query_info_.is_cacheable = false;
+  auto *description_query = std::any_cast<DescriptionQuery *>(ctx->children[0]->accept(this));
+  query_ = description_query;
+  return description_query;
+}
+
+void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx,
+                                              DescriptionQuery *description_query) {
+  if (ctx->LABEL() && ctx->PROPERTY()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::LABEL_PROPERTY;
+    for (auto *label : ctx->labelName()) {
+      description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+    for (auto *property : ctx->propertyKeyName()) {
+      description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
+    }
+  } else if (ctx->EDGE() && ctx->PROPERTY() && ctx->edgeTypePattern()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY;
+    auto *pattern = ctx->edgeTypePattern();
+    auto pattern_nodes = pattern->edgeTypePatternNode();
+    for (auto *label : pattern_nodes[0]->labelName()) {
+      description_query->from_labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+    description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(pattern->labelName()->accept(this)));
+    for (auto *label : pattern_nodes[1]->labelName()) {
+      description_query->to_labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+    for (auto *property : ctx->propertyKeyName()) {
+      description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
+    }
+  } else if (ctx->EDGE() && ctx->PROPERTY()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY;
+    description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));
+    for (auto *property : ctx->propertyKeyName()) {
+      description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
+    }
+  } else if (ctx->EDGE() && ctx->edgeTypePattern()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE_PATTERN;
+    auto *pattern = ctx->edgeTypePattern();
+    auto pattern_nodes = pattern->edgeTypePatternNode();
+    for (auto *label : pattern_nodes[0]->labelName()) {
+      description_query->from_labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+    description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(pattern->labelName()->accept(this)));
+    for (auto *label : pattern_nodes[1]->labelName()) {
+      description_query->to_labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+  } else if (ctx->LABEL()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::LABEL;
+    for (auto *label : ctx->labelName()) {
+      description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+  } else if (ctx->PROPERTY()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY;
+    description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName(0)->accept(this)));
+  } else if (ctx->EDGE()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE;
+    description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));
+  } else if (ctx->DATABASE()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::DATABASE;
+    description_query->database_name_ = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+  }
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetDescription(MemgraphCypher::SetDescriptionContext *ctx) {
+  auto *description_query = storage_->Create<DescriptionQuery>();
+  description_query->action_ = DescriptionQuery::Action::SET;
+  FillDescriptionTarget(ctx->descriptionTarget(), description_query);
+  const auto token_pos = static_cast<int>(ctx->StringLiteral()->getSymbol()->getTokenIndex());
+  description_query->description_ = parameters_->AtTokenPosition(token_pos).ValueString();
+  return description_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDeleteDescription(MemgraphCypher::DeleteDescriptionContext *ctx) {
+  auto *description_query = storage_->Create<DescriptionQuery>();
+  description_query->action_ = DescriptionQuery::Action::DELETE;
+  FillDescriptionTarget(ctx->descriptionTarget(), description_query);
+  return description_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowDescriptions(MemgraphCypher::ShowDescriptionsContext * /*ctx*/) {
+  auto *description_query = storage_->Create<DescriptionQuery>();
+  description_query->action_ = DescriptionQuery::Action::SHOW_ALL;
+  return description_query;
 }
 
 }  // namespace memgraph::query::frontend

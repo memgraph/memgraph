@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <mutex>
+#include <range/v3/all.hpp>
 #include <ranges>
 #include <shared_mutex>
 #include <unordered_set>

@@ -133,7 +133,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
       client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
       return;
     }
-  } catch (rpc::GenericRpcFailedException const &) {
+  } catch (rpc::RpcFailedException const &) {  // intentionally RpcFailedException and not Generic because we want to
+                                               // handle both Generic and timeout type of errors
     client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
     return;
   }

@@ -40,10 +40,21 @@ on:
         description: "If enabled, .old dir will be used."
         type: boolean
         default: true
+      shutdown-signal:
+        description: "Signal to use for terminating instances (KILL (SIGKILL), TERM (SIGTERM))"
+        type: choice
+        options:
+          - KILL
+          - TERM
+        default: KILL
 
 
   schedule:
     - cron: "0 0 * * *"  # Run daily at midnight
+
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && (endsWith(github.run_number, '0') || endsWith(github.run_number, '2') || endsWith(github.run_number, '4') || endsWith(github.run_number, '6') || endsWith(github.run_number, '8')) && 'jepsen-manual-slot-0' || github.event_name == 'workflow_dispatch' && 'jepsen-manual-slot-1' || 'jepsen-scheduled' }}
+  cancel-in-progress: false
 
 jobs:
   determine-sync:
@@ -85,6 +96,7 @@ jobs:
       num-tenants: ${{ matrix.mt && '3' || '1' }}
       concurrency: ""
       storage-backup-dir-enabled: true
+      shutdown-signal: :KILL
     secrets: inherit
 
   run-manual-jepsen-tests:
@@ -98,6 +110,7 @@ jobs:
       num-tenants: ${{ inputs.num-tenants }}
       concurrency: ${{ inputs.concurrency }}
       storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
+      shutdown-signal: ${{ inputs.shutdown-signal }}
     secrets: inherit
 
   run-manual-jepsen-tests-mt:
@@ -111,4 +124,5 @@ jobs:
       num-tenants: ${{ inputs.num-tenants }}
       concurrency: ${{ inputs.concurrency }}
       storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
+      shutdown-signal: ${{ inputs.shutdown-signal }}
     secrets: inherit

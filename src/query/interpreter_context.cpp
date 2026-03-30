@@ -16,6 +16,7 @@
 
 #include "parameters/parameters.hpp"
 #include "query/interpreter.hpp"
+#include "query/query_user.hpp"
 
 #include "system/include/system/system.hpp"
 #include "utils/resource_monitoring.hpp"

@@ -54,7 +54,7 @@ class DiskLabelIndex : public storage::LabelIndex {
 
   [[nodiscard]] bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
 
-  auto GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;
 
   std::unique_ptr<rocksdb::Transaction> CreateRocksDBTransaction() const;
 
@@ -69,7 +69,7 @@ class DiskLabelIndex : public storage::LabelIndex {
                                                             EntriesForDeletion const &entries_for_deletion);
 
   /// Returns false if there was no index to drop
-  bool DropIndex(LabelId label) override;
+  bool DropIndex(LabelId label, ActiveIndicesUpdater const &updater) override;
 
   RocksDBStorage *GetRocksDBStorage() const;
 

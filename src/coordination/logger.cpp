@@ -13,6 +13,12 @@
 
 #include "coordination/logger.hpp"
 
+#include <spdlog/logger.h>
+#include <spdlog/sinks/daily_file_sink.h>
+#include <ctime>
+#include <utility>
+#include <vector>
+
 namespace {
 constexpr int log_retention_count = 35;
 

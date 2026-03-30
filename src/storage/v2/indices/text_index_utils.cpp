@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <filesystem>
+#include <range/v3/all.hpp>
 
 #include <nlohmann/json.hpp>
 #include "query/exceptions.hpp"

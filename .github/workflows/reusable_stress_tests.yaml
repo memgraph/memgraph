@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: ''
+      replication_mode:
+        description: 'Replication mode for data instances: sync (default) or strict_sync'
+        required: false
+        type: string
+        default: 'sync'
       ref:
         description: 'Branch or tag to checkout'
         required: false
@@ -33,6 +38,7 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   INPUT_IMAGE: ${{ inputs.memgraph_image }}
   WORKLOAD_PATH: ${{ inputs.workload }}
+  REPLICATION_MODE: ${{ inputs.replication_mode }}
 
 jobs:
   stress_test_standalone:
@@ -48,7 +54,7 @@ jobs:
       BUILD_TYPE: Release
     steps:
       - name: Set up repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
@@ -114,7 +120,7 @@ jobs:
 
       - name: Upload stress test logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: stress-logs-native-standalone
           path: build/stress/logs/
@@ -147,7 +153,7 @@ jobs:
       BUILD_TYPE: Release
     steps:
       - name: Set up repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
@@ -216,7 +222,7 @@ jobs:
 
       - name: Upload stress test logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: stress-logs-native-ha
           path: build/stress/logs/
@@ -243,7 +249,7 @@ jobs:
     timeout-minutes: 180
     steps:
       - name: Set up repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
@@ -290,7 +296,7 @@ jobs:
           echo "MEMGRAPH_IMAGE=${repo_tag}" >> $GITHUB_ENV
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: '3.11'
 
@@ -307,7 +313,7 @@ jobs:
 
       - name: Upload stress test logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: stress-logs-docker-ha
           path: tests/stress/stress_logs/
@@ -325,7 +331,7 @@ jobs:
     timeout-minutes: 180
     steps:
       - name: Set up repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
@@ -391,7 +397,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: '3.11'
 
@@ -425,7 +431,7 @@ jobs:
 
       - name: Upload stress test logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: stress-logs-eks-ha
           path: tests/stress/stress_logs/

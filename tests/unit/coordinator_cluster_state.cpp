@@ -199,6 +199,8 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   // test default settings
   ASSERT_TRUE(cluster_state.GetSyncFailoverOnly());
   ASSERT_EQ(cluster_state.GetDeltasBatchProgressSize(), 100'000);
+  ASSERT_EQ(cluster_state.GetInstanceDownTimeoutSec(), 5);
+  ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{1});
 
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
@@ -208,7 +210,9 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
                                                  .sync_failover_only_ = false,
                                                  .max_failover_replica_lag_ = 25,
                                                  .max_replica_read_lag_ = 10,
-                                                 .deltas_batch_progress_size_ = 50'000};
+                                                 .deltas_batch_progress_size_ = 50'000,
+                                                 .instance_down_timeout_sec_ = 10,
+                                                 .instance_health_check_frequency_sec_ = 3};
   cluster_state.DoAction(delta_state);
 
   ptr<buffer> data;
@@ -221,6 +225,8 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   ASSERT_EQ(cluster_state.GetMaxFailoverReplicaLag(), 25);
   ASSERT_EQ(cluster_state.GetMaxReplicaReadLag(), 10);
   ASSERT_EQ(cluster_state.GetDeltasBatchProgressSize(), 50'000);
+  ASSERT_EQ(cluster_state.GetInstanceDownTimeoutSec(), 10);
+  ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{3});
 }
 
 TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
@@ -262,4 +268,7 @@ TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
   // by default read uint64_t::max()
   ASSERT_EQ(deserialized_cluster_state.GetMaxFailoverReplicaLag(), std::numeric_limits<uint64_t>::max());
   ASSERT_EQ(deserialized_cluster_state.GetMaxReplicaReadLag(), std::numeric_limits<uint64_t>::max());
+  // by default read 5 and 1
+  ASSERT_EQ(deserialized_cluster_state.GetInstanceDownTimeoutSec(), 5);
+  ASSERT_EQ(deserialized_cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{1});
 }

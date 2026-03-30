@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/edge_accessor.hpp"
+#include <range/v3/all.hpp>
 
 #include <ranges>
 #include <tuple>
