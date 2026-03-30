@@ -3016,7 +3016,7 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       const auto &e = *value.enum_v;
       py::Object py_type_name(PyUnicode_FromStringAndSize(e.type_name.c_str(), e.type_name.size()));
       py::Object py_value_name(PyUnicode_FromStringAndSize(e.value_name.c_str(), e.value_name.size()));
-      return py_mgp.CallMethod("MgpEnum", py_type_name, py_value_name);
+      return py_mgp.CallMethod("Enum", py_type_name, py_value_name);
     }
   }
 }
@@ -3399,25 +3399,25 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_value from Point3d"};
     }
-  } else if (is_mgp_instance(o, "MgpEnum")) {
+  } else if (is_mgp_instance(o, "Enum")) {
     py::Object py_type_name(PyObject_GetAttrString(o, "type_name"));
     py::Object py_value_name(PyObject_GetAttrString(o, "value_name"));
     if (!py_type_name || !py_value_name) {
       PyErr_Clear();
-      throw std::invalid_argument("'mgp.MgpEnum' is missing type_name or value_name attribute");
+      throw std::invalid_argument("'mgp.Enum' is missing type_name or value_name attribute");
     }
     const char *type_name = PyUnicode_AsUTF8(py_type_name.Ptr());
     const char *value_name = PyUnicode_AsUTF8(py_value_name.Ptr());
     if (!type_name || !value_name) {
       PyErr_Clear();
-      throw std::invalid_argument("'mgp.MgpEnum' type_name and value_name must be strings");
+      throw std::invalid_argument("'mgp.Enum' type_name and value_name must be strings");
     }
     memgraph::utils::Allocator<mgp_enum> allocator(memory->impl);
     auto *mgp_e = allocator.new_object<mgp_enum>(std::string_view{type_name}, std::string_view{value_name});
     if (const auto err = mgp_value_make_enum(mgp_e, &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
     } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::runtime_error{"Unexpected error while creating mgp_value from MgpEnum"};
+      throw std::runtime_error{"Unexpected error while creating mgp_value from Enum"};
     }
   } else {
     throw std::invalid_argument("Unsupported PyObject conversion");

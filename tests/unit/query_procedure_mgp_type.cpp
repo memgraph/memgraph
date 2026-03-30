@@ -18,6 +18,7 @@
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/enum.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/point.hpp"
 
@@ -563,4 +564,26 @@ TYPED_TEST(CypherType, Point3dSatisfiesType) {
                                             EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_2d),
                                             EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_enum)});
   mgp_value_destroy(mgp_pt_val);
+}
+
+TYPED_TEST(CypherType, EnumSatisfiesType) {
+  mgp_memory memory{memgraph::utils::NewDeleteResource()};
+  mgp_enum *e = nullptr;
+  ASSERT_EQ(mgp_enum_make("Color", "Red", &memory, &e), mgp_error::MGP_ERROR_NO_ERROR);
+  auto *mgp_enum_val = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_enum, e);
+
+  auto tv_enum = memgraph::query::TypedValue(
+      memgraph::storage::Enum(memgraph::storage::EnumTypeId{1}, memgraph::storage::EnumValueId{2}));
+
+  CheckSatisfiesTypesAndNullable(
+      mgp_enum_val,
+      tv_enum,
+      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_enum)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_enum_val,
+                                           tv_enum,
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_2d),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_3d)});
+  mgp_value_destroy(mgp_enum_val);
 }

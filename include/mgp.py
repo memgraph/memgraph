@@ -1495,7 +1495,7 @@ class Point3d:
         return f"Point3d(x={self._x}, y={self._y}, z={self._z}, srid={self._srid})"
 
 
-class MgpEnum:
+class Enum:
     """Represents an enum value with a type name and value name."""
 
     __slots__ = ("_type_name", "_value_name")
@@ -1513,7 +1513,7 @@ class MgpEnum:
         return self._value_name
 
     def __eq__(self, other):
-        if not isinstance(other, MgpEnum):
+        if not isinstance(other, Enum):
             return NotImplemented
         return self._type_name == other._type_name and self._value_name == other._value_name
 
@@ -1521,12 +1521,10 @@ class MgpEnum:
         return hash((self._type_name, self._value_name))
 
     def __repr__(self):
-        return f"MgpEnum(type_name='{self._type_name}', value_name='{self._value_name}')"
+        return f"Enum(type_name='{self._type_name}', value_name='{self._value_name}')"
 
 
-Any = typing.Union[
-    bool, str, Number, Map, Path, list, Date, LocalTime, LocalDateTime, Duration, Point2d, Point3d, MgpEnum
-]
+Any = typing.Union[bool, str, Number, Map, Path, list, Date, LocalTime, LocalDateTime, Duration, Point2d, Point3d, Enum]
 
 List = typing.List
 
@@ -1569,7 +1567,7 @@ def _typing_to_cypher_type(type_):
         Duration: _mgp.type_duration(),
         Point2d: _mgp.type_point_2d(),
         Point3d: _mgp.type_point_3d(),
-        MgpEnum: _mgp.type_enum(),
+        Enum: _mgp.type_enum(),
     }
     try:
         return simple_types[type_]
@@ -1684,7 +1682,7 @@ def _is_typing_same(type1_, type2_):
         Duration: 17,
         Point2d: 18,
         Point3d: 19,
-        MgpEnum: 20,
+        Enum: 20,
     }
     try:
         return simple_types[type1_] == simple_types[type2_]

@@ -4716,6 +4716,12 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Value &value) {
       return os << value.ValueDuration().ToString();
     case mgp::Type::ZonedDateTime:
       return os << value.ValueZonedDateTime().ToString();
+    case mgp::Type::Point2d:
+      return os << value.ValuePoint2d().ToString();
+    case mgp::Type::Point3d:
+      return os << value.ValuePoint3d().ToString();
+    case mgp::Type::Enum:
+      return os << value.ValueEnum().ToString();
     default:
       throw mgp::ValueException("Unknown value type");
   }
@@ -4751,6 +4757,14 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Type &type) {
       return os << "local_date_time";
     case mgp::Type::Duration:
       return os << "duration";
+    case mgp::Type::ZonedDateTime:
+      return os << "zoned_date_time";
+    case mgp::Type::Point2d:
+      return os << "point_2d";
+    case mgp::Type::Point3d:
+      return os << "point_3d";
+    case mgp::Type::Enum:
+      return os << "enum";
     default:
       throw ValueException("Unknown type");
   }
@@ -4789,6 +4803,12 @@ inline std::string Value::ToString() const {
       return ValueMap().ToString();
     case Type::Path:
       return ValuePath().ToString();
+    case Type::Point2d:
+      return ValuePoint2d().ToString();
+    case Type::Point3d:
+      return ValuePoint3d().ToString();
+    case Type::Enum:
+      return ValueEnum().ToString();
     default:
       throw ValueException("Undefined behaviour");
   }

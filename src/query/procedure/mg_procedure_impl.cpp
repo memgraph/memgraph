@@ -312,7 +312,7 @@ MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&...args) {
 
 /// Split "TypeName::ValueName" into (type_name, value_name) pair.
 std::pair<std::string_view, std::string_view> SplitEnumName(std::string_view full_name) {
-  auto sep_pos = full_name.find("::");
+  auto sep_pos = full_name.rfind("::");
   auto type_name = full_name.substr(0, sep_pos);
   auto value_name = sep_pos != std::string_view::npos ? full_name.substr(sep_pos + 2) : std::string_view{};
   return {type_name, value_name};
