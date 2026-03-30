@@ -7,5 +7,5 @@ query: |
   RETURN valueType(row.list_col) AS list_col_type, row.list_col AS list_col
 
 output:
-  - list_col_type: 'LIST OF INTEGER'
+  - list_col_type: 'LIST'
     list_col: [1, 2, 3, 4, 5]
