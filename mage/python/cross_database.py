@@ -18,6 +18,7 @@ import psycopg2
 import pyarrow.flight as flight
 import pyodbc
 from neo4j import GraphDatabase
+from neo4j.spatial import Point as Neo4jPoint
 from neo4j.time import Date as Neo4jDate
 from neo4j.time import DateTime as Neo4jDateTime
 from neo4j.time import Duration as Neo4jDuration
@@ -211,10 +212,15 @@ def _convert_bolt_value(value):
     except ImportError:
         pass
 
+    if isinstance(value, Neo4jPoint):
+        raise ValueError(f"Point type is not yet supported in cross-database queries: {value}")
+
     if isinstance(value, list):
         return [_convert_bolt_value(item) for item in value]
 
     if isinstance(value, dict):
+        if value.get("__type") == "mg_enum":
+            raise ValueError(f"Enum type is not yet supported in cross-database queries: {value.get('__value')}")
         return {key: _convert_bolt_value(val) for key, val in value.items()}
 
     return value
