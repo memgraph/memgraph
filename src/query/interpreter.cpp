@@ -9120,7 +9120,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // Trigger first failed query
     metrics::FirstFailedQuery();
     if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
-      h->failed_query->Increment();
+      h->failed_prepare->Increment();
     AbortCommand(query_execution_ptr);
     throw;
   }
