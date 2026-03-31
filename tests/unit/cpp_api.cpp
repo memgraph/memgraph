@@ -1360,7 +1360,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
   auto vector_index_info_list = vector_index_info[0].ValueList();
   ASSERT_EQ(vector_index_info_list.Size(), 9);
   ASSERT_EQ(vector_index_info_list[0].ValueString(), index_name);
-  ASSERT_EQ(vector_index_info_list[1].ValueString(), label_name);
+  ASSERT_EQ(vector_index_info_list[1].ValueString(), std::string(":") + label_name);
   ASSERT_EQ(vector_index_info_list[2].ValueString(), property_name);
   ASSERT_EQ(vector_index_info_list[3].ValueString(), metric_as_str);
   ASSERT_EQ(vector_index_info_list[4].ValueInt(), dimension);
@@ -1475,7 +1475,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
   auto vector_index_info_list = vector_index_info[0].ValueList();
   ASSERT_EQ(vector_index_info_list.Size(), 9);
   ASSERT_EQ(vector_index_info_list[0].ValueString(), index_name);
-  ASSERT_EQ(vector_index_info_list[1].ValueString(), edge_type);
+  ASSERT_EQ(vector_index_info_list[1].ValueString(), std::string(":") + edge_type);
   ASSERT_EQ(vector_index_info_list[2].ValueString(), property_name);
   ASSERT_EQ(vector_index_info_list[3].ValueString(), metric_as_str);
   ASSERT_EQ(vector_index_info_list[4].ValueInt(), dimension);
