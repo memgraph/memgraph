@@ -1005,9 +1005,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     DMG_ASSERT(!order_by_stack_.empty(), "CheckOrderByElimination called with empty stack");
     auto &ctx = order_by_stack_.back();
 
-    // The new scan must be ScanAllByLabelProperties.
-    // Note: there is no separate ScanAllByLabelPropertyValue or ScanAllByLabelPropertyRange —
-    // ScanAllByLabelProperties handles all label+property scan variants (equality, range, composite).
+    // The new scan must be ScanAllByLabelProperties — the only label+property scan operator.
+    // Unlike edge scans (which have separate Value/Range/Type variants), node label+property
+    // scans are unified: ScanAllByLabelProperties handles equality, range, and composite filters
+    // via its expression_ranges_ vector. If a new label+property scan type is ever added,
+    // it must be handled here for ORDER BY elimination to apply.
     if (new_scan->GetTypeInfo() != ScanAllByLabelProperties::kType) return;
 
     // Track the scan symbol's name as it flows upward through Produce operators.
@@ -1055,19 +1057,22 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         tracked_name = std::move(*resolved);
         continue;
       }
-      bool order_preserving = type_info == Filter::kType ||                 // removes rows, 1:1
-                              type_info == ConstructNamedPath::kType ||     // builds path value, 1:1
-                              type_info == EdgeUniquenessFilter::kType ||   // removes rows, 1:1
-                              type_info == Limit::kType ||                  // truncates, 1:1
-                              type_info == Skip::kType ||                   // drops first N, 1:1
-                              type_info == Expand::kType ||                 // 1:N, preserves input-symbol order
-                              type_info == ExpandVariable::kType ||         // 1:N, preserves input-symbol order
-                              type_info == Optional::kType ||               // 1:1 or 1:N, preserves input-symbol order
-                              type_info == Distinct::kType ||               // streaming dedup, emits in input order
-                              type_info == EvaluatePatternFilter::kType ||  // EXISTS subquery, essentially a filter
-                              type_info == RollUpApply::kType ||  // pattern comprehension, collects into list, 1:1
-                              type_info == Apply::kType ||        // CALL subquery, 1:N, preserves input-symbol order
-                              type_info == Unwind::kType;         // 1:N, preserves input-symbol order
+      bool order_preserving =
+          type_info == Filter::kType ||                // removes rows, 1:1
+          type_info == ConstructNamedPath::kType ||    // builds path value, 1:1
+          type_info == EdgeUniquenessFilter::kType ||  // removes rows, 1:1
+          type_info == Limit::kType ||                 // truncates, 1:1
+          type_info == Skip::kType ||                  // drops first N, 1:1
+          type_info == Expand::kType ||                // 1:N, preserves input-symbol order
+          type_info == ExpandVariable::kType ||        // 1:N, preserves input-symbol order
+          type_info == Optional::kType ||              // 1:1 or 1:N, preserves input-symbol order
+          type_info == Distinct::kType ||              // streaming hash-based dedup, emits in encounter order
+                                           // NOTE: relies on hash-based implementation preserving input order;
+                                           // if Distinct changes to sort-based dedup, this becomes unsafe.
+          type_info == EvaluatePatternFilter::kType ||  // EXISTS subquery, essentially a filter
+          type_info == RollUpApply::kType ||            // pattern comprehension, collects into list, 1:1
+          type_info == Apply::kType ||                  // CALL subquery, 1:N, preserves input-symbol order
+          type_info == Unwind::kType;                   // 1:N, preserves input-symbol order
       if (!order_preserving) return;
     }
 
@@ -1079,26 +1084,42 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &ob_name = ctx.scan_symbol.name();
     if (tracked_name != ob_name && pre_last_produce_name != ob_name) return;
 
-    // Match ORDER BY properties against the index as a strict prefix.
+    // Match ORDER BY properties against the index columns, allowing equality-pinned
+    // columns to be skipped. Walk index columns left to right with an ORDER BY pointer:
+    //   - If the index column matches the next ORDER BY column, advance the pointer.
+    //   - Else if the column is equality-pinned (WHERE col = val), skip it — all rows
+    //     share the same value for this column so it doesn't affect sort order.
+    //   - Else, bail — there's an unsorted gap.
     //
-    // For composite indexes, the ORDER BY columns must exactly match a leading prefix
-    // of the index columns, in the same order. For example, with index (a, b, c):
-    //   ORDER BY a       → OK (prefix of length 1)
-    //   ORDER BY a, b    → OK (prefix of length 2)
-    //   ORDER BY a, b, c → OK (full match)
-    //   ORDER BY b       → NOT OK (not a prefix)
-    //   ORDER BY a, c    → NOT OK (gap — b is missing)
-    //
-    // Equality-pinned columns are NOT skipped: even though WHERE a = 5 makes column a
-    // constant, ORDER BY must still start from the first index column to be eliminated.
+    // Examples with index (a, b, c):
+    //   WHERE a = 5   ORDER BY b       → OK  (a pinned, b matches)
+    //   WHERE a = 5   ORDER BY b, c    → OK  (a pinned, b and c match)
+    //   WHERE a = 5   ORDER BY a, b    → OK  (a matches, b matches)
+    //   WHERE a = 5   ORDER BY c       → FAIL (b is not pinned and not in ORDER BY)
+    //   WHERE a > 5   ORDER BY b       → FAIL (a is range-filtered, not pinned)
+    //   ORDER BY a, b                  → OK  (strict prefix, no skipping needed)
+    //   ORDER BY a, b, c               → OK  (full match)
+    //   ORDER BY b                     → FAIL (a is not pinned)
     auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(new_scan);
     const auto &index_properties = scan_by_props->properties_;
+    const auto &expr_ranges = scan_by_props->expression_ranges_;
 
-    if (ctx.property_paths.size() > index_properties.size()) return;
-
-    for (size_t i = 0; i < ctx.property_paths.size(); ++i) {
-      if (index_properties[i] != ctx.property_paths[i]) return;
+    size_t ob_ptr = 0;
+    for (size_t i = 0; i < index_properties.size() && ob_ptr < ctx.property_paths.size(); ++i) {
+      if (index_properties[i] == ctx.property_paths[ob_ptr]) {
+        // This index column matches the next ORDER BY column.
+        ++ob_ptr;
+      } else if (expr_ranges[i].type_ == PropertyFilter::Type::EQUAL ||
+                 expr_ranges[i].type_ == PropertyFilter::Type::IN) {
+        // Equality-pinned column — all rows have the same value, skip it.
+        continue;
+      } else {
+        // Non-pinned column that doesn't match ORDER BY — gap in coverage.
+        return;
+      }
     }
+
+    if (ob_ptr != ctx.property_paths.size()) return;  // Not all ORDER BY columns were matched
 
     ctx.should_eliminate = true;
   }

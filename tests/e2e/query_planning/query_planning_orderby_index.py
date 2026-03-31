@@ -71,6 +71,20 @@ def test_plan_with_renaming_allows_elimination(memgraph):
     assert expected == actual
 
 
+def test_plan_equality_skip_elimination(memgraph):
+    """WHERE a = 5 ORDER BY b eliminated when index is (a, b) — equality-pinned skip."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+
+    expected = [
+        " * Produce {n}",
+        " * ScanAllByLabelProperties (n :L {a, b})",
+        " * Once",
+    ]
+
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.a = 5 RETURN n ORDER BY n.b")
+    assert expected == actual
+
+
 def test_plan_reverse_column_order_not_eliminated(memgraph):
     """ORDER BY n.b, n.a not eliminated when index is (a, b)."""
     memgraph.execute("CREATE INDEX ON :L(a, b);")
@@ -116,7 +130,7 @@ def test_correctness_with_limit(memgraph):
 
 
 def test_correctness_equality_skip(memgraph):
-    """Equality on first column, ORDER BY second column — results sorted by second."""
+    """Equality on first column, ORDER BY second — elimination fires via equality-pinned skip."""
     memgraph.execute("CREATE INDEX ON :L(a, b);")
     for b in [3, 1, 4, 1, 5]:
         memgraph.execute(f"CREATE (:L {{a: 10, b: {b}}})")
@@ -152,7 +166,7 @@ def test_correctness_with_expand(memgraph):
 
 
 def test_correctness_equality_plus_range(memgraph):
-    """WHERE a = val AND b > val ORDER BY b — correct order after equality skip."""
+    """WHERE a = val AND b > val ORDER BY b — elimination fires, correct order via equality-pinned skip."""
     memgraph.execute("CREATE INDEX ON :L(a, b);")
     for b in [50, 20, 40, 10, 30]:
         memgraph.execute(f"CREATE (:L {{a: 1, b: {b}}})")
