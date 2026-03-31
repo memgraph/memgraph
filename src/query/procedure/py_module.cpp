@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "mg_procedure.h"
 #include "query/exceptions.hpp"
@@ -1633,6 +1634,7 @@ PyObject *PyMgpModuleTypeList(PyObject *mod, PyObject *obj) {
     return MakePyCypherType(type);                                                            \
   }
 
+namespace {
 DEFINE_PY_MGP_MODULE_TYPE(Any, any);
 DEFINE_PY_MGP_MODULE_TYPE(Bool, bool);
 DEFINE_PY_MGP_MODULE_TYPE(String, string);
@@ -1651,6 +1653,7 @@ DEFINE_PY_MGP_MODULE_TYPE(ZonedDateTime, zoned_date_time);
 DEFINE_PY_MGP_MODULE_TYPE(Point2d, point_2d);
 DEFINE_PY_MGP_MODULE_TYPE(Point3d, point_3d);
 DEFINE_PY_MGP_MODULE_TYPE(Enum, enum);
+}  // namespace
 
 static PyMethodDef PyMgpModuleMethods[] = {
     {"type_nullable",
@@ -2994,30 +2997,32 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_zoned_date_time;
     }
     case MGP_VALUE_TYPE_POINT_2D: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
+      const py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       const auto &pt = value.point_2d_v->point;
-      py::Object py_x(PyFloat_FromDouble(pt.x()));
-      py::Object py_y(PyFloat_FromDouble(pt.y()));
-      py::Object py_srid(PyLong_FromLong(memgraph::storage::CrsToSrid(pt.crs()).value_of()));
+      const py::Object py_x(PyFloat_FromDouble(pt.x()));
+      const py::Object py_y(PyFloat_FromDouble(pt.y()));
+      const py::Object py_srid(PyLong_FromLong(memgraph::storage::CrsToSrid(pt.crs()).value_of()));
       return py_mgp.CallMethod("Point2d", py_x, py_y, py_srid);
     }
     case MGP_VALUE_TYPE_POINT_3D: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
+      const py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       const auto &pt = value.point_3d_v->point;
-      py::Object py_x(PyFloat_FromDouble(pt.x()));
-      py::Object py_y(PyFloat_FromDouble(pt.y()));
-      py::Object py_z(PyFloat_FromDouble(pt.z()));
-      py::Object py_srid(PyLong_FromLong(memgraph::storage::CrsToSrid(pt.crs()).value_of()));
+      const py::Object py_x(PyFloat_FromDouble(pt.x()));
+      const py::Object py_y(PyFloat_FromDouble(pt.y()));
+      const py::Object py_z(PyFloat_FromDouble(pt.z()));
+      const py::Object py_srid(PyLong_FromLong(memgraph::storage::CrsToSrid(pt.crs()).value_of()));
       return py_mgp.CallMethod("Point3d", py_x, py_y, py_z, py_srid);
     }
     case MGP_VALUE_TYPE_ENUM: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
+      const py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       const auto &e = *value.enum_v;
-      py::Object py_type_name(PyUnicode_FromStringAndSize(e.type_name.c_str(), e.type_name.size()));
-      py::Object py_value_name(PyUnicode_FromStringAndSize(e.value_name.c_str(), e.value_name.size()));
+      const py::Object py_type_name(
+          PyUnicode_FromStringAndSize(e.type_name.c_str(), static_cast<Py_ssize_t>(e.type_name.size())));
+      const py::Object py_value_name(
+          PyUnicode_FromStringAndSize(e.value_name.c_str(), static_cast<Py_ssize_t>(e.value_name.size())));
       return py_mgp.CallMethod("Enum", py_type_name, py_value_name);
     }
   }
@@ -3352,23 +3357,23 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
-    static_cast<void>(duration.release());
+    static_cast<void>(duration.release());  // NOLINT(bugprone-unused-return-value)
   } else if (is_mgp_instance(o, "Point2d")) {
-    py::Object py_x(PyObject_GetAttrString(o, "x"));
-    py::Object py_y(PyObject_GetAttrString(o, "y"));
-    py::Object py_srid(PyObject_GetAttrString(o, "srid"));
+    const py::Object py_x(PyObject_GetAttrString(o, "x"));
+    const py::Object py_y(PyObject_GetAttrString(o, "y"));
+    const py::Object py_srid(PyObject_GetAttrString(o, "srid"));
     if (!py_x || !py_y || !py_srid) {
       PyErr_Clear();
       throw std::invalid_argument("'mgp.Point2d' is missing x, y, or srid attribute");
     }
-    double x = PyFloat_AsDouble(py_x.Ptr());
-    double y = PyFloat_AsDouble(py_y.Ptr());
-    long srid_long = PyLong_AsLong(py_srid.Ptr());
+    const double x = PyFloat_AsDouble(py_x.Ptr());
+    const double y = PyFloat_AsDouble(py_y.Ptr());
+    const long srid_long = PyLong_AsLong(py_srid.Ptr());
     if (PyErr_Occurred()) {
       PyErr_Clear();
       throw std::invalid_argument("'mgp.Point2d' has invalid x, y, or srid value");
     }
-    if (srid_long < 0 || srid_long > std::numeric_limits<uint16_t>::max()) {
+    if (srid_long < 0 || std::cmp_greater(srid_long, std::numeric_limits<uint16_t>::max())) {
       throw std::invalid_argument("'mgp.Point2d' srid must be between 0 and 65535");
     }
     auto srid = static_cast<uint16_t>(srid_long);
@@ -3385,23 +3390,23 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::runtime_error{"Unexpected error while creating mgp_value from Point2d"};
     }
   } else if (is_mgp_instance(o, "Point3d")) {
-    py::Object py_x(PyObject_GetAttrString(o, "x"));
-    py::Object py_y(PyObject_GetAttrString(o, "y"));
-    py::Object py_z(PyObject_GetAttrString(o, "z"));
-    py::Object py_srid(PyObject_GetAttrString(o, "srid"));
+    const py::Object py_x(PyObject_GetAttrString(o, "x"));
+    const py::Object py_y(PyObject_GetAttrString(o, "y"));
+    const py::Object py_z(PyObject_GetAttrString(o, "z"));
+    const py::Object py_srid(PyObject_GetAttrString(o, "srid"));
     if (!py_x || !py_y || !py_z || !py_srid) {
       PyErr_Clear();
       throw std::invalid_argument("'mgp.Point3d' is missing x, y, z, or srid attribute");
     }
-    double x = PyFloat_AsDouble(py_x.Ptr());
-    double y = PyFloat_AsDouble(py_y.Ptr());
-    double z = PyFloat_AsDouble(py_z.Ptr());
-    long srid_long = PyLong_AsLong(py_srid.Ptr());
+    const double x = PyFloat_AsDouble(py_x.Ptr());
+    const double y = PyFloat_AsDouble(py_y.Ptr());
+    const double z = PyFloat_AsDouble(py_z.Ptr());
+    const long srid_long = PyLong_AsLong(py_srid.Ptr());
     if (PyErr_Occurred()) {
       PyErr_Clear();
       throw std::invalid_argument("'mgp.Point3d' has invalid x, y, z, or srid value");
     }
-    if (srid_long < 0 || srid_long > std::numeric_limits<uint16_t>::max()) {
+    if (srid_long < 0 || std::cmp_greater(srid_long, std::numeric_limits<uint16_t>::max())) {
       throw std::invalid_argument("'mgp.Point3d' srid must be between 0 and 65535");
     }
     auto srid = static_cast<uint16_t>(srid_long);
@@ -3418,8 +3423,8 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::runtime_error{"Unexpected error while creating mgp_value from Point3d"};
     }
   } else if (is_mgp_instance(o, "Enum")) {
-    py::Object py_type_name(PyObject_GetAttrString(o, "type_name"));
-    py::Object py_value_name(PyObject_GetAttrString(o, "value_name"));
+    const py::Object py_type_name(PyObject_GetAttrString(o, "type_name"));
+    const py::Object py_value_name(PyObject_GetAttrString(o, "value_name"));
     if (!py_type_name || !py_value_name) {
       PyErr_Clear();
       throw std::invalid_argument("'mgp.Enum' is missing type_name or value_name attribute");
