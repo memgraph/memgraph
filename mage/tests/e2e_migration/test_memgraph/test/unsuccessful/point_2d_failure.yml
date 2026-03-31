@@ -1,0 +1,9 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.point_2d_col AS point_2d_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN row
+
+exception: true
