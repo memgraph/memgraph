@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -670,6 +670,7 @@ enum mgp_error mgp_result_reserve(struct mgp_result *res, size_t n);
 /// mgp_error::MGP_ERROR_LOGIC_ERROR `val` does not satisfy the type of the field name `field_name`.
 enum mgp_error mgp_result_record_insert(struct mgp_result_record *record, const char *field_name,
                                         struct mgp_value *val);
+
 ///@}
 
 /// @name Graph Constructs
@@ -1058,6 +1059,12 @@ enum mgp_error mgp_graph_is_mutable(struct mgp_graph *graph, int *result);
 /// Current implementation always returns without errors.
 enum mgp_error mgp_graph_is_transactional(struct mgp_graph *graph, int *result);
 
+/// Get the transaction ID associated with the current graph access.
+/// The result is set to the transaction ID if a transaction is active.
+/// Return mgp_error::MGP_ERROR_NO_ERROR on success.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there is no active transaction.
+enum mgp_error mgp_graph_get_transaction_id(struct mgp_graph *graph, int64_t *result);
+
 /// Add a new vertex to the graph.
 /// Resulting vertex must be freed using mgp_vertex_destroy.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
@@ -1275,10 +1282,12 @@ struct mgp_local_date_time_parameters {
 struct mgp_zoned_date_time_parameters {
   struct mgp_date_parameters *date_parameters;
   struct mgp_local_time_parameters *local_time_parameters;
+
   union {
     int32_t offset_in_minutes;
     const char *timezone_name;
   } timezone_info;
+
   int is_named_timezone;
 };
 
@@ -1641,8 +1650,12 @@ struct mgp_func;
 
 /// All available log levels that can be used in mgp_log function
 MGP_ENUM_CLASS mgp_log_level{
-    MGP_LOG_LEVEL_TRACE, MGP_LOG_LEVEL_DEBUG, MGP_LOG_LEVEL_INFO,
-    MGP_LOG_LEVEL_WARN,  MGP_LOG_LEVEL_ERROR, MGP_LOG_LEVEL_CRITICAL,
+    MGP_LOG_LEVEL_TRACE,
+    MGP_LOG_LEVEL_DEBUG,
+    MGP_LOG_LEVEL_INFO,
+    MGP_LOG_LEVEL_WARN,
+    MGP_LOG_LEVEL_ERROR,
+    MGP_LOG_LEVEL_CRITICAL,
 };
 
 /// Entry-point for a query module read procedure, invoked through openCypher.

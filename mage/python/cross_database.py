@@ -46,10 +46,15 @@ class Constants:
 # ---------------------------------------------------------------------------
 
 
-def _get_query_hash(query: str, config: mgp.Map, params: mgp.Nullable[mgp.Any] = None) -> str:
+def _get_cache_key(tx_id: int, query: str, config: mgp.Map, params: mgp.Nullable[mgp.Any] = None) -> str:
     """
-    Create a hash from query, config, and params to use as a cache key.
+    Create a cache key from the transaction ID, query, config, and params.
 
+    The transaction ID isolates concurrent transactions so they don't interfere
+    with each other's connections or cursors. The query/config/params hash
+    distinguishes multiple cross-database calls within the same transaction.
+
+    :param tx_id: Memgraph transaction ID (unique per transaction)
     :param query: The query string (or table name, endpoint, file path, etc.)
     :param config: Configuration map
     :param params: Optional query parameters
@@ -66,7 +71,7 @@ def _get_query_hash(query: str, config: mgp.Map, params: mgp.Nullable[mgp.Any] =
         else:
             params_str = str(params)
 
-    hash_input = f"{query}|{config_str}|{params_str}"
+    hash_input = f"{tx_id}|{query}|{config_str}|{params_str}"
     return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
 
 
@@ -225,6 +230,7 @@ def _build_uri(config: mgp.Map) -> str:
 
 def _bolt_init_state(
     state_dict: dict,
+    tx_id: int,
     label_or_rel_or_query: str,
     config: mgp.Map,
     config_path: str,
@@ -236,9 +242,9 @@ def _bolt_init_state(
         config = _combine_config(config=config, config_path=config_path)
 
     query = _formulate_cypher_query(label_or_rel_or_query)
-    query_hash = _get_query_hash(query, config, params)
+    cache_key = _get_cache_key(tx_id, query, config, params)
 
-    if query_hash in state_dict:
+    if cache_key in state_dict:
         raise RuntimeError(
             "Migrate module with these parameters is already running. "
             "Please wait for it to finish before starting a new one."
@@ -259,7 +265,7 @@ def _bolt_init_state(
     cypher_params = params if params is not None else {}
     result = session.run(query, parameters=cypher_params)
 
-    state_dict[query_hash] = {
+    state_dict[cache_key] = {
         Constants.DRIVER: driver,
         Constants.SESSION: session,
         Constants.RESULT: result,
@@ -268,6 +274,7 @@ def _bolt_init_state(
 
 def _bolt_fetch_batch(
     state_dict: dict,
+    tx_id: int,
     label_or_rel_or_query: str,
     config: mgp.Map,
     config_path: str,
@@ -277,8 +284,8 @@ def _bolt_fetch_batch(
         config = _combine_config(config=config, config_path=config_path)
 
     query = _formulate_cypher_query(label_or_rel_or_query)
-    query_hash = _get_query_hash(query, config, params)
-    result = state_dict[query_hash][Constants.RESULT]
+    cache_key = _get_cache_key(tx_id, query, config, params)
+    result = state_dict[cache_key][Constants.RESULT]
 
     batch = []
     for record in result:
@@ -287,20 +294,20 @@ def _bolt_fetch_batch(
             break
 
     if not batch:
-        _bolt_cleanup_by_hash(state_dict, query_hash)
+        _bolt_cleanup_by_key(state_dict, cache_key)
 
     return batch
 
 
-def _bolt_cleanup_by_hash(state_dict: dict, query_hash: str):
-    if query_hash in state_dict:
-        session = state_dict[query_hash].get(Constants.SESSION)
-        driver = state_dict[query_hash].get(Constants.DRIVER)
+def _bolt_cleanup_by_key(state_dict: dict, cache_key: str):
+    if cache_key in state_dict:
+        session = state_dict[cache_key].get(Constants.SESSION)
+        driver = state_dict[cache_key].get(Constants.DRIVER)
         if session:
             session.close()
         if driver:
             driver.close()
-        state_dict.pop(query_hash, None)
+        state_dict.pop(cache_key, None)
 
 
 # ---------------------------------------------------------------------------
@@ -311,15 +318,17 @@ _bolt_state = {}
 
 
 def _init_bolt(
+    ctx: mgp.ProcCtx,
     label_or_rel_or_query: str,
     config: mgp.Map,
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
-    _bolt_init_state(_bolt_state, label_or_rel_or_query, config, config_path, params)
+    _bolt_init_state(_bolt_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
 
 
 def bolt(
+    ctx: mgp.ProcCtx,
     label_or_rel_or_query: str,
     config: mgp.Map,
     config_path: str = "",
@@ -334,7 +343,7 @@ def bolt(
     :param params: Optional query parameters
     :return: Stream of rows from the remote database
     """
-    return _bolt_fetch_batch(_bolt_state, label_or_rel_or_query, config, config_path, params)
+    return _bolt_fetch_batch(_bolt_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
 
 
 def _cleanup_bolt():
@@ -353,15 +362,17 @@ _neo4j_state = {}
 
 
 def _init_neo4j(
+    ctx: mgp.ProcCtx,
     label_or_rel_or_query: str,
     config: mgp.Map,
     config_path: str = "",
     params: mgp.Nullable[mgp.Any] = None,
 ):
-    _bolt_init_state(_neo4j_state, label_or_rel_or_query, config, config_path, params)
+    _bolt_init_state(_neo4j_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
 
 
 def neo4j(
+    ctx: mgp.ProcCtx,
     label_or_rel_or_query: str,
     config: mgp.Map,
     config_path: str = "",
@@ -376,7 +387,7 @@ def neo4j(
     :param params: Optional query parameters
     :return: Stream of rows from Neo4j
     """
-    return _bolt_fetch_batch(_neo4j_state, label_or_rel_or_query, config, config_path, params)
+    return _bolt_fetch_batch(_neo4j_state, ctx.graph.transaction_id, label_or_rel_or_query, config, config_path, params)
 
 
 def _cleanup_neo4j():
@@ -395,6 +406,7 @@ mysql_dict = {}
 
 
 def init_migrate_mysql(
+    ctx: mgp.ProcCtx,
     table_or_sql: str,
     config: mgp.Map,
     config_path: str = "",
@@ -410,25 +422,26 @@ def init_migrate_mysql(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    query_hash = _get_query_hash(table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
 
-    if query_hash in mysql_dict:
+    if cache_key in mysql_dict:
         raise RuntimeError(
             "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
         )
 
-    mysql_dict[query_hash] = {}
+    mysql_dict[cache_key] = {}
 
     connection = mysql_connector.connect(**config)
     cursor = connection.cursor()
     cursor.execute(table_or_sql, params=params)
 
-    mysql_dict[query_hash][Constants.CONNECTION] = connection
-    mysql_dict[query_hash][Constants.CURSOR] = cursor
-    mysql_dict[query_hash][Constants.COLUMN_NAMES] = [column[Constants.I_COLUMN_NAME] for column in cursor.description]
+    mysql_dict[cache_key][Constants.CONNECTION] = connection
+    mysql_dict[cache_key][Constants.CURSOR] = cursor
+    mysql_dict[cache_key][Constants.COLUMN_NAMES] = [column[Constants.I_COLUMN_NAME] for column in cursor.description]
 
 
 def mysql(
+    ctx: mgp.ProcCtx,
     table_or_sql: str,
     config: mgp.Map,
     config_path: str = "",
@@ -458,30 +471,30 @@ def mysql(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    query_hash = _get_query_hash(table_or_sql, config, params)
-    cursor = mysql_dict[query_hash][Constants.CURSOR]
-    column_names = mysql_dict[query_hash][Constants.COLUMN_NAMES]
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cursor = mysql_dict[cache_key][Constants.CURSOR]
+    column_names = mysql_dict[cache_key][Constants.COLUMN_NAMES]
 
     rows = cursor.fetchmany(Constants.BATCH_SIZE)
 
     result = [mgp.Record(row=_name_row_cells_mysql(row, column_names)) for row in rows]
 
     if not result:
-        _cleanup_mysql_by_hash(query_hash)
+        _cleanup_mysql_by_key(cache_key)
 
     return result
 
 
-def _cleanup_mysql_by_hash(query_hash: str):
+def _cleanup_mysql_by_key(cache_key: str):
     global mysql_dict
 
-    if query_hash in mysql_dict:
-        mysql_dict[query_hash][Constants.CURSOR] = None
-        mysql_dict[query_hash][Constants.CONNECTION].commit()
-        mysql_dict[query_hash][Constants.CONNECTION].close()
-        mysql_dict[query_hash][Constants.CONNECTION] = None
-        mysql_dict[query_hash][Constants.COLUMN_NAMES] = None
-        mysql_dict.pop(query_hash, None)
+    if cache_key in mysql_dict:
+        mysql_dict[cache_key][Constants.CURSOR] = None
+        mysql_dict[cache_key][Constants.CONNECTION].commit()
+        mysql_dict[cache_key][Constants.CONNECTION].close()
+        mysql_dict[cache_key][Constants.CONNECTION] = None
+        mysql_dict[cache_key][Constants.COLUMN_NAMES] = None
+        mysql_dict.pop(cache_key, None)
 
 
 def cleanup_migrate_mysql():
@@ -500,6 +513,7 @@ sql_server_dict = {}
 
 
 def init_migrate_sql_server(
+    ctx: mgp.ProcCtx,
     table_or_sql: str,
     config: mgp.Map,
     config_path: str = "",
@@ -518,27 +532,28 @@ def init_migrate_sql_server(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    query_hash = _get_query_hash(table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
 
-    if query_hash in sql_server_dict:
+    if cache_key in sql_server_dict:
         raise RuntimeError(
             "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
         )
 
-    sql_server_dict[query_hash] = {}
+    sql_server_dict[cache_key] = {}
 
     connection = pyodbc.connect(**config)
     cursor = connection.cursor()
     cursor.execute(table_or_sql, *params)
 
-    sql_server_dict[query_hash][Constants.CONNECTION] = connection
-    sql_server_dict[query_hash][Constants.CURSOR] = cursor
-    sql_server_dict[query_hash][Constants.COLUMN_NAMES] = [
+    sql_server_dict[cache_key][Constants.CONNECTION] = connection
+    sql_server_dict[cache_key][Constants.CURSOR] = cursor
+    sql_server_dict[cache_key][Constants.COLUMN_NAMES] = [
         column[Constants.I_COLUMN_NAME] for column in cursor.description
     ]
 
 
 def sql_server(
+    ctx: mgp.ProcCtx,
     table_or_sql: str,
     config: mgp.Map,
     config_path: str = "",
@@ -570,29 +585,29 @@ def sql_server(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    query_hash = _get_query_hash(table_or_sql, config, params)
-    cursor = sql_server_dict[query_hash][Constants.CURSOR]
-    column_names = sql_server_dict[query_hash][Constants.COLUMN_NAMES]
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cursor = sql_server_dict[cache_key][Constants.CURSOR]
+    column_names = sql_server_dict[cache_key][Constants.COLUMN_NAMES]
     rows = cursor.fetchmany(Constants.BATCH_SIZE)
 
     result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
 
     if not result:
-        _cleanup_sql_server_by_hash(query_hash)
+        _cleanup_sql_server_by_key(cache_key)
 
     return result
 
 
-def _cleanup_sql_server_by_hash(query_hash: str):
+def _cleanup_sql_server_by_key(cache_key: str):
     global sql_server_dict
 
-    if query_hash in sql_server_dict:
-        sql_server_dict[query_hash][Constants.CURSOR] = None
-        sql_server_dict[query_hash][Constants.CONNECTION].commit()
-        sql_server_dict[query_hash][Constants.CONNECTION].close()
-        sql_server_dict[query_hash][Constants.CONNECTION] = None
-        sql_server_dict[query_hash][Constants.COLUMN_NAMES] = None
-        sql_server_dict.pop(query_hash, None)
+    if cache_key in sql_server_dict:
+        sql_server_dict[cache_key][Constants.CURSOR] = None
+        sql_server_dict[cache_key][Constants.CONNECTION].commit()
+        sql_server_dict[cache_key][Constants.CONNECTION].close()
+        sql_server_dict[cache_key][Constants.CONNECTION] = None
+        sql_server_dict[cache_key][Constants.COLUMN_NAMES] = None
+        sql_server_dict.pop(cache_key, None)
 
 
 def cleanup_migrate_sql_server():
@@ -611,6 +626,7 @@ oracle_db_dict = {}
 
 
 def init_migrate_oracle_db(
+    ctx: mgp.ProcCtx,
     table_or_sql: str,
     config: mgp.Map,
     config_path: str = "",
@@ -632,14 +648,14 @@ def init_migrate_oracle_db(
 
     config["disable_oob"] = True
 
-    query_hash = _get_query_hash(table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
 
-    if query_hash in oracle_db_dict:
+    if cache_key in oracle_db_dict:
         raise RuntimeError(
             "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
         )
 
-    oracle_db_dict[query_hash] = {}
+    oracle_db_dict[cache_key] = {}
 
     connection = oracledb.connect(**config)
     cursor = connection.cursor()
@@ -651,14 +667,15 @@ def init_migrate_oracle_db(
     else:
         cursor.execute(table_or_sql, **params)
 
-    oracle_db_dict[query_hash][Constants.CONNECTION] = connection
-    oracle_db_dict[query_hash][Constants.CURSOR] = cursor
-    oracle_db_dict[query_hash][Constants.COLUMN_NAMES] = [
+    oracle_db_dict[cache_key][Constants.CONNECTION] = connection
+    oracle_db_dict[cache_key][Constants.CURSOR] = cursor
+    oracle_db_dict[cache_key][Constants.COLUMN_NAMES] = [
         column[Constants.I_COLUMN_NAME] for column in cursor.description
     ]
 
 
 def oracle_db(
+    ctx: mgp.ProcCtx,
     table_or_sql: str,
     config: mgp.Map,
     config_path: str = "",
@@ -691,29 +708,29 @@ def oracle_db(
         config = {}
     config["disable_oob"] = True
 
-    query_hash = _get_query_hash(table_or_sql, config, params)
-    cursor = oracle_db_dict[query_hash][Constants.CURSOR]
-    column_names = oracle_db_dict[query_hash][Constants.COLUMN_NAMES]
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cursor = oracle_db_dict[cache_key][Constants.CURSOR]
+    column_names = oracle_db_dict[cache_key][Constants.COLUMN_NAMES]
     rows = cursor.fetchmany(Constants.BATCH_SIZE)
 
     result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
 
     if not result:
-        _cleanup_oracle_db_by_hash(query_hash)
+        _cleanup_oracle_db_by_key(cache_key)
 
     return result
 
 
-def _cleanup_oracle_db_by_hash(query_hash: str):
+def _cleanup_oracle_db_by_key(cache_key: str):
     global oracle_db_dict
 
-    if query_hash in oracle_db_dict:
-        oracle_db_dict[query_hash][Constants.CURSOR] = None
-        oracle_db_dict[query_hash][Constants.CONNECTION].commit()
-        oracle_db_dict[query_hash][Constants.CONNECTION].close()
-        oracle_db_dict[query_hash][Constants.CONNECTION] = None
-        oracle_db_dict[query_hash][Constants.COLUMN_NAMES] = None
-        oracle_db_dict.pop(query_hash, None)
+    if cache_key in oracle_db_dict:
+        oracle_db_dict[cache_key][Constants.CURSOR] = None
+        oracle_db_dict[cache_key][Constants.CONNECTION].commit()
+        oracle_db_dict[cache_key][Constants.CONNECTION].close()
+        oracle_db_dict[cache_key][Constants.CONNECTION] = None
+        oracle_db_dict[cache_key][Constants.COLUMN_NAMES] = None
+        oracle_db_dict.pop(cache_key, None)
 
 
 def cleanup_migrate_oracle_db():
@@ -732,6 +749,7 @@ postgres_dict = {}
 
 
 def init_migrate_postgresql(
+    ctx: mgp.ProcCtx,
     table_or_sql: str,
     config: mgp.Map,
     config_path: str = "",
@@ -750,25 +768,26 @@ def init_migrate_postgresql(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    query_hash = _get_query_hash(table_or_sql, config, params)
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
 
-    if query_hash in postgres_dict:
+    if cache_key in postgres_dict:
         raise RuntimeError(
             "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
         )
 
-    postgres_dict[query_hash] = {}
+    postgres_dict[cache_key] = {}
 
     connection = psycopg2.connect(**config)
     cursor = connection.cursor()
     cursor.execute(table_or_sql, params)
 
-    postgres_dict[query_hash][Constants.CONNECTION] = connection
-    postgres_dict[query_hash][Constants.CURSOR] = cursor
-    postgres_dict[query_hash][Constants.COLUMN_NAMES] = [column.name for column in cursor.description]
+    postgres_dict[cache_key][Constants.CONNECTION] = connection
+    postgres_dict[cache_key][Constants.CURSOR] = cursor
+    postgres_dict[cache_key][Constants.COLUMN_NAMES] = [column.name for column in cursor.description]
 
 
 def postgresql(
+    ctx: mgp.ProcCtx,
     table_or_sql: str,
     config: mgp.Map,
     config_path: str = "",
@@ -800,30 +819,30 @@ def postgresql(
     if _query_is_table(table_or_sql):
         table_or_sql = f"SELECT * FROM {table_or_sql};"
 
-    query_hash = _get_query_hash(table_or_sql, config, params)
-    cursor = postgres_dict[query_hash][Constants.CURSOR]
-    column_names = postgres_dict[query_hash][Constants.COLUMN_NAMES]
+    cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
+    cursor = postgres_dict[cache_key][Constants.CURSOR]
+    column_names = postgres_dict[cache_key][Constants.COLUMN_NAMES]
 
     rows = cursor.fetchmany(Constants.BATCH_SIZE)
 
     result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
 
     if not result:
-        _cleanup_postgresql_by_hash(query_hash)
+        _cleanup_postgresql_by_key(cache_key)
 
     return result
 
 
-def _cleanup_postgresql_by_hash(query_hash: str):
+def _cleanup_postgresql_by_key(cache_key: str):
     global postgres_dict
 
-    if query_hash in postgres_dict:
-        postgres_dict[query_hash][Constants.CURSOR] = None
-        postgres_dict[query_hash][Constants.CONNECTION].commit()
-        postgres_dict[query_hash][Constants.CONNECTION].close()
-        postgres_dict[query_hash][Constants.CONNECTION] = None
-        postgres_dict[query_hash][Constants.COLUMN_NAMES] = None
-        postgres_dict.pop(query_hash, None)
+    if cache_key in postgres_dict:
+        postgres_dict[cache_key][Constants.CURSOR] = None
+        postgres_dict[cache_key][Constants.CONNECTION].commit()
+        postgres_dict[cache_key][Constants.CONNECTION].close()
+        postgres_dict[cache_key][Constants.CONNECTION] = None
+        postgres_dict[cache_key][Constants.COLUMN_NAMES] = None
+        postgres_dict.pop(cache_key, None)
 
 
 def cleanup_migrate_postgresql():
@@ -842,6 +861,7 @@ s3_dict = {}
 
 
 def init_migrate_s3(
+    ctx: mgp.ProcCtx,
     file_path: str,
     config: mgp.Map,
     config_path: str = "",
@@ -867,9 +887,9 @@ def init_migrate_s3(
     bucket_name, *key_parts = file_path_no_protocol.split("/")
     s3_key = "/".join(key_parts)
 
-    query_hash = _get_query_hash(file_path, config)
+    cache_key = _get_cache_key(ctx.graph.transaction_id, file_path, config)
 
-    if query_hash in s3_dict:
+    if cache_key in s3_dict:
         raise RuntimeError(
             "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
         )
@@ -888,12 +908,13 @@ def init_migrate_s3(
     csv_reader = csv.reader(text_stream)
     column_names = next(csv_reader)
 
-    s3_dict[query_hash] = {}
-    s3_dict[query_hash][Constants.CURSOR] = csv_reader
-    s3_dict[query_hash][Constants.COLUMN_NAMES] = column_names
+    s3_dict[cache_key] = {}
+    s3_dict[cache_key][Constants.CURSOR] = csv_reader
+    s3_dict[cache_key][Constants.COLUMN_NAMES] = column_names
 
 
 def s3(
+    ctx: mgp.ProcCtx,
     file_path: str,
     config: mgp.Map,
     config_path: str = "",
@@ -912,9 +933,9 @@ def s3(
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
-    query_hash = _get_query_hash(file_path, config)
-    csv_reader = s3_dict[query_hash][Constants.CURSOR]
-    column_names = s3_dict[query_hash][Constants.COLUMN_NAMES]
+    cache_key = _get_cache_key(ctx.graph.transaction_id, file_path, config)
+    csv_reader = s3_dict[cache_key][Constants.CURSOR]
+    column_names = s3_dict[cache_key][Constants.COLUMN_NAMES]
 
     batch_rows = []
     for _ in range(Constants.BATCH_SIZE):
@@ -925,16 +946,16 @@ def s3(
             break
 
     if not batch_rows:
-        _cleanup_s3_by_hash(query_hash)
+        _cleanup_s3_by_key(cache_key)
 
     return batch_rows
 
 
-def _cleanup_s3_by_hash(query_hash: str):
+def _cleanup_s3_by_key(cache_key: str):
     global s3_dict
 
-    if query_hash in s3_dict:
-        s3_dict.pop(query_hash, None)
+    if cache_key in s3_dict:
+        s3_dict.pop(cache_key, None)
 
 
 def cleanup_migrate_s3():
@@ -953,6 +974,7 @@ flight_dict = {}
 
 
 def init_migrate_arrow_flight(
+    ctx: mgp.ProcCtx,
     query: str,
     config: mgp.Map,
     config_path: str = "",
@@ -962,9 +984,9 @@ def init_migrate_arrow_flight(
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
-    query_hash = _get_query_hash(query, config)
+    cache_key = _get_cache_key(ctx.graph.transaction_id, query, config)
 
-    if query_hash in flight_dict:
+    if cache_key in flight_dict:
         raise RuntimeError(
             "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
         )
@@ -983,9 +1005,9 @@ def init_migrate_arrow_flight(
 
     flight_info = client.get_flight_info(flight.FlightDescriptor.for_command(query), options)
 
-    flight_dict[query_hash] = {}
-    flight_dict[query_hash][Constants.CONNECTION] = client
-    flight_dict[query_hash][Constants.CURSOR] = iter(_fetch_flight_data(client, flight_info, options))
+    flight_dict[cache_key] = {}
+    flight_dict[cache_key][Constants.CONNECTION] = client
+    flight_dict[cache_key][Constants.CURSOR] = iter(_fetch_flight_data(client, flight_info, options))
 
 
 def _fetch_flight_data(client, flight_info, options):
@@ -1001,6 +1023,7 @@ def _fetch_flight_data(client, flight_info, options):
 
 
 def arrow_flight(
+    ctx: mgp.ProcCtx,
     query: str,
     config: mgp.Map,
     config_path: str = "",
@@ -1018,8 +1041,8 @@ def arrow_flight(
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
-    query_hash = _get_query_hash(query, config)
-    cursor = flight_dict[query_hash][Constants.CURSOR]
+    cache_key = _get_cache_key(ctx.graph.transaction_id, query, config)
+    cursor = flight_dict[cache_key][Constants.CURSOR]
     batch = []
     for _ in range(Constants.BATCH_SIZE):
         try:
@@ -1029,16 +1052,16 @@ def arrow_flight(
             break
 
     if not batch:
-        _cleanup_arrow_flight_by_hash(query_hash)
+        _cleanup_arrow_flight_by_key(cache_key)
 
     return batch
 
 
-def _cleanup_arrow_flight_by_hash(query_hash: str):
+def _cleanup_arrow_flight_by_key(cache_key: str):
     global flight_dict
 
-    if query_hash in flight_dict:
-        flight_dict.pop(query_hash, None)
+    if cache_key in flight_dict:
+        flight_dict.pop(cache_key, None)
 
 
 def cleanup_migrate_arrow_flight():
@@ -1056,7 +1079,7 @@ mgp.add_batch_read_proc(arrow_flight, init_migrate_arrow_flight, cleanup_migrate
 duckdb_dict = {}
 
 
-def init_migrate_duckdb(query: str, setup_queries: mgp.Nullable[List[str]] = None):
+def init_migrate_duckdb(ctx: mgp.ProcCtx, query: str, setup_queries: mgp.Nullable[List[str]] = None):
     """
     Initialize an in-memory DuckDB connection and execute the query.
 
@@ -1066,9 +1089,9 @@ def init_migrate_duckdb(query: str, setup_queries: mgp.Nullable[List[str]] = Non
     global duckdb_dict
 
     setup_queries_str = json.dumps(setup_queries, sort_keys=False) if setup_queries else ""
-    query_hash = hashlib.sha256(f"{query}|{setup_queries_str}".encode("utf-8")).hexdigest()
+    cache_key = _get_cache_key(ctx.graph.transaction_id, query, {}, setup_queries_str)
 
-    if query_hash in duckdb_dict:
+    if cache_key in duckdb_dict:
         raise RuntimeError(
             "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
         )
@@ -1081,13 +1104,13 @@ def init_migrate_duckdb(query: str, setup_queries: mgp.Nullable[List[str]] = Non
 
     cursor.execute(query)
 
-    duckdb_dict[query_hash] = {}
-    duckdb_dict[query_hash][Constants.CONNECTION] = connection
-    duckdb_dict[query_hash][Constants.CURSOR] = cursor
-    duckdb_dict[query_hash][Constants.COLUMN_NAMES] = [desc[0] for desc in cursor.description]
+    duckdb_dict[cache_key] = {}
+    duckdb_dict[cache_key][Constants.CONNECTION] = connection
+    duckdb_dict[cache_key][Constants.CURSOR] = cursor
+    duckdb_dict[cache_key][Constants.COLUMN_NAMES] = [desc[0] for desc in cursor.description]
 
 
-def duckdb(query: str, setup_queries: mgp.Nullable[List[str]] = None) -> mgp.Record(row=mgp.Map):
+def duckdb(ctx: mgp.ProcCtx, query: str, setup_queries: mgp.Nullable[List[str]] = None) -> mgp.Record(row=mgp.Map):
     """
     Fetch rows from DuckDB in batches.
 
@@ -1098,26 +1121,26 @@ def duckdb(query: str, setup_queries: mgp.Nullable[List[str]] = None) -> mgp.Rec
     global duckdb_dict
 
     setup_queries_str = json.dumps(setup_queries, sort_keys=False) if setup_queries else ""
-    query_hash = hashlib.sha256(f"{query}|{setup_queries_str}".encode("utf-8")).hexdigest()
-    cursor = duckdb_dict[query_hash][Constants.CURSOR]
-    column_names = duckdb_dict[query_hash][Constants.COLUMN_NAMES]
+    cache_key = _get_cache_key(ctx.graph.transaction_id, query, {}, setup_queries_str)
+    cursor = duckdb_dict[cache_key][Constants.CURSOR]
+    column_names = duckdb_dict[cache_key][Constants.COLUMN_NAMES]
 
     rows = cursor.fetchmany(Constants.BATCH_SIZE)
     result = [mgp.Record(row=_name_row_cells(row, column_names)) for row in rows]
 
     if not result:
-        _cleanup_duckdb_by_hash(query_hash)
+        _cleanup_duckdb_by_key(cache_key)
 
     return result
 
 
-def _cleanup_duckdb_by_hash(query_hash: str):
+def _cleanup_duckdb_by_key(cache_key: str):
     global duckdb_dict
 
-    if query_hash in duckdb_dict:
-        if Constants.CONNECTION in duckdb_dict[query_hash]:
-            duckdb_dict[query_hash][Constants.CONNECTION].close()
-        duckdb_dict.pop(query_hash, None)
+    if cache_key in duckdb_dict:
+        if Constants.CONNECTION in duckdb_dict[cache_key]:
+            duckdb_dict[cache_key][Constants.CONNECTION].close()
+        duckdb_dict.pop(cache_key, None)
 
 
 def cleanup_migrate_duckdb():
@@ -1136,6 +1159,7 @@ servicenow_dict = {}
 
 
 def init_migrate_servicenow(
+    ctx: mgp.ProcCtx,
     endpoint: str,
     config: mgp.Map,
     config_path: str = "",
@@ -1154,9 +1178,9 @@ def init_migrate_servicenow(
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
-    query_hash = _get_query_hash(endpoint, config, params)
+    cache_key = _get_cache_key(ctx.graph.transaction_id, endpoint, config, params)
 
-    if query_hash in servicenow_dict:
+    if cache_key in servicenow_dict:
         raise RuntimeError(
             "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
         )
@@ -1171,11 +1195,12 @@ def init_migrate_servicenow(
     if not data:
         raise ValueError("No data found in ServiceNow response")
 
-    servicenow_dict[query_hash] = {}
-    servicenow_dict[query_hash][Constants.CURSOR] = iter(data)
+    servicenow_dict[cache_key] = {}
+    servicenow_dict[cache_key][Constants.CURSOR] = iter(data)
 
 
 def servicenow(
+    ctx: mgp.ProcCtx,
     endpoint: str,
     config: mgp.Map,
     config_path: str = "",
@@ -1195,8 +1220,8 @@ def servicenow(
     if len(config_path) > 0:
         config = _combine_config(config=config, config_path=config_path)
 
-    query_hash = _get_query_hash(endpoint, config, params)
-    data_iter = servicenow_dict[query_hash][Constants.CURSOR]
+    cache_key = _get_cache_key(ctx.graph.transaction_id, endpoint, config, params)
+    data_iter = servicenow_dict[cache_key][Constants.CURSOR]
 
     batch_rows = []
     for _ in range(Constants.BATCH_SIZE):
@@ -1207,16 +1232,16 @@ def servicenow(
             break
 
     if not batch_rows:
-        _cleanup_servicenow_by_hash(query_hash)
+        _cleanup_servicenow_by_key(cache_key)
 
     return batch_rows
 
 
-def _cleanup_servicenow_by_hash(query_hash: str):
+def _cleanup_servicenow_by_key(cache_key: str):
     global servicenow_dict
 
-    if query_hash in servicenow_dict:
-        servicenow_dict.pop(query_hash, None)
+    if cache_key in servicenow_dict:
+        servicenow_dict.pop(cache_key, None)
 
 
 def cleanup_migrate_servicenow():

@@ -370,6 +370,15 @@ PyObject *PyGraphIsMutable(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(CallBool(mgp_graph_is_mutable, self->graph));
 }
 
+PyObject *PyGraphGetTransactionId(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(PyGraphIsValidImpl(*self));
+  int64_t tx_id{0};
+  if (RaiseExceptionFromErrorCode(mgp_graph_get_transaction_id(self->graph, &tx_id))) {
+    return nullptr;
+  }
+  return PyLong_FromLongLong(tx_id);
+}
+
 PyObject *MakePyVertexWithoutCopy(mgp_vertex &vertex, PyGraph *py_graph);
 
 PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
@@ -450,6 +459,10 @@ static PyMethodDef PyGraphMethods[] = {
      reinterpret_cast<PyCFunction>(PyGraphIsMutable),
      METH_NOARGS,
      "Return True if Graph is mutable and can be used to modify vertices and edges."},
+    {"get_transaction_id",
+     reinterpret_cast<PyCFunction>(PyGraphGetTransactionId),
+     METH_NOARGS,
+     "Return the transaction ID associated with the current graph access."},
     {"get_vertex_by_id",
      reinterpret_cast<PyCFunction>(PyGraphGetVertexById),
      METH_VARARGS,

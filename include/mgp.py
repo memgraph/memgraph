@@ -142,6 +142,7 @@ class AuthorizationError(_mgp.AuthorizationError):
 
     pass
 
+
 def is_enterprise_valid():
     """Checks if Memgraph has a valid enterprise license"""
     return _mgp.Utils.is_enterprise_valid()
@@ -1258,6 +1259,24 @@ class Graph:
         if not self.is_valid():
             raise InvalidContextError()
         return self._graph.is_mutable()
+
+    @property
+    def transaction_id(self) -> int:
+        """
+        Get the transaction ID associated with the current graph access.
+
+        Returns:
+            An `int` representing the transaction ID.
+
+        Raises:
+            InvalidContextError: If context is invalid.
+
+        Examples:
+            ```graph.transaction_id```
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._graph.get_transaction_id()
 
     def create_vertex(self) -> Vertex:
         """

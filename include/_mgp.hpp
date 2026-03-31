@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -300,6 +300,10 @@ inline bool graph_is_transactional(mgp_graph *graph) { return MgInvoke<int>(mgp_
 
 inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }
 
+inline int64_t graph_get_transaction_id(mgp_graph *graph) {
+  return MgInvoke<int64_t>(mgp_graph_get_transaction_id, graph);
+}
+
 inline mgp_vertex *graph_create_vertex(mgp_graph *graph, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_graph_create_vertex, graph, memory);
 }
@@ -336,20 +340,20 @@ inline mgp_map *graph_search_text_index(mgp_graph *graph, const char *index_name
 
 inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
                                                 const char *aggregation_query, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_aggregate_over_text_index, graph, index_name, search_query, aggregation_query,
-                             memory);
+  return MgInvoke<mgp_map *>(
+      mgp_graph_aggregate_over_text_index, graph, index_name, search_query, aggregation_query, memory);
 }
 
 inline mgp_map *graph_search_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,
                                              text_search_mode search_mode, std::size_t limit, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_search_text_edge_index, graph, index_name, search_query, search_mode, limit,
-                             memory);
+  return MgInvoke<mgp_map *>(
+      mgp_graph_search_text_edge_index, graph, index_name, search_query, search_mode, limit, memory);
 }
 
 inline mgp_map *graph_aggregate_over_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,
                                                      const char *aggregation_query, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_aggregate_over_text_edge_index, graph, index_name, search_query,
-                             aggregation_query, memory);
+  return MgInvoke<mgp_map *>(
+      mgp_graph_aggregate_over_text_edge_index, graph, index_name, search_query, aggregation_query, memory);
 }
 
 inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memory) {
@@ -373,8 +377,8 @@ inline mgp_map *graph_search_vector_index(mgp_graph *graph, const char *index_na
 
 inline mgp_map *graph_search_vector_index_on_edges(mgp_graph *graph, const char *index_name, mgp_list *search_vector,
                                                    size_t result_size, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_search_vector_index_on_edges, graph, index_name, search_vector, result_size,
-                             memory);
+  return MgInvoke<mgp_map *>(
+      mgp_graph_search_vector_index_on_edges, graph, index_name, search_vector, result_size, memory);
 }
 
 inline mgp_map *graph_show_index_info(mgp_graph *graph, mgp_memory *memory) {
@@ -446,6 +450,7 @@ inline mgp_value *list_at(mgp_list *list, size_t index) { return MgInvoke<mgp_va
 // mgp_map
 
 inline mgp_map *map_make_empty(mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_make_empty, memory); }
+
 inline mgp_map *unordered_map_make_empty(mgp_memory *memory) {
   return MgInvoke<mgp_map *>(mgp_unordered_map_make_empty, memory);
 }
