@@ -54,6 +54,8 @@ struct EdgeTypeIndexItem {
 struct VectorEdgeIndex::Impl {
   std::unordered_map<uint64_t, EdgeTypeIndexItem> index_by_id_;
   std::unordered_map<Edge *, std::pair<Vertex *, Vertex *>> edge_endpoints_;
+  // Lock order: mg_index.mutex → edge_endpoints_mutex_ (never acquire mg_index.mutex while holding
+  // edge_endpoints_mutex_)
   mutable std::shared_mutex edge_endpoints_mutex_;
 };
 
@@ -107,11 +109,12 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, Vertex *from
   auto vector = RegisterIndexId(property, index_id);
   edge->properties.SetProperty(spec.property, property);
 
+  // Lock order: uSearch mutex (inside UpdateVectorIndex) → edge_endpoints_mutex_
+  UpdateVectorIndex(index_item.mg_index, spec, edge, vector, thread_id);
   {
     auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
     pimpl->edge_endpoints_[edge] = {from_vertex, to_vertex};
   }
-  UpdateVectorIndex(index_item.mg_index, spec, edge, vector, thread_id);
 }
 
 bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
@@ -166,11 +169,12 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
 
         if (auto it = recovery_entries.find(edge->gid); it != recovery_entries.end()) {
           auto &vector = it->second;
+          // Lock order: uSearch mutex (inside UpdateVectorIndex) → edge_endpoints_mutex_
+          UpdateVectorIndex(mg_index, spec, edge, vector, thread_id);
           {
             auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
             pimpl->edge_endpoints_[edge] = {&vertex, to_vertex};
           }
-          UpdateVectorIndex(mg_index, spec, edge, vector, thread_id);
           // release vector resources to prevent memory growth while doing recovery
           vector.clear();
           vector.shrink_to_fit();
@@ -270,13 +274,14 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
   if (value.IsVectorIndexId()) {
     const auto &vector_property = value.ValueVectorIndexList();
     const auto &index_ids = value.ValueVectorIndexIds();
-    {
-      auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
-      pimpl->edge_endpoints_[edge] = {from_vertex, to_vertex};
-    }
+    // Lock order: uSearch mutex (inside UpdateVectorIndex) → edge_endpoints_mutex_
     for (auto index_id : index_ids) {
       auto &index_item = pimpl->index_by_id_.at(index_id);
       UpdateVectorIndex(index_item.mg_index, index_item.spec, edge, vector_property);
+    }
+    {
+      auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
+      pimpl->edge_endpoints_[edge] = {from_vertex, to_vertex};
     }
   } else if (value.IsNull()) {
     // If value is null, we have to remove the edge from all indices that contain it (by edge type).
@@ -383,13 +388,14 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
       if (old_value.IsVectorIndexId()) {
         const auto &vector_property = old_value.ValueVectorIndexList();
         const auto &index_ids = old_value.ValueVectorIndexIds();
-        {
-          auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
-          pimpl->edge_endpoints_[edge] = {info.from_vertex, info.to_vertex};
-        }
+        // Lock order: uSearch mutex (inside UpdateVectorIndex) → edge_endpoints_mutex_
         for (auto index_id : index_ids) {
           auto &index_item = pimpl->index_by_id_.at(index_id);
           storage::UpdateVectorIndex(index_item.mg_index, index_item.spec, edge, vector_property);
+        }
+        {
+          auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
+          pimpl->edge_endpoints_[edge] = {info.from_vertex, info.to_vertex};
         }
       } else {
         DMG_ASSERT(old_value.IsNull(), "Unexpected property value type in abort processor of vector edge index");
@@ -408,19 +414,20 @@ bool VectorEdgeIndex::Empty() const { return pimpl->index_by_id_.empty(); }
 void VectorEdgeIndex::RemoveEdges(std::vector<Edge *> const &edges_to_remove) {
   if (edges_to_remove.empty()) return;
 
-  {
-    auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
-    for (auto *edge : edges_to_remove) {
-      pimpl->edge_endpoints_.erase(edge);
-    }
-  }
-
+  // Lock order: uSearch mutex → edge_endpoints_mutex_ (matches SearchEdges)
   for (auto &[_, index_item] : pimpl->index_by_id_) {
     auto guard = std::lock_guard{index_item.mg_index.mutex};
     for (auto *edge : edges_to_remove) {
       if (index_item.mg_index.index.contains(edge)) {
         index_item.mg_index.index.remove(edge);
       }
+    }
+  }
+
+  {
+    auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
+    for (auto *edge : edges_to_remove) {
+      pimpl->edge_endpoints_.erase(edge);
     }
   }
 }
