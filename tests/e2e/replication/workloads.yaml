@@ -46,6 +46,26 @@ template_simple_cluster_light_edge: &template_simple_cluster_light_edge
           "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002'",
         ]
 
+template_simple_cluster_mixed_edge: &template_simple_cluster_mixed_edge
+  cluster:
+    replica_1:
+      args: ["--bolt-port", "7688", "--log-level=TRACE", "--storage-light-edge", "--storage-properties-on-edges"]
+      log_file: "replication-e2e-replica1.log"
+      setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"]
+    replica_2:
+      args: ["--bolt-port", "7689", "--log-level=TRACE", "--nostorage-light-edge", "--storage-properties-on-edges"]
+      log_file: "replication-e2e-replica2.log"
+      setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"]
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--nostorage-light-edge", "--storage-properties-on-edges"]
+      log_file: "replication-e2e-main.log"
+      setup_queries:
+        [
+          "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001'",
+          "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002'",
+        ]
+
+
 template_cluster: &template_cluster
   cluster:
     replica_1:
@@ -165,8 +185,13 @@ workloads:
 
   - name: "Delete edge replication (light-edge)"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["replication/edge_delete.py"]
+    args: ["replication/edge_delete.py", "--with-props"]
     <<: *template_simple_cluster_light_edge
+
+  - name: "Delete edge replication (mixed-edge)"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/edge_delete.py", "--with-props"]
+    <<: *template_simple_cluster_mixed_edge
 
   - name: "Replication with property compression used"
     binary: "tests/e2e/pytest_runner.sh"
