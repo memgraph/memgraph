@@ -146,6 +146,19 @@ void Database::SwitchToOnDisk() {
 
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(
       std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);
+
+  if (metric_handles_) {
+    metrics::Metrics().UpdateSnapshotCallback(metric_handles_, [s = storage_.get()] {
+      auto const info = s->GetBaseInfo();
+      return metrics::StorageSnapshot{
+          .vertex_count = info.vertex_count,
+          .edge_count = info.edge_count,
+          .disk_usage = info.disk_usage,
+          .memory_res = info.memory_res,
+      };
+    });
+    storage_->SetMetricHandles(metric_handles_);
+  }
 }
 
 }  // namespace memgraph::dbms

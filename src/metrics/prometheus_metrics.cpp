@@ -864,6 +864,13 @@ DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name,
   return &databases_.back().handles;
 }
 
+void PrometheusMetrics::UpdateSnapshotCallback(DatabaseMetricHandles const *handles,
+                                               std::function<StorageSnapshot()> get_snapshot) {
+  auto it = std::ranges::find_if(databases_, [handles](auto const &e) { return &e.handles == handles; });
+  MG_ASSERT(it != databases_.end(), "Attempted to update snapshot callback for unregistered database");
+  it->get_snapshot = std::move(get_snapshot);
+}
+
 void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
   auto it = std::ranges::find_if(databases_, [handles](auto const &e) { return &e.handles == handles; });
   MG_ASSERT(it != databases_.end(), "Attempted to remove unregistered database from PrometheusMetrics");
