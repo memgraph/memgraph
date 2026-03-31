@@ -197,3 +197,22 @@ def test_correctness_return_rename_input_scope(memgraph):
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n AS m ORDER BY n.prop"))
     values = [r["m"].properties["prop"] for r in results]
     assert values == [10, 20, 30, 40, 50]
+
+
+def test_plan_in_filter_not_eliminated(memgraph):
+    """ORDER BY not eliminated when IN filter drives the scan (multi-value, not globally sorted)."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+
+    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a IN [3, 1] RETURN n ORDER BY n.b")
+    assert any("OrderBy" in step for step in plan), "OrderBy should NOT be eliminated (IN is multi-valued)"
+
+
+def test_correctness_in_filter_order_preserved(memgraph):
+    """IN filter with ORDER BY — OrderBy must remain to guarantee correct ordering."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+    for a, b in [(1, 30), (1, 10), (3, 20), (3, 5), (2, 15)]:
+        memgraph.execute(f"CREATE (:L {{a: {a}, b: {b}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a IN [3, 1] RETURN n ORDER BY n.b"))
+    values = [r["n"].properties["b"] for r in results]
+    assert values == [5, 10, 20, 30]
