@@ -1095,7 +1095,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         repl_prepare_phase_status.has_value(), mem_storage->uuid(), protector, durability_commit_timestamp);
 
     // This is OK because if we have STRICT_SYNC and ASYNC replicas, we ran StartTxnReplication only for STRICT_SYNC
-    // replicas
+    // replicas. It is ok to put this after FinalizeTransaction because it is impossible for repl_prepare_phase_status
+    // to have a value if there were some start txn errors
     auto start_failures = replicating_txn.CollectStartTxnErrors();
     if (!start_failures.empty()) {
       // Release engine lock because we don't have to hold it anymore for abort
