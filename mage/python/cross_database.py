@@ -21,6 +21,7 @@ from neo4j import GraphDatabase
 from neo4j.time import Date as Neo4jDate
 from neo4j.time import DateTime as Neo4jDateTime
 from neo4j.time import Duration as Neo4jDuration
+from neo4j.time import Time as Neo4jTime
 
 import requests
 
@@ -203,7 +204,7 @@ def _convert_bolt_value(value):
         return None
 
     try:
-        if isinstance(value, (Neo4jDateTime, Neo4jDate)):
+        if isinstance(value, (Neo4jDateTime, Neo4jDate, Neo4jTime)):
             return value.to_native()
         if isinstance(value, Neo4jDuration):
             return datetime.timedelta(days=value.days, seconds=value.seconds, microseconds=value.nanoseconds // 1000)
