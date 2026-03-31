@@ -1282,8 +1282,8 @@ test_memgraph() {
             shift 2
           ;;
           *)
-            echo "Error: Unknown flag '$flag' for mgbench-vector-search-edge-index"
-            echo "Supported flags: --export-results-file"
+            echo "Error: Unknown flag '$flag' for mgbench-vector-search-edge-index" >&2
+            echo "Supported flags: --export-results-file" >&2
             exit 1
           ;;
         esac
@@ -1302,8 +1302,8 @@ test_memgraph() {
             shift 2
           ;;
           *)
-            echo "Error: Unknown flag '$flag' for mgbench-text-search-index"
-            echo "Supported flags: --export-results-file"
+            echo "Error: Unknown flag '$flag' for mgbench-text-search-index" >&2
+            echo "Supported flags: --export-results-file" >&2
             exit 1
           ;;
         esac
@@ -1322,8 +1322,8 @@ test_memgraph() {
             shift 2
           ;;
           *)
-            echo "Error: Unknown flag '$flag' for mgbench-text-search-edge-index"
-            echo "Supported flags: --export-results-file"
+            echo "Error: Unknown flag '$flag' for mgbench-text-search-edge-index" >&2
+            echo "Supported flags: --export-results-file" >&2
             exit 1
           ;;
         esac
