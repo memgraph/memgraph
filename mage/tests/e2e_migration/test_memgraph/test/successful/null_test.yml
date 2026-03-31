@@ -1,0 +1,11 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.null_col AS null_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.null_col) AS null_col_type, row.null_col AS null_col
+
+output:
+  - null_col_type: 'NULL'
+    null_col: null

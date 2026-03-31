@@ -1,0 +1,11 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.map_col AS map_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.map_col) AS map_col_type, row.map_col AS map_col
+
+output:
+  - map_col_type: 'MAP'
+    map_col: {key1: 'value1', key2: 42}
