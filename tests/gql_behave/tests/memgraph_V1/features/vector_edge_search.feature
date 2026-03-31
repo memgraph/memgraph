@@ -203,9 +203,9 @@ Feature: Vector edge search related features
             """
         When executing query:
             """
-            SHOW VECTOR INDEX INFO;
+            DROP VECTOR INDEX or_edge;
             """
-        Then the result should not be empty
+        Then the result should be empty
 
     Scenario: Create AND vector edge index on multiple edge types
         Given an empty graph
