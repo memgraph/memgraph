@@ -3377,13 +3377,13 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::invalid_argument("'mgp.Point2d' srid must be between 0 and 65535");
     }
     auto srid = static_cast<uint16_t>(srid_long);
-    auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{srid});
-    if (!crs_opt) {
-      throw std::invalid_argument("Invalid SRID for Point2d");
+    MgpUniquePtr<mgp_point_2d> mgp_pt{nullptr, mgp_point_2d_destroy};
+    if (const auto err = CreateMgpObject(mgp_pt, mgp_point_2d_make, x, y, srid, memory);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_point_2d"};
     }
-    memgraph::storage::Point2d pt(*crs_opt, x, y);
-    memgraph::utils::Allocator<mgp_point_2d> allocator(memory->impl);
-    MgpUniquePtr<mgp_point_2d> mgp_pt(allocator.new_object<mgp_point_2d>(pt), mgp_point_2d_destroy);
     if (const auto err = mgp_value_make_point_2d(mgp_pt.get(), &mgp_v);
         err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
@@ -3412,13 +3412,13 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::invalid_argument("'mgp.Point3d' srid must be between 0 and 65535");
     }
     auto srid = static_cast<uint16_t>(srid_long);
-    auto crs_opt = memgraph::storage::SridToCrs(memgraph::storage::Srid{srid});
-    if (!crs_opt) {
-      throw std::invalid_argument("Invalid SRID for Point3d");
+    MgpUniquePtr<mgp_point_3d> mgp_pt{nullptr, mgp_point_3d_destroy};
+    if (const auto err = CreateMgpObject(mgp_pt, mgp_point_3d_make, x, y, z, srid, memory);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_point_3d"};
     }
-    memgraph::storage::Point3d pt(*crs_opt, x, y, z);
-    memgraph::utils::Allocator<mgp_point_3d> allocator(memory->impl);
-    MgpUniquePtr<mgp_point_3d> mgp_pt(allocator.new_object<mgp_point_3d>(pt), mgp_point_3d_destroy);
     if (const auto err = mgp_value_make_point_3d(mgp_pt.get(), &mgp_v);
         err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
@@ -3439,9 +3439,13 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       PyErr_Clear();
       throw std::invalid_argument("'mgp.Enum' type_name and value_name must be strings");
     }
-    memgraph::utils::Allocator<mgp_enum> allocator(memory->impl);
-    MgpUniquePtr<mgp_enum> mgp_e(
-        allocator.new_object<mgp_enum>(std::string_view{type_name}, std::string_view{value_name}), mgp_enum_destroy);
+    MgpUniquePtr<mgp_enum> mgp_e{nullptr, mgp_enum_destroy};
+    if (const auto err = CreateMgpObject(mgp_e, mgp_enum_make, type_name, value_name, memory);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_enum"};
+    }
     if (const auto err = mgp_value_make_enum(mgp_e.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
     } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
