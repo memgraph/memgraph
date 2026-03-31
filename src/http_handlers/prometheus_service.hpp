@@ -25,7 +25,7 @@ namespace memgraph::http {
 
 class PrometheusRequestHandler final {
  public:
-  explicit PrometheusRequestHandler(metrics::PrometheusMetrics * /*unused*/) {}
+  explicit PrometheusRequestHandler(metrics::PrometheusMetrics *metrics) : metrics_(metrics) {}
 
   PrometheusRequestHandler(PrometheusRequestHandler const &) = delete;
   PrometheusRequestHandler(PrometheusRequestHandler &&) = delete;
@@ -55,11 +55,11 @@ class PrometheusRequestHandler final {
       return send(bad_request("Illegal request-target"));
     }
 
-    metrics::Metrics().UpdateGauges();
+    metrics_->UpdateGauges();
 
     prometheus::TextSerializer serializer;
     std::ostringstream oss;
-    serializer.Serialize(oss, metrics::Metrics().registry().Collect());
+    serializer.Serialize(oss, metrics_->registry().Collect());
 
     auto body = oss.str();
     auto const size = body.size();
@@ -74,6 +74,9 @@ class PrometheusRequestHandler final {
     res.keep_alive(req.keep_alive());
     return send(std::move(res));
   }
+
+ private:
+  metrics::PrometheusMetrics *metrics_;
 };
 
 }  // namespace memgraph::http
