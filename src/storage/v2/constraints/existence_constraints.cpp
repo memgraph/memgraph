@@ -95,8 +95,7 @@ bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property,
     return false;
   }
   constraint->status.Commit(commit_timestamp);
-  constraint->gauge_ =
-      ::metrics::ScopedGauge{metric_handles_ ? metric_handles_->active_existence_constraints : nullptr};
+  constraint->gauge_ = metrics::ScopedGauge{metric_handles_ ? metric_handles_->active_existence_constraints : nullptr};
   return true;
 }
 
@@ -247,7 +246,7 @@ void ExistenceConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metr
     double count = 0;
     for (auto const &[key, constraint] : *ptr) {
       if (constraint->status.IsReady()) {
-        constraint->gauge_ = ::metrics::ScopedGauge{gauge};
+        constraint->gauge_ = metrics::ScopedGauge{gauge};
         ++count;
       }
     }

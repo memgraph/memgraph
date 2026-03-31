@@ -550,7 +550,7 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
 template <typename EntryT>
 void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = ::metrics::ScopedGauge{gauge};
+  gauge_ = metrics::ScopedGauge{gauge};
 }
 
 template <typename EntryT>
@@ -1258,7 +1258,7 @@ void InMemoryLabelPropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles
     for (auto const &[label, by_properties] : ptr->indices_) {
       for (auto const &[props, idx] : by_properties) {
         if (idx->status.IsReady()) {
-          idx->gauge_ = ::metrics::ScopedGauge{gauge};
+          idx->gauge_ = metrics::ScopedGauge{gauge};
           ++count;
         }
       }

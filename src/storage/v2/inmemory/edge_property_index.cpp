@@ -261,7 +261,7 @@ bool InMemoryEdgePropertyIndex::PublishIndex(PropertyId property, uint64_t commi
 
 void InMemoryEdgePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status_.Commit(commit_timestamp);
-  gauge_ = ::metrics::ScopedGauge{gauge};
+  gauge_ = metrics::ScopedGauge{gauge};
 }
 
 InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() = default;
@@ -416,7 +416,7 @@ void InMemoryEdgePropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles 
     double count = 0;
     for (auto const &[property, idx] : ptr->indices_) {
       if (idx->status_.IsReady()) {
-        idx->gauge_ = ::metrics::ScopedGauge{gauge};
+        idx->gauge_ = metrics::ScopedGauge{gauge};
         ++count;
       }
     }

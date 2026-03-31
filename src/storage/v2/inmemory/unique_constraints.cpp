@@ -312,7 +312,7 @@ InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() = defau
 
 void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = ::metrics::ScopedGauge{gauge};
+  gauge_ = metrics::ScopedGauge{gauge};
 }
 
 // --- ActiveConstraints implementation ---
@@ -679,7 +679,7 @@ void InMemoryUniqueConstraints::SetMetricHandles(metrics::DatabaseMetricHandles 
     for (auto const &[label, by_properties] : *ptr) {
       for (auto const &[props, constraint] : by_properties) {
         if (constraint->status.IsReady()) {
-          constraint->gauge_ = ::metrics::ScopedGauge{gauge};
+          constraint->gauge_ = metrics::ScopedGauge{gauge};
           ++count;
         }
       }
