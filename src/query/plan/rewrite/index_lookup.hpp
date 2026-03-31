@@ -1073,6 +1073,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           type_info == RollUpApply::kType ||            // pattern comprehension, collects into list, 1:1
           type_info == Apply::kType ||                  // CALL subquery, 1:N, preserves input-symbol order
           type_info == Unwind::kType;                   // 1:N, preserves input-symbol order
+      // NOTE: Mutation operators (SetProperty, Delete, etc.) are intentionally excluded even
+      // though they are 1:1 row-preserving. A mutation like SET n.prop = 100 - n.prop changes
+      // the value ORDER BY evaluates, so the index scan order (on original values) would no
+      // longer match the ORDER BY order (on mutated values). Safe inclusion would require
+      // proving the mutation doesn't affect any ORDER BY expression — not worth the complexity.
+      // Similarly, Accumulate/Merge/Foreach are excluded because they contain or fence mutations.
       if (!order_preserving) return;
     }
 
@@ -1097,6 +1103,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     //   WHERE a = 5   ORDER BY a, b    → OK  (a matches, b matches)
     //   WHERE a = 5   ORDER BY c       → FAIL (b is not pinned and not in ORDER BY)
     //   WHERE a > 5   ORDER BY b       → FAIL (a is range-filtered, not pinned)
+    //   WHERE a IN [1,3] ORDER BY b   → FAIL (a has multiple values, b not globally sorted)
     //   ORDER BY a, b                  → OK  (strict prefix, no skipping needed)
     //   ORDER BY a, b, c               → OK  (full match)
     //   ORDER BY b                     → FAIL (a is not pinned)
@@ -1104,17 +1111,34 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &index_properties = scan_by_props->properties_;
     const auto &expr_ranges = scan_by_props->expression_ranges_;
 
+    // Check if the scan is driven by an Unwind (from IN-list rewrite). When IN is rewritten,
+    // an Unwind is inserted below the scan, causing it to execute multiple times with different
+    // equality values. The Unwind iterates the IN list in user-provided order (not index order),
+    // so the scan's output is a concatenation of per-value result groups — NOT a single ordered
+    // range scan. This means:
+    //   1. Equality-pinned skipping is unsafe (the "equal" value changes per iteration).
+    //   2. Even ORDER BY on the IN column itself is unsafe (list order != index order).
+    // We bail out entirely when an Unwind is detected below the scan.
+    {
+      auto *op = scan_by_props->input().get();
+      while (op) {
+        if (op->GetTypeInfo() == Unwind::kType) return;
+        if (!op->HasSingleInput()) break;
+        op = op->input().get();
+      }
+    }
+
     size_t ob_ptr = 0;
     for (size_t i = 0; i < index_properties.size() && ob_ptr < ctx.property_paths.size(); ++i) {
       if (index_properties[i] == ctx.property_paths[ob_ptr]) {
         // This index column matches the next ORDER BY column.
         ++ob_ptr;
-      } else if (expr_ranges[i].type_ == PropertyFilter::Type::EQUAL ||
-                 expr_ranges[i].type_ == PropertyFilter::Type::IN) {
+      } else if (i < expr_ranges.size() && expr_ranges[i].type_ == PropertyFilter::Type::EQUAL) {
         // Equality-pinned column — all rows have the same value, skip it.
         continue;
       } else {
         // Non-pinned column that doesn't match ORDER BY — gap in coverage.
+        // Also handles trailing index columns beyond expr_ranges (no filter = not pinned).
         return;
       }
     }
