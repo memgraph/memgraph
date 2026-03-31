@@ -93,7 +93,7 @@ auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) 
 
 void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  gauge_ = ::metrics::ScopedGauge{gauge};
+  gauge_ = metrics::ScopedGauge{gauge};
 }
 
 InMemoryLabelIndex::IndividualIndex::~IndividualIndex() = default;
@@ -441,7 +441,7 @@ void InMemoryLabelIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric
     double count = 0;
     for (auto const &[label, idx] : *ptr) {
       if (idx->status.IsReady()) {
-        idx->gauge_ = ::metrics::ScopedGauge{gauge};
+        idx->gauge_ = metrics::ScopedGauge{gauge};
         ++count;
       }
     }

@@ -185,7 +185,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
     utils::SkipList<Entry> skiplist{};
     IndexStatus status{};
-    ::metrics::ScopedGauge gauge_{};
+    metrics::ScopedGauge gauge_{};
   };
 
   // TODO: change to map of maps as in label property index
