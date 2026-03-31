@@ -9052,6 +9052,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
+// NOLINTNEXTLINE(readability-function-size)
 RecoveredSnapshot LoadCurrentVersionSnapshot(
     Decoder &snapshot, std::filesystem::path const &path, utils::SkipList<Vertex> *vertices,
     utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
