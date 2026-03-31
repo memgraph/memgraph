@@ -140,11 +140,8 @@ class TtlQuery;
 class SessionTraceQuery;
 class UserProfileQuery;
 class ParameterQuery;
-<<<<<<< HEAD
 class DescriptionQuery;
-=======
 class ReloadSSLQuery;
->>>>>>> e59fdace9 (feat: Add RELOAD SSL FOR BOLT_SERVER Cypher query)
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
