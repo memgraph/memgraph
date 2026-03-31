@@ -9,7 +9,7 @@ Feature: Vector edge search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type                  |
-            | 64       | 2         | 'test_index' | 'E1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |
+            | 64       | 2         | 'test_index' | ':E1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |
 
     Scenario: Add edge to vector edge index
         Given an empty graph
@@ -24,7 +24,7 @@ Feature: Vector edge search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type                  |
-            | 64       | 2         | 'test_index' | 'E1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'edge-type+property_vector' |
+            | 64       | 2         | 'test_index' | ':E1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'edge-type+property_vector' |
 
     Scenario: Remove edge from vector edge index
         Given an empty graph
@@ -47,7 +47,7 @@ Feature: Vector edge search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type                  |
-            | 64       | 2         | 'test_index' | 'E1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |
+            | 64       | 2         | 'test_index' | ':E1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |
 
     Scenario: Drop vector edge index
         Given an empty graph
@@ -72,7 +72,7 @@ Feature: Vector edge search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type                  |
-            | 64       | 2         | 'test_index' | 'E1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |
+            | 64       | 2         | 'test_index' | ':E1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |
 
     Scenario: Search vector edge index
         Given an empty graph
@@ -152,7 +152,7 @@ Feature: Vector edge search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type                  |
-            | 64       | 2         | 'test_index' | 'E1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'edge-type+property_vector' |
+            | 64       | 2         | 'test_index' | ':E1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'edge-type+property_vector' |
 
     Scenario: Create vector edge index with parameterized config that is not a map raises error
         Given an empty graph
@@ -179,7 +179,7 @@ Feature: Vector edge search related features
             """
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type                  |
-            | 64       | 2         | 'test_index' | 'E1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |
+            | 64       | 2         | 'test_index' | ':E1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |
 
     Scenario: Create wildcard vector edge index
         Given an empty graph

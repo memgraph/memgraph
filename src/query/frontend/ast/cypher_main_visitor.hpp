@@ -44,7 +44,7 @@ struct ParsingContext {
 struct VectorIndexLabelsInfo {
   VectorLabelMode mode;
   std::vector<std::string> names;
-  std::string property_name;
+  PropertyIx property;
 };
 
 class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {

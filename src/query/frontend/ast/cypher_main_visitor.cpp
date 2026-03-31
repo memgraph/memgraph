@@ -568,7 +568,7 @@ antlrcpp::Any CypherMainVisitor::visitVectorIndexLabels(MemgraphCypher::VectorIn
   VectorIndexLabelsInfo info;
   auto label_names = ctx->labelName();
   auto *property_ctx = ctx->propertyKeyName();
-  info.property_name = std::any_cast<std::string>(property_ctx->accept(this));
+  info.property = std::any_cast<PropertyIx>(property_ctx->accept(this));
 
   if (ctx->ASTERISK() || label_names.empty()) {
     info.mode = VectorLabelMode::WILDCARD;
@@ -598,7 +598,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateVectorIndex(MemgraphCypher::CreateVe
   for (const auto &name : labels_info.names) {
     index_query->labels_.push_back(AddLabel(name));
   }
-  index_query->property_ = storage_->GetPropertyIx(labels_info.property_name);
+  index_query->property_ = labels_info.property;
   auto *config_ctx = ctx->configsMap;
   if (config_ctx->configMap()) {
     index_query->config_ = std::any_cast<ConfigMap>(config_ctx->configMap()->accept(this));
@@ -616,7 +616,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateVectorEdgeIndex(MemgraphCypher::Crea
   for (const auto &name : labels_info.names) {
     index_query->edge_types_.push_back(AddEdgeType(name));
   }
-  index_query->property_ = storage_->GetPropertyIx(labels_info.property_name);
+  index_query->property_ = labels_info.property;
   auto *config_ctx = ctx->configsMap;
   if (config_ctx->configMap()) {
     index_query->config_ = std::any_cast<ConfigMap>(config_ctx->configMap()->accept(this));
