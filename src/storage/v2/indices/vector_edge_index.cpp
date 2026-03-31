@@ -115,7 +115,7 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, Vertex *from
 }
 
 bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                                  Indices * /*indices*/, NameIdMapper *name_id_mapper,
+                                  NameIdMapper *name_id_mapper,
                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
     const auto index_id = SetupIndex(spec, name_id_mapper);
@@ -143,8 +143,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
 }
 
 void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
-                                   utils::SkipList<Vertex>::Accessor &vertices, Indices * /*indices*/,
-                                   NameIdMapper *name_id_mapper,
+                                   utils::SkipList<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
                                    std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &spec = recovery_info.spec;
   try {

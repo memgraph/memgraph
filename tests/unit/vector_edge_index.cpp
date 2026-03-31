@@ -495,7 +495,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
   auto spec = CreateSpec();
   VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
 
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, nullptr, &name_id_mapper_));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, &name_id_mapper_));
 
   // Verify all edges are in the index
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
@@ -537,7 +537,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexParallelTest) {
   auto spec = CreateSpec();
   VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
 
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, nullptr, &name_id_mapper_));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, &name_id_mapper_));
 
   // Verify all edges are in the index
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
@@ -586,7 +586,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
                                   .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
   VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
 
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, nullptr, &name_id_mapper_));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, &name_id_mapper_));
 
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);

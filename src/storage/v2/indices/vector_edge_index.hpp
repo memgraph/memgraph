@@ -114,13 +114,13 @@ class VectorEdgeIndex {
   VectorEdgeIndex &operator=(VectorEdgeIndex &&) noexcept;
 
   /// @brief Creates a new index based on the provided specification.
-  bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
+  bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                    NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Recovers a vector edge index based on recovery info.
   void RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
-                    Indices *indices, NameIdMapper *name_id_mapper,
+                    NameIdMapper *name_id_mapper,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.

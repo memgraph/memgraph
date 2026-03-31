@@ -354,5 +354,67 @@ def test_durability_with_vector_edge_index_snapshot_and_wal(connection):
     assert search_results[0][0] == 0.0
 
 
+def test_durability_with_vector_edge_index_drop_after_snapshot(connection):
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_vector_edge_drop_after_snapshot.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor,
+        'CREATE VECTOR EDGE INDEX test_edge_index ON :REL(emb) WITH CONFIG {"dimension": 2, "capacity": 10};',
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE ({id: 1})-[:REL {emb: [1.0, 2.0]}]->({id: 2})
+           CREATE ({id: 3})-[:REL {emb: [3.0, 4.0]}]->({id: 4})
+           CREATE ({id: 5})-[:REL {emb: [5.0, 6.0]}]->({id: 6});""",
+    )
+
+    index_info = get_vector_index_info(cursor)
+    assert index_info[0][6] == 3
+
+    property_size = execute_and_fetch_all(cursor, "MATCH ()-[r:REL]->() RETURN propertySize(r, 'emb') LIMIT 1;")
+    assert property_size[0][0] == 11
+
+    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+
+    execute_and_fetch_all(cursor, "DROP VECTOR INDEX test_edge_index;")
+
+    index_info = get_vector_index_info(cursor)
+    assert len(index_info) == 0
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = get_vector_index_info(cursor)
+    assert len(index_info) == 0
+
+    edges = execute_and_fetch_all(cursor, "MATCH ()-[r:REL]->() RETURN r.emb ORDER BY r.emb[0];")
+    assert len(edges) == 3
+    assert edges[0][0] == [1.0, 2.0]
+    assert edges[1][0] == [3.0, 4.0]
+    assert edges[2][0] == [5.0, 6.0]
+
+    property_sizes = execute_and_fetch_all(cursor, "MATCH ()-[r:REL]->() RETURN propertySize(r, 'emb');")
+    for ps in property_sizes:
+        assert ps[0] != 11, "Property should no longer be VectorIndexId after index drop"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

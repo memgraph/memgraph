@@ -407,7 +407,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
     auto vertices_acc = vertices->access();
     for (auto &recovery_info : indices_metadata.vector_edge_indices) {
-      indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, indices, name_id_mapper, snapshot_info);
+      indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, snapshot_info);
       spdlog::info("Vector edge index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(recovery_info.spec.edge_type_id.AsUint()),
                    name_id_mapper->IdToName(recovery_info.spec.property.AsUint()));
