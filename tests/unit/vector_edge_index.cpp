@@ -351,6 +351,90 @@ TEST_F(VectorEdgeIndexTest, CreateIndexWhenEdgesExistsAlreadyTest) {
   }
 }
 
+TEST_F(VectorEdgeIndexTest, CreateIndexWithWrongDimensionRollsBack) {
+  PropertyValue good_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+  PropertyValue bad_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0), PropertyValue(3.0)});
+  Gid good_edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto [fv1, tv1, e1] = this->CreateEdge(acc.get(), test_property, good_vec, test_edge_type);
+    good_edge_gid = e1.Gid();
+    [[maybe_unused]] auto [fv2, tv2, e2] = this->CreateEdge(acc.get(), test_property, bad_vec, test_edge_type);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_THROW(this->CreateEdgeIndex(2, 10), memgraph::query::VectorSearchException);
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 0);
+    auto e1 = acc->FindEdge(good_edge_gid, View::OLD).value();
+    auto prop = e1.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    EXPECT_TRUE(prop->IsDoubleList());
+    EXPECT_EQ(prop->ValueDoubleList().size(), 2);
+  }
+}
+
+TEST_F(VectorEdgeIndexTest, CreateIndexConvertsPropertiesToVectorIndexId) {
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    auto [fv, tv, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    auto prop = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    EXPECT_TRUE(prop->IsList());
+  }
+  this->CreateEdgeIndex(2, 10);
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 1);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    auto prop = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    EXPECT_TRUE(prop->IsVectorIndexId());
+    EXPECT_EQ(prop->ValueVectorIndexList().size(), 2);
+    EXPECT_FLOAT_EQ(prop->ValueVectorIndexList()[0], 1.0f);
+    EXPECT_FLOAT_EQ(prop->ValueVectorIndexList()[1], 2.0f);
+  }
+}
+
+TEST_F(VectorEdgeIndexTest, DropIndexRestoresPropertiesToLists) {
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    auto [fv, tv, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateEdgeIndex(2, 10);
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    EXPECT_TRUE(edge.GetProperty(acc->NameToProperty(test_property), View::OLD)->IsVectorIndexId());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(!unique_acc->DropVectorIndex(test_index).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 0);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    auto prop = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    EXPECT_TRUE(prop->IsDoubleList());
+    auto list = prop->ValueDoubleList();
+    EXPECT_EQ(list.size(), 2);
+    EXPECT_DOUBLE_EQ(list[0], 1.0);
+    EXPECT_DOUBLE_EQ(list[1], 2.0);
+  }
+}
+
 class VectorEdgeIndexRecoveryTest : public testing::Test {
  public:
   static constexpr std::uint16_t kDimension = 2;
