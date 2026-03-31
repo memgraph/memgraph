@@ -877,4 +877,169 @@ TYPED_TEST(OrderByIndexTest, UserUnwindPreservesOrder) {
       << "OrderBy should be eliminated (user UNWIND is order-preserving for scan symbol)";
 }
 
+// Test 33: WITH n.prop AS a ORDER BY a — bare Identifier resolved through Produce.
+TYPED_TEST(OrderByIndexTest, WithPropertyAliasEliminated) {
+  // MATCH (n:L) WHERE n.prop > 5 WITH n.prop AS a RETURN a ORDER BY a
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5)));
+  auto *with_clause = WITH(PROPERTY_LOOKUP(dba, "n", property.second), AS("a"));
+  auto *return_clause = RETURN("a", ORDER_BY(IDENT("a")));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (WITH n.prop AS a, ORDER BY a — alias resolved through Produce)";
+}
+
+// Test 34: RETURN n.prop AS a ORDER BY a — alias resolved through RETURN Produce above OrderBy.
+TYPED_TEST(OrderByIndexTest, ReturnPropertyAliasEliminated) {
+  // MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS a ORDER BY a
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                   RETURN(PROPERTY_LOOKUP(dba, "n", property.second), AS("a"), ORDER_BY(IDENT("a")))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (RETURN n.prop AS a ORDER BY a — resolved through RETURN Produce)";
+}
+
+// Test 35: Composite index WITH n.a AS a, n.b AS b ORDER BY a, b — both aliases resolved, order matches.
+TYPED_TEST(OrderByIndexTest, CompositeWithPropertyAliasEliminated) {
+  // MATCH (n:L) WHERE n.a > 0 WITH n.a AS a, n.b AS b RETURN a, b ORDER BY a, b
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(0)));
+  auto *with_clause =
+      WITH(PROPERTY_LOOKUP(dba, "n", prop_a.second), AS("a"), PROPERTY_LOOKUP(dba, "n", prop_b.second), AS("b"));
+  auto *return_clause = RETURN("a", "b", ORDER_BY(IDENT("a"), IDENT("b")));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (composite index (a,b), WITH n.a AS a, n.b AS b, ORDER BY a, b)";
+}
+
+// Test 36: Composite index WITH n.b AS b, n.a AS a ORDER BY b, a — wrong order, not eliminated.
+TYPED_TEST(OrderByIndexTest, CompositeWithPropertyAliasWrongOrderNotEliminated) {
+  // MATCH (n:L) WHERE n.a > 0 WITH n.b AS b, n.a AS a RETURN b, a ORDER BY b, a
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(0)));
+  auto *with_clause =
+      WITH(PROPERTY_LOOKUP(dba, "n", prop_b.second), AS("b"), PROPERTY_LOOKUP(dba, "n", prop_a.second), AS("a"));
+  auto *return_clause = RETURN("b", "a", ORDER_BY(IDENT("b"), IDENT("a")));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (ORDER BY b, a but index is (a, b))";
+}
+
+// Test 37: WITH n.a AS x ORDER BY x — different alias name, still resolved.
+TYPED_TEST(OrderByIndexTest, WithPropertyDifferentAliasEliminated) {
+  // MATCH (n:L) WHERE n.a > 0 WITH n.a AS x RETURN x ORDER BY x
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, prop_a.second, 1);
+
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(0)));
+  auto *with_clause = WITH(PROPERTY_LOOKUP(dba, "n", prop_a.second), AS("x"));
+  auto *return_clause = RETURN("x", ORDER_BY(IDENT("x")));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (WITH n.a AS x ORDER BY x — alias name doesn't matter)";
+}
+
+// Test 38: Equality-pinned skip with alias — WHERE a = 5 ORDER BY b, both through WITH.
+TYPED_TEST(OrderByIndexTest, EqualityPinnedWithPropertyAlias) {
+  // MATCH (n:L) WHERE n.a = 5 WITH n.a AS a, n.b AS b RETURN a, b ORDER BY b
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(EQ(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(5)));
+  auto *with_clause =
+      WITH(PROPERTY_LOOKUP(dba, "n", prop_a.second), AS("a"), PROPERTY_LOOKUP(dba, "n", prop_b.second), AS("b"));
+  auto *return_clause = RETURN("a", "b", ORDER_BY(IDENT("b")));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (equality-pinned a, ORDER BY b through alias)";
+}
+
 }  // namespace
