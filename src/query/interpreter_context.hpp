@@ -81,6 +81,7 @@ struct InterpreterContext {
   AuthChecker *auth_checker;
   ReplicationQueryHandler *replication_handler_;
   system::System *system_;
+  communication::ServerContext *bolt_server_context_;
   utils::PriorityThreadPool *worker_pool;
 
   // Used to check active transactions
@@ -109,6 +110,7 @@ struct InterpreterContext {
   InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
                      memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
                      utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, system::System &system,
+                     communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE
                      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
                      utils::ResourceMonitoring *resource_monitoring,
@@ -130,7 +132,7 @@ class InterpreterContextHolder {
   static void Initialize(InterpreterConfig interpreter_config, utils::Settings *settings,
                          parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
                          utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
-                         system::System &system,
+                         system::System &system, communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE
                          std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
                          utils::ResourceMonitoring *resource_monitoring,
@@ -145,6 +147,7 @@ class InterpreterContextHolder {
                      dbms_handler,
                      rs,
                      system,
+                     bolt_server_context,
 #ifdef MG_ENTERPRISE
                      coordinator_state,
                      resource_monitoring,
@@ -172,6 +175,7 @@ struct InterpreterContextLifetimeControl {
       InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
       memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
       utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, system::System &system,
+      communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE
       std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
       utils::ResourceMonitoring *resource_monitoring,
@@ -184,6 +188,7 @@ struct InterpreterContextLifetimeControl {
                                          dbms_handler,
                                          rs,
                                          system,
+                                         bolt_server_context,
 #ifdef MG_ENTERPRISE
                                          coordinator_state,
                                          resource_monitoring,

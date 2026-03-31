@@ -196,6 +196,7 @@ class TTLFixture : public ::testing::Test {
                                                            nullptr,
                                                            repl_state,
                                                            system_state,
+                                                           nullptr,
 #ifdef MG_ENTERPRISE
                                                            std::nullopt,
                                                            nullptr,
