@@ -12,9 +12,14 @@
 #include "metrics/prometheus_metrics.hpp"
 
 #include <algorithm>
+#include <filesystem>
 
 #include <gtest/gtest.h>
 #include <prometheus/metric_family.h>
+
+#include "dbms/database.hpp"
+#include "disk_test_utils.hpp"
+#include "storage/v2/config.hpp"
 
 namespace {
 
@@ -94,4 +99,22 @@ TEST(PrometheusMetrics, RemoveDatabaseRemovesMetrics) {
 
   auto const families = pm.registry().Collect();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), std::nullopt);
+}
+
+TEST(DatabaseMetrics, SwitchToOnDiskUpdatesSnapshotCallback) {
+  disk_test_utils::RemoveRocksDbDirs("SwitchToOnDiskMetrics");
+  auto config = disk_test_utils::GenerateOnDiskConfig("SwitchToOnDiskMetrics");
+  config.durability.storage_directory = std::filesystem::temp_directory_path() / "mg_test_switch_to_on_disk_metrics";
+  std::filesystem::remove_all(config.durability.storage_directory);
+
+  {
+    memgraph::dbms::Database db{config};
+    memgraph::metrics::Metrics().UpdateGauges();
+
+    db.SwitchToOnDisk();
+    EXPECT_NO_FATAL_FAILURE(memgraph::metrics::Metrics().UpdateGauges());
+  }
+
+  std::filesystem::remove_all(config.durability.storage_directory);
+  disk_test_utils::RemoveRocksDbDirs("SwitchToOnDiskMetrics");
 }
