@@ -15,8 +15,12 @@
 #include <expected>
 #include <functional>
 #include <list>
+#include <mutex>
+#include <optional>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -24,6 +28,8 @@
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
 #include <prometheus/registry.h>
+
+#include "coordination/include/coordination/instance_status.hpp"
 
 namespace memgraph::metrics {
 
@@ -40,6 +46,14 @@ struct StorageSnapshot {
   uint64_t disk_usage;
   uint64_t memory_res;
 };
+
+/// Retrieves `StorageSnapshot` for the given `db_name`, or `std::nullopt` if
+/// there is no such database.
+using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(std::string_view db_name)>;
+
+#ifdef MG_ENTERPRISE
+using InstanceStatusResolver = std::function<std::vector<coordination::InstanceStatus>()>;
+#endif
 
 struct DatabaseMetricHandles {
   // Storage
@@ -242,12 +256,18 @@ class PrometheusMetrics {
   PrometheusMetrics &operator=(PrometheusMetrics &&) = delete;
   ~PrometheusMetrics() = default;
 
-  DatabaseMetricHandles *AddDatabase(std::string_view db_name, std::function<StorageSnapshot()> get_snapshot);
+  DatabaseMetricHandles *AddDatabase(std::string_view db_name);
   void RemoveDatabase(DatabaseMetricHandles const *handles);
   void UpdateGauges();
 
+  void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
+#ifdef MG_ENTERPRISE
+  void SetInstanceStatusResolver(InstanceStatusResolver resolver);
+#endif
+
   std::expected<std::vector<MetricInfo>, std::string> GetDbMetricsInfo(std::string_view db_name) const;
   std::vector<MetricInfo> GetGlobalMetricsInfo() const;
+  std::vector<MetricInfo> GetGlobalMetricsInfoForLegacyJson();
 
   prometheus::Registry &registry() { return registry_; }
 
@@ -257,10 +277,24 @@ class PrometheusMetrics {
   struct DatabaseEntry {
     std::string db_name;
     DatabaseMetricHandles handles;
-    std::function<StorageSnapshot()> get_snapshot;
+    // Ref count to handle multiple Database instances with the same name
+    // sharing the same prometheus objects. This occurs only in unit tests that
+    // simulate multi-node setups (e..g. main + replicas) in-process.
+    uint32_t ref_count{1};
   };
 
+  StorageSnapshot ResolveStorageSnapshot(std::string_view db_name) const;
+
   prometheus::Registry registry_;
+  mutable std::shared_mutex databases_mutex_;
+  mutable std::mutex legacy_json_delta_mutex_;
+  std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
+  mutable std::mutex snapshot_resolver_mutex_;
+  StorageSnapshotResolver storage_snapshot_resolver_;
+#ifdef MG_ENTERPRISE
+  mutable std::mutex instance_resolver_mutex_;
+  InstanceStatusResolver instance_status_resolver_;
+#endif
   std::list<DatabaseEntry> databases_;
 
   // Per-database metric families — storage
@@ -453,6 +487,19 @@ class PrometheusMetrics {
   // Per-database metric families — GC histograms
   prometheus::Family<prometheus::Histogram> &gc_latency_family_;
   prometheus::Family<prometheus::Histogram> &gc_skiplist_cleanup_latency_family_;
+
+#ifdef MG_ENTERPRISE
+  // Global metric families — HA instance status
+  prometheus::Family<prometheus::Gauge> &instance_up_family_;
+  prometheus::Family<prometheus::Gauge> &instance_is_leader_family_;
+  prometheus::Family<prometheus::Gauge> &instance_is_main_family_;
+  prometheus::Family<prometheus::Gauge> &instance_last_response_ms_family_;
+  // Tracks currently registered instance gauges by instance_name for lifecycle management
+  std::unordered_map<std::string, prometheus::Gauge *> instance_up_gauges_;
+  std::unordered_map<std::string, prometheus::Gauge *> instance_is_leader_gauges_;
+  std::unordered_map<std::string, prometheus::Gauge *> instance_is_main_gauges_;
+  std::unordered_map<std::string, prometheus::Gauge *> instance_last_response_ms_gauges_;
+#endif
 };
 
 PrometheusMetrics &Metrics();

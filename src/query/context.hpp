@@ -12,11 +12,6 @@
 #pragma once
 
 #include <atomic>
-
-namespace memgraph::metrics {
-struct DatabaseMetricHandles;
-}  // namespace memgraph::metrics
-
 #include <memory>
 #include <type_traits>
 
@@ -35,6 +30,10 @@ struct DatabaseMetricHandles;
 namespace memgraph::memory {
 class ArenaPool;
 }  // namespace memgraph::memory
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 

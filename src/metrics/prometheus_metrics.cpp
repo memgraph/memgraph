@@ -14,14 +14,58 @@
 #include <fmt/format.h>
 #include <prometheus/client_metric.h>
 #include <prometheus/detail/builder.h>
+#include <array>
 
+#include <ranges>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "flags/coord_flag_env_handler.hpp"
 #include "utils/logging.hpp"
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::metrics {
 
 namespace {
 
 using prometheus::ClientMetric;
+
+bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
+  static constexpr std::array<std::string_view, 28> kLegacyCoordinatorDeltaMetrics{
+      "SuccessfulFailovers",
+      "RaftFailedFailovers",
+      "NoAliveInstanceFailedFailovers",
+      "BecomeLeaderSuccess",
+      "FailedToBecomeLeader",
+      "ShowInstance",
+      "ShowInstances",
+      "DemoteInstance",
+      "UnregisterReplInstance",
+      "RemoveCoordInstance",
+      "StateCheckRpcFail",
+      "StateCheckRpcSuccess",
+      "UnregisterReplicaRpcFail",
+      "UnregisterReplicaRpcSuccess",
+      "EnableWritingOnMainRpcFail",
+      "EnableWritingOnMainRpcSuccess",
+      "PromoteToMainRpcFail",
+      "PromoteToMainRpcSuccess",
+      "DemoteMainToReplicaRpcFail",
+      "DemoteMainToReplicaRpcSuccess",
+      "RegisterReplicaOnMainRpcFail",
+      "RegisterReplicaOnMainRpcSuccess",
+      "SwapMainUUIDRpcFail",
+      "SwapMainUUIDRpcSuccess",
+      "GetDatabaseHistoriesRpcFail",
+      "GetDatabaseHistoriesRpcSuccess",
+      "UpdateDataInstanceConfigRpcFail",
+      "UpdateDataInstanceConfigRpcSuccess",
+  };
+  return std::ranges::find(kLegacyCoordinatorDeltaMetrics, name) != kLegacyCoordinatorDeltaMetrics.end();
+}
 
 // 16 buckets covering 10µs to 120s
 prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
@@ -677,7 +721,27 @@ PrometheusMetrics::PrometheusMetrics()
       gc_skiplist_cleanup_latency_family_{prometheus::BuildHistogram()
                                               .Name("memgraph_gc_skiplist_cleanup_latency_seconds")
                                               .Help("GC skiplist cleanup latency in seconds")
-                                              .Register(registry_)} {
+                                              .Register(registry_)}
+#ifdef MG_ENTERPRISE
+      ,
+      instance_up_family_{prometheus::BuildGauge()
+                              .Name("memgraph_instance_up")
+                              .Help("1 if the instance is up, 0 if down")
+                              .Register(registry_)},
+      instance_is_leader_family_{prometheus::BuildGauge()
+                                     .Name("memgraph_instance_is_leader")
+                                     .Help("1 if the instance is the coordinator leader, 0 otherwise")
+                                     .Register(registry_)},
+      instance_is_main_family_{prometheus::BuildGauge()
+                                   .Name("memgraph_instance_is_main")
+                                   .Help("1 if the instance is the replication main, 0 otherwise")
+                                   .Register(registry_)},
+      instance_last_response_ms_family_{prometheus::BuildGauge()
+                                            .Name("memgraph_instance_last_response_ms")
+                                            .Help("Milliseconds since the last successful response from the instance")
+                                            .Register(registry_)}
+#endif
+{
   // Populate GlobalMetricHandles — only session, memory, and HA metrics
   prometheus::Labels const no_labels{};
 
@@ -754,8 +818,37 @@ PrometheusMetrics::PrometheusMetrics()
   global.get_histories_seconds = &get_histories_family_.Add(no_labels, kLatencyBuckets);
 }
 
-DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name,
-                                                      std::function<StorageSnapshot()> get_snapshot) {
+void PrometheusMetrics::SetStorageSnapshotResolver(StorageSnapshotResolver resolver) {
+  std::lock_guard const lock{snapshot_resolver_mutex_};
+  storage_snapshot_resolver_ = std::move(resolver);
+}
+
+#ifdef MG_ENTERPRISE
+void PrometheusMetrics::SetInstanceStatusResolver(InstanceStatusResolver resolver) {
+  std::lock_guard const lock{instance_resolver_mutex_};
+  instance_status_resolver_ = std::move(resolver);
+}
+#endif
+
+StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(std::string_view db_name) const {
+  StorageSnapshotResolver resolver;
+  {
+    std::lock_guard const lock{snapshot_resolver_mutex_};
+    resolver = storage_snapshot_resolver_;
+  }
+  if (resolver) {
+    if (auto const snap = resolver(db_name)) return *snap;
+  }
+  return StorageSnapshot{};
+}
+
+DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name) {
+  std::lock_guard const lock{databases_mutex_};
+  if (auto it = std::ranges::find_if(databases_, [db_name](auto const &e) { return e.db_name == db_name; });
+      it != databases_.end()) {
+    ++it->ref_count;
+    return &it->handles;
+  }
   prometheus::Labels const labels{{"database", std::string(db_name)}};
   databases_.push_back({
       .db_name = std::string(db_name),
@@ -859,14 +952,15 @@ DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name,
               .gc_latency_seconds = &gc_latency_family_.Add(labels, kLatencyBuckets),
               .gc_skiplist_cleanup_latency_seconds = &gc_skiplist_cleanup_latency_family_.Add(labels, kLatencyBuckets),
           },
-      .get_snapshot = std::move(get_snapshot),
   });
   return &databases_.back().handles;
 }
 
 void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
+  std::lock_guard const lock{databases_mutex_};
   auto it = std::ranges::find_if(databases_, [handles](auto const &e) { return &e.handles == handles; });
   MG_ASSERT(it != databases_.end(), "Attempted to remove unregistered database from PrometheusMetrics");
+  if (--it->ref_count > 0) return;
   auto &h = it->handles;
   vertex_count_family_.Remove(h.vertex_count);
   edge_count_family_.Remove(h.edge_count);
@@ -967,13 +1061,69 @@ void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
 }
 
 void PrometheusMetrics::UpdateGauges() {
-  for (auto &entry : databases_) {
-    auto const snapshot = entry.get_snapshot();
-    entry.handles.vertex_count->Set(static_cast<double>(snapshot.vertex_count));
-    entry.handles.edge_count->Set(static_cast<double>(snapshot.edge_count));
-    entry.handles.disk_usage_bytes->Set(static_cast<double>(snapshot.disk_usage));
-    entry.handles.memory_res_bytes->Set(static_cast<double>(snapshot.memory_res));
+  std::vector<std::string> names;
+  {
+    std::shared_lock const lock{databases_mutex_};
+    names.reserve(databases_.size());
+    r::transform(databases_, std::back_inserter(names), &DatabaseEntry::db_name);
   }
+
+  auto const snaps = names | rv::transform([&](auto const &name) { return ResolveStorageSnapshot(name); }) |
+                     r::to<std::vector<StorageSnapshot>>();
+
+  {
+    std::shared_lock const lock{databases_mutex_};
+    for (size_t i = 0; i < names.size(); ++i) {
+      auto it = std::ranges::find_if(databases_, [&](auto const &e) { return e.db_name == names[i]; });
+      if (it == databases_.end()) continue;
+      auto const &snapshot = snaps[i];
+      it->handles.vertex_count->Set(static_cast<double>(snapshot.vertex_count));
+      it->handles.edge_count->Set(static_cast<double>(snapshot.edge_count));
+      it->handles.disk_usage_bytes->Set(static_cast<double>(snapshot.disk_usage));
+      it->handles.memory_res_bytes->Set(static_cast<double>(snapshot.memory_res));
+    }
+  }
+
+#ifdef MG_ENTERPRISE
+  std::vector<coordination::InstanceStatus> instances;
+  {
+    std::lock_guard const lock{instance_resolver_mutex_};
+    if (instance_status_resolver_) instances = instance_status_resolver_();
+  }
+
+  // Remove gauges for instances no longer present
+  auto const active_names = instances | rv::transform(&coordination::InstanceStatus::instance_name) |
+                            r::to<std::unordered_set<std::string>>();
+  for (auto it = instance_up_gauges_.begin(); it != instance_up_gauges_.end();) {
+    if (!active_names.contains(it->first)) {
+      instance_up_family_.Remove(it->second);
+      instance_is_leader_family_.Remove(instance_is_leader_gauges_.at(it->first));
+      instance_is_main_family_.Remove(instance_is_main_gauges_.at(it->first));
+      instance_last_response_ms_family_.Remove(instance_last_response_ms_gauges_.at(it->first));
+      instance_is_leader_gauges_.erase(it->first);
+      instance_is_main_gauges_.erase(it->first);
+      instance_last_response_ms_gauges_.erase(it->first);
+      it = instance_up_gauges_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  // Add or update gauges for current instances
+  for (auto const &inst : instances) {
+    prometheus::Labels const labels{{"mg_instance", inst.instance_name}};
+    if (!instance_up_gauges_.contains(inst.instance_name)) {
+      instance_up_gauges_.emplace(inst.instance_name, &instance_up_family_.Add(labels));
+      instance_is_leader_gauges_.emplace(inst.instance_name, &instance_is_leader_family_.Add(labels));
+      instance_is_main_gauges_.emplace(inst.instance_name, &instance_is_main_family_.Add(labels));
+      instance_last_response_ms_gauges_.emplace(inst.instance_name, &instance_last_response_ms_family_.Add(labels));
+    }
+    instance_up_gauges_.at(inst.instance_name)->Set(inst.health == "up" ? 1.0 : 0.0);
+    instance_is_leader_gauges_.at(inst.instance_name)->Set(inst.cluster_role == "leader" ? 1.0 : 0.0);
+    instance_is_main_gauges_.at(inst.instance_name)->Set(inst.cluster_role == "main" ? 1.0 : 0.0);
+    instance_last_response_ms_gauges_.at(inst.instance_name)->Set(static_cast<double>(inst.last_succ_resp_ms));
+  }
+#endif
 }
 
 namespace {
@@ -1049,13 +1199,14 @@ void AppendMergedHistogramPercentiles(std::vector<MetricInfo> &out, std::string 
 
 std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetricsInfo(
     std::string_view db_name) const {
+  auto const snapshot = ResolveStorageSnapshot(db_name);
+  std::shared_lock const lock{databases_mutex_};
   auto const it = std::ranges::find_if(databases_, [db_name](auto const &e) { return e.db_name == db_name; });
   if (it == databases_.end()) {
     return std::unexpected(fmt::format("Database '{}' not found in metrics registry", db_name));
   }
 
   auto const &h = it->handles;
-  auto const snapshot = it->get_snapshot();
   std::vector<MetricInfo> out;
 
   // General
@@ -1264,6 +1415,19 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
 }
 
 std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
+  std::vector<std::string> db_names;
+  {
+    std::shared_lock const lock{databases_mutex_};
+    db_names.reserve(databases_.size());
+    for (auto const &entry : databases_) db_names.push_back(entry.db_name);
+  }
+  std::unordered_map<std::string, StorageSnapshot> snap_by_db;
+  snap_by_db.reserve(db_names.size());
+  for (auto const &n : db_names) {
+    snap_by_db.emplace(n, ResolveStorageSnapshot(n));
+  }
+
+  std::shared_lock const lock{databases_mutex_};
   auto const &g = global;
   std::vector<MetricInfo> out;
 
@@ -1271,7 +1435,8 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   int64_t total_vertex_count = 0;
   int64_t total_edge_count = 0;
   for (auto const &entry : databases_) {
-    auto const snapshot = entry.get_snapshot();
+    auto const snap_it = snap_by_db.find(entry.db_name);
+    auto const snapshot = snap_it != snap_by_db.end() ? snap_it->second : ResolveStorageSnapshot(entry.db_name);
     total_vertex_count += static_cast<int64_t>(snapshot.vertex_count);
     total_edge_count += static_cast<int64_t>(snapshot.edge_count);
   }
@@ -1289,7 +1454,8 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   int64_t total_memory_res = 0;
   int64_t total_unreleased_deltas = 0;
   for (auto const &entry : databases_) {
-    auto const snapshot = entry.get_snapshot();
+    auto const snap_it = snap_by_db.find(entry.db_name);
+    auto const snapshot = snap_it != snap_by_db.end() ? snap_it->second : ResolveStorageSnapshot(entry.db_name);
     total_disk_usage += static_cast<int64_t>(snapshot.disk_usage);
     total_memory_res += static_cast<int64_t>(snapshot.memory_res);
     total_unreleased_deltas += static_cast<int64_t>(entry.handles.unreleased_delta_objects->Value());
@@ -1713,6 +1879,34 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
       out, "UpdateDataInstanceConfigRpc", "HighAvailability", *g.update_data_instance_config_rpc_seconds);
   AppendHistogramPercentiles(out, "GetHistories", "HighAvailability", *g.get_histories_seconds);
 
+  return out;
+}
+
+std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForLegacyJson() {
+  auto out = GetGlobalMetricsInfo();
+
+  if (!flags::CoordinationSetupInstance().IsCoordinator()) {
+    return out;
+  }
+
+  std::lock_guard const lock{legacy_json_delta_mutex_};
+  for (auto &info : out) {
+    if (info.type != "HighAvailability" || info.metric_type != "Counter" ||
+        !IsLegacyCoordinatorDeltaMetric(info.name)) {
+      continue;
+    }
+    auto *current = std::get_if<int64_t>(&info.value);
+    if (current == nullptr) continue;
+
+    auto [it, inserted] = legacy_json_prev_ha_counter_values_.emplace(info.name, *current);
+    if (inserted) {
+      continue;
+    }
+
+    int64_t const delta = *current - it->second;
+    it->second = *current;
+    info.value = delta;
+  }
   return out;
 }
 

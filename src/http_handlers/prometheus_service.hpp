@@ -11,8 +11,11 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cctype>
 #include <functional>
 #include <sstream>
+#include <string>
 
 #include <prometheus/registry.h>
 #include <prometheus/text_serializer.h>
@@ -25,7 +28,7 @@ namespace memgraph::http {
 
 class PrometheusRequestHandler final {
  public:
-  explicit PrometheusRequestHandler(metrics::PrometheusMetrics * /*unused*/) {}
+  explicit PrometheusRequestHandler(metrics::PrometheusMetrics *metrics) : metrics_(metrics) {}
 
   PrometheusRequestHandler(PrometheusRequestHandler const &) = delete;
   PrometheusRequestHandler(PrometheusRequestHandler &&) = delete;
@@ -55,13 +58,19 @@ class PrometheusRequestHandler final {
       return send(bad_request("Illegal request-target"));
     }
 
-    metrics::Metrics().UpdateGauges();
+    metrics_->UpdateGauges();
 
     prometheus::TextSerializer serializer;
     std::ostringstream oss;
-    serializer.Serialize(oss, metrics::Metrics().registry().Collect());
+    serializer.Serialize(oss, metrics_->registry().Collect());
 
     auto body = oss.str();
+    auto content_type = std::string{"text/plain; version=0.0.4"};
+    if (WantsOpenMetrics(req)) {
+      if (body.empty() || body.back() != '\n') body.push_back('\n');
+      body += "# EOF\n";
+      content_type = "application/openmetrics-text; version=1.0.0; charset=utf-8";
+    }
     auto const size = body.size();
 
     boost::beast::http::response<boost::beast::http::string_body> res{
@@ -69,11 +78,26 @@ class PrometheusRequestHandler final {
         std::make_tuple(std::move(body)),
         std::make_tuple(boost::beast::http::status::ok, req.version())};
     res.set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-    res.set(boost::beast::http::field::content_type, "text/plain; version=0.0.4");
+    res.set(boost::beast::http::field::content_type, content_type);
     res.content_length(size);
     res.keep_alive(req.keep_alive());
     return send(std::move(res));
   }
+
+ private:
+  template <class Body, class Fields>
+  static bool WantsOpenMetrics(boost::beast::http::request<Body, Fields> const &req) {
+    auto const accept_it = req.find(boost::beast::http::field::accept);
+    if (accept_it == req.end()) return false;
+
+    auto accept = std::string{accept_it->value()};
+    std::transform(accept.begin(), accept.end(), accept.begin(), [](unsigned char c) {
+      return static_cast<char>(std::tolower(c));
+    });
+    return accept.find("application/openmetrics-text") != std::string::npos;
+  }
+
+  metrics::PrometheusMetrics *metrics_;
 };
 
 }  // namespace memgraph::http

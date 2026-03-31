@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <variant>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
@@ -37,6 +38,7 @@
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/logging.hpp"
+#include "glue/MonitoringServerT.hpp"
 #include "glue/PrometheusServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
@@ -724,6 +726,19 @@ int main(int argc, char **argv) {
     dbms_handler.emplace(db_config);
   }
 
+  memgraph::metrics::Metrics().SetStorageSnapshotResolver(
+      [&dbms_handler](std::string_view name) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        return dbms_handler.TryGetStorageSnapshotForMetrics(name);
+      });
+
+#ifdef MG_ENTERPRISE
+  memgraph::metrics::Metrics().SetInstanceStatusResolver(
+      [&coordinator_state]() -> std::vector<memgraph::coordination::InstanceStatus> {
+        if (!coordinator_state || !coordinator_state->IsCoordinator()) return {};
+        return coordinator_state->ShowInstances();
+      });
+#endif
+
   // singleton replication state
   // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
   std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
@@ -945,17 +960,26 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
-  // TODO: replace hardcoded port 9092 with FLAGS_metrics_port once old metrics server is removed
-  memgraph::glue::PrometheusServerT prometheus_server{
-      {"localhost", 9092}, &memgraph::metrics::Metrics(), &bolt_server_context};
-  spdlog::trace("Prometheus metrics server created.");
+  auto const metrics_endpoint =
+      memgraph::io::network::Endpoint{FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)};
+  using MetricsServerVariant = std::variant<memgraph::glue::PrometheusServerT, memgraph::glue::MonitoringServerT>;
+  MetricsServerVariant metrics_server =
+      FLAGS_metrics_format == "JSON" ? MetricsServerVariant{std::in_place_type<memgraph::glue::MonitoringServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context}
+                                     : MetricsServerVariant{std::in_place_type<memgraph::glue::PrometheusServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context};
+  spdlog::trace("Metrics server created.");
 #endif
 
   // Handler for regular termination signals
   auto shutdown = [
 #ifdef MG_ENTERPRISE
                       &coordinator_state,
-                      &prometheus_server,
+                      &metrics_server,
 #endif
                       is_coordinator_instance,
                       &websocket_server,
@@ -1010,7 +1034,7 @@ int main(int argc, char **argv) {
     spdlog::trace("Shutting down websocket server");
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
-    prometheus_server.Shutdown();
+    std::visit([](auto &s) { s.Shutdown(); }, metrics_server);
     if (coordinator_state && coordinator_state->IsCoordinator()) {
       // Coordinator instance destruction will handle the complete shutdown
       coordinator_state.reset();
@@ -1028,8 +1052,8 @@ int main(int argc, char **argv) {
   spdlog::trace("Web socket server started.");
 
 #ifdef MG_ENTERPRISE
-  prometheus_server.Start();
-  spdlog::trace("Prometheus metrics server started");
+  std::visit([](auto &s) { s.Start(); }, metrics_server);
+  spdlog::trace("Metrics server started");
 #endif
 
   if (!FLAGS_init_data_file.empty() && dbms_handler.has_value()) {
@@ -1059,7 +1083,7 @@ int main(int argc, char **argv) {
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
-  prometheus_server.AwaitShutdown();
+  std::visit([](auto &s) { s.AwaitShutdown(); }, metrics_server);
 #endif
   try {
     memgraph::query::procedure::gModuleRegistry.UnloadAllModules();

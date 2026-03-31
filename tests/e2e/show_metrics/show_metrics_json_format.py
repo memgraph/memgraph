@@ -9,18 +9,21 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import json
 import sys
 import urllib.request
 
 import pytest
 
 
-def test_metrics_http_endpoint_returns_non_empty_response():
-    """Smoke test, just checks that the prometheus endpoint is responding with
-    some response and an OK status."""
+def test_metrics_json_format_returns_valid_json():
     with urllib.request.urlopen("http://localhost:9091/metrics") as response:
         assert response.status == 200
-        assert len(response.read()) > 0
+        body = response.read()
+        try:
+            json.loads(body)
+        except json.JSONDecodeError:
+            pytest.fail("Response is not valid JSON")
 
 
 if __name__ == "__main__":

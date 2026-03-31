@@ -11,6 +11,7 @@
 
 #include "query/plan/operator.hpp"
 #include <range/v3/all.hpp>
+#include "metrics/prometheus_metrics.hpp"
 
 #include <algorithm>
 #include <cstdint>

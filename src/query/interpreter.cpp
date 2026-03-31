@@ -237,7 +237,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
-  if (auto *mh = db_acc->metric_handles()) mh->active_transactions->Increment();
+  if (auto *mh = db_acc->metric_handles()) transaction_gauge_ = metrics::ScopedGauge{mh->active_transactions};
 
   if (db_acc->trigger_store()->HasTriggers() && could_commit) {
     trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
@@ -251,9 +251,8 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   db_transactional_accessor_.reset();
   execution_db_accessor_.reset();
   trigger_context_collector_.reset();
+  transaction_gauge_ = {};
 }
-
-// namespace memgraph::metrics
 
 struct QueryLogWrapper {
   std::string_view query;
@@ -9989,6 +9988,7 @@ void Interpreter::Abort() {
     db_arena_scope.emplace(current_db_.db_acc_->get());
   }
 
+
   // if (!current_db_.db_transactional_accessor_) return;
   current_db_.CleanupDBTransaction(true);
   for (auto &qe : query_executions_) {
@@ -10258,10 +10258,7 @@ void Interpreter::Commit() {
 
   auto *metric_handles = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr;
   utils::OnScopeExit update_metrics([metric_handles]() {
-    if (metric_handles) {
-      metric_handles->committed_transactions->Increment();
-      metric_handles->active_transactions->Decrement();
-    }
+    if (metric_handles) metric_handles->committed_transactions->Increment();
   });
 
   std::optional<TriggerContext> trigger_context = std::nullopt;

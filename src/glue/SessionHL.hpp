@@ -145,6 +145,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #endif
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
+  metrics::ScopedGauge bolt_session_gauge_;
   std::optional<ParseRes> parsed_res_;  // SessionHL corresponds to a single connection (we do not support out of order
                                         // execution, so a single query can be prepared/executed)
 };

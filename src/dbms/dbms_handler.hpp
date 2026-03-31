@@ -40,6 +40,7 @@
 #endif
 #include "dbms/database_protector.hpp"
 #include "global.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/interpreter_context.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
@@ -215,7 +216,6 @@ class DbmsHandler {
                   *name_view,
                   std::string(db->uuid()),
                   std::string(config.uuid));
-    db->DetachMetrics();
     // Defer drop
     (void)Delete_(db->name());
     // Second attempt
@@ -408,6 +408,13 @@ class DbmsHandler {
     }
     return res;
   }
+
+  /***
+   * @brief Live vertex/edge/disk/memory stats for metrics.
+   *
+   * @param db_name
+   */
+  std::optional<metrics::StorageSnapshot> TryGetStorageSnapshotForMetrics(std::string_view db_name);
 
   /**
    * @brief Restore triggers for all currently defined databases.

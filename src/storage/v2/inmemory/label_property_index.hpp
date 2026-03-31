@@ -78,7 +78,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     PropertiesPermutationHelper const permutations_helper;
     utils::SkipListDb<EntryT> skiplist{};
     IndexStatus status{};
-    ::metrics::ScopedGauge gauge_{};
+    metrics::ScopedGauge gauge_{};
   };
 
   struct Compare {

@@ -79,7 +79,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
     utils::SkipListDb<Entry> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
-    ::metrics::ScopedGauge gauge_{};
+    metrics::ScopedGauge gauge_{};
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;

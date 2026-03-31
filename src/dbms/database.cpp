@@ -16,6 +16,8 @@
 #include "dbms/database_info.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "memory/db_arena.hpp"
+#include "flags/coord_flag_env_handler.hpp"
+#include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
@@ -97,28 +99,27 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                            &db_embedding_memory_tracker_);
   }
 
-  metric_handles_ = metrics::Metrics().AddDatabase(storage_->name(), [s = storage_.get()] {
-    auto const info = s->GetBaseInfo();
-    return metrics::StorageSnapshot{
-        .vertex_count = info.vertex_count,
-        .edge_count = info.edge_count,
-        .disk_usage = info.disk_usage,
-        .memory_res = info.memory_res,
-    };
-  });
-  storage_->SetMetricHandles(metric_handles_);
+  auto const should_register_database_metrics =
+      !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
+  if (should_register_database_metrics) {
+    metrics_.reset(metrics::Metrics().AddDatabase(storage_->name()));
+  }
+  storage_->SetMetricHandles(metrics_.get());
 }
 
 Database::~Database() {
-  storage_.reset();
-  DetachMetrics();
+  if (storage_) {
+    storage_->SetMetricHandles(nullptr);
+  }
 }
 
-void Database::DetachMetrics() {
-  if (metric_handles_) {
-    metrics::Metrics().RemoveDatabase(metric_handles_);
-    metric_handles_ = nullptr;
-  }
+Database::ScopedMetrics::~ScopedMetrics() {
+  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
+}
+
+void Database::ScopedMetrics::reset(metrics::DatabaseMetricHandles *handles) {
+  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
+  handles_ = handles;
 }
 
 memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
@@ -182,6 +183,10 @@ void Database::SwitchToOnDisk() {
                                                               preserved_factory,
                                                               db_arena_.get(),
                                                               &db_embedding_memory_tracker_);
+
+  if (metrics_.get()) {
+    storage_->SetMetricHandles(metrics_.get());
+  }
 }
 
 }  // namespace memgraph::dbms
