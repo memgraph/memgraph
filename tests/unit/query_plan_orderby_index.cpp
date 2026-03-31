@@ -767,4 +767,84 @@ TYPED_TEST(OrderByIndexTest, RangeOnFirstOrderBySecondNotEliminated) {
       << "OrderBy should NOT be eliminated (a is range-filtered, not equality-pinned)";
 }
 
+// Test 29: IN on first column, ORDER BY second — IN is multi-valued, b not globally sorted
+TYPED_TEST(OrderByIndexTest, InFilterNotEqualityPinned) {
+  // MATCH (n:L) WHERE n.a IN [1, 3] ORDER BY n.b RETURN n
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                         WHERE(IN_LIST(PROPERTY_LOOKUP(dba, "n", prop_a.second), LIST(LITERAL(1), LITERAL(3)))),
+                         RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_b.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (IN is multi-valued, b not globally sorted)";
+}
+
+// Test 30: IN on first column, ORDER BY first — Unwind iterates in list order, not index order
+TYPED_TEST(OrderByIndexTest, InFilterOrderBySameColumn) {
+  // MATCH (n:L) WHERE n.a IN [3, 1] ORDER BY n.a RETURN n
+  // Unwind yields 3, then 1 — scan returns a=3 rows first, then a=1. Not sorted by a.
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                         WHERE(IN_LIST(PROPERTY_LOOKUP(dba, "n", prop_a.second), LIST(LITERAL(3), LITERAL(1)))),
+                         RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_a.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // The Unwind iterates the IN list in the given order. The scan returns rows for each value
+  // in that order — not in index-sorted order. So ORDER BY cannot be safely eliminated.
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (IN list order is not guaranteed sorted)";
+}
+
+// Test 31: IN on first column, ORDER BY first and second — a is sorted but b is only sorted within each a-group
+TYPED_TEST(OrderByIndexTest, InFilterOrderByBothColumns) {
+  // MATCH (n:L) WHERE n.a IN [1, 3] ORDER BY n.a, n.b RETURN n
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", label_name))),
+      WHERE(IN_LIST(PROPERTY_LOOKUP(dba, "n", prop_a.second), LIST(LITERAL(1), LITERAL(3)))),
+      RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_a.second), PROPERTY_LOOKUP(dba, "n", prop_b.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // With IN rewrite: Unwind [1,3] → scan with a=<val>. Each scan returns (a, b) sorted.
+  // Since Unwind iterates in list order [1, 3], and within each a-value b is sorted,
+  // the combined output is (1, b1), (1, b2), ..., (3, b1), (3, b2), ... which IS sorted by (a, b).
+  // However, this only works if the Unwind iterates in sorted order, which is NOT guaranteed
+  // (the list [3, 1] would break it). Conservative: keep OrderBy.
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (IN list order is not guaranteed sorted)";
+}
+
 }  // namespace
