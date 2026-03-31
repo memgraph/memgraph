@@ -244,6 +244,7 @@ class PrometheusMetrics {
 
   DatabaseMetricHandles *AddDatabase(std::string_view db_name, std::function<StorageSnapshot()> get_snapshot);
   void RemoveDatabase(DatabaseMetricHandles const *handles);
+  void UpdateSnapshotCallback(DatabaseMetricHandles const *handles, std::function<StorageSnapshot()> get_snapshot);
   void UpdateGauges();
 
   std::expected<std::vector<MetricInfo>, std::string> GetDbMetricsInfo(std::string_view db_name) const;
