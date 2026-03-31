@@ -87,7 +87,7 @@ class TransactionReplication {
 
  private:
   std::vector<std::optional<ReplicaStream>> streams;
-  // nullopt if connecting to replica went passed successfully, else error stored
+  // nullopt if connecting to replica passed successfully, else error stored
   std::vector<std::optional<StartTxnReplicationError>> errors_;
   utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>::ReadLockedPtr
       locked_clients;

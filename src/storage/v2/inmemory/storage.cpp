@@ -1080,12 +1080,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
     // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
     // cluster.
-    // This is OK because if we have STRICT_SYNC and ASYNC replicas, we ran StartTxnReplication only for STRICT_SYNC
-    // replicas
-    auto start_failures = replicating_txn.CollectStartTxnErrors();
-    if (!start_failures.empty()) {
-      return std::unexpected{ReplicationError{.failures = std::move(start_failures), .transaction_committed = false}};
-    }
 
     if (repl_prepare_phase_status.has_value()) {
       // All replicas voted yes, hence they want to commit the current transaction
@@ -1099,6 +1093,16 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     // Send to all replicas they can finalize a transaction
     replicating_txn.FinalizeTransaction(
         repl_prepare_phase_status.has_value(), mem_storage->uuid(), protector, durability_commit_timestamp);
+
+    // This is OK because if we have STRICT_SYNC and ASYNC replicas, we ran StartTxnReplication only for STRICT_SYNC
+    // replicas
+    auto start_failures = replicating_txn.CollectStartTxnErrors();
+    if (!start_failures.empty()) {
+      // Release engine lock because we don't have to hold it anymore for abort
+      engine_guard.unlock();
+      AbortAndResetCommitTs();
+      return std::unexpected{ReplicationError{.failures = std::move(start_failures), .transaction_committed = false}};
+    }
 
     if (!repl_prepare_phase_status.has_value()) {
       // Release engine lock because we don't have to hold it anymore for abort

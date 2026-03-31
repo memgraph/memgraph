@@ -154,13 +154,12 @@ TransactionReplication::TransactionReplication(uint64_t const durability_commit_
       // If any client requires two phase commit, then we are running that phase
       run_two_phase_commit |= client->TwoPhaseCommit();
       auto res = client->StartTransactionReplication(storage, db_acc, durability_commit_timestamp);
-      // TODO: (andi) Can you simplify this
       if (res.has_value()) {
         streams.emplace_back(std::move(res.value()));
         errors_.emplace_back(std::nullopt);
       } else {
         streams.emplace_back(std::nullopt);
-        errors_.emplace_back(res.error());
+        errors_.emplace_back(std::move(res.error()));
       }
     }
   }
