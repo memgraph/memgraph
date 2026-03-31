@@ -8,4 +8,4 @@ query: |
 
 output:
   - localtime_col_type: 'LOCAL_TIME'
-    localtime_col: '10:30:45.000000000'
+    localtime_col: '10:30:45.00000'
