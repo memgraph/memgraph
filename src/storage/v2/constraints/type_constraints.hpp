@@ -59,7 +59,7 @@ class TypeConstraints {
 
     TypeConstraintKind type;
     ConstraintStatus status{};
-    ::metrics::ScopedGauge gauge_{};
+    metrics::ScopedGauge gauge_{};
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;

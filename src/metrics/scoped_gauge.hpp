@@ -15,7 +15,7 @@
 
 #include <prometheus/gauge.h>
 
-namespace metrics {
+namespace memgraph::metrics {
 
 class ScopedGauge {
  public:
@@ -49,4 +49,4 @@ class ScopedGauge {
   prometheus::Gauge *gauge_{nullptr};
 };
 
-}  // namespace metrics
+}  // namespace memgraph::metrics

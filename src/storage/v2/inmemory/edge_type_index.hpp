@@ -168,7 +168,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
     utils::SkipList<Entry> skip_list_;
     IndexStatus status_{};
-    ::metrics::ScopedGauge gauge_{};
+    metrics::ScopedGauge gauge_{};
   };
 
   struct IndicesContainer {

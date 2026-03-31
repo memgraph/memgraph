@@ -54,7 +54,7 @@ class InMemoryLabelIndex : public LabelIndex {
     void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
     utils::SkipList<Entry> skiplist{};
     IndexStatus status{};
-    ::metrics::ScopedGauge gauge_{};
+    metrics::ScopedGauge gauge_{};
   };
 
   struct AllIndicesEntry {
