@@ -53,6 +53,11 @@ TYPED_TEST(CypherType, PresentableNameSimpleTypes) {
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node)->impl->GetPresentableName(), "NODE");
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship)->impl->GetPresentableName(), "RELATIONSHIP");
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)->impl->GetPresentableName(), "PATH");
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_date)->impl->GetPresentableName(), "DATE");
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_local_time)->impl->GetPresentableName(), "LOCAL_TIME");
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_local_date_time)->impl->GetPresentableName(), "LOCAL_DATE_TIME");
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_duration)->impl->GetPresentableName(), "DURATION");
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_zoned_date_time)->impl->GetPresentableName(), "ZONED_DATE_TIME");
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_2d)->impl->GetPresentableName(), "POINT_2D");
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_point_3d)->impl->GetPresentableName(), "POINT_3D");
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_enum)->impl->GetPresentableName(), "ENUM");
