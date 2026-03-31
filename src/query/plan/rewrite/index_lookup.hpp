@@ -890,7 +890,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     OrderBy *op;
     Symbol scan_symbol;
     std::vector<storage::PropertyPath> property_paths;
-    bool valid;             // all expressions are simple ASC PropertyLookups on same symbol
+    bool valid;             // all expressions are ASC and recognized (PropertyLookup or bare Identifier)
     bool should_eliminate;  // set by CheckOrderByElimination, consumed in PostVisit
     // Bare-Identifier ORDER BY entries (e.g., ORDER BY a after WITH n.prop AS a).
     // Resolved to property_paths during CheckOrderByElimination via Produce inspection.
@@ -1014,8 +1014,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       if (auto *prop = dynamic_cast<PropertyLookup *>(matched->expression_)) {
         auto *inner = dynamic_cast<Identifier *>(prop->expression_);
-        // All PropertyLookups must reference the same source symbol (the scan symbol).
-        // TODO: Handle rename chains before projection (WITH n AS m WITH m.a AS a ORDER BY a).
+        // All PropertyLookups must reference the same source symbol (tracked through renames).
         if (!inner || inner->name_ != expected_source) {
           ctx.valid = false;
           return false;
@@ -1064,8 +1063,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::string pre_last_produce_name = tracked_name;
 
     // Walk prev_ops_ backwards from scan to OrderBy, verifying all operators are order-preserving.
-    // Collect Produces for alias resolution (needed in OrderBy-to-scan order).
-    std::vector<Produce *> walk_produces;
+    // Collect Produces with their tracked names for alias resolution (needed in OrderBy-to-scan order).
+    std::vector<std::pair<Produce *, std::string>> walk_produces;  // (produce, tracked_name entering it)
 
     for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
       auto *op = *it;
@@ -1073,7 +1072,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (type_info == Produce::kType) {
         auto *produce = dynamic_cast<Produce *>(op);
         if (has_unresolved) {
-          walk_produces.push_back(produce);
+          walk_produces.emplace_back(produce, tracked_name);
+          // Forward-track through renames so tracked_name is correct for subsequent Produces.
+          auto resolved = ResolveProduceMapping(produce, tracked_name);
+          if (resolved) tracked_name = std::move(*resolved);
+          // nullopt is expected for property-projection Produces (n.a AS a) — tracked_name stays.
         } else {
           pre_last_produce_name = tracked_name;
           auto resolved = ResolveProduceMapping(produce, tracked_name);
@@ -1096,11 +1099,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     if (has_unresolved) {
       // Resolve aliases through Produces in OrderBy-to-scan order.
+      // Each entry carries the tracked scan symbol name at that Produce (handles rename chains).
       // Include the Produce above OrderBy (RETURN scope) as the first in the chain.
-      std::vector<Produce *> resolution_chain;
+      std::vector<std::pair<Produce *, std::string>> resolution_chain;
       for (size_t i = 1; i < prev_ops_.size(); ++i) {
         if (prev_ops_[i] == ctx.op && prev_ops_[i - 1]->GetTypeInfo() == Produce::kType) {
-          resolution_chain.push_back(dynamic_cast<Produce *>(prev_ops_[i - 1]));
+          // The RETURN Produce is above OrderBy — use tracked_name at end of walk.
+          resolution_chain.emplace_back(dynamic_cast<Produce *>(prev_ops_[i - 1]), tracked_name);
           break;
         }
       }
@@ -1108,9 +1113,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         resolution_chain.push_back(*it);
       }
 
-      for (auto *produce : resolution_chain) {
+      for (const auto &[produce, expected_source] : resolution_chain) {
         if (ctx.unresolved_aliases.empty()) break;
-        ResolveAliasesThroughProduce(produce, ctx, scan_symbol.name());
+        ResolveAliasesThroughProduce(produce, ctx, expected_source);
         if (!ctx.valid) return;
       }
 
