@@ -847,4 +847,34 @@ TYPED_TEST(OrderByIndexTest, InFilterOrderByBothColumns) {
       << "OrderBy should NOT be eliminated (IN list order is not guaranteed sorted)";
 }
 
+// Test 32: User-written UNWIND between OrderBy and ScanAll — Unwind is order-preserving
+// for the scan symbol, so elimination should still fire.
+TYPED_TEST(OrderByIndexTest, UserUnwindPreservesOrder) {
+  // MATCH (n:L) WHERE n.prop > 5 UNWIND [1, 2, 3] AS x RETURN n, x ORDER BY n.prop
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5)));
+  auto *unwind_clause = UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x"));
+  auto *return_clause = RETURN("n", "x", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(unwind_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Unwind multiplies rows (1:N) but preserves the relative ordering of n.prop.
+  // The ORDER BY is on the scan symbol n.prop, not on x, so elimination is safe.
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (user UNWIND is order-preserving for scan symbol)";
+}
+
 }  // namespace
