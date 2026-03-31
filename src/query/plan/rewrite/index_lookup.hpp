@@ -892,6 +892,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<storage::PropertyPath> property_paths;
     bool valid;             // all expressions are simple ASC PropertyLookups on same symbol
     bool should_eliminate;  // set by CheckOrderByElimination, consumed in PostVisit
+    // Bare-Identifier ORDER BY entries (e.g., ORDER BY a after WITH n.prop AS a).
+    // Resolved to property_paths during CheckOrderByElimination via Produce inspection.
+    std::vector<std::string> unresolved_aliases;
   };
 
   std::vector<OrderByContext> order_by_stack_;
@@ -943,29 +946,44 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (ord.ordering() != Ordering::ASC) return ctx;
     }
 
-    // All expressions must be PropertyLookup(Identifier) on the same symbol.
-    bool first = true;
+    // Determine expression types: all PropertyLookup(Identifier), all bare Identifier, or mixed.
+    bool all_prop_lookup = true;
+    bool all_bare_ident = true;
     for (auto *expr : order_by_exprs) {
-      auto *prop_lookup = dynamic_cast<PropertyLookup *>(expr);
-      if (!prop_lookup) return ctx;
+      if (!dynamic_cast<PropertyLookup *>(expr)) all_prop_lookup = false;
+      if (!dynamic_cast<Identifier *>(expr)) all_bare_ident = false;
+    }
+    if (!all_prop_lookup && !all_bare_ident) return ctx;
 
-      auto *ident = dynamic_cast<Identifier *>(prop_lookup->expression_);
-      if (!ident) return ctx;
+    if (all_prop_lookup) {
+      // All expressions are PropertyLookup(Identifier) on the same symbol.
+      bool first = true;
+      for (auto *expr : order_by_exprs) {
+        auto *prop_lookup = dynamic_cast<PropertyLookup *>(expr);
+        auto *ident = dynamic_cast<Identifier *>(prop_lookup->expression_);
+        if (!ident) return ctx;
 
-      const auto &sym = symbol_table_->at(*ident);
-      if (first) {
-        ctx.scan_symbol = sym;
-        first = false;
-      } else if (ctx.scan_symbol != sym) {
-        return ctx;
+        const auto &sym = symbol_table_->at(*ident);
+        if (first) {
+          ctx.scan_symbol = sym;
+          first = false;
+        } else if (ctx.scan_symbol != sym) {
+          return ctx;
+        }
+
+        std::vector<storage::PropertyId> prop_ids;
+        prop_ids.reserve(prop_lookup->property_path_.size());
+        for (const auto &pix : prop_lookup->property_path_) {
+          prop_ids.push_back(GetProperty(pix));
+        }
+        ctx.property_paths.emplace_back(std::move(prop_ids));
       }
-
-      std::vector<storage::PropertyId> prop_ids;
-      prop_ids.reserve(prop_lookup->property_path_.size());
-      for (const auto &pix : prop_lookup->property_path_) {
-        prop_ids.push_back(GetProperty(pix));
+    } else {
+      // Bare Identifiers (e.g., ORDER BY a, b after WITH n.a AS a, n.b AS b).
+      // Store alias names for deferred resolution through Produce operators.
+      for (auto *expr : order_by_exprs) {
+        ctx.unresolved_aliases.push_back(dynamic_cast<Identifier *>(expr)->name_);
       }
-      ctx.property_paths.emplace_back(std::move(prop_ids));
     }
 
     ctx.valid = true;
@@ -973,11 +991,71 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   // TODO: Extend to edge property index scans (also SkipList-backed, ASC order).
+  /// Resolve bare-Identifier ORDER BY aliases through a Produce's named_expressions.
+  /// Returns true if all aliases were resolved to PropertyLookup(Identifier), filling property_paths.
+  /// Returns false if all aliases passed through as renames (unresolved_aliases updated).
+  /// Bails (sets ctx.valid = false) on mixed resolution, missing aliases, or wrong source symbol.
+  bool ResolveAliasesThroughProduce(Produce *produce, OrderByContext &ctx, const std::string &expected_source) {
+    std::vector<storage::PropertyPath> resolved_paths;
+    std::vector<std::string> remaining;
+
+    for (const auto &alias : ctx.unresolved_aliases) {
+      const NamedExpression *matched = nullptr;
+      for (const auto *ne : produce->named_expressions_) {
+        if (ne->name_ == alias) {
+          matched = ne;
+          break;
+        }
+      }
+      if (!matched) {
+        ctx.valid = false;
+        return false;
+      }
+
+      if (auto *prop = dynamic_cast<PropertyLookup *>(matched->expression_)) {
+        auto *inner = dynamic_cast<Identifier *>(prop->expression_);
+        // All PropertyLookups must reference the same source symbol (the scan symbol).
+        // TODO: Handle rename chains before projection (WITH n AS m WITH m.a AS a ORDER BY a).
+        if (!inner || inner->name_ != expected_source) {
+          ctx.valid = false;
+          return false;
+        }
+        std::vector<storage::PropertyId> prop_ids;
+        prop_ids.reserve(prop->property_path_.size());
+        for (const auto &pix : prop->property_path_) {
+          prop_ids.push_back(GetProperty(pix));
+        }
+        resolved_paths.emplace_back(std::move(prop_ids));
+      } else if (auto *ident = dynamic_cast<Identifier *>(matched->expression_)) {
+        remaining.push_back(ident->name_);
+      } else {
+        ctx.valid = false;
+        return false;
+      }
+    }
+
+    if (!resolved_paths.empty() && !remaining.empty()) {
+      ctx.valid = false;  // mixed resolution in one Produce
+      return false;
+    }
+
+    if (!resolved_paths.empty()) {
+      ctx.property_paths = std::move(resolved_paths);
+      ctx.unresolved_aliases.clear();
+      return true;
+    }
+
+    ctx.unresolved_aliases = std::move(remaining);
+    return false;
+  }
+
   void CheckOrderByElimination(LogicalOperator *new_scan, const Symbol &scan_symbol) {
     DMG_ASSERT(!order_by_stack_.empty(), "CheckOrderByElimination called with empty stack");
     auto &ctx = order_by_stack_.back();
 
     if (new_scan->GetTypeInfo() != ScanAllByLabelProperties::kType) return;
+
+    const bool has_unresolved = !ctx.unresolved_aliases.empty();
 
     // Track the scan symbol's name through Produce renames (WITH n AS m).
     std::string tracked_name = scan_symbol.name();
@@ -986,14 +1064,22 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::string pre_last_produce_name = tracked_name;
 
     // Walk prev_ops_ backwards from scan to OrderBy, verifying all operators are order-preserving.
+    // Collect Produces for alias resolution (needed in OrderBy-to-scan order).
+    std::vector<Produce *> walk_produces;
+
     for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
       auto *op = *it;
       const auto &type_info = op->GetTypeInfo();
       if (type_info == Produce::kType) {
-        pre_last_produce_name = tracked_name;
-        auto resolved = ResolveProduceMapping(dynamic_cast<Produce *>(op), tracked_name);
-        if (!resolved) return;
-        tracked_name = std::move(*resolved);
+        auto *produce = dynamic_cast<Produce *>(op);
+        if (has_unresolved) {
+          walk_produces.push_back(produce);
+        } else {
+          pre_last_produce_name = tracked_name;
+          auto resolved = ResolveProduceMapping(produce, tracked_name);
+          if (!resolved) return;
+          tracked_name = std::move(*resolved);
+        }
         continue;
       }
       // 1:N operators (Expand, Unwind, Apply, Optional) preserve input-symbol order.
@@ -1008,8 +1094,31 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (!order_preserving) return;
     }
 
-    const auto &ob_name = ctx.scan_symbol.name();
-    if (tracked_name != ob_name && pre_last_produce_name != ob_name) return;
+    if (has_unresolved) {
+      // Resolve aliases through Produces in OrderBy-to-scan order.
+      // Include the Produce above OrderBy (RETURN scope) as the first in the chain.
+      std::vector<Produce *> resolution_chain;
+      for (size_t i = 1; i < prev_ops_.size(); ++i) {
+        if (prev_ops_[i] == ctx.op && prev_ops_[i - 1]->GetTypeInfo() == Produce::kType) {
+          resolution_chain.push_back(dynamic_cast<Produce *>(prev_ops_[i - 1]));
+          break;
+        }
+      }
+      for (auto it = walk_produces.rbegin(); it != walk_produces.rend(); ++it) {
+        resolution_chain.push_back(*it);
+      }
+
+      for (auto *produce : resolution_chain) {
+        if (ctx.unresolved_aliases.empty()) break;
+        ResolveAliasesThroughProduce(produce, ctx, scan_symbol.name());
+        if (!ctx.valid) return;
+      }
+
+      if (!ctx.unresolved_aliases.empty()) return;
+    } else {
+      const auto &ob_name = ctx.scan_symbol.name();
+      if (tracked_name != ob_name && pre_last_produce_name != ob_name) return;
+    }
 
     // Match ORDER BY properties against index columns. Equality-pinned columns (WHERE col = val)
     // can be skipped — all rows share the same value so they don't affect sort order.

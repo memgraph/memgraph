@@ -216,3 +216,77 @@ def test_correctness_in_filter_order_preserved(memgraph):
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a IN [3, 1] RETURN n ORDER BY n.b"))
     values = [r["n"].properties["b"] for r in results]
     assert values == [5, 10, 20, 30]
+
+
+# ---------------------------------------------------------------------------
+# Alias resolution tests — ORDER BY on projected aliases (WITH n.prop AS a)
+# ---------------------------------------------------------------------------
+
+
+def test_plan_with_property_alias_elimination(memgraph):
+    """ORDER BY a eliminated when WITH n.prop AS a projects from indexed property."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+
+    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 WITH n.prop AS a RETURN a ORDER BY a")
+    assert not any("OrderBy" in step for step in plan), "OrderBy should be eliminated (alias resolved through Produce)"
+
+
+def test_plan_return_property_alias_elimination(memgraph):
+    """ORDER BY a eliminated when RETURN n.prop AS a defines the alias."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+
+    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS a ORDER BY a")
+    assert not any("OrderBy" in step for step in plan), "OrderBy should be eliminated (RETURN alias resolved)"
+
+
+def test_plan_composite_alias_elimination(memgraph):
+    """ORDER BY a, b eliminated when WITH projects both from composite index (a, b)."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+
+    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a > 0 WITH n.a AS a, n.b AS b RETURN a, b ORDER BY a, b")
+    assert not any("OrderBy" in step for step in plan), "OrderBy should be eliminated (composite alias resolved)"
+
+
+def test_plan_composite_alias_wrong_order_not_eliminated(memgraph):
+    """ORDER BY b, a not eliminated when index is (a, b) — alias order matters."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+
+    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a > 0 WITH n.b AS b, n.a AS a RETURN b, a ORDER BY b, a")
+    assert any("OrderBy" in step for step in plan), "OrderBy should NOT be eliminated (wrong order)"
+
+
+def test_correctness_with_property_alias(memgraph):
+    """Results correctly ordered after WITH property alias and OrderBy elimination."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+    for v in [30, 10, 50, 20, 40]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 WITH n.prop AS a RETURN a ORDER BY a"))
+    values = [r["a"] for r in results]
+    assert values == [10, 20, 30, 40, 50]
+
+
+def test_correctness_composite_alias(memgraph):
+    """Composite index alias projection — lexicographic order preserved."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+    data = [(2, 3), (1, 2), (2, 1), (1, 1), (3, 1)]
+    for a, b in data:
+        memgraph.execute(f"CREATE (:L {{a: {a}, b: {b}}})")
+
+    results = list(
+        memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a > 0 WITH n.a AS x, n.b AS y RETURN x, y ORDER BY x, y")
+    )
+    pairs = [(r["x"], r["y"]) for r in results]
+    assert pairs == [(1, 1), (1, 2), (2, 1), (2, 3), (3, 1)]
+
+
+def test_correctness_equality_pinned_alias(memgraph):
+    """Equality-pinned skip works through alias projection."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+    for b in [50, 20, 40, 10, 30]:
+        memgraph.execute(f"CREATE (:L {{a: 1, b: {b}}})")
+    memgraph.execute("CREATE (:L {a: 2, b: 5})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 1 WITH n.b AS b RETURN b ORDER BY b"))
+    values = [r["b"] for r in results]
+    assert values == [10, 20, 30, 40, 50]
