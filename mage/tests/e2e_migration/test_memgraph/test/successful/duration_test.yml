@@ -4,7 +4,7 @@ query: |
       port: 7687
   })
   YIELD row
-  RETURN valueType(row.duration_col) AS duration_col_type, toString(row.duration_col) AS duration_col
+  RETURN valueType(row.duration_col) AS duration_col_type, row.duration_col AS duration_col
 
 output:
   - duration_col_type: 'DURATION'
