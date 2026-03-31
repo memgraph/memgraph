@@ -38,3 +38,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["show_metrics/show_metrics_http.py"]
     <<: *show_metrics_http_cluster
+
+  - name: "Show metrics info recovery"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_metrics/show_metrics_recovery.py"]
