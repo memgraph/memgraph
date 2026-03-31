@@ -226,8 +226,6 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   trigger_context_collector_.reset();
 }
 
-// namespace memgraph::metrics
-
 struct QueryLogWrapper {
   std::string_view query;
   const memgraph::storage::ExternalPropertyValue::map_t *metadata;
