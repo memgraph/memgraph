@@ -1042,4 +1042,94 @@ TYPED_TEST(OrderByIndexTest, EqualityPinnedWithPropertyAlias) {
       << "OrderBy should be eliminated (equality-pinned a, ORDER BY b through alias)";
 }
 
+// Test 39: WITH n.a + 1 AS a ORDER BY a — computed expression, not a direct property. Not eliminated.
+TYPED_TEST(OrderByIndexTest, ComputedExpressionAliasNotEliminated) {
+  // MATCH (n:L) WHERE n.a > 0 WITH n.a + 1 AS a RETURN a ORDER BY a
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, prop_a.second, 1);
+
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(0)));
+  auto *with_clause = WITH(ADD(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(1)), AS("a"));
+  auto *return_clause = RETURN("a", ORDER_BY(IDENT("a")));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (computed expression n.a + 1, not a direct property)";
+}
+
+// Test 40: WITH n AS m WITH m.a AS a ORDER BY a — rename chain before projection.
+TYPED_TEST(OrderByIndexTest, RenameChainBeforeProjectionEliminated) {
+  // MATCH (n:L) WHERE n.a > 0 WITH n AS m WITH m.a AS a RETURN a ORDER BY a
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, prop_a.second, 1);
+
+  auto *ident_n = IDENT("n");
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(0)));
+  auto *with1_clause = WITH(ident_n, AS("m"));
+  auto *with2_clause = WITH(PROPERTY_LOOKUP(dba, "m", prop_a.second), AS("a"));
+  auto *return_clause = RETURN("a", ORDER_BY(IDENT("a")));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with1_clause);
+  single->clauses_.push_back(with2_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (rename n->m then m.a AS a — tracked through chain)";
+}
+
+// Test 41: Composite rename chain — WITH n AS m WITH m.a AS a, m.b AS b ORDER BY a, b.
+TYPED_TEST(OrderByIndexTest, CompositeRenameChainEliminated) {
+  // MATCH (n:L) WHERE n.a > 0 WITH n AS m WITH m.a AS a, m.b AS b RETURN a, b ORDER BY a, b
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *ident_n = IDENT("n");
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(0)));
+  auto *with1_clause = WITH(ident_n, AS("m"));
+  auto *with2_clause =
+      WITH(PROPERTY_LOOKUP(dba, "m", prop_a.second), AS("a"), PROPERTY_LOOKUP(dba, "m", prop_b.second), AS("b"));
+  auto *return_clause = RETURN("a", "b", ORDER_BY(IDENT("a"), IDENT("b")));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with1_clause);
+  single->clauses_.push_back(with2_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (rename n->m then composite m.a, m.b — tracked through chain)";
+}
+
 }  // namespace
