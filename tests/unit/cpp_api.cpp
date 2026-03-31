@@ -1335,7 +1335,14 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
     auto label = db_acc->NameToLabel(label_name);
     auto property = db_acc->NameToProperty(property_name);
     auto spec = memgraph::storage::VectorIndexSpec{
-        index_name, label, property, metric, dimension, resize_coefficient, max_elements, scalar_kind};
+        .index_name = index_name,
+        .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorLabelMode::SINGLE, {label}},
+        .property = property,
+        .metric_kind = metric,
+        .dimension = dimension,
+        .resize_coefficient = resize_coefficient,
+        .capacity = static_cast<std::size_t>(max_elements),
+        .scalar_kind = scalar_kind};
     ASSERT_TRUE(db_acc->CreateVectorIndex(spec).has_value());
     ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -1386,7 +1393,14 @@ TYPED_TEST(CppApiTestFixture, TestVectorIndexPropertyFetchedAsList) {
     auto label = db_acc->NameToLabel(label_name);
     auto property = db_acc->NameToProperty(property_name);
     auto spec = memgraph::storage::VectorIndexSpec{
-        index_name, label, property, metric, dimension, resize_coefficient, max_elements, scalar_kind};
+        .index_name = index_name,
+        .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorLabelMode::SINGLE, {label}},
+        .property = property,
+        .metric_kind = metric,
+        .dimension = dimension,
+        .resize_coefficient = resize_coefficient,
+        .capacity = static_cast<std::size_t>(max_elements),
+        .scalar_kind = scalar_kind};
     ASSERT_TRUE(db_acc->CreateVectorIndex(spec).has_value());
     ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -1434,7 +1448,15 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
     auto edge = db_acc->NameToEdgeType(edge_type);
     auto property = db_acc->NameToProperty(property_name);
     auto spec = memgraph::storage::VectorEdgeIndexSpec{
-        index_name, edge, property, metric, dimension, resize_coefficient, max_elements, scalar_kind};
+        .index_name = index_name,
+        .edge_type_filter =
+            memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorEdgeTypeMode::SINGLE, {edge}},
+        .property = property,
+        .metric_kind = metric,
+        .dimension = dimension,
+        .resize_coefficient = resize_coefficient,
+        .capacity = static_cast<std::size_t>(max_elements),
+        .scalar_kind = scalar_kind};
     ASSERT_TRUE(db_acc->CreateVectorEdgeIndex(spec).has_value());
     ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
