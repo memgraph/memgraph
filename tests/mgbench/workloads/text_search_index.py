@@ -35,7 +35,6 @@ class TextSearchIndex(Workload):
         self._nodes_count = self._size["vertices"]
         self._edges_count = self._size["edges"]
         self._next_node_id = self._nodes_count
-        random.seed(10)
 
     def indexes_generator(self):
         return [
