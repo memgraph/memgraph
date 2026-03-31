@@ -445,5 +445,36 @@ def test_session_metrics_reflect_active_connection(memgraph):
     assert get_metric_value(memgraph, "ActiveBoltSessions") >= 1
 
 
+def test_failed_query_incremented_on_parse_error(connect):
+    cursor = connect.cursor()
+    initial = next(
+        row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO ON CURRENT") if row[0] == "FailedQuery"
+    )
+    try:
+        cursor.execute("METCH (n) RETURN n")
+    except Exception:
+        pass
+    after = next(
+        row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO ON CURRENT") if row[0] == "FailedQuery"
+    )
+    assert after == initial + 1
+
+
+def test_failed_prepare_incremented_on_prepare_error(connect):
+    cursor = connect.cursor()
+    initial = next(
+        row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO ON CURRENT") if row[0] == "FailedPrepare"
+    )
+    try:
+        cursor.execute("BEGIN")
+        cursor.execute("CREATE USER test_user")
+    except Exception:
+        pass
+    after = next(
+        row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO ON CURRENT") if row[0] == "FailedPrepare"
+    )
+    assert after == initial + 1
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
