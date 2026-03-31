@@ -122,8 +122,8 @@ TYPED_TEST(OrderByIndexTest, CompositePrefix) {
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "OrderBy should be eliminated (composite prefix)";
 }
 
-// Test 3: Equality on first column, ORDER BY second only — not a prefix, should NOT eliminate
-TYPED_TEST(OrderByIndexTest, EqualitySkipNotEliminated) {
+// Test 3: Equality on first column, ORDER BY second — equality-pinned skip allows elimination
+TYPED_TEST(OrderByIndexTest, EqualitySkipEliminated) {
   // MATCH (n:L) WHERE n.a = 5 ORDER BY n.b RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
@@ -142,8 +142,8 @@ TYPED_TEST(OrderByIndexTest, EqualitySkipNotEliminated) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
-  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should NOT be eliminated (ORDER BY n.b is not a prefix of index (a, b))";
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (a is equality-pinned, ORDER BY b follows in index)";
 }
 
 // Test 4: Full composite - WHERE n.a = 5 ORDER BY n.a, n.b with index (a, b)
@@ -373,8 +373,8 @@ TYPED_TEST(OrderByIndexTest, AggregateBlocks) {
       << "OrderBy should NOT be eliminated (Aggregate between OrderBy and ScanAll)";
 }
 
-// Test 13: Equality on first column + range on second, ORDER BY second only — not a prefix
-TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOnSecondColumnNotEliminated) {
+// Test 13: Equality on first column + range on second, ORDER BY second — pinned skip allows elimination
+TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOnSecondColumnEliminated) {
   // MATCH (n:L) WHERE n.a = 5 AND n.b > 3 ORDER BY n.b RETURN n
   FakeDbAccessor dba;
   const auto *label_name = "L";
@@ -394,8 +394,8 @@ TYPED_TEST(OrderByIndexTest, EqualityPlusRangeOnSecondColumnNotEliminated) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
-  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should NOT be eliminated (ORDER BY n.b is not a prefix of index (a, b))";
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (a is equality-pinned, ORDER BY b follows in index)";
 }
 
 // Test 14: ORDER BY matches full composite index (a, b) with range on a — elimination applies
@@ -688,6 +688,83 @@ TYPED_TEST(OrderByIndexTest, ReturnRenameOrderByOutputScope) {
 
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy should be eliminated (RETURN n AS m, ORDER BY m.prop — output scope name tracked through Produce)";
+}
+
+// Test 26: Equality on a, equality on b, ORDER BY c — double equality skip with index (a, b, c)
+TYPED_TEST(OrderByIndexTest, DoubleEqualitySkipEliminated) {
+  // MATCH (n:L) WHERE n.a = 1 AND n.b = 2 ORDER BY n.c RETURN n
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  const auto prop_c = PROPERTY_PAIR(dba, "c");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{
+      ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}, ms::PropertyPath{prop_c.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(AND(EQ(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(1)),
+                                             EQ(PROPERTY_LOOKUP(dba, "n", prop_b.second), LITERAL(2)))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_c.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (a and b equality-pinned, ORDER BY c follows in index)";
+}
+
+// Test 27: Equality on a, range on b, ORDER BY c — range on b creates a gap, should NOT eliminate
+TYPED_TEST(OrderByIndexTest, EqualityThenRangeGapNotEliminated) {
+  // MATCH (n:L) WHERE n.a = 1 AND n.b > 2 ORDER BY n.c RETURN n
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  const auto prop_c = PROPERTY_PAIR(dba, "c");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{
+      ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}, ms::PropertyPath{prop_c.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(AND(EQ(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(1)),
+                                             GREATER(PROPERTY_LOOKUP(dba, "n", prop_b.second), LITERAL(2)))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_c.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (b is range-filtered, not pinned — gap before c)";
+}
+
+// Test 28: Range on a (not pinned), ORDER BY b — should NOT eliminate even with index (a, b)
+TYPED_TEST(OrderByIndexTest, RangeOnFirstOrderBySecondNotEliminated) {
+  // MATCH (n:L) WHERE n.a > 5 ORDER BY n.b RETURN n
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(5))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_b.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (a is range-filtered, not equality-pinned)";
 }
 
 }  // namespace
