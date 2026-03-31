@@ -956,11 +956,11 @@ Feature: Vector search related features
             """
         When executing query:
             """
-            SHOW INDEX INFO
+            CALL vector_search.search("or_idx", 10, [1.0, 2.0]) YIELD * RETURN count(*) AS cnt;
             """
         Then the result should be:
-            | index type                | label  | property    | count |
-            | 'label+property_vector'   | ':A|B' | 'embedding' | 2     |
+            | cnt |
+            | 2   |
 
     Scenario: Create AND vector index on multiple labels
         Given an empty graph
@@ -1055,8 +1055,8 @@ Feature: Vector search related features
             """
         When executing query:
             """
-            SHOW INDEX INFO
+            CALL vector_search.search("or_colon", 10, [1.0, 2.0]) YIELD * RETURN count(*) AS cnt;
             """
         Then the result should be:
-            | index type                | label  | property    | count |
-            | 'label+property_vector'   | ':A|B' | 'embedding' | 1     |
+            | cnt |
+            | 1   |

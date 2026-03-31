@@ -604,7 +604,9 @@ class DeltaGenerator final {
                                          vector_dimension,
                                          kResizeCoefficient,
                                          vector_capacity,
-                                         static_cast<uint8_t>(kScalarKind)}};
+                                         static_cast<uint8_t>(kScalarKind),
+                                         static_cast<uint8_t>(0),
+                                         std::vector<std::string>{}}};
           case VECTOR_EDGE_INDEX_CREATE:
             return {WalVectorEdgeIndexCreate{vector_index_name,
                                              edge_type,
@@ -613,7 +615,9 @@ class DeltaGenerator final {
                                              vector_dimension,
                                              kResizeCoefficient,
                                              vector_capacity,
-                                             static_cast<uint8_t>(kScalarKind)}};
+                                             static_cast<uint8_t>(kScalarKind),
+                                             static_cast<uint8_t>(0),
+                                             std::vector<std::string>{}}};
           case VECTOR_INDEX_DROP:
             return {WalVectorIndexDrop{vector_index_name}};
           case TTL_OPERATION:

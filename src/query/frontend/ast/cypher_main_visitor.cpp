@@ -567,12 +567,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::Create
 antlrcpp::Any CypherMainVisitor::visitVectorIndexLabels(MemgraphCypher::VectorIndexLabelsContext *ctx) {
   VectorIndexLabelsInfo info;
   auto label_names = ctx->labelName();
-  auto property_ctx = ctx->propertyKeyName();
+  auto *property_ctx = ctx->propertyKeyName();
   info.property_name = std::any_cast<std::string>(property_ctx->accept(this));
 
-  if (ctx->ASTERISK()) {
-    info.mode = VectorLabelMode::WILDCARD;
-  } else if (label_names.empty()) {
+  if (ctx->ASTERISK() || label_names.empty()) {
     info.mode = VectorLabelMode::WILDCARD;
   } else if (!ctx->AMPERSAND().empty()) {
     info.mode = VectorLabelMode::ALL_OF;

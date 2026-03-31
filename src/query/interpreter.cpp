@@ -4403,7 +4403,8 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   auto index_name = vector_index_query->index_name_;
   auto label_mode = vector_index_query->label_mode_;
   std::vector<std::string> label_names;
-  for (const auto &l : vector_index_query->labels_) label_names.push_back(l.name);
+  label_names.reserve(vector_index_query->labels_.size());
+  for (const auto &label : vector_index_query->labels_) label_names.push_back(label.name);
   auto prop_name = vector_index_query->property_.name;
   auto *storage = db_acc->storage();
   const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
@@ -4442,9 +4443,8 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         auto prop_id = storage->NameToProperty(prop_name);
         auto maybe_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
             .index_name = index_name,
-            .label_filter = storage::VectorLabelFilter{
-                .mode = static_cast<storage::VectorLabelMode>(label_mode),
-                .labels = std::move(label_ids)},
+            .label_filter = storage::VectorLabelFilter{.mode = static_cast<storage::VectorLabelMode>(label_mode),
+                                                       .labels = std::move(label_ids)},
             .property = prop_id,
             .metric_kind = vector_index_config.metric,
             .dimension = vector_index_config.dimension,
@@ -4454,9 +4454,8 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         });
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
         if (!maybe_error) {
-          index_notification.title = fmt::format(
-              "Error while creating vector index {}, for more information check the logs.",
-              index_name);
+          index_notification.title =
+              fmt::format("Error while creating vector index {}, for more information check the logs.", index_name);
         }
         return index_notification;
       };
@@ -4517,6 +4516,7 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
   auto index_name = vector_index_query->index_name_;
   auto edge_type_mode = vector_index_query->edge_type_mode_;
   std::vector<std::string> edge_type_names;
+  edge_type_names.reserve(vector_index_query->edge_types_.size());
   for (const auto &et : vector_index_query->edge_types_) edge_type_names.push_back(et.name);
   auto prop_name = vector_index_query->property_.name;
   auto *storage = db_acc->storage();
@@ -4555,9 +4555,9 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
     auto prop_id = storage->NameToProperty(prop_name);
     auto maybe_error = dba->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
         .index_name = index_name,
-        .edge_type_filter = storage::VectorEdgeTypeFilter{
-            .mode = static_cast<storage::VectorEdgeTypeMode>(edge_type_mode),
-            .edge_types = std::move(edge_type_ids)},
+        .edge_type_filter =
+            storage::VectorEdgeTypeFilter{.mode = static_cast<storage::VectorEdgeTypeMode>(edge_type_mode),
+                                          .edge_types = std::move(edge_type_ids)},
         .property = prop_id,
         .metric_kind = vector_index_config.metric,
         .dimension = vector_index_config.dimension,
@@ -4567,9 +4567,8 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
     });
     utils::OnScopeExit const invalidator(invalidate_plan_cache);
     if (!maybe_error) {
-      index_notification.title = fmt::format(
-          "Error while creating vector edge index {}, for more information check the logs.",
-          index_name);
+      index_notification.title =
+          fmt::format("Error while creating vector edge index {}, for more information check the logs.", index_name);
     }
     return index_notification;
   };
@@ -6496,7 +6495,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                TypedValue(storage->PropertyToName(spec.property)),
                TypedValue(static_cast<int>(
                    spec.label_filter.mode == storage::VectorLabelMode::SINGLE
-                       ? storage_acc->ApproximateVerticesVectorCount(spec.label_filter.labels[0], spec.property).value_or(0)
+                       ? storage_acc->ApproximateVerticesVectorCount(spec.label_filter.labels[0], spec.property)
+                             .value_or(0)
                        : 0))});
         }
 
@@ -6507,7 +6507,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                TypedValue(storage->PropertyToName(spec.property)),
                TypedValue(static_cast<int>(
                    spec.edge_type_filter.mode == storage::VectorEdgeTypeMode::SINGLE
-                       ? storage_acc->ApproximateEdgesVectorCount(spec.edge_type_filter.edge_types[0], spec.property).value_or(0)
+                       ? storage_acc->ApproximateEdgesVectorCount(spec.edge_type_filter.edge_types[0], spec.property)
+                             .value_or(0)
                        : 0))});
         }
 
@@ -6689,15 +6690,16 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
 
         for (const auto &spec : vector_edge_indices) {
-          results.push_back({TypedValue(spec.index_name),
-                             TypedValue(spec.edge_type_filter.Format([&](auto id) { return storage->EdgeTypeToName(id); })),
-                             TypedValue(storage->PropertyToName(spec.property)),
-                             TypedValue(static_cast<int64_t>(spec.capacity)),
-                             TypedValue(spec.dimension),
-                             TypedValue(spec.metric),
-                             TypedValue(static_cast<int64_t>(spec.size)),
-                             TypedValue(spec.scalar_kind),
-                             TypedValue(VectorIndexTypeToString(storage::VectorIndexType::ON_EDGES))});
+          results.push_back(
+              {TypedValue(spec.index_name),
+               TypedValue(spec.edge_type_filter.Format([&](auto id) { return storage->EdgeTypeToName(id); })),
+               TypedValue(storage->PropertyToName(spec.property)),
+               TypedValue(static_cast<int64_t>(spec.capacity)),
+               TypedValue(spec.dimension),
+               TypedValue(spec.metric),
+               TypedValue(static_cast<int64_t>(spec.size)),
+               TypedValue(spec.scalar_kind),
+               TypedValue(VectorIndexTypeToString(storage::VectorIndexType::ON_EDGES))});
         }
 
         return std::pair{results, QueryHandlerResult::COMMIT};
@@ -7830,16 +7832,18 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       for (const auto &spec : index_info.vector_indices_spec) {
 #ifdef MG_ENTERPRISE
         if (auth_checker && !spec.label_filter.labels.empty() &&
-            !auth_checker->Has(std::span{spec.label_filter.labels.data(), spec.label_filter.labels.size()}, AuthQuery::FineGrainedPrivilege::READ)) {
+            !auth_checker->Has(std::span{spec.label_filter.labels.data(), spec.label_filter.labels.size()},
+                               AuthQuery::FineGrainedPrivilege::READ)) {
           continue;
         }
 #endif
         node_indexes.push_back(nlohmann::json::object(
             {{"labels", {spec.label_filter.Format([&](auto id) { return storage->LabelToName(id); })}},
              {"properties", {storage->PropertyToName(spec.property)}},
-             {"count", spec.label_filter.mode == storage::VectorLabelMode::SINGLE
-                          ? storage_acc->ApproximateVerticesVectorCount(spec.label_filter.labels[0], spec.property).value_or(0)
-                          : 0},
+             {"count",
+              spec.label_filter.mode == storage::VectorLabelMode::SINGLE
+                  ? storage_acc->ApproximateVerticesVectorCount(spec.label_filter.labels[0], spec.property).value_or(0)
+                  : 0},
              {"type", "label+property_vector"}}));
       }
 
