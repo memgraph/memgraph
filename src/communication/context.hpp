@@ -15,6 +15,7 @@
 #include <openssl/types.h>
 #include <atomic>
 #include <boost/asio/ssl/context.hpp>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <string>
