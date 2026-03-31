@@ -180,3 +180,45 @@ Feature: Vector edge search related features
         Then the result should be:
             | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type                  |
             | 64       | 2         | 'test_index' | 'E1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |
+
+    Scenario: Create wildcard vector edge index
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX wildcard_edge ON :*(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name       | label | property    | metric | size | scalar_kind | index_type                  |
+            | 64       | 2         | 'wildcard_edge'  | ':*'  | 'embedding' | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |
+
+    Scenario: Create OR vector edge index on multiple edge types
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX or_edge ON :E1|E2(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name | label    | property    | metric | size | scalar_kind | index_type                  |
+            | 64       | 2         | 'or_edge'  | ':E1|E2' | 'embedding' | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |
+
+    Scenario: Create AND vector edge index on multiple edge types
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX and_edge ON :E1&E2(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name | label    | property    | metric | size | scalar_kind | index_type                  |
+            | 64       | 2         | 'and_edge' | ':E1&E2' | 'embedding' | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |

@@ -835,3 +835,161 @@ def test_durability_creating_index_after_vector_already_in_another_index(connect
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
+
+
+def test_durability_with_wildcard_vector_index(connection):
+    # Goal: Wildcard vector index (ON :*) indexes all vertices and survives restart.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_wildcard_vector_index.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX wildcard_idx ON :*(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:A {embedding: [1.0, 2.0]})
+           CREATE (:B {embedding: [3.0, 4.0]})
+           CREATE ({embedding: [5.0, 6.0]});""",
+    )
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 3  # size column
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 3
+
+    search = execute_and_fetch_all(
+        cursor, "CALL vector_search.search('wildcard_idx', 3, [1.0, 2.0]) YIELD * RETURN * ORDER BY distance;"
+    )
+    assert len(search) == 3
+    assert search[0][0] == 0.0  # exact match distance
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_or_vector_index(connection):
+    # Goal: OR vector index (ON :A|B) indexes vertices with any matching label and survives restart.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_or_vector_index.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX or_idx ON :A|B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:A {embedding: [1.0, 2.0]})
+           CREATE (:B {embedding: [3.0, 4.0]})
+           CREATE (:C {embedding: [5.0, 6.0]});""",
+    )
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 2  # only A and B nodes, not C
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 2
+
+    search = execute_and_fetch_all(
+        cursor, "CALL vector_search.search('or_idx', 10, [1.0, 2.0]) YIELD * RETURN * ORDER BY distance;"
+    )
+    assert len(search) == 2
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_and_vector_index(connection):
+    # Goal: AND vector index (ON :A&B) indexes only vertices with ALL matching labels and survives restart.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_and_vector_index.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX and_idx ON :A&B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:A:B {embedding: [1.0, 2.0]})
+           CREATE (:A {embedding: [3.0, 4.0]})
+           CREATE (:B {embedding: [5.0, 6.0]});""",
+    )
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 1  # only the A:B node
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 1
+
+    search = execute_and_fetch_all(
+        cursor, "CALL vector_search.search('and_idx', 10, [1.0, 2.0]) YIELD * RETURN * ORDER BY distance;"
+    )
+    assert len(search) == 1
+    assert search[0][0] == 0.0
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
