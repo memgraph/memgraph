@@ -44,14 +44,14 @@ constexpr uint64_t kTextEdgeIndex{31};
 constexpr uint64_t kVectorIndexId{32};
 constexpr uint64_t kExtendedEdgeSetProperty{33};
 constexpr uint64_t kDescriptionSupport{34};
-constexpr uint64_t kVectorIndexMultiLabel{34};
+constexpr uint64_t kVectorIndexMultiLabel{kDescriptionSupport};
 
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
 
 // #### CURRENT VERSION vvv
-constexpr uint64_t kVersion{kVectorIndexMultiLabel};
+constexpr uint64_t kVersion{kDescriptionSupport};
 // #### CURRENT VERSION ^^^
 
 // Magic values written to the start of a snapshot/WAL file to identify it.

@@ -178,15 +178,16 @@ void VectorEdgeIndex::Clear() { pimpl->index_by_name_.clear(); }
 
 bool VectorEdgeIndex::UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypePropKey &edge_type_prop,
                                         const PropertyValue *value) {
+  auto updated = false;
   for (auto &[name, index_item] : pimpl->index_by_name_) {
     if (index_item.spec.property != edge_type_prop.property()) continue;
     if (!index_item.spec.edge_type_filter.Matches(edge_type_prop.edge_type())) continue;
     const auto &property = value != nullptr ? *value : entry.edge->properties.GetProperty(edge_type_prop.property());
     auto vector = property.IsNull() ? utils::small_vector<float>{} : ListToVector(property);
     storage::UpdateVectorIndex(index_item.mg_index, index_item.spec, entry, vector);
-    return !vector.empty();
+    if (!vector.empty()) updated = true;
   }
-  return false;
+  return updated;
 }
 
 void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
@@ -197,7 +198,6 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
     const auto entry = EdgeIndexEntry{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge};
     auto vector = value.IsNull() ? utils::small_vector<float>{} : ListToVector(value);
     storage::UpdateVectorIndex(index_item.mg_index, index_item.spec, entry, vector);
-    break;
   }
 }
 

@@ -507,6 +507,7 @@ std::unordered_map<PropertyId, uint64_t> VectorIndex::GetIndicesByLabel(LabelId 
 std::vector<std::pair<uint64_t, VectorLabelFilter const *>> VectorIndex::GetIndicesByProperty(
     PropertyId property) const {
   std::vector<std::pair<uint64_t, VectorLabelFilter const *>> result;
+  result.reserve(pimpl->index_by_id_.size());
   for (const auto &[index_id, index_item] : pimpl->index_by_id_) {
     if (index_item.spec.property == property) {
       result.emplace_back(index_id, &index_item.spec.label_filter);

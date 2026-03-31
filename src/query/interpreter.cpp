@@ -7887,7 +7887,9 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       for (const auto &spec : index_info.vector_edge_indices_spec) {
 #ifdef MG_ENTERPRISE
         if (auth_checker && !spec.edge_type_filter.edge_types.empty() &&
-            !auth_checker->Has(spec.edge_type_filter.edge_types[0], AuthQuery::FineGrainedPrivilege::READ)) {
+            std::ranges::any_of(spec.edge_type_filter.edge_types, [&](auto et) {
+              return !auth_checker->Has(et, AuthQuery::FineGrainedPrivilege::READ);
+            })) {
           continue;
         }
 #endif
