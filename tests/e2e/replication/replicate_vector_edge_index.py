@@ -189,6 +189,11 @@ def test_vector_edge_index_replication_property_changes(connection, test_name):
     updated = execute_and_fetch_all(replica_1_cursor, "MATCH ()-[r:REL {emb: [7.0, 8.0]}]->() RETURN r.emb;")
     assert updated[0][0] == [7.0, 8.0]
 
+    property_size = execute_and_fetch_all(
+        replica_1_cursor, "MATCH ()-[r:REL]->() WHERE r.emb IS NOT NULL RETURN propertySize(r, 'emb') LIMIT 1;"
+    )
+    assert property_size[0][0] == 11
+
     original = execute_and_fetch_all(replica_1_cursor, "MATCH ()-[r:REL {emb: [5.0, 6.0]}]->() RETURN r.emb;")
     assert original[0][0] == [5.0, 6.0]
 

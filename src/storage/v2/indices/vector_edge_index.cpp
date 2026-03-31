@@ -172,11 +172,7 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
             pimpl->edge_endpoints_[edge] = {&vertex, to_vertex};
           }
           UpdateVectorIndex(mg_index, spec, edge, vector, thread_id);
-
-          auto property = edge->properties.GetProperty(spec.property);
-          RegisterIndexId(property, *index_id);
-          edge->properties.SetProperty(spec.property, property);
-
+          // release vector resources to prevent memory growth while doing recovery
           vector.clear();
           vector.shrink_to_fit();
         } else {
