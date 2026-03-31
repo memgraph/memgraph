@@ -159,7 +159,7 @@ TransactionReplication::TransactionReplication(uint64_t const durability_commit_
         errors_.emplace_back(std::nullopt);
       } else {
         streams.emplace_back(std::nullopt);
-        errors_.emplace_back(std::move(res.error()));
+        errors_.emplace_back(res.error());
       }
     }
   }
