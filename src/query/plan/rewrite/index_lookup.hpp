@@ -703,14 +703,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
-    auto ctx = TryExtractOrderByContext(op);
-    if (ctx) {
-      order_by_stack_.emplace_back(std::move(*ctx));
-    } else {
-      // Push an invalid context so PostVisit always has a matching pop.
-      order_by_stack_.emplace_back(OrderByContext{
-          .op = &op, .scan_symbol = {}, .property_paths = {}, .valid = false, .should_eliminate = false});
-    }
+    order_by_stack_.emplace_back(ExtractOrderByContext(op));
     return true;
   }
 
@@ -950,30 +943,30 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return std::nullopt;
   }
 
-  auto TryExtractOrderByContext(OrderBy &op) -> std::optional<OrderByContext> {
+  auto ExtractOrderByContext(OrderBy &op) -> OrderByContext {
+    OrderByContext ctx{.op = &op, .scan_symbol = {}, .property_paths = {}, .valid = false, .should_eliminate = false};
+
     const auto &orderings = op.compare_.orderings();
     const auto &order_by_exprs = op.order_by_;
 
-    if (orderings.empty()) return std::nullopt;
+    if (orderings.empty()) return ctx;
 
     // All orderings must be ASC
     // TODO(ivan): Support DESC elimination — SkipList-backed indexes can be iterated in reverse,
     //       so DESC ordering could also be eliminated if the scan supports a reverse mode.
     for (const auto &ord : orderings) {
-      if (ord.ordering() != Ordering::ASC) return std::nullopt;
+      if (ord.ordering() != Ordering::ASC) return ctx;
     }
-
-    OrderByContext ctx{.op = &op, .scan_symbol = {}, .property_paths = {}, .valid = false, .should_eliminate = false};
 
     bool first = true;
     for (auto *expr : order_by_exprs) {
       // Each expression must be a PropertyLookup
       auto *prop_lookup = dynamic_cast<PropertyLookup *>(expr);
-      if (!prop_lookup) return std::nullopt;
+      if (!prop_lookup) return ctx;
 
       // The expression under the PropertyLookup must be an Identifier
       auto *ident = dynamic_cast<Identifier *>(prop_lookup->expression_);
-      if (!ident) return std::nullopt;
+      if (!ident) return ctx;
 
       const auto &sym = symbol_table_->at(*ident);
 
@@ -982,7 +975,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         first = false;
       } else {
         // All property lookups must reference the same symbol
-        if (ctx.scan_symbol != sym) return std::nullopt;
+        if (ctx.scan_symbol != sym) return ctx;
       }
 
       // Convert property_path_ (vector<PropertyIx>) to storage::PropertyPath.
