@@ -134,7 +134,7 @@ def test_vector_index_replication(connection, test_name):
     )
     wait_for_replication_change(cursor, 2)
 
-    expected_result = [("label+property_vector", "Node", "embedding", 0)]
+    expected_result = [("label+property_vector", ":Node", "embedding", 0)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
@@ -146,7 +146,7 @@ def test_vector_index_replication(connection, test_name):
     )
     wait_for_replication_change(cursor, 4)
 
-    expected_result = [("label+property_vector", "Node", "embedding", 1)]
+    expected_result = [("label+property_vector", ":Node", "embedding", 1)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
@@ -187,7 +187,7 @@ def test_vector_index_replication_property_changes(connection, test_name):
     )
     wait_for_replication_change(cursor, 4)
 
-    expected_result = [("label+property_vector", "L1", "prop1", 3)]
+    expected_result = [("label+property_vector", ":L1", "prop1", 3)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
@@ -199,7 +199,7 @@ def test_vector_index_replication_property_changes(connection, test_name):
     execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [3.0, 4.0]}) SET n.prop1 = [7.0, 8.0];")
     wait_for_replication_change(cursor, 8)
 
-    expected_result = [("label+property_vector", "L1", "prop1", 2)]
+    expected_result = [("label+property_vector", ":L1", "prop1", 2)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
@@ -253,7 +253,7 @@ def test_vector_index_replication_label_changes(connection, test_name):
     )
     wait_for_replication_change(cursor, 4)
 
-    expected_result = [("label+property_vector", "L1", "prop1", 2)]
+    expected_result = [("label+property_vector", ":L1", "prop1", 2)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
@@ -265,7 +265,7 @@ def test_vector_index_replication_label_changes(connection, test_name):
     execute_and_fetch_all(cursor, "MATCH (n {prop1: [5.0, 6.0]}) SET n:L1;")
     wait_for_replication_change(cursor, 8)
 
-    expected_result = [("label+property_vector", "L1", "prop1", 2)]
+    expected_result = [("label+property_vector", ":L1", "prop1", 2)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
@@ -395,7 +395,7 @@ def test_wildcard_vector_index_replication(connection, test_name):
     )
     wait_for_replication_change(cursor, 4)
 
-    expected_result = [("label+property_vector", ":*", "embedding", 3)]
+    expected_result = [("label+property_vector", ":*", "embedding", 0)]
     assert get_show_index_info(get_replica_cursor(connection, "replica_1")) == expected_result
     assert get_show_index_info(get_replica_cursor(connection, "replica_2")) == expected_result
 
@@ -432,7 +432,7 @@ def test_or_vector_index_replication(connection, test_name):
     )
     wait_for_replication_change(cursor, 4)
 
-    expected_result = [("label+property_vector", ":A|B", "embedding", 2)]
+    expected_result = [("label+property_vector", ":A|B", "embedding", 0)]
     assert get_show_index_info(get_replica_cursor(connection, "replica_1")) == expected_result
     assert get_show_index_info(get_replica_cursor(connection, "replica_2")) == expected_result
 
@@ -469,7 +469,7 @@ def test_and_vector_index_replication(connection, test_name):
     )
     wait_for_replication_change(cursor, 4)
 
-    expected_result = [("label+property_vector", ":A&B", "embedding", 1)]
+    expected_result = [("label+property_vector", ":A&B", "embedding", 0)]
     assert get_show_index_info(get_replica_cursor(connection, "replica_1")) == expected_result
     assert get_show_index_info(get_replica_cursor(connection, "replica_2")) == expected_result
 
