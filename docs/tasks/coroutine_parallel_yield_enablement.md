@@ -22,7 +22,7 @@ Completed slices:
 - `ed148a02f` `query: enable scheduler yields in background branches`
 - `e045ba4ad` `query: suspend ScanParallel waiters cooperatively`
 - `b0f44a087` `query: localize ScanParallel producer batches`
-- pending follow-up: fix resumable worker-branch execution after suspendable ScanParallel waits
+- pending commit: start parallel sections before the first merge pull
 
 What is true now:
 - the parent parallel join no longer blocks in `WaitOrSteal()`
@@ -35,22 +35,12 @@ What is true now:
 - `WorkerResumeEvent` provides reusable multi-waiter wakeup/resume on original workers
 - the ScanParallel producer now builds the next batch locally before publishing shared state
 - the shared upstream pull inside `ScanParallelCursor` no longer needs to disable yield while building the next batch
+- `ParallelMergeCursor` still uses the old delayed scheduling trigger on this branch
 - nested synchronous cursor consumers such as `EvaluatePatternFilter` are unchanged
-- the first regression after enabling suspendable ScanParallel waits appears at `b0f44a087`
-- the current failure is in parallel aggregate correctness, not in serial execution
-- investigation shows worker branches can suspend in `ScanParallel` but still be classified as `Done` by the branch driver
-- this leaves some branch-local aggregates in pre-post-processing state (`COUNT=0`, `AVG=sum`) and breaks merge correctness
 
 Immediate next goal:
-- refactor worker branches to use a true scheduler-managed resumable-task model
-- fix the branch lifecycle on top of `b0f44a087`, then cherry-pick that fix forward onto later commits in this stack
-- see [parallel_resumable_branch_fix.md](/home/andreja.linux/workspace/memgraph2/docs/tasks/parallel_resumable_branch_fix.md)
-- current implementation direction:
-  - keep branches as resumable pool tasks
-  - distinguish immediate scheduler yield from parked-on-external-progress suspension
-  - make producer-progress wakeups resume the branch task itself instead of only the inner cursor coroutine
-  - separately prevent stale reused aggregate rows when `ProcessAll()` returns `false`
-  - implement this in slices, starting with generic self-park support in the thread-pool/task layer plus unit tests
+- verify whether `ParallelMergeCursor` can safely schedule sibling branches before the first upstream pull
+- keep tightening the join semantics from "progress wait" toward a more explicit branch-completion abstraction if needed
 
 ## Working rules for this series
 
@@ -71,77 +61,32 @@ PR / review summaries should explain:
 
 ## Local build status
 
-Current build command used during this work:
+Current build commands used during this work:
 
 ```bash
 cmake --build build -j3 --target memgraph
+cmake --build build -j1 --target src/query/CMakeFiles/mg-query.dir/plan/operator.cpp.o
 ```
 
 Current local failure:
-- unrelated planner/module build mismatch, not caused by the coroutine parallel-yield changes
-- failing files:
+- unrelated module / dyndep build-tree problems, not caused by the coroutine parallel-yield changes
+- failing areas:
   - `src/planner/include/planner/core/eclass.hpp`
   - `src/planner/include/planner/core/enode.hpp`
+  - `src/utils/temporal.hpp`
+  - `clang-scan-deps` / `.ddi.tmp` generation for `src/query/plan/operator.cpp`
 - observed error shape:
   - module file built from a different branch / compiler mismatch
   - subsequent `ENodeId` resolution failures in planner sources
+  - `clang-scan-deps` succeeds but Ninja cannot move generated `.ddi.tmp` into place
 
 This means local full-build verification for this series is currently blocked by unrelated
 planner module state. Targeted validation and user-local builds are still useful until that
 separate issue is cleared.
 
-### New regression: TryExecuteOneIdleTask throws when branch task yields
-
-After enabling scheduler yields in background branches (`ed148a02f`),
-`TryExecuteOneIdleTask()` can run an IDLE branch task inline on the main thread.
-If the scheduler preempts that task (sets `yield_requested`), the task yields
-and the lambda returns `true`. `TryExecuteOneIdleTask` then throws:
-
-```
-"WaitOrSteal cannot handle yielding tasks. Use co_await Finished() instead."
-```
-
-Observed as intermittent `DatabaseError` in `test_exception_single_invalid`
-(~15% failure rate with 8 workers). See `parallel_resumable_branch_fix.md`
-for the full diagnosis and fix plan.
-
-Previous aggregate regression (branches misclassified as done when parked on
-ScanParallel producer progress) has been fixed by slices 1-3 of the branch
-fix. The remaining correctness issue is this yield-in-inline-steal bug.
-
 ## Current blockers
 
-### 1. Parallel branch join still blocks
-
-Code:
-- `src/query/plan/operator.cpp` `ParallelBranchCursor::ExecuteBranchesInParallel`
-- `src/utils/priority_thread_pool.cpp` `TaskCollection::WaitOrSteal`
-
-Current behavior:
-- branch worker contexts explicitly set `yield_requested = nullptr`
-- the parent branch join uses `WaitOrSteal()`
-- `WaitOrSteal()` throws if a task yields
-
-Why it matters:
-- parallel sections become scheduler black holes
-- the main query worker is occupied while waiting for sibling branches
-- this prevents parallel sections from cooperating with the limited worker pool
-
-### 2. Shared `ScanParallelCursor` state cannot survive suspension
-
-Code:
-- `src/query/plan/operator.cpp` `ScanParallelCursor::DoPull`
-
-Current behavior:
-- the shared upstream pull temporarily nulls `yield_requested`
-- this avoids suspending while holding branch-sensitive shared scan state
-
-Why it matters:
-- only one branch can safely advance the shared input batch today
-- losing branches effectively wait on the shared scan path instead of yielding
-- continuation ownership is mixed together with shared scan coordination state
-
-### 3. Nested synchronous cursor execution cannot propagate yield
+### 1. Nested synchronous cursor execution cannot propagate yield
 
 Code:
 - `src/query/plan/operator.cpp` `EvaluatePatternFilterCursor`
@@ -155,6 +100,19 @@ Current behavior:
 Why it matters:
 - expression evaluation still contains a synchronous execution island
 - not every consumer of a cursor chain is currently coroutine-aware
+
+### 2. `ParallelMerge` still carries a blocking-era scheduling assumption
+
+Code:
+- `src/query/plan/operator.cpp` `ParallelMergeCursor::DoPull`
+
+Current behavior:
+- sibling branches are only scheduled after the first upstream pull returns from `ParallelMerge`
+- the old comment still describes this as a necessary workaround from the blocking model
+
+Why it matters:
+- this is one of the last places where parallel execution policy still reflects the old fallback-to-blocking design
+- if the old assumption is no longer needed, parallel work can start earlier and the code gets simpler
 
 ## Design principles
 
@@ -297,6 +255,7 @@ Changes:
 
 ### Slice E
 - [ ] Revisit `ParallelMerge` trigger model
+- [ ] Verify that early branch scheduling does not regress correctness or deadlock behavior
 
 ## Validation log
 
@@ -321,6 +280,11 @@ Changes:
   - result: blocked before `operator.cpp` is typechecked by unrelated stale module artifact in `src/utils/temporal.hpp` (`memgraph.utils.fnv.pcm`)
   - full build: `cmake --build build -j3 --target memgraph`
   - result: still blocked by unrelated stale planner/module artifact in `src/planner/include/planner/core/eclass.hpp`
+- ParallelMerge early scheduling slice (pending commit)
+  - object build attempt: `cmake --build build -j1 --target src/query/CMakeFiles/mg-query.dir/plan/operator.cpp.o`
+  - result: blocked before `operator.cpp` is typechecked by unrelated stale module artifact in `src/utils/temporal.hpp` (`memgraph.utils.fnv.pcm`)
+  - full build: `cmake --build build -j3 --target memgraph`
+  - result: blocked by unrelated planner/module artifact in `src/planner/include/planner/core/eclass.hpp` and intermittent `.ddi.tmp` generation failure from `clang-scan-deps`
 - [ ] Audit remaining synchronous `RunPullToCompletion(...)` sites
 
 ## Verification plan
@@ -383,16 +347,20 @@ Each commit should:
 - Added scheduler-level coverage for a yielded `TaskCollection` task that resumes and completes on the same worker.
 - Intention: let branch `AbortCheck` cooperate with the resumable task scheduler instead of inheriting a stale or disabled yield signal.
 
-### Pending commit: suspend ScanParallel waiters on producer handoff
+### `e045ba4ad` `query: suspend ScanParallel waiters cooperatively`
 - Replaced timed `producer_cv_.wait_for(...)` loops with coroutine suspension/resume on producer handoff.
 - Added `WorkerResumeEvent`, a reusable multi-waiter wakeup primitive that reschedules suspended coroutines onto their original workers.
 - Added unit coverage proving multiple waiters resume on the workers where they suspended.
 - Intention: stop losing scan branches from occupying workers while another branch owns shared batch publication.
 
-### Pending commit: build ScanParallel batches locally before publish
+### `b0f44a087` `query: localize ScanParallel producer batches`
 - The producer now pulls upstream rows into a producer-local `Frame` and computes chunks before touching shared scan state.
 - Shared `frame_` / `chunks_` are only updated once the batch is fully ready, under `mutex_`.
 - Intention: separate in-flight producer state from published shared state so the producer path can stop relying on shared mutable state during the upstream pull.
+
+### Pending commit: start parallel sections before the first merge pull
+- `ParallelMergeCursor` now triggers its collection scheduler before the first upstream `Pull()` instead of after the first returned row.
+- Intention: remove one of the last explicit blocking-era scheduling hacks now that branch joins, branch tasks, scan waiters, and the scan producer path are coroutine-friendly.
 
 ## Validation log
 

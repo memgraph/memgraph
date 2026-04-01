@@ -10726,17 +10726,17 @@ class ParallelMergeCursor : public Cursor {
 
   PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
     while (true) {
-      auto res = co_await input_cursor_->Pull(frame, context);
-
-      // Source aggregation cannot schedule collection until we made a first pass through the query.
-      // Otherwise all would block on the first scan parallel operator and wait until (potentially) everything has been
-      // pulled. We would fallback to single threaded execution for all subsequent parallel operators. This is hacky,
-      // but it works. The real solution is to convert cursors into coroutines and yield here.
       if (collection_scheduler_ && !scheduled_) {
-        // Schedule parallel work for this section
+        // Start the parallel section before the first upstream pull. Branch joins,
+        // background branch tasks, and ScanParallel producer/waiter handoff are
+        // now coroutine-friendly, so starting sibling branches here no longer
+        // relies on the old blocking fallback behavior.
         collection_scheduler_->Trigger();
         scheduled_ = true;
       }
+
+      auto res = co_await input_cursor_->Pull(frame, context);
+
       if (res) {
         co_yield true;
         continue;
