@@ -133,7 +133,7 @@ def test_vector_index_replication(connection, test_name):
     def get_replica_cursor(name):
         return connection(BOLT_PORTS[name], "replica").cursor()
 
-    expected_result = [("edge-type+property_vector", "REL", "embedding", 0)]
+    expected_result = [("edge-type+property_vector", ":REL", "embedding", 0)]
     replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))
@@ -147,7 +147,7 @@ def test_vector_index_replication(connection, test_name):
     wait_for_replication_change(cursor, 4)
 
     # 4/
-    expected_result = [("edge-type+property_vector", "REL", "embedding", 1)]
+    expected_result = [("edge-type+property_vector", ":REL", "embedding", 1)]
     replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))
