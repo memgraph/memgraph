@@ -238,6 +238,24 @@ void UnsetHooks() {
 #endif
 }
 
+void SetJemallocBackgroundThreads(bool enabled) {
+#if USE_JEMALLOC
+  if (je_mallctl("background_thread", nullptr, nullptr, &enabled, sizeof(enabled)) != 0) {
+    spdlog::warn("Failed to set jemalloc background_thread to {}", enabled);
+    return;
+  }
+  bool current = enabled;
+  size_t len = sizeof(current);
+  if (je_mallctl("background_thread", &current, &len, nullptr, 0) != 0) {
+    spdlog::warn("Failed to read jemalloc background_thread after setting it to {}", enabled);
+    return;
+  }
+  spdlog::info("jemalloc background_thread {}", current ? "enabled" : "disabled");
+#else
+  static_cast<void>(enabled);
+#endif
+}
+
 void InstallTrackingHooksOnArena(unsigned arena_id) {
 #if USE_JEMALLOC
   if (!old_hooks) return;  // SetHooks() not yet called — hooks unset, skip

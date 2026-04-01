@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "flags/general.hpp"
 #include "global_memory_control.hpp"
 #include "utils/logging.hpp"
 
@@ -39,17 +40,16 @@ DedicatedArenaResource::DedicatedArenaResource() {
   // defeating the purpose of a dedicated arena entirely.
   alloc_flags_ = MALLOCX_ARENA(arena_id_) | MALLOCX_TCACHE_NONE;
   InstallTrackingHooksOnArena(arena_id_);
-  // Disable automatic purging for this arena: freed pages stay in jemalloc's
-  // dirty-page cache and are immediately reused by the next allocation instead
-  // of being returned to the OS via madvise/munmap.  This eliminates the rapid
-  // munmap/mmap churn that occurs under heavy edge alloc/free workloads
-  // (graveyard drain followed immediately by new edge allocations), at the cost
-  // of higher steady-state RSS for the light-edge pool.
-  ssize_t no_decay = -1;
+  // Light-edge arena uses a more aggressive reclaim policy than the general
+  // jemalloc baseline in order to reduce retained memory under stress.
+  ssize_t dirty_decay = 1000;
+  ssize_t muzzy_decay = 0;
   const std::string dirty_key = "arena." + std::to_string(arena_id_) + ".dirty_decay_ms";
   const std::string muzzy_key = "arena." + std::to_string(arena_id_) + ".muzzy_decay_ms";
-  je_mallctl(dirty_key.c_str(), nullptr, nullptr, &no_decay, sizeof(no_decay));
-  je_mallctl(muzzy_key.c_str(), nullptr, nullptr, &no_decay, sizeof(no_decay));
+  je_mallctl(dirty_key.c_str(), nullptr, nullptr, &dirty_decay, sizeof(dirty_decay));
+  je_mallctl(muzzy_key.c_str(), nullptr, nullptr, &muzzy_decay, sizeof(muzzy_decay));
+  spdlog::info(
+      "DedicatedArenaResource {} decay configured: dirty={} ms, muzzy={} ms", arena_id_, dirty_decay, muzzy_decay);
 #endif
 }
 
