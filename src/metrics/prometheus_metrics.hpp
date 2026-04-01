@@ -15,6 +15,7 @@
 #include <expected>
 #include <functional>
 #include <list>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -262,6 +263,7 @@ class PrometheusMetrics {
   };
 
   prometheus::Registry registry_;
+  mutable std::shared_mutex databases_mutex_;
   std::list<DatabaseEntry> databases_;
 
   // Per-database metric families — storage
