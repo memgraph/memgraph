@@ -73,7 +73,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
   }
 
-  metric_handles_ = metrics::Metrics().AddDatabase(storage_->name(), [s = storage_.get()] {
+  metrics_.reset(metrics::Metrics().AddDatabase(storage_->name(), [s = storage_.get()] {
     auto const info = s->GetBaseInfo();
     return metrics::StorageSnapshot{
         .vertex_count = info.vertex_count,
@@ -81,20 +81,19 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
         .disk_usage = info.disk_usage,
         .memory_res = info.memory_res,
     };
-  });
-  storage_->SetMetricHandles(metric_handles_);
+  }));
+  storage_->SetMetricHandles(metrics_.get());
 }
 
-Database::~Database() {
-  storage_.reset();
-  DetachMetrics();
+Database::~Database() = default;
+
+Database::ScopedMetrics::~ScopedMetrics() {
+  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
 }
 
-void Database::DetachMetrics() {
-  if (metric_handles_) {
-    metrics::Metrics().RemoveDatabase(metric_handles_);
-    metric_handles_ = nullptr;
-  }
+void Database::ScopedMetrics::reset(metrics::DatabaseMetricHandles *handles) {
+  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
+  handles_ = handles;
 }
 
 std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType rw_type,
@@ -147,8 +146,8 @@ void Database::SwitchToOnDisk() {
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(
       std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);
 
-  if (metric_handles_) {
-    metrics::Metrics().UpdateSnapshotCallback(metric_handles_, [s = storage_.get()] {
+  if (metrics_.get()) {
+    metrics::Metrics().UpdateSnapshotCallback(metrics_.get(), [s = storage_.get()] {
       auto const info = s->GetBaseInfo();
       return metrics::StorageSnapshot{
           .vertex_count = info.vertex_count,
@@ -157,7 +156,7 @@ void Database::SwitchToOnDisk() {
           .memory_res = info.memory_res,
       };
     });
-    storage_->SetMetricHandles(metric_handles_);
+    storage_->SetMetricHandles(metrics_.get());
   }
 }
 
