@@ -25,7 +25,7 @@ def test_create_vector_index_with_config_function_default(connection):
     info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert len(info) == 1
     assert info[0][0] == "idx_vec"
-    assert info[0][1] == "Label"
+    assert info[0][1] == ":Label"
     assert info[0][2] == "vec"
     execute_and_fetch_all(cursor, "DROP VECTOR INDEX idx_vec;")
 
@@ -40,7 +40,7 @@ def test_create_vector_index_with_config_function_params(connection):
     info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert len(info) == 1
     assert info[0][0] == "idx_vec2"
-    assert info[0][1] == "Label2"
+    assert info[0][1] == ":Label2"
     assert info[0][2] == "vec"
     execute_and_fetch_all(cursor, "DROP VECTOR INDEX idx_vec2;")
 
