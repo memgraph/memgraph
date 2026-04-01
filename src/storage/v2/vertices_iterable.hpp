@@ -18,20 +18,28 @@
 namespace memgraph::storage {
 
 class VerticesIterable final {
-  enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY };
+  enum class Type {
+    ALL,
+    BY_LABEL_IN_MEMORY,
+    BY_LABEL_PROPERTY_IN_MEMORY,
+    BY_LABEL_PROPERTY_DESC_IN_MEMORY,
+  };
 
   Type type_;
 
   union {
     AllVerticesIterable all_vertices_;
     InMemoryLabelIndex::Iterable in_memory_vertices_by_label_;
-    InMemoryLabelPropertyIndex::Iterable in_memory_vertices_by_label_property_;
+    InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry> in_memory_vertices_by_label_property_;
+    InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry>
+        in_memory_vertices_by_label_property_desc_;
   };
 
  public:
   explicit VerticesIterable(AllVerticesIterable);
   explicit VerticesIterable(InMemoryLabelIndex::Iterable);
-  explicit VerticesIterable(InMemoryLabelPropertyIndex::Iterable);
+  explicit VerticesIterable(InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry>);
+  explicit VerticesIterable(InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry>);
 
   VerticesIterable(const VerticesIterable &) = delete;
   VerticesIterable &operator=(const VerticesIterable &) = delete;
@@ -47,7 +55,9 @@ class VerticesIterable final {
     union {
       AllVerticesIterable::Iterator all_it_;
       InMemoryLabelIndex::Iterable::Iterator in_memory_by_label_it_;
-      InMemoryLabelPropertyIndex::Iterable::Iterator in_memory_by_label_property_it_;
+      InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry>::Iterator in_memory_by_label_property_it_;
+      InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry>::Iterator
+          in_memory_by_label_property_desc_it_;
     };
 
     void Destroy() noexcept;
@@ -58,7 +68,8 @@ class VerticesIterable final {
 
     explicit Iterator(AllVerticesIterable::Iterator);
     explicit Iterator(InMemoryLabelIndex::Iterable::Iterator);
-    explicit Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator);
+    explicit Iterator(InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry>::Iterator);
+    explicit Iterator(InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry>::Iterator);
 
     Iterator(const Iterator &);
     Iterator &operator=(const Iterator &);
