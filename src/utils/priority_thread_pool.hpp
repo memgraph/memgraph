@@ -125,6 +125,12 @@ class TaskCollection {
 
   void WaitOrSteal();
 
+  /// Try to steal and run a single IDLE task on the calling thread.
+  /// Returns true if a task was claimed and executed, false otherwise.
+  /// This is intended for cooperative polling loops that want to make local
+  /// progress without blocking the current thread.
+  bool TryExecuteOneIdleTask();
+
   bool Finished() const;
 
   size_t Size() const { return tasks_.size(); }
@@ -259,6 +265,8 @@ class CollectionScheduler {
     if (collection_) collection_->WaitOrSteal();
     collection_.reset();
   }
+
+  bool TryExecuteOneIdleTask() const { return collection_ && collection_->TryExecuteOneIdleTask(); }
 
   bool Finished() const {
     if (collection_) return collection_->Finished();

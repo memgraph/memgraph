@@ -441,25 +441,34 @@ void TaskCollection::WaitOrSteal() {
   // queue interpret SCHEDULED as "resume after yield" and would fall through to
   // double-execute. STOLEN is a distinct state that WrapTask recognises as
   // "already claimed by the calling thread — skip".
-  for (auto &task : tasks_) {
-    auto expected = Task::State::IDLE;
-    if (task.state_->compare_exchange_strong(expected, Task::State::STOLEN, std::memory_order_acq_rel)) {
-      try {
-        const bool yielded = task.task_();
-        if (yielded) {
-          throw std::runtime_error("WaitOrSteal cannot handle yielding tasks. Use co_await Finished() instead.");
-        }
-        task.state_->store(Task::State::FINISHED, std::memory_order_release);
-        task.state_->notify_one();  // Notify waiting threads
-      } catch (...) {
-        task.state_->store(Task::State::FINISHED, std::memory_order_release);
-        task.state_->notify_one();  // Notify even on exception
-        throw;
-      }
-    }
+  while (TryExecuteOneIdleTask()) {
   }
   // Phase 2 - wait for tasks to finish
   Wait();
+}
+
+bool TaskCollection::TryExecuteOneIdleTask() {
+  for (auto &task : tasks_) {
+    auto expected = Task::State::IDLE;
+    if (!task.state_->compare_exchange_strong(expected, Task::State::STOLEN, std::memory_order_acq_rel)) {
+      continue;
+    }
+
+    try {
+      const bool yielded = task.task_();
+      if (yielded) {
+        throw std::runtime_error("WaitOrSteal cannot handle yielding tasks. Use co_await Finished() instead.");
+      }
+      task.state_->store(Task::State::FINISHED, std::memory_order_release);
+      task.state_->notify_one();  // Notify waiting threads
+    } catch (...) {
+      task.state_->store(Task::State::FINISHED, std::memory_order_release);
+      task.state_->notify_one();  // Notify even on exception
+      throw;
+    }
+    return true;
+  }
+  return false;
 }
 
 bool TaskCollection::Finished() const {

@@ -21,6 +21,7 @@
 #include <queue>
 #include <ranges>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -10802,12 +10803,17 @@ class ParallelBranchCursor : public Cursor {
 
     spdlog::trace("First branch finished on {}", std::this_thread::get_id());
 
-    // Block the current thread until all branch tasks complete.
-    // Branches have yield_requested=nullptr so they never suspend; WaitOrSteal()
-    // steals any IDLE tasks (not yet picked up by pool workers) and then waits
-    // (OS futex) for SCHEDULED tasks. This is safe and avoids coroutine teardown
-    // races that the co_await-based polling loop would introduce.
-    collection_scheduler_->WaitOrSteal();
+    // Cooperatively wait for branch completion instead of blocking the current
+    // worker in WaitOrSteal(). Branch tasks still do not yield yet, but the
+    // parent coroutine can now hit AbortCheck while waiting and hand the worker
+    // back to the scheduler when a yield is requested.
+    while (!collection_scheduler_->Finished()) {
+      if (collection_scheduler_->TryExecuteOneIdleTask()) {
+        continue;
+      }
+      co_await AbortCheck(context);
+      std::this_thread::yield();
+    }
 
     // Check for exceptions
     if (const auto exception_it = std::find_if(
