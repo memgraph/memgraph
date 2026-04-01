@@ -4740,20 +4740,14 @@ PullAwaitable EvaluatePatternFilter::EvaluatePatternFilterCursor::DoPull(Frame &
           input_cursor->Reset();
           // Pattern-filter evaluation is called synchronously from the expression
           // evaluator; we cannot propagate a scheduler yield from here.  Disable
-          // the yield signal and suspended-handle pointer for the duration so that
-          // RunPullToCompletion always runs to completion and never leaves a stale
-          // handle in ctx.suspended_task_handle_ptr.
-          auto *saved_yield = context.stopping_context.yield_requested;
-          auto *saved_handle_ptr = context.suspended_task_handle_ptr;
-          context.stopping_context.yield_requested = nullptr;
-          context.suspended_task_handle_ptr = nullptr;
+          // scheduler yield for the duration so that RunPullToCompletion always
+          // runs to completion and never leaves a stale suspended handle behind.
+          ScopedYieldSuppression scoped_yield_suppression{context};
 
           auto resume_aw = input_cursor->Pull(frame, context);
           bool const has_row =
               plan::RunPullToCompletion(resume_aw, context).status == plan::PullRunResult::Status::HasRow;
 
-          context.stopping_context.yield_requested = saved_yield;
-          context.suspended_task_handle_ptr = saved_handle_ptr;
           *return_value = TypedValue(has_row, context.evaluation_context.memory);
         };
 

@@ -22,7 +22,8 @@ Completed slices:
 - `ed148a02f` `query: enable scheduler yields in background branches`
 - `e045ba4ad` `query: suspend ScanParallel waiters cooperatively`
 - `b0f44a087` `query: localize ScanParallel producer batches`
-- pending commit: start parallel sections before the first merge pull
+- `4f3fb0349` `query: start parallel sections before merge pulls`
+- pending commit: scope intentional yield suppression and extend helper coverage
 
 What is true now:
 - the parent parallel join no longer blocks in `WaitOrSteal()`
@@ -35,12 +36,14 @@ What is true now:
 - `WorkerResumeEvent` provides reusable multi-waiter wakeup/resume on original workers
 - the ScanParallel producer now builds the next batch locally before publishing shared state
 - the shared upstream pull inside `ScanParallelCursor` no longer needs to disable yield while building the next batch
-- `ParallelMergeCursor` still uses the old delayed scheduling trigger on this branch
-- nested synchronous cursor consumers such as `EvaluatePatternFilter` are unchanged
+- `ParallelMergeCursor` now schedules sibling branches before the first upstream pull
+- `EvaluatePatternFilter` remains intentionally synchronous because `TypedValue::Function`
+  is still evaluated from the non-coroutine expression evaluator
+- the remaining yield suppression in `EvaluatePatternFilter` should stay explicit and scoped
 
 Immediate next goal:
-- verify whether `ParallelMergeCursor` can safely schedule sibling branches before the first upstream pull
-- keep tightening the join semantics from "progress wait" toward a more explicit branch-completion abstraction if needed
+- make the intentional `EvaluatePatternFilter` exception easier to reason about with a scoped guard
+- extend helper coverage around progress/yield resume primitives before changing more execution logic
 
 ## Working rules for this series
 
@@ -101,18 +104,25 @@ Why it matters:
 - expression evaluation still contains a synchronous execution island
 - not every consumer of a cursor chain is currently coroutine-aware
 
-### 2. `ParallelMerge` still carries a blocking-era scheduling assumption
+Current decision:
+- keep `EvaluatePatternFilter` non-yielding for now
+- do not force coroutine semantics into `TypedValue::Function` / expression evaluation in this series
+- make yield suppression use a dedicated RAII guard so the exception is obvious and exception-safe
+
+### 2. Runtime validation of the new parallel scheduling path is still incomplete
 
 Code:
-- `src/query/plan/operator.cpp` `ParallelMergeCursor::DoPull`
+- `tests/e2e/parallel/test_parallel_correctness.py`
+- stress workloads under `tests/stress/standalone/native/workloads/parallel_execution/`
 
 Current behavior:
-- sibling branches are only scheduled after the first upstream pull returns from `ParallelMerge`
-- the old comment still describes this as a necessary workaround from the blocking model
+- focused unit coverage for scheduler/task-collection helpers is good
+- a focused parallel e2e run currently fails for licensing reasons, not for a correctness assertion
+- full stress/correctness validation of the coroutine-parallel path still needs a licensed runtime
 
 Why it matters:
-- this is one of the last places where parallel execution policy still reflects the old fallback-to-blocking design
-- if the old assumption is no longer needed, parallel work can start earlier and the code gets simpler
+- we have changed join, branch-yield, scan-wait, producer publication, and merge-start behavior
+- the remaining risk is less about raw implementation coverage and more about real-plan runtime interactions
 
 ## Design principles
 
@@ -254,10 +264,53 @@ Changes:
 - [ ] Verify no duplicate or missing rows under stress
 
 ### Slice E
-- [ ] Revisit `ParallelMerge` trigger model
+- [x] Revisit `ParallelMerge` trigger model
 - [ ] Verify that early branch scheduling does not regress correctness or deadlock behavior
 
+### Slice F
+- [x] Keep `EvaluatePatternFilter` intentionally synchronous with explicit scoped yield suppression
+- [x] Add focused helper tests for progress/yield edge cases used by the coroutine parallel path
+
 ## Validation log
+- Added `ScopedYieldSuppression` as a dedicated RAII helper in `src/query/context.hpp`
+  and switched `EvaluatePatternFilter` to use it instead of manual save/restore.
+- Added/updated focused tests:
+  - `tests/unit/interpreter.cpp`
+    - `ScopedYieldSuppressionRestoresExecutionContextState`
+  - `tests/unit/utils_priority_thread_pool.cpp`
+    - `TaskCollection.WaitForProgressWakesOnTaskYield`
+    - `TaskCollection.ProgressAwaitableTracksSuccessiveProgressEpochs`
+    - `WorkerResumeEvent.StaleEpochDoesNotRegisterWaiter`
+- Ran:
+
+```bash
+cmake --build build -j3 --target memgraph__unit__utils_priority_thread_pool
+./build/tests/unit/utils_priority_thread_pool --gtest_filter='TaskCollection.WaitForProgressWakesOnTaskYield:WorkerResumeEvent.StaleEpochDoesNotRegisterWaiter'
+./build/tests/unit/utils_priority_thread_pool
+```
+
+- Result:
+  - focused helper tests passed
+  - full `utils_priority_thread_pool` suite passed: `39` tests
+- Additional focused rerun after extending epoch coverage:
+
+```bash
+./build/tests/unit/utils_priority_thread_pool --gtest_filter='TaskCollection.ProgressAwaitableTracksSuccessiveProgressEpochs:TaskCollection.WaitForProgressWakesOnTaskYield:WorkerResumeEvent.StaleEpochDoesNotRegisterWaiter'
+```
+
+- Result:
+  - progress-awaitable successive-epoch coverage passed
+- Also attempted:
+
+```bash
+cmake --build build -j3 --target memgraph__unit__interpreter
+```
+
+- Local result on this machine:
+  - still blocked by the unrelated planner PCM/module mismatch in:
+    - `src/planner/include/planner/core/eclass.hpp`
+    - `src/planner/include/planner/core/enode.hpp`
+  - because of that, the new interpreter-side helper test could not be validated locally here
 
 - Branch progress wait slice (`208352688`)
   - build: `cmake --build build -j3 --target memgraph__unit__utils_priority_thread_pool`

@@ -177,6 +177,32 @@ struct ExecutionContext {
   auto commit_args() -> storage::CommitArgs;
 };
 
+class ScopedYieldSuppression {
+ public:
+  explicit ScopedYieldSuppression(ExecutionContext &context)
+      : context_(context),
+        saved_yield_(context.stopping_context.yield_requested),
+        saved_handle_ptr_(context.suspended_task_handle_ptr) {
+    context_.stopping_context.yield_requested = nullptr;
+    context_.suspended_task_handle_ptr = nullptr;
+  }
+
+  ScopedYieldSuppression(const ScopedYieldSuppression &) = delete;
+  ScopedYieldSuppression &operator=(const ScopedYieldSuppression &) = delete;
+  ScopedYieldSuppression(ScopedYieldSuppression &&) = delete;
+  ScopedYieldSuppression &operator=(ScopedYieldSuppression &&) = delete;
+
+  ~ScopedYieldSuppression() {
+    context_.stopping_context.yield_requested = saved_yield_;
+    context_.suspended_task_handle_ptr = saved_handle_ptr_;
+  }
+
+ private:
+  ExecutionContext &context_;
+  std::atomic<bool> *saved_yield_;
+  std::coroutine_handle<> *saved_handle_ptr_;
+};
+
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");
 static_assert(std::is_move_constructible_v<ExecutionContext>, "ExecutionContext must be move constructible!");
 

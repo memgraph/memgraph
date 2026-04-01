@@ -821,6 +821,38 @@ TEST(TaskCollection, WaitForProgressTimesOutWithoutTaskProgress) {
       << "WaitForProgress should time out when no task has been scheduled yet";
 }
 
+TEST(TaskCollection, WaitForProgressWakesOnTaskYield) {
+  using namespace memgraph;
+  memgraph::utils::TaskCollection collection;
+
+  std::atomic<bool> allow_completion{false};
+  std::atomic<bool> waiting_for_progress{false};
+  collection.AddResumableTask([&]() -> bool {
+    if (!allow_completion.load(std::memory_order_acquire)) {
+      return true;
+    }
+    return false;
+  });
+
+  auto wrapped_task = collection.WrapTask(0);
+  auto runner = std::jthread([&]() mutable {
+    while (!waiting_for_progress.load(std::memory_order_acquire)) {
+      std::this_thread::sleep_for(1ms);
+    }
+    wrapped_task();
+  });
+
+  waiting_for_progress = true;
+  ASSERT_TRUE(collection.WaitForProgress(50ms))
+      << "WaitForProgress should observe a resumable task yielding, not just final completion";
+  ASSERT_FALSE(collection.Finished()) << "A yielded task should still be pending after progress is reported";
+
+  allow_completion = true;
+  wrapped_task();
+  collection.Wait();
+  ASSERT_TRUE(collection.Finished());
+}
+
 namespace {
 struct TestCoroutine {
   struct promise_type {
@@ -859,6 +891,13 @@ struct TestCoroutine {
 TestCoroutine AwaitCollectionProgress(memgraph::utils::CollectionScheduler &scheduler, std::atomic<bool> &resumed) {
   co_await scheduler.WaitForProgressAwaitable();
   resumed = true;
+}
+
+TestCoroutine AwaitCollectionProgressTwice(memgraph::utils::CollectionScheduler &scheduler, std::atomic<int> &resumes) {
+  co_await scheduler.WaitForProgressAwaitable();
+  resumes.fetch_add(1, std::memory_order_acq_rel);
+  co_await scheduler.WaitForProgressAwaitable();
+  resumes.fetch_add(1, std::memory_order_acq_rel);
 }
 
 struct WorkerResumeAwaitable {
@@ -922,6 +961,48 @@ TEST(TaskCollection, ProgressAwaitableResumesWaitingCoroutine) {
   pool.AwaitShutdown();
 
   ASSERT_TRUE(coroutine_resumed.load()) << "Progress awaitable should resume the waiting coroutine after task progress";
+}
+
+TEST(TaskCollection, ProgressAwaitableTracksSuccessiveProgressEpochs) {
+  using namespace memgraph;
+  utils::WorkerYieldRegistry registry(1);
+  utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+  auto collection = std::make_shared<utils::TaskCollection>();
+  std::atomic<int> task_stage{0};
+  collection->AddResumableTask([&]() -> bool {
+    int stage = task_stage.fetch_add(1, std::memory_order_acq_rel);
+    return stage < 1;
+  });
+
+  utils::CollectionScheduler scheduler(&pool, collection);
+  std::atomic<bool> coroutine_started{false};
+  std::atomic<int> coroutine_resumes{0};
+  std::optional<TestCoroutine> waiter;
+
+  pool.RescheduleTaskOnWorker(0, [&]() {
+    waiter.emplace(AwaitCollectionProgressTwice(scheduler, coroutine_resumes));
+    coroutine_started = true;
+  });
+
+  while (!coroutine_started.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(1ms);
+  }
+
+  scheduler.Trigger();
+
+  while (coroutine_resumes.load(std::memory_order_acquire) != 2) {
+    std::this_thread::sleep_for(1ms);
+  }
+
+  collection->Wait();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_EQ(task_stage.load(std::memory_order_acquire), 2)
+      << "Task should yield once and then complete on the second progress event";
+  ASSERT_EQ(coroutine_resumes.load(std::memory_order_acquire), 2)
+      << "Progress awaitable should wake once per new progress epoch";
 }
 
 TEST(TaskCollection, ResumableCollectionTaskYieldsThenCompletes) {
@@ -1059,6 +1140,17 @@ TEST(WorkerResumeEvent, NotifyAllResumesWaitersOnOriginalWorkers) {
       << "Waiter 0 should resume on the worker where it originally suspended";
   ASSERT_EQ(waiter1_resumed_thread_id.load(), worker1_thread_id.load())
       << "Waiter 1 should resume on the worker where it originally suspended";
+}
+
+TEST(WorkerResumeEvent, StaleEpochDoesNotRegisterWaiter) {
+  using namespace memgraph;
+  utils::WorkerResumeEvent event;
+
+  const auto observed_epoch = event.Epoch();
+  event.NotifyAll();
+
+  ASSERT_FALSE(event.RegisterWaiter(std::noop_coroutine(), nullptr, std::nullopt, observed_epoch))
+      << "Waiter registration must fail when the observed epoch is stale";
 }
 
 TEST(TaskCollection, ThreadPoolIntegration) {
