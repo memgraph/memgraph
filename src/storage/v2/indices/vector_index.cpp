@@ -421,11 +421,7 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   result.reserve(result_set_size);
 
   auto guard = utils::SharedResourceLockGuard(index_item.mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
-  const auto result_keys =
-      index_item.mg_index.index.filtered_search(query_vector.data(), result_set_size, [](const Vertex *vertex) {
-        auto guard = std::shared_lock{vertex->lock};
-        return !vertex->deleted();
-      });
+  const auto result_keys = index_item.mg_index.index.search(query_vector.data(), result_set_size);
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
     result.emplace_back(

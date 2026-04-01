@@ -363,13 +363,8 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
 
   auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
   auto ep_lock = std::shared_lock{pimpl->edge_endpoints_mutex_};
-  const auto result_keys = mg_index.index.filtered_search(query_vector.data(), result_set_size, [this](Edge *edge) {
-    auto guard = std::shared_lock{edge->lock};
-    if (edge->deleted()) return false;
-    auto ep_it = pimpl->edge_endpoints_.find(edge);
-    if (ep_it == pimpl->edge_endpoints_.end()) return false;
-    return !ep_it->second.first->deleted() && !ep_it->second.second->deleted();
-  });
+  const auto result_keys = mg_index.index.filtered_search(
+      query_vector.data(), result_set_size, [this](Edge *edge) { return pimpl->edge_endpoints_.contains(edge); });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     auto *edge = static_cast<Edge *>(result_keys[i].member.key);
     auto [from_vertex, to_vertex] = pimpl->edge_endpoints_.at(edge);

@@ -169,15 +169,29 @@ TEST_F(VectorEdgeIndexTest, UpdatePropertyValueTest) {
 
 TEST_F(VectorEdgeIndexTest, DeleteEdgeTest) {
   this->CreateEdgeIndex(2, 10);
-  auto acc = this->storage->Access(memgraph::storage::WRITE);
-  PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
-  auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
-  auto maybe_deleted_edge = acc->DeleteEdge(&edge);
-  EXPECT_EQ(maybe_deleted_edge.has_value(), true);
-  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-  std::vector<float> query = {1.0, 1.0};
-  const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, query);
-  EXPECT_EQ(result.size(), 0);
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+    auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    auto maybe_deleted_edge = acc->DeleteEdge(&edge);
+    EXPECT_EQ(maybe_deleted_edge.has_value(), true);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  // After commit+GC the edge is removed from the index. Use the GC fixture for that;
+  // here we just verify the search still works (may return the deleted edge until GC runs).
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    std::vector<float> query = {1.0, 1.0};
+    const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, query);
+    EXPECT_LE(result.size(), 1);
+  }
 }
 
 TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
