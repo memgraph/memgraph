@@ -1583,7 +1583,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read epoch id!");
@@ -1895,7 +1895,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read epoch id!");
@@ -1915,7 +1915,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem::path &path,
@@ -2124,7 +2124,8 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -2268,7 +2269,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -2288,7 +2289,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem::path &path,
@@ -2497,7 +2498,8 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -2600,9 +2602,10 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
         if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
-                                    TextIndexSpec{index_name.value(), get_label_from_id(*label), {}},
-                                    "The text index already exists!");
+        AddRecoveredIndexConstraint(
+            &indices_constraints.indices.text_indices,
+            TextIndexSpec{.index_name = index_name.value(), .label = get_label_from_id(*label), .properties = {}},
+            "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
                      index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -2685,7 +2688,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -2705,7 +2708,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 /// We messed up and accidentally introduced a version bump in a release it was not needed for
@@ -2956,7 +2959,8 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -3078,9 +3082,10 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
         if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
-                                    TextIndexSpec{index_name.value(), get_label_from_id(*label), {}},
-                                    "The text index already exists!");
+        AddRecoveredIndexConstraint(
+            &indices_constraints.indices.text_indices,
+            TextIndexSpec{.index_name = index_name.value(), .label = get_label_from_id(*label), .properties = {}},
+            "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
                      index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -3163,7 +3168,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -3183,7 +3188,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesystem::path &path,
@@ -3432,7 +3437,8 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -3574,9 +3580,10 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
         if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
-                                    TextIndexSpec{index_name.value(), get_label_from_id(*label), {}},
-                                    "The text index already exists!");
+        AddRecoveredIndexConstraint(
+            &indices_constraints.indices.text_indices,
+            TextIndexSpec{.index_name = index_name.value(), .label = get_label_from_id(*label), .properties = {}},
+            "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
                      index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -3688,7 +3695,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -3708,7 +3715,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesystem::path &path,
@@ -3963,7 +3970,8 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -4151,9 +4159,10 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
         if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
-                                    TextIndexSpec{index_name.value(), get_label_from_id(*label), {}},
-                                    "The text index already exists!");
+        AddRecoveredIndexConstraint(
+            &indices_constraints.indices.text_indices,
+            TextIndexSpec{.index_name = index_name.value(), .label = get_label_from_id(*label), .properties = {}},
+            "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
                      index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -4265,7 +4274,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -4285,7 +4294,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path const &path,
@@ -4545,7 +4554,8 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -4778,9 +4788,10 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
         if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
-                                    TextIndexSpec{index_name.value(), get_label_from_id(*label), {}},
-                                    "The text index already exists!");
+        AddRecoveredIndexConstraint(
+            &indices_constraints.indices.text_indices,
+            TextIndexSpec{.index_name = index_name.value(), .label = get_label_from_id(*label), .properties = {}},
+            "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
                      index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -4892,7 +4903,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -4912,7 +4923,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path const &path,
@@ -5191,7 +5202,8 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -5397,9 +5409,10 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
         if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
-                                    TextIndexSpec{index_name.value(), get_label_from_id(*label), {}},
-                                    "The text index already exists!");
+        AddRecoveredIndexConstraint(
+            &indices_constraints.indices.text_indices,
+            TextIndexSpec{.index_name = index_name.value(), .label = get_label_from_id(*label), .properties = {}},
+            "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
                      index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -5511,7 +5524,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -5531,7 +5544,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path const &path,
@@ -5810,7 +5823,8 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -6018,9 +6032,10 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
         if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
-                                    TextIndexSpec{index_name.value(), get_label_from_id(*label), {}},
-                                    "The text index already exists!");
+        AddRecoveredIndexConstraint(
+            &indices_constraints.indices.text_indices,
+            TextIndexSpec{.index_name = index_name.value(), .label = get_label_from_id(*label), .properties = {}},
+            "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
                      index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -6132,7 +6147,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -6152,7 +6167,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::path const &path,
@@ -6431,7 +6446,8 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -6691,9 +6707,10 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
         if (!index_name) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
-                                    TextIndexSpec{index_name.value(), get_label_from_id(*label), {}},
-                                    "The text index already exists!");
+        AddRecoveredIndexConstraint(
+            &indices_constraints.indices.text_indices,
+            TextIndexSpec{.index_name = index_name.value(), .label = get_label_from_id(*label), .properties = {}},
+            "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
                      index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -6805,7 +6822,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -6825,7 +6842,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path const &path,
@@ -7104,7 +7121,8 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -7374,7 +7392,9 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
           properties.emplace_back(get_property_from_id(*property));
         }
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
-                                    TextIndexSpec{index_name.value(), get_label_from_id(*label), std::move(properties)},
+                                    TextIndexSpec{.index_name = index_name.value(),
+                                                  .label = get_label_from_id(*label),
+                                                  .properties = std::move(properties)},
                                     "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
                      index_name.value(),
@@ -7487,7 +7507,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -7507,7 +7527,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path const &path,
@@ -7787,7 +7807,8 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        indices_constraints.indices.label_stats.emplace_back(
+            label_id, LabelIndexStats{.count = *count, .avg_degree = *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -8059,7 +8080,9 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
         }
 
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
-                                    TextIndexSpec{index_name.value(), get_label_from_id(*label), std::move(properties)},
+                                    TextIndexSpec{.index_name = index_name.value(),
+                                                  .label = get_label_from_id(*label),
+                                                  .properties = std::move(properties)},
                                     "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
                      index_name.value(),
@@ -8172,7 +8195,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
       throw RecoveryFailure("Couldn't read history size!");
     }
 
-    for (int i = 0; i < *history_size; ++i) {
+    for (uint64_t i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
@@ -8254,7 +8277,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, recovery_info, std::move(indices_constraints)};
+  return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
 RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path const &path,
