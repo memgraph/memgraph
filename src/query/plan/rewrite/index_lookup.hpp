@@ -940,8 +940,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (orderings.empty()) return ctx;
 
     // TODO(ivan): Support DESC — SkipList indexes can be iterated in reverse.
-    for (const auto &ord : orderings)
+    for (const auto &ord : orderings) {
       if (ord.ordering() != Ordering::ASC) return ctx;
+    }
 
     bool all_prop_lookup = true;
     bool all_bare_ident = true;
