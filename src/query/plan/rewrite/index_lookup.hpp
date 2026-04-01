@@ -991,6 +991,76 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   // TODO: Extend to edge property index scans (also SkipList-backed, ASC order).
+
+  struct WalkResult {
+    // Produces between scan and OrderBy (in OrderBy-to-scan order), each paired with the
+    // scan symbol's tracked name as it enters that Produce.
+    std::vector<std::pair<Produce *, std::string>> produces;
+    // The scan symbol name after walking through all Produces (output-scope name).
+    std::string tracked_name;
+    // The scan symbol name just before the last Produce (input-scope name for dual-scope semantics).
+    std::string pre_last_produce_name;
+    bool valid;
+  };
+
+  /// Walk prev_ops_ from scan to OrderBy, verifying all operators are order-preserving.
+  /// Collects Produces (in OrderBy-to-scan order) with tracked scan symbol names.
+  /// Also finds the Produce above OrderBy (RETURN/WITH scope) if it exists.
+  WalkResult WalkToOrderBy(const OrderByContext &ctx, const Symbol &scan_symbol) {
+    WalkResult result{.tracked_name = scan_symbol.name(), .pre_last_produce_name = scan_symbol.name(), .valid = true};
+
+    // Walk backwards from scan to OrderBy, collecting Produces and checking order preservation.
+    // Produces are appended scan-to-OrderBy, then reversed at the end to get OrderBy-to-scan order.
+    for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
+      auto *op = *it;
+      const auto &type_info = op->GetTypeInfo();
+
+      if (type_info == Produce::kType) {
+        result.pre_last_produce_name = result.tracked_name;
+        auto *produce = dynamic_cast<Produce *>(op);
+        result.produces.emplace_back(produce, result.tracked_name);
+        auto resolved = ResolveProduceMapping(produce, result.tracked_name);
+        if (resolved) result.tracked_name = std::move(*resolved);
+        // nullopt is expected for property-projection Produces (n.a AS a) — tracked_name stays.
+        continue;
+      }
+
+      // 1:N operators (Expand, Unwind, Apply, Optional) preserve input-symbol order.
+      // Mutation operators (SetProperty, Delete, etc.) are excluded — they can change
+      // the values ORDER BY evaluates, invalidating index order.
+      bool order_preserving =
+          type_info == Filter::kType || type_info == ConstructNamedPath::kType ||
+          type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
+          type_info == Expand::kType || type_info == ExpandVariable::kType || type_info == Optional::kType ||
+          type_info == Distinct::kType || type_info == EvaluatePatternFilter::kType ||
+          type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType;
+      if (!order_preserving) {
+        result.valid = false;
+        return result;
+      }
+    }
+
+    // Find the Produce above OrderBy (RETURN/WITH scope). It may be separated by Distinct
+    // (RETURN DISTINCT ... ORDER BY produces Produce → Distinct → OrderBy).
+    for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend(); ++it) {
+      if (*it != ctx.op) continue;
+      // Walk upward from OrderBy's parent, skipping Distinct, to find the Produce.
+      for (auto parent = it + 1; parent != prev_ops_.rend(); ++parent) {
+        const auto &pt = (*parent)->GetTypeInfo();
+        if (pt == Produce::kType) {
+          result.produces.emplace_back(dynamic_cast<Produce *>(*parent), result.tracked_name);
+          break;
+        }
+        if (pt != Distinct::kType) break;  // unexpected operator between Produce and OrderBy
+      }
+      break;
+    }
+
+    // Reverse to OrderBy-to-scan order for alias resolution.
+    std::reverse(result.produces.begin(), result.produces.end());
+    return result;
+  }
+
   /// Resolve bare-Identifier ORDER BY aliases through a Produce's named_expressions.
   /// Returns true if all aliases were resolved to PropertyLookup(Identifier), filling property_paths.
   /// Returns false if all aliases passed through as renames (unresolved_aliases updated).
@@ -1054,75 +1124,25 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     if (new_scan->GetTypeInfo() != ScanAllByLabelProperties::kType) return;
 
-    const bool has_unresolved = !ctx.unresolved_aliases.empty();
+    // Walk from scan to OrderBy: verify order preservation, collect Produces with tracked names.
+    auto walk = WalkToOrderBy(ctx, scan_symbol);
+    if (!walk.valid) return;
 
-    // Track the scan symbol's name through Produce renames (WITH n AS m).
-    std::string tracked_name = scan_symbol.name();
-    // Cypher ORDER BY has dual-scope semantics: RETURN n AS m ORDER BY n.prop and
-    // ORDER BY m.prop are both valid. Track the pre-rename name for the input-scope check.
-    std::string pre_last_produce_name = tracked_name;
-
-    // Walk prev_ops_ backwards from scan to OrderBy, verifying all operators are order-preserving.
-    // Collect Produces with their tracked names for alias resolution (needed in OrderBy-to-scan order).
-    std::vector<std::pair<Produce *, std::string>> walk_produces;  // (produce, tracked_name entering it)
-
-    for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
-      auto *op = *it;
-      const auto &type_info = op->GetTypeInfo();
-      if (type_info == Produce::kType) {
-        auto *produce = dynamic_cast<Produce *>(op);
-        if (has_unresolved) {
-          walk_produces.emplace_back(produce, tracked_name);
-          // Forward-track through renames so tracked_name is correct for subsequent Produces.
-          auto resolved = ResolveProduceMapping(produce, tracked_name);
-          if (resolved) tracked_name = std::move(*resolved);
-          // nullopt is expected for property-projection Produces (n.a AS a) — tracked_name stays.
-        } else {
-          pre_last_produce_name = tracked_name;
-          auto resolved = ResolveProduceMapping(produce, tracked_name);
-          if (!resolved) return;
-          tracked_name = std::move(*resolved);
-        }
-        continue;
-      }
-      // 1:N operators (Expand, Unwind, Apply, Optional) preserve input-symbol order.
-      // Mutation operators (SetProperty, Delete, etc.) are excluded — they can change
-      // the values ORDER BY evaluates, invalidating index order.
-      bool order_preserving =
-          type_info == Filter::kType || type_info == ConstructNamedPath::kType ||
-          type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
-          type_info == Expand::kType || type_info == ExpandVariable::kType || type_info == Optional::kType ||
-          type_info == Distinct::kType || type_info == EvaluatePatternFilter::kType ||
-          type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType;
-      if (!order_preserving) return;
-    }
-
-    if (has_unresolved) {
-      // Resolve aliases through Produces in OrderBy-to-scan order.
-      // Each entry carries the tracked scan symbol name at that Produce (handles rename chains).
-      // Include the Produce above OrderBy (RETURN scope) as the first in the chain.
-      std::vector<std::pair<Produce *, std::string>> resolution_chain;
-      for (size_t i = 1; i < prev_ops_.size(); ++i) {
-        if (prev_ops_[i] == ctx.op && prev_ops_[i - 1]->GetTypeInfo() == Produce::kType) {
-          // The RETURN Produce is above OrderBy — use tracked_name at end of walk.
-          resolution_chain.emplace_back(dynamic_cast<Produce *>(prev_ops_[i - 1]), tracked_name);
-          break;
-        }
-      }
-      for (auto it = walk_produces.rbegin(); it != walk_produces.rend(); ++it) {
-        resolution_chain.push_back(*it);
-      }
-
-      for (const auto &[produce, expected_source] : resolution_chain) {
+    // Resolve ORDER BY expressions to property paths.
+    if (!ctx.unresolved_aliases.empty()) {
+      // Bare-Identifier path: resolve aliases through collected Produces (OrderBy-to-scan order).
+      for (const auto &[produce, expected_source] : walk.produces) {
         if (ctx.unresolved_aliases.empty()) break;
         ResolveAliasesThroughProduce(produce, ctx, expected_source);
         if (!ctx.valid) return;
       }
-
       if (!ctx.unresolved_aliases.empty()) return;
     } else {
+      // PropertyLookup path: verify the ORDER BY symbol matches the scan symbol.
+      // Cypher ORDER BY has dual-scope semantics: RETURN n AS m ORDER BY n.prop and
+      // ORDER BY m.prop are both valid — check both tracked and pre-last-produce names.
       const auto &ob_name = ctx.scan_symbol.name();
-      if (tracked_name != ob_name && pre_last_produce_name != ob_name) return;
+      if (walk.tracked_name != ob_name && walk.pre_last_produce_name != ob_name) return;
     }
 
     // Match ORDER BY properties against index columns. Equality-pinned columns (WHERE col = val)
