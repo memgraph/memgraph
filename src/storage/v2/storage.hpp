@@ -520,6 +520,7 @@ class Storage {
                                                                          CheckCancelFunction cancel_check) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
+                                                                         IndexOrder order,
                                                                          CheckCancelFunction cancel_check) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
@@ -536,8 +537,9 @@ class Storage {
       return CreateIndex(label, neverCancel);
     }
 
-    auto CreateIndex(LabelId label, PropertiesPaths properties) -> std::expected<void, StorageIndexDefinitionError> {
-      return CreateIndex(label, std::move(properties), neverCancel);
+    auto CreateIndex(LabelId label, PropertiesPaths properties, IndexOrder order = IndexOrder::ASC)
+        -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(label, std::move(properties), order, neverCancel);
     }
 
     auto CreateIndex(EdgeTypeId edge_type) -> std::expected<void, StorageIndexDefinitionError> {

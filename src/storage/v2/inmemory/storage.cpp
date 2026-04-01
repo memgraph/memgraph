@@ -1790,7 +1790,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   return {};
 }
 
-auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties,
+auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties, IndexOrder order,
                                                     CheckCancelFunction cancel_check)
     -> std::expected<void, StorageIndexDefinitionError> {
   // UNIQUE access will be done only through schema.assert
@@ -1800,7 +1800,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  if (!mem_label_property_index->RegisterIndex(label, properties, updater)) {
+  if (!mem_label_property_index->RegisterIndex(label, properties, updater, order)) {
     return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
   DowngradeToReadIfValid();
@@ -1811,7 +1811,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
                            std::nullopt,
                            updater,
                            std::nullopt,
-                           IndexOrder::ASC,
+                           order,
                            &transaction_,
                            std::move(cancel_check))
            .has_value()) {
@@ -1819,7 +1819,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
-    return mem_label_property_index->PublishIndex(label, properties, commit_timestamp);
+    return mem_label_property_index->PublishIndex(label, properties, commit_timestamp, order);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
