@@ -854,6 +854,45 @@ TEST(TaskCollection, ProgressAwaitableResumesWaitingCoroutine) {
   ASSERT_TRUE(coroutine_resumed.load()) << "Progress awaitable should resume the waiting coroutine after task progress";
 }
 
+TEST(TaskCollection, ResumableCollectionTaskYieldsThenCompletes) {
+  using namespace memgraph;
+  utils::WorkerYieldRegistry registry(1);
+  utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+  utils::TaskCollection collection;
+  std::atomic<int> call_count{0};
+  std::atomic<std::thread::id> first_thread_id;
+  std::atomic<std::thread::id> second_thread_id;
+  std::atomic<bool> done{false};
+
+  collection.AddResumableTask([&]() -> bool {
+    const int call = call_count.fetch_add(1) + 1;
+    if (call == 1) {
+      first_thread_id = std::this_thread::get_id();
+      registry.RequestYieldForWorker(0);
+      return true;
+    }
+    second_thread_id = std::this_thread::get_id();
+    done = true;
+    return false;
+  });
+
+  pool.ScheduledCollection(collection);
+
+  while (!done.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(1ms);
+  }
+
+  collection.Wait();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_EQ(call_count.load(), 2) << "Collection task must resume after one yield and then complete";
+  ASSERT_EQ(first_thread_id.load(), second_thread_id.load())
+      << "Yielded collection tasks should resume on the same worker";
+  ASSERT_TRUE(collection.Finished()) << "Collection should report finished after the resumable task completes";
+}
+
 TEST(TaskCollection, ThreadPoolIntegration) {
   using namespace memgraph;
   memgraph::utils::PriorityThreadPool pool{2};

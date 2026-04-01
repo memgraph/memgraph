@@ -89,6 +89,16 @@ class TaskCollection {
   explicit TaskCollection(size_t num_tasks) { tasks_.reserve(num_tasks); }
 
   TaskCollection() = default;
+  TaskCollection(const TaskCollection &) = delete;
+  TaskCollection &operator=(const TaskCollection &) = delete;
+
+  TaskCollection(TaskCollection &&other) noexcept {
+    auto guard = std::lock_guard{other.progress_mutex_};
+    tasks_ = std::move(other.tasks_);
+    progress_epoch_ = other.progress_epoch_;
+  }
+
+  TaskCollection &operator=(TaskCollection &&) = delete;
 
   void AddTask(TaskSignature task) {
     tasks_.emplace_back([t = std::move(task)]() mutable {

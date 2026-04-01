@@ -10748,10 +10748,12 @@ class ParallelBranchCursor : public Cursor {
           frame_local_opt.emplace(static_cast<int64_t>(frame_size));
         }
 
-        // Disable yield for branch contexts: branches must run to completion without suspending.
-        // The main coroutine waits (blocking) via WaitOrSteal(); if branches yielded,
-        // WaitOrSteal() would throw. AbortCheck still fires normally.
-        context.stopping_context.yield_requested = nullptr;
+        // Refresh the branch context from the worker that is currently running
+        // this slice. Branch contexts are copied from the parent query, so the
+        // stored pointer may still reference a different worker's yield signal.
+        // Using the current worker's signal makes AbortCheck-driven branch
+        // yields cooperate with the pool's resumable task path.
+        context.stopping_context.yield_requested = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
 
         if (main_thread != std::this_thread::get_id()) {
           mem_tracking.StartTracking();

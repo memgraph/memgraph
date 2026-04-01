@@ -18,20 +18,22 @@ Completed slices:
 - `63e18349a` `query: make parallel branch joins wait cooperatively`
 - `d55a7389f` `query: wait for branch progress during cooperative joins`
 - `9270ac03b` `query: coordinate ScanParallel batch producers`
-- pending commit: coroutine-friendly branch progress wait in `TaskCollection` / `CollectionScheduler`
+- `208352688` `query: suspend branch joins on task progress`
+- pending commit: enable scheduler-driven yields in background branch tasks
 
 What is true now:
 - the parent parallel join no longer blocks in `WaitOrSteal()`
 - the cooperative join now waits on branch progress instead of blind thread-yield polling
 - the parent join can now suspend on branch progress via a coroutine-friendly wait primitive
 - `ScanParallelCursor` now has explicit producer/waiter coordination for shared batch publication
-- branch tasks still do **not** yield
+- background branch tasks now refresh `yield_requested` from the worker currently running them
+- `TaskCollection` has unit coverage for resumable collection tasks that yield and later complete
 - the shared upstream pull inside `ScanParallelCursor` still temporarily disables yield
 - nested synchronous cursor consumers such as `EvaluatePatternFilter` are unchanged
 
 Immediate next goal:
-- replace polling-style branch waiting with a true coroutine-friendly branch completion wait
-- only after that, enable branch yields and continue the `ScanParallelCursor` refactor
+- confirm the branch-yield path on real parallel plans and then continue the `ScanParallelCursor` refactor
+- keep tightening the join semantics from "progress wait" toward a more explicit branch-completion abstraction if needed
 
 ## Working rules for this series
 
@@ -242,11 +244,11 @@ Changes:
 ### Slice B
 - [x] Add coroutine-friendly branch progress wait primitive
 - [x] Replace timeout polling in the join loop with coroutine-friendly progress suspension
-- [ ] Keep branches non-yielding until branch resume model is ready
+- [x] Keep branches non-yielding until branch resume model is ready
 - [ ] Extend the wait primitive from "progress" to a cleaner branch-completion abstraction if needed
 
 ### Slice C
-- [ ] Enable branch yields
+- [x] Enable branch yields by refreshing branch contexts from the current worker's yield signal
 - [ ] Verify exception handling, context merge, and profiling merge still work
 - [ ] Verify high-priority interruptions during branch execution
 
@@ -258,6 +260,19 @@ Changes:
 
 ### Slice E
 - [ ] Revisit `ParallelMerge` trigger model
+
+## Validation log
+
+- Branch progress wait slice (`208352688`)
+  - build: `cmake --build build -j3 --target memgraph__unit__utils_priority_thread_pool`
+  - test: `./build/tests/unit/utils_priority_thread_pool`
+  - result: passed, `34` tests
+- Background branch yield slice (pending commit)
+  - build: `cmake --build build -j3 --target memgraph__unit__utils_priority_thread_pool`
+  - test: `./build/tests/unit/utils_priority_thread_pool`
+  - result: passed, `34` tests
+  - full build: `cmake --build build -j3 --target memgraph`
+  - result: still blocked by unrelated stale module artifact in `src/utils/temporal.hpp` (`memgraph.utils.fnv.pcm`)
 - [ ] Audit remaining synchronous `RunPullToCompletion(...)` sites
 
 ## Verification plan
