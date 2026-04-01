@@ -722,6 +722,56 @@ TEST(TaskCollection, WaitOrSteal) {
   ASSERT_EQ(counter.load(), num_tasks);
 }
 
+TEST(TaskCollection, TryExecuteOneIdleTaskRunsSingleTask) {
+  using namespace memgraph;
+  memgraph::utils::TaskCollection collection;
+
+  std::atomic<int> counter{0};
+  collection.AddTask([&counter]() { counter.fetch_add(1); });
+  collection.AddTask([&counter]() { counter.fetch_add(1); });
+  collection.AddTask([&counter]() { counter.fetch_add(1); });
+
+  ASSERT_TRUE(collection.TryExecuteOneIdleTask());
+  ASSERT_EQ(counter.load(), 1) << "Only one idle task should be executed per call";
+  ASSERT_FALSE(collection.Finished()) << "Remaining tasks should still be pending";
+
+  collection.WaitOrSteal();
+  ASSERT_EQ(counter.load(), 3);
+}
+
+TEST(TaskCollection, WaitForProgressWakesOnTaskCompletion) {
+  using namespace memgraph;
+  memgraph::utils::TaskCollection collection;
+
+  std::atomic<bool> started{false};
+  collection.AddTask([&started]() {
+    started = true;
+    std::this_thread::sleep_for(10ms);
+  });
+
+  auto wrapped_task = collection.WrapTask(0);
+  auto runner = std::jthread([&wrapped_task]() { wrapped_task(); });
+
+  while (!started.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(1ms);
+  }
+
+  ASSERT_TRUE(collection.WaitForProgress(50ms))
+      << "WaitForProgress should observe task completion and wake before timing out";
+  collection.Wait();
+  ASSERT_TRUE(collection.Finished());
+}
+
+TEST(TaskCollection, WaitForProgressTimesOutWithoutTaskProgress) {
+  using namespace memgraph;
+  memgraph::utils::TaskCollection collection;
+
+  collection.AddTask([]() {});
+
+  ASSERT_FALSE(collection.WaitForProgress(5ms))
+      << "WaitForProgress should time out when no task has been scheduled yet";
+}
+
 TEST(TaskCollection, ThreadPoolIntegration) {
   using namespace memgraph;
   memgraph::utils::PriorityThreadPool pool{2};

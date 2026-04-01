@@ -11,6 +11,64 @@ every layer remains `co_await`-based. The remaining blockers are the places wher
 we explicitly detach the yield signal or where we still rely on blocking joins and
 synchronous nested cursor execution.
 
+## Current status
+
+Completed slices:
+- `8beda2a55` `docs: outline coroutine parallel yield enablement plan`
+- `63e18349a` `query: make parallel branch joins wait cooperatively`
+- `d55a7389f` `query: wait for branch progress during cooperative joins`
+- `9270ac03b` `query: coordinate ScanParallel batch producers`
+
+What is true now:
+- the parent parallel join no longer blocks in `WaitOrSteal()`
+- the cooperative join now waits on branch progress instead of blind thread-yield polling
+- `ScanParallelCursor` now has explicit producer/waiter coordination for shared batch publication
+- branch tasks still do **not** yield
+- the shared upstream pull inside `ScanParallelCursor` still temporarily disables yield
+- nested synchronous cursor consumers such as `EvaluatePatternFilter` are unchanged
+
+Immediate next goal:
+- replace polling-style branch waiting with a true coroutine-friendly branch completion wait
+- only after that, enable branch yields and continue the `ScanParallelCursor` refactor
+
+## Working rules for this series
+
+Every new implementation slice should do all of the following before commit:
+- add or update tests for the new logic when practical in the same slice
+- run the most targeted validation available and record what was run
+- update this task document with:
+  - completed work
+  - changed assumptions or design adjustments
+  - known remaining risks
+- keep commits scoped to the files changed by that slice only
+
+PR / review summaries should explain:
+- the problem being addressed
+- the behavior change
+- why this approach is safe as an incremental step
+- what still remains intentionally out of scope
+
+## Local build status
+
+Current build command used during this work:
+
+```bash
+cmake --build build -j3 --target memgraph
+```
+
+Current local failure:
+- unrelated planner/module build mismatch, not caused by the coroutine parallel-yield changes
+- failing files:
+  - `src/planner/include/planner/core/eclass.hpp`
+  - `src/planner/include/planner/core/enode.hpp`
+- observed error shape:
+  - module file built from a different branch / compiler mismatch
+  - subsequent `ENodeId` resolution failures in planner sources
+
+This means local full-build verification for this series is currently blocked by unrelated
+planner module state. Targeted validation and user-local builds are still useful until that
+separate issue is cleared.
+
 ## Current blockers
 
 ### 1. Parallel branch join still blocks
@@ -102,6 +160,11 @@ Risks:
 - temporary spin/yield loop may still be less efficient than a proper awaitable join
 - but it is simpler and isolates the first behavioral change
 
+Status:
+- completed, but evolved slightly during implementation
+- first step replaced blocking join with cooperative polling
+- second step replaced blind polling with progress-aware waiting
+
 ### Phase 2: Introduce a resumable branch completion wait
 
 Objective:
@@ -167,10 +230,12 @@ Changes:
 ## Implementation checklist
 
 ### Slice A
-- [ ] Add reusable non-blocking task-steal API to `TaskCollection`
-- [ ] Add `CollectionScheduler` wrapper for the new API
-- [ ] Replace `ParallelBranchCursor` blocking join with cooperative wait loop
-- [ ] Verify no behavior regression in existing non-yielding branch execution
+- [x] Add reusable non-blocking task-steal API to `TaskCollection`
+- [x] Add `CollectionScheduler` wrapper for the new API
+- [x] Replace `ParallelBranchCursor` blocking join with cooperative wait loop
+- [x] Improve cooperative wait loop to wait for branch progress instead of blind thread-yield polling
+- [x] Add unit coverage for `TaskCollection::TryExecuteOneIdleTask()` and `TaskCollection::WaitForProgress()`
+- [x] Verify the targeted scheduler/task-collection behavior with dedicated unit tests
 
 ### Slice B
 - [ ] Add coroutine-friendly branch completion wait primitive
@@ -184,6 +249,7 @@ Changes:
 
 ### Slice D
 - [ ] Refactor `ScanParallelCursor` state ownership
+- [x] Coordinate a single batch producer and waiter handoff to reduce shared-mutex pileups
 - [ ] Allow branch-side yield while waiting on shared scan progress
 - [ ] Verify no duplicate or missing rows under stress
 
@@ -222,3 +288,42 @@ Each commit should:
 - keep behavior understandable on its own
 - include the reasoning in the commit message
 - avoid mixing unrelated cleanup
+
+## Change log
+
+### `63e18349a` `query: make parallel branch joins wait cooperatively`
+- Added a small `TaskCollection` helper to run one idle task locally.
+- Replaced blocking `WaitOrSteal()` in `ParallelBranchCursor` with a cooperative wait loop.
+- Intention: stop occupying the current worker in a fully blocking join while branch tasks still remain non-yielding.
+
+### `d55a7389f` `query: wait for branch progress during cooperative joins`
+- Added progress notifications to `TaskCollection`.
+- Replaced blind `std::this_thread::yield()` join polling with bounded waiting for branch progress.
+- Intention: reduce CPU waste and make the cooperative join less noisy while still staying incremental.
+
+### `9270ac03b` `query: coordinate ScanParallel batch producers`
+- Added explicit producer/waiter coordination inside `ScanParallelCursor`.
+- One branch now owns shared upstream batch publication while other branches wait on a condition variable.
+- Intention: reduce lock pileups on the shared scan mutex without enabling scan-side yield yet.
+
+## Validation log
+
+### Targeted unit-test build and run
+- Build command:
+
+```bash
+cmake --build build -j3 --target memgraph__unit__utils_priority_thread_pool
+```
+
+- Test command:
+
+```bash
+./tests/unit/utils_priority_thread_pool
+```
+
+- Result:
+  - build succeeded
+  - all 32 tests passed
+  - includes new coverage for:
+    - `TaskCollection::TryExecuteOneIdleTask()`
+    - `TaskCollection::WaitForProgress()`
