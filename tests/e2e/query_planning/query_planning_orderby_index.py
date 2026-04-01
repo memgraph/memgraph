@@ -344,6 +344,130 @@ def test_correctness_equality_pinned_alias(memgraph):
     assert values == [10, 20, 30, 40, 50]
 
 
+# ---------------------------------------------------------------------------
+# DESC index tests — ORDER BY DESC elimination with DESC index
+# ---------------------------------------------------------------------------
+
+
+def test_plan_desc_index_desc_order_eliminated(memgraph):
+    """ORDER BY n.prop DESC eliminated when DESC index exists."""
+    memgraph.execute('CREATE INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};')
+
+    expected = [
+        " * Produce {n}",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
+
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC")
+    assert expected == actual
+
+
+def test_plan_desc_index_asc_order_not_eliminated(memgraph):
+    """ORDER BY ASC not eliminated when only DESC index exists."""
+    memgraph.execute('CREATE INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};')
+
+    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop")
+    assert any("OrderBy" in step for step in plan), "OrderBy ASC should NOT be eliminated with DESC index"
+
+
+def test_plan_asc_index_desc_order_not_eliminated(memgraph):
+    """ORDER BY DESC not eliminated when only ASC index exists."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+
+    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC")
+    assert any("OrderBy" in step for step in plan), "OrderBy DESC should NOT be eliminated with ASC index"
+
+
+def test_correctness_desc_index_descending_order(memgraph):
+    """Results correctly ordered descending with DESC index and ORDER BY DESC."""
+    memgraph.execute('CREATE INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};')
+    for v in [30, 10, 50, 20, 40]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC"))
+    values = [r["n"].properties["prop"] for r in results]
+    assert values == [50, 40, 30, 20, 10]
+
+
+def test_correctness_desc_index_with_limit(memgraph):
+    """DESC index + ORDER BY DESC + LIMIT returns top-N in descending order."""
+    memgraph.execute('CREATE INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};')
+    for v in [30, 10, 50, 20, 40]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC LIMIT 3"))
+    values = [r["n"].properties["prop"] for r in results]
+    assert values == [50, 40, 30]
+
+
+def test_correctness_desc_composite_order(memgraph):
+    """DESC composite index (a, b) + ORDER BY a DESC, b DESC — reverse lexicographic."""
+    memgraph.execute('CREATE INDEX ON :L(a, b) WITH CONFIG {"order": "DESC"};')
+    data = [(2, 3), (1, 2), (2, 1), (1, 1), (3, 1)]
+    for a, b in data:
+        memgraph.execute(f"CREATE (:L {{a: {a}, b: {b}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a > 0 RETURN n ORDER BY n.a DESC, n.b DESC"))
+    pairs = [(r["n"].properties["a"], r["n"].properties["b"]) for r in results]
+    assert pairs == [(3, 1), (2, 3), (2, 1), (1, 2), (1, 1)]
+
+
+def test_correctness_desc_equality_pinned(memgraph):
+    """Equality on first column + ORDER BY second DESC — elimination with DESC index."""
+    memgraph.execute('CREATE INDEX ON :L(a, b) WITH CONFIG {"order": "DESC"};')
+    for b in [50, 20, 40, 10, 30]:
+        memgraph.execute(f"CREATE (:L {{a: 1, b: {b}}})")
+    memgraph.execute("CREATE (:L {a: 2, b: 5})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 1 RETURN n ORDER BY n.b DESC"))
+    values = [r["n"].properties["b"] for r in results]
+    assert values == [50, 40, 30, 20, 10]
+
+
+def test_plan_mixed_order_not_eliminated(memgraph):
+    """Mixed ASC/DESC in ORDER BY not eliminated even with DESC index."""
+    memgraph.execute('CREATE INDEX ON :L(a, b) WITH CONFIG {"order": "DESC"};')
+
+    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a > 0 RETURN n ORDER BY n.a ASC, n.b DESC")
+    assert any("OrderBy" in step for step in plan), "Mixed ASC/DESC ORDER BY should NOT be eliminated"
+
+
+def test_desc_index_used_for_filter_scan(memgraph):
+    """DESC index can still be used for filter scans (range queries work correctly)."""
+    memgraph.execute('CREATE INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};')
+    for v in [10, 20, 30, 40, 50]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 20 AND n.prop < 50 RETURN n.prop AS val"))
+    values = sorted([r["val"] for r in results])
+    assert values == [30, 40]
+
+
+def test_both_asc_and_desc_index_coexist(memgraph):
+    """Both ASC and DESC indices on same property — each eliminates its matching ORDER BY."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+    memgraph.execute('CREATE INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};')
+    for v in [30, 10, 50, 20, 40]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    # ASC order — should be eliminated
+    plan_asc = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop")
+    assert not any("OrderBy" in step for step in plan_asc), "OrderBy ASC should be eliminated with ASC index"
+
+    results_asc = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop"))
+    values_asc = [r["n"].properties["prop"] for r in results_asc]
+    assert values_asc == [10, 20, 30, 40, 50]
+
+    # DESC order — should be eliminated
+    plan_desc = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC")
+    assert not any("OrderBy" in step for step in plan_desc), "OrderBy DESC should be eliminated with DESC index"
+
+    results_desc = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC"))
+    values_desc = [r["n"].properties["prop"] for r in results_desc]
+    assert values_desc == [50, 40, 30, 20, 10]
+
+
 def test_plan_triple_scan_all_eliminated(memgraph):
     """ORDER BY c.id, b.id, a.id eliminated -- three nested scans in outermost-first order."""
     memgraph.execute("SET DATABASE SETTING 'cartesian-product-enabled' TO 'false';")

@@ -1638,6 +1638,9 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
       return std::nullopt;
     }
 
+    if (index_order_ == storage::IndexOrder::DESC) {
+      return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
+    }
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
@@ -1667,6 +1670,7 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
   object->expression_ranges_ = expression_ranges_ |
                                rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
+  object->index_order_ = index_order_;
   return object;
 }
 

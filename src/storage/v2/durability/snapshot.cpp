@@ -631,7 +631,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     } else {
       info.offset_ttl = SnapshotInfo::kInvalidOffset;
     }
-    if (*version >= kDescriptionSupport) {
+    if (*version >= kDescriptionAndDescIndexSupport) {
       info.offset_descriptions = read_offset();
     } else {
       info.offset_descriptions = SnapshotInfo::kInvalidOffset;
@@ -9442,6 +9442,43 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
       spdlog::info("Metadata of label+property indices are recovered.");
     }
 
+    // Recover DESC label+property indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of DESC label properties indices.");
+      spdlog::info("Recovering metadata of {} DESC label+properties indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for DESC label properties index.");
+        auto property_paths = get_property_paths("DESC label properties index");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties_desc,
+                                    {get_label_from_id(*label), property_paths},
+                                    "The DESC label+property index already exists!");
+      }
+      spdlog::info("Metadata of DESC label+property indices are recovered.");
+    }
+
+    // Recover DESC label+property indices statistics.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of entries for DESC label property statistics!");
+      for (uint64_t i = 0; i < *size; ++i) {
+        const auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for DESC label property index statistics!");
+        auto property_paths = get_property_paths("DESC label property index statistics");
+        const auto count = snapshot.ReadUint();
+        const auto distinct_values_count = snapshot.ReadUint();
+        const auto statistic = snapshot.ReadDouble();
+        const auto avg_group_size = snapshot.ReadDouble();
+        const auto avg_degree = snapshot.ReadDouble();
+        (void)count;
+        (void)distinct_values_count;
+        (void)statistic;
+        (void)avg_group_size;
+        (void)avg_degree;
+      }
+    }
+
     spdlog::info("Recovering metadata of indices.");
     if (!snapshot.SetPosition(info.offset_edge_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
@@ -11585,9 +11622,10 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
     }
 
-    // Write label+properties indices.
-    {
-      auto label_property = transaction->active_indices_->label_properties_->ListIndices(transaction->start_timestamp);
+    auto *inmem_active_indices =
+        static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction->active_indices_->label_properties_.get());
+
+    auto const write_label_property_indices = [&](auto const &label_property) {
       snapshot.WriteUint(label_property.size());
       for (const auto &[label, property_paths] : label_property) {
         write_mapping(label);
@@ -11599,17 +11637,10 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
           }
         }
       }
-      if (snapshot_aborted()) {
-        return std::nullopt;
-      }
-    }
+    };
 
-    // Write label+property indices statistics.
-    {
-      // NOTE: On-disk does not support snapshots
+    auto const write_label_property_stats = [&](auto const &label_property_path_pair) {
       auto *inmem_index = static_cast<InMemoryLabelPropertyIndex *>(storage->indices_.label_property_index_.get());
-      auto label_property_path_pair =
-          transaction->active_indices_->label_properties_->ListIndices(transaction->start_timestamp);
       const auto size_pos = snapshot.GetPosition();
       snapshot.WriteUint(0);  // Just a place holder
       unsigned i = 0;
@@ -11638,6 +11669,39 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
         snapshot.WriteUint(i);  // Write real size
         snapshot.SetPosition(last_pos);
       }
+    };
+
+    // Write ASC label+properties indices.
+    {
+      auto label_property = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
+      write_label_property_indices(label_property);
+      if (snapshot_aborted()) {
+        return std::nullopt;
+      }
+    }
+
+    // Write ASC label+property indices statistics.
+    {
+      auto label_property_path_pair = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
+      write_label_property_stats(label_property_path_pair);
+      if (snapshot_aborted()) {
+        return std::nullopt;
+      }
+    }
+
+    // Write DESC label+properties indices.
+    {
+      auto label_property_desc = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
+      write_label_property_indices(label_property_desc);
+      if (snapshot_aborted()) {
+        return std::nullopt;
+      }
+    }
+
+    // Write DESC label+property indices statistics.
+    {
+      auto label_property_desc = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
+      write_label_property_stats(label_property_desc);
       if (snapshot_aborted()) {
         return std::nullopt;
       }
