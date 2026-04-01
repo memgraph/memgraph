@@ -9,8 +9,6 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import sys
-
 import pytest
 from common import memgraph
 
@@ -278,6 +276,25 @@ def test_correctness_composite_alias(memgraph):
     )
     pairs = [(r["x"], r["y"]) for r in results]
     assert pairs == [(1, 1), (1, 2), (2, 1), (2, 3), (3, 1)]
+
+
+def test_plan_distinct_alias_elimination(memgraph):
+    """RETURN DISTINCT n.prop AS a ORDER BY a — Distinct between Produce and OrderBy, alias resolved."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+
+    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN DISTINCT n.prop AS a ORDER BY a")
+    assert not any("OrderBy" in step for step in plan), "OrderBy should be eliminated (DISTINCT + alias)"
+
+
+def test_correctness_distinct_alias(memgraph):
+    """RETURN DISTINCT with alias — correct order after elimination."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+    for v in [30, 10, 50, 20, 40, 30, 10]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN DISTINCT n.prop AS a ORDER BY a"))
+    values = [r["a"] for r in results]
+    assert values == [10, 20, 30, 40, 50]
 
 
 def test_correctness_equality_pinned_alias(memgraph):
