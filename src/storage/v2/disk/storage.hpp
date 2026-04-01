@@ -77,6 +77,13 @@ class DiskStorage final : public Storage {
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
+    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
+                              std::span<storage::PropertyValueRange const> property_ranges, View view,
+                              IndexOrder order) override {
+      if (order == IndexOrder::DESC) throw utils::NotYetImplemented("DESC index for DiskStorage.");
+      return Vertices(label, properties, property_ranges, view);
+    }
+
     VerticesChunkedIterable ChunkedVertices(View /*view*/, size_t /*num_chunks*/) override {
       throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
     }

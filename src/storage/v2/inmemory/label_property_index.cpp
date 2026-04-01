@@ -894,6 +894,26 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_times
   return ret;
 }
 
+auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp, IndexOrder order) const
+    -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> {
+  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ret;
+  auto const collect_from = [&](auto const &indices_map) {
+    for (auto const &[label, indices] : indices_map) {
+      for (auto const &[props, index] : indices) {
+        if (index->status.IsVisible(start_timestamp)) {
+          ret.emplace_back(label, props);
+        }
+      }
+    }
+  };
+  if (order == IndexOrder::ASC) {
+    collect_from(index_container_->asc_indices_);
+  } else {
+    collect_from(index_container_->desc_indices_);
+  }
+  return ret;
+}
+
 void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
 

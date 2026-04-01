@@ -1216,4 +1216,180 @@ TYPED_TEST(OrderByIndexTest, PropertyAliasRenameChainEliminated) {
       << "OrderBy should be eliminated (alias chain t ← prop ← n.p resolved through Produces)";
 }
 
+// ========== DESC Index ORDER BY Elimination Tests ==========
+
+// DESC index + ORDER BY DESC → eliminated
+TYPED_TEST(OrderByIndexTest, DescIndexDescOrderEliminated) {
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1, ms::IndexOrder::DESC);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second), Ordering::DESC))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "OrderBy DESC should be eliminated with DESC index";
+}
+
+// DESC index + ORDER BY ASC → NOT eliminated
+TYPED_TEST(OrderByIndexTest, DescIndexAscOrderNotEliminated) {
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1, ms::IndexOrder::DESC);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "OrderBy ASC should NOT be eliminated with DESC index";
+}
+
+// ASC index + ORDER BY DESC → NOT eliminated
+TYPED_TEST(OrderByIndexTest, AscIndexDescOrderNotEliminated) {
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);  // default ASC
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second), Ordering::DESC))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "OrderBy DESC should NOT be eliminated with ASC index";
+}
+
+// Mixed ORDER BY (ASC, DESC) → NOT eliminated (even with matching index)
+TYPED_TEST(OrderByIndexTest, MixedOrderDirectionsNotEliminated) {
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1, ms::IndexOrder::DESC);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(5))),
+                                   RETURN("n",
+                                          ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_a.second),
+                                                   Ordering::ASC,
+                                                   PROPERTY_LOOKUP(dba, "n", prop_b.second),
+                                                   Ordering::DESC))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "Mixed ASC/DESC ORDER BY should NOT be eliminated";
+}
+
+// DESC composite index + ORDER BY a DESC, b DESC → eliminated
+TYPED_TEST(OrderByIndexTest, DescCompositeDescOrderEliminated) {
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1, ms::IndexOrder::DESC);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(5))),
+                                   RETURN("n",
+                                          ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_a.second),
+                                                   Ordering::DESC,
+                                                   PROPERTY_LOOKUP(dba, "n", prop_b.second),
+                                                   Ordering::DESC))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy DESC, DESC should be eliminated with DESC composite index";
+}
+
+// DESC index with equality-pinned column + ORDER BY second column DESC → eliminated
+TYPED_TEST(OrderByIndexTest, DescIndexEqualityPinnedEliminated) {
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1, ms::IndexOrder::DESC);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(5))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_b.second), Ordering::DESC))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy DESC on second column should be eliminated with DESC index and equality-pinned first column";
+}
+
+// Both ASC and DESC indices exist — ASC ORDER BY uses ASC, DESC ORDER BY uses DESC
+TYPED_TEST(OrderByIndexTest, BothIndicesExistCorrectOneSelected) {
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1, ms::IndexOrder::ASC);
+  dba.SetIndexCount(label, property.second, 1, ms::IndexOrder::DESC);
+
+  // ASC order
+  {
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                     WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                     RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+    EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+    EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+        << "OrderBy ASC should be eliminated when ASC index exists";
+  }
+  // DESC order
+  {
+    auto *query =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                           WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                           RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second), Ordering::DESC))));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+    EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+    EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+        << "OrderBy DESC should be eliminated when DESC index exists";
+  }
+}
+
 }  // namespace
