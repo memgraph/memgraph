@@ -300,23 +300,19 @@ TYPED_TEST(OrderByIndexTest, ExpandPreservesOrder) {
       << "OrderBy should be eliminated (Expand is order-preserving)";
 }
 
-// Test 10b: ORDER BY on expanded symbol m, not scan symbol n — index order is on n.prop, not m.prop
+// Test 10b: ORDER BY on expanded symbol m, not scan symbol n — index order is on n.prop, not m.prop.
+// Only L has a property index, so the planner must scan n. ORDER BY m.prop can't be eliminated.
 TYPED_TEST(OrderByIndexTest, ExpandOrderByExpandedSymbol) {
-  // MATCH (n:L)-[r]->(m:K) WHERE n.prop > 5 AND m.prop > 3 ORDER BY m.prop RETURN n, m
+  // MATCH (n:L)-[r]->(m) WHERE n.prop > 5 ORDER BY m.prop RETURN n, m
   FakeDbAccessor dba;
-  const auto *const label_l = "L";
-  const auto *const label_k = "K";
-  const auto label_l_id = dba.Label(label_l);
-  const auto label_k_id = dba.Label(label_k);
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
   const auto property = PROPERTY_PAIR(dba, "prop");
-  dba.SetIndexCount(label_l_id, 1);
-  dba.SetIndexCount(label_l_id, property.second, 1);
-  dba.SetIndexCount(label_k_id, 1);
-  dba.SetIndexCount(label_k_id, property.second, 1);
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
 
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_l), EDGE("r", Direction::OUT), NODE("m", label_k))),
-                                   WHERE(AND(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5)),
-                                             GREATER(PROPERTY_LOOKUP(dba, "m", property.second), LITERAL(3)))),
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name), EDGE("r", Direction::OUT), NODE("m"))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
                                    RETURN("n", "m", ORDER_BY(PROPERTY_LOOKUP(dba, "m", property.second)))));
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
