@@ -280,6 +280,7 @@ Changes:
   - `tests/unit/utils_priority_thread_pool.cpp`
     - `TaskCollection.WaitForProgressWakesOnTaskYield`
     - `TaskCollection.ProgressAwaitableTracksSuccessiveProgressEpochs`
+    - `TaskCollection.HighPriorityTaskRunsBeforeYieldedCollectionContinuation`
     - `WorkerResumeEvent.StaleEpochDoesNotRegisterWaiter`
 - Ran:
 
@@ -296,10 +297,12 @@ cmake --build build -j3 --target memgraph__unit__utils_priority_thread_pool
 
 ```bash
 ./build/tests/unit/utils_priority_thread_pool --gtest_filter='TaskCollection.ProgressAwaitableTracksSuccessiveProgressEpochs:TaskCollection.WaitForProgressWakesOnTaskYield:WorkerResumeEvent.StaleEpochDoesNotRegisterWaiter'
+./build/tests/unit/utils_priority_thread_pool --gtest_filter='TaskCollection.HighPriorityTaskRunsBeforeYieldedCollectionContinuation'
 ```
 
 - Result:
   - progress-awaitable successive-epoch coverage passed
+  - yielded collection continuations stay behind newly queued high-priority work
 - Also attempted:
 
 ```bash
