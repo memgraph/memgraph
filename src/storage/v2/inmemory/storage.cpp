@@ -1058,64 +1058,62 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return {};
   }
 
-  auto res = commit_args.apply_if_main([&](DatabaseProtector const &protector)
-                                           -> std::expected<void, StorageManipulationError> {
-    // From this point on, only main executes this
-    // If there are no STRICT_SYNC replicas for the current txn
-    if (!replicating_txn.ShouldRunTwoPC()) {
-      // WAL file is already finalized
-      FinalizeCommitPhase(durability_commit_timestamp);
+  auto res = commit_args.apply_if_main(
+      [&](DatabaseProtector const &protector) -> std::expected<void, StorageManipulationError> {
+        // From this point on, only main executes this
+        // If there are no STRICT_SYNC replicas for the current txn
+        if (!replicating_txn.ShouldRunTwoPC()) {
+          // WAL file is already finalized
+          FinalizeCommitPhase(durability_commit_timestamp);
 
-      auto start_failures = replicating_txn.CollectStartTxnErrors();
-      if (!start_failures.empty()) {
-        return std::unexpected{ReplicationError{.failures = std::move(start_failures), .transaction_committed = true}};
-      }
+          auto failures = replicating_txn.CollectStartTxnErrors();
+          if (!repl_prepare_phase_status.has_value()) {
+            auto &ship_failures = repl_prepare_phase_status.error().failures;
+            failures.insert(failures.end(),
+                            std::make_move_iterator(ship_failures.begin()),
+                            std::make_move_iterator(ship_failures.end()));
+          }
+          if (!failures.empty()) {
+            return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
+          }
+          return {};
+        }
 
-      if (!repl_prepare_phase_status.has_value()) {
-        return std::unexpected{
-            ReplicationError{.failures = repl_prepare_phase_status.error().failures, .transaction_committed = true}};
-      }
-      return {};
-    }
+        // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
+        // cluster.
 
-    // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
-    // cluster.
+        if (repl_prepare_phase_status.has_value()) {
+          // All replicas voted yes, hence they want to commit the current transaction
+          FinalizeCommitPhase(durability_commit_timestamp);
+        }
+        // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
 
-    if (repl_prepare_phase_status.has_value()) {
-      // All replicas voted yes, hence they want to commit the current transaction
-      FinalizeCommitPhase(durability_commit_timestamp);
-    }
-    // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
+        if (mem_storage->wal_file_) {
+          mem_storage->FinalizeWalFile();
+        }
+        // Send to all replicas they can finalize a transaction
+        replicating_txn.FinalizeTransaction(
+            repl_prepare_phase_status.has_value(), mem_storage->uuid(), protector, durability_commit_timestamp);
 
-    if (mem_storage->wal_file_) {
-      mem_storage->FinalizeWalFile();
-    }
-    // Send to all replicas they can finalize a transaction
-    replicating_txn.FinalizeTransaction(
-        repl_prepare_phase_status.has_value(), mem_storage->uuid(), protector, durability_commit_timestamp);
+        // Collect all failures: start-txn errors and ship-delta errors are mutually exclusive per replica
+        // It is ok to put this after FinalizeTransaction because it is impossible for repl_prepare_phase_status
+        // to have a value if there were some start txn errors
+        auto failures = replicating_txn.CollectStartTxnErrors();
+        if (!repl_prepare_phase_status.has_value()) {
+          auto &ship_failures = repl_prepare_phase_status.error().failures;
+          failures.insert(failures.end(),
+                          std::make_move_iterator(ship_failures.begin()),
+                          std::make_move_iterator(ship_failures.end()));
+        }
+        if (!failures.empty()) {
+          // Release engine lock because we don't have to hold it anymore for abort
+          engine_guard.unlock();
+          AbortAndResetCommitTs();
+          return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = false}};
+        }
 
-    // This is OK because if we have STRICT_SYNC and ASYNC replicas, we ran StartTxnReplication only for STRICT_SYNC
-    // replicas. It is ok to put this after FinalizeTransaction because it is impossible for repl_prepare_phase_status
-    // to have a value if there were some start txn errors
-    auto start_failures = replicating_txn.CollectStartTxnErrors();
-    if (!start_failures.empty()) {
-      // Release engine lock because we don't have to hold it anymore for abort
-      engine_guard.unlock();
-      AbortAndResetCommitTs();
-      return std::unexpected{ReplicationError{.failures = std::move(start_failures), .transaction_committed = false}};
-    }
-
-    if (!repl_prepare_phase_status.has_value()) {
-      // Release engine lock because we don't have to hold it anymore for abort
-      engine_guard.unlock();
-      AbortAndResetCommitTs();
-
-      return std::unexpected{
-          ReplicationError{.failures = repl_prepare_phase_status.error().failures, .transaction_committed = false}};
-    }
-
-    return {};
-  });
+        return {};
+      });
   DMG_ASSERT(res, "The commit was not applied!");
   return *std::move(res);
 }
