@@ -1132,4 +1132,26 @@ TYPED_TEST(OrderByIndexTest, CompositeRenameChainEliminated) {
       << "OrderBy should be eliminated (rename n->m then composite m.a, m.b — tracked through chain)";
 }
 
+// Test 42: RETURN DISTINCT n.prop AS a ORDER BY a — Distinct between Produce and OrderBy.
+TYPED_TEST(OrderByIndexTest, DistinctWithAliasEliminated) {
+  // MATCH (n:L) WHERE n.prop > 5 RETURN DISTINCT n.prop AS a ORDER BY a
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                         WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                         RETURN_DISTINCT(PROPERTY_LOOKUP(dba, "n", property.second), AS("a"), ORDER_BY(IDENT("a")))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (RETURN DISTINCT n.prop AS a ORDER BY a — Distinct skipped)";
+}
+
 }  // namespace
