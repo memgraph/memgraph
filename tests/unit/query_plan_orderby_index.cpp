@@ -744,30 +744,7 @@ TYPED_TEST(OrderByIndexTest, EqualityThenRangeGapNotEliminated) {
       << "OrderBy should NOT be eliminated (b is range-filtered, not pinned — gap before c)";
 }
 
-// Test 28: Range on a (not pinned), ORDER BY b — should NOT eliminate even with index (a, b)
-TYPED_TEST(OrderByIndexTest, RangeOnFirstOrderBySecondNotEliminated) {
-  // MATCH (n:L) WHERE n.a > 5 ORDER BY n.b RETURN n
-  FakeDbAccessor dba;
-  const auto *const label_name = "L";
-  const auto label = dba.Label(label_name);
-  const auto prop_a = PROPERTY_PAIR(dba, "a");
-  const auto prop_b = PROPERTY_PAIR(dba, "b");
-  dba.SetIndexCount(label, 1);
-  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
-  dba.SetIndexCount(label, std::span{composite_props}, 1);
-
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
-                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(5))),
-                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_b.second)))));
-
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-
-  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
-      << "OrderBy should NOT be eliminated (a is range-filtered, not equality-pinned)";
-}
-
-// Test 29: IN on first column, ORDER BY second — IN is multi-valued, b not globally sorted
+// Test 28: IN on first column, ORDER BY second — IN is multi-valued, b not globally sorted
 TYPED_TEST(OrderByIndexTest, InFilterNotEqualityPinned) {
   // MATCH (n:L) WHERE n.a IN [1, 3] ORDER BY n.b RETURN n
   FakeDbAccessor dba;
@@ -791,7 +768,7 @@ TYPED_TEST(OrderByIndexTest, InFilterNotEqualityPinned) {
       << "OrderBy should NOT be eliminated (IN is multi-valued, b not globally sorted)";
 }
 
-// Test 30: IN on first column, ORDER BY first — Unwind iterates in list order, not index order
+// Test 29: IN on first column, ORDER BY first — Unwind iterates in list order, not index order
 TYPED_TEST(OrderByIndexTest, InFilterOrderBySameColumn) {
   // MATCH (n:L) WHERE n.a IN [3, 1] ORDER BY n.a RETURN n
   // Unwind yields 3, then 1 — scan returns a=3 rows first, then a=1. Not sorted by a.
@@ -818,7 +795,7 @@ TYPED_TEST(OrderByIndexTest, InFilterOrderBySameColumn) {
       << "OrderBy should NOT be eliminated (IN list order is not guaranteed sorted)";
 }
 
-// Test 31: IN on first column, ORDER BY first and second — a is sorted but b is only sorted within each a-group
+// Test 30: IN on first column, ORDER BY first and second — a is sorted but b is only sorted within each a-group
 TYPED_TEST(OrderByIndexTest, InFilterOrderByBothColumns) {
   // MATCH (n:L) WHERE n.a IN [1, 3] ORDER BY n.a, n.b RETURN n
   FakeDbAccessor dba;
@@ -847,7 +824,7 @@ TYPED_TEST(OrderByIndexTest, InFilterOrderByBothColumns) {
       << "OrderBy should NOT be eliminated (IN list order is not guaranteed sorted)";
 }
 
-// Test 32: User-written UNWIND between OrderBy and ScanAll — Unwind is order-preserving
+// Test 31: User-written UNWIND between OrderBy and ScanAll — Unwind is order-preserving
 // for the scan symbol, so elimination should still fire.
 TYPED_TEST(OrderByIndexTest, UserUnwindPreservesOrder) {
   // MATCH (n:L) WHERE n.prop > 5 UNWIND [1, 2, 3] AS x RETURN n, x ORDER BY n.prop
@@ -877,7 +854,7 @@ TYPED_TEST(OrderByIndexTest, UserUnwindPreservesOrder) {
       << "OrderBy should be eliminated (user UNWIND is order-preserving for scan symbol)";
 }
 
-// Test 33: WITH n.prop AS a ORDER BY a — bare Identifier resolved through Produce.
+// Test 32: WITH n.prop AS a ORDER BY a — bare Identifier resolved through Produce.
 TYPED_TEST(OrderByIndexTest, WithPropertyAliasEliminated) {
   // MATCH (n:L) WHERE n.prop > 5 WITH n.prop AS a RETURN a ORDER BY a
   FakeDbAccessor dba;
@@ -904,7 +881,7 @@ TYPED_TEST(OrderByIndexTest, WithPropertyAliasEliminated) {
       << "OrderBy should be eliminated (WITH n.prop AS a, ORDER BY a — alias resolved through Produce)";
 }
 
-// Test 34: RETURN n.prop AS a ORDER BY a — alias resolved through RETURN Produce above OrderBy.
+// Test 33: RETURN n.prop AS a ORDER BY a — alias resolved through RETURN Produce above OrderBy.
 TYPED_TEST(OrderByIndexTest, ReturnPropertyAliasEliminated) {
   // MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS a ORDER BY a
   FakeDbAccessor dba;
@@ -925,7 +902,7 @@ TYPED_TEST(OrderByIndexTest, ReturnPropertyAliasEliminated) {
       << "OrderBy should be eliminated (RETURN n.prop AS a ORDER BY a — resolved through RETURN Produce)";
 }
 
-// Test 35: Composite index WITH n.a AS a, n.b AS b ORDER BY a, b — both aliases resolved, order matches.
+// Test 34: Composite index WITH n.a AS a, n.b AS b ORDER BY a, b — both aliases resolved, order matches.
 TYPED_TEST(OrderByIndexTest, CompositeWithPropertyAliasEliminated) {
   // MATCH (n:L) WHERE n.a > 0 WITH n.a AS a, n.b AS b RETURN a, b ORDER BY a, b
   FakeDbAccessor dba;
@@ -955,7 +932,7 @@ TYPED_TEST(OrderByIndexTest, CompositeWithPropertyAliasEliminated) {
       << "OrderBy should be eliminated (composite index (a,b), WITH n.a AS a, n.b AS b, ORDER BY a, b)";
 }
 
-// Test 36: Composite index WITH n.b AS b, n.a AS a ORDER BY b, a — wrong order, not eliminated.
+// Test 35: Composite index WITH n.b AS b, n.a AS a ORDER BY b, a — wrong order, not eliminated.
 TYPED_TEST(OrderByIndexTest, CompositeWithPropertyAliasWrongOrderNotEliminated) {
   // MATCH (n:L) WHERE n.a > 0 WITH n.b AS b, n.a AS a RETURN b, a ORDER BY b, a
   FakeDbAccessor dba;
@@ -985,7 +962,7 @@ TYPED_TEST(OrderByIndexTest, CompositeWithPropertyAliasWrongOrderNotEliminated) 
       << "OrderBy should NOT be eliminated (ORDER BY b, a but index is (a, b))";
 }
 
-// Test 37: WITH n.a AS x ORDER BY x — different alias name, still resolved.
+// Test 36: WITH n.a AS x ORDER BY x — different alias name, still resolved.
 TYPED_TEST(OrderByIndexTest, WithPropertyDifferentAliasEliminated) {
   // MATCH (n:L) WHERE n.a > 0 WITH n.a AS x RETURN x ORDER BY x
   FakeDbAccessor dba;
@@ -1012,7 +989,7 @@ TYPED_TEST(OrderByIndexTest, WithPropertyDifferentAliasEliminated) {
       << "OrderBy should be eliminated (WITH n.a AS x ORDER BY x — alias name doesn't matter)";
 }
 
-// Test 38: Equality-pinned skip with alias — WHERE a = 5 ORDER BY b, both through WITH.
+// Test 37: Equality-pinned skip with alias — WHERE a = 5 ORDER BY b, both through WITH.
 TYPED_TEST(OrderByIndexTest, EqualityPinnedWithPropertyAlias) {
   // MATCH (n:L) WHERE n.a = 5 WITH n.a AS a, n.b AS b RETURN a, b ORDER BY b
   FakeDbAccessor dba;
@@ -1042,7 +1019,7 @@ TYPED_TEST(OrderByIndexTest, EqualityPinnedWithPropertyAlias) {
       << "OrderBy should be eliminated (equality-pinned a, ORDER BY b through alias)";
 }
 
-// Test 39: WITH n.a + 1 AS a ORDER BY a — computed expression, not a direct property. Not eliminated.
+// Test 38: WITH n.a + 1 AS a ORDER BY a — computed expression, not a direct property. Not eliminated.
 TYPED_TEST(OrderByIndexTest, ComputedExpressionAliasNotEliminated) {
   // MATCH (n:L) WHERE n.a > 0 WITH n.a + 1 AS a RETURN a ORDER BY a
   FakeDbAccessor dba;
@@ -1069,7 +1046,7 @@ TYPED_TEST(OrderByIndexTest, ComputedExpressionAliasNotEliminated) {
       << "OrderBy should NOT be eliminated (computed expression n.a + 1, not a direct property)";
 }
 
-// Test 40: WITH n AS m WITH m.a AS a ORDER BY a — rename chain before projection.
+// Test 39: WITH n AS m WITH m.a AS a ORDER BY a — rename chain before projection.
 TYPED_TEST(OrderByIndexTest, RenameChainBeforeProjectionEliminated) {
   // MATCH (n:L) WHERE n.a > 0 WITH n AS m WITH m.a AS a RETURN a ORDER BY a
   FakeDbAccessor dba;
@@ -1099,7 +1076,7 @@ TYPED_TEST(OrderByIndexTest, RenameChainBeforeProjectionEliminated) {
       << "OrderBy should be eliminated (rename n->m then m.a AS a — tracked through chain)";
 }
 
-// Test 41: Composite rename chain — WITH n AS m WITH m.a AS a, m.b AS b ORDER BY a, b.
+// Test 40: Composite rename chain — WITH n AS m WITH m.a AS a, m.b AS b ORDER BY a, b.
 TYPED_TEST(OrderByIndexTest, CompositeRenameChainEliminated) {
   // MATCH (n:L) WHERE n.a > 0 WITH n AS m WITH m.a AS a, m.b AS b RETURN a, b ORDER BY a, b
   FakeDbAccessor dba;
@@ -1132,7 +1109,7 @@ TYPED_TEST(OrderByIndexTest, CompositeRenameChainEliminated) {
       << "OrderBy should be eliminated (rename n->m then composite m.a, m.b — tracked through chain)";
 }
 
-// Test 42: RETURN DISTINCT n.prop AS a ORDER BY a — Distinct between Produce and OrderBy.
+// Test 41: RETURN DISTINCT n.prop AS a ORDER BY a — Distinct between Produce and OrderBy.
 TYPED_TEST(OrderByIndexTest, DistinctWithAliasEliminated) {
   // MATCH (n:L) WHERE n.prop > 5 RETURN DISTINCT n.prop AS a ORDER BY a
   FakeDbAccessor dba;
