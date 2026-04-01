@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,9 @@
 
 namespace memgraph::storage {
 
+using AscChunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>;
+using DescChunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>;
+
 VerticesChunkedIterable::VerticesChunkedIterable(AllVerticesChunkedIterable vertices) : type_(Type::ALL_CHUNKED) {
   new (&all_chunked_vertices_) AllVerticesChunkedIterable(std::move(vertices));
 }
@@ -22,9 +25,14 @@ VerticesChunkedIterable::VerticesChunkedIterable(InMemoryLabelIndex::ChunkedIter
   new (&in_memory_chunked_vertices_by_label_) InMemoryLabelIndex::ChunkedIterable(std::move(vertices));
 }
 
-VerticesChunkedIterable::VerticesChunkedIterable(InMemoryLabelPropertyIndex::ChunkedIterable vertices)
+VerticesChunkedIterable::VerticesChunkedIterable(AscChunked vertices)
     : type_(Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED) {
-  new (&in_memory_chunked_vertices_by_label_property_) InMemoryLabelPropertyIndex::ChunkedIterable(std::move(vertices));
+  new (&in_memory_chunked_vertices_by_label_property_) AscChunked(std::move(vertices));
+}
+
+VerticesChunkedIterable::VerticesChunkedIterable(DescChunked vertices)
+    : type_(Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED) {
+  new (&in_memory_chunked_vertices_by_label_property_desc_) DescChunked(std::move(vertices));
 }
 
 VerticesChunkedIterable::VerticesChunkedIterable(VerticesChunkedIterable &&other) noexcept : type_(other.type_) {
@@ -38,7 +46,11 @@ VerticesChunkedIterable::VerticesChunkedIterable(VerticesChunkedIterable &&other
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
       new (&in_memory_chunked_vertices_by_label_property_)
-          InMemoryLabelPropertyIndex::ChunkedIterable(std::move(other.in_memory_chunked_vertices_by_label_property_));
+          AscChunked(std::move(other.in_memory_chunked_vertices_by_label_property_));
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      new (&in_memory_chunked_vertices_by_label_property_desc_)
+          DescChunked(std::move(other.in_memory_chunked_vertices_by_label_property_desc_));
       break;
   }
 }
@@ -52,7 +64,10 @@ VerticesChunkedIterable &VerticesChunkedIterable::operator=(VerticesChunkedItera
       in_memory_chunked_vertices_by_label_.InMemoryLabelIndex::ChunkedIterable::~ChunkedIterable();
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
-      in_memory_chunked_vertices_by_label_property_.InMemoryLabelPropertyIndex::ChunkedIterable::~ChunkedIterable();
+      in_memory_chunked_vertices_by_label_property_.~AscChunked();
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      in_memory_chunked_vertices_by_label_property_desc_.~DescChunked();
       break;
   }
   type_ = other.type_;
@@ -66,7 +81,11 @@ VerticesChunkedIterable &VerticesChunkedIterable::operator=(VerticesChunkedItera
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
       new (&in_memory_chunked_vertices_by_label_property_)
-          InMemoryLabelPropertyIndex::ChunkedIterable(std::move(other.in_memory_chunked_vertices_by_label_property_));
+          AscChunked(std::move(other.in_memory_chunked_vertices_by_label_property_));
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      new (&in_memory_chunked_vertices_by_label_property_desc_)
+          DescChunked(std::move(other.in_memory_chunked_vertices_by_label_property_desc_));
       break;
   }
   return *this;
@@ -81,7 +100,10 @@ VerticesChunkedIterable::~VerticesChunkedIterable() {
       in_memory_chunked_vertices_by_label_.InMemoryLabelIndex::ChunkedIterable::~ChunkedIterable();
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
-      in_memory_chunked_vertices_by_label_property_.InMemoryLabelPropertyIndex::ChunkedIterable::~ChunkedIterable();
+      in_memory_chunked_vertices_by_label_property_.~AscChunked();
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      in_memory_chunked_vertices_by_label_property_desc_.~DescChunked();
       break;
   }
 }
@@ -94,6 +116,8 @@ VerticesChunkedIterable::Chunk VerticesChunkedIterable::get_chunk(size_t id) {
       return Chunk(in_memory_chunked_vertices_by_label_.get_chunk(id));
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
       return Chunk(in_memory_chunked_vertices_by_label_property_.get_chunk(id));
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      return Chunk(in_memory_chunked_vertices_by_label_property_desc_.get_chunk(id));
   }
 }
 
@@ -105,6 +129,8 @@ size_t VerticesChunkedIterable::size() const {
       return in_memory_chunked_vertices_by_label_.size();
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
       return in_memory_chunked_vertices_by_label_property_.size();
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      return in_memory_chunked_vertices_by_label_property_desc_.size();
   }
 }
 
@@ -119,10 +145,16 @@ VerticesChunkedIterable::Iterator::Iterator(InMemoryLabelIndex::ChunkedIterable:
   new (&in_memory_chunked_by_label_it_) InMemoryLabelIndex::ChunkedIterable::Iterator(std::move(it));
 }
 
-VerticesChunkedIterable::Iterator::Iterator(InMemoryLabelPropertyIndex::ChunkedIterable::Iterator it)
+VerticesChunkedIterable::Iterator::Iterator(AscChunked::Iterator it)
     : type_(Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED) {
   // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-  new (&in_memory_chunked_by_label_property_it_) InMemoryLabelPropertyIndex::ChunkedIterable::Iterator(std::move(it));
+  new (&in_memory_chunked_by_label_property_it_) AscChunked::Iterator(std::move(it));
+}
+
+VerticesChunkedIterable::Iterator::Iterator(DescChunked::Iterator it)
+    : type_(Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED) {
+  // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+  new (&in_memory_chunked_by_label_property_desc_it_) DescChunked::Iterator(std::move(it));
 }
 
 VerticesChunkedIterable::Iterator::Iterator(const VerticesChunkedIterable::Iterator &other) : type_(other.type_) {
@@ -136,7 +168,11 @@ VerticesChunkedIterable::Iterator::Iterator(const VerticesChunkedIterable::Itera
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
       new (&in_memory_chunked_by_label_property_it_)
-          InMemoryLabelPropertyIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_label_property_it_);
+          AscChunked::Iterator(other.in_memory_chunked_by_label_property_it_);
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      new (&in_memory_chunked_by_label_property_desc_it_)
+          DescChunked::Iterator(other.in_memory_chunked_by_label_property_desc_it_);
       break;
   }
 }
@@ -157,7 +193,11 @@ VerticesChunkedIterable::Iterator &VerticesChunkedIterable::Iterator::operator=(
         break;
       case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
         new (&in_memory_chunked_by_label_property_it_)
-            InMemoryLabelPropertyIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_label_property_it_);
+            AscChunked::Iterator(other.in_memory_chunked_by_label_property_it_);
+        break;
+      case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+        new (&in_memory_chunked_by_label_property_desc_it_)
+            DescChunked::Iterator(other.in_memory_chunked_by_label_property_desc_it_);
         break;
     }
   }
@@ -175,7 +215,11 @@ VerticesChunkedIterable::Iterator::Iterator(VerticesChunkedIterable::Iterator &&
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
       new (&in_memory_chunked_by_label_property_it_)
-          InMemoryLabelPropertyIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_label_property_it_);
+          AscChunked::Iterator(other.in_memory_chunked_by_label_property_it_);
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      new (&in_memory_chunked_by_label_property_desc_it_)
+          DescChunked::Iterator(other.in_memory_chunked_by_label_property_desc_it_);
       break;
   }
 }
@@ -196,7 +240,11 @@ VerticesChunkedIterable::Iterator &VerticesChunkedIterable::Iterator::operator=(
         break;
       case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
         new (&in_memory_chunked_by_label_property_it_)
-            InMemoryLabelPropertyIndex::ChunkedIterable::Iterator(other.in_memory_chunked_by_label_property_it_);
+            AscChunked::Iterator(other.in_memory_chunked_by_label_property_it_);
+        break;
+      case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+        new (&in_memory_chunked_by_label_property_desc_it_)
+            DescChunked::Iterator(other.in_memory_chunked_by_label_property_desc_it_);
         break;
     }
   }
@@ -214,7 +262,10 @@ void VerticesChunkedIterable::Iterator::Destroy() noexcept {
       in_memory_chunked_by_label_it_.InMemoryLabelIndex::ChunkedIterable::Iterator::~Iterator();
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
-      in_memory_chunked_by_label_property_it_.InMemoryLabelPropertyIndex::ChunkedIterable::Iterator::~Iterator();
+      in_memory_chunked_by_label_property_it_.~Iterator();
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      in_memory_chunked_by_label_property_desc_it_.~Iterator();
       break;
   }
 }
@@ -227,6 +278,8 @@ VertexAccessor const &VerticesChunkedIterable::Iterator::operator*() const {
       return *in_memory_chunked_by_label_it_;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
       return *in_memory_chunked_by_label_property_it_;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      return *in_memory_chunked_by_label_property_desc_it_;
   }
 }
 
@@ -241,6 +294,9 @@ VerticesChunkedIterable::Iterator &VerticesChunkedIterable::Iterator::operator++
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
       ++in_memory_chunked_by_label_property_it_;
       break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      ++in_memory_chunked_by_label_property_desc_it_;
+      break;
   }
   return *this;
 }
@@ -254,6 +310,8 @@ bool VerticesChunkedIterable::Iterator::operator==(const Iterator &other) const 
       return in_memory_chunked_by_label_it_ == other.in_memory_chunked_by_label_it_;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
       return in_memory_chunked_by_label_property_it_ == other.in_memory_chunked_by_label_property_it_;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      return in_memory_chunked_by_label_property_desc_it_ == other.in_memory_chunked_by_label_property_desc_it_;
   }
 }
 
@@ -266,6 +324,8 @@ bool VerticesChunkedIterable::Iterator::operator!=(const Iterator &other) const 
       return in_memory_chunked_by_label_it_ != other.in_memory_chunked_by_label_it_;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED:
       return in_memory_chunked_by_label_property_it_ != other.in_memory_chunked_by_label_property_it_;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED:
+      return in_memory_chunked_by_label_property_desc_it_ != other.in_memory_chunked_by_label_property_desc_it_;
   }
 }
 
