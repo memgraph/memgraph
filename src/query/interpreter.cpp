@@ -3102,10 +3102,14 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     utils::Timer timer;
 
     int i = 0;
-    if (has_unsent_results_ && !output_symbols.empty()) {
-      // stream unsent results from previous pull
-      stream_values();
-      ++i;
+    if (has_unsent_results_) {
+      // Consume the stored lookahead row before any further pull() calls so a
+      // scheduler-driven yield later in this function cannot replay it.
+      has_unsent_results_ = false;
+      if (!output_symbols.empty()) {
+        stream_values();
+        ++i;
+      }
     }
 
     for (; !n || i < n; ++i) {
@@ -3127,7 +3131,6 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     // Only do lookahead when we streamed exactly n results; we need one more pull to set has_more.
     // When we broke because the cursor returned false (no more rows), we must not pull again.
     // Always reset first: if we broke early (cursor exhausted or no limit), there are no unsent results.
-    has_unsent_results_ = false;
     if (n && i == *n) {
       auto pr = pull_result();
       if (!pr.has_value()) {
