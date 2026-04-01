@@ -568,7 +568,9 @@ void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, Nam
                                                 utils::SkipList<Vertex>::Accessor &vertices) {
   for (auto &recovery_info : recovery_info_vec) {
     if (recovery_info.spec.index_name == index_name) {
-      auto index_id = name_id_mapper->NameToId(index_name);
+      auto maybe_index_id = name_id_mapper->NameToIdIfExists(index_name);
+      DMG_ASSERT(maybe_index_id.has_value(), "Index name not found in name-id mapper during recovery drop");
+      auto index_id = *maybe_index_id;
       // Iterate all vertices to find edges and restore properties
       for (auto &vertex : vertices) {
         for (auto &edge_tuple : vertex.out_edges) {

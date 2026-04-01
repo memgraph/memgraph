@@ -402,6 +402,38 @@ TEST_F(VectorEdgeIndexTest, CreateIndexConvertsPropertiesToVectorIndexId) {
   }
 }
 
+TEST_F(VectorEdgeIndexTest, IndexedPropertyDecoderDecodesVectorIndexId) {
+  this->CreateEdgeIndex(2, 10);
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue properties(std::vector<PropertyValue>{PropertyValue(3.0), PropertyValue(4.0)});
+    auto [fv, tv, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    // GetProperty goes through IndexedPropertyDecoder<Edge> which fetches the vector from uSearch.
+    auto prop = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(prop.has_value());
+    EXPECT_TRUE(prop->IsVectorIndexId());
+    ASSERT_EQ(prop->ValueVectorIndexList().size(), 2);
+    EXPECT_FLOAT_EQ(prop->ValueVectorIndexList()[0], 3.0f);
+    EXPECT_FLOAT_EQ(prop->ValueVectorIndexList()[1], 4.0f);
+    // Properties() also goes through the decoder.
+    auto all_props = edge.Properties(View::OLD);
+    ASSERT_TRUE(all_props.has_value());
+    auto it = all_props->find(acc->NameToProperty(test_property));
+    ASSERT_NE(it, all_props->end());
+    EXPECT_TRUE(it->second.IsVectorIndexId());
+    ASSERT_EQ(it->second.ValueVectorIndexList().size(), 2);
+    EXPECT_FLOAT_EQ(it->second.ValueVectorIndexList()[0], 3.0f);
+    EXPECT_FLOAT_EQ(it->second.ValueVectorIndexList()[1], 4.0f);
+  }
+}
+
 TEST_F(VectorEdgeIndexTest, DropIndexRestoresPropertiesToLists) {
   Gid edge_gid;
   {

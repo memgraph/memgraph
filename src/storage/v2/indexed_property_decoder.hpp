@@ -28,6 +28,7 @@ struct IndexedPropertyDecoder {
   void DecodeProperty(PropertyValue &value) const {
     switch (value.type()) {
       case PropertyValueType::VectorIndexId: {
+        DMG_ASSERT(!value.ValueVectorIndexIds().empty(), "VectorIndexId property has no index IDs");
         if constexpr (std::is_same_v<T, Vertex>) {
           value.ValueVectorIndexList() = indices->vector_index_.GetVectorPropertyFromIndex(
               entity, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]), name_id_mapper);
