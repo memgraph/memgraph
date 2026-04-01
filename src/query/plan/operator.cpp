@@ -10812,7 +10812,7 @@ class ParallelBranchCursor : public Cursor {
         continue;
       }
       co_await AbortCheck(context);
-      std::this_thread::yield();
+      collection_scheduler_->WaitForProgress(std::chrono::milliseconds(1));
     }
 
     // Check for exceptions

@@ -398,7 +398,7 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
 // Prepares task for safe scheduling
 ResumableTaskSignature TaskCollection::WrapTask(size_t index) {
   auto &task = tasks_[index];
-  return [&task = task.task_, state = task.state_]() -> bool {
+  return [this, &task = task.task_, state = task.state_]() -> bool {
     auto expected = Task::State::IDLE;
     if (!state->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
       // SCHEDULED means this is a resume after a yield — fall through to re-execute.
@@ -412,14 +412,17 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index) {
     try {
       const bool yielded = task();
       if (yielded) {
+        NotifyProgress();
         return true;
       }
       state->store(Task::State::FINISHED, std::memory_order_release);
       state->notify_one();  // Notify waiting threads
+      NotifyProgress();
       return false;
     } catch (...) {
       state->store(Task::State::FINISHED, std::memory_order_release);
       state->notify_one();  // Notify even on exception
+      NotifyProgress();
       throw;
     }
   };
@@ -461,9 +464,11 @@ bool TaskCollection::TryExecuteOneIdleTask() {
       }
       task.state_->store(Task::State::FINISHED, std::memory_order_release);
       task.state_->notify_one();  // Notify waiting threads
+      NotifyProgress();
     } catch (...) {
       task.state_->store(Task::State::FINISHED, std::memory_order_release);
       task.state_->notify_one();  // Notify even on exception
+      NotifyProgress();
       throw;
     }
     return true;
@@ -471,9 +476,24 @@ bool TaskCollection::TryExecuteOneIdleTask() {
   return false;
 }
 
+bool TaskCollection::WaitForProgress(std::chrono::milliseconds timeout) {
+  std::unique_lock lock(progress_mutex_);
+  const auto observed_epoch = progress_epoch_;
+  return progress_cv_.wait_for(
+      lock, timeout, [this, observed_epoch] { return progress_epoch_ != observed_epoch || Finished(); });
+}
+
 bool TaskCollection::Finished() const {
   return std::ranges::all_of(
       tasks_, [](const auto &task) { return task.state_->load(std::memory_order_acquire) == Task::State::FINISHED; });
+}
+
+void TaskCollection::NotifyProgress() {
+  {
+    auto lock = std::lock_guard(progress_mutex_);
+    ++progress_epoch_;
+  }
+  progress_cv_.notify_all();
 }
 
 }  // namespace memgraph::utils

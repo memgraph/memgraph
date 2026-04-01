@@ -131,12 +131,21 @@ class TaskCollection {
   /// progress without blocking the current thread.
   bool TryExecuteOneIdleTask();
 
+  /// Wait for any task in the collection to report progress (finish or yield),
+  /// or until the timeout expires. Returns true if progress was observed.
+  bool WaitForProgress(std::chrono::milliseconds timeout);
+
   bool Finished() const;
 
   size_t Size() const { return tasks_.size(); }
 
  private:
+  void NotifyProgress();
+
   std::vector<Task> tasks_;
+  std::mutex progress_mutex_;
+  std::condition_variable progress_cv_;
+  uint64_t progress_epoch_{0};
 };
 
 class PriorityThreadPool {
@@ -267,6 +276,10 @@ class CollectionScheduler {
   }
 
   bool TryExecuteOneIdleTask() const { return collection_ && collection_->TryExecuteOneIdleTask(); }
+
+  bool WaitForProgress(std::chrono::milliseconds timeout) const {
+    return collection_ && collection_->WaitForProgress(timeout);
+  }
 
   bool Finished() const {
     if (collection_) return collection_->Finished();
