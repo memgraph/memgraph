@@ -37,6 +37,7 @@
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 
 import memgraph.utils.fnv;
@@ -921,6 +922,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<FilterInfo> filters;
     int64_t vertex_count;
     std::optional<storage::LabelPropertyIndexStats> index_stats;
+    storage::IndexOrder order{storage::IndexOrder::ASC};
   };
 
   struct PointLabelPropertyIndex {
@@ -973,10 +975,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     if (orderings.empty()) return info;
 
-    // TODO(ivan): Support DESC — SkipList indexes can be iterated in reverse.
+    // All ORDER BY columns must have the same direction (all ASC or all DESC).
+    auto const first_ordering = orderings[0].ordering();
     for (const auto &ord : orderings) {
-      if (ord.ordering() != Ordering::ASC) return info;
+      if (ord.ordering() != first_ordering) return info;
     }
+    info.ordering_direction = first_ordering;
 
     for (auto *expr : order_by_exprs) {
       if (auto *prop_lookup = dynamic_cast<PropertyLookup *>(expr)) {
@@ -1283,6 +1287,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   struct LabelPropertiesIndexInfo {
     storage::LabelId label_{};
     std::vector<storage::PropertyPath> properties_{};
+    storage::IndexOrder order_{storage::IndexOrder::ASC};
   };
 
   struct LabelPropertiesIndexCandidate {
@@ -1380,8 +1385,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
         candidate_label_properties_indices.insert(
             {std::make_pair(label, prop_ixs),
-             LabelPropertiesIndexCandidate{.filters_ = filters,
-                                           .info_ = {.label_ = index_label, .properties_ = index_properties}}});
+             LabelPropertiesIndexCandidate{
+                 .filters_ = filters,
+                 .info_ = {.label_ = index_label, .properties_ = index_properties, .order_ = index_order}}});
       });
     }
 
@@ -1432,7 +1438,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return LabelPropertyIndex{.label = label,
                                 .properties = it->second.info_.properties_,
                                 .filters = it->second.filters_,
-                                .vertex_count = std::numeric_limits<std::int64_t>::max()};
+                                .vertex_count = std::numeric_limits<std::int64_t>::max(),
+                                .order = it->second.info_.order_};
     }
 
     std::optional<LabelPropertyIndex> found;
@@ -1488,7 +1495,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
       std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
       auto const make_label_property_index = [&]() -> LabelPropertyIndex {
-        return {label_ix, candidate.info_.properties_, candidate.filters_, vertex_count, new_stats};
+        return {
+            label_ix, candidate.info_.properties_, candidate.filters_, vertex_count, new_stats, candidate.info_.order_};
       };
 
       if (!found) {
@@ -1522,6 +1530,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           (cmp_res == 0 && (vertex_count < found->vertex_count ||
                             (vertex_count == found->vertex_count && is_better_type(candidate.filters_, *found))))) {
         found = make_label_property_index();
+        continue;
+      }
+
+      // Tie-breaker: prefer the index whose order matches the pending ORDER BY direction.
+      if (!order_by_stack_.empty() && order_by_stack_.back().valid && vertex_count == found->vertex_count &&
+          candidate.filters_.size() == found->filters.size()) {
+        auto desired_order = order_by_stack_.back().ordering_direction == Ordering::DESC ? storage::IndexOrder::DESC
+                                                                                         : storage::IndexOrder::ASC;
+        if (candidate.info_.order_ == desired_order && found->order != desired_order) {
+          found = make_label_property_index();
+        }
       }
     }
     return found;
@@ -1588,7 +1607,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                  .properties = std::move(best_label_property_index->info_.properties_),
                                  .filters = std::move(best_label_property_index->filters_),
                                  .vertex_count = best_vertex_count,
-                                 .index_stats = {}});
+                                 .index_stats = {},
+                                 .order = best_label_property_index->info_.order_});
         } else {  // Try LabelIndex as a fallback
           if (!label_index_exists) continue;
           best_vertex_count = db_->VerticesCount(label_id);
@@ -1911,6 +1931,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            std::move(found_index->properties),
                                                            std::move(expr_ranges),
                                                            view);
+      op->index_order_ = found_index->order;
       return ScanByIndexResult{std::move(op), std::move(metadata), has_in};
     }
     if (!labels.empty()) {
@@ -1977,6 +1998,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            std::move(label_property_index.properties),
                                                            std::move(expr_ranges),
                                                            view);
+            label_property_index_scan->index_order_ = label_property_index.order;
             if (prev) {
               auto union_op = std::make_unique<Union>(std::move(prev),
                                                       std::move(label_property_index_scan),

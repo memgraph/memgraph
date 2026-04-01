@@ -19,6 +19,7 @@
 #include "storage/v2/durability/ttl_operation_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -177,11 +178,13 @@ struct MetadataDelta {
 
   MetadataDelta(LabelIndexStatsClear /*tag*/, LabelId label) : action(Action::LABEL_INDEX_STATS_CLEAR), label{label} {}
 
-  MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties)
-      : action(Action::LABEL_PROPERTIES_INDEX_CREATE), label_ordered_properties{label, std::move(properties)} {}
+  MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties,
+                IndexOrder order = IndexOrder::ASC)
+      : action(Action::LABEL_PROPERTIES_INDEX_CREATE), label_ordered_properties{label, std::move(properties), order} {}
 
-  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties)
-      : action(Action::LABEL_PROPERTIES_INDEX_DROP), label_ordered_properties{label, std::move(properties)} {}
+  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties,
+                IndexOrder order = IndexOrder::ASC)
+      : action(Action::LABEL_PROPERTIES_INDEX_DROP), label_ordered_properties{label, std::move(properties), order} {}
 
   MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyPath> properties,
                 LabelPropertyIndexStats const &stats)
@@ -413,6 +416,7 @@ struct MetadataDelta {
     struct {
       LabelId label;
       std::vector<PropertyPath> properties;
+      IndexOrder order;
     } label_ordered_properties;
 
     struct {

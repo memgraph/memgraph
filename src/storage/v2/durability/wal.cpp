@@ -1519,16 +1519,20 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalLabelPropertyIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
-        AddRecoveredIndexConstraint(&indices_constraints->indices.label_properties,
-                                    {label_id, std::move(prop_ids)},
-                                    "The label property index already exists!");
+        auto order = data.order.value_or(IndexOrder::ASC);
+        auto &target = (order == IndexOrder::DESC) ? indices_constraints->indices.label_properties_desc
+                                                   : indices_constraints->indices.label_properties;
+        AddRecoveredIndexConstraint(
+            &target, {label_id, std::move(prop_ids)}, "The label property index already exists!");
       },
       [&](WalLabelPropertyIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_properties,
-                                       {label_id, std::move(prop_ids)},
-                                       "The label property index doesn't exist!");
+        auto order = data.order.value_or(IndexOrder::ASC);
+        auto &target = (order == IndexOrder::DESC) ? indices_constraints->indices.label_properties_desc
+                                                   : indices_constraints->indices.label_properties;
+        RemoveRecoveredIndexConstraint(
+            &target, {label_id, std::move(prop_ids)}, "The label property index doesn't exist!");
       },
       [&](WalPointIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
