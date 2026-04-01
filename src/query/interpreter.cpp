@@ -7837,14 +7837,21 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           continue;
         }
 #endif
-        node_indexes.push_back(nlohmann::json::object(
-            {{"labels", {spec.label_filter.Format([&](auto id) { return storage->LabelToName(id); })}},
-             {"properties", {storage->PropertyToName(spec.property)}},
-             {"count",
-              spec.label_filter.mode == storage::VectorLabelMode::SINGLE
-                  ? storage_acc->ApproximateVerticesVectorCount(spec.label_filter.labels[0], spec.property).value_or(0)
-                  : 0},
-             {"type", "label+property_vector"}}));
+        {
+          auto label_names = nlohmann::json::array();
+          for (const auto &label : spec.label_filter.labels) {
+            label_names.push_back(storage->LabelToName(label));
+          }
+          node_indexes.push_back(nlohmann::json::object(
+              {{"labels", std::move(label_names)},
+               {"properties", {storage->PropertyToName(spec.property)}},
+               {"count",
+                spec.label_filter.mode == storage::VectorLabelMode::SINGLE
+                    ? storage_acc->ApproximateVerticesVectorCount(spec.label_filter.labels[0], spec.property)
+                          .value_or(0)
+                    : 0},
+               {"type", "label+property_vector"}}));
+        }
       }
 
       // Edge type indices
@@ -7893,11 +7900,16 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           continue;
         }
 #endif
-        node_indexes.push_back(nlohmann::json::object(
-            {{"edge_type", {spec.edge_type_filter.Format([&](auto id) { return storage->EdgeTypeToName(id); })}},
-             {"properties", {storage->PropertyToName(spec.property)}},
-             {"count", 0},
-             {"type", "edge_type+property_vector"}}));
+        {
+          auto edge_type_names = nlohmann::json::array();
+          for (const auto &et : spec.edge_type_filter.edge_types) {
+            edge_type_names.push_back(storage->EdgeTypeToName(et));
+          }
+          node_indexes.push_back(nlohmann::json::object({{"edge_type", std::move(edge_type_names)},
+                                                         {"properties", {storage->PropertyToName(spec.property)}},
+                                                         {"count", 0},
+                                                         {"type", "edge_type+property_vector"}}));
+        }
       }
       // Edge type text
       for (const auto &[index_name, edge_type, properties] : index_info.text_edge_indices) {
