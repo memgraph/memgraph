@@ -9863,6 +9863,94 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
+void RecoverDescriptionStore(Decoder &snapshot, SnapshotInfo const &info, NameIdMapper *name_id_mapper,
+                             DescriptionStore *description_store) {
+  if (info.offset_descriptions == SnapshotInfo::kInvalidOffset || !description_store) return;
+
+  spdlog::info("Recovering description store data.");
+  if (!snapshot.SetPosition(info.offset_descriptions))
+    throw RecoveryFailure("Couldn't read description store data from snapshot!");
+
+  auto marker = snapshot.ReadMarker();
+  if (!marker || *marker != Marker::SECTION_DESCRIPTIONS) {
+    throw RecoveryFailure("Couldn't read section descriptions marker!");
+  }
+
+  auto count = snapshot.ReadUint();
+  if (!count) throw RecoveryFailure("Couldn't read description store count!");
+
+  auto read_string = [&](const char *what) {
+    auto val = snapshot.ReadString();
+    if (!val) throw RecoveryFailure(fmt::format("Couldn't read {} for description!", what));
+    return *val;
+  };
+  auto read_label_ids = [&] {
+    auto label_count = snapshot.ReadUint();
+    if (!label_count) throw RecoveryFailure("Couldn't read label count for description!");
+    std::vector<LabelId> ids;
+    ids.reserve(*label_count);
+    for (uint64_t j = 0; j < *label_count; ++j)
+      ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(read_string("label name"))));
+    return ids;
+  };
+
+  for (uint64_t i = 0; i < *count; ++i) {
+    auto kind_raw = snapshot.ReadUint();
+    if (!kind_raw) throw RecoveryFailure("Couldn't read description target kind!");
+    auto kind = static_cast<DescriptionTargetKind>(*kind_raw);
+
+    switch (kind) {
+      case DescriptionTargetKind::LABEL:
+        description_store->SetLabel(read_label_ids(), read_string("label description"));
+        break;
+      case DescriptionTargetKind::EDGE_TYPE: {
+        auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
+        description_store->SetEdgeType(et, read_string("edge type description"));
+        break;
+      }
+      case DescriptionTargetKind::LABEL_PROPERTY: {
+        auto labels = read_label_ids();
+        auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+        description_store->SetLabelProperty(labels, prop, read_string("label-property description"));
+        break;
+      }
+      case DescriptionTargetKind::EDGE_TYPE_PROPERTY: {
+        auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
+        auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+        description_store->SetEdgeTypeProperty(et, prop, read_string("edge-type-property description"));
+        break;
+      }
+      case DescriptionTargetKind::PROPERTY: {
+        auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+        description_store->SetProperty(prop, read_string("property description"));
+        break;
+      }
+      case DescriptionTargetKind::EDGE_TYPE_PATTERN: {
+        auto from_labels = read_label_ids();
+        auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
+        auto to_labels = read_label_ids();
+        description_store->SetEdgeTypePattern(from_labels, et, to_labels, read_string("edge type pattern description"));
+        break;
+      }
+      case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
+        auto from_labels = read_label_ids();
+        auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
+        auto to_labels = read_label_ids();
+        auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
+        description_store->SetEdgeTypePatternProperty(
+            from_labels, et, to_labels, prop, read_string("edge type pattern property description"));
+        break;
+      }
+      case DescriptionTargetKind::DATABASE:
+        description_store->SetDatabase(read_string("database description"));
+        break;
+    }
+  }
+
+  spdlog::info("Description store data recovered.");
+}
+
+// NOLINTNEXTLINE(readability-function-size)
 RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem::path const &path,
                                              utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                              utils::SkipList<EdgeMetadata> *edges_metadata,
@@ -10670,91 +10758,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     spdlog::info("TTL data recovered.");
   }
 
-  // Recover description store data if available
-  if (info.offset_descriptions != SnapshotInfo::kInvalidOffset && description_store) {
-    spdlog::info("Recovering description store data.");
-    if (!snapshot.SetPosition(info.offset_descriptions))
-      throw RecoveryFailure("Couldn't read description store data from snapshot!");
-
-    auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_DESCRIPTIONS) {
-      throw RecoveryFailure("Couldn't read section descriptions marker!");
-    }
-
-    auto count = snapshot.ReadUint();
-    if (!count) throw RecoveryFailure("Couldn't read description store count!");
-
-    auto read_string = [&](const char *what) {
-      auto val = snapshot.ReadString();
-      if (!val) throw RecoveryFailure(fmt::format("Couldn't read {} for description!", what));
-      return *val;
-    };
-    auto read_label_ids = [&] {
-      auto label_count = snapshot.ReadUint();
-      if (!label_count) throw RecoveryFailure("Couldn't read label count for description!");
-      std::vector<LabelId> ids;
-      ids.reserve(*label_count);
-      for (uint64_t j = 0; j < *label_count; ++j)
-        ids.push_back(LabelId::FromUint(name_id_mapper->NameToId(read_string("label name"))));
-      return ids;
-    };
-
-    for (uint64_t i = 0; i < *count; ++i) {
-      auto kind_raw = snapshot.ReadUint();
-      if (!kind_raw) throw RecoveryFailure("Couldn't read description target kind!");
-      auto kind = static_cast<DescriptionTargetKind>(*kind_raw);
-
-      switch (kind) {
-        case DescriptionTargetKind::LABEL:
-          description_store->SetLabel(read_label_ids(), read_string("label description"));
-          break;
-        case DescriptionTargetKind::EDGE_TYPE: {
-          auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
-          description_store->SetEdgeType(et, read_string("edge type description"));
-          break;
-        }
-        case DescriptionTargetKind::LABEL_PROPERTY: {
-          auto labels = read_label_ids();
-          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
-          description_store->SetLabelProperty(labels, prop, read_string("label-property description"));
-          break;
-        }
-        case DescriptionTargetKind::EDGE_TYPE_PROPERTY: {
-          auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
-          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
-          description_store->SetEdgeTypeProperty(et, prop, read_string("edge-type-property description"));
-          break;
-        }
-        case DescriptionTargetKind::PROPERTY: {
-          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
-          description_store->SetProperty(prop, read_string("property description"));
-          break;
-        }
-        case DescriptionTargetKind::EDGE_TYPE_PATTERN: {
-          auto from_labels = read_label_ids();
-          auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
-          auto to_labels = read_label_ids();
-          description_store->SetEdgeTypePattern(
-              from_labels, et, to_labels, read_string("edge type pattern description"));
-          break;
-        }
-        case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
-          auto from_labels = read_label_ids();
-          auto et = EdgeTypeId::FromUint(name_id_mapper->NameToId(read_string("edge type name")));
-          auto to_labels = read_label_ids();
-          auto prop = PropertyId::FromUint(name_id_mapper->NameToId(read_string("property name")));
-          description_store->SetEdgeTypePatternProperty(
-              from_labels, et, to_labels, prop, read_string("edge type pattern property description"));
-          break;
-        }
-        case DescriptionTargetKind::DATABASE:
-          description_store->SetDatabase(read_string("database description"));
-          break;
-      }
-    }
-
-    spdlog::info("Description store data recovered.");
-  }
+  RecoverDescriptionStore(snapshot, info, name_id_mapper, description_store);
 
   spdlog::info("Metadata recovered.");
   // Recover timestamp.
