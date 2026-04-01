@@ -21,6 +21,7 @@ Completed slices:
 - `208352688` `query: suspend branch joins on task progress`
 - `ed148a02f` `query: enable scheduler yields in background branches`
 - pending commit: suspend ScanParallel waiters on producer handoff
+- pending commit: build ScanParallel batches locally before publish
 
 What is true now:
 - the parent parallel join no longer blocks in `WaitOrSteal()`
@@ -31,11 +32,12 @@ What is true now:
 - `TaskCollection` has unit coverage for resumable collection tasks that yield and later complete
 - losing `ScanParallelCursor` branches now suspend on producer handoff instead of sitting in timed condition-variable waits
 - `WorkerResumeEvent` provides reusable multi-waiter wakeup/resume on original workers
-- the shared upstream pull inside `ScanParallelCursor` still temporarily disables yield
+- the ScanParallel producer now builds the next batch locally before publishing shared state
+- the shared upstream pull inside `ScanParallelCursor` no longer needs to disable yield while building the next batch
 - nested synchronous cursor consumers such as `EvaluatePatternFilter` are unchanged
 
 Immediate next goal:
-- continue the `ScanParallelCursor` refactor so the producer-side shared upstream pull can eventually yield safely too
+- verify the ScanParallel producer path on real parallel plans now that the upstream pull no longer disables yield
 - keep tightening the join semantics from "progress wait" toward a more explicit branch-completion abstraction if needed
 
 ## Working rules for this series
@@ -259,6 +261,7 @@ Changes:
 - [ ] Refactor `ScanParallelCursor` state ownership
 - [x] Coordinate a single batch producer and waiter handoff to reduce shared-mutex pileups
 - [x] Allow branch-side suspension while waiting on shared scan progress
+- [x] Let the ScanParallel producer-side shared upstream pull yield safely
 - [ ] Verify no duplicate or missing rows under stress
 
 ### Slice E
@@ -282,6 +285,11 @@ Changes:
   - result: passed, `35` tests
   - full build: `cmake --build build -j3 --target memgraph`
   - result: still blocked by unrelated stale module artifact in `src/utils/temporal.hpp` (`memgraph.utils.fnv.pcm`)
+- ScanParallel local-batch publish slice (pending commit)
+  - object build attempt: `cmake --build build -j3 --target src/query/CMakeFiles/mg-query.dir/plan/operator.cpp.o`
+  - result: blocked before `operator.cpp` is typechecked by unrelated stale module artifact in `src/utils/temporal.hpp` (`memgraph.utils.fnv.pcm`)
+  - full build: `cmake --build build -j3 --target memgraph`
+  - result: still blocked by unrelated stale planner/module artifact in `src/planner/include/planner/core/eclass.hpp`
 - [ ] Audit remaining synchronous `RunPullToCompletion(...)` sites
 
 ## Verification plan
@@ -349,6 +357,11 @@ Each commit should:
 - Added `WorkerResumeEvent`, a reusable multi-waiter wakeup primitive that reschedules suspended coroutines onto their original workers.
 - Added unit coverage proving multiple waiters resume on the workers where they suspended.
 - Intention: stop losing scan branches from occupying workers while another branch owns shared batch publication.
+
+### Pending commit: build ScanParallel batches locally before publish
+- The producer now pulls upstream rows into a producer-local `Frame` and computes chunks before touching shared scan state.
+- Shared `frame_` / `chunks_` are only updated once the batch is fully ready, under `mutex_`.
+- Intention: separate in-flight producer state from published shared state so the producer path can stop relying on shared mutable state during the upstream pull.
 
 ## Validation log
 

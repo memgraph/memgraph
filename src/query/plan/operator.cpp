@@ -9949,6 +9949,7 @@ class ScanParallelCursor : public Cursor {
     std::shared_ptr<ChunksType> chunks;
     size_t index = 0;
     uint64_t current_batch = 0;
+    std::optional<Frame> producer_frame;
 
     while (true) {
       bool should_pull_input = false;
@@ -9961,7 +9962,6 @@ class ScanParallelCursor : public Cursor {
           if (all_pulled_) co_return false;  // Everything was pulled
 
           if (index_ == 0 || index_ >= self_.num_threads_) {
-            if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
             chunks_.reset();
             producer_active_ = true;
             should_pull_input = true;
@@ -9989,19 +9989,11 @@ class ScanParallelCursor : public Cursor {
           producer_waiters_.NotifyAll();
         });
 
-        // Disable yielding for the duration of the shared upstream pull: the shared
-        // scan frame is owned by the current producer until the new batch is fully
-        // published. Other branches wait on producer_cv_ instead of contending on
-        // mutex_ while this branch is filling the batch.
-        auto *saved_yield = context.stopping_context.yield_requested;
-        auto *saved_handle_ptr = context.suspended_task_handle_ptr;
-        auto restore_context = utils::OnScopeExit([&context, saved_yield, saved_handle_ptr]() {
-          context.stopping_context.yield_requested = saved_yield;
-          context.suspended_task_handle_ptr = saved_handle_ptr;
-        });
-        context.stopping_context.yield_requested = nullptr;
-        context.suspended_task_handle_ptr = nullptr;
-        auto input_ra = input_cursor_->Pull(*frame_, context);
+        // The producer owns the next batch locally until it is fully built and
+        // published under mutex_. That lets the shared upstream pull yield
+        // safely without exposing half-built shared scan state to other branches.
+        producer_frame.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+        auto input_ra = input_cursor_->Pull(*producer_frame, context);
         const bool res = co_await input_ra;
 
         if (!res) {
@@ -10010,17 +10002,19 @@ class ScanParallelCursor : public Cursor {
           co_return false;
         }
 
-        auto new_chunks = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
+        auto new_chunks = std::make_shared<ChunksType>(get_chunks_(*producer_frame, context));
         {
           const std::lock_guard lock(mutex_);
           index_ = 0;
           ++batch_version_;  // New input batch - caches need to be cleared
+          frame_ = *producer_frame;
           chunks_ = std::move(new_chunks);
           current_batch = batch_version_;
           frame = *frame_;
           chunks = chunks_;
           index = index_++;
         }
+        producer_frame.reset();
       }
 
       // Clear caches if this branch hasn't seen this batch yet.
