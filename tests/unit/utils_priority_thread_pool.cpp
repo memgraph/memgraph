@@ -12,8 +12,10 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <coroutine>
 #include <memory>
 #include <thread>
+#include <utility>
 
 #include <utils/priority_thread_pool.hpp>
 #include <utils/worker_yield_signal.hpp>
@@ -770,6 +772,86 @@ TEST(TaskCollection, WaitForProgressTimesOutWithoutTaskProgress) {
 
   ASSERT_FALSE(collection.WaitForProgress(5ms))
       << "WaitForProgress should time out when no task has been scheduled yet";
+}
+
+namespace {
+struct TestCoroutine {
+  struct promise_type {
+    TestCoroutine get_return_object() {
+      return TestCoroutine{std::coroutine_handle<promise_type>::from_promise(*this)};
+    }
+
+    std::suspend_never initial_suspend() noexcept { return {}; }
+
+    std::suspend_always final_suspend() noexcept { return {}; }
+
+    void return_void() {}
+
+    void unhandled_exception() { std::terminate(); }
+  };
+
+  explicit TestCoroutine(std::coroutine_handle<promise_type> handle) : handle_(handle) {}
+
+  TestCoroutine(TestCoroutine &&other) noexcept : handle_(std::exchange(other.handle_, {})) {}
+
+  TestCoroutine &operator=(TestCoroutine &&other) noexcept {
+    if (this != &other) {
+      if (handle_) handle_.destroy();
+      handle_ = std::exchange(other.handle_, {});
+    }
+    return *this;
+  }
+
+  ~TestCoroutine() {
+    if (handle_) handle_.destroy();
+  }
+
+  std::coroutine_handle<promise_type> handle_;
+};
+
+TestCoroutine AwaitCollectionProgress(memgraph::utils::CollectionScheduler &scheduler, std::atomic<bool> &resumed) {
+  co_await scheduler.WaitForProgressAwaitable();
+  resumed = true;
+}
+}  // namespace
+
+TEST(TaskCollection, ProgressAwaitableResumesWaitingCoroutine) {
+  using namespace memgraph;
+  utils::WorkerYieldRegistry registry(1);
+  utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+  auto collection = std::make_shared<utils::TaskCollection>();
+  std::atomic<bool> task_started{false};
+  collection->AddTask([&task_started]() {
+    task_started = true;
+    std::this_thread::sleep_for(10ms);
+  });
+
+  utils::CollectionScheduler scheduler(&pool, collection);
+  std::atomic<bool> coroutine_started{false};
+  std::atomic<bool> coroutine_resumed{false};
+  std::optional<TestCoroutine> waiter;
+
+  pool.RescheduleTaskOnWorker(0, [&]() {
+    waiter.emplace(AwaitCollectionProgress(scheduler, coroutine_resumed));
+    coroutine_started = true;
+  });
+
+  while (!coroutine_started.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(1ms);
+  }
+
+  scheduler.Trigger();
+
+  while (!task_started.load(std::memory_order_acquire) || !coroutine_resumed.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(1ms);
+  }
+
+  collection->Wait();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_TRUE(coroutine_resumed.load()) << "Progress awaitable should resume the waiting coroutine after task progress";
 }
 
 TEST(TaskCollection, ThreadPoolIntegration) {

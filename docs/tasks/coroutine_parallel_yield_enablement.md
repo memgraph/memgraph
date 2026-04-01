@@ -18,10 +18,12 @@ Completed slices:
 - `63e18349a` `query: make parallel branch joins wait cooperatively`
 - `d55a7389f` `query: wait for branch progress during cooperative joins`
 - `9270ac03b` `query: coordinate ScanParallel batch producers`
+- pending commit: coroutine-friendly branch progress wait in `TaskCollection` / `CollectionScheduler`
 
 What is true now:
 - the parent parallel join no longer blocks in `WaitOrSteal()`
 - the cooperative join now waits on branch progress instead of blind thread-yield polling
+- the parent join can now suspend on branch progress via a coroutine-friendly wait primitive
 - `ScanParallelCursor` now has explicit producer/waiter coordination for shared batch publication
 - branch tasks still do **not** yield
 - the shared upstream pull inside `ScanParallelCursor` still temporarily disables yield
@@ -238,9 +240,10 @@ Changes:
 - [x] Verify the targeted scheduler/task-collection behavior with dedicated unit tests
 
 ### Slice B
-- [ ] Add coroutine-friendly branch completion wait primitive
-- [ ] Remove polling join loop
+- [x] Add coroutine-friendly branch progress wait primitive
+- [x] Replace timeout polling in the join loop with coroutine-friendly progress suspension
 - [ ] Keep branches non-yielding until branch resume model is ready
+- [ ] Extend the wait primitive from "progress" to a cleaner branch-completion abstraction if needed
 
 ### Slice C
 - [ ] Enable branch yields
@@ -306,6 +309,12 @@ Each commit should:
 - One branch now owns shared upstream batch publication while other branches wait on a condition variable.
 - Intention: reduce lock pileups on the shared scan mutex without enabling scan-side yield yet.
 
+### Pending commit: coroutine-friendly branch progress wait
+- Added one-shot waiter registration to `TaskCollection`.
+- `NotifyProgress()` now resumes a waiting coroutine on the original worker via the pool.
+- `ParallelBranchCursor` now `co_await`s branch progress instead of sleeping in a timeout loop.
+- Intention: move branch joins closer to a real resumable wait without enabling branch task yields yet.
+
 ## Validation log
 
 ### Targeted unit-test build and run
@@ -327,3 +336,21 @@ cmake --build build -j3 --target memgraph__unit__utils_priority_thread_pool
   - includes new coverage for:
     - `TaskCollection::TryExecuteOneIdleTask()`
     - `TaskCollection::WaitForProgress()`
+
+### Targeted validation for coroutine-friendly branch progress wait
+- Build command:
+
+```bash
+cmake --build build -j3 --target memgraph__unit__utils_priority_thread_pool
+```
+
+- Test command:
+
+```bash
+./tests/unit/utils_priority_thread_pool
+```
+
+- Result:
+  - build succeeded
+  - all 32 tests passed
+  - includes coroutine-friendly progress waiter coverage in `utils_priority_thread_pool.cpp`

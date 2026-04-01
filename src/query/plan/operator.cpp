@@ -10854,7 +10854,9 @@ class ParallelBranchCursor : public Cursor {
         continue;
       }
       co_await AbortCheck(context);
-      collection_scheduler_->WaitForProgress(std::chrono::milliseconds(1));
+      if (!collection_scheduler_->Finished()) {
+        co_await collection_scheduler_->WaitForProgressAwaitable();
+      }
     }
 
     // Check for exceptions

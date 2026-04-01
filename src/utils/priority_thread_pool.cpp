@@ -483,17 +483,62 @@ bool TaskCollection::WaitForProgress(std::chrono::milliseconds timeout) {
       lock, timeout, [this, observed_epoch] { return progress_epoch_ != observed_epoch || Finished(); });
 }
 
+uint64_t TaskCollection::ProgressEpoch() const {
+  const auto lock = std::lock_guard(progress_mutex_);
+  return progress_epoch_;
+}
+
 bool TaskCollection::Finished() const {
   return std::ranges::all_of(
       tasks_, [](const auto &task) { return task.state_->load(std::memory_order_acquire) == Task::State::FINISHED; });
 }
 
+bool TaskCollection::RegisterProgressWaiter(std::coroutine_handle<> handle, PriorityThreadPool *pool,
+                                            uint16_t worker_id, uint64_t observed_epoch) {
+  const auto lock = std::lock_guard(progress_mutex_);
+  if (progress_epoch_ != observed_epoch || Finished()) {
+    return false;
+  }
+  DMG_ASSERT(!progress_waiter_, "Only one progress waiter can be registered at a time");
+  progress_waiter_ = handle;
+  progress_waiter_pool_ = pool;
+  progress_waiter_worker_id_ = worker_id;
+  return true;
+}
+
 void TaskCollection::NotifyProgress() {
+  std::coroutine_handle<> waiter;
+  PriorityThreadPool *waiter_pool{nullptr};
+  std::optional<uint16_t> waiter_worker_id;
   {
     auto lock = std::lock_guard(progress_mutex_);
     ++progress_epoch_;
+    waiter = std::exchange(progress_waiter_, {});
+    waiter_pool = std::exchange(progress_waiter_pool_, nullptr);
+    waiter_worker_id = std::exchange(progress_waiter_worker_id_, std::nullopt);
   }
   progress_cv_.notify_all();
+  if (waiter) {
+    if (waiter_pool && waiter_worker_id) {
+      waiter_pool->RescheduleTaskOnWorker(*waiter_worker_id, [waiter]() mutable {
+        if (waiter && !waiter.done()) waiter.resume();
+      });
+    } else if (!waiter.done()) {
+      waiter.resume();
+    }
+  }
+}
+
+bool CollectionScheduler::RegisterProgressWaiter(std::coroutine_handle<> handle, uint64_t observed_epoch) const {
+  if (!collection_ || !pool_) return false;
+  auto worker_id = WorkerYieldRegistry::GetCurrentWorkerId();
+  if (!worker_id) return false;
+  return collection_->RegisterProgressWaiter(handle, pool_, *worker_id, observed_epoch);
+}
+
+uint64_t CollectionScheduler::ProgressEpoch() const {
+  if (!collection_) return 0;
+  return collection_->ProgressEpoch();
 }
 
 }  // namespace memgraph::utils

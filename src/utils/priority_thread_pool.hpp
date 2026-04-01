@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <coroutine>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -26,6 +27,8 @@
 #include "utils/worker_yield_signal.hpp"
 
 namespace memgraph::utils {
+class PriorityThreadPool;
+
 // Thread-safe mask that returns the position of first set bit
 class HotMask {
  public:
@@ -135,17 +138,26 @@ class TaskCollection {
   /// or until the timeout expires. Returns true if progress was observed.
   bool WaitForProgress(std::chrono::milliseconds timeout);
 
+  uint64_t ProgressEpoch() const;
+
   bool Finished() const;
 
   size_t Size() const { return tasks_.size(); }
 
  private:
+  bool RegisterProgressWaiter(std::coroutine_handle<> handle, PriorityThreadPool *pool, uint16_t worker_id,
+                              uint64_t observed_epoch);
   void NotifyProgress();
 
   std::vector<Task> tasks_;
-  std::mutex progress_mutex_;
+  mutable std::mutex progress_mutex_;
   std::condition_variable progress_cv_;
   uint64_t progress_epoch_{0};
+  std::coroutine_handle<> progress_waiter_{};
+  PriorityThreadPool *progress_waiter_pool_{nullptr};
+  std::optional<uint16_t> progress_waiter_worker_id_;
+
+  friend class CollectionScheduler;
 };
 
 class PriorityThreadPool {
@@ -258,6 +270,24 @@ class PriorityThreadPool {
 
 class CollectionScheduler {
  public:
+  class ProgressAwaitable {
+   public:
+    explicit ProgressAwaitable(CollectionScheduler *scheduler)
+        : scheduler_(scheduler), observed_epoch_(scheduler ? scheduler->ProgressEpoch() : 0) {}
+
+    bool await_ready() const { return !scheduler_ || scheduler_->Finished(); }
+
+    bool await_suspend(std::coroutine_handle<> handle) const {
+      return scheduler_ && scheduler_->RegisterProgressWaiter(handle, observed_epoch_);
+    }
+
+    void await_resume() const {}
+
+   private:
+    CollectionScheduler *scheduler_{nullptr};
+    uint64_t observed_epoch_{0};
+  };
+
   CollectionScheduler(PriorityThreadPool *pool, std::shared_ptr<TaskCollection> collection)
       : pool_{pool}, collection_{std::move(collection)} {}
 
@@ -281,12 +311,17 @@ class CollectionScheduler {
     return collection_ && collection_->WaitForProgress(timeout);
   }
 
+  auto WaitForProgressAwaitable() { return ProgressAwaitable(this); }
+
   bool Finished() const {
     if (collection_) return collection_->Finished();
     return true;
   }
 
  private:
+  bool RegisterProgressWaiter(std::coroutine_handle<> handle, uint64_t observed_epoch) const;
+  uint64_t ProgressEpoch() const;
+
   PriorityThreadPool *pool_;
   std::shared_ptr<TaskCollection> collection_;
 };
