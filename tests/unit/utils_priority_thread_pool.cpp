@@ -813,6 +813,29 @@ TestCoroutine AwaitCollectionProgress(memgraph::utils::CollectionScheduler &sche
   co_await scheduler.WaitForProgressAwaitable();
   resumed = true;
 }
+
+struct WorkerResumeAwaitable {
+  memgraph::utils::WorkerResumeEvent *event;
+  memgraph::utils::PriorityThreadPool *pool;
+  uint64_t observed_epoch;
+
+  bool await_ready() const noexcept { return false; }
+
+  bool await_suspend(std::coroutine_handle<> handle) const {
+    return event->RegisterWaiter(
+        handle, pool, memgraph::utils::WorkerYieldRegistry::GetCurrentWorkerId(), observed_epoch);
+  }
+
+  void await_resume() const noexcept {}
+};
+
+TestCoroutine AwaitWorkerResumeEvent(memgraph::utils::WorkerResumeEvent &event,
+                                     memgraph::utils::PriorityThreadPool &pool, std::atomic<bool> &resumed,
+                                     std::atomic<std::thread::id> &resumed_thread_id) {
+  co_await WorkerResumeAwaitable{.event = &event, .pool = &pool, .observed_epoch = event.Epoch()};
+  resumed_thread_id = std::this_thread::get_id();
+  resumed = true;
+}
 }  // namespace
 
 TEST(TaskCollection, ProgressAwaitableResumesWaitingCoroutine) {
@@ -891,6 +914,53 @@ TEST(TaskCollection, ResumableCollectionTaskYieldsThenCompletes) {
   ASSERT_EQ(first_thread_id.load(), second_thread_id.load())
       << "Yielded collection tasks should resume on the same worker";
   ASSERT_TRUE(collection.Finished()) << "Collection should report finished after the resumable task completes";
+}
+
+TEST(WorkerResumeEvent, NotifyAllResumesWaitersOnOriginalWorkers) {
+  using namespace memgraph;
+  utils::WorkerYieldRegistry registry(2);
+  utils::PriorityThreadPool pool(2, nullptr, &registry);
+  utils::WorkerResumeEvent event;
+
+  std::atomic<std::thread::id> worker0_thread_id;
+  std::atomic<std::thread::id> worker1_thread_id;
+  std::atomic<bool> waiter0_started{false};
+  std::atomic<bool> waiter1_started{false};
+  std::atomic<bool> waiter0_resumed{false};
+  std::atomic<bool> waiter1_resumed{false};
+  std::atomic<std::thread::id> waiter0_resumed_thread_id;
+  std::atomic<std::thread::id> waiter1_resumed_thread_id;
+  std::optional<TestCoroutine> waiter0;
+  std::optional<TestCoroutine> waiter1;
+
+  pool.RescheduleTaskOnWorker(0, [&]() {
+    worker0_thread_id = std::this_thread::get_id();
+    waiter0.emplace(AwaitWorkerResumeEvent(event, pool, waiter0_resumed, waiter0_resumed_thread_id));
+    waiter0_started = true;
+  });
+  pool.RescheduleTaskOnWorker(1, [&]() {
+    worker1_thread_id = std::this_thread::get_id();
+    waiter1.emplace(AwaitWorkerResumeEvent(event, pool, waiter1_resumed, waiter1_resumed_thread_id));
+    waiter1_started = true;
+  });
+
+  while (!waiter0_started.load(std::memory_order_acquire) || !waiter1_started.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(1ms);
+  }
+
+  event.NotifyAll();
+
+  while (!waiter0_resumed.load(std::memory_order_acquire) || !waiter1_resumed.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(1ms);
+  }
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_EQ(waiter0_resumed_thread_id.load(), worker0_thread_id.load())
+      << "Waiter 0 should resume on the worker where it originally suspended";
+  ASSERT_EQ(waiter1_resumed_thread_id.load(), worker1_thread_id.load())
+      << "Waiter 1 should resume on the worker where it originally suspended";
 }
 
 TEST(TaskCollection, ThreadPoolIntegration) {

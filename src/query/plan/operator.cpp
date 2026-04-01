@@ -9891,6 +9891,27 @@ class ScanParallelCursor : public Cursor {
   ScanParallelCursor(const ScanParallel &self, utils::MemoryResource *mem, TChunksFun get_chunks)
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), get_chunks_(std::move(get_chunks)) {}
 
+  class ProducerProgressAwaitable {
+   public:
+    ProducerProgressAwaitable(ScanParallelCursor *cursor, ExecutionContext *context, uint64_t observed_epoch)
+        : cursor_(cursor), context_(context), observed_epoch_(observed_epoch) {}
+
+    bool await_ready() const noexcept { return false; }
+
+    bool await_suspend(std::coroutine_handle<> handle) const {
+      if (!context_->worker_pool) return false;
+      return cursor_->producer_waiters_.RegisterWaiter(
+          handle, context_->worker_pool, utils::WorkerYieldRegistry::GetCurrentWorkerId(), observed_epoch_);
+    }
+
+    void await_resume() const noexcept {}
+
+   private:
+    ScanParallelCursor *cursor_;
+    ExecutionContext *context_;
+    uint64_t observed_epoch_;
+  };
+
   // ScanParallelCursor is shared across all parallel branches. Each branch calls Pull()
   // with its own ExecutionContext. gen_map_ holds one long-lived DoPull generator per
   // context: the generator loops, assigning one chunk per co_yield. Pull() emplaces on
@@ -9931,29 +9952,32 @@ class ScanParallelCursor : public Cursor {
 
     while (true) {
       bool should_pull_input = false;
+      std::optional<uint64_t> producer_epoch;
       {
         std::unique_lock lock(mutex_);
-        while (producer_active_ && !all_pulled_) {
-          lock.unlock();
-          co_await AbortCheck(context);
-          lock.lock();
-          producer_cv_.wait_for(
-              lock, std::chrono::milliseconds(1), [this] { return !producer_active_ || all_pulled_; });
-        }
-
-        if (all_pulled_) co_return false;  // Everything was pulled
-
-        if (index_ == 0 || index_ >= self_.num_threads_) {
-          if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
-          chunks_.reset();
-          producer_active_ = true;
-          should_pull_input = true;
+        if (producer_active_ && !all_pulled_) {
+          producer_epoch = producer_waiters_.Epoch();
         } else {
-          current_batch = batch_version_;
-          frame = *frame_;  // Copy the filled frame
-          chunks = chunks_;
-          index = index_++;
+          if (all_pulled_) co_return false;  // Everything was pulled
+
+          if (index_ == 0 || index_ >= self_.num_threads_) {
+            if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+            chunks_.reset();
+            producer_active_ = true;
+            should_pull_input = true;
+          } else {
+            current_batch = batch_version_;
+            frame = *frame_;  // Copy the filled frame
+            chunks = chunks_;
+            index = index_++;
+          }
         }
+      }
+
+      if (producer_epoch) {
+        co_await AbortCheck(context);
+        co_await ProducerProgressAwaitable(this, &context, *producer_epoch);
+        continue;
       }
 
       if (should_pull_input) {
@@ -9962,7 +9986,7 @@ class ScanParallelCursor : public Cursor {
             const std::lock_guard lock(mutex_);
             producer_active_ = false;
           }
-          producer_cv_.notify_all();
+          producer_waiters_.NotifyAll();
         });
 
         // Disable yielding for the duration of the shared upstream pull: the shared
@@ -10028,14 +10052,13 @@ class ScanParallelCursor : public Cursor {
     frame_.reset();
     all_pulled_ = false;
     producer_active_ = false;
-    producer_cv_.notify_all();
     input_cursor_->Reset();
+    producer_waiters_.NotifyAll();
   }
 
  private:
   mutable std::mutex mutex_;          // Guards shared scan state: index_, chunks_, frame_, all_pulled_
   mutable std::mutex gen_map_mutex_;  // Guards gen_map_ only; held briefly (emplace + pointer read)
-  std::condition_variable producer_cv_;
   size_t index_{0};
   std::shared_ptr<std::invoke_result_t<TChunksFun, Frame &, ExecutionContext &>> chunks_;
   const ScanParallel &self_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
@@ -10047,6 +10070,7 @@ class ScanParallelCursor : public Cursor {
   // Tracks input batch version. Incremented when new input is pulled from upstream (e.g., UNWIND).
   // Used to signal branch collectors to clear their caches when input changes.
   uint64_t batch_version_{0};
+  utils::WorkerResumeEvent producer_waiters_;
   // Long-lived generator per branch (keyed by ExecutionContext*). Each generator loops,
   // assigning one chunk per co_yield. Pull() emplaces on first call and reuses on subsequent calls.
   std::unordered_map<ExecutionContext *, PullAwaitable> gen_map_;

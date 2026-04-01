@@ -541,6 +541,41 @@ uint64_t CollectionScheduler::ProgressEpoch() const {
   return collection_->ProgressEpoch();
 }
 
+uint64_t WorkerResumeEvent::Epoch() const {
+  const auto lock = std::lock_guard(mutex_);
+  return epoch_;
+}
+
+bool WorkerResumeEvent::RegisterWaiter(std::coroutine_handle<> handle, PriorityThreadPool *pool,
+                                       std::optional<uint16_t> worker_id, uint64_t observed_epoch) {
+  const auto lock = std::lock_guard(mutex_);
+  if (epoch_ != observed_epoch) {
+    return false;
+  }
+  waiters_.push_back(Waiter{.handle = handle, .pool = pool, .worker_id = worker_id});
+  return true;
+}
+
+void WorkerResumeEvent::NotifyAll() {
+  std::vector<Waiter> waiters;
+  {
+    auto lock = std::lock_guard(mutex_);
+    ++epoch_;
+    waiters.swap(waiters_);
+  }
+
+  for (auto &waiter : waiters) {
+    if (!waiter.handle || waiter.handle.done()) continue;
+    if (waiter.pool && waiter.worker_id) {
+      waiter.pool->RescheduleTaskOnWorker(*waiter.worker_id, [handle = waiter.handle]() mutable {
+        if (handle && !handle.done()) handle.resume();
+      });
+      continue;
+    }
+    waiter.handle.resume();
+  }
+}
+
 }  // namespace memgraph::utils
 
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::LOW>(

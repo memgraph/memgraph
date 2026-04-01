@@ -19,7 +19,8 @@ Completed slices:
 - `d55a7389f` `query: wait for branch progress during cooperative joins`
 - `9270ac03b` `query: coordinate ScanParallel batch producers`
 - `208352688` `query: suspend branch joins on task progress`
-- pending commit: enable scheduler-driven yields in background branch tasks
+- `ed148a02f` `query: enable scheduler yields in background branches`
+- pending commit: suspend ScanParallel waiters on producer handoff
 
 What is true now:
 - the parent parallel join no longer blocks in `WaitOrSteal()`
@@ -28,11 +29,13 @@ What is true now:
 - `ScanParallelCursor` now has explicit producer/waiter coordination for shared batch publication
 - background branch tasks now refresh `yield_requested` from the worker currently running them
 - `TaskCollection` has unit coverage for resumable collection tasks that yield and later complete
+- losing `ScanParallelCursor` branches now suspend on producer handoff instead of sitting in timed condition-variable waits
+- `WorkerResumeEvent` provides reusable multi-waiter wakeup/resume on original workers
 - the shared upstream pull inside `ScanParallelCursor` still temporarily disables yield
 - nested synchronous cursor consumers such as `EvaluatePatternFilter` are unchanged
 
 Immediate next goal:
-- confirm the branch-yield path on real parallel plans and then continue the `ScanParallelCursor` refactor
+- continue the `ScanParallelCursor` refactor so the producer-side shared upstream pull can eventually yield safely too
 - keep tightening the join semantics from "progress wait" toward a more explicit branch-completion abstraction if needed
 
 ## Working rules for this series
@@ -255,7 +258,7 @@ Changes:
 ### Slice D
 - [ ] Refactor `ScanParallelCursor` state ownership
 - [x] Coordinate a single batch producer and waiter handoff to reduce shared-mutex pileups
-- [ ] Allow branch-side yield while waiting on shared scan progress
+- [x] Allow branch-side suspension while waiting on shared scan progress
 - [ ] Verify no duplicate or missing rows under stress
 
 ### Slice E
@@ -271,6 +274,12 @@ Changes:
   - build: `cmake --build build -j3 --target memgraph__unit__utils_priority_thread_pool`
   - test: `./build/tests/unit/utils_priority_thread_pool`
   - result: passed, `34` tests
+  - full build: `cmake --build build -j3 --target memgraph`
+  - result: still blocked by unrelated stale module artifact in `src/utils/temporal.hpp` (`memgraph.utils.fnv.pcm`)
+- ScanParallel waiter suspension slice (pending commit)
+  - build: `cmake --build build -j3 --target memgraph__unit__utils_priority_thread_pool`
+  - test: `./build/tests/unit/utils_priority_thread_pool`
+  - result: passed, `35` tests
   - full build: `cmake --build build -j3 --target memgraph`
   - result: still blocked by unrelated stale module artifact in `src/utils/temporal.hpp` (`memgraph.utils.fnv.pcm`)
 - [ ] Audit remaining synchronous `RunPullToCompletion(...)` sites
@@ -329,6 +338,17 @@ Each commit should:
 - `NotifyProgress()` now resumes a waiting coroutine on the original worker via the pool.
 - `ParallelBranchCursor` now `co_await`s branch progress instead of sleeping in a timeout loop.
 - Intention: move branch joins closer to a real resumable wait without enabling branch task yields yet.
+
+### `ed148a02f` `query: enable scheduler yields in background branches`
+- Background branch contexts now refresh `yield_requested` from the worker executing the branch slice.
+- Added scheduler-level coverage for a yielded `TaskCollection` task that resumes and completes on the same worker.
+- Intention: let branch `AbortCheck` cooperate with the resumable task scheduler instead of inheriting a stale or disabled yield signal.
+
+### Pending commit: suspend ScanParallel waiters on producer handoff
+- Replaced timed `producer_cv_.wait_for(...)` loops with coroutine suspension/resume on producer handoff.
+- Added `WorkerResumeEvent`, a reusable multi-waiter wakeup primitive that reschedules suspended coroutines onto their original workers.
+- Added unit coverage proving multiple waiters resume on the workers where they suspended.
+- Intention: stop losing scan branches from occupying workers while another branch owns shared batch publication.
 
 ## Validation log
 

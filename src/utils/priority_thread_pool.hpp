@@ -170,6 +170,33 @@ class TaskCollection {
   friend class CollectionScheduler;
 };
 
+class WorkerResumeEvent {
+ public:
+  WorkerResumeEvent() = default;
+  WorkerResumeEvent(const WorkerResumeEvent &) = delete;
+  WorkerResumeEvent &operator=(const WorkerResumeEvent &) = delete;
+  WorkerResumeEvent(WorkerResumeEvent &&) = delete;
+  WorkerResumeEvent &operator=(WorkerResumeEvent &&) = delete;
+
+  uint64_t Epoch() const;
+
+  bool RegisterWaiter(std::coroutine_handle<> handle, PriorityThreadPool *pool, std::optional<uint16_t> worker_id,
+                      uint64_t observed_epoch);
+
+  void NotifyAll();
+
+ private:
+  struct Waiter {
+    std::coroutine_handle<> handle;
+    PriorityThreadPool *pool;
+    std::optional<uint16_t> worker_id;
+  };
+
+  mutable std::mutex mutex_;
+  uint64_t epoch_{0};
+  std::vector<Waiter> waiters_;
+};
+
 class PriorityThreadPool {
  public:
   using TaskID = uint64_t;
