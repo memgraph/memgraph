@@ -119,7 +119,8 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
                 [[maybe_unused]] auto result = storage_acc->CreateIndex(edge_type, cancel_check);
               },
               [&](LabelProperties &lp) {
-                [[maybe_unused]] auto result = storage_acc->CreateIndex(lp.label, lp.properties, cancel_check);
+                [[maybe_unused]] auto result =
+                    storage_acc->CreateIndex(lp.label, lp.properties, IndexOrder::ASC, cancel_check);
               },
               [&](PropertyId property) {
                 [[maybe_unused]] auto result = storage_acc->CreateGlobalEdgeIndex(property, cancel_check);

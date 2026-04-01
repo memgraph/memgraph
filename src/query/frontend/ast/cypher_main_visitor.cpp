@@ -457,6 +457,34 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
     throw SemanticException("Properties cannot be repeated in a composite index.");
   }
 
+  // Parse optional WITH CONFIG {"order": "ASC"|"DESC"}
+  if (auto *config_ctx = ctx->configsMap) {
+    if (!config_ctx->configMap()) {
+      throw SemanticException("Index WITH CONFIG requires a literal config map, not an expression.");
+    }
+    auto config = std::any_cast<ConfigMap>(config_ctx->configMap()->accept(this));
+    for (auto const &[key_expr, value_expr] : config) {
+      auto *key_lit = dynamic_cast<PrimitiveLiteral *>(key_expr);
+      auto *value_lit = dynamic_cast<PrimitiveLiteral *>(value_expr);
+      if (!key_lit || !value_lit) {
+        throw SemanticException("Index config keys and values must be string literals.");
+      }
+      auto key = key_lit->value_.ValueString();
+      if (key == "order") {
+        auto value = value_lit->value_.ValueString();
+        if (value == "ASC") {
+          index_query->order_ = storage::IndexOrder::ASC;
+        } else if (value == "DESC") {
+          index_query->order_ = storage::IndexOrder::DESC;
+        } else {
+          throw SemanticException("Invalid index order '{}'. Expected 'ASC' or 'DESC'.", value);
+        }
+      } else {
+        throw SemanticException("Unknown index config key '{}'. Supported keys: 'order'.", key);
+      }
+    }
+  }
+
   return index_query;
 }
 

@@ -35,6 +35,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/description_store.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -2217,6 +2218,7 @@ class IndexQuery : public memgraph::query::Query {
   memgraph::query::IndexQuery::Action action_;
   memgraph::query::LabelIx label_;
   std::vector<query::PropertyIxPath> properties_;
+  storage::IndexOrder order_{storage::IndexOrder::ASC};
 
   IndexQuery *Clone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
@@ -2226,6 +2228,7 @@ class IndexQuery : public memgraph::query::Query {
     for (auto const &prop_path : properties_) {
       object->properties_.emplace_back(prop_path.Clone(storage));
     }
+    object->order_ = order_;
     return object;
   }
 

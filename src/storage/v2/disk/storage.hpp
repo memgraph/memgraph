@@ -298,7 +298,7 @@ class DiskStorage final : public Storage {
     std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
                                                                  CheckCancelFunction cancel_check) override;
 
-    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths,
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths, IndexOrder order,
                                                                  CheckCancelFunction cancel_check) override;
 
     std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
