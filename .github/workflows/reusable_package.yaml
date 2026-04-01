@@ -76,7 +76,7 @@ env:
 jobs:
   PackageAndUpload:
     runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON((inputs.os == 'centos-10' || inputs.os == 'rocky-10') && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
-    timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
+    timeout-minutes: 30
     outputs:
       package_s3_url: ${{ steps.output_package_s3_url.outputs.package_s3_url }}
     steps:

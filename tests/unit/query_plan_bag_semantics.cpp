@@ -306,9 +306,13 @@ TYPED_TEST(QueryPlanTest, OrderByExceptions) {
            std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue("bla")})},
       // illegal comparisons of same-type values
       {memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)}),
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue("bla")}),
        memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)})}};
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)})},
+      {memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
+           memgraph::storage::PropertyValue("bla"), memgraph::storage::PropertyValue("bla")}),
+       memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
+           memgraph::storage::PropertyValue("bla"), memgraph::storage::PropertyValue(42)})}};
 
   for (const auto &pair : exception_pairs) {
     // empty database

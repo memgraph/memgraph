@@ -303,6 +303,9 @@
                                      (utils/sync-replica-down? e)
                                      (assoc op :type :info :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
 
+                                     (utils/asked-to-abort-shutdown? e)
+                                     (assoc op :type :info :value {:str "Transaction was asked to abort because of the shutdown."})
+
                                      (utils/main-became-replica? e)
                                      (assoc op :type :info :value {:str "Cannot commit because instance is not main anymore."})
 

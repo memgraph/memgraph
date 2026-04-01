@@ -50,7 +50,8 @@ class ExpansionBenchFixture : public benchmark::Fixture {
                                 nullptr,
                                 nullptr,
                                 repl_state.value(),
-                                *system
+                                *system,
+                                nullptr
 #ifdef MG_ENTERPRISE
                                 ,
                                 std::nullopt,

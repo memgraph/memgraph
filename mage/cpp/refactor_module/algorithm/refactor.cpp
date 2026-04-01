@@ -211,8 +211,8 @@ void CloneNodesImpl(const std::vector<mgp::Node> &nodes, const mgp::List &standi
       }
     }
     old_new_node_mirror.insert({node, new_node});
-    Refactor::InsertCloneNodesRecord(memgraph_graph, result, memory, static_cast<int>(node.Id().AsInt()),
-                                     static_cast<int>(new_node.Id().AsInt()));
+    Refactor::InsertCloneNodesRecord(
+        memgraph_graph, result, memory, static_cast<int>(node.Id().AsInt()), static_cast<int>(new_node.Id().AsInt()));
   }
 }
 
@@ -223,7 +223,8 @@ void CloneRelsImpl(const std::vector<mgp::Relationship> &rels, const mgp::List &
   for (const auto &rel : rels) {
     mgp::Relationship new_relationship =
         graph.CreateRelationship(GetStandinOrCopy(standin_nodes, rel.From(), old_new_node_mirror),
-                                 GetStandinOrCopy(standin_nodes, rel.To(), old_new_node_mirror), rel.Type());
+                                 GetStandinOrCopy(standin_nodes, rel.To(), old_new_node_mirror),
+                                 rel.Type());
     for (const auto &prop : rel.Properties()) {
       if (skip_props_searchable.empty() || !skip_props_searchable.contains(mgp::Value(prop.first))) {
         new_relationship.SetProperty(prop.first, prop.second);
@@ -254,8 +255,8 @@ void Refactor::CloneNodesAndRels(mgp_graph *memgraph_graph, mgp_result *result, 
   auto graph = mgp::Graph(memgraph_graph);
 
   std::map<mgp::Node, mgp::Node> old_new_node_mirror;
-  CloneNodesImpl(nodes, standin_nodes, graph, skip_props_searchable, old_new_node_mirror, memgraph_graph, result,
-                 memory);
+  CloneNodesImpl(
+      nodes, standin_nodes, graph, skip_props_searchable, old_new_node_mirror, memgraph_graph, result, memory);
   CloneRelsImpl(rels, standin_nodes, graph, skip_props_searchable, old_new_node_mirror, memgraph_graph, result, memory);
 }
 
@@ -431,7 +432,10 @@ void Refactor::CloneNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
         }
       }
 
-      InsertCloneNodesRecord(memgraph_graph, result, memory, static_cast<int>(old_node.Id().AsInt()),
+      InsertCloneNodesRecord(memgraph_graph,
+                             result,
+                             memory,
+                             static_cast<int>(old_node.Id().AsInt()),
                              static_cast<int>(new_node.Id().AsInt()));
     }
   } catch (const std::exception &e) {
@@ -668,19 +672,19 @@ void Refactor::DeleteAndReconnect(mgp_list *args, mgp_graph *memgraph_graph, mgp
       const int64_t id = node.Id().AsInt();
       auto delete_node = nodes_to_delete.contains(id);
 
-      const auto modify_relationship = [&graph, &relationships](mgp::Relationship relationship, const mgp::Node &node,
-                                                                int64_t other_node_id) {
-        auto new_relationship = std::invoke([&]() {
-          if (relationship.From().Id().AsInt() == other_node_id) {
-            return graph.CreateRelationship(relationship.From(), node, relationship.Type());
-          }
-          return graph.CreateRelationship(node, relationship.To(), relationship.Type());
-        });
-        CopyRelProperties(new_relationship, relationship);
-        graph.DeleteRelationship(relationship);
-        relationships.AppendExtend(mgp::Value(new_relationship));
-        return new_relationship;
-      };
+      const auto modify_relationship =
+          [&graph, &relationships](mgp::Relationship relationship, const mgp::Node &node, int64_t other_node_id) {
+            auto new_relationship = std::invoke([&]() {
+              if (relationship.From().Id().AsInt() == other_node_id) {
+                return graph.CreateRelationship(relationship.From(), node, relationship.Type());
+              }
+              return graph.CreateRelationship(node, relationship.To(), relationship.Type());
+            });
+            CopyRelProperties(new_relationship, relationship);
+            graph.DeleteRelationship(relationship);
+            relationships.AppendExtend(mgp::Value(new_relationship));
+            return new_relationship;
+          };
 
       const auto merge_relationships = [](mgp::Relationship &rel, mgp::Relationship &other, bool combine = false) {
         for (const auto &[key, value] : other.Properties()) {
@@ -894,6 +898,28 @@ void Refactor::RenameType(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
   }
 }
 
+namespace {
+void MergeRels(mgp::Node &source_node, mgp::Node &target_node, mgp::Graph &graph) {
+  auto in_rels = source_node.InRelationships();
+  for (const auto &rel : in_rels) {
+    mgp::Relationship new_rel = graph.CreateRelationship(rel.From(), target_node, rel.Type());
+    const std::unordered_map<std::string, mgp::Value> props = rel.Properties();
+    for (const auto &[key, value] : props) {
+      new_rel.SetProperty(key, value);
+    }
+  }
+
+  auto out_rels = source_node.OutRelationships();
+  for (const auto &rel : out_rels) {
+    mgp::Relationship new_rel = graph.CreateRelationship(target_node, rel.To(), rel.Type());
+    const std::unordered_map<std::string, mgp::Value> props = rel.Properties();
+    for (const auto &[key, value] : props) {
+      new_rel.SetProperty(key, value);
+    }
+  }
+}
+}  // namespace
+
 void Refactor::MergeNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -939,8 +965,9 @@ void Refactor::MergeNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
     // Convert to lowercase for case-insensitive comparison
     // NOLINTNEXTLINE(modernize-use-ranges, boost-use-ranges)
-    std::transform(prop_strategy.begin(), prop_strategy.end(), prop_strategy.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+    std::transform(prop_strategy.begin(), prop_strategy.end(), prop_strategy.begin(), [](unsigned char c) {
+      return std::tolower(c);
+    });
 
     // Validate property strategy
     if (prop_strategy != kMergeNodesPropertiesCombine && prop_strategy != kMergeNodesPropertiesDiscard &&
@@ -992,15 +1019,7 @@ void Refactor::MergeNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
       // Handle relationships
       // Copy all relationships from source to target
       if (mergeRels) {
-        auto in_rels = source_node.InRelationships();
-        for (const auto &rel : in_rels) {
-          graph.CreateRelationship(rel.From(), target_node, rel.Type());
-        }
-
-        auto out_rels = source_node.OutRelationships();
-        for (const auto &rel : out_rels) {
-          graph.CreateRelationship(target_node, rel.To(), rel.Type());
-        }
+        MergeRels(source_node, target_node, graph);
       }
 
       // Delete the source node

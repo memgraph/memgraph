@@ -1,0 +1,5 @@
+customWorkloads:
+  tests:
+    - name: concurrent-edge-supernode-mixed-commit-abort
+      script: "ha/workloads/concurrent_edge_supernode_mixed_commit_abort/workload.py"
+      timeout_min: 10
