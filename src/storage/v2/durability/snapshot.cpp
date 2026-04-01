@@ -9949,7 +9949,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
 }
 
-// Copy of master's LoadCurrentVersionSnapshot without descriptions and without vector edge index entry data.
 RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path const &path,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         utils::SkipList<EdgeMetadata> *edges_metadata,
