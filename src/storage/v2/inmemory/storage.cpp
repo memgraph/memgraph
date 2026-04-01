@@ -1799,6 +1799,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
                            std::nullopt,
                            updater,
                            std::nullopt,
+                           IndexOrder::ASC,
                            &transaction_,
                            std::move(cancel_check))
            .has_value()) {

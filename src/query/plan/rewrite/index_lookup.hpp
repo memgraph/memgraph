@@ -1149,7 +1149,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     properties = filters_grouped_by_property | rv::keys | r::to_vector;
 
-    for (auto const &[label_pos, properties_poses, index_label, index_properties] :
+    for (auto const &[label_pos, properties_poses, index_label, index_properties, index_order] :
          db_->RelevantLabelPropertiesIndicesInfo(labels, properties)) {
       // properties_poses: [5,3,-1,4]
       constexpr long MISSING = -1;

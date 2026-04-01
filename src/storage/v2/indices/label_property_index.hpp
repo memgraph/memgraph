@@ -23,6 +23,11 @@
 
 namespace memgraph::storage {
 
+// TODO: A cleaner long-term approach would be to add a comparator template parameter to SkipList
+// (e.g. SkipList<TObj, Compare = std::compare_three_way>) and reuse the same Entry type.
+// This avoids the DescEntry duplication but requires modifying the core concurrent SkipList data structure.
+enum class IndexOrder : uint8_t { ASC = 0, DESC = 1 };
+
 struct ActiveIndicesUpdater;
 struct LabelPropertyIndexActiveIndices;
 struct LabelPropertyIndexAbortProcessor;
@@ -93,6 +98,7 @@ struct LabelPropertiesIndicesInfo {
   std::vector<int64_t> properties_pos_;  // -1 means missing
   LabelId label_;
   std::vector<PropertyPath> properties_;
+  IndexOrder order_{IndexOrder::ASC};
 };
 
 struct IndexOrderedPropertyValues {
