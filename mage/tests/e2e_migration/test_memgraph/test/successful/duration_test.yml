@@ -8,4 +8,4 @@ query: |
 
 output:
   - duration_col_type: 'DURATION'
-    duration_col: 'P1DT2H3M4S'
+    duration_col: 'P1DT2H3M4.000000S'
