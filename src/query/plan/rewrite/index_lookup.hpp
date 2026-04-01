@@ -884,16 +884,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
 
-  // ORDER BY elimination state. Stack because nested OrderBy operators can appear
-  // (e.g., WITH n ORDER BY n.prop RETURN n ORDER BY n.prop).
+  // Stack because nested OrderBy operators can appear (WITH ... ORDER BY ... RETURN ... ORDER BY).
   struct OrderByContext {
     OrderBy *op;
     Symbol scan_symbol;
     std::vector<storage::PropertyPath> property_paths;
-    bool valid;             // all expressions are ASC and recognized (PropertyLookup or bare Identifier)
-    bool should_eliminate;  // set by CheckOrderByElimination, consumed in PostVisit
-    // Bare-Identifier ORDER BY entries (e.g., ORDER BY a after WITH n.prop AS a).
-    // Resolved to property_paths during CheckOrderByElimination via Produce inspection.
+    bool valid;
+    bool should_eliminate;
+    // Bare-Identifier ORDER BY (e.g., ORDER BY a after WITH n.prop AS a). Resolved to
+    // property_paths during CheckOrderByElimination via Produce inspection.
     std::vector<std::string> unresolved_aliases;
   };
 
@@ -922,8 +921,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     int64_t num_of_index_hints;
   };
 
-  /// Resolve what output name carries `tracked_name` through a Produce.
-  /// Returns nullopt if the variable is dropped or only used in a complex expression (e.g., n.prop AS p).
+  /// Returns the output name that carries `tracked_name` through a Produce, or nullopt if dropped.
   static std::optional<std::string> ResolveProduceMapping(Produce *produce, const std::string &tracked_name) {
     for (const auto *ne : produce->named_expressions_) {
       auto *ident = dynamic_cast<Identifier *>(ne->expression_);
@@ -942,11 +940,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (orderings.empty()) return ctx;
 
     // TODO(ivan): Support DESC — SkipList indexes can be iterated in reverse.
-    for (const auto &ord : orderings) {
+    for (const auto &ord : orderings)
       if (ord.ordering() != Ordering::ASC) return ctx;
-    }
 
-    // Determine expression types: all PropertyLookup(Identifier), all bare Identifier, or mixed.
     bool all_prop_lookup = true;
     bool all_bare_ident = true;
     for (auto *expr : order_by_exprs) {
@@ -956,7 +952,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (!all_prop_lookup && !all_bare_ident) return ctx;
 
     if (all_prop_lookup) {
-      // All expressions are PropertyLookup(Identifier) on the same symbol.
       bool first = true;
       for (auto *expr : order_by_exprs) {
         auto *prop_lookup = dynamic_cast<PropertyLookup *>(expr);
@@ -979,8 +974,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         ctx.property_paths.emplace_back(std::move(prop_ids));
       }
     } else {
-      // Bare Identifiers (e.g., ORDER BY a, b after WITH n.a AS a, n.b AS b).
-      // Store alias names for deferred resolution through Produce operators.
       for (auto *expr : order_by_exprs) {
         ctx.unresolved_aliases.push_back(dynamic_cast<Identifier *>(expr)->name_);
       }
@@ -993,24 +986,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // TODO: Extend to edge property index scans (also SkipList-backed, ASC order).
 
   struct WalkResult {
-    // Produces between scan and OrderBy (in OrderBy-to-scan order), each paired with the
-    // scan symbol's tracked name as it enters that Produce.
-    std::vector<std::pair<Produce *, std::string>> produces;
-    // The scan symbol name after walking through all Produces (output-scope name).
-    std::string tracked_name;
-    // The scan symbol name just before the last Produce (input-scope name for dual-scope semantics).
-    std::string pre_last_produce_name;
+    std::vector<std::pair<Produce *, std::string>> produces;  // (produce, tracked_name entering it)
+    std::string tracked_name;                                 // scan symbol name after all Produces (output-scope)
+    std::string pre_last_produce_name;                        // scan symbol name before last Produce (input-scope)
     bool valid;
   };
 
-  /// Walk prev_ops_ from scan to OrderBy, verifying all operators are order-preserving.
-  /// Collects Produces (in OrderBy-to-scan order) with tracked scan symbol names.
-  /// Also finds the Produce above OrderBy (RETURN/WITH scope) if it exists.
+  /// Walk prev_ops_ from scan to OrderBy, verifying order preservation and collecting Produces.
+  /// Returned produces are in OrderBy-to-scan order for alias resolution.
   WalkResult WalkToOrderBy(const OrderByContext &ctx, const Symbol &scan_symbol) {
     WalkResult result{.tracked_name = scan_symbol.name(), .pre_last_produce_name = scan_symbol.name(), .valid = true};
 
-    // Walk backwards from scan to OrderBy, collecting Produces and checking order preservation.
-    // Produces are appended scan-to-OrderBy, then reversed at the end to get OrderBy-to-scan order.
     for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
       auto *op = *it;
       const auto &type_info = op->GetTypeInfo();
@@ -1021,13 +1007,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         result.produces.emplace_back(produce, result.tracked_name);
         auto resolved = ResolveProduceMapping(produce, result.tracked_name);
         if (resolved) result.tracked_name = std::move(*resolved);
-        // nullopt is expected for property-projection Produces (n.a AS a) — tracked_name stays.
         continue;
       }
 
-      // 1:N operators (Expand, Unwind, Apply, Optional) preserve input-symbol order.
-      // Mutation operators (SetProperty, Delete, etc.) are excluded — they can change
-      // the values ORDER BY evaluates, invalidating index order.
+      // Mutation operators (SetProperty, Delete, etc.) are excluded — they can change sorted values.
       bool order_preserving =
           type_info == Filter::kType || type_info == ConstructNamedPath::kType ||
           type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
@@ -1040,31 +1023,26 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
     }
 
-    // Find the Produce above OrderBy (RETURN/WITH scope). It may be separated by Distinct
-    // (RETURN DISTINCT ... ORDER BY produces Produce → Distinct → OrderBy).
+    // Find the Produce above OrderBy (RETURN/WITH scope), skipping Distinct if present.
     for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend(); ++it) {
       if (*it != ctx.op) continue;
-      // Walk upward from OrderBy's parent, skipping Distinct, to find the Produce.
       for (auto parent = it + 1; parent != prev_ops_.rend(); ++parent) {
         const auto &pt = (*parent)->GetTypeInfo();
         if (pt == Produce::kType) {
           result.produces.emplace_back(dynamic_cast<Produce *>(*parent), result.tracked_name);
           break;
         }
-        if (pt != Distinct::kType) break;  // unexpected operator between Produce and OrderBy
+        if (pt != Distinct::kType) break;
       }
       break;
     }
 
-    // Reverse to OrderBy-to-scan order for alias resolution.
     std::reverse(result.produces.begin(), result.produces.end());
     return result;
   }
 
-  /// Resolve bare-Identifier ORDER BY aliases through a Produce's named_expressions.
-  /// Returns true if all aliases were resolved to PropertyLookup(Identifier), filling property_paths.
-  /// Returns false if all aliases passed through as renames (unresolved_aliases updated).
-  /// Bails (sets ctx.valid = false) on mixed resolution, missing aliases, or wrong source symbol.
+  /// Resolve bare-Identifier ORDER BY aliases through a Produce. Returns true if all resolved
+  /// to PropertyLookup, false if all passed through as renames. Bails (ctx.valid = false) on mixed.
   bool ResolveAliasesThroughProduce(Produce *produce, OrderByContext &ctx, const std::string &expected_source) {
     std::vector<storage::PropertyPath> resolved_paths;
     std::vector<std::string> remaining;
@@ -1084,7 +1062,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       if (auto *prop = dynamic_cast<PropertyLookup *>(matched->expression_)) {
         auto *inner = dynamic_cast<Identifier *>(prop->expression_);
-        // All PropertyLookups must reference the same source symbol (tracked through renames).
         if (!inner || inner->name_ != expected_source) {
           ctx.valid = false;
           return false;
@@ -1104,7 +1081,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     if (!resolved_paths.empty() && !remaining.empty()) {
-      ctx.valid = false;  // mixed resolution in one Produce
+      ctx.valid = false;
       return false;
     }
 
@@ -1124,13 +1101,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     if (new_scan->GetTypeInfo() != ScanAllByLabelProperties::kType) return;
 
-    // Walk from scan to OrderBy: verify order preservation, collect Produces with tracked names.
     auto walk = WalkToOrderBy(ctx, scan_symbol);
     if (!walk.valid) return;
 
-    // Resolve ORDER BY expressions to property paths.
     if (!ctx.unresolved_aliases.empty()) {
-      // Bare-Identifier path: resolve aliases through collected Produces (OrderBy-to-scan order).
       for (const auto &[produce, expected_source] : walk.produces) {
         if (ctx.unresolved_aliases.empty()) break;
         ResolveAliasesThroughProduce(produce, ctx, expected_source);
@@ -1138,22 +1112,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       if (!ctx.unresolved_aliases.empty()) return;
     } else {
-      // PropertyLookup path: verify the ORDER BY symbol matches the scan symbol.
-      // Cypher ORDER BY has dual-scope semantics: RETURN n AS m ORDER BY n.prop and
-      // ORDER BY m.prop are both valid — check both tracked and pre-last-produce names.
+      // Dual-scope: RETURN n AS m ORDER BY n.prop and ORDER BY m.prop are both valid.
       const auto &ob_name = ctx.scan_symbol.name();
       if (walk.tracked_name != ob_name && walk.pre_last_produce_name != ob_name) return;
     }
 
-    // Match ORDER BY properties against index columns. Equality-pinned columns (WHERE col = val)
-    // can be skipped — all rows share the same value so they don't affect sort order.
-    // Example: index (a, b), WHERE a = 5 ORDER BY b → a is pinned, b matches → eliminate.
+    // Match ORDER BY properties against index columns, skipping equality-pinned columns.
     auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(new_scan);
     const auto &index_properties = scan_by_props->properties_;
     const auto &expr_ranges = scan_by_props->expression_ranges_;
 
-    // IN-list rewrite inserts an Unwind below the scan, causing multiple scan invocations
-    // in user-provided list order (not index order). Bail — the output isn't globally sorted.
+    // IN-list rewrite inserts an Unwind below the scan — output isn't globally sorted.
     {
       auto *op = scan_by_props->input().get();
       while (op) {
