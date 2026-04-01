@@ -847,8 +847,9 @@ class DbAccessor final {
 
   std::expected<void, storage::StorageIndexDefinitionError> CreateIndex(
       storage::LabelId label, std::vector<storage::PropertyPath> &&properties,
+      storage::IndexOrder order = storage::IndexOrder::ASC,
       storage::CheckCancelFunction cancel_check = storage::neverCancel) {
-    return accessor_->CreateIndex(label, std::move(properties), std::move(cancel_check));
+    return accessor_->CreateIndex(label, std::move(properties), order, std::move(cancel_check));
   }
 
   std::expected<void, storage::StorageIndexDefinitionError> CreateIndex(

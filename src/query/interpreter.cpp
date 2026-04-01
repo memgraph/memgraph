@@ -4145,11 +4145,12 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name,
                  properties = std::move(properties),
+                 order = index_query->order_,
                  stopping_context = std::move(stopping_context)](Notification &index_notification) mutable {
         auto cancel_callback = make_create_index_cancel_callback(stopping_context);
-        auto maybe_index_error = properties.empty()
-                                     ? dba->CreateIndex(label, std::move(cancel_callback))
-                                     : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback));
+        auto maybe_index_error =
+            properties.empty() ? dba->CreateIndex(label, std::move(cancel_callback))
+                               : dba->CreateIndex(label, std::move(properties), order, std::move(cancel_callback));
         if (!maybe_index_error) {
           auto const error_visitor = [&]<typename T>(T const &) {
             if constexpr (std::is_same_v<T, storage::IndexDefinitionError> ||
