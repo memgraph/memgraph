@@ -184,13 +184,12 @@ TEST_F(VectorEdgeIndexTest, DeleteEdgeTest) {
     EXPECT_EQ(maybe_deleted_edge.has_value(), true);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  // After commit+GC the edge is removed from the index. Use the GC fixture for that;
-  // here we just verify the search still works (may return the deleted edge until GC runs).
+  this->storage->FreeMemory();
   {
     auto acc = this->storage->Access(memgraph::storage::READ);
     std::vector<float> query = {1.0, 1.0};
     const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, query);
-    EXPECT_LE(result.size(), 1);
+    EXPECT_EQ(result.size(), 0);
   }
 }
 
