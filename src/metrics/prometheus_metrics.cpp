@@ -756,6 +756,7 @@ PrometheusMetrics::PrometheusMetrics()
 
 DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name,
                                                       std::function<StorageSnapshot()> get_snapshot) {
+  std::lock_guard const lock{databases_mutex_};
   prometheus::Labels const labels{{"database", std::string(db_name)}};
   databases_.push_back({
       .db_name = std::string(db_name),
@@ -866,12 +867,14 @@ DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name,
 
 void PrometheusMetrics::UpdateSnapshotCallback(DatabaseMetricHandles const *handles,
                                                std::function<StorageSnapshot()> get_snapshot) {
+  std::lock_guard const lock{databases_mutex_};
   auto it = std::ranges::find_if(databases_, [handles](auto const &e) { return &e.handles == handles; });
   MG_ASSERT(it != databases_.end(), "Attempted to update snapshot callback for unregistered database");
   it->get_snapshot = std::move(get_snapshot);
 }
 
 void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
+  std::lock_guard const lock{databases_mutex_};
   auto it = std::ranges::find_if(databases_, [handles](auto const &e) { return &e.handles == handles; });
   MG_ASSERT(it != databases_.end(), "Attempted to remove unregistered database from PrometheusMetrics");
   auto &h = it->handles;
@@ -974,6 +977,7 @@ void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
 }
 
 void PrometheusMetrics::UpdateGauges() {
+  std::shared_lock const lock{databases_mutex_};
   for (auto &entry : databases_) {
     auto const snapshot = entry.get_snapshot();
     entry.handles.vertex_count->Set(static_cast<double>(snapshot.vertex_count));
@@ -1056,6 +1060,7 @@ void AppendMergedHistogramPercentiles(std::vector<MetricInfo> &out, std::string 
 
 std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetricsInfo(
     std::string_view db_name) const {
+  std::shared_lock const lock{databases_mutex_};
   auto const it = std::ranges::find_if(databases_, [db_name](auto const &e) { return e.db_name == db_name; });
   if (it == databases_.end()) {
     return std::unexpected(fmt::format("Database '{}' not found in metrics registry", db_name));
@@ -1271,6 +1276,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
 }
 
 std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
+  std::shared_lock const lock{databases_mutex_};
   auto const &g = global;
   std::vector<MetricInfo> out;
 
