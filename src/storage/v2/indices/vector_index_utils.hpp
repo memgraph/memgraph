@@ -330,23 +330,23 @@ inline bool ShouldUnregisterFromIndex(PropertyValue &property_value, uint64_t in
 /// which increases graph memory usage. This function estimates the cost and throws OutOfMemoryException
 /// if the limit would be exceeded.
 inline void CheckGraphMemoryForIndexDrop(std::string_view index_name, std::size_t num_vectors, std::size_t dimension) {
-  const auto graph_limit = utils::graph_memory_tracker.HardLimit();
-  if (graph_limit <= 0) return;
+  const auto total_limit = utils::total_memory_tracker.HardLimit();
+  if (total_limit <= 0) return;
 
   const auto bytes_per_element = FLAGS_storage_floating_point_resolution_bits / 8;
   const auto estimated_cost =
       static_cast<int64_t>(num_vectors) * static_cast<int64_t>(dimension) * static_cast<int64_t>(bytes_per_element);
-  const auto current_usage = utils::graph_memory_tracker.Amount();
+  const auto current_usage = utils::total_memory_tracker.Amount();
 
-  if (current_usage + estimated_cost > graph_limit) {
+  if (current_usage + estimated_cost > total_limit) {
     throw utils::OutOfMemoryException(
-        fmt::format("Dropping vector index '{}' would require approximately {} of additional graph memory, "
+        fmt::format("Dropping vector index '{}' would require approximately {} of additional memory, "
                     "but only {} is available (current usage: {}, limit: {}).",
                     index_name,
                     utils::GetReadableSize(estimated_cost),
-                    utils::GetReadableSize(graph_limit - current_usage),
+                    utils::GetReadableSize(std::max(total_limit - current_usage, int64_t{0})),
                     utils::GetReadableSize(current_usage),
-                    utils::GetReadableSize(graph_limit)));
+                    utils::GetReadableSize(total_limit)));
   }
 }
 
