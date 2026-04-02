@@ -18,7 +18,6 @@
 #include <variant>
 #include <vector>
 
-#include "metrics/prometheus_metrics.hpp"
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
@@ -33,6 +32,10 @@
 #include "utils/shared_quota.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/visitor.hpp"
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
