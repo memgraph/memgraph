@@ -79,6 +79,7 @@ class Memgraph(ConanFile):
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
         self.requires("fmt/11.2.0")
+        self.requires("libbcrypt/1.0-memgraph")
         self.requires(
             "jemalloc/5.2.1-memgraph",
             options={
