@@ -880,9 +880,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
 
-  // Set of ScanAllByLabelProperties operators that were created from IN-list filters.
-  // IN-list rewrite inserts Unwind + per-value equality scan, which breaks global sort order.
-  // Used by TryEliminateOrderBy to reject these scans for ORDER BY elimination.
+  // Scans created from IN-list filters (Unwind + per-value equality), which break global sort order.
   std::unordered_set<LogicalOperator *> in_filter_scans_;
 
   struct LabelPropertyIndex {
@@ -984,14 +982,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   /// Check if an operator preserves the relative row order of its input.
-  /// Mutation operators (SetProperty, Delete, etc.) are excluded — they can change sorted values.
-  /// Expand/ExpandVariable may multiply rows (1:N), but relative order of the scan symbol is
-  /// preserved — and we only eliminate ORDER BY on the scan symbol, so duplicated values are equal
-  /// and the output remains sorted. This invariant breaks if elimination is ever extended to
-  /// non-scan symbols.
-  /// Unwind (user-written, e.g. UNWIND [1,2,3] AS x) multiplies rows but preserves scan-symbol
-  /// order. This is distinct from the IN-list rewrite Unwind *below* the scan, which drives the
-  /// scan with multiple values and breaks global order — that case is caught at marker creation time.
+  /// Expand/ExpandVariable may multiply rows (1:N), but the scan symbol's order is preserved.
+  /// Unwind (user-written) multiplies rows but preserves scan-symbol order; the IN-list rewrite
+  /// Unwind below the scan is caught separately via in_filter_scans_.
   static bool IsOrderPreserving(const utils::TypeInfo &type_info) {
     return type_info == Filter::kType || type_info == ConstructNamedPath::kType ||
            type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
@@ -1055,30 +1048,21 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  /// Attempt to eliminate OrderBy by walking prev_ops_ downward to find a ScanAllByLabelProperties.
-  ///
-  /// This approach is chosen over a marker-based design (setting state in PostVisit(ScanAll) and
-  /// propagating it through PostVisit(Produce)) because prev_ops_ always reflects the actual visitor
-  /// path — no stale pointers from operators being replaced (e.g. ExpandVariable swapping its input
-  /// for STShortestPath), no edge cases with multi-input operators, and no distributed mutable state
-  /// to maintain. All logic lives in one place: PostVisit(OrderBy).
+  /// Attempt to eliminate OrderBy by walking the input() chain to find a ScanAllByLabelProperties.
+  /// All elimination logic lives here — no distributed state across PostVisits. This avoids edge
+  /// cases with operators that replace their input (e.g. ExpandVariable for STShortestPath) or
+  /// multi-input operators, since we walk the actual operator tree at elimination time.
   bool TryEliminateOrderBy(OrderBy &op) {
     auto info = ExtractOrderByInfo(op);
     if (!info.valid) return false;
 
-    // Walk prev_ops_ from bottom (closest to scan) upward to find a ScanAllByLabelProperties,
-    // verifying that all operators in between preserve order and collecting Produces for alias
-    // resolution. prev_ops_ contains ancestors whose PreVisit fired but PostVisit hasn't yet —
-    // at PostVisit(OrderBy) time this is [root, ..., Produce, (Distinct)?, OrderBy's ancestors].
-    // OrderBy itself was just popped, so we start from the back.
+    // Walk input() chain from OrderBy down to find a ScanAllByLabelProperties,
+    // verifying order-preserving operators and collecting Produces for alias resolution.
     ScanAllByLabelProperties *scan = nullptr;
     Symbol scan_symbol;
-    // Produces in scan→OrderBy order, each paired with the scan symbol name at that Produce's input scope.
-    std::vector<std::pair<Produce *, std::string_view>> produces;
+    std::vector<std::pair<Produce *, std::string_view>> produces;  // scan→OrderBy order, name filled below
     std::string_view tracked_name;
 
-    // Find the ScanAllByLabelProperties by walking the input() chain from OrderBy downward.
-    // prev_ops_ goes upward (toward root), so we walk input() instead.
     {
       auto *current = op.input().get();
       while (current) {
@@ -1089,24 +1073,19 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
         if (!IsOrderPreserving(type_info)) return false;
         if (type_info == Produce::kType) {
-          produces.emplace_back(dynamic_cast<Produce *>(current), std::string_view{});  // name filled below
+          produces.emplace_back(dynamic_cast<Produce *>(current), std::string_view{});
         }
         current = current->input().get();
       }
       if (!scan) return false;
     }
 
-    // Reject IN-list scans — Unwind + per-value equality breaks global sort order.
     if (in_filter_scans_.contains(scan)) return false;
 
-    // Find the scan's output symbol by looking it up in prev_ops_.
-    // The scan itself isn't in prev_ops_ (already PostVisited), but we can get the symbol
-    // from the scan operator directly — it stores output_symbol_.
     scan_symbol = scan->output_symbol_;
     tracked_name = scan_symbol.name();
 
-    // Fill in tracked names for each Produce (scan→OrderBy order).
-    // Produces were collected in OrderBy→scan order during the walk, reverse them.
+    // Resolve rename tracking through Produces (need scan→OrderBy order).
     std::reverse(produces.begin(), produces.end());
     for (auto &[produce, name] : produces) {
       name = tracked_name;
@@ -1114,8 +1093,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (resolved) tracked_name = *resolved;
     }
 
-    // Find the Produce above OrderBy (RETURN/WITH scope) — its PostVisit hasn't fired yet,
-    // so it's still in prev_ops_. Skip Distinct if present between OrderBy and Produce.
+    // Find the Produce above OrderBy (RETURN/WITH scope) — still in prev_ops_ since its
+    // PostVisit hasn't fired yet. Skip Distinct if present.
     for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend(); ++it) {
       const auto &pt = (*it)->GetTypeInfo();
       if (pt == Produce::kType) {
@@ -1126,8 +1105,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     if (!info.unresolved_aliases.empty()) {
-      // Resolve from OrderBy scope down to scan scope: iterate produces in reverse
-      // (they are stored in scan→OrderBy order).
+      // Resolve aliases OrderBy→scan (reverse of produces order).
       for (auto it = produces.rbegin(); it != produces.rend(); ++it) {
         if (info.unresolved_aliases.empty()) break;
         ResolveAliasesThroughProduce(it->first, info, it->second);
