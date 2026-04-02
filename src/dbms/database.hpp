@@ -210,12 +210,12 @@ class Database {
     metrics::DatabaseMetricHandles *handles_{nullptr};
   };
 
-  ScopedMetrics metrics_;
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
   std::unique_ptr<query::stream::Streams> streams_;     //!< Streams associated with the storage
   query::PlanCacheLRU plan_cache_;                      //!< Plan cache associated with the storage
+  ScopedMetrics metrics_;
 };
 
 }  // namespace memgraph::dbms
