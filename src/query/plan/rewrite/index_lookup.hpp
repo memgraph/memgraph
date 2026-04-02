@@ -1144,6 +1144,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
     }
 
+    // TODO: When ob_ptr < ctx.property_paths.size() but ob_ptr > 0, the index covers a prefix of the
+    // ORDER BY columns. We could partially eliminate by rewriting OrderBy to only sort on the remaining
+    // columns, since the index already provides order on the first ob_ptr columns.
     if (ob_ptr != ctx.property_paths.size()) return;
 
     ctx.should_eliminate = true;
