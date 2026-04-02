@@ -179,7 +179,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_Enterprise) {
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_EQ(detailed_license_info.organization_name, "Memgraph");
   ASSERT_TRUE(detailed_license_info.is_valid);
-  ASSERT_EQ(detailed_license_info.license_type, "Enterprise");
+  ASSERT_EQ(detailed_license_info.license_type, "enterprise");
   ASSERT_EQ(detailed_license_info.valid_until, "FOREVER");
   ASSERT_EQ(detailed_license_info.memory_limit, 0);
   ASSERT_EQ(detailed_license_info.status, "You are running a valid Memgraph Enterprise License.");
@@ -204,7 +204,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_OemNonExpiredIsInvalid) {
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
-  ASSERT_EQ(detailed_license_info.license_type, "OEM");
+  ASSERT_EQ(detailed_license_info.license_type, "oem");
 }
 
 TEST_F(LicenseTest, DetailedLicenseInfo_MismatchedOrgName) {
@@ -458,7 +458,7 @@ TEST_F(LicenseTest, AiPlatform_DetailedLicenseInfo) {
   license_checker->SetCliLicense(key, org, *settings);
   auto info = license_checker->GetDetailedLicenseInfo();
   ASSERT_TRUE(info.is_valid);
-  ASSERT_EQ(info.license_type, "AI Platform");
+  ASSERT_EQ(info.license_type, "ai_platform");
   ASSERT_EQ(info.memory_limit, 512);
   ASSERT_EQ(info.status, "You are running a valid Memgraph AI Platform License.");
 }

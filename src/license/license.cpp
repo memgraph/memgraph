@@ -83,13 +83,13 @@ LicenseCheckResult IsValidLicenseInternal(const License &license, std::string_vi
 std::string LicenseTypeToString(const LicenseType license_type) {
   switch (license_type) {
     case LicenseType::ENTERPRISE: {
-      return "Enterprise";
+      return "enterprise";
     }
     case LicenseType::OEM: {
-      return "OEM";
+      return "oem";
     }
     case LicenseType::AI_PLATFORM: {
-      return "AI Platform";
+      return "ai_platform";
     }
   }
 }
@@ -403,7 +403,9 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   }
 
   info.is_valid = true;
-  info.status = fmt::format("You are running a valid Memgraph {} License.", LicenseTypeToString(maybe_license->type));
+  info.status = maybe_license->type == LicenseType::AI_PLATFORM
+                    ? "You are running a valid Memgraph AI Platform License."
+                    : "You are running a valid Memgraph Enterprise License.";
   return info;
 }
 
