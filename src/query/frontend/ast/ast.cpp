@@ -443,7 +443,11 @@ constexpr utils::TypeInfo query::DropEnumQuery::kType{
 constexpr utils::TypeInfo query::ShowSchemaInfoQuery::kType{
     .id = utils::TypeId::AST_SHOW_SCHEMA_INFO_QUERY, .name = "ShowSchemaInfoQuery", .superclass = &query::Query::kType};
 
-constexpr utils::TypeInfo query::TtlQuery::kType{utils::TypeId::AST_TTL_QUERY, "TtlQuery", &query::Query::kType};
+constexpr utils::TypeInfo query::ReloadSSLQuery::kType{
+    .id = utils::TypeId::AST_RELOAD_SSL_QUERY, .name = "ReloadSSLQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::TtlQuery::kType{
+    .id = utils::TypeId::AST_TTL_QUERY, .name = "TtlQuery", .superclass = &query::Query::kType};
 
 constexpr utils::TypeInfo query::SessionTraceQuery::kType{
     .id = utils::TypeId::AST_SESSION_TRACE_QUERY, .name = "SessionTraceQuery", .superclass = &query::Query::kType};

@@ -90,6 +90,12 @@ std::string Schema::TypeOf(const mgp::Type &type) {
       return "Duration";
     case mgp::Type::ZonedDateTime:
       return "ZonedDateTime";
+    case mgp::Type::Point2d:
+      return "Point2d";
+    case mgp::Type::Point3d:
+      return "Point3d";
+    case mgp::Type::Enum:
+      return "Enum";
     default:
       throw mgp::ValueException("Unsupported type");
   }

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,11 +52,8 @@ class TextIndex {
   static std::vector<TextIndexData *> GetIndicesMatchingProperties(std::span<TextIndexData *const> label_indices,
                                                                    std::span<const PropertyId> properties);
 
-  static void AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties,
-                                 const std::string &property_values_as_str, mgcxx::text_search::Context &context);
-
-  static std::map<PropertyId, PropertyValue> ExtractVertexProperties(const PropertyStore &property_store,
-                                                                     std::span<PropertyId const> properties);
+  static void AddNodeToTextIndex(std::int64_t gid, nlohmann::json properties, std::string all_property_values,
+                                 mgcxx::text_search::Context &context);
 
  public:
   explicit TextIndex(const std::filesystem::path &storage_dir)
@@ -88,7 +85,7 @@ class TextIndex {
   bool IndexExists(const std::string &index_name) const;
 
   std::vector<TextSearchResult> Search(const std::string &index_name, const std::string &search_query,
-                                       text_search_mode search_mode, std::size_t limit);
+                                       text_search_mode search_mode, std::size_t limit, const Transaction &tx);
 
   std::string Aggregate(const std::string &index_name, const std::string &search_query,
                         const std::string &aggregation_query);

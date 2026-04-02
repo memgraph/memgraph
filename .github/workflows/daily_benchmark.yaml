@@ -27,7 +27,10 @@ jobs:
     #  - mgbench-supernode: 1.5 minute
     #  - mgbench-load-parquet: 4 minutes
     #  - mgbench-vector-search-index: 5 minutes
-    #  10 iterations would take about 485 minutes, leaving 65 minutes to allow
+    #  - mgbench-vector-search-edge-index: 5 minutes
+    #  - mgbench-text-search-index: 5 minutes
+    #  - mgbench-text-search-edge-index: 5 minutes
+    #  10 iterations would take about 500 minutes, leaving 50 minutes to allow
     #  for building memgraph and variations in benchmark times.
     env:
       ARCH: "amd"
@@ -130,6 +133,45 @@ jobs:
             $BRANCH_NAME \
             mgbench
 
+      - name: Run and upload mgbench-vector-search-edge-index
+        id: mgbench-vector-search-edge-index
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-vector-search-edge-index \
+            vector-search-edge-index \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-text-search-index
+        id: mgbench-text-search-index
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-text-search-index \
+            text-search-index \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-text-search-edge-index
+        id: mgbench-text-search-edge-index
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-text-search-edge-index \
+            text-search-edge-index \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
       - name: Run and upload macro benchmarks
         id: macro-benchmark
         continue-on-error: true
@@ -209,7 +251,7 @@ jobs:
 
       - name: Set Job Status
         run: |
-          success=${{ steps.macro-benchmark.outcome == 'success' && steps.mgbench-supernode.outcome == 'success' && steps.mgbench.outcome == 'success' && steps.planner.outcome == 'success' && steps.load-parquet.outcome == 'success' && steps.mgbench-vector-search-index.outcome == 'success' }}
+          success=${{ steps.macro-benchmark.outcome == 'success' && steps.mgbench-supernode.outcome == 'success' && steps.mgbench.outcome == 'success' && steps.planner.outcome == 'success' && steps.load-parquet.outcome == 'success' && steps.mgbench-vector-search-index.outcome == 'success' && steps.mgbench-vector-search-edge-index.outcome == 'success' && steps.mgbench-text-search-index.outcome == 'success' && steps.mgbench-text-search-edge-index.outcome == 'success' }}
           echo "success=$success" >> $GITHUB_OUTPUT
           if [ "$success" == "true" ]; then
             echo "All benchmarks succeeded"

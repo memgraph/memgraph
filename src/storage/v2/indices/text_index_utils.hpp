@@ -11,17 +11,22 @@
 
 #pragma once
 
-#include <mgcxx_text_search.hpp>
+#include <memory>
 #include <span>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
-#include "mg_procedure.h"
 #include "nlohmann/json_fwd.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
+
+namespace mgcxx::text_search {
+struct Context;
+struct SearcherContext;
+}  // namespace mgcxx::text_search
 
 namespace memgraph::storage {
 
@@ -30,6 +35,22 @@ struct Vertex;
 struct Edge;
 struct TextIndexData;
 struct TextEdgeIndexData;
+
+using TextIndexKey = std::variant<const TextIndexData *, const TextEdgeIndexData *>;
+
+// Caches pinned tantivy searchers per index for snapshot-consistent reads within a transaction
+class TextSearchSession {
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+
+ public:
+  TextSearchSession();
+  ~TextSearchSession();
+  TextSearchSession(TextSearchSession &&) noexcept;
+  TextSearchSession &operator=(TextSearchSession &&) noexcept;
+
+  mgcxx::text_search::SearcherContext *GetOrAcquire(TextIndexKey index_key, mgcxx::text_search::Context &ctx);
+};
 
 inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 inline constexpr bool kDoSkipCommit = true;
@@ -48,12 +69,17 @@ std::string MakeIndexPath(const std::string &base_path, std::string_view index_n
 // Serialize properties to JSON format
 nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, NameIdMapper *name_id_mapper);
 
-// Convert properties to string representation
+// Convert properties to string representation (space-joined values for the "all" text field)
 std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
 // Extract properties from the property store and return them as a map
 std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
                                                       std::span<PropertyId const> properties);
+
+// Filter which properties to index: if index_properties is empty, return all entity_properties;
+// otherwise return the intersection.
+std::vector<PropertyId> FilterPropertiesToIndex(std::span<const PropertyId> index_properties,
+                                                std::vector<PropertyId> entity_properties);
 
 // Check if index properties match the given properties
 bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
@@ -111,10 +137,5 @@ void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextInd
                           TextIndexOp op);
 void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span<TextEdgeIndexData *> indices,
                               const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, TextIndexOp op);
-
-// Text search utility functions
-mgcxx::text_search::SearchOutput PerformTextSearch(mgcxx::text_search::Context &context,
-                                                   const std::string &search_query, text_search_mode search_mode,
-                                                   std::size_t limit);
 
 }  // namespace memgraph::storage
