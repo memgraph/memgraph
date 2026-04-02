@@ -5,6 +5,7 @@ target_sources(mg-glue PRIVATE auth.cpp
                                communication.cpp
                                SessionHL.cpp
                                ServerT.cpp
+                               MonitoringServerT.cpp
                                PrometheusServerT.cpp
                                run_id.cpp
                                query_user.cpp)
