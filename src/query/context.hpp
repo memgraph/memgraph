@@ -12,11 +12,6 @@
 #pragma once
 
 #include <atomic>
-
-namespace memgraph::metrics {
-struct DatabaseMetricHandles;
-}  // namespace memgraph::metrics
-
 #include <memory>
 #include <type_traits>
 
@@ -31,6 +26,10 @@ struct DatabaseMetricHandles;
 
 #include "query/frame_change.hpp"
 #include "query/hops_limit.hpp"
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
