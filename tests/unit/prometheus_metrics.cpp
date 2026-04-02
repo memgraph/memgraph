@@ -43,13 +43,9 @@ std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &fa
 
 }  // namespace
 
-namespace {
-memgraph::metrics::StorageSnapshot no_op_snapshot() { return {}; }
-}  // namespace
-
 TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
   memgraph::metrics::PrometheusMetrics pm;
-  auto *handles = pm.AddDatabase("db1", no_op_snapshot);
+  auto *handles = pm.AddDatabase("db1");
 
   ASSERT_NE(handles->vertex_count, nullptr);
   ASSERT_NE(handles->committed_transactions, nullptr);
@@ -64,8 +60,8 @@ TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
 
 TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
   memgraph::metrics::PrometheusMetrics pm;
-  auto *h1 = pm.AddDatabase("db1", no_op_snapshot);
-  auto *h2 = pm.AddDatabase("db2", no_op_snapshot);
+  auto *h1 = pm.AddDatabase("db1");
+  auto *h2 = pm.AddDatabase("db2");
 
   h1->vertex_count->Set(10.0);
   h2->vertex_count->Set(20.0);
@@ -79,7 +75,12 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
   memgraph::metrics::PrometheusMetrics pm;
   memgraph::metrics::StorageSnapshot snapshot{
       .vertex_count = 7, .edge_count = 3, .disk_usage = 1024, .memory_res = 4096};
-  pm.AddDatabase("db1", [&snapshot] { return snapshot; });
+  pm.SetStorageSnapshotResolver(
+      [&snapshot](std::string_view name) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        if (name == "db1") return snapshot;
+        return std::nullopt;
+      });
+  pm.AddDatabase("db1");
 
   pm.UpdateGauges();
 
@@ -92,7 +93,7 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
 
 TEST(PrometheusMetrics, RemoveDatabaseRemovesMetrics) {
   memgraph::metrics::PrometheusMetrics pm;
-  auto *handles = pm.AddDatabase("db1", no_op_snapshot);
+  auto *handles = pm.AddDatabase("db1");
   handles->vertex_count->Set(99.0);
 
   pm.RemoveDatabase(handles);
@@ -109,10 +110,21 @@ TEST(DatabaseMetrics, SwitchToOnDiskUpdatesSnapshotCallback) {
 
   {
     memgraph::dbms::Database db{config};
+    memgraph::metrics::Metrics().SetStorageSnapshotResolver(
+        [&db](std::string_view name) -> std::optional<memgraph::metrics::StorageSnapshot> {
+          if (name != db.name()) return std::nullopt;
+          auto const info = db.storage()->GetBaseInfo();
+          return memgraph::metrics::StorageSnapshot{.vertex_count = info.vertex_count,
+                                                    .edge_count = info.edge_count,
+                                                    .disk_usage = info.disk_usage,
+                                                    .memory_res = info.memory_res};
+        });
     memgraph::metrics::Metrics().UpdateGauges();
 
     db.SwitchToOnDisk();
     EXPECT_NO_FATAL_FAILURE(memgraph::metrics::Metrics().UpdateGauges());
+
+    memgraph::metrics::Metrics().SetStorageSnapshotResolver({});
   }
 
   std::filesystem::remove_all(config.durability.storage_directory);
