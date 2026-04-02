@@ -346,7 +346,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // IN-list filters use Unwind to drive the scan with multiple values, breaking global order.
       if (!has_in_filter && indexed_scan->GetTypeInfo() == ScanAllByLabelProperties::kType) {
         auto *scan_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get());
-        provided_order_ = ProvidedOrder{scan_props, scan.output_symbol_, {}, scan.output_symbol_.name()};
+        provided_order_ = ProvidedOrder{scan_props, &scan.output_symbol_, {}, scan.output_symbol_.name()};
       }
       SetOnParent(std::move(indexed_scan));
     }
@@ -899,7 +899,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // at PostVisit(OrderBy) time.
   struct ProvidedOrder {
     ScanAllByLabelProperties *scan;
-    Symbol scan_symbol;
+    const Symbol *scan_symbol;
     // Produces between scan and current position, in bottom-to-top (PostVisit) order.
     // Each entry: (produce, scan symbol name at that Produce's input scope).
     std::vector<std::pair<Produce *, std::string_view>> produces;
@@ -1086,6 +1086,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto info = ExtractOrderByInfo(op);
     if (!info.valid) return false;
 
+    // TODO: This walk is redundant with the marker approach — clearing provided_order_ in
+    // non-order-preserving PostVisits would make it unnecessary. Remove once that's implemented.
     // Walk from OrderBy down to the scan via input(), verifying only order-preserving operators.
     {
       auto *current = op.input().get();
@@ -1124,7 +1126,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       const auto &ob_name = info.scan_symbol.name();
       const auto &tracked_name = order.current_name;
       const auto &pre_last_produce_name =
-          order.produces.empty() ? order.scan_symbol.name() : order.produces.back().second;
+          order.produces.empty() ? order.scan_symbol->name() : order.produces.back().second;
       if (tracked_name != ob_name && pre_last_produce_name != ob_name) return false;
     }
 
