@@ -91,6 +91,7 @@ class Memgraph(ConanFile):
             },
         )
         self.requires("libcurl/8.17.0", override=True)
+        self.requires("librdtsc/0.3-memgraph")
         self.requires("librdkafka/2.6.1", options={"ssl": True, "sasl": True})
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
         self.requires("nlohmann_json/3.11.3-memgraph")
