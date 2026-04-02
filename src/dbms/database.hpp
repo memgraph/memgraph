@@ -196,6 +196,8 @@ class Database {
 
   int64_t DbMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
 
+  int64_t DbStorageMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
+
   int64_t DbQueryMemoryUsage() const noexcept { return db_query_memory_tracker_.Amount(); }
 
  private:

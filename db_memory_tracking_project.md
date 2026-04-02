@@ -174,9 +174,9 @@ Per-query limit enforcement should remain local to the transaction/query tracker
 
 | Task | Status | Tests added | Build done | Tests run | Commit |
 |---|---|---|---|---|---|
-| T1 | Completed | Yes | Yes | Yes | No |
-| T2 | Completed | Yes | Yes | Yes | No |
-| T3 | Not started | No | No | No | No |
+| T1 | Completed | Yes | Yes | Yes | Yes (`598d29943`) |
+| T2 | Completed | Yes | Yes | Yes | Yes (`598d29943`) |
+| T3 | Completed | Yes | Yes | Yes | No |
 | T4 | Not started | No | No | No | No |
 | T5 | Not started | No | No | No | No |
 | T6 | Not started | No | No | No | No |
@@ -189,3 +189,5 @@ Per-query limit enforcement should remain local to the transaction/query tracker
 |---|---|
 | 2026-04-02 | Initial project tracker created. Query aggregation and per-DB embeddings are the two main missing pieces relative to the target hierarchy. |
 | 2026-04-02 | Started first implementation slice: added global/per-DB query tracker plumbing and focused unit coverage for rollup plus cross-DB isolation. |
+| 2026-04-02 | Query aggregation slice landed in commit `598d29943` (`Add per-db and global query memory rollup`). |
+| 2026-04-02 | Reporting slice verified: `SHOW STORAGE INFO` now exposes `db_storage_memory_tracked`, `db_query_memory_tracked`, `db_memory_tracked = storage + query`, and global `query_memory_tracked`; interpreter unit coverage passes for both in-memory and disk storage backends. |

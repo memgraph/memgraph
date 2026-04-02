@@ -6766,6 +6766,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         auto info = storage->GetBaseInfo();
         const int64_t vm_max_map_count_storage_info =
             utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
+        const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
+        const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("name"), TypedValue(storage->name())},
             {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
@@ -6780,12 +6782,15 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
             {TypedValue("memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
-            {TypedValue("db_memory_tracked"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(db->DbMemoryUsage())))},
+            {TypedValue("db_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory + db_query_memory))},
+            {TypedValue("db_storage_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory))},
+            {TypedValue("db_query_memory_tracked"), TypedValue(utils::GetReadableSize(db_query_memory))},
             {TypedValue("allocation_limit"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("graph_memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
+            {TypedValue("query_memory_tracked"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::global_query_memory_tracker.Amount())))},
             {TypedValue("vector_index_memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::vector_index_memory_tracker.Amount())))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},

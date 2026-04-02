@@ -609,6 +609,29 @@ TYPED_TEST(InterpreterTest, ShowStorageInfoInMulticommandTransaction) {
   this->Interpret("ROLLBACK");
 }
 
+TYPED_TEST(InterpreterTest, ShowStorageInfoIncludesQueryTrackingFields) {
+  auto stream = this->Interpret("SHOW STORAGE INFO");
+  ASSERT_EQ(stream.GetHeader().size(), 2U);
+  EXPECT_EQ(stream.GetHeader()[0], "storage info");
+  EXPECT_EQ(stream.GetHeader()[1], "value");
+
+  std::map<std::string, memgraph::communication::bolt::Value> values;
+  for (const auto &row : stream.GetResults()) {
+    ASSERT_EQ(row.size(), 2U);
+    values.emplace(row[0].ValueString(), row[1]);
+  }
+
+  EXPECT_TRUE(values.contains("db_memory_tracked"));
+  EXPECT_TRUE(values.contains("db_storage_memory_tracked"));
+  EXPECT_TRUE(values.contains("db_query_memory_tracked"));
+  EXPECT_TRUE(values.contains("query_memory_tracked"));
+
+  EXPECT_TRUE(values.at("db_memory_tracked").IsString());
+  EXPECT_TRUE(values.at("db_storage_memory_tracked").IsString());
+  EXPECT_TRUE(values.at("db_query_memory_tracked").IsString());
+  EXPECT_TRUE(values.at("query_memory_tracked").IsString());
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(InterpreterTest, ExistenceConstraintTest) {
   this->Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.a);");
