@@ -263,7 +263,7 @@ std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, c
   }
 
   return search_results.docs | rv::transform([](const auto &doc) -> TextSearchResult {
-           return {.vertex_gid = storage::Gid::FromInt(doc.gid), .score = doc.score};
+           return {.vertex_gid = storage::Gid::FromUint(doc.gid), .score = doc.score};
          }) |
          r::to<std::vector>();
 }

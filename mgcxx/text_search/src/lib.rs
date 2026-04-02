@@ -77,7 +77,7 @@ mod ffi {
     }
 
     struct GidScore {
-        gid: i64,
+        gid: u64,
         score: f32,
     }
     struct GidScoreOutput {
@@ -85,9 +85,9 @@ mod ffi {
     }
 
     struct EdgeGidScore {
-        edge_gid: i64,
-        from_gid: i64,
-        to_gid: i64,
+        edge_gid: u64,
+        from_gid: u64,
+        to_gid: u64,
         score: f32,
     }
     struct EdgeGidScoreOutput {
@@ -791,7 +791,7 @@ fn extract_u64_field(
     field: Field,
     field_name: &str,
     index_path: &std::path::PathBuf,
-) -> Result<i64, std::io::Error> {
+) -> Result<u64, std::io::Error> {
     let value = doc.get_first(field).ok_or_else(|| {
         Error::new(
             ErrorKind::Other,
@@ -803,7 +803,7 @@ fn extract_u64_field(
     })?;
     let owned: OwnedValue = value.into();
     match owned {
-        OwnedValue::U64(n) => Ok(n as i64),
+        OwnedValue::U64(n) => Ok(n),
         other => Err(Error::new(
             ErrorKind::Other,
             format!(

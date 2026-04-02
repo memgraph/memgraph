@@ -263,9 +263,9 @@ std::vector<TextEdgeSearchResult> TextEdgeIndex::Search(const std::string &index
   }
 
   return search_results.docs | rv::transform([](const auto &doc) -> TextEdgeSearchResult {
-           return {.edge_gid = storage::Gid::FromInt(doc.edge_gid),
-                   .from_vertex_gid = storage::Gid::FromInt(doc.from_gid),
-                   .to_vertex_gid = storage::Gid::FromInt(doc.to_gid),
+           return {.edge_gid = storage::Gid::FromUint(doc.edge_gid),
+                   .from_vertex_gid = storage::Gid::FromUint(doc.from_gid),
+                   .to_vertex_gid = storage::Gid::FromUint(doc.to_gid),
                    .score = doc.score};
          }) |
          r::to<std::vector>();
