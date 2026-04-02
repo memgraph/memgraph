@@ -1012,6 +1012,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
 
       // Mutation operators (SetProperty, Delete, etc.) are excluded — they can change sorted values.
+      // Expand/ExpandVariable may multiply rows (1:N), but relative order of the scan symbol is
+      // preserved — and we only eliminate ORDER BY on the scan symbol, so duplicated values are equal
+      // and the output remains sorted. This invariant breaks if elimination is ever extended to
+      // non-scan symbols.
+      // Unwind (user-written, e.g. UNWIND [1,2,3] AS x) multiplies rows but preserves scan-symbol
+      // order. This is distinct from the IN-list rewrite Unwind *below* the scan, which drives the
+      // scan with multiple values and breaks global order — that case is caught separately in
+      // CheckOrderByElimination.
       bool order_preserving =
           type_info == Filter::kType || type_info == ConstructNamedPath::kType ||
           type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
