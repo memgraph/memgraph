@@ -757,6 +757,12 @@ PrometheusMetrics::PrometheusMetrics()
 DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name,
                                                       std::function<StorageSnapshot()> get_snapshot) {
   std::lock_guard const lock{databases_mutex_};
+  if (auto it = std::ranges::find_if(databases_, [db_name](auto const &e) { return e.db_name == db_name; });
+      it != databases_.end()) {
+    ++it->ref_count;
+    it->get_snapshot = std::move(get_snapshot);
+    return &it->handles;
+  }
   prometheus::Labels const labels{{"database", std::string(db_name)}};
   databases_.push_back({
       .db_name = std::string(db_name),
@@ -877,6 +883,7 @@ void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
   std::lock_guard const lock{databases_mutex_};
   auto it = std::ranges::find_if(databases_, [handles](auto const &e) { return &e.handles == handles; });
   MG_ASSERT(it != databases_.end(), "Attempted to remove unregistered database from PrometheusMetrics");
+  if (--it->ref_count > 0) return;
   auto &h = it->handles;
   vertex_count_family_.Remove(h.vertex_count);
   edge_count_family_.Remove(h.edge_count);
