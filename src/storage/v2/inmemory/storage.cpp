@@ -1068,10 +1068,12 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
           auto failures = replicating_txn.CollectStartTxnErrors();
           if (!repl_prepare_phase_status.has_value()) {
-            auto const &ship_failures = repl_prepare_phase_status.error().failures;
-            failures.insert(failures.end(),
-                            std::make_move_iterator(ship_failures.begin()),
-                            std::make_move_iterator(ship_failures.end()));
+            for (auto &f : repl_prepare_phase_status.error().failures) {
+              // A replica that failed to start also fails during finalize — keep only the start error
+              if (!std::ranges::any_of(failures, [&](auto const &e) { return e.name == f.name; })) {
+                failures.push_back(std::move(f));
+              }
+            }
           }
           if (!failures.empty()) {
             return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
@@ -1100,10 +1102,12 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // to have a value if there were some start txn errors
         auto failures = replicating_txn.CollectStartTxnErrors();
         if (!repl_prepare_phase_status.has_value()) {
-          auto const &ship_failures = repl_prepare_phase_status.error().failures;
-          failures.insert(failures.end(),
-                          std::make_move_iterator(ship_failures.begin()),
-                          std::make_move_iterator(ship_failures.end()));
+          for (auto &f : repl_prepare_phase_status.error().failures) {
+            // A replica that failed to start also fails during finalize — keep only the start error
+            if (!std::ranges::any_of(failures, [&](auto const &e) { return e.name == f.name; })) {
+              failures.push_back(std::move(f));
+            }
+          }
         }
         if (!failures.empty()) {
           // Release engine lock because we don't have to hold it anymore for abort

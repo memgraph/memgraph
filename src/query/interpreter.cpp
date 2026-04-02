@@ -9524,14 +9524,16 @@ void Interpreter::Commit() {
   // Proactively unlock repl_state
   locked_repl_state.reset();
 
+  std::optional<std::string> replication_error_msg;
   if (!maybe_commit_error) {
     const auto &error = maybe_commit_error.error();
 
     std::visit(
-        [&execution_db_accessor = current_db_.execution_db_accessor_]<typename T>(const T &arg) {
+        [&execution_db_accessor = current_db_.execution_db_accessor_,
+         &replication_error_msg]<typename T>(const T &arg) {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-            throw ReplicationException(storage::FormatReplicationError(arg));
+            replication_error_msg = storage::FormatReplicationError(arg);
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
             const auto &constraint_violation = arg;
             auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
@@ -9594,6 +9596,10 @@ void Interpreter::Commit() {
   }
 
   SPDLOG_DEBUG("Finished committing the transaction");
+
+  if (replication_error_msg) {
+    throw ReplicationException(*replication_error_msg);
+  }
 
   if (IsQueryLoggingActive()) {
     query_logger_->trace("Commit successfully finished!");
