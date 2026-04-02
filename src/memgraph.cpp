@@ -845,9 +845,10 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
-  // TODO: replace hardcoded port 9092 with FLAGS_metrics_port once old metrics server is removed
   memgraph::glue::PrometheusServerT prometheus_server{
-      {"localhost", 9092}, &memgraph::metrics::Metrics(), &bolt_server_context};
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)},
+      &memgraph::metrics::Metrics(),
+      &bolt_server_context};
   spdlog::trace("Prometheus metrics server created.");
 #endif
 
