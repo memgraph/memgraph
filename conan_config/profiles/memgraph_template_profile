@@ -11,7 +11,6 @@
 
 [settings]
 arch = {{ target_arch }}
-build_type = {{ os.getenv("BUILD_TYPE") }}
 compiler=clang
 compiler.cppstd=gnu23
 compiler.libcxx=libstdc++11
