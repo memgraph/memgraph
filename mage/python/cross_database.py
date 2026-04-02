@@ -358,6 +358,7 @@ def bolt(
 
 def _cleanup_bolt():
     """Cleanup function called by mgp framework (no parameters)."""
+    print("Cleanup bolt")
     pass
 
 
