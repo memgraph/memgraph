@@ -153,7 +153,6 @@ declare -A primary_urls=(
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
-  ["nlohmann_json"]="http://$local_cache_host/git/json.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -170,7 +169,6 @@ declare -A secondary_urls=(
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
-  ["nlohmann_json"]="https://github.com/nlohmann/json.git"
 )
 
 # Skip download if we are under the latest toolchains (>= 6).
@@ -264,11 +262,4 @@ pushd usearch
 git checkout "$usearch_ref"
 git submodule update --init --recursive
 git apply ../usearch.patch
-popd
-
-# nlohmann_json
-nlohmann_json_tag="v3.11.3"
-repo_clone_try_double "${primary_urls[nlohmann_json]}" "${secondary_urls[nlohmann_json]}" "nlohmann_json" "$nlohmann_json_tag"
-pushd nlohmann_json
-patch -p1 < "${working_dir}/nlohmann_json3.11.3.patch"
 popd

@@ -206,14 +206,6 @@ macro(mg_create_linkable_if_no_cmake lib_name lib_type lib_path include_path)
   endif()
 endmacro()
 
-# Setup json for offline build (TODO: Remove this once the conan package has the patch)
-FetchContent_Declare(
-    nlohmann_json
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json
-    PATCH_COMMAND patch -p1 < "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json3.11.3.patch" || true
-)
-FetchContent_MakeAvailable(nlohmann_json)
-
 mg_create_linkable_if_no_cmake(rocksdb STATIC "${MG_TOOLCHAIN_ROOT}/lib/librocksdb.a" "${MG_TOOLCHAIN_ROOT}/include")
 
 macro(build_bcrypt)
