@@ -140,7 +140,7 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
     PreviousMemoryState current{.limit = memory_limit, .type = license_type};
     if (*locked && **locked == current) return;
 
-    if (license_type == LicenseType::AI_PLATFORM) {
+    if (license_type == LicenseType::AI_PLATFORM && memory_limit > 0) {
       // AI_PLATFORM: limit graph memory only; total falls back to --memory-limit
       utils::total_memory_tracker.SetHardLimit(0);
       utils::graph_memory_tracker.SetHardLimit(memory_limit);
