@@ -293,11 +293,6 @@ mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdts
 set(ABSL_PROPAGATE_CXX_STD ON)
 
 message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
-if(DEFINED MG_TOOLCHAIN_VERSION)
-  if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
-    set_path_external_library(jemalloc STATIC "${MG_TOOLCHAIN_ROOT}/lib/libjemalloc.a" "${MG_TOOLCHAIN_ROOT}/include")
-  endif()
-endif()
 
 macro(build_nuraft)
   import_external_library(nuraft STATIC

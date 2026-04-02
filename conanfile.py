@@ -79,6 +79,16 @@ class Memgraph(ConanFile):
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
         self.requires("fmt/11.2.0")
+        self.requires(
+            "jemalloc/5.2.1-memgraph",
+            options={
+                "prefix": "je_",
+                "enable_cxx": False,
+                "lg_page": "12",
+                "lg_hugepage": "21",
+                "malloc_conf": "background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
+            },
+        )
         self.requires("libcurl/8.17.0", override=True)
         self.requires("librdkafka/2.6.1", options={"ssl": True, "sasl": True})
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
