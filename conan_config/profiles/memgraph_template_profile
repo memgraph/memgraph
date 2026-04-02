@@ -1,5 +1,6 @@
 {% set toolchain_path = os.getenv("MG_TOOLCHAIN_ROOT", "/ERROR_MG_TOOLCHAIN_ROOT_NOT_SET") %}
 {% set target_arch = {"aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
+{% set target_triple = platform.machine() + "-linux-gnu" %}
 {% set current_dir = os.getcwd() %}
 
 # Sanitizer configuration - will be set via environment variables
@@ -41,9 +42,5 @@ tools.build:sharedlinkflags+=["-fsanitize={{ sanitizers|join(',') }}"{% if enabl
 [options]
 boost/*:without_stacktrace=True
 boost/*:without_locale=True
-{% if target_arch == "armv8" %}
-boost/*:extra_b2_flags=cxxflags=--target=aarch64-unknown-linux-gnu cflags=--target=aarch64-unknown-linux-gnu linkflags=--target=aarch64-unknown-linux-gnu
-{% elif enable_asan or enable_ubsan or enable_tsan %}
-boost/*:extra_b2_flags=cxxflags=--target=x86_64-linux-gnu cflags=--target=x86_64-linux-gnu linkflags=--target=x86_64-linux-gnu
-{% endif %}
+boost/*:extra_b2_flags=cxxflags=--target={{ target_triple }} cflags=--target={{ target_triple }} linkflags=--target={{ target_triple }}
 openssl/*:shared=True
