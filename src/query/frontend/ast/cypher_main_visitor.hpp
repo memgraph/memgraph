@@ -1297,6 +1297,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowSchemaInfoQuery(MemgraphCypher::ShowSchemaInfoQueryContext *ctx) override;
 
   /**
+   * @return ReloadSSLQuery*
+   */
+  antlrcpp::Any visitReloadSSLQuery(MemgraphCypher::ReloadSSLQueryContext *ctx) override;
+
+  /**
    * @return TtlQuery*
    */
   antlrcpp::Any visitTtlQuery(MemgraphCypher::TtlQueryContext *ctx) override;
