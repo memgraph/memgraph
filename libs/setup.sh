@@ -148,7 +148,6 @@ declare -A primary_urls=(
   ["neo4j"]="http://$local_cache_host/neo4j-community-5.6.0-unix.tar.gz"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
-  ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
 )
@@ -162,7 +161,6 @@ declare -A secondary_urls=(
   ["neo4j"]="https://dist.neo4j.org/neo4j-community-5.6.0-unix.tar.gz"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
-  ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
 )
@@ -208,16 +206,6 @@ if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
   popd
 else
   echo "Skipping pulsar download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
-
-if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
-  librdtsc_tag="v0.3"
-  repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" "librdtsc" "$librdtsc_tag" true
-  pushd librdtsc
-  git apply ../librdtsc.patch
-  popd
-else
-  echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
 # usearch (shallow clone to reduce flakiness)
