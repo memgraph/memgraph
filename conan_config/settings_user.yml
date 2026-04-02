@@ -3,10 +3,10 @@ os:
     distro: [null, ANY]
 compiler:
   gcc:
-    asan: [null, True]
-    ubsan: [null, True]
-    tsan: [null, True]
+    asan: [null, True, False]
+    ubsan: [null, True, False]
+    tsan: [null, True, False]
   clang:
-    asan: [null, True]
-    ubsan: [null, True]
-    tsan: [null, True]
+    asan: [null, True, False]
+    ubsan: [null, True, False]
+    tsan: [null, True, False]

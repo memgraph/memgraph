@@ -189,6 +189,9 @@ fi
 # Install custom conan settings
 conan config install conan_config
 
+# Register vendored recipes as a local-recipes-index remote
+conan remote add memgraph-recipes "$(pwd)/conan_recipes" -t local-recipes-index --force
+
 # fetch libs that aren't provided by conan yet
 if [[ "$skip_init" = false ]]; then
     ./init "${INIT_ARGS[@]}"
