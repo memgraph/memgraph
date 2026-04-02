@@ -604,10 +604,12 @@ build_memgraph () {
   # Install our config
   docker exec -u mg "$build_container" bash -c "$CMD_START && conan config install ./conan_config"
 
+  # Register vendored recipes as a local-recipes-index remote
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add memgraph-recipes /home/mg/memgraph/conan_recipes -t local-recipes-index --force"
+
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
   local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
-  local EXPORT_BUILD_TYPE="export BUILD_TYPE=$build_type"
 
   # Determine profile template based on sanitizer flags
   local DASAN_ENABLED=false
@@ -641,7 +643,7 @@ build_memgraph () {
     echo "No sanitizers enabled"
   fi
 
-  CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
+  CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN"
   if [[ -n "$build_dependency" ]]; then
     echo "Installing build dependency: $build_dependency"
     if [[ "$build_dependency" == "all" ]]; then

@@ -79,8 +79,22 @@ class Memgraph(ConanFile):
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
         self.requires("fmt/11.2.0")
+        self.requires("libbcrypt/1.0-memgraph")
+        self.requires(
+            "jemalloc/5.2.1-memgraph",
+            options={
+                "prefix": "je_",
+                "enable_cxx": False,
+                "lg_page": "12",
+                "lg_hugepage": "21",
+                "malloc_conf": "background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
+            },
+        )
         self.requires("libcurl/8.17.0", override=True)
+        self.requires("librdtsc/0.3-memgraph")
+        self.requires("librdkafka/2.6.1", options={"ssl": True, "sasl": True})
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
+        self.requires("nlohmann_json/3.11.3-memgraph")
         self.requires("range-v3/0.12.0")
         self.requires("simdjson/4.2.2")
         self.requires("snappy/1.2.1", override=True)
@@ -99,7 +113,11 @@ class Memgraph(ConanFile):
         self.tool_requires("antlr4/4.13.1")
 
         self.test_requires("benchmark/1.9.4")
-        self.test_requires("gtest/1.17.0")
+        self.test_requires("gtest/1.17.0", force=True)
+        self.test_requires(
+            "rapidcheck/cci.20231215",
+            options={"enable_gtest": True, "enable_gmock": True},
+        )
 
     def validate(self):
         """Validate configuration before generation"""
