@@ -584,7 +584,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (provided_order_) {
       provided_order_->produces.emplace_back(&produce, provided_order_->current_name);
       auto resolved = ResolveProduceMapping(&produce, provided_order_->current_name);
-      if (resolved) provided_order_->current_name = std::move(*resolved);
+      if (resolved) provided_order_->current_name = *resolved;
     }
     return true;
   }
@@ -902,8 +902,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     Symbol scan_symbol;
     // Produces between scan and current position, in bottom-to-top (PostVisit) order.
     // Each entry: (produce, scan symbol name at that Produce's input scope).
-    std::vector<std::pair<Produce *, std::string>> produces;
-    std::string current_name;  // scan symbol name after all renames so far
+    std::vector<std::pair<Produce *, std::string_view>> produces;
+    std::string_view current_name;  // scan symbol name after all renames so far
   };
 
   std::optional<ProvidedOrder> provided_order_;
@@ -934,11 +934,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   /// Returns the output name that carries `tracked_name` through a Produce, or nullopt if dropped.
   /// Only handles pure renames (Identifier expressions, e.g. n AS m). PropertyLookup expressions
   /// (e.g. n.prop AS a) are handled separately by ResolveAliasesThroughProduce.
-  static std::optional<std::string> ResolveProduceMapping(Produce *produce, const std::string &tracked_name) {
+  static std::optional<std::string_view> ResolveProduceMapping(Produce *produce, std::string_view tracked_name) {
     for (const auto *ne : produce->named_expressions_) {
       auto *ident = dynamic_cast<Identifier *>(ne->expression_);
       if (!ident || ident->name_ != tracked_name) continue;
-      return ne->name_;
+      return std::string_view{ne->name_};
     }
     return std::nullopt;
   }
@@ -1026,7 +1026,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   /// Resolve bare-Identifier ORDER BY aliases through a Produce. Returns true if all resolved
   /// to PropertyLookup, false if all passed through as renames. Bails (info.valid = false) on mixed.
-  bool ResolveAliasesThroughProduce(Produce *produce, OrderByInfo &info, const std::string &expected_source) {
+  bool ResolveAliasesThroughProduce(Produce *produce, OrderByInfo &info, std::string_view expected_source) {
     std::vector<storage::PropertyPath> resolved_paths;
     std::vector<std::string> remaining;
 
