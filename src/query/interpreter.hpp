@@ -45,7 +45,9 @@ extern const Event SuccessfulQuery;
 namespace memgraph::query {
 
 struct QueryAllocator {
-  QueryAllocator() = default;
+  explicit QueryAllocator(utils::MemoryTracker *db_query_tracker = nullptr)
+      : tracked_memory_{db_query_tracker}, upstream_{&tracked_memory_} {}
+
   QueryAllocator(QueryAllocator const &) = delete;
   QueryAllocator &operator=(QueryAllocator const &) = delete;
 
@@ -57,7 +59,7 @@ struct QueryAllocator {
 #ifndef MG_MEMORY_PROFILE
     return &pool;
 #else
-    return upstream_resource();
+    return &upstream_;
 #endif
   }
 
@@ -65,11 +67,11 @@ struct QueryAllocator {
 #ifndef MG_MEMORY_PROFILE
     return &monotonic;
 #else
-    return upstream_resource();
+    return &upstream_;
 #endif
   }
 
-  auto resource_without_pool_or_mono() -> utils::MemoryResource * { return upstream_resource(); }
+  auto resource_without_pool_or_mono() -> utils::MemoryResource * { return &upstream_; }
 
  private:
   // At least one page to ensure not sharing page with other subsystems
@@ -81,21 +83,18 @@ struct QueryAllocator {
   static constexpr auto kPoolBlockPerChunk = 64UL;
   static constexpr auto kPoolMaxBlockSize = 1024UL;
 
-  static auto upstream_resource() -> utils::MemoryResource * {
-    // singleton ResourceWithOutOfMemoryException
-    // explicitly backed by NewDeleteResource
-    static auto upstream = utils::ResourceWithOutOfMemoryException{utils::NewDeleteResource()};
-    return &upstream;
-  }
-
+  utils::TrackingMemoryResource tracked_memory_{nullptr};
+  utils::ResourceWithOutOfMemoryException upstream_{&tracked_memory_};
 #ifndef MG_MEMORY_PROFILE
-  memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::PoolResource<> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+  memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, &upstream_};
+  memgraph::utils::PoolResource<> pool{kPoolBlockPerChunk, &monotonic, &upstream_};
 #endif
 };
 
 struct ThreadSafeQueryAllocator {
-  ThreadSafeQueryAllocator() = default;
+  explicit ThreadSafeQueryAllocator(utils::MemoryTracker *db_query_tracker = nullptr)
+      : tracked_memory_{db_query_tracker}, upstream_{&tracked_memory_}, monotonic{kMonotonicInitialSize, &upstream_} {}
+
   ~ThreadSafeQueryAllocator() = default;
 
   ThreadSafeQueryAllocator(ThreadSafeQueryAllocator const &) = delete;
@@ -112,13 +111,10 @@ struct ThreadSafeQueryAllocator {
   static constexpr auto kPoolBlockPerChunk = 255;
   static constexpr auto kPoolMaxBlockSize = 1024UL;
 
-  static auto upstream_resource() -> utils::MemoryResource * {
-    static auto upstream = utils::ResourceWithOutOfMemoryException{utils::NewDeleteResource()};
-    return &upstream;
-  }
-
-  memgraph::utils::ThreadSafeMonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::PoolResource<utils::impl::ThreadSafePool> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+  utils::TrackingMemoryResource tracked_memory_{nullptr};
+  utils::ResourceWithOutOfMemoryException upstream_{&tracked_memory_};
+  memgraph::utils::ThreadSafeMonotonicBufferResource monotonic;
+  memgraph::utils::PoolResource<utils::impl::ThreadSafePool> pool{kPoolBlockPerChunk, &monotonic, &upstream_};
 };
 
 struct InterpreterContext;
@@ -503,9 +499,11 @@ class Interpreter final {
     static constexpr struct ThreadSafe {
     } thread_safe_;
 
-    QueryExecution() = default;
+    explicit QueryExecution(utils::MemoryTracker *db_query_tracker = nullptr)
+        : execution_memory{std::in_place_type<QueryAllocator>, db_query_tracker} {}
 
-    explicit QueryExecution(ThreadSafe /*marker*/) : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>} {}
+    QueryExecution(ThreadSafe /*marker*/, utils::MemoryTracker *db_query_tracker)
+        : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>, db_query_tracker} {}
 
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = delete;
@@ -521,10 +519,12 @@ class Interpreter final {
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
 
-    static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
+    static auto Create(utils::MemoryTracker *db_query_tracker = nullptr) -> std::unique_ptr<QueryExecution> {
+      return std::make_unique<QueryExecution>(db_query_tracker);
+    }
 
-    static auto CreateThreadSafe() -> std::unique_ptr<QueryExecution> {
-      return std::make_unique<QueryExecution>(thread_safe_);
+    static auto CreateThreadSafe(utils::MemoryTracker *db_query_tracker = nullptr) -> std::unique_ptr<QueryExecution> {
+      return std::make_unique<QueryExecution>(thread_safe_, db_query_tracker);
     }
 
     utils::MemoryResource *resource() {

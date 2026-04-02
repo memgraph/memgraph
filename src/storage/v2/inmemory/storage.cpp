@@ -2542,8 +2542,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           *std::move(active_constraints),
           std::move(async_index_helper),
           last_durable_ts,
-          config_.arena_idx,
-          config_.db_query_memory_tracker};
+          config_.arena_idx};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {

@@ -204,6 +204,8 @@ class Database {
 
   int64_t DbQueryMemoryUsage() const noexcept { return db_query_memory_tracker_.Amount(); }
 
+  utils::MemoryTracker *DbQueryMemoryTracker() noexcept { return &db_query_memory_tracker_; }
+
  private:
   //!< Tracks committed OS pages in db_arena_. Parent=graph_memory_tracker so per-DB
   //!< allocations roll up into the global graph tracker → total_memory_tracker hierarchy.

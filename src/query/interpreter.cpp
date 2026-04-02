@@ -2994,7 +2994,6 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // User-specific resource monitoring
   if (user_resource_ &&
       user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
-    memgraph::memory::StartTrackingCurrentThread(&memory_tracker);  // Needs the query tracker for accurate tracking
     memgraph::memory::StartTrackingUserResource(user_resource_.get());
   }
 #endif
@@ -8675,7 +8674,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (tx_query_enum == TransactionQuery::BEGIN) {
       ResetInterpreter();
     }
-    auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
+    auto *db_query_tracker = current_db_.db_acc_ ? current_db_.db_acc_->get()->DbQueryMemoryTracker() : nullptr;
+    auto &query_execution = query_executions_.emplace_back(QueryExecution::Create(db_query_tracker));
     query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
@@ -8734,12 +8734,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
+    auto *db_query_tracker = current_db_.db_acc_ ? current_db_.db_acc_->get()->DbQueryMemoryTracker() : nullptr;
     // Setup QueryExecution
     // TODO: Use CreateThreadSafe for multi-threaded queries
     if (has_load_parquet || parallel_execution) {
-      query_executions_.emplace_back(QueryExecution::CreateThreadSafe());
+      query_executions_.emplace_back(QueryExecution::CreateThreadSafe(db_query_tracker));
     } else {
-      query_executions_.emplace_back(QueryExecution::Create());
+      query_executions_.emplace_back(QueryExecution::Create(db_query_tracker));
     }
     auto &query_execution = query_executions_.back();
     query_execution_ptr = &query_execution;
@@ -9290,7 +9291,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                             TriggerContext original_trigger_context, std::shared_ptr<QueryUserOrRole> triggering_user) {
   // Run the triggers
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
-    QueryAllocator execution_memory{};
+    QueryAllocator execution_memory{db_acc->DbQueryMemoryTracker()};
 
     // create a new transaction for each trigger
     auto tx_acc = db_acc->Access(memgraph::storage::WRITE);
@@ -9539,7 +9540,7 @@ void Interpreter::Commit() {
   if (trigger_context) {
     // Run the triggers
     for (const auto &trigger : db->trigger_store()->BeforeCommitTriggers().access()) {
-      QueryAllocator execution_memory{};
+      QueryAllocator execution_memory{db->DbQueryMemoryTracker()};
       AdvanceCommand();
       try {
         auto is_main = interpreter_context_->repl_state.ReadLock()->IsMain();

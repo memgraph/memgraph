@@ -78,7 +78,6 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 #endif
 
   config.arena_idx = ArenaIdx();
-  config.db_query_memory_tracker = &db_query_memory_tracker_;
   config.db_embedding_memory_tracker = &db_embedding_memory_tracker_;
   streams()->SetArenaIdx(ArenaIdx());
 

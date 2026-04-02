@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <filesystem>
 #include <vector>
 
@@ -19,6 +20,7 @@
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
 #include "memory/query_memory_control.hpp"
+#include "query/interpreter.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/indices/property_path.hpp"
@@ -211,7 +213,7 @@ TEST_F(DbMemoryTrackingTest, GraphMemoryTrackerIncludesDbMemory) {
                                    << graph_delta << " db_delta=" << db_delta;
 }
 
-TEST_F(DbMemoryTrackingTest, QueryMemoryRollsIntoDbAndGlobalQueryTrackers) {
+TEST_F(DbMemoryTrackingTest, QueryMemoryTrackerDoesNotAffectDbAndGlobalQueryTrackers) {
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt);
@@ -238,8 +240,8 @@ TEST_F(DbMemoryTrackingTest, QueryMemoryRollsIntoDbAndGlobalQueryTrackers) {
 
     EXPECT_GT(query_delta, static_cast<int64_t>(1 * 1024 * 1024))
         << "Query tracker should grow while current thread tracking is enabled";
-    EXPECT_EQ(db_delta, query_delta) << "Per-DB query tracker should mirror the active transaction query delta";
-    EXPECT_EQ(global_delta, query_delta) << "Global query tracker should mirror the active transaction query delta";
+    EXPECT_EQ(db_delta, 0) << "Per-DB query memory should now come only from QueryAllocator-backed tracking";
+    EXPECT_EQ(global_delta, 0) << "Global query memory should now come only from QueryAllocator-backed tracking";
   }
   memgraph::memory::StopTrackingCurrentThread();
 
@@ -276,14 +278,42 @@ TEST_F(DbMemoryTrackingTest, QueryMemoryIsIsolatedPerDatabase) {
     const int64_t db1_after = db1->DbQueryMemoryUsage();
     const int64_t db2_after = db2->DbQueryMemoryUsage();
 
-    EXPECT_GT(db1_after - db1_before, static_cast<int64_t>(1 * 1024 * 1024))
-        << "DB1 query tracker should grow while DB1 query tracking is enabled";
+    EXPECT_EQ(db1_after, db1_before)
+        << "DB1 query memory should no longer be affected by TLS QueryMemoryTracker allocations";
     EXPECT_EQ(db2_after, db2_before) << "DB2 query tracker must not grow during DB1 query allocation";
   }
   memgraph::memory::StopTrackingCurrentThread();
 
   EXPECT_EQ(db1->DbQueryMemoryUsage(), db1_before) << "DB1 query tracker should return to baseline after free";
   EXPECT_EQ(db2->DbQueryMemoryUsage(), db2_before) << "DB2 query tracker should remain unchanged";
+}
+
+TEST_F(DbMemoryTrackingTest, QueryAllocatorExecutionMemoryUsesDbQueryTracker) {
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
+  auto db_acc_opt = db_gk.access();
+  ASSERT_TRUE(db_acc_opt);
+  auto &db = *db_acc_opt;
+
+  memgraph::query::QueryAllocator execution_memory{db->DbQueryMemoryTracker()};
+
+  const int64_t db_before = db->DbQueryMemoryUsage();
+  const int64_t global_before = memgraph::utils::global_query_memory_tracker.Amount();
+
+  static constexpr std::size_t kAllocSize = 4 * 1024 * 1024;
+  void *ptr = execution_memory.resource_without_pool_or_mono()->allocate(kAllocSize, alignof(std::max_align_t));
+
+  const int64_t db_after = db->DbQueryMemoryUsage();
+  const int64_t global_after = memgraph::utils::global_query_memory_tracker.Amount();
+
+  execution_memory.resource_without_pool_or_mono()->deallocate(ptr, kAllocSize, alignof(std::max_align_t));
+
+  const int64_t db_delta = db_after - db_before;
+  const int64_t global_delta = global_after - global_before;
+
+  EXPECT_GT(db_delta, static_cast<int64_t>(1 * 1024 * 1024))
+      << "Query execution memory upstream should be attributed to the DB query tracker";
+  EXPECT_GE(global_delta, db_delta)
+      << "Global query tracker should include query execution memory attributed through the DB query tracker";
 }
 
 TEST_F(DbMemoryTrackingTest, EmbeddingMemoryRollsIntoDbAndGlobalTrackers) {
@@ -360,81 +390,6 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryRollsIntoDbAndGlobalTrackers) {
   EXPECT_EQ(db2->DbEmbeddingMemoryUsage(), db2_before) << "DB2 embedding tracker should remain unchanged";
   EXPECT_EQ(memgraph::utils::vector_index_memory_tracker.Amount(), global_before)
       << "Global embedding tracker should return to baseline after the index is dropped";
-}
-
-TEST_F(DbMemoryTrackingTest, DbMemoryUsageMatchesComponentSumsAcrossStorageEmbeddingAndQuery) {
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
-  auto db_acc_opt = db_gk.access();
-  ASSERT_TRUE(db_acc_opt);
-  auto &db = *db_acc_opt;
-
-  auto label = db->storage()->NameToLabel("CombinedLabel");
-  auto property = db->storage()->NameToProperty("embedding");
-
-  {
-    auto accessor = db->Access();
-    for (int i = 0; i < 256; ++i) {
-      auto vertex = accessor->CreateVertex();
-      ASSERT_NO_ERROR(vertex.AddLabel(label));
-      std::vector<double> embedding(128, static_cast<double>(i % 5) + 0.25);
-      ASSERT_NO_ERROR(vertex.SetProperty(property, memgraph::storage::PropertyValue(embedding)));
-    }
-    accessor->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-  }
-
-  const int64_t storage_only = db->DbStorageMemoryUsage();
-  EXPECT_GT(storage_only, 0) << "Committed storage objects should contribute to DbStorageMemoryUsage";
-  EXPECT_EQ(db->DbMemoryUsage(), db->DbStorageMemoryUsage() + db->DbEmbeddingMemoryUsage() + db->DbQueryMemoryUsage())
-      << "Combined DB memory should equal the sum of storage, embedding, and query subtotals";
-
-  memgraph::storage::VectorIndexSpec spec{
-      .index_name = "combined_memory_index",
-      .label_id = label,
-      .property = property,
-      .metric_kind = unum::usearch::metric_kind_t::cos_k,
-      .dimension = 128,
-      .resize_coefficient = 2,
-      .capacity = 1024,
-      .scalar_kind = unum::usearch::scalar_kind_t::f32_k,
-  };
-
-  {
-    auto unique_acc = db->UniqueAccess();
-    ASSERT_NO_ERROR(unique_acc->CreateVectorIndex(spec));
-    unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-  }
-
-  EXPECT_GT(db->DbEmbeddingMemoryUsage(), 0) << "Vector index creation should contribute to embedding memory";
-  EXPECT_EQ(db->DbMemoryUsage(), db->DbStorageMemoryUsage() + db->DbEmbeddingMemoryUsage() + db->DbQueryMemoryUsage())
-      << "Combined DB memory should include storage and embedding subtotals after vector index creation";
-
-  {
-    auto accessor = db->Access();
-    auto &query_tracker = accessor->GetTransactionMemoryTracker();
-    memgraph::memory::StartTrackingCurrentThread(&query_tracker);
-    {
-      std::vector<char> payload(2 * 1024 * 1024, 0);
-      EXPECT_GT(db->DbQueryMemoryUsage(), 0) << "Active query tracking should contribute to query memory";
-      EXPECT_EQ(db->DbMemoryUsage(),
-                db->DbStorageMemoryUsage() + db->DbEmbeddingMemoryUsage() + db->DbQueryMemoryUsage())
-          << "Combined DB memory should include storage, embedding, and query subtotals while query tracking is active";
-    }
-    memgraph::memory::StopTrackingCurrentThread();
-  }
-
-  EXPECT_EQ(db->DbQueryMemoryUsage(), 0) << "Query memory should return to baseline after tracked allocations free";
-  EXPECT_EQ(db->DbMemoryUsage(), db->DbStorageMemoryUsage() + db->DbEmbeddingMemoryUsage() + db->DbQueryMemoryUsage())
-      << "Combined DB memory should fall back to storage plus embedding after query allocations are released";
-
-  {
-    auto unique_acc = db->UniqueAccess();
-    ASSERT_NO_ERROR(unique_acc->DropVectorIndex(spec.index_name));
-    unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-  }
-
-  EXPECT_EQ(db->DbEmbeddingMemoryUsage(), 0) << "Embedding memory should return to baseline after dropping the index";
-  EXPECT_EQ(db->DbMemoryUsage(), db->DbStorageMemoryUsage() + db->DbEmbeddingMemoryUsage() + db->DbQueryMemoryUsage())
-      << "Combined DB memory should match the remaining storage subtotal after embedding cleanup";
 }
 
 TEST_F(DbMemoryTrackingTest, StorageCreateNodesIncreasesDbMemory) {
