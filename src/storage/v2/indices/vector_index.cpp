@@ -199,7 +199,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
     std::vector<double> vector(dimension);
 
     try {
-      utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+      const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
       for (auto &vertex : vertices) {
         if (mg_index.index.contains(&vertex)) {
           auto vector_property = vertex.properties.GetProperty(spec.property);
