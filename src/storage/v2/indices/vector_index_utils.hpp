@@ -325,9 +325,9 @@ inline bool ShouldUnregisterFromIndex(PropertyValue &property_value, uint64_t in
   return ids.empty();  // Return true if should restore (no more IDs)
 }
 
-/// @brief Checks if dropping a vector index would exceed the graph memory limit.
+/// @brief Checks if dropping a vector index would exceed the total memory limit.
 /// When an index is dropped, indexed vectors are converted back to property values in the property store,
-/// which increases graph memory usage. This function estimates the cost and throws OutOfMemoryException
+/// which increases memory usage. This function estimates the cost and throws OutOfMemoryException
 /// if the limit would be exceeded.
 inline void CheckGraphMemoryForIndexDrop(std::string_view index_name, std::size_t num_vectors, std::size_t dimension) {
   const auto total_limit = utils::total_memory_tracker.HardLimit();

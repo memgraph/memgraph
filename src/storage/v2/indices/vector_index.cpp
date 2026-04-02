@@ -195,11 +195,10 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
     // Convert indexed vectors back to property values with OOM protection.
     // Track converted vertices so we can rollback on OOM.
     std::vector<Vertex *> converted_vertices;
-    converted_vertices.reserve(mg_index.index.size());
-    std::vector<double> vector(dimension);
-
     try {
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+      converted_vertices.reserve(mg_index.index.size());
+      std::vector<double> vector(dimension);
       for (auto &vertex : vertices) {
         if (mg_index.index.contains(&vertex)) {
           auto vector_property = vertex.properties.GetProperty(spec.property);
