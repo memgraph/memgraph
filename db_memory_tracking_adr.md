@@ -23,7 +23,7 @@ Before this work:
 
 ## Decision
 
-Use the existing `utils::MemoryTracker` parent chain as the single aggregation mechanism for DB and global memory reporting.
+Use the existing `utils::MemoryTracker` parent chain as the single aggregation mechanism for DB and global memory reporting, but split query usage accounting from query limit enforcement.
 
 The final hierarchy is:
 
@@ -31,7 +31,6 @@ The final hierarchy is:
 |---|---|
 | Per-DB storage tracker | `graph_memory_tracker` |
 | Per-DB embedding tracker | `vector_index_memory_tracker` |
-| Per-query transaction tracker | Per-DB query tracker |
 | Per-DB query tracker | `global_query_memory_tracker` |
 | Global graph / embeddings / query trackers | `total_memory_tracker` |
 
@@ -45,17 +44,19 @@ The final hierarchy is:
 |---|---|
 | `db_storage_memory_tracked` | Per-DB long-lived storage usage |
 | `db_embedding_memory_tracked` | Per-DB vector index / embedding usage |
-| `db_query_memory_tracked` | Per-DB query-tracked transient usage |
+| `db_query_memory_tracked` | Per-DB allocator-tracked query execution usage plus active TLS query-tracker rollup |
 | `db_memory_tracked` | Combined DB total: storage + embeddings + query |
 
 ## Implementation Notes
 
 | Area | Final design |
 |---|---|
-| Query rollup | `QueryMemoryTracker` keeps transaction-local limit enforcement, but its transaction tracker is parented into `Database::db_query_memory_tracker_`, which is parented into `global_query_memory_tracker`. |
+| Query rollup | `QueryAllocator` / `ThreadSafeQueryAllocator` now use `TrackingMemoryResource` pointed at `Database::db_query_memory_tracker_`, so PMR-backed `QueryExecution` memory rolls up by DB and then globally. |
+| Query limits | `QueryMemoryTracker` remains the per-query enforcement mechanism and is started unconditionally from `PullPlan::Pull`, even for no-limit queries. |
 | Embedding rollup | `Database` owns `db_embedding_memory_tracker_`, passes it through `storage::Config`, and `Indices` injects it into `VectorIndex` and `VectorEdgeIndex`. |
 | Vector allocator binding | `TrackedVectorAllocator` captures the DB embedding tracker at vector-index construction time via a scoped TLS default, so later usearch allocations/free operations stay attributed to the owning DB. |
 | Storage rollup | Existing per-DB jemalloc arena hooks remain the source of long-lived storage attribution. |
+| Accepted query gap | Raw non-PMR allocations remain outside the allocator-based query usage signal; this is an intentional safety/coverage tradeoff. |
 
 ## Consequences
 
@@ -63,7 +64,9 @@ The final hierarchy is:
 |---|---|
 | Better observability | DB memory is now explainable as storage, embeddings, and query components. |
 | Minimal new machinery | No second aggregation system was introduced; parented `MemoryTracker`s remain the only rollup mechanism. |
-| Preserved limits | Existing per-query limit enforcement semantics stay local to the transaction tracker. |
+| Safer query accounting | Query usage attribution is allocator-owned and avoids brittle thread-arena swapping. |
+| Preserved limits | Existing per-query limit enforcement semantics remain in `QueryMemoryTracker`. |
+| Accepted partial coverage | DB/global query usage intentionally undercounts raw non-PMR query allocations. |
 | Stronger regression coverage | A focused invariant test now checks that `DbMemoryUsage()` always equals the sum of storage, embedding, and query subtotals. |
 
 ## Verification
@@ -77,3 +80,11 @@ The branch landed in small verified slices:
 | Per-DB embedding tracking | `308f5d24a` |
 | Combined DB totals | `14630fd46` |
 | DB total invariant coverage | `59799303d` |
+
+The query-tracking design was later refined further on the branch:
+
+| Slice | Result |
+|---|---|
+| unconditional query TLS tracking | no-limit queries still participate in query limit tracking |
+| DB-aware `QueryAllocator` / `ThreadSafeQueryAllocator` | PMR-backed query execution memory rolls into the DB/global query tracker |
+| removal of query-level arena approach | allocator-based query usage replaced the more brittle query-arena experiment |
