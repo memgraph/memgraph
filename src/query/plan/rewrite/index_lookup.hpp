@@ -342,11 +342,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     auto [indexed_scan, has_in_filter] = GenScanByIndex(scan);
     if (indexed_scan) {
-      // Set marker if the rewritten scan is a ScanAllByLabelProperties (SkipList-backed, ASC order).
-      // IN-list filters use Unwind to drive the scan with multiple values, breaking global order.
-      if (!has_in_filter && indexed_scan->GetTypeInfo() == ScanAllByLabelProperties::kType) {
-        auto *scan_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get());
-        provided_order_ = ProvidedOrder{scan_props, &scan.output_symbol_, {}, scan.output_symbol_.name()};
+      if (has_in_filter) {
+        in_filter_scans_.insert(indexed_scan.get());
       }
       SetOnParent(std::move(indexed_scan));
     }
@@ -579,13 +576,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PostVisit(Produce &produce) override {
+  bool PostVisit(Produce &) override {
     prev_ops_.pop_back();
-    if (provided_order_) {
-      provided_order_->produces.emplace_back(&produce, provided_order_->current_name);
-      auto resolved = ResolveProduceMapping(&produce, provided_order_->current_name);
-      if (resolved) provided_order_->current_name = *resolved;
-    }
     return true;
   }
 
@@ -716,13 +708,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
-    if (provided_order_ && TryEliminateOrderBy(op)) {
+    if (TryEliminateOrderBy(op)) {
       SetOnParent(op.input());
-      // Marker stays — index order is preserved through eliminated OrderBy,
-      // so an outer OrderBy can also attempt elimination.
-    } else {
-      // OrderBy kept (or no marker) — re-sort destroys index order.
-      provided_order_.reset();
     }
     return true;
   }
@@ -893,20 +880,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
 
-  // Marker set when a ScanAllByLabelProperties index scan is generated. Propagates upward through
-  // PostVisits: Produce updates it (rename tracking), OrderBy consumes it (elimination check).
-  // Non-order-preserving operators between scan and OrderBy are caught by a verification walk
-  // at PostVisit(OrderBy) time.
-  struct ProvidedOrder {
-    ScanAllByLabelProperties *scan;
-    const Symbol *scan_symbol;
-    // Produces between scan and current position, in bottom-to-top (PostVisit) order.
-    // Each entry: (produce, scan symbol name at that Produce's input scope).
-    std::vector<std::pair<Produce *, std::string_view>> produces;
-    std::string_view current_name;  // scan symbol name after all renames so far
-  };
-
-  std::optional<ProvidedOrder> provided_order_;
+  // Set of ScanAllByLabelProperties operators that were created from IN-list filters.
+  // IN-list rewrite inserts Unwind + per-value equality scan, which breaks global sort order.
+  // Used by TryEliminateOrderBy to reject these scans for ORDER BY elimination.
+  std::unordered_set<LogicalOperator *> in_filter_scans_;
 
   struct LabelPropertyIndex {
     LabelIx label;
@@ -992,13 +969,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::vector<storage::PropertyId> prop_ids;
         prop_ids.reserve(prop_lookup->property_path_.size());
         for (const auto &pix : prop_lookup->property_path_) {
-          prop_ids.push_back(GetProperty(pix));
+          prop_ids.emplace_back(GetProperty(pix));
         }
         info.property_paths.emplace_back(std::move(prop_ids));
       }
     } else {
       for (auto *expr : order_by_exprs) {
-        info.unresolved_aliases.push_back(dynamic_cast<Identifier *>(expr)->name_);
+        info.unresolved_aliases.emplace_back(dynamic_cast<Identifier *>(expr)->name_);
       }
     }
 
@@ -1078,35 +1055,71 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  /// Attempt to eliminate OrderBy using the provided_order_ marker.
-  /// Walks from OrderBy down to the scan via input() to verify order-preserving operators,
-  /// then matches ORDER BY columns against the index properties.
+  /// Attempt to eliminate OrderBy by walking prev_ops_ downward to find a ScanAllByLabelProperties.
+  ///
+  /// This approach is chosen over a marker-based design (setting state in PostVisit(ScanAll) and
+  /// propagating it through PostVisit(Produce)) because prev_ops_ always reflects the actual visitor
+  /// path — no stale pointers from operators being replaced (e.g. ExpandVariable swapping its input
+  /// for STShortestPath), no edge cases with multi-input operators, and no distributed mutable state
+  /// to maintain. All logic lives in one place: PostVisit(OrderBy).
   bool TryEliminateOrderBy(OrderBy &op) {
-    auto &order = *provided_order_;
     auto info = ExtractOrderByInfo(op);
     if (!info.valid) return false;
 
-    // TODO: This walk is redundant with the marker approach — clearing provided_order_ in
-    // non-order-preserving PostVisits would make it unnecessary. Remove once that's implemented.
-    // Walk from OrderBy down to the scan via input(), verifying only order-preserving operators.
+    // Walk prev_ops_ from bottom (closest to scan) upward to find a ScanAllByLabelProperties,
+    // verifying that all operators in between preserve order and collecting Produces for alias
+    // resolution. prev_ops_ contains ancestors whose PreVisit fired but PostVisit hasn't yet —
+    // at PostVisit(OrderBy) time this is [root, ..., Produce, (Distinct)?, OrderBy's ancestors].
+    // OrderBy itself was just popped, so we start from the back.
+    ScanAllByLabelProperties *scan = nullptr;
+    Symbol scan_symbol;
+    // Produces in scan→OrderBy order, each paired with the scan symbol name at that Produce's input scope.
+    std::vector<std::pair<Produce *, std::string_view>> produces;
+    std::string_view tracked_name;
+
+    // Find the ScanAllByLabelProperties by walking the input() chain from OrderBy downward.
+    // prev_ops_ goes upward (toward root), so we walk input() instead.
     {
       auto *current = op.input().get();
-      while (current && current != order.scan) {
-        if (!IsOrderPreserving(current->GetTypeInfo())) return false;
-        if (!current->HasSingleInput()) return false;
+      while (current) {
+        const auto &type_info = current->GetTypeInfo();
+        if (type_info == ScanAllByLabelProperties::kType) {
+          scan = dynamic_cast<ScanAllByLabelProperties *>(current);
+          break;
+        }
+        if (!IsOrderPreserving(type_info)) return false;
+        if (type_info == Produce::kType) {
+          produces.emplace_back(dynamic_cast<Produce *>(current), std::string_view{});  // name filled below
+        }
         current = current->input().get();
       }
-      if (current != order.scan) return false;
+      if (!scan) return false;
     }
 
-    // Build produces list for alias resolution: marker's produces (scan→OrderBy, collected
-    // incrementally in PostVisit(Produce)) + parent Produce above OrderBy (RETURN/WITH scope).
-    // The parent's PostVisit hasn't fired yet, so peek at prev_ops_.
-    auto produces = order.produces;
+    // Reject IN-list scans — Unwind + per-value equality breaks global sort order.
+    if (in_filter_scans_.contains(scan)) return false;
+
+    // Find the scan's output symbol by looking it up in prev_ops_.
+    // The scan itself isn't in prev_ops_ (already PostVisited), but we can get the symbol
+    // from the scan operator directly — it stores output_symbol_.
+    scan_symbol = scan->output_symbol_;
+    tracked_name = scan_symbol.name();
+
+    // Fill in tracked names for each Produce (scan→OrderBy order).
+    // Produces were collected in OrderBy→scan order during the walk, reverse them.
+    std::reverse(produces.begin(), produces.end());
+    for (auto &[produce, name] : produces) {
+      name = tracked_name;
+      auto resolved = ResolveProduceMapping(produce, tracked_name);
+      if (resolved) tracked_name = *resolved;
+    }
+
+    // Find the Produce above OrderBy (RETURN/WITH scope) — its PostVisit hasn't fired yet,
+    // so it's still in prev_ops_. Skip Distinct if present between OrderBy and Produce.
     for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend(); ++it) {
       const auto &pt = (*it)->GetTypeInfo();
       if (pt == Produce::kType) {
-        produces.emplace_back(dynamic_cast<Produce *>(*it), order.current_name);
+        produces.emplace_back(dynamic_cast<Produce *>(*it), tracked_name);
         break;
       }
       if (pt != Distinct::kType) break;
@@ -1114,7 +1127,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     if (!info.unresolved_aliases.empty()) {
       // Resolve from OrderBy scope down to scan scope: iterate produces in reverse
-      // (they are stored in scan→OrderBy order from PostVisit).
+      // (they are stored in scan→OrderBy order).
       for (auto it = produces.rbegin(); it != produces.rend(); ++it) {
         if (info.unresolved_aliases.empty()) break;
         ResolveAliasesThroughProduce(it->first, info, it->second);
@@ -1124,15 +1137,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     } else {
       // Dual-scope: RETURN n AS m ORDER BY n.prop and ORDER BY m.prop are both valid.
       const auto &ob_name = info.scan_symbol.name();
-      const auto &tracked_name = order.current_name;
       const auto &pre_last_produce_name =
-          order.produces.empty() ? order.scan_symbol->name() : order.produces.back().second;
+          produces.size() <= 1 ? std::string_view{scan_symbol.name()} : produces[produces.size() - 2].second;
       if (tracked_name != ob_name && pre_last_produce_name != ob_name) return false;
     }
 
     // Match ORDER BY properties against index columns, skipping equality-pinned columns.
-    const auto &index_properties = order.scan->properties_;
-    const auto &expr_ranges = order.scan->expression_ranges_;
+    const auto &index_properties = scan->properties_;
+    const auto &expr_ranges = scan->expression_ranges_;
 
     size_t ob_ptr = 0;
     for (size_t i = 0; i < index_properties.size() && ob_ptr < info.property_paths.size(); ++i) {
