@@ -618,6 +618,7 @@ TYPED_TEST(OrderByIndexTest, CompositeRangeOnFirstOrderBySecond) {
 
 // Test 23: ORDER BY has more columns than composite index — ORDER BY n.a, n.b, n.c with index (a, b).
 // The index only covers the first two columns; it cannot guarantee order on c.
+// TODO: Could partially eliminate — keep OrderBy only on n.c since (a, b) prefix is index-sorted.
 TYPED_TEST(OrderByIndexTest, CompositeIndexPartialCoverage) {
   // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a, n.b, n.c RETURN n
   FakeDbAccessor dba;
