@@ -35,6 +35,9 @@ using testing::UnorderedElementsAre;
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
+/// Tag type: run ConstraintsTest with InMemoryStorage + storage_light_edge=true.
+struct InMemoryStorageLightEdge {};
+
 template <typename StorageType>
 class ConstraintsTest : public testing::Test {
  public:
@@ -44,6 +47,10 @@ class ConstraintsTest : public testing::Test {
     /// TODO: andi How to make this better? Because currentlly for every test changed you need to create a configuration
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     config_.force_on_disk = std::is_same_v<StorageType, memgraph::storage::DiskStorage>;
+    if constexpr (std::is_same_v<StorageType, InMemoryStorageLightEdge>) {
+      config_.salient.items.storage_light_edge = true;
+      config_.salient.items.properties_on_edges = true;
+    }
     db_gk_.emplace(config_);
     auto db_acc_opt = db_gk_->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
@@ -60,13 +67,14 @@ class ConstraintsTest : public testing::Test {
     db_acc_.reset();
     db_gk_.reset();
 
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
   }
 
   auto CreateConstraintAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage> ||
+                  std::is_same_v<StorageType, InMemoryStorageLightEdge>) {
       return this->db_acc_->get()->ReadOnlyAccess();
     } else {
       return this->db_acc_->get()->UniqueAccess();
@@ -74,7 +82,8 @@ class ConstraintsTest : public testing::Test {
   }
 
   auto DropConstraintAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage> ||
+                  std::is_same_v<StorageType, InMemoryStorageLightEdge>) {
       return this->db_acc_->get()->ReadOnlyAccess();
     } else {
       return this->db_acc_->get()->UniqueAccess();
@@ -91,7 +100,8 @@ class ConstraintsTest : public testing::Test {
   LabelId label2;
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes =
+    ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage, InMemoryStorageLightEdge>;
 TYPED_TEST_SUITE(ConstraintsTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

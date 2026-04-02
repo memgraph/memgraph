@@ -21,6 +21,7 @@
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -32,10 +33,12 @@
 
 /// REPLICATION ///
 
+#include "memory/dedicated_arena_resource.hpp"
 #include "storage/v2/delta_container.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/memory.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -711,7 +714,8 @@ class InMemoryStorage final : public Storage {
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
     void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges, std::list<Gid> &current_deleted_vertices,
-                             IndexPerformanceTracker &impact_tracker);
+                             IndexPerformanceTracker &impact_tracker,
+                             std::vector<Edge *> *out_deleted_light_edges = nullptr);
     SalientConfig::Items config_;
 
     uint64_t commit_flag_wal_position_{0};
@@ -776,6 +780,45 @@ class InMemoryStorage final : public Storage {
 
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
+  // Graveyard for light edges: deleted Edge* kept alive until GC determines
+  // no active transaction can see them.  Two conditions must both hold before
+  // draining: the timestamp condition (no reader can see the edge alive) and
+  // the epoch condition (no edge-index iterable that pre-dates this entry is
+  // still active).
+  //
+  // Two-phase drain:
+  //   Phase 1 (commit time): entry added with mark_timestamp and an initial guard_epoch.
+  //   Phase 2 (GC, after RemoveObsoleteEdgeEntries): guard_epoch is re-snapped to
+  //     CurrentEpoch() AFTER index entries are atomically removed, and index_cleaned
+  //     is set. This mirrors SkipList GC which records the high-water accessor ID at
+  //     node-removal time, covering post-commit readers that read Edge* from a stale
+  //     index entry before cleanup ran.
+  //   Drain: only when index_cleaned == true AND IsSafeToFree(guard_epoch).
+  struct LightEdgeGraveyardEntry {
+    uint64_t mark_timestamp;
+    uint64_t guard_epoch;
+    std::vector<Edge *> edges;
+    bool index_cleaned{false};
+  };
+
+  // Test helper: number of entries currently sitting in the light-edge graveyard.
+  std::size_t LightEdgeGraveyardSizeForTest() {
+    std::size_t n = 0;
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { n = graveyard.size(); });
+    return n;
+  }
+
+  // Returns the appropriate edge-memory pin for edge-index iterables.
+  // Normal-edge mode: ConstAccessor on edges_ (prevents skiplist GC from freeing edge nodes).
+  // Light-edge mode:  LightEdgeIterableGuard (acquires an epoch ID from light_edge_iterable_tracker_
+  //                   so the graveyard drain only unblocks once all pre-existing readers are done).
+  EdgePin MakeEdgePin() const {
+    if (config_.salient.items.storage_light_edge) {
+      return LightEdgeIterableGuard{&light_edge_iterable_tracker_};
+    }
+    return edges_.access();
+  }
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -799,12 +842,31 @@ class InMemoryStorage final : public Storage {
 
   EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
+  void DeleteLightEdge(Edge *p);
+
+  // Free all pool-allocated Edge objects: walk out_edges of every vertex (each
+  // edge appears exactly once) and drain the graveyard.  Must be called before
+  // vertices_.clear() so the adjacency lists are still intact.
+  // Requires gc_lock_ to be held by the caller.
+  void ClearLightEdges();
+
   void Clear();
 
   // Main object storage
   utils::SkipList<Vertex> vertices_;
   utils::SkipList<Edge> edges_;
   utils::SkipList<EdgeMetadata> edges_metadata_;
+
+  // Pool allocator for light-edge Edge objects (block_size = sizeof(Edge), 256 KiB chunks).
+  // Chunks are large enough for jemalloc to give them dedicated pages, preventing
+  // slab-level interleaving with unrelated allocations of the same size class.
+  std::unique_ptr<memory::DedicatedArenaResource> light_edge_pool_;
+
+  // Epoch tracker for edge-index Iterables/ChunkedIterables in light-edge mode.
+  // Each iterable acquires an epoch ID on construction and releases it on destruction.
+  // The graveyard drain re-snaps guard_epoch to CurrentEpoch() after index cleanup and
+  // only frees edges once IsSafeToFree(guard_epoch) — see LightEdgeGraveyardEntry.
+  mutable utils::EpochTracker light_edge_iterable_tracker_;
 
   // Durability
   durability::Recovery recovery_;
@@ -874,6 +936,8 @@ class InMemoryStorage final : public Storage {
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
+
+  utils::Synchronized<std::list<LightEdgeGraveyardEntry>, utils::SpinLock> light_edge_graveyard_;
 
   std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
   std::atomic<bool> gc_index_cleanup_edge_performance_ = false;

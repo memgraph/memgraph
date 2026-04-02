@@ -12,8 +12,29 @@ schema_setup: &schema_setup
       setup_queries: []
       validation_queries: []
 
+schema_setup_light_edge: &schema_setup_light_edge
+  cluster:
+    main:
+      args:
+        [
+          "--bolt-port",
+          "7687",
+          "--log-level=TRACE",
+          "--schema-info-enabled",
+          "--storage-light-edge",
+          "--storage-properties-on-edges",
+        ]
+      log_file: "schema_info_light_edge.log"
+      setup_queries: []
+      validation_queries: []
+
 workloads:
   - name: "Show schema info"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["schema_info/schema_info.py"]
     <<: *schema_setup
+
+  - name: "Show schema info (light-edge)"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["schema_info/schema_info.py"]
+    <<: *schema_setup_light_edge

@@ -21,6 +21,7 @@
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
+#include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -79,8 +80,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-             utils::SkipList<Edge>::ConstAccessor edge_accessor, PropertyId property,
-             const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+             EdgePin edge_pin, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
              Transaction *transaction);
 
@@ -110,7 +110,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
-    utils::SkipList<Edge>::ConstAccessor pin_accessor_edge_;
+    EdgePin pin_accessor_edge_;
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipList<Entry>::Accessor index_accessor_;
     [[maybe_unused]] EdgeTypeId edge_type_;
@@ -126,8 +126,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   class ChunkedIterable {
    public:
     ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
-                    utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-                    utils::SkipList<Edge>::ConstAccessor edge_accessor, PropertyId property,
+                    utils::SkipList<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, PropertyId property,
                     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                     Transaction *transaction, size_t num_chunks);
@@ -182,7 +181,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     size_t size() const { return chunks_.size(); }
 
    private:
-    utils::SkipList<Edge>::ConstAccessor pin_accessor_edge_;
+    EdgePin pin_accessor_edge_;
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipList<Entry>::Accessor index_accessor_;
     [[maybe_unused]] PropertyId property_;
@@ -220,7 +219,6 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
                    Transaction *transaction);
 
     ChunkedIterable ChunkedEdges(PropertyId property, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-                                 utils::SkipList<Edge>::ConstAccessor edge_accessor,
                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                  Storage *storage, Transaction *transaction, size_t num_chunks);

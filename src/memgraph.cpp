@@ -92,7 +92,7 @@ constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIE
 constexpr uint64_t kMgVmMaxMapCount = 262'144;
 
 void WarnDeprecatedFlags() {
-  auto warn_if_set = [](std::string_view name, std::string_view message) {
+  [[maybe_unused]] auto warn_if_set = [](std::string_view name, std::string_view message) {
     const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
     if (!info.is_default) spdlog::warn("{}", message);
   };
@@ -215,6 +215,7 @@ int main(int argc, char **argv) {
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   WarnDeprecatedFlags();
+  memgraph::memory::SetJemallocBackgroundThreads(true);
 
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
@@ -438,11 +439,18 @@ int main(int argc, char **argv) {
                         .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
                         .enable_edge_type_index_auto_creation =
                             FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)
+                        .storage_light_edge = FLAGS_storage_light_edge,
                         .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update,
                         .property_store_compression_enabled = FLAGS_storage_property_store_compression_enabled},
       .salient.storage_mode = memgraph::flags::ParseStorageMode(),
       .salient.property_store_compression_level = memgraph::flags::ParseCompressionLevel(),
       .track_label_counts = FLAGS_telemetry_enabled};
+  if (db_config.salient.items.storage_light_edge) {
+    if (!db_config.salient.items.properties_on_edges) {
+      spdlog::warn("Light edges require properties on edges. Forcing properties_on_edges to true.");
+      db_config.salient.items.properties_on_edges = true;
+    }
+  }
   if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
     LOG_FATAL(
         "Automatic index creation on edge-types has been set but properties on edges are disabled. If you wish to use "

@@ -202,7 +202,8 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
 }
 
 void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std::list<Gid> &current_deleted_edges,
-                           std::list<Gid> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
+                           std::list<Gid> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker,
+                           bool light_edge_mode = false, std::vector<Edge *> *out_deleted_light_edges = nullptr) {
   for (auto &delta : deltas) {
     DMG_ASSERT(
         [&delta]() {
@@ -233,11 +234,37 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
         edge.SetDelta(nullptr);
         if (edge.deleted()) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-          current_deleted_edges.push_back(edge.gid);
+          if (light_edge_mode) {
+            if (out_deleted_light_edges) out_deleted_light_edges->push_back(prev.edge);
+          } else {
+            current_deleted_edges.push_back(edge.gid);
+          }
         }
         break;
       }
     }
+  }
+}
+
+// At commit time, scan a transaction's delta list for RECREATE_OBJECT deltas
+// on deleted edges and push those Edge* to the graveyard with commit_timestamp
+// as the mark.  Using commit_timestamp is the tightest correct value: a reader
+// can see the edge as alive only if its start_timestamp < commit_timestamp, so
+// we need to wait until oldest_active_start_timestamp >= commit_timestamp before
+// freeing — exactly the graveyard drain condition with this mark.
+void GraveyardDeletedLightEdges(
+    delta_container const &deltas, uint64_t commit_timestamp, uint64_t guard_epoch,
+    utils::Synchronized<std::list<InMemoryStorage::LightEdgeGraveyardEntry>, utils::SpinLock> &graveyard) {
+  std::vector<Edge *> deleted;
+  for (auto const &delta : deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type == PreviousPtr::Type::EDGE && prev.edge->deleted()) {
+      DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+      deleted.push_back(prev.edge);
+    }
+  }
+  if (!deleted.empty()) {
+    graveyard.WithLock([&](auto &g) { g.push_back({commit_timestamp, guard_epoch, std::move(deleted)}); });
   }
 }
 
@@ -346,6 +373,10 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
               config_.durability.storage_directory);
   }
 
+  if (config_.salient.items.storage_light_edge) {
+    light_edge_pool_ = std::make_unique<memory::DedicatedArenaResource>();
+  }
+
   if (config_.durability.recover_on_startup) {
     // Disable ttl until after recovery and role switch / write enabled
     ttl_.SetUserCheck([]() -> bool { return false; });
@@ -367,7 +398,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         [this](Gid edge_gid) { return FindEdge(edge_gid); },
         name(),
         &ttl_,
-        &description_store_);
+        &description_store_,
+        light_edge_pool_.get());
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -499,6 +531,13 @@ InMemoryStorage::~InMemoryStorage() {
     create_snapshot_handler();
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
+
+  // Free all light edges: live edges in vertex adjacency lists + graveyard.
+  // Deleted light edges were pushed to the graveyard at commit time
+  // (FinalizeCommitPhase), so ClearLightEdges finds them there.
+  if (config_.salient.items.storage_light_edge) {
+    ClearLightEdges();
+  }
 }
 
 void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change) {
@@ -636,7 +675,29 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
   auto const inform_gc_edge_deletion = utils::OnScopeExit{[this, &deleted_edges = deleted_edges]() {
     if (!deleted_edges.empty() && transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+      // Triggers RemoveObsoleteEdgeEntries in the next GC run (needed for both light and normal edges).
       mem_storage->gc_full_scan_edges_delete_.store(true, std::memory_order_release);
+      // LIGHT EDGES: pool-allocated edges are not in edges_ (skip list), so the normal full scan
+      // won't find them to free. Push them into the graveyard so they are freed only after all
+      // concurrent read-only transactions and index readers that may hold an Edge* have finished.
+      // GC ordering guarantees RemoveObsoleteEdgeEntries runs before graveyard drain in the same
+      // GC cycle, so the Edge* remains valid during index cleanup.
+      if (config_.storage_light_edge) {
+        std::vector<Edge *> deleted_light_edges;
+        deleted_light_edges.reserve(deleted_edges.size());
+        for (auto const &ea : deleted_edges) {
+          deleted_light_edges.push_back(ea.edge_.ptr);
+        }
+        uint64_t mark_timestamp = 0;
+        {
+          auto engine_guard = std::unique_lock{mem_storage->engine_lock_};
+          mark_timestamp = mem_storage->timestamp_;
+        }
+        auto guard_epoch = mem_storage->light_edge_iterable_tracker_.CurrentEpoch();
+        mem_storage->light_edge_graveyard_.WithLock([&](auto &graveyard) {
+          graveyard.push_back({mark_timestamp, guard_epoch, std::move(deleted_light_edges)});
+        });
+      }
     }
   }};
 
@@ -709,15 +770,27 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
-    edge_acc = mem_storage->edges_.access();
-    auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    if (delta) {
-      delta->prev.Set(&*it);
+    if (config_.storage_light_edge) {
+      // Light edge: allocate from pool, store only in vertex adjacency lists (no global skip list).
+      auto *delta = CreateDeleteObjectDelta(&transaction_);
+      DMG_ASSERT(mem_storage->light_edge_pool_, "light edges require memory pool");
+      auto *edge_ptr =
+          std::pmr::polymorphic_allocator<Edge>{mem_storage->light_edge_pool_.get()}.new_object<Edge>(gid, delta);
+      if (delta) {
+        delta->prev.Set(edge_ptr);
+      }
+      edge = EdgeRef(edge_ptr);
+    } else {
+      // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
+      edge_acc = mem_storage->edges_.access();
+      auto *delta = CreateDeleteObjectDelta(&transaction_);
+      auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
+      MG_ASSERT(inserted, "The edge must be inserted here!");
+      MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
+      edge = EdgeRef(&*it);
+      if (delta) {
+        delta->prev.Set(&*it);
+      }
     }
     if (config_.enable_edges_metadata) {
       edge_metadata_acc = mem_storage->edges_metadata_.access();
@@ -841,15 +914,27 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
-    edge_acc = mem_storage->edges_.access();
-    auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    if (delta) {
-      delta->prev.Set(&*it);
+    if (config_.storage_light_edge) {
+      // Light edge: allocate from pool, store only in vertex adjacency lists (no global skip list).
+      auto *delta = CreateDeleteObjectDelta(&transaction_);
+      DMG_ASSERT(mem_storage->light_edge_pool_, "Light edge pool must be initialized!");
+      auto *edge_ptr =
+          std::pmr::polymorphic_allocator<Edge>{mem_storage->light_edge_pool_.get()}.new_object<Edge>(gid, delta);
+      if (delta) {
+        delta->prev.Set(edge_ptr);
+      }
+      edge = EdgeRef(edge_ptr);
+    } else {
+      // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
+      edge_acc = mem_storage->edges_.access();
+      auto *delta = CreateDeleteObjectDelta(&transaction_);
+      auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
+      MG_ASSERT(inserted, "The edge must be inserted here!");
+      MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
+      edge = EdgeRef(&*it);
+      if (delta) {
+        delta->prev.Set(&*it);
+      }
     }
     if (config_.enable_edges_metadata) {
       edge_metadata_acc = mem_storage->edges_metadata_.access();
@@ -1202,7 +1287,25 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     mem_storage->ProcessPendingSchemaUpdates(durability_commit_timestamp);
   }
 
+  // Fast discard must run before GraveyardDeletedLightEdges to avoid a race condition.
+  // Because the transaction is already marked finished, OldestActive() can now advance.
+  // If edges were moved to the graveyard first, a concurrent GC thread could
+  // immediately delete them while fast-discard is still trying to access them.
+  // Running fast-discard first ensures it can safely clean up the deltas while
+  // holding the GC lock, making the subsequent graveyard call a safe no-op.
   CheckForFastDiscardOfDeltas();
+
+  // Push deleted light edges to the graveyard with commit_timestamp as mark.
+  // This is the tightest correct timestamp: readers can only see the edge alive
+  // with start_timestamp < commit_timestamp, so we drain once all such readers
+  // finish (oldest_active_start_timestamp >= commit_timestamp).
+  // NOTE: if fast discard fired above, transaction_.deltas was already cleared
+  // and this is a no-op — graveyard was populated inside FastDiscardOfDeltas.
+  if (config_.storage_light_edge) {
+    auto guard_epoch = mem_storage->light_edge_iterable_tracker_.CurrentEpoch();
+    GraveyardDeletedLightEdges(
+        transaction_.deltas, *commit_timestamp_, guard_epoch, mem_storage->light_edge_graveyard_);
+  }
   memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   is_transaction_active_ = false;
@@ -1247,7 +1350,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges,
                                                             std::list<Gid> &current_deleted_vertices,
-                                                            IndexPerformanceTracker &impact_tracker) {
+                                                            IndexPerformanceTracker &impact_tracker,
+                                                            std::vector<Edge *> *out_deleted_light_edges) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // STEP 1) ensure everything in GC is gone
@@ -1264,18 +1368,29 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   mem_storage->waiting_gc_deltas_.WithLock(
       [&](auto &waiting_list) { linked_undo_buffers.splice(linked_undo_buffers.end(), waiting_list); });
 
+  bool const light_edge_mode = config_.storage_light_edge;
+
   // 1.b.1) unlink, gathering the removals
   for (auto &gc_deltas : linked_undo_buffers) {
-    UnlinkAndRemoveDeltas(
-        gc_deltas.deltas_, gc_deltas.transaction_id_, current_deleted_edges, current_deleted_vertices, impact_tracker);
+    UnlinkAndRemoveDeltas(gc_deltas.deltas_,
+                          gc_deltas.transaction_id_,
+                          current_deleted_edges,
+                          current_deleted_vertices,
+                          impact_tracker,
+                          light_edge_mode);
   }
 
   // STEP 2) this transaction's deltas
+  // Pass out_deleted_light_edges so deleted light edges are collected here
+  // rather than requiring a separate pre-pass over transaction_.deltas.
+  // Step 1.b passes nullptr — those transactions pushed to graveyard at their own commit time.
   UnlinkAndRemoveDeltas(transaction_.deltas,
                         transaction_.transaction_id,
                         current_deleted_edges,
                         current_deleted_vertices,
-                        impact_tracker);
+                        impact_tracker,
+                        light_edge_mode,
+                        out_deleted_light_edges);
 
   // STEP 3) clear all deltas after unlinking is complete
   linked_undo_buffers.clear();
@@ -1287,10 +1402,26 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
 
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
+  std::vector<Edge *> deleted_light_edges;
   auto impact_tracker = IndexPerformanceTracker{};
 
-  // STEP 1 + STEP 2 - delta cleanup
-  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
+  // STEP 1 + STEP 2 - delta cleanup.
+  // Deleted light edges are collected during UnlinkAndRemoveDeltas (step 2) so
+  // we avoid a separate pre-pass over transaction_.deltas.
+  GCRapidDeltaCleanup(current_deleted_edges,
+                      current_deleted_vertices,
+                      impact_tracker,
+                      config_.storage_light_edge ? &deleted_light_edges : nullptr);
+
+  // Push collected light edges to graveyard (graveyard drains only after
+  // oldest_active >= commit_ts AND epoch is safe, so freeing is deferred).
+  // FinalizeCommitPhase's GraveyardDeletedLightEdges call is now a no-op
+  // because transaction_.deltas was cleared by GCRapidDeltaCleanup above.
+  if (!deleted_light_edges.empty()) {
+    auto guard_epoch = mem_storage->light_edge_iterable_tracker_.CurrentEpoch();
+    mem_storage->light_edge_graveyard_.WithLock(
+        [&](auto &g) { g.push_back({*commit_timestamp_, guard_epoch, std::move(deleted_light_edges)}); });
+  }
 
   // STEP 3) hand over the deleted vertices and edges to the GC
   if (!current_deleted_vertices.empty()) {
@@ -1345,6 +1476,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // by one and acquiring lock every time.
     std::vector<Gid> my_deleted_vertices;
     std::vector<Gid> my_deleted_edges;
+    std::vector<Edge *> my_deleted_light_edges;
 
     std::map<EdgeTypePropKey,
              std::vector<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>>>>
@@ -1420,7 +1552,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
               case Delta::Action::DELETE_OBJECT: {
                 edge->SetDeleted(true);
-                my_deleted_edges.push_back(edge->gid);
+                if (config_.storage_light_edge) {
+                  my_deleted_light_edges.push_back(edge);
+                } else {
+                  my_deleted_edges.push_back(edge->gid);
+                }
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
@@ -1645,9 +1781,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
     }
 
+    uint64_t abort_mark_timestamp = 0;
     {
       auto engine_guard = std::unique_lock(storage_->engine_lock_);
-      uint64_t mark_timestamp = storage_->timestamp_;  // a timestamp no active transaction can currently have
+      abort_mark_timestamp = storage_->timestamp_;  // a timestamp no active transaction can currently have
 
       // Take garbage_undo_buffers lock while holding the engine lock to make
       // sure that entries are sorted by mark timestamp in the list.
@@ -1656,7 +1793,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         // emplace back could take a long time.
         engine_guard.unlock();
 
-        garbage_undo_buffers.emplace_back(mark_timestamp,
+        garbage_undo_buffers.emplace_back(abort_mark_timestamp,
                                           std::move(transaction_.deltas),
                                           std::move(transaction_.commit_info),
                                           transaction_.transaction_id);
@@ -1698,6 +1835,25 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       for (auto gid : my_deleted_edges) {
         edges_acc.remove(gid);
       }
+    }
+
+    // LIGHT EDGES: push to graveyard instead of freeing immediately.
+    // Even though these edges were never committed, a concurrent reader may have already
+    // captured an Edge* from an uncommitted index entry and is about to dereference it
+    // (e.g. to call IsVisible / AnyVersionIsVisible).  The graveyard drain condition
+    // (abort_mark_timestamp <= oldest_active_start_timestamp) ensures all such readers
+    // have finished before the pool memory is reclaimed.
+    if (!my_deleted_light_edges.empty()) {
+      if (mem_storage->config_.salient.items.enable_edges_metadata) {
+        auto edges_metadata_acc = mem_storage->edges_metadata_.access();
+        for (auto *edge : my_deleted_light_edges) {
+          edges_metadata_acc.remove(edge->gid);
+        }
+      }
+      auto guard_epoch = mem_storage->light_edge_iterable_tracker_.CurrentEpoch();
+      mem_storage->light_edge_graveyard_.WithLock([&](auto &graveyard) {
+        graveyard.push_back({abort_mark_timestamp, guard_epoch, std::move(my_deleted_light_edges)});
+      });
     }
   }
 
@@ -2362,23 +2518,20 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property,
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, View view,
                                                                      size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_->edge_type_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(
-      edge_type, std::move(vertices_acc), std::move(edges_acc), view, storage_, &transaction_, num_chunks));
+  return EdgesChunkedIterable(
+      active_indices->ChunkedEdges(edge_type, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
                                                                      View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
                                                            property,
                                                            std::move(vertices_acc),
-                                                           std::move(edges_acc),
                                                            std::nullopt,
                                                            std::nullopt,
                                                            view,
@@ -2391,13 +2544,11 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
     EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
                                                            property,
                                                            std::move(vertices_acc),
-                                                           std::move(edges_acc),
                                                            lower_bound,
                                                            upper_bound,
                                                            view,
@@ -2409,29 +2560,19 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property, View view,
                                                                      size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
-                                                           std::move(vertices_acc),
-                                                           std::move(edges_acc),
-                                                           std::nullopt,
-                                                           std::nullopt,
-                                                           view,
-                                                           storage_,
-                                                           &transaction_,
-                                                           num_chunks));
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(
+      property, std::move(vertices_acc), std::nullopt, std::nullopt, view, storage_, &transaction_, num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property, const PropertyValue &value,
                                                                      View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
                                                            std::move(vertices_acc),
-                                                           std::move(edges_acc),
                                                            utils::MakeBoundInclusive(value),
                                                            utils::MakeBoundInclusive(value),
                                                            view,
@@ -2444,18 +2585,10 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
     PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
-                                                           std::move(vertices_acc),
-                                                           std::move(edges_acc),
-                                                           lower_bound,
-                                                           upper_bound,
-                                                           view,
-                                                           storage_,
-                                                           &transaction_,
-                                                           num_chunks));
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(
+      property, std::move(vertices_acc), lower_bound, upper_bound, view, storage_, &transaction_, num_chunks));
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
@@ -2719,6 +2852,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // vertices that appear in an index also exist in main storage.
   std::list<Gid> current_deleted_edges{};
   std::list<Gid> current_deleted_vertices{};
+  bool const light_edges = config_.salient.items.storage_light_edge;
 
   deleted_vertices_.WithLock([&](auto &deleted_vertices) { current_deleted_vertices.swap(deleted_vertices); });
   deleted_edges_.WithLock([&](auto &deleted_edges) { current_deleted_edges.swap(deleted_edges); });
@@ -2812,7 +2946,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             edge->SetDelta(nullptr);
             if (edge->deleted()) {
               DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-              current_deleted_edges.push_back(edge->gid);
+              if (!light_edges) {
+                current_deleted_edges.push_back(edge->gid);
+              }
+              // light_edges: already pushed to graveyard at commit time
             }
             break;
           }
@@ -2927,15 +3064,54 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
     }
   }
+  // LIGHT EDGE GRAVEYARD — phase 1: re-snap guard_epoch.
+  // Now that index entries are atomically removed, any reader that started an
+  // iterable before this point has epoch id < CurrentEpoch(). Re-snap guard_epoch
+  // to CurrentEpoch() so that IsSafeToFree() covers post-commit readers that may
+  // have read a stale Edge* from the index before cleanup ran.
+  // Also remove vector-edge-index entries here, while Edge* are still valid.
+  // (Vector index is not handled by RemoveObsoleteEdgeEntries above.)
+  //
+  // NOTE: the graveyard is NOT commit-ordered — aborted transactions insert with
+  // abort_mark_timestamp = storage_->timestamp_ (taken under engine_lock_), and
+  // concurrent aborts can produce timestamps that interleave with commit timestamps.
+  // We must therefore iterate ALL entries (not break early) and use continue to
+  // skip entries whose mark_timestamp is not yet safe.
+  //
+  // To avoid holding the SpinLock across the heavy index-cleanup work we swap the
+  // list out under the lock, process off-lock, then splice everything back.
+  if (light_edges) {
+    std::list<LightEdgeGraveyardEntry> local_graveyard;
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { local_graveyard.swap(graveyard); });
+
+    for (auto &entry : local_graveyard) {
+      if (entry.mark_timestamp > oldest_active_start_timestamp) continue;
+      if (!entry.index_cleaned) {
+        if (!indices_.vector_edge_index_.Empty()) {
+          std::list<Gid> gids_to_remove;
+          for (auto const *edge : entry.edges) {
+            gids_to_remove.push_back(edge->gid);
+          }
+          indices_.RemoveEdgesFromVectorEdgeIndices(gids_to_remove);
+        }
+        entry.guard_epoch = light_edge_iterable_tracker_.CurrentEpoch();
+        entry.index_cleaned = true;
+      }
+    }
+
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { graveyard.splice(graveyard.begin(), local_graveyard); });
+  }
   memgraph::metrics::Measure(
       memgraph::metrics::GCSkiplistCleanupLatency_us,
       std::chrono::duration_cast<std::chrono::microseconds>(skiplist_cleanup_timer.Elapsed()).count());
 
+  // mark_timestamp for garbage_undo_buffers deferred cleanup
+  uint64_t gc_mark_timestamp = 0;
   {
     auto guard = std::unique_lock{engine_lock_};
-    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
+    gc_mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
-    if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
+    if (main_guard.owns_lock() || gc_mark_timestamp == oldest_active_start_timestamp) {
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them all now
@@ -2949,7 +3125,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         guard.unlock();
         // correct the markers, and defer until next GC run
         for (auto &unlinked_undo_buffer : unlinked_undo_buffers) {
-          unlinked_undo_buffer.mark_timestamp_ = mark_timestamp;
+          unlinked_undo_buffer.mark_timestamp_ = gc_mark_timestamp;
         }
         // ensure insert at end to preserve the order
         garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
@@ -3051,6 +3227,36 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         edge_metadata_acc.remove(edge.gid);
       }
     }
+  }
+
+  // LIGHT EDGE GRAVEYARD — phase 2: drain.
+  // Only drain entries that have been through phase 1 (index_cleaned == true) and
+  // whose guard_epoch is safe to free (all index-iterable readers that could have
+  // held a pointer to these edges have finished). Vector-edge-index cleanup was
+  // already done in phase 1 above.
+  if (light_edges) {
+    std::optional<utils::SkipList<EdgeMetadata>::Accessor> edge_metadata_acc;
+    if (config_.salient.items.enable_edges_metadata) {
+      edge_metadata_acc = edges_metadata_.access();
+    }
+    // Swap out, free eligible entries off-lock, splice remainder back.
+    // Entries are NOT ordered (aborts interleave with commits), so iterate all.
+    std::list<LightEdgeGraveyardEntry> local_graveyard;
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { local_graveyard.swap(graveyard); });
+
+    for (auto it = local_graveyard.begin(); it != local_graveyard.end();) {
+      if (it->index_cleaned && light_edge_iterable_tracker_.IsSafeToFree(it->guard_epoch)) {
+        for (auto *edge : it->edges) {
+          if (edge_metadata_acc) edge_metadata_acc->remove(edge->gid);
+          DeleteLightEdge(edge);
+        }
+        it = local_graveyard.erase(it);
+      } else {
+        ++it;
+      }
+    }
+
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { graveyard.splice(graveyard.end(), local_graveyard); });
   }
 }
 
@@ -3882,7 +4088,9 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
                                           &enum_store_,
                                           config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
                                           &ttl_,
-                                          &description_store_);
+                                          &description_store_,
+                                          std::nullopt,
+                                          light_edge_pool_.get());
     spdlog::debug("Snapshot recovered successfully");
     // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
     // This snapshot creates a new state and cannot have any WALs associated with it at this point
@@ -4185,6 +4393,34 @@ EdgeInfo InMemoryStorage::FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr) {
 }
 
 EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
+  if (config_.salient.items.storage_light_edge) {
+    // Light edges: not in skip list. Use edges_metadata for O(log N) lookup if available.
+    if (config_.salient.items.enable_edges_metadata) {
+      auto edge_metadata_acc = edges_metadata_.access();
+      auto edge_metadata_it = edge_metadata_acc.find(gid);
+      if (edge_metadata_it == edge_metadata_acc.end()) return std::nullopt;
+      auto *from_vertex = edge_metadata_it->from_vertex;
+      std::shared_lock const guard{from_vertex->lock};
+      for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+        if (edge_ref.ptr->gid == gid) {
+          return std::tuple(edge_ref, edge_type, from_vertex, to_vertex);
+        }
+      }
+      return std::nullopt;
+    }
+    // Fallback: scan all vertices' out_edges by GID
+    auto vertices_acc = vertices_.access();
+    for (auto &from_vertex : vertices_acc) {
+      std::shared_lock const guard{from_vertex.lock};
+      for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex.out_edges) {
+        if (edge_ref.ptr->gid == gid) {
+          return std::tuple(edge_ref, edge_type, &from_vertex, to_vertex);
+        }
+      }
+    }
+    return std::nullopt;
+  }
+
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(gid);
   if (edge_it == edge_acc.end()) {
@@ -4207,6 +4443,23 @@ EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
 }
 
 EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
+  if (config_.salient.items.storage_light_edge) {
+    // Light edges: not in skip list, scan from_vertex's out_edges by GID
+    auto vertices_acc = vertices_.access();
+    auto vertex_it = vertices_acc.find(from_vertex_gid);
+    if (vertex_it == vertices_acc.end()) {
+      throw utils::BasicException("Vertex with GID {} not found in the database", from_vertex_gid.AsUint());
+    }
+    auto *from_vertex = &(*vertex_it);
+    std::shared_lock const guard{from_vertex->lock};
+    for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+      if (edge_ref.ptr->gid == edge_gid) {
+        return std::tuple(edge_ref, edge_type, from_vertex, to_vertex);
+      }
+    }
+    return std::nullopt;
+  }
+
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(edge_gid);
   if (edge_it == edge_acc.end()) {
@@ -4227,6 +4480,31 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
   return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
 }
 
+void InMemoryStorage::DeleteLightEdge(Edge *p) {
+  if (p == nullptr) return;
+  DMG_ASSERT(light_edge_pool_, "Light edges require memory pool");
+  std::pmr::polymorphic_allocator<Edge>{light_edge_pool_.get()}.delete_object(p);
+}
+
+void InMemoryStorage::ClearLightEdges() {
+  // Iterate out_edges only: each edge appears exactly once across all vertices
+  // (a self-loop has one entry in the source vertex's out_edges), so no deduplication needed.
+  auto vertex_acc = vertices_.access();
+  for (auto &vertex : vertex_acc) {
+    for (auto const &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
+      DeleteLightEdge(edge_ref.ptr);
+    }
+  }
+  light_edge_graveyard_.WithLock([&](auto &graveyard) {
+    for (auto &entry : graveyard) {
+      for (auto *edge : entry.edges) {
+        DeleteLightEdge(edge);
+      }
+    }
+    graveyard.clear();
+  });
+}
+
 void InMemoryStorage::Clear() {
   // NOTE: Make sure this function is called while exclusively holding on to the main lock
   // When creating a snapshot, we first lock the snapshot, then create the accessor
@@ -4234,6 +4512,11 @@ void InMemoryStorage::Clear() {
   // Engine lock is needed because of PrepareForNewEpoch
   auto gc_lock = std::unique_lock{gc_lock_};
   auto engine_lock = std::unique_lock{engine_lock_};
+
+  // Free light edges before clearing vertices (need vertex adjacency lists to find them).
+  if (config_.salient.items.storage_light_edge) {
+    ClearLightEdges();
+  }
 
   // Clear main memory
   vertices_.clear();
@@ -4417,6 +4700,10 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 
+  if (mem_storage->config_.salient.items.storage_light_edge) {
+    mem_storage->ClearLightEdges();
+  }
+
   mem_storage->vertices_.clear();
   mem_storage->edges_.clear();
   mem_storage->edge_count_.store(0, std::memory_order_release);
@@ -4455,8 +4742,11 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   std::vector<std::tuple<EdgeAccessor, double, double>> result;
 
-  // we have to take edges accessor to be sure no edge is deleted while we are searching
-  auto acc = mem_storage->edges_.access();
+  // Pin edge memory for the duration of the search: in normal-edge mode this is a SkipList
+  // ConstAccessor that prevents GC from freeing edges_ nodes; in light-edge mode it acquires
+  // an epoch ID from light_edge_iterable_tracker_ so the graveyard drain cannot free
+  // pool-allocated Edge* while filtered_search dereferences entry.edge.
+  auto edge_pin = mem_storage->MakeEdgePin();
   auto edge_type_id = mem_storage->indices_.vector_edge_index_.GetEdgeTypeId(index_name);
   const auto search_results = storage_->indices_.vector_edge_index_.SearchEdges(index_name, number_of_results, vector);
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
