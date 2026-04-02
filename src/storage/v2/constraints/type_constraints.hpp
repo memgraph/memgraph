@@ -11,11 +11,21 @@
 
 #pragma once
 
+namespace prometheus {
+class Gauge;
+}  // namespace prometheus
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 #include <functional>
 #include <memory>
+
 #include <storage/v2/constraints/type_constraints_kind.hpp>
 #include <utility>
 #include "absl/container/flat_hash_map.h"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -49,6 +59,7 @@ class TypeConstraints {
 
     TypeConstraintKind type;
     ConstraintStatus status{};
+    metrics::ScopedGauge gauge_{};
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
@@ -99,6 +110,8 @@ class TypeConstraints {
 
   void DropGraphClearConstraints();
 
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
+
   /// Returns constraints for a specific label, used for registration in property store
   auto GetTypeConstraintsForLabel(LabelId label) const -> absl::flat_hash_map<PropertyId, TypeConstraintKind>;
 
@@ -106,6 +119,7 @@ class TypeConstraints {
   /// Get individual constraint for in-place status modification.
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
 
+  metrics::DatabaseMetricHandles *metric_handles_{nullptr};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };
 

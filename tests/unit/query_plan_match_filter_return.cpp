@@ -778,7 +778,7 @@ class QueryPlanExpandVariable : public testing::Test {
    */
   auto GetListResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol, memgraph::auth::User *user = nullptr) {
     Frame frame(symbol_table.max_position());
-    auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource());
+    auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
     ExecutionContext context;
     if (user) {
 #ifdef MG_ENTERPRISE
@@ -798,7 +798,7 @@ class QueryPlanExpandVariable : public testing::Test {
    */
   auto GetPathResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol, memgraph::auth::User *user = nullptr) {
     Frame frame(symbol_table.max_position());
-    auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource());
+    auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
     ExecutionContext context;
     if (user) {
 #ifdef MG_ENTERPRISE
@@ -1984,7 +1984,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
                                          nullptr);
 
     Frame frame(symbol_table.max_position());
-    auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
+    auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
     std::vector<ResultType> results;
     memgraph::query::ExecutionContext context;
     if (user) {
@@ -2444,7 +2444,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
                                          nullptr);
 
     Frame frame(symbol_table.max_position());
-    auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
+    auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), nullptr);
     std::vector<ResultType> results;
     ExecutionContext context;
     if (user) {

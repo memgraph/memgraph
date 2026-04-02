@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
@@ -509,20 +510,17 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
                                               uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(label, properties);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  auto *gauge = metric_handles_ ? metric_handles_->active_label_property_indices : nullptr;
+  index->Publish(commit_timestamp, gauge);
   return true;
 }
 
-void InMemoryLabelPropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryLabelPropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  gauge_ = metrics::ScopedGauge{gauge};
 }
 
-InMemoryLabelPropertyIndex::IndividualIndex::~IndividualIndex() {
-  if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
-  }
-}
+InMemoryLabelPropertyIndex::IndividualIndex::~IndividualIndex() = default;
 
 auto InMemoryLabelPropertyIndex::GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
     -> std::shared_ptr<IndividualIndex> {
@@ -555,7 +553,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
   };
 
   for (auto &[props, index] : it->second | rv::filter(relevant_index)) {
-    auto &[permutations_helper, skiplist, status] = *index;
+    auto &[permutations_helper, skiplist, status, gauge] = *index;
     auto values = permutations_helper.Extract(vertex_after_update->properties);
     if (r::any_of(values, [](auto &&val) { return !val.IsNull(); })) {
       auto acc = skiplist.access();
@@ -681,6 +679,7 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
     });
 
     // new erase the index
+    it2->second->gauge_.release();
     properties_map.erase(it2);
     if (properties_map.empty()) {
       new_index->indices_.erase(it1);
@@ -1128,6 +1127,24 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   stats_->clear();
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &all_indices) {
     all_indices = std::make_unique<std::vector<AllIndicesEntry>>();
+  });
+}
+
+void InMemoryLabelPropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  if (!metric_handles_) return;
+  auto *gauge = metric_handles_->active_label_property_indices;
+  index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &ptr) {
+    double count = 0;
+    for (auto const &[label, by_properties] : ptr->indices_) {
+      for (auto const &[props, idx] : by_properties) {
+        if (idx->status.IsReady()) {
+          idx->gauge_ = metrics::ScopedGauge{gauge};
+          ++count;
+        }
+      }
+    }
+    gauge->Set(count);
   });
 }
 

@@ -27,7 +27,6 @@
 #include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"

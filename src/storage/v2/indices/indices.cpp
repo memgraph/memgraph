@@ -111,6 +111,14 @@ void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, E
   tx.active_indices_->edge_type_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
 }
 
+void Indices::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  label_index_->SetMetricHandles(metric_handles);
+  label_property_index_->SetMetricHandles(metric_handles);
+  edge_type_index_->SetMetricHandles(metric_handles);
+  edge_type_property_index_->SetMetricHandles(metric_handles);
+  edge_property_index_->SetMetricHandles(metric_handles);
+}
+
 Indices::Indices(const Config &config, StorageMode storage_mode)
     : text_index_(config.durability.storage_directory), text_edge_index_(config.durability.storage_directory) {
   std::invoke([this, config, storage_mode]() {

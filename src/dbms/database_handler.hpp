@@ -43,6 +43,8 @@ class DatabaseHandler : public Handler<Database> {
  public:
   using HandlerT = Handler<Database>;
 
+  DatabaseHandler() = default;
+
   ~DatabaseHandler() override {
     for (auto &db : *this) {
       try {
