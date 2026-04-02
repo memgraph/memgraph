@@ -222,7 +222,10 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
     auto config = arguments[0].ValueMap();
     auto include_labels = ExtractStringSetFromConfig(config, kConfigIncludeLabels);
     auto exclude_labels = ExtractStringSetFromConfig(config, kConfigExcludeLabels);
+    auto include_rels = ExtractStringSetFromConfig(config, kConfigIncludeRels);
+    auto exclude_rels = ExtractStringSetFromConfig(config, kConfigExcludeRels);
     auto sample = ExtractIntFromConfig(config, kConfigSample, kDefaultSample);
+    auto max_rels = ExtractIntFromConfig(config, kConfigMaxRels, kDefaultMaxRels);
 
     std::unordered_map<std::set<std::string>, LabelsInfo, LabelsHash, LabelsComparator> node_types_properties;
 
@@ -234,6 +237,29 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
 
       if (!ShouldIncludeLabels(labels_set, include_labels, exclude_labels)) {
         continue;
+      }
+
+      if (!include_rels.empty() || !exclude_rels.empty()) {
+        bool has_included_rel = include_rels.empty();
+        bool has_excluded_rel = false;
+        int64_t rels_checked = 0;
+        for (const auto rel : node.OutRelationships()) {
+          if (max_rels > 0 && rels_checked >= max_rels) {
+            break;
+          }
+          rels_checked++;
+          std::string rel_type = std::string(rel.Type());
+          if (!include_rels.empty() && include_rels.contains(rel_type)) {
+            has_included_rel = true;
+          }
+          if (!exclude_rels.empty() && exclude_rels.contains(rel_type)) {
+            has_excluded_rel = true;
+            break;
+          }
+        }
+        if (!has_included_rel || has_excluded_rel) {
+          continue;
+        }
       }
 
       auto &current_labels_info = node_types_properties[labels_set];

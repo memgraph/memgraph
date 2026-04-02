@@ -25,5 +25,17 @@ def test_mgps1():
     assert (result) == ["community", "Memgraph", ["5.9.0"]]
 
 
+def test_mgps_version():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN mgps.version();")
+    assert list(result[0]) == ["5.9.0"]
+
+
+def test_apoc_version_mapping():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN apoc.version();")
+    assert list(result[0]) == ["5.9.0"]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
