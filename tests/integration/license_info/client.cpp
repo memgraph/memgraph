@@ -24,7 +24,7 @@
 #include "utils/uuid.hpp"
 
 DEFINE_string(endpoint, "http://127.0.0.1:5500/", "Endpoint that should be used for the test.");
-DEFINE_string(license_type, "enterprise", "License type; can be oem or enterprise.");
+DEFINE_string(license_type, "enterprise", "License type; can be enterprise, oem, or ai_platform.");
 DEFINE_int64(interval, 1, "Interval used for reporting telemetry in seconds.");
 DEFINE_int64(duration, 10, "Duration of the test in seconds.");
 
