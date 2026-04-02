@@ -342,8 +342,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     auto indexed_scan = GenScanByIndex(scan);
     if (indexed_scan) {
-      if (!order_by_stack_.empty() && order_by_stack_.back().valid) {
-        CheckOrderByElimination(indexed_scan.get(), scan.output_symbol_);
+      // Set marker if the rewritten scan is a ScanAllByLabelProperties (SkipList-backed, ASC order).
+      if (indexed_scan->GetTypeInfo() == ScanAllByLabelProperties::kType) {
+        auto *scan_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get());
+        // IN-list rewrite inserts an Unwind below the scan — output isn't globally sorted.
+        bool has_unwind = false;
+        for (auto *op = scan_props->input().get(); op; op = op->HasSingleInput() ? op->input().get() : nullptr) {
+          if (op->GetTypeInfo() == Unwind::kType) {
+            has_unwind = true;
+            break;
+          }
+        }
+        if (!has_unwind) {
+          provided_order_ = ProvidedOrder{scan_props, scan.output_symbol_, {}, scan.output_symbol_.name()};
+        }
       }
       SetOnParent(std::move(indexed_scan));
     }
@@ -576,8 +588,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PostVisit(Produce &) override {
+  bool PostVisit(Produce &produce) override {
     prev_ops_.pop_back();
+    if (provided_order_) {
+      provided_order_->produces.emplace_back(&produce, provided_order_->current_name);
+      auto resolved = ResolveProduceMapping(&produce, provided_order_->current_name);
+      if (resolved) provided_order_->current_name = std::move(*resolved);
+    }
     return true;
   }
 
@@ -703,17 +720,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
-    order_by_stack_.emplace_back(ExtractOrderByContext(op));
     return true;
   }
 
   bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
-    DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in PostVisit");
-    auto ctx = std::move(order_by_stack_.back());
-    order_by_stack_.pop_back();
-    if (ctx.should_eliminate) {
+    if (provided_order_ && TryEliminateOrderBy(op)) {
       SetOnParent(op.input());
+      // Marker stays — index order is preserved through eliminated OrderBy,
+      // so an outer OrderBy can also attempt elimination.
+    } else {
+      // OrderBy kept (or no marker) — re-sort destroys index order.
+      provided_order_.reset();
     }
     return true;
   }
@@ -884,19 +902,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
 
-  // Stack because nested OrderBy operators can appear (WITH ... ORDER BY ... RETURN ... ORDER BY).
-  struct OrderByContext {
-    OrderBy *op;
+  // Marker set when a ScanAllByLabelProperties index scan is generated. Propagates upward through
+  // PostVisits: Produce updates it (rename tracking), OrderBy consumes it (elimination check).
+  // Non-order-preserving operators between scan and OrderBy are caught by a verification walk
+  // at PostVisit(OrderBy) time.
+  struct ProvidedOrder {
+    ScanAllByLabelProperties *scan;
     Symbol scan_symbol;
-    std::vector<storage::PropertyPath> property_paths;
-    bool valid;
-    bool should_eliminate;
-    // Bare-Identifier ORDER BY (e.g., ORDER BY a after WITH n.prop AS a). Resolved to
-    // property_paths during CheckOrderByElimination via Produce inspection.
-    std::vector<std::string> unresolved_aliases;
+    // Produces between scan and current position, in bottom-to-top (PostVisit) order.
+    // Each entry: (produce, scan symbol name at that Produce's input scope).
+    std::vector<std::pair<Produce *, std::string>> produces;
+    std::string current_name;  // scan symbol name after all renames so far
   };
 
-  std::vector<OrderByContext> order_by_stack_;
+  std::optional<ProvidedOrder> provided_order_;
 
   struct LabelPropertyIndex {
     LabelIx label;
@@ -922,6 +941,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   };
 
   /// Returns the output name that carries `tracked_name` through a Produce, or nullopt if dropped.
+  /// Only handles pure renames (Identifier expressions, e.g. n AS m). PropertyLookup expressions
+  /// (e.g. n.prop AS a) are handled separately by ResolveAliasesThroughProduce.
   static std::optional<std::string> ResolveProduceMapping(Produce *produce, const std::string &tracked_name) {
     for (const auto *ne : produce->named_expressions_) {
       auto *ident = dynamic_cast<Identifier *>(ne->expression_);
@@ -931,17 +952,27 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return std::nullopt;
   }
 
-  auto ExtractOrderByContext(OrderBy &op) -> OrderByContext {
-    OrderByContext ctx{.op = &op, .scan_symbol = {}, .property_paths = {}, .valid = false, .should_eliminate = false};
+  // TODO: Extend to edge property index scans (also SkipList-backed, ASC order).
+
+  /// Extracted ORDER BY info for elimination matching.
+  struct OrderByInfo {
+    Symbol scan_symbol;
+    std::vector<storage::PropertyPath> property_paths;
+    std::vector<std::string> unresolved_aliases;
+    bool valid = false;
+  };
+
+  auto ExtractOrderByInfo(OrderBy &op) -> OrderByInfo {
+    OrderByInfo info;
 
     const auto &orderings = op.compare_.orderings();
     const auto &order_by_exprs = op.order_by_;
 
-    if (orderings.empty()) return ctx;
+    if (orderings.empty()) return info;
 
     // TODO(ivan): Support DESC — SkipList indexes can be iterated in reverse.
     for (const auto &ord : orderings) {
-      if (ord.ordering() != Ordering::ASC) return ctx;
+      if (ord.ordering() != Ordering::ASC) return info;
     }
 
     bool all_prop_lookup = true;
@@ -950,21 +981,21 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (!dynamic_cast<PropertyLookup *>(expr)) all_prop_lookup = false;
       if (!dynamic_cast<Identifier *>(expr)) all_bare_ident = false;
     }
-    if (!all_prop_lookup && !all_bare_ident) return ctx;
+    if (!all_prop_lookup && !all_bare_ident) return info;
 
     if (all_prop_lookup) {
       bool first = true;
       for (auto *expr : order_by_exprs) {
         auto *prop_lookup = dynamic_cast<PropertyLookup *>(expr);
         auto *ident = dynamic_cast<Identifier *>(prop_lookup->expression_);
-        if (!ident) return ctx;
+        if (!ident) return info;
 
         const auto &sym = symbol_table_->at(*ident);
         if (first) {
-          ctx.scan_symbol = sym;
+          info.scan_symbol = sym;
           first = false;
-        } else if (ctx.scan_symbol != sym) {
-          return ctx;
+        } else if (info.scan_symbol != sym) {
+          return info;
         }
 
         std::vector<storage::PropertyId> prop_ids;
@@ -972,91 +1003,43 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         for (const auto &pix : prop_lookup->property_path_) {
           prop_ids.push_back(GetProperty(pix));
         }
-        ctx.property_paths.emplace_back(std::move(prop_ids));
+        info.property_paths.emplace_back(std::move(prop_ids));
       }
     } else {
       for (auto *expr : order_by_exprs) {
-        ctx.unresolved_aliases.push_back(dynamic_cast<Identifier *>(expr)->name_);
+        info.unresolved_aliases.push_back(dynamic_cast<Identifier *>(expr)->name_);
       }
     }
 
-    ctx.valid = true;
-    return ctx;
+    info.valid = true;
+    return info;
   }
 
-  // TODO: Extend to edge property index scans (also SkipList-backed, ASC order).
-
-  struct WalkResult {
-    std::vector<std::pair<Produce *, std::string>> produces;  // (produce, tracked_name entering it)
-    std::string tracked_name;                                 // scan symbol name after all Produces (output-scope)
-    std::string pre_last_produce_name;                        // scan symbol name before last Produce (input-scope)
-    bool valid;
-  };
-
-  /// Walk prev_ops_ from scan to OrderBy, verifying order preservation and collecting Produces.
-  /// Returned produces are in OrderBy-to-scan order for alias resolution.
-  WalkResult WalkToOrderBy(const OrderByContext &ctx, const Symbol &scan_symbol) {
-    WalkResult result{.tracked_name = scan_symbol.name(), .pre_last_produce_name = scan_symbol.name(), .valid = true};
-
-    for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
-      auto *op = *it;
-      const auto &type_info = op->GetTypeInfo();
-
-      if (type_info == Produce::kType) {
-        result.pre_last_produce_name = result.tracked_name;
-        auto *produce = dynamic_cast<Produce *>(op);
-        result.produces.emplace_back(produce, result.tracked_name);
-        auto resolved = ResolveProduceMapping(produce, result.tracked_name);
-        if (resolved) result.tracked_name = std::move(*resolved);
-        continue;
-      }
-
-      // Mutation operators (SetProperty, Delete, etc.) are excluded — they can change sorted values.
-      // Expand/ExpandVariable may multiply rows (1:N), but relative order of the scan symbol is
-      // preserved — and we only eliminate ORDER BY on the scan symbol, so duplicated values are equal
-      // and the output remains sorted. This invariant breaks if elimination is ever extended to
-      // non-scan symbols.
-      // Unwind (user-written, e.g. UNWIND [1,2,3] AS x) multiplies rows but preserves scan-symbol
-      // order. This is distinct from the IN-list rewrite Unwind *below* the scan, which drives the
-      // scan with multiple values and breaks global order — that case is caught separately in
-      // CheckOrderByElimination.
-      bool order_preserving =
-          type_info == Filter::kType || type_info == ConstructNamedPath::kType ||
-          type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
-          type_info == Expand::kType || type_info == ExpandVariable::kType || type_info == Optional::kType ||
-          type_info == Distinct::kType || type_info == EvaluatePatternFilter::kType ||
-          type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType;
-      if (!order_preserving) {
-        result.valid = false;
-        return result;
-      }
-    }
-
-    // Find the Produce above OrderBy (RETURN/WITH scope), skipping Distinct if present.
-    for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend(); ++it) {
-      if (*it != ctx.op) continue;
-      for (auto parent = it + 1; parent != prev_ops_.rend(); ++parent) {
-        const auto &pt = (*parent)->GetTypeInfo();
-        if (pt == Produce::kType) {
-          result.produces.emplace_back(dynamic_cast<Produce *>(*parent), result.tracked_name);
-          break;
-        }
-        if (pt != Distinct::kType) break;
-      }
-      break;
-    }
-
-    std::reverse(result.produces.begin(), result.produces.end());
-    return result;
+  /// Check if an operator preserves the relative row order of its input.
+  /// Mutation operators (SetProperty, Delete, etc.) are excluded — they can change sorted values.
+  /// Expand/ExpandVariable may multiply rows (1:N), but relative order of the scan symbol is
+  /// preserved — and we only eliminate ORDER BY on the scan symbol, so duplicated values are equal
+  /// and the output remains sorted. This invariant breaks if elimination is ever extended to
+  /// non-scan symbols.
+  /// Unwind (user-written, e.g. UNWIND [1,2,3] AS x) multiplies rows but preserves scan-symbol
+  /// order. This is distinct from the IN-list rewrite Unwind *below* the scan, which drives the
+  /// scan with multiple values and breaks global order — that case is caught at marker creation time.
+  static bool IsOrderPreserving(const utils::TypeInfo &type_info) {
+    return type_info == Filter::kType || type_info == ConstructNamedPath::kType ||
+           type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
+           type_info == Expand::kType || type_info == ExpandVariable::kType || type_info == Optional::kType ||
+           type_info == Distinct::kType || type_info == EvaluatePatternFilter::kType ||
+           type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType ||
+           type_info == Produce::kType;
   }
 
   /// Resolve bare-Identifier ORDER BY aliases through a Produce. Returns true if all resolved
-  /// to PropertyLookup, false if all passed through as renames. Bails (ctx.valid = false) on mixed.
-  bool ResolveAliasesThroughProduce(Produce *produce, OrderByContext &ctx, const std::string &expected_source) {
+  /// to PropertyLookup, false if all passed through as renames. Bails (info.valid = false) on mixed.
+  bool ResolveAliasesThroughProduce(Produce *produce, OrderByInfo &info, const std::string &expected_source) {
     std::vector<storage::PropertyPath> resolved_paths;
     std::vector<std::string> remaining;
 
-    for (const auto &alias : ctx.unresolved_aliases) {
+    for (const auto &alias : info.unresolved_aliases) {
       const NamedExpression *matched = nullptr;
       for (const auto *ne : produce->named_expressions_) {
         if (ne->name_ == alias) {
@@ -1065,14 +1048,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
       }
       if (!matched) {
-        ctx.valid = false;
+        info.valid = false;
         return false;
       }
 
       if (auto *prop = dynamic_cast<PropertyLookup *>(matched->expression_)) {
         auto *inner = dynamic_cast<Identifier *>(prop->expression_);
         if (!inner || inner->name_ != expected_source) {
-          ctx.valid = false;
+          info.valid = false;
           return false;
         }
         std::vector<storage::PropertyId> prop_ids;
@@ -1084,80 +1067,97 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       } else if (auto *ident = dynamic_cast<Identifier *>(matched->expression_)) {
         remaining.push_back(ident->name_);
       } else {
-        ctx.valid = false;
+        info.valid = false;
         return false;
       }
     }
 
     if (!resolved_paths.empty() && !remaining.empty()) {
-      ctx.valid = false;
+      info.valid = false;
       return false;
     }
 
     if (!resolved_paths.empty()) {
-      ctx.property_paths = std::move(resolved_paths);
-      ctx.unresolved_aliases.clear();
+      info.property_paths = std::move(resolved_paths);
+      info.unresolved_aliases.clear();
       return true;
     }
 
-    ctx.unresolved_aliases = std::move(remaining);
+    info.unresolved_aliases = std::move(remaining);
     return false;
   }
 
-  void CheckOrderByElimination(LogicalOperator *new_scan, const Symbol &scan_symbol) {
-    DMG_ASSERT(!order_by_stack_.empty(), "CheckOrderByElimination called with empty stack");
-    auto &ctx = order_by_stack_.back();
+  /// Attempt to eliminate OrderBy using the provided_order_ marker.
+  /// Walks from OrderBy down to the scan via input() to verify order-preserving operators,
+  /// then matches ORDER BY columns against the index properties.
+  bool TryEliminateOrderBy(OrderBy &op) {
+    auto &order = *provided_order_;
+    auto info = ExtractOrderByInfo(op);
+    if (!info.valid) return false;
 
-    if (new_scan->GetTypeInfo() != ScanAllByLabelProperties::kType) return;
-
-    auto walk = WalkToOrderBy(ctx, scan_symbol);
-    if (!walk.valid) return;
-
-    if (!ctx.unresolved_aliases.empty()) {
-      for (const auto &[produce, expected_source] : walk.produces) {
-        if (ctx.unresolved_aliases.empty()) break;
-        ResolveAliasesThroughProduce(produce, ctx, expected_source);
-        if (!ctx.valid) return;
+    // Walk from OrderBy down to the scan via input(), verifying only order-preserving operators.
+    {
+      auto *current = op.input().get();
+      while (current && current != order.scan) {
+        if (!IsOrderPreserving(current->GetTypeInfo())) return false;
+        if (!current->HasSingleInput()) return false;
+        current = current->input().get();
       }
-      if (!ctx.unresolved_aliases.empty()) return;
+      if (current != order.scan) return false;
+    }
+
+    // Build produces list for alias resolution: marker's produces (scan→OrderBy, collected
+    // incrementally in PostVisit(Produce)) + parent Produce above OrderBy (RETURN/WITH scope).
+    // The parent's PostVisit hasn't fired yet, so peek at prev_ops_.
+    auto produces = order.produces;
+    for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend(); ++it) {
+      const auto &pt = (*it)->GetTypeInfo();
+      if (pt == Produce::kType) {
+        produces.emplace_back(dynamic_cast<Produce *>(*it), order.current_name);
+        break;
+      }
+      if (pt != Distinct::kType) break;
+    }
+
+    if (!info.unresolved_aliases.empty()) {
+      // Resolve from OrderBy scope down to scan scope: iterate produces in reverse
+      // (they are stored in scan→OrderBy order from PostVisit).
+      for (auto it = produces.rbegin(); it != produces.rend(); ++it) {
+        if (info.unresolved_aliases.empty()) break;
+        ResolveAliasesThroughProduce(it->first, info, it->second);
+        if (!info.valid) return false;
+      }
+      if (!info.unresolved_aliases.empty()) return false;
     } else {
       // Dual-scope: RETURN n AS m ORDER BY n.prop and ORDER BY m.prop are both valid.
-      const auto &ob_name = ctx.scan_symbol.name();
-      if (walk.tracked_name != ob_name && walk.pre_last_produce_name != ob_name) return;
+      const auto &ob_name = info.scan_symbol.name();
+      const auto &tracked_name = order.current_name;
+      const auto &pre_last_produce_name =
+          order.produces.empty() ? order.scan_symbol.name() : order.produces.back().second;
+      if (tracked_name != ob_name && pre_last_produce_name != ob_name) return false;
     }
 
     // Match ORDER BY properties against index columns, skipping equality-pinned columns.
-    auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(new_scan);
-    const auto &index_properties = scan_by_props->properties_;
-    const auto &expr_ranges = scan_by_props->expression_ranges_;
-
-    // IN-list rewrite inserts an Unwind below the scan — output isn't globally sorted.
-    {
-      auto *op = scan_by_props->input().get();
-      while (op) {
-        if (op->GetTypeInfo() == Unwind::kType) return;
-        if (!op->HasSingleInput()) break;
-        op = op->input().get();
-      }
-    }
+    const auto &index_properties = order.scan->properties_;
+    const auto &expr_ranges = order.scan->expression_ranges_;
 
     size_t ob_ptr = 0;
-    for (size_t i = 0; i < index_properties.size() && ob_ptr < ctx.property_paths.size(); ++i) {
-      if (index_properties[i] == ctx.property_paths[ob_ptr]) {
+    for (size_t i = 0; i < index_properties.size() && ob_ptr < info.property_paths.size(); ++i) {
+      if (index_properties[i] == info.property_paths[ob_ptr]) {
         ++ob_ptr;
       } else if (i < expr_ranges.size() && expr_ranges[i].type_ == PropertyFilter::Type::EQUAL) {
         continue;
       } else {
-        return;
+        return false;
       }
     }
 
-    // TODO: When ob_ptr < ctx.property_paths.size() but ob_ptr > 0, the index covers a prefix of the
+    // TODO: When ob_ptr < info.property_paths.size() but ob_ptr > 0, the index covers a prefix of the
     // ORDER BY columns. We could partially eliminate by rewriting OrderBy to only sort on the remaining
     // columns, since the index already provides order on the first ob_ptr columns.
-    if (ob_ptr != ctx.property_paths.size()) return;
+    if (ob_ptr != info.property_paths.size()) return false;
 
-    ctx.should_eliminate = true;
+    return true;
   }
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
