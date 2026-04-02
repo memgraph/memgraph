@@ -1062,3 +1062,8 @@ if (MG_ENTERPRISE)
         ${CMAKE_SOURCE_DIR}/query_modules/mg_utility
     )
 endif ()
+
+add_unit_test(safe_hardware_concurrency
+    SOURCES safe_hardware_concurrency.cpp
+    LINK_TARGETS mg-utils
+)
