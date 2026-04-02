@@ -1068,7 +1068,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
           auto failures = replicating_txn.CollectStartTxnErrors();
           if (!repl_prepare_phase_status.has_value()) {
-            auto &ship_failures = repl_prepare_phase_status.error().failures;
+            auto const &ship_failures = repl_prepare_phase_status.error().failures;
             failures.insert(failures.end(),
                             std::make_move_iterator(ship_failures.begin()),
                             std::make_move_iterator(ship_failures.end()));
@@ -1100,7 +1100,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // to have a value if there were some start txn errors
         auto failures = replicating_txn.CollectStartTxnErrors();
         if (!repl_prepare_phase_status.has_value()) {
-          auto &ship_failures = repl_prepare_phase_status.error().failures;
+          auto const &ship_failures = repl_prepare_phase_status.error().failures;
           failures.insert(failures.end(),
                           std::make_move_iterator(ship_failures.begin()),
                           std::make_move_iterator(ship_failures.end()));
