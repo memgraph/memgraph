@@ -340,22 +340,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // should be the last thing ScanAll::Accept does, so it should be safe.
   bool PostVisit(ScanAll &scan) override {
     prev_ops_.pop_back();
-    auto indexed_scan = GenScanByIndex(scan);
+    auto [indexed_scan, has_in_filter] = GenScanByIndex(scan);
     if (indexed_scan) {
       // Set marker if the rewritten scan is a ScanAllByLabelProperties (SkipList-backed, ASC order).
-      if (indexed_scan->GetTypeInfo() == ScanAllByLabelProperties::kType) {
+      // IN-list filters use Unwind to drive the scan with multiple values, breaking global order.
+      if (!has_in_filter && indexed_scan->GetTypeInfo() == ScanAllByLabelProperties::kType) {
         auto *scan_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get());
-        // IN-list rewrite inserts an Unwind below the scan — output isn't globally sorted.
-        bool has_unwind = false;
-        for (auto *op = scan_props->input().get(); op; op = op->HasSingleInput() ? op->input().get() : nullptr) {
-          if (op->GetTypeInfo() == Unwind::kType) {
-            has_unwind = true;
-            break;
-          }
-        }
-        if (!has_unwind) {
-          provided_order_ = ProvidedOrder{scan_props, scan.output_symbol_, {}, scan.output_symbol_.name()};
-        }
+        provided_order_ = ProvidedOrder{scan_props, scan.output_symbol_, {}, scan.output_symbol_.name()};
       }
       SetOnParent(std::move(indexed_scan));
     }
@@ -411,7 +402,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
       }
     } else {
-      auto indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
+      auto [indexed_scan, _] = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
       if (indexed_scan) {
         expand.set_input(std::move(indexed_scan));
         expand.common_.existing_node = true;
@@ -1776,6 +1767,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   struct ScanByIndexResult {
     std::shared_ptr<LogicalOperator> operator_;
     ScanByIndexMetadata metadata_;
+    bool has_in_filter = false;  // true when an IN-list filter was rewritten to Unwind + equality scan
   };
 
   // Finds the best indexed scan operator for the given ScanAll without applying side effects.
@@ -1933,6 +1925,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       metadata.labels_to_erase.push_back(found_index->label);
 
+      bool has_in = std::ranges::any_of(found_index->filters, [](const FilterInfo &f) {
+        return f.property_filter && f.property_filter->type_ == PropertyFilter::Type::IN;
+      });
       auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
       auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
 
@@ -1942,7 +1937,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            std::move(found_index->properties),
                                                            std::move(expr_ranges),
                                                            view);
-      return ScanByIndexResult{std::move(op), std::move(metadata)};
+      return ScanByIndexResult{std::move(op), std::move(metadata), has_in};
     }
     if (!labels.empty()) {
       auto maybe_label = FindBestLabelIndex(labels);
@@ -2064,14 +2059,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // In case of a "or" expression on labels the Distinct operator will be returned with the
   // Union operator as input. Union will have as input the ScanAll operator.
   // TODO: Add new operator instead of Distinct + Union
-  std::shared_ptr<LogicalOperator> GenScanByIndex(const ScanAll &scan,
-                                                  const std::optional<int64_t> &max_vertex_count = std::nullopt) {
+  struct GenScanResult {
+    std::shared_ptr<LogicalOperator> op;
+    bool has_in_filter = false;
+  };
+
+  GenScanResult GenScanByIndex(const ScanAll &scan, const std::optional<int64_t> &max_vertex_count = std::nullopt) {
     auto result = FindBestScanByIndex(scan, max_vertex_count);
     if (!result) {
-      return nullptr;
+      return {};
     }
     ApplyScanByIndex(result->metadata_);
-    return std::move(result->operator_);
+    return {std::move(result->operator_), result->has_in_filter};
   }
 };
 
