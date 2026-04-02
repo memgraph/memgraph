@@ -1068,10 +1068,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
           auto failures = replicating_txn.CollectStartTxnErrors();
           if (!repl_prepare_phase_status.has_value()) {
-            for (auto &f : repl_prepare_phase_status.error().failures) {
+            for (auto const &f : repl_prepare_phase_status.error().failures) {
               // A replica that failed to start also fails during finalize — keep only the start error
               if (!std::ranges::any_of(failures, [&](auto const &e) { return e.name == f.name; })) {
-                failures.push_back(std::move(f));
+                failures.push_back(f);
               }
             }
           }
@@ -1102,10 +1102,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // to have a value if there were some start txn errors
         auto failures = replicating_txn.CollectStartTxnErrors();
         if (!repl_prepare_phase_status.has_value()) {
-          for (auto &f : repl_prepare_phase_status.error().failures) {
+          for (auto const &f : repl_prepare_phase_status.error().failures) {
             // A replica that failed to start also fails during finalize — keep only the start error
             if (!std::ranges::any_of(failures, [&](auto const &e) { return e.name == f.name; })) {
-              failures.push_back(std::move(f));
+              failures.push_back(f);
             }
           }
         }
