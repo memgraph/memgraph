@@ -144,7 +144,6 @@ repo_clone_try_double () {
 # Download from primary_urls might fail because the cache is not installed.
 
 declare -A primary_urls=(
-  ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
   ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
   ["neo4j"]="http://$local_cache_host/neo4j-community-5.6.0-unix.tar.gz"
@@ -163,7 +162,6 @@ declare -A primary_urls=(
 # at all, should never fail. In other words, if it fails, the whole build
 # should fail.
 declare -A secondary_urls=(
-  ["rapidcheck"]="https://github.com/emil-e/rapidcheck.git"
   ["libbcrypt"]="https://github.com/rg3/libbcrypt"
   ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
   ["neo4j"]="https://dist.neo4j.org/neo4j-community-5.6.0-unix.tar.gz"
@@ -189,10 +187,6 @@ skip_if_under_toolchain () {
     echo "Skipping $artifact_name download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
   fi
 }
-
-# rapidcheck
-rapidcheck_tag="ff6af6fc683159deb51c543b065eba14dfcf329b" # (2023-12-14)
-repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
 
 libbcrypt_tag="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4" # custom version (Dec 16, 2016)
 skip_if_under_toolchain "libbcrypt" repo_clone_try_double "${primary_urls[libbcrypt]}" "${secondary_urls[libbcrypt]}" "libbcrypt" "$libbcrypt_tag"

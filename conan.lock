@@ -10,6 +10,7 @@
         "simdjson/4.2.2#4cd3a478d2f19e70c78c8ef72b8e0c5d%1763286123.103",
         "s2n/1.5.27#d3f92c7e6873000d69ce09eefa5b7cdb%1763415423.713",
         "rapidjson/cci.20230929#8dc0392af2b3aaea7312095f0ba53467%1705070242.903",
+        "rapidcheck/cci.20231215#4d04e275bc3a07d2a20e9fdd8f05c021%1750175299.326",
         "range-v3/0.12.0#4c05d91d7b40e6b91b44b5345ac64408%1689218196.637",
         "openssl/3.0.18#eac62ac34e57db6df6a7af9a60f5beed%1759746693.341",
         "mgclient/1.4.3#acde49e45b64f83be2b6ad993226a4b7%1724630575.998",
@@ -75,6 +76,9 @@
         ],
         "libcurl/[>=7.78.0 <9]": [
             "libcurl/8.17.0"
+        ],
+        "gtest/1.12.1": [
+            "gtest/1.17.0#5224b3b3ff3b4ce1133cbdd27d53ee7d"
         ]
     },
     "config_requires": []

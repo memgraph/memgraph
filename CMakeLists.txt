@@ -202,6 +202,7 @@ include(functions)
 # Load dependencies that don't depend on others first
 find_package(benchmark REQUIRED)
 find_package(GTest REQUIRED)
+find_package(rapidcheck REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(fmt REQUIRED)
 find_package(strong_type REQUIRED)
