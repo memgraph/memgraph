@@ -15,6 +15,8 @@
 #include <expected>
 #include <functional>
 #include <list>
+#include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
@@ -41,6 +43,10 @@ struct StorageSnapshot {
   uint64_t disk_usage;
   uint64_t memory_res;
 };
+
+/// Retrieves `StorageSnapshot` for the given `db_name`, or `std::nullopt` if
+/// there is no such database.
+using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(std::string_view db_name)>;
 
 struct DatabaseMetricHandles {
   // Storage
@@ -243,10 +249,11 @@ class PrometheusMetrics {
   PrometheusMetrics &operator=(PrometheusMetrics &&) = delete;
   ~PrometheusMetrics() = default;
 
-  DatabaseMetricHandles *AddDatabase(std::string_view db_name, std::function<StorageSnapshot()> get_snapshot);
+  DatabaseMetricHandles *AddDatabase(std::string_view db_name);
   void RemoveDatabase(DatabaseMetricHandles const *handles);
-  void UpdateSnapshotCallback(DatabaseMetricHandles const *handles, std::function<StorageSnapshot()> get_snapshot);
   void UpdateGauges();
+
+  void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
 
   std::expected<std::vector<MetricInfo>, std::string> GetDbMetricsInfo(std::string_view db_name) const;
   std::vector<MetricInfo> GetGlobalMetricsInfo() const;
@@ -259,15 +266,18 @@ class PrometheusMetrics {
   struct DatabaseEntry {
     std::string db_name;
     DatabaseMetricHandles handles;
-    std::function<StorageSnapshot()> get_snapshot;
     // Ref count to handle multiple Database instances with the same name
     // sharing the same prometheus objects. This occurs only in unit tests that
     // simulate multi-node setups (e..g. main + replicas) in-process.
     uint32_t ref_count{1};
   };
 
+  StorageSnapshot ResolveStorageSnapshot(std::string_view db_name) const;
+
   prometheus::Registry registry_;
   mutable std::shared_mutex databases_mutex_;
+  mutable std::mutex snapshot_resolver_mutex_;
+  StorageSnapshotResolver storage_snapshot_resolver_;
   std::list<DatabaseEntry> databases_;
 
   // Per-database metric families — storage

@@ -70,19 +70,15 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
   }
 
-  metrics_.reset(metrics::Metrics().AddDatabase(storage_->name(), [s = storage_.get()] {
-    auto const info = s->GetBaseInfo();
-    return metrics::StorageSnapshot{
-        .vertex_count = info.vertex_count,
-        .edge_count = info.edge_count,
-        .disk_usage = info.disk_usage,
-        .memory_res = info.memory_res,
-    };
-  }));
+  metrics_.reset(metrics::Metrics().AddDatabase(storage_->name()));
   storage_->SetMetricHandles(metrics_.get());
 }
 
-Database::~Database() = default;
+Database::~Database() {
+  if (storage_) {
+    storage_->SetMetricHandles(nullptr);
+  }
+}
 
 Database::ScopedMetrics::~ScopedMetrics() {
   if (handles_) metrics::Metrics().RemoveDatabase(handles_);
@@ -116,15 +112,6 @@ void Database::SwitchToOnDisk() {
       std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);
 
   if (metrics_.get()) {
-    metrics::Metrics().UpdateSnapshotCallback(metrics_.get(), [s = storage_.get()] {
-      auto const info = s->GetBaseInfo();
-      return metrics::StorageSnapshot{
-          .vertex_count = info.vertex_count,
-          .edge_count = info.edge_count,
-          .disk_usage = info.disk_usage,
-          .memory_res = info.memory_res,
-      };
-    });
     storage_->SetMetricHandles(metrics_.get());
   }
 }

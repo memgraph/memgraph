@@ -638,6 +638,11 @@ int main(int argc, char **argv) {
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config);
 
+  memgraph::metrics::Metrics().SetStorageSnapshotResolver(
+      [&dbms_handler](std::string_view name) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        return dbms_handler.TryGetStorageSnapshotForMetrics(name);
+      });
+
   // singleton replication state
   // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
