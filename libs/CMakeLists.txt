@@ -206,13 +206,6 @@ macro(mg_create_linkable_if_no_cmake lib_name lib_type lib_path include_path)
   endif()
 endmacro()
 
-# setup rapidcheck (it cannot be external, since it doesn't have install
-# target)
-set(RC_ENABLE_GTEST ON CACHE BOOL "Build Google Test integration" FORCE)
-set(RC_ENABLE_GMOCK ON CACHE BOOL "Build Google Mock integration" FORCE)
-mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
-add_subdirectory(rapidcheck EXCLUDE_FROM_ALL SYSTEM)
-
 # Setup json for offline build (TODO: Remove this once the conan package has the patch)
 FetchContent_Declare(
     nlohmann_json

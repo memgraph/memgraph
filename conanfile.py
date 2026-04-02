@@ -99,7 +99,11 @@ class Memgraph(ConanFile):
         self.tool_requires("antlr4/4.13.1")
 
         self.test_requires("benchmark/1.9.4")
-        self.test_requires("gtest/1.17.0")
+        self.test_requires("gtest/1.17.0", force=True)
+        self.test_requires(
+            "rapidcheck/cci.20231215",
+            options={"enable_gtest": True, "enable_gmock": True},
+        )
 
     def validate(self):
         """Validate configuration before generation"""
