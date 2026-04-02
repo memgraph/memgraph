@@ -22,6 +22,7 @@
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertices_iterable.hpp"
+#include "text_search.hpp"
 
 namespace memgraph::storage {
 
@@ -55,7 +56,7 @@ class TextEdgeIndex {
       std::span<TextEdgeIndexData *const> edge_type_indices, std::span<const PropertyId> properties);
 
   static void AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
-                                 nlohmann::json properties, std::string property_values_as_str,
+                                 nlohmann::json properties, std::string all_property_values,
                                  mgcxx::text_search::Context &context);
 
  public:
@@ -88,7 +89,7 @@ class TextEdgeIndex {
   bool IndexExists(const std::string &index_name) const;
 
   std::vector<TextEdgeSearchResult> Search(const std::string &index_name, const std::string &search_query,
-                                           text_search_mode search_mode, std::size_t limit);
+                                           text_search_mode search_mode, std::size_t limit, const Transaction &tx);
 
   std::string Aggregate(const std::string &index_name, const std::string &search_query,
                         const std::string &aggregation_query);
