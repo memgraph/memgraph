@@ -1271,6 +1271,66 @@ test_memgraph() {
 
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_index/default/vector/*"
     ;;
+    mgbench-vector-search-edge-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-vector-search-edge-index" >&2
+            echo "Supported flags: --export-results-file" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_edge_index/default/vector/*"
+    ;;
+    mgbench-text-search-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-text-search-index" >&2
+            echo "Supported flags: --export-results-file" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_index/default/text/*"
+    ;;
+    mgbench-text-search-edge-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-text-search-edge-index" >&2
+            echo "Supported flags: --export-results-file" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_edge_index/default/text/*"
+    ;;
     upload-to-bench-graph)
       shift 1
       local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""

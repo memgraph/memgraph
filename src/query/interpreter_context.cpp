@@ -30,6 +30,7 @@ InterpreterContext::InterpreterContext(
     InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
     memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, memgraph::system::System &system,
+    communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE
     std::optional<std::reference_wrapper<memgraph::coordination::CoordinatorState>> const &coordinator_state,
     utils::ResourceMonitoring *resource_monitoring,
@@ -49,6 +50,7 @@ InterpreterContext::InterpreterContext(
       auth_checker(ac),
       replication_handler_{replication_handler},
       system_{&system},
+      bolt_server_context_(bolt_server_context),
       worker_pool(worker_pool) {
 }
 

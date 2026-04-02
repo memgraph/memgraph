@@ -4789,6 +4789,26 @@ PreparedQuery PrepareDropAllConstraintsQuery(ParsedQuery parsed_query, bool in_e
       .rw_type = RWType::NONE};
 }
 
+PreparedQuery PrepareReloadSSLQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                    std::vector<Notification> *notifications, InterpreterContext *interpreter_context) {
+  if (in_explicit_transaction) {
+    throw ReloadSSLMulticommandTxException();
+  }
+  return PreparedQuery{
+      .header = {},
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler =
+          [interpreter_context, notifications](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+            if (auto const res = interpreter_context->bolt_server_context_->reload(); !res.has_value()) {
+              throw QueryRuntimeException(res.error().msg);
+            }
+            notifications->emplace_back(
+                SeverityLevel::INFO, NotificationCode::RELOAD_SSL, "Reloading SSL for Bolt server");
+            return QueryHandlerResult::COMMIT;
+          },
+      .rw_type = RWType::NONE};
+}
+
 #ifdef MG_ENTERPRISE
 PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                               std::vector<Notification> *notifications, CurrentDB &current_db,
@@ -8507,6 +8527,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(SessionTraceQuery & /*unused*/) override {}
 
+  void Visit(ReloadSSLQuery & /*unused*/) override { /*No need for storage*/ }
+
   // Some queries require an active transaction in order to be prepared.
   // Unique access required
   void Visit(PointIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
@@ -8848,6 +8870,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<CreateVectorEdgeIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareCreateVectorEdgeIndexQuery(
           std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, current_db_);
+      // NOLINTNEXTLINE (bugprone-branch-clone)
     } else if (utils::Downcast<TtlQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
       prepared_query = PrepareTtlQuery(std::move(parsed_query),
@@ -8858,6 +8881,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #else
       throw EnterpriseOnlyException();
 #endif  // MG_ENTERPRISE
+    } else if (utils::Downcast<ReloadSSLQuery>(parsed_query.query)) {
+      prepared_query = PrepareReloadSSLQuery(
+          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
