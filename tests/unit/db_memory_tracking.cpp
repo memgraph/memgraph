@@ -362,6 +362,81 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryRollsIntoDbAndGlobalTrackers) {
       << "Global embedding tracker should return to baseline after the index is dropped";
 }
 
+TEST_F(DbMemoryTrackingTest, DbMemoryUsageMatchesComponentSumsAcrossStorageEmbeddingAndQuery) {
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
+  auto db_acc_opt = db_gk.access();
+  ASSERT_TRUE(db_acc_opt);
+  auto &db = *db_acc_opt;
+
+  auto label = db->storage()->NameToLabel("CombinedLabel");
+  auto property = db->storage()->NameToProperty("embedding");
+
+  {
+    auto accessor = db->Access();
+    for (int i = 0; i < 256; ++i) {
+      auto vertex = accessor->CreateVertex();
+      ASSERT_NO_ERROR(vertex.AddLabel(label));
+      std::vector<double> embedding(128, static_cast<double>(i % 5) + 0.25);
+      ASSERT_NO_ERROR(vertex.SetProperty(property, memgraph::storage::PropertyValue(embedding)));
+    }
+    accessor->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  }
+
+  const int64_t storage_only = db->DbStorageMemoryUsage();
+  EXPECT_GT(storage_only, 0) << "Committed storage objects should contribute to DbStorageMemoryUsage";
+  EXPECT_EQ(db->DbMemoryUsage(), db->DbStorageMemoryUsage() + db->DbEmbeddingMemoryUsage() + db->DbQueryMemoryUsage())
+      << "Combined DB memory should equal the sum of storage, embedding, and query subtotals";
+
+  memgraph::storage::VectorIndexSpec spec{
+      .index_name = "combined_memory_index",
+      .label_id = label,
+      .property = property,
+      .metric_kind = unum::usearch::metric_kind_t::cos_k,
+      .dimension = 128,
+      .resize_coefficient = 2,
+      .capacity = 1024,
+      .scalar_kind = unum::usearch::scalar_kind_t::f32_k,
+  };
+
+  {
+    auto unique_acc = db->UniqueAccess();
+    ASSERT_NO_ERROR(unique_acc->CreateVectorIndex(spec));
+    unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  }
+
+  EXPECT_GT(db->DbEmbeddingMemoryUsage(), 0) << "Vector index creation should contribute to embedding memory";
+  EXPECT_EQ(db->DbMemoryUsage(), db->DbStorageMemoryUsage() + db->DbEmbeddingMemoryUsage() + db->DbQueryMemoryUsage())
+      << "Combined DB memory should include storage and embedding subtotals after vector index creation";
+
+  {
+    auto accessor = db->Access();
+    auto &query_tracker = accessor->GetTransactionMemoryTracker();
+    memgraph::memory::StartTrackingCurrentThread(&query_tracker);
+    {
+      std::vector<char> payload(2 * 1024 * 1024, 0);
+      EXPECT_GT(db->DbQueryMemoryUsage(), 0) << "Active query tracking should contribute to query memory";
+      EXPECT_EQ(db->DbMemoryUsage(),
+                db->DbStorageMemoryUsage() + db->DbEmbeddingMemoryUsage() + db->DbQueryMemoryUsage())
+          << "Combined DB memory should include storage, embedding, and query subtotals while query tracking is active";
+    }
+    memgraph::memory::StopTrackingCurrentThread();
+  }
+
+  EXPECT_EQ(db->DbQueryMemoryUsage(), 0) << "Query memory should return to baseline after tracked allocations free";
+  EXPECT_EQ(db->DbMemoryUsage(), db->DbStorageMemoryUsage() + db->DbEmbeddingMemoryUsage() + db->DbQueryMemoryUsage())
+      << "Combined DB memory should fall back to storage plus embedding after query allocations are released";
+
+  {
+    auto unique_acc = db->UniqueAccess();
+    ASSERT_NO_ERROR(unique_acc->DropVectorIndex(spec.index_name));
+    unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  }
+
+  EXPECT_EQ(db->DbEmbeddingMemoryUsage(), 0) << "Embedding memory should return to baseline after dropping the index";
+  EXPECT_EQ(db->DbMemoryUsage(), db->DbStorageMemoryUsage() + db->DbEmbeddingMemoryUsage() + db->DbQueryMemoryUsage())
+      << "Combined DB memory should match the remaining storage subtotal after embedding cleanup";
+}
+
 TEST_F(DbMemoryTrackingTest, StorageCreateNodesIncreasesDbMemory) {
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
   auto db_acc_opt = db_gk.access();
