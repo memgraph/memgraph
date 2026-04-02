@@ -321,6 +321,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryRollsIntoDbAndGlobalTrackers) {
   const int64_t db1_before = db1->DbEmbeddingMemoryUsage();
   const int64_t db2_before = db2->DbEmbeddingMemoryUsage();
   const int64_t global_before = memgraph::utils::vector_index_memory_tracker.Amount();
+  const int64_t db1_total_before = db1->DbMemoryUsage();
 
   memgraph::storage::VectorIndexSpec spec{
       .index_name = "db1_embedding_index",
@@ -338,15 +339,19 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryRollsIntoDbAndGlobalTrackers) {
   const int64_t db1_after_create = db1->DbEmbeddingMemoryUsage();
   const int64_t db2_after_create = db2->DbEmbeddingMemoryUsage();
   const int64_t global_after_create = memgraph::utils::vector_index_memory_tracker.Amount();
+  const int64_t db1_total_after_create = db1->DbMemoryUsage();
 
   const int64_t db1_delta = db1_after_create - db1_before;
   const int64_t db2_delta = db2_after_create - db2_before;
   const int64_t global_delta = global_after_create - global_before;
+  const int64_t db1_total_delta = db1_total_after_create - db1_total_before;
 
   EXPECT_GT(db1_delta, static_cast<int64_t>(256 * 1024))
       << "Creating a vector index should attribute embedding memory to DB1";
   EXPECT_EQ(db2_delta, 0) << "DB2 embedding tracker must not grow during DB1 vector index creation";
   EXPECT_EQ(global_delta, db1_delta) << "Global embedding tracker should mirror DB1 embedding delta";
+  EXPECT_EQ(db1_total_delta, db1_delta)
+      << "Combined DB memory should include the embedding delta when no query/storage delta is introduced";
 
   ASSERT_NO_ERROR(unique_acc->DropVectorIndex(spec.index_name));
 

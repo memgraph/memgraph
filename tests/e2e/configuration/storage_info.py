@@ -36,6 +36,7 @@ default_storage_info_dict = {
     "storage_mode": "IN_MEMORY_TRANSACTIONAL",
     "db_memory_tracked": "",  # machine dependent
     "db_storage_memory_tracked": "",  # machine dependent
+    "db_embedding_memory_tracked": "",  # machine dependent
     "db_query_memory_tracked": "",  # machine dependent
 }
 
@@ -74,6 +75,7 @@ def test_does_default_config_match():
         "vector_index_memory_tracked",
         "db_memory_tracked",
         "db_storage_memory_tracked",
+        "db_embedding_memory_tracked",
         "db_query_memory_tracked",
         "vm_max_map_count",
     ]

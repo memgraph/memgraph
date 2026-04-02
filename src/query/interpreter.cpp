@@ -6767,6 +6767,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         const int64_t vm_max_map_count_storage_info =
             utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
         const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
+        const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
         const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("name"), TypedValue(storage->name())},
@@ -6782,8 +6783,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
             {TypedValue("memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
-            {TypedValue("db_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory + db_query_memory))},
+            {TypedValue("db_memory_tracked"),
+             TypedValue(utils::GetReadableSize(db_storage_memory + db_embedding_memory + db_query_memory))},
             {TypedValue("db_storage_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory))},
+            {TypedValue("db_embedding_memory_tracked"), TypedValue(utils::GetReadableSize(db_embedding_memory))},
             {TypedValue("db_query_memory_tracked"), TypedValue(utils::GetReadableSize(db_query_memory))},
             {TypedValue("allocation_limit"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
