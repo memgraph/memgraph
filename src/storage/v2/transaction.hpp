@@ -107,7 +107,7 @@ struct Transaction {
               StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
               ActiveIndicesPtr active_indices, ActiveConstraints active_constraints,
               AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt,
-              unsigned arena_idx = 0)
+              unsigned arena_idx = 0, utils::MemoryTracker *db_query_memory_tracker = nullptr)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
@@ -127,6 +127,7 @@ struct Transaction {
                    : std::nullopt},
         point_index_ctx_{std::move(point_index_ctx)},
         point_index_change_collector_{point_index_ctx_},
+        query_memory_tracker_{db_query_memory_tracker},
         last_durable_ts_{last_durable_ts},
         active_indices_{std::move(active_indices)},
         active_constraints_{std::move(active_constraints)},
@@ -238,7 +239,7 @@ struct Transaction {
   SchemaInfoPostProcess post_process_;
 
   /// Query memory tracker
-  utils::QueryMemoryTracker query_memory_tracker_{};
+  utils::QueryMemoryTracker query_memory_tracker_;
 
   /// Text index change tracking (batched apply on commit)
   TextIndexChangeCollector text_index_change_collector_;

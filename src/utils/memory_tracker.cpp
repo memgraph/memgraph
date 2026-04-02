@@ -33,6 +33,7 @@ constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::coun
 constinit MemoryTracker total_memory_tracker{};
 constinit MemoryTracker graph_memory_tracker{&total_memory_tracker};
 constinit MemoryTracker vector_index_memory_tracker{&total_memory_tracker};
+constinit MemoryTracker global_query_memory_tracker{&total_memory_tracker};
 
 // TODO (antonio2368): Define how should the peak memory be logged.
 // Logging every time the peak changes is too much so some kind of distribution

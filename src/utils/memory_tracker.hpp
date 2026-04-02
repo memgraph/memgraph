@@ -155,6 +155,7 @@ class MemoryTracker final {
 extern constinit MemoryTracker total_memory_tracker;
 extern constinit MemoryTracker graph_memory_tracker;
 extern constinit MemoryTracker vector_index_memory_tracker;
+extern constinit MemoryTracker global_query_memory_tracker;
 
 // Prevent memory tracker for throwing during the stack unwinding
 inline bool MemoryTrackerCanThrow() {

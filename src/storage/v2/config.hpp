@@ -29,6 +29,10 @@
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 
+namespace memgraph::utils {
+class MemoryTracker;
+}
+
 namespace memgraph::storage {
 
 /// Exception used to signal configuration errors.
@@ -133,9 +137,12 @@ struct Config {
   // attributed to the database's MemoryTracker via extent hooks.
   unsigned arena_idx{0};
 
+  // Runtime-only parent tracker for transaction query allocations on this DB.
+  utils::MemoryTracker *db_query_memory_tracker{nullptr};
+
   friend bool operator==(const Config &lhs, const Config &rhs) {
-    // arena_idx is a runtime field set by the owning Database at construction;
-    // it is not part of the logical storage configuration.
+    // arena_idx and db_query_memory_tracker are runtime-only fields set by the
+    // owning Database at construction; they are not part of the logical storage configuration.
     return lhs.gc == rhs.gc && lhs.durability == rhs.durability && lhs.transaction == rhs.transaction &&
            lhs.disk == rhs.disk && lhs.salient == rhs.salient && lhs.force_on_disk == rhs.force_on_disk &&
            lhs.track_label_counts == rhs.track_label_counts;

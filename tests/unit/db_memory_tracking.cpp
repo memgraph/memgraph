@@ -18,6 +18,7 @@
 
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
+#include "memory/query_memory_control.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/indices/property_path.hpp"
@@ -207,6 +208,81 @@ TEST_F(DbMemoryTrackingTest, GraphMemoryTrackerIncludesDbMemory) {
   EXPECT_GE(graph_delta, db_delta) << "graph_memory_tracker must include per-DB allocations (parent chain). "
                                       "graph_delta="
                                    << graph_delta << " db_delta=" << db_delta;
+}
+
+TEST_F(DbMemoryTrackingTest, QueryMemoryRollsIntoDbAndGlobalQueryTrackers) {
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
+  auto db_acc_opt = db_gk.access();
+  ASSERT_TRUE(db_acc_opt);
+  auto &db = *db_acc_opt;
+
+  auto accessor = db->Access();
+  auto &query_tracker = accessor->GetTransactionMemoryTracker();
+
+  const int64_t query_before = query_tracker.Amount();
+  const int64_t db_before = db->DbQueryMemoryUsage();
+  const int64_t global_before = memgraph::utils::global_query_memory_tracker.Amount();
+
+  memgraph::memory::StartTrackingCurrentThread(&query_tracker);
+  {
+    std::vector<char> payload(4 * 1024 * 1024, 0);
+
+    const int64_t query_after = query_tracker.Amount();
+    const int64_t db_after = db->DbQueryMemoryUsage();
+    const int64_t global_after = memgraph::utils::global_query_memory_tracker.Amount();
+
+    const int64_t query_delta = query_after - query_before;
+    const int64_t db_delta = db_after - db_before;
+    const int64_t global_delta = global_after - global_before;
+
+    EXPECT_GT(query_delta, static_cast<int64_t>(1 * 1024 * 1024))
+        << "Query tracker should grow while current thread tracking is enabled";
+    EXPECT_EQ(db_delta, query_delta) << "Per-DB query tracker should mirror the active transaction query delta";
+    EXPECT_EQ(global_delta, query_delta) << "Global query tracker should mirror the active transaction query delta";
+  }
+  memgraph::memory::StopTrackingCurrentThread();
+
+  EXPECT_EQ(query_tracker.Amount(), query_before) << "Tracked query memory should return to baseline after free";
+  EXPECT_EQ(db->DbQueryMemoryUsage(), db_before) << "Per-DB query memory should return to baseline after free";
+  EXPECT_EQ(memgraph::utils::global_query_memory_tracker.Amount(), global_before)
+      << "Global query memory should return to baseline after free";
+}
+
+TEST_F(DbMemoryTrackingTest, QueryMemoryIsIsolatedPerDatabase) {
+  auto dir1 = data_dir_ / "query_db1";
+  auto dir2 = data_dir_ / "query_db2";
+  std::filesystem::create_directories(dir1);
+  std::filesystem::create_directories(dir2);
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk1{MakeConfig(dir1)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2{MakeConfig(dir2)};
+  auto acc1 = db_gk1.access();
+  auto acc2 = db_gk2.access();
+  ASSERT_TRUE(acc1 && acc2);
+
+  auto &db1 = *acc1;
+  auto &db2 = *acc2;
+
+  auto accessor1 = db1->Access();
+  auto &query_tracker1 = accessor1->GetTransactionMemoryTracker();
+
+  const int64_t db1_before = db1->DbQueryMemoryUsage();
+  const int64_t db2_before = db2->DbQueryMemoryUsage();
+
+  memgraph::memory::StartTrackingCurrentThread(&query_tracker1);
+  {
+    std::vector<char> payload(4 * 1024 * 1024, 0);
+    const int64_t db1_after = db1->DbQueryMemoryUsage();
+    const int64_t db2_after = db2->DbQueryMemoryUsage();
+
+    EXPECT_GT(db1_after - db1_before, static_cast<int64_t>(1 * 1024 * 1024))
+        << "DB1 query tracker should grow while DB1 query tracking is enabled";
+    EXPECT_EQ(db2_after, db2_before) << "DB2 query tracker must not grow during DB1 query allocation";
+  }
+  memgraph::memory::StopTrackingCurrentThread();
+
+  EXPECT_EQ(db1->DbQueryMemoryUsage(), db1_before) << "DB1 query tracker should return to baseline after free";
+  EXPECT_EQ(db2->DbQueryMemoryUsage(), db2_before) << "DB2 query tracker should remain unchanged";
 }
 
 TEST_F(DbMemoryTrackingTest, StorageCreateNodesIncreasesDbMemory) {
