@@ -15,7 +15,14 @@
 #include <prometheus/client_metric.h>
 #include <prometheus/detail/builder.h>
 
+#include <ranges>
+#include <unordered_map>
+#include <vector>
+
 #include "utils/logging.hpp"
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 namespace memgraph::metrics {
 
@@ -754,13 +761,28 @@ PrometheusMetrics::PrometheusMetrics()
   global.get_histories_seconds = &get_histories_family_.Add(no_labels, kLatencyBuckets);
 }
 
-DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name,
-                                                      std::function<StorageSnapshot()> get_snapshot) {
+void PrometheusMetrics::SetStorageSnapshotResolver(StorageSnapshotResolver resolver) {
+  std::lock_guard const lock{snapshot_resolver_mutex_};
+  storage_snapshot_resolver_ = std::move(resolver);
+}
+
+StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(std::string_view db_name) const {
+  StorageSnapshotResolver resolver;
+  {
+    std::lock_guard const lock{snapshot_resolver_mutex_};
+    resolver = storage_snapshot_resolver_;
+  }
+  if (resolver) {
+    if (auto const snap = resolver(db_name)) return *snap;
+  }
+  return StorageSnapshot{};
+}
+
+DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name) {
   std::lock_guard const lock{databases_mutex_};
   if (auto it = std::ranges::find_if(databases_, [db_name](auto const &e) { return e.db_name == db_name; });
       it != databases_.end()) {
     ++it->ref_count;
-    it->get_snapshot = std::move(get_snapshot);
     return &it->handles;
   }
   prometheus::Labels const labels{{"database", std::string(db_name)}};
@@ -866,17 +888,8 @@ DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name,
               .gc_latency_seconds = &gc_latency_family_.Add(labels, kLatencyBuckets),
               .gc_skiplist_cleanup_latency_seconds = &gc_skiplist_cleanup_latency_family_.Add(labels, kLatencyBuckets),
           },
-      .get_snapshot = std::move(get_snapshot),
   });
   return &databases_.back().handles;
-}
-
-void PrometheusMetrics::UpdateSnapshotCallback(DatabaseMetricHandles const *handles,
-                                               std::function<StorageSnapshot()> get_snapshot) {
-  std::lock_guard const lock{databases_mutex_};
-  auto it = std::ranges::find_if(databases_, [handles](auto const &e) { return &e.handles == handles; });
-  MG_ASSERT(it != databases_.end(), "Attempted to update snapshot callback for unregistered database");
-  it->get_snapshot = std::move(get_snapshot);
 }
 
 void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
@@ -984,13 +997,25 @@ void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
 }
 
 void PrometheusMetrics::UpdateGauges() {
+  std::vector<std::string> names;
+  {
+    std::shared_lock const lock{databases_mutex_};
+    names.reserve(databases_.size());
+    r::transform(databases_, std::back_inserter(names), &DatabaseEntry::db_name);
+  }
+
+  auto const snaps = names | rv::transform([&](auto const &name) { return ResolveStorageSnapshot(name); }) |
+                     r::to<std::vector<StorageSnapshot>>();
+
   std::shared_lock const lock{databases_mutex_};
-  for (auto &entry : databases_) {
-    auto const snapshot = entry.get_snapshot();
-    entry.handles.vertex_count->Set(static_cast<double>(snapshot.vertex_count));
-    entry.handles.edge_count->Set(static_cast<double>(snapshot.edge_count));
-    entry.handles.disk_usage_bytes->Set(static_cast<double>(snapshot.disk_usage));
-    entry.handles.memory_res_bytes->Set(static_cast<double>(snapshot.memory_res));
+  for (size_t i = 0; i < names.size(); ++i) {
+    auto it = std::ranges::find_if(databases_, [&](auto const &e) { return e.db_name == names[i]; });
+    if (it == databases_.end()) continue;
+    auto const &snapshot = snaps[i];
+    it->handles.vertex_count->Set(static_cast<double>(snapshot.vertex_count));
+    it->handles.edge_count->Set(static_cast<double>(snapshot.edge_count));
+    it->handles.disk_usage_bytes->Set(static_cast<double>(snapshot.disk_usage));
+    it->handles.memory_res_bytes->Set(static_cast<double>(snapshot.memory_res));
   }
 }
 
@@ -1067,6 +1092,7 @@ void AppendMergedHistogramPercentiles(std::vector<MetricInfo> &out, std::string 
 
 std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetricsInfo(
     std::string_view db_name) const {
+  auto const snapshot = ResolveStorageSnapshot(db_name);
   std::shared_lock const lock{databases_mutex_};
   auto const it = std::ranges::find_if(databases_, [db_name](auto const &e) { return e.db_name == db_name; });
   if (it == databases_.end()) {
@@ -1074,7 +1100,6 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   }
 
   auto const &h = it->handles;
-  auto const snapshot = it->get_snapshot();
   std::vector<MetricInfo> out;
 
   // General
@@ -1283,6 +1308,18 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
 }
 
 std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
+  std::vector<std::string> db_names;
+  {
+    std::shared_lock const lock{databases_mutex_};
+    db_names.reserve(databases_.size());
+    for (auto const &entry : databases_) db_names.push_back(entry.db_name);
+  }
+  std::unordered_map<std::string, StorageSnapshot> snap_by_db;
+  snap_by_db.reserve(db_names.size());
+  for (auto const &n : db_names) {
+    snap_by_db.emplace(n, ResolveStorageSnapshot(n));
+  }
+
   std::shared_lock const lock{databases_mutex_};
   auto const &g = global;
   std::vector<MetricInfo> out;
@@ -1291,7 +1328,8 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   int64_t total_vertex_count = 0;
   int64_t total_edge_count = 0;
   for (auto const &entry : databases_) {
-    auto const snapshot = entry.get_snapshot();
+    auto const snap_it = snap_by_db.find(entry.db_name);
+    auto const snapshot = snap_it != snap_by_db.end() ? snap_it->second : ResolveStorageSnapshot(entry.db_name);
     total_vertex_count += static_cast<int64_t>(snapshot.vertex_count);
     total_edge_count += static_cast<int64_t>(snapshot.edge_count);
   }
@@ -1309,7 +1347,8 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   int64_t total_memory_res = 0;
   int64_t total_unreleased_deltas = 0;
   for (auto const &entry : databases_) {
-    auto const snapshot = entry.get_snapshot();
+    auto const snap_it = snap_by_db.find(entry.db_name);
+    auto const snapshot = snap_it != snap_by_db.end() ? snap_it->second : ResolveStorageSnapshot(entry.db_name);
     total_disk_usage += static_cast<int64_t>(snapshot.disk_usage);
     total_memory_res += static_cast<int64_t>(snapshot.memory_res);
     total_unreleased_deltas += static_cast<int64_t>(entry.handles.unreleased_delta_objects->Value());
