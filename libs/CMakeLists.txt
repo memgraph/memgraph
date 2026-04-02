@@ -208,22 +208,6 @@ endmacro()
 
 mg_create_linkable_if_no_cmake(rocksdb STATIC "${MG_TOOLCHAIN_ROOT}/lib/librocksdb.a" "${MG_TOOLCHAIN_ROOT}/include")
 
-macro(build_bcrypt)
-  import_external_library(libbcrypt STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt/bcrypt.a
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    CONFIGURE_COMMAND sed s/-Wcast-align// -i ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt/crypt_blowfish/Makefile
-    BUILD_COMMAND make -C ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt
-    CC=${CMAKE_C_COMPILER}
-    CXX=${CMAKE_CXX_COMPILER}
-    INSTALL_COMMAND true)
-endmacro()
-mg_build_if_needed(build_bcrypt "bcrypt")
-mg_create_linkable_if_no_cmake(libbcrypt STATIC
-  "${MG_TOOLCHAIN_ROOT}/lib/bcrypt.a"
-  "${MG_TOOLCHAIN_ROOT}/include"
-)
-
 # Build mgconsole in isolation using the build script to avoid target conflicts
 # with memgraph's dependencies (e.g., gflags)
 # Default to v1.5.0 if not specified (used by install_mgconsole.cmake)
