@@ -604,6 +604,9 @@ build_memgraph () {
   # Install our config
   docker exec -u mg "$build_container" bash -c "$CMD_START && conan config install ./conan_config"
 
+  # Register vendored recipes as a local-recipes-index remote
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add memgraph-recipes /home/mg/memgraph/conan_recipes -t local-recipes-index --force"
+
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
   local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
