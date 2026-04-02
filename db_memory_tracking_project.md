@@ -34,7 +34,7 @@ The target hierarchy is:
 | Global graph | Implemented | `graph_memory_tracker` exists. |
 | Global embeddings | Implemented | `vector_index_memory_tracker` exists. |
 | Global query | Missing | No dedicated global query tracker exists yet. |
-| Combined DB totals | Partial | Current `DbMemoryUsage()` is storage-oriented, not yet `storage + embeddings + query`. |
+| Combined DB totals | Implemented | `DbMemoryUsage()` now reflects `storage + embeddings + query`. |
 
 ## Design Direction
 
@@ -65,7 +65,7 @@ Per-query limit enforcement should remain local to the transaction/query tracker
 | T5 | Thread embedding tracker into vector index allocators | Replace hardcoded global vector tracker path with injected DB-aware tracker | Vector index creation/recovery/search-owned buffers attribute to the correct DB and global bucket | Planned |
 | T6 | Recompute combined DB totals | Make DB total reflect `storage + embeddings + query` | `DbMemoryUsage()` or equivalent combined reporting matches the intended hierarchy | Completed |
 | T7 | Expand automated coverage | Add unit/e2e coverage for query and embeddings split | Each landed task has focused tests proving correctness and isolation | Completed |
-| T8 | Cleanup and documentation | Update comments/ADR/project file with landed behavior | Comments and docs reflect final semantics without stale assumptions | Planned |
+| T8 | Cleanup and documentation | Update comments/ADR/project file with landed behavior | Comments and docs reflect final semantics without stale assumptions | Completed |
 
 ## Execution Order
 
@@ -176,12 +176,12 @@ Per-query limit enforcement should remain local to the transaction/query tracker
 |---|---|---|---|---|---|
 | T1 | Completed | Yes | Yes | Yes | Yes (`598d29943`) |
 | T2 | Completed | Yes | Yes | Yes | Yes (`598d29943`) |
-| T3 | Completed | Yes | Yes | Yes | No |
-| T4 | Completed | Yes | Yes | Yes | No |
-| T5 | Completed | Yes | Yes | Yes | No |
-| T6 | Not started | No | No | No | No |
-| T7 | Not started | No | No | No | No |
-| T8 | Not started | No | No | No | No |
+| T3 | Completed | Yes | Yes | Yes | Yes (`a9e646723`) |
+| T4 | Completed | Yes | Yes | Yes | Yes (`308f5d24a`) |
+| T5 | Completed | Yes | Yes | Yes | Yes (`308f5d24a`) |
+| T6 | Completed | Yes | Yes | Yes | Yes (`14630fd46`) |
+| T7 | Completed | Yes | Yes | Yes | Yes (`59799303d`) |
+| T8 | Completed | N/A | N/A | N/A | No |
 
 ## Notes
 
@@ -190,7 +190,8 @@ Per-query limit enforcement should remain local to the transaction/query tracker
 | 2026-04-02 | Initial project tracker created. Query aggregation and per-DB embeddings are the two main missing pieces relative to the target hierarchy. |
 | 2026-04-02 | Started first implementation slice: added global/per-DB query tracker plumbing and focused unit coverage for rollup plus cross-DB isolation. |
 | 2026-04-02 | Query aggregation slice landed in commit `598d29943` (`Add per-db and global query memory rollup`). |
-| 2026-04-02 | Reporting slice verified: `SHOW STORAGE INFO` now exposes `db_storage_memory_tracked`, `db_query_memory_tracked`, `db_memory_tracked = storage + query`, and global `query_memory_tracked`; interpreter unit coverage passes for both in-memory and disk storage backends. |
+| 2026-04-02 | Reporting slice verified: `SHOW STORAGE INFO` exposes `db_storage_memory_tracked`, `db_query_memory_tracked`, and global `query_memory_tracked`; this was later extended so `db_memory_tracked` reflects `storage + embeddings + query`. |
 | 2026-04-02 | Embedding slice verified: vector index allocators now capture a DB-specific embedding tracker at index construction time, so populated vector index creation rolls into `DbEmbeddingMemoryUsage()` for the owning DB and into the global `vector_index_memory_tracker`, with drop returning both to baseline. |
 | 2026-04-02 | Combined-total slice verified: `DbMemoryUsage()` now reflects `storage + embeddings + query`, and `SHOW STORAGE INFO` exposes `db_embedding_memory_tracked` while folding embeddings into `db_memory_tracked`. |
 | 2026-04-02 | Coverage slice verified: added a focused unit test that exercises storage creation, embedding index creation, and query tracking on one DB and asserts `DbMemoryUsage()` matches `DbStorageMemoryUsage() + DbEmbeddingMemoryUsage() + DbQueryMemoryUsage()` at each stage. |
+| 2026-04-02 | Cleanup/documentation slice completed: project tracker statuses aligned with landed commits and ADR added for the final DB memory tracking hierarchy. |
