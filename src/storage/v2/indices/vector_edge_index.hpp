@@ -17,6 +17,7 @@
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/memory_tracker.hpp"
 
 namespace memgraph::storage {
 
@@ -108,7 +109,7 @@ class VectorEdgeIndex {
 
   using VectorSearchEdgeResults = std::vector<std::tuple<EdgeIndexEntry, double, double>>;
 
-  VectorEdgeIndex();
+  explicit VectorEdgeIndex(utils::MemoryTracker *memory_tracker = nullptr);
   ~VectorEdgeIndex();
   VectorEdgeIndex(VectorEdgeIndex &&) noexcept;
   VectorEdgeIndex &operator=(VectorEdgeIndex &&) noexcept;
@@ -195,6 +196,7 @@ class VectorEdgeIndex {
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;
+  utils::MemoryTracker *memory_tracker_{nullptr};
 };
 
 }  // namespace memgraph::storage

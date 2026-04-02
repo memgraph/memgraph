@@ -198,12 +198,16 @@ class Database {
 
   int64_t DbStorageMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
 
+  int64_t DbEmbeddingMemoryUsage() const noexcept { return db_embedding_memory_tracker_.Amount(); }
+
   int64_t DbQueryMemoryUsage() const noexcept { return db_query_memory_tracker_.Amount(); }
 
  private:
   //!< Tracks committed OS pages in db_arena_. Parent=graph_memory_tracker so per-DB
   //!< allocations roll up into the global graph tracker → total_memory_tracker hierarchy.
   utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker};
+  //!< Tracks vector-index allocations for this DB. Parent=vector_index_memory_tracker.
+  utils::MemoryTracker db_embedding_memory_tracker_{&utils::vector_index_memory_tracker};
   //!< Tracks query-scoped allocations for this DB. Parent=global_query_memory_tracker.
   utils::MemoryTracker db_query_memory_tracker_{&utils::global_query_memory_tracker};
 #if USE_JEMALLOC

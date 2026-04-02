@@ -113,7 +113,10 @@ void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, E
 }
 
 Indices::Indices(const Config &config, StorageMode storage_mode)
-    : text_index_(config.durability.storage_directory), text_edge_index_(config.durability.storage_directory) {
+    : text_index_(config.durability.storage_directory),
+      text_edge_index_(config.durability.storage_directory),
+      vector_index_(config.db_embedding_memory_tracker),
+      vector_edge_index_(config.db_embedding_memory_tracker) {
   std::invoke([this, config, storage_mode]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>(config.arena_idx);

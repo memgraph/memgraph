@@ -22,6 +22,7 @@
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/memory_tracker.hpp"
@@ -283,6 +284,77 @@ TEST_F(DbMemoryTrackingTest, QueryMemoryIsIsolatedPerDatabase) {
 
   EXPECT_EQ(db1->DbQueryMemoryUsage(), db1_before) << "DB1 query tracker should return to baseline after free";
   EXPECT_EQ(db2->DbQueryMemoryUsage(), db2_before) << "DB2 query tracker should remain unchanged";
+}
+
+TEST_F(DbMemoryTrackingTest, EmbeddingMemoryRollsIntoDbAndGlobalTrackers) {
+  auto dir1 = data_dir_ / "embedding_db1";
+  auto dir2 = data_dir_ / "embedding_db2";
+  std::filesystem::create_directories(dir1);
+  std::filesystem::create_directories(dir2);
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk1{MakeConfig(dir1)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2{MakeConfig(dir2)};
+  auto acc1 = db_gk1.access();
+  auto acc2 = db_gk2.access();
+  ASSERT_TRUE(acc1 && acc2);
+
+  auto &db1 = *acc1;
+  auto &db2 = *acc2;
+
+  auto label = db1->storage()->NameToLabel("EmbeddingLabel");
+  auto property = db1->storage()->NameToProperty("embedding");
+
+  {
+    auto accessor = db1->Access();
+    for (int i = 0; i < 1024; ++i) {
+      auto vertex = accessor->CreateVertex();
+      ASSERT_NO_ERROR(vertex.AddLabel(label));
+
+      std::vector<double> embedding(256, static_cast<double>(i % 7) + 0.5);
+      ASSERT_NO_ERROR(vertex.SetProperty(property, memgraph::storage::PropertyValue(embedding)));
+    }
+    accessor->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  }
+
+  auto unique_acc = db1->UniqueAccess();
+
+  const int64_t db1_before = db1->DbEmbeddingMemoryUsage();
+  const int64_t db2_before = db2->DbEmbeddingMemoryUsage();
+  const int64_t global_before = memgraph::utils::vector_index_memory_tracker.Amount();
+
+  memgraph::storage::VectorIndexSpec spec{
+      .index_name = "db1_embedding_index",
+      .label_id = label,
+      .property = property,
+      .metric_kind = unum::usearch::metric_kind_t::cos_k,
+      .dimension = 256,
+      .resize_coefficient = 2,
+      .capacity = 4096,
+      .scalar_kind = unum::usearch::scalar_kind_t::f32_k,
+  };
+
+  ASSERT_NO_ERROR(unique_acc->CreateVectorIndex(spec));
+
+  const int64_t db1_after_create = db1->DbEmbeddingMemoryUsage();
+  const int64_t db2_after_create = db2->DbEmbeddingMemoryUsage();
+  const int64_t global_after_create = memgraph::utils::vector_index_memory_tracker.Amount();
+
+  const int64_t db1_delta = db1_after_create - db1_before;
+  const int64_t db2_delta = db2_after_create - db2_before;
+  const int64_t global_delta = global_after_create - global_before;
+
+  EXPECT_GT(db1_delta, static_cast<int64_t>(256 * 1024))
+      << "Creating a vector index should attribute embedding memory to DB1";
+  EXPECT_EQ(db2_delta, 0) << "DB2 embedding tracker must not grow during DB1 vector index creation";
+  EXPECT_EQ(global_delta, db1_delta) << "Global embedding tracker should mirror DB1 embedding delta";
+
+  ASSERT_NO_ERROR(unique_acc->DropVectorIndex(spec.index_name));
+
+  EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_before)
+      << "Dropping the vector index should release DB1 embedding memory back to baseline";
+  EXPECT_EQ(db2->DbEmbeddingMemoryUsage(), db2_before) << "DB2 embedding tracker should remain unchanged";
+  EXPECT_EQ(memgraph::utils::vector_index_memory_tracker.Amount(), global_before)
+      << "Global embedding tracker should return to baseline after the index is dropped";
 }
 
 TEST_F(DbMemoryTrackingTest, StorageCreateNodesIncreasesDbMemory) {

@@ -177,8 +177,8 @@ Per-query limit enforcement should remain local to the transaction/query tracker
 | T1 | Completed | Yes | Yes | Yes | Yes (`598d29943`) |
 | T2 | Completed | Yes | Yes | Yes | Yes (`598d29943`) |
 | T3 | Completed | Yes | Yes | Yes | No |
-| T4 | Not started | No | No | No | No |
-| T5 | Not started | No | No | No | No |
+| T4 | Completed | Yes | Yes | Yes | No |
+| T5 | Completed | Yes | Yes | Yes | No |
 | T6 | Not started | No | No | No | No |
 | T7 | Not started | No | No | No | No |
 | T8 | Not started | No | No | No | No |
@@ -191,3 +191,4 @@ Per-query limit enforcement should remain local to the transaction/query tracker
 | 2026-04-02 | Started first implementation slice: added global/per-DB query tracker plumbing and focused unit coverage for rollup plus cross-DB isolation. |
 | 2026-04-02 | Query aggregation slice landed in commit `598d29943` (`Add per-db and global query memory rollup`). |
 | 2026-04-02 | Reporting slice verified: `SHOW STORAGE INFO` now exposes `db_storage_memory_tracked`, `db_query_memory_tracked`, `db_memory_tracked = storage + query`, and global `query_memory_tracked`; interpreter unit coverage passes for both in-memory and disk storage backends. |
+| 2026-04-02 | Embedding slice verified: vector index allocators now capture a DB-specific embedding tracker at index construction time, so populated vector index creation rolls into `DbEmbeddingMemoryUsage()` for the owning DB and into the global `vector_index_memory_tracker`, with drop returning both to baseline. |
