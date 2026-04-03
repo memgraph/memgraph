@@ -67,7 +67,7 @@ bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Ac
     });
     return true;
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, vertices, name_id_mapper);
+    DropIndex(spec.index_name, name_id_mapper);
     throw;
   }
 }
@@ -141,7 +141,7 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
       PopulateVectorIndexSingleThreaded(vertices, process_vertex_for_recovery);
     }
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, vertices, name_id_mapper);
+    DropIndex(spec.index_name, name_id_mapper);
     throw;
   }
 }
@@ -172,8 +172,7 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
   UpdateVectorIndex(index_item.mg_index, spec, &vertex, property.ValueVectorIndexList(), thread_id);
 }
 
-bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,
-                            NameIdMapper *name_id_mapper) {
+bool VectorIndex::DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
     return false;
@@ -192,32 +191,39 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
     const auto dimension = mg_index.index.dimensions();
     CheckGraphMemoryForIndexDrop(index_name, mg_index.index.size(), dimension);
 
+    auto const index_size = mg_index.index.size();
+    std::vector<Vertex *> indexed_vertices(index_size);
+    mg_index.index.export_keys(indexed_vertices.data(), 0, index_size);
+
     // Convert indexed vectors back to property values with OOM protection.
-    // Track converted vertices so we can rollback on OOM.
-    std::vector<Vertex *> converted_vertices;
+    // Track processed vertices so we can rollback on OOM.
+    std::size_t processed = 0;
     try {
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
-      converted_vertices.reserve(mg_index.index.size());
       std::vector<double> vector(dimension);
-      for (auto &vertex : vertices) {
-        if (mg_index.index.contains(&vertex)) {
-          auto vector_property = vertex.properties.GetProperty(spec.property);
-          if (ShouldUnregisterFromIndex(vector_property, index_id)) {
-            mg_index.index.get(&vertex, vector.data());
-            vertex.properties.SetProperty(spec.property, PropertyValue(vector));
-            converted_vertices.push_back(&vertex);
-          } else {
-            vertex.properties.SetProperty(spec.property, vector_property);
-          }
+      for (auto *vertex : indexed_vertices) {
+        auto vector_property = vertex->properties.GetProperty(spec.property);
+        if (ShouldUnregisterFromIndex(vector_property, index_id)) {
+          mg_index.index.get(vertex, vector.data());
+          vertex->properties.SetProperty(spec.property, PropertyValue(vector));
+        } else {
+          vertex->properties.SetProperty(spec.property, vector_property);
         }
+        ++processed;
       }
     } catch (const utils::OutOfMemoryException &) {
-      // Rollback: restore converted vertices to their indexed representation.
-      for (auto *vertex : converted_vertices) {
-        vertex->properties.SetProperty(
-            spec.property,
-            PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id},
-                                                           .vector = utils::small_vector<float>{}}));
+      // Rollback: restore already-processed vertices to their indexed representation.
+      for (std::size_t i = 0; i < processed; ++i) {
+        auto *vertex = indexed_vertices[i];
+        auto property_value = vertex->properties.GetProperty(spec.property);
+        if (property_value.IsVectorIndexId()) {
+          auto &ids = property_value.ValueVectorIndexIds();
+          ids.push_back(index_id);
+        } else {
+          property_value = PropertyValue(
+              PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id}, .vector = {}});
+        }
+        vertex->properties.SetProperty(spec.property, property_value);
       }
       throw;
     }
