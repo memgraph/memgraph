@@ -1001,8 +1001,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
            type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
            type_info == Expand::kType || type_info == ExpandVariable::kType || type_info == Optional::kType ||
            type_info == Distinct::kType || type_info == EvaluatePatternFilter::kType ||
-           type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType ||
-           type_info == Produce::kType;
+           type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType;
   }
 
   /// Resolve unresolved ORDER BY entries through a Produce. Each unresolved entry (bare alias)
@@ -1743,8 +1742,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     Symbol node_symbol;                     // Needed for EraseLabelFilter/EraseOrLabelFilter
   };
 
-  // Finds the best indexed scan operator for the given ScanAll without applying side effects.
-  // Returns the operator and metadata about what needs to be erased.
   struct ScanByIndexResult {
     std::shared_ptr<LogicalOperator> operator_;
     ScanByIndexMetadata metadata_;
