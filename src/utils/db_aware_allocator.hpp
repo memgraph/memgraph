@@ -23,6 +23,7 @@
 #if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
 void *JeNew(size_t size, int flags);
+void JeFree(void *ptr, std::size_t size, int flags) noexcept;
 #endif
 
 namespace memgraph::memory {
@@ -39,6 +40,29 @@ namespace memgraph::memory {
   }
 #endif
   return ::operator new(bytes, std::align_val_t{alignment});
+}
+
+// Deallocate memory previously allocated via DbAllocateBytes.
+// Uses je_sdallocx with MALLOCX_TCACHE_NONE so the free goes directly to the
+// arena bin, matching the allocation style and allowing decay=0 arenas to
+// return pages to the OS promptly without blocks sitting in the TLS cache.
+inline void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept {
+#if USE_JEMALLOC
+  int flags = MALLOCX_TCACHE_NONE;
+  if (alignment > alignof(std::max_align_t)) {
+    flags |= MALLOCX_ALIGN(alignment);
+  }
+  JeFree(p, bytes, flags);
+#else
+  ::operator delete(p, bytes, std::align_val_t{alignment});
+#endif
+}
+
+// Deallocate `n` elements of type T previously allocated via DbAllocate<T>.
+// Mirrors DbAllocate<T>: derives byte count and alignment from T, then calls DbDeallocateBytes.
+template <typename T>
+void DbDeallocate(T *p, std::size_t n) noexcept {
+  DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
 }
 
 // Allocate `n` elements of type T, attributed to arena `idx`.
@@ -88,10 +112,11 @@ struct DbAwareAllocator {
     return DbAllocate<T>(n, idx);
   }
 
-  void deallocate(T *p, [[maybe_unused]] std::size_t n) noexcept {
-    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata. je_free(p) always routes to the correct
-    // arena regardless of which thread calls it, so GC can safely free query-thread allocations.
-    ::operator delete(static_cast<void *>(p), n * sizeof(T), std::align_val_t{alignof(T)});
+  void deallocate(T *p, std::size_t n) noexcept {
+    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
+    // free query-thread allocations regardless of which thread calls deallocate.
+    // MALLOCX_TCACHE_NONE matches the allocation style and lets decay=0 arenas return pages promptly.
+    DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
   }
 
   template <typename U>
@@ -133,10 +158,11 @@ struct ArenaAwareAllocator {
 
   [[nodiscard]] T *allocate(std::size_t n) { return DbAllocate<T>(n, arena_idx_); }
 
-  void deallocate(T *p, [[maybe_unused]] std::size_t n) noexcept {
-    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata. je_free(p) always routes to the correct
-    // arena regardless of which thread calls it, so GC can safely free query-thread allocations.
-    ::operator delete(static_cast<void *>(p), n * sizeof(T), std::align_val_t{alignof(T)});
+  void deallocate(T *p, std::size_t n) noexcept {
+    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
+    // free query-thread allocations regardless of which thread calls deallocate.
+    // MALLOCX_TCACHE_NONE matches the allocation style and lets decay=0 arenas return pages promptly.
+    DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
   }
 
   template <typename U>

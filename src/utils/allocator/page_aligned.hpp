@@ -41,10 +41,13 @@ struct PageAlignedAllocator {
     return static_cast<T *>(memory::DbAllocateBytes(size, arena_idx_, PAGE_SIZE));
   }
 
-  void deallocate(T *p, std::size_t) const noexcept {
-    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata. je_free(p) always routes to the correct
-    // arena regardless of which thread calls it, so GC can safely free query-thread allocations.
-    operator delete(p, std::align_val_t{PAGE_SIZE});
+  void deallocate(T *p, std::size_t n) const noexcept {
+    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
+    // free query-thread allocations regardless of which thread calls deallocate.
+    // Recalculate the actual allocated size (mirroring allocate) for sized deallocation.
+    auto size = std::max(n * sizeof(T), PAGE_SIZE);
+    size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+    memory::DbDeallocateBytes(static_cast<void *>(p), size, PAGE_SIZE);
   }
 
   friend bool operator==(PageAlignedAllocator const &lhs, PageAlignedAllocator const &rhs) noexcept {

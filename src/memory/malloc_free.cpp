@@ -182,6 +182,14 @@ extern "C" void sdallocx(void *ptr, size_t size, int flags) {
   je_sdallocx(ptr, size, flags);
 }
 
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+__attribute__((visibility("default"))) void JeDealloc(void *ptr, size_t size, int flags) noexcept {
+  if (ptr == nullptr) [[unlikely]]
+    return;
+  free_tracking(ptr, flags);
+  je_sdallocx(ptr, size, flags);
+}
+
 extern "C" size_t malloc_usable_size(void *ptr) { return je_malloc_usable_size(ptr); }
 
 #endif  // USE_JEMALLOC

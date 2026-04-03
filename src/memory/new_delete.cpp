@@ -194,6 +194,15 @@ __attribute__((visibility("default"))) void *JeNew(size_t size, int flags) {
 
   throw std::bad_alloc{};
 }
+
+void JeDealloc(void *ptr, size_t size, int flags) noexcept;
+
+// Sized deallocation with explicit flags (e.g. MALLOCX_TCACHE_NONE).
+// Mirrors JeNew: calls through JeDealloc (query tracking + je_sdallocx).
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+__attribute__((visibility("default"))) void JeFree(void *ptr, size_t size, int flags) noexcept {
+  JeDealloc(ptr, size, flags);
+}
 #endif
 
 __attribute__((visibility("default"))) void *operator new(const std::size_t size) {

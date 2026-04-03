@@ -107,18 +107,19 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
 }
 
 DbArena::DbArena(utils::MemoryTracker *tracker) {
-  // Create a new jemalloc arena.
-  unsigned arena_idx = 0;
-  size_t sz = sizeof(arena_idx);
-  int err = je_mallctl("arenas.create", &arena_idx, &sz, nullptr, 0);
-  MG_ASSERT(err == 0, "Failed to create jemalloc arena for per-DB tracking (err={})", err);
-  arena_idx_ = arena_idx;
+  // Acquire an arena index — reuse a recycled one if available, otherwise create fresh.
+  arena_idx_ = ArenaPool::Instance().Acquire();
 
-  // Read the default hooks installed on the new arena so we can call through.
-  const std::string hooks_key = "arena." + std::to_string(arena_idx_) + ".extent_hooks";
+  // New arenas inherit opt.dirty_decay_ms / opt.muzzy_decay_ms from the global jemalloc
+  // configuration (set via MALLOC_CONF at startup). No need to override here — recycled
+  // arenas retain the same values since we never modify decay on release.
+  const std::string arena_key = "arena." + std::to_string(arena_idx_);
+
+  // Read the default (or previously-restored) hooks on the arena so we can call through.
+  const std::string hooks_key = arena_key + ".extent_hooks";
   extent_hooks_t *base_hooks = nullptr;
   size_t hooks_sz = sizeof(extent_hooks_t *);
-  err = je_mallctl(hooks_key.c_str(), static_cast<void *>(&base_hooks), &hooks_sz, nullptr, 0);
+  int err = je_mallctl(hooks_key.c_str(), static_cast<void *>(&base_hooks), &hooks_sz, nullptr, 0);
   MG_ASSERT(
       err == 0 && base_hooks != nullptr, "Failed to read default hooks for DB arena {} (err={})", arena_idx_, err);
 
@@ -143,9 +144,8 @@ DbArena::~DbArena() {
   // Important: there is no "tracker handoff" after this point. DB-owned allocations are
   // expected to be destroyed before ~DbArena runs, and the DB MemoryTrackers outlive this
   // purge so any final hook callbacks still propagate into the DB/global hierarchy here.
-  // Note: we intentionally skip arena.N.destroy because jemalloc's arena destruction
-  // is experimental and can corrupt metadata when arena indices are reused (e.g. in tests).
-  // The arena will be cleaned up when the process exits.
+  // Note: we intentionally skip arena.N.destroy — jemalloc's arena destruction is
+  // experimental and arena indices are explicitly recycled via ArenaPool instead.
   je_mallctl((arena_key + ".purge").c_str(), nullptr, nullptr, nullptr, 0);
 
   // Restore the default hooks AFTER purging so jemalloc's background thread cannot
@@ -158,6 +158,10 @@ DbArena::~DbArena() {
              nullptr,
              static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
              sizeof(extent_hooks_t *));
+
+  // Return the index to the pool so the next DbArena can reuse it instead of
+  // creating a new one. Hooks are already restored so the arena is safe to reuse.
+  ArenaPool::Instance().Release(arena_idx_);
 }
 
 }  // namespace memgraph::memory
