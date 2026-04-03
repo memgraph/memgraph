@@ -9415,15 +9415,28 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!label) throw RecoveryFailure("Couldn't read label for DESC label property index statistics!");
         auto property_paths = get_property_paths("DESC label property index statistics");
         const auto count = snapshot.ReadUint();
+        if (!count) throw RecoveryFailure("Couldn't read count for DESC label property index statistics!");
         const auto distinct_values_count = snapshot.ReadUint();
+        if (!distinct_values_count)
+          throw RecoveryFailure("Couldn't read distinct values count for DESC label property index statistics!");
         const auto statistic = snapshot.ReadDouble();
+        if (!statistic)
+          throw RecoveryFailure("Couldn't read statistics value for DESC label-property index statistics!");
         const auto avg_group_size = snapshot.ReadDouble();
+        if (!avg_group_size)
+          throw RecoveryFailure("Couldn't read average group size for DESC label property index statistics!");
         const auto avg_degree = snapshot.ReadDouble();
-        (void)count;
-        (void)distinct_values_count;
-        (void)statistic;
-        (void)avg_group_size;
-        (void)avg_degree;
+        if (!avg_degree)
+          throw RecoveryFailure("Couldn't read average degree for DESC label property index statistics!");
+        const auto label_id = get_label_from_id(*label);
+        indices_constraints.indices.label_property_desc_stats.emplace_back(
+            label_id,
+            std::make_pair(std::move(property_paths),
+                           LabelPropertyIndexStats{.count = *count,
+                                                   .distinct_values_count = *distinct_values_count,
+                                                   .statistic = *statistic,
+                                                   .avg_group_size = *avg_group_size,
+                                                   .avg_degree = *avg_degree}));
       }
     }
 
