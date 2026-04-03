@@ -565,12 +565,41 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::Create
   return index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitVectorIndexLabels(MemgraphCypher::VectorIndexLabelsContext *ctx) {
+  VectorIndexLabelsInfo info;
+  auto label_names = ctx->labelName();
+  auto *property_ctx = ctx->propertyKeyName();
+  info.property = std::any_cast<PropertyIx>(property_ctx->accept(this));
+
+  if (ctx->ASTERISK() || label_names.empty()) {
+    info.mode = VectorLabelMode::WILDCARD;
+  } else if (!ctx->AMPERSAND().empty()) {
+    info.mode = VectorLabelMode::ALL_OF;
+    for (auto *label_ctx : label_names) {
+      info.names.push_back(std::any_cast<std::string>(label_ctx->accept(this)));
+    }
+  } else if (label_names.size() > 1) {
+    info.mode = VectorLabelMode::ANY_OF;
+    for (auto *label_ctx : label_names) {
+      info.names.push_back(std::any_cast<std::string>(label_ctx->accept(this)));
+    }
+  } else {
+    info.mode = VectorLabelMode::SINGLE;
+    info.names.push_back(std::any_cast<std::string>(label_names[0]->accept(this)));
+  }
+  return info;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCreateVectorIndex(MemgraphCypher::CreateVectorIndexContext *ctx) {
   auto *index_query = storage_->Create<VectorIndexQuery>();
   index_query->action_ = VectorIndexQuery::Action::CREATE;
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
-  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  auto labels_info = std::any_cast<VectorIndexLabelsInfo>(ctx->vectorIndexLabels()->accept(this));
+  index_query->label_mode_ = labels_info.mode;
+  for (const auto &name : labels_info.names) {
+    index_query->labels_.push_back(AddLabel(name));
+  }
+  index_query->property_ = labels_info.property;
   auto *config_ctx = ctx->configsMap;
   if (config_ctx->configMap()) {
     index_query->config_ = std::any_cast<ConfigMap>(config_ctx->configMap()->accept(this));
@@ -583,8 +612,12 @@ antlrcpp::Any CypherMainVisitor::visitCreateVectorIndex(MemgraphCypher::CreateVe
 antlrcpp::Any CypherMainVisitor::visitCreateVectorEdgeIndex(MemgraphCypher::CreateVectorEdgeIndexContext *ctx) {
   auto *index_query = storage_->Create<CreateVectorEdgeIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
-  index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  auto labels_info = std::any_cast<VectorIndexLabelsInfo>(ctx->vectorIndexLabels()->accept(this));
+  index_query->edge_type_mode_ = labels_info.mode;
+  for (const auto &name : labels_info.names) {
+    index_query->edge_types_.push_back(AddEdgeType(name));
+  }
+  index_query->property_ = labels_info.property;
   auto *config_ctx = ctx->configsMap;
   if (config_ctx->configMap()) {
     index_query->config_ = std::any_cast<ConfigMap>(config_ctx->configMap()->accept(this));

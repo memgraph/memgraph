@@ -1810,9 +1810,17 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                               : unum::usearch::scalar_kind_t::f32_k;
 
+          auto label_mode = data.label_mode ? static_cast<storage::VectorLabelMode>(*data.label_mode)
+                                              : storage::VectorLabelMode::SINGLE;
+          std::vector<storage::LabelId> label_ids;
+          if (!data.label.empty()) label_ids.push_back(labelId);
+          if (data.extra_labels) {
+            for (const auto &extra : *data.extra_labels) label_ids.push_back(storage->NameToLabel(extra));
+          }
+
           auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
               .index_name = data.index_name,
-              .label_id = labelId,
+              .label_filter = storage::VectorLabelFilter{.mode = label_mode, .labels = std::move(label_ids)},
               .property = propId,
               .metric_kind = metric_kind,
               .dimension = data.dimension,
@@ -1832,9 +1840,17 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto propId = storage->NameToProperty(data.property);
           auto metric_kind = storage::MetricFromName(data.metric_kind);
 
+          auto et_mode = data.edge_type_mode ? static_cast<storage::VectorEdgeTypeMode>(*data.edge_type_mode)
+                                                : storage::VectorEdgeTypeMode::SINGLE;
+          std::vector<storage::EdgeTypeId> edge_type_ids;
+          if (!data.edge_type.empty()) edge_type_ids.push_back(edgeType);
+          if (data.extra_edge_types) {
+            for (const auto &extra : *data.extra_edge_types) edge_type_ids.push_back(storage->NameToEdgeType(extra));
+          }
+
           auto res = transaction->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
               .index_name = data.index_name,
-              .edge_type_id = edgeType,
+              .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = et_mode, .edge_types = std::move(edge_type_ids)},
               .property = propId,
               .metric_kind = metric_kind,
               .dimension = data.dimension,

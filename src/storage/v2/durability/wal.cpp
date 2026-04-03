@@ -1681,13 +1681,19 @@ std::optional<RecoveryInfo> LoadWal(
         }
       },
       [&](WalVectorIndexCreate const &data) {
-        const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                                   : unum::usearch::scalar_kind_t::f32_k;
+        auto mode = data.label_mode ? static_cast<VectorLabelMode>(*data.label_mode) : VectorLabelMode::SINGLE;
+        std::vector<LabelId> labels;
+        if (!data.label.empty()) labels.push_back(LabelId::FromUint(name_id_mapper->NameToId(data.label)));
+        if (data.extra_labels) {
+          for (const auto &extra : *data.extra_labels)
+            labels.push_back(LabelId::FromUint(name_id_mapper->NameToId(extra)));
+        }
         auto spec = VectorIndexSpec{.index_name = data.index_name,
-                                    .label_id = label_id,
+                                    .label_filter = VectorLabelFilter{.mode = mode, .labels = std::move(labels)},
                                     .property = property_id,
                                     .metric_kind = unum_metric_kind,
                                     .dimension = data.dimension,
@@ -1698,18 +1704,26 @@ std::optional<RecoveryInfo> LoadWal(
             .spec = spec, .index_entries = absl::flat_hash_map<Gid, utils::small_vector<float>>{}});
       },
       [&](WalVectorEdgeIndexCreate const &data) {
-        const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind);
-        indices_constraints->indices.vector_edge_indices.emplace_back(data.index_name,
-                                                                      edge_type_id,
-                                                                      property_id,
-                                                                      unum_metric_kind,
-                                                                      data.dimension,
-                                                                      data.resize_coefficient,
-                                                                      data.capacity,
-                                                                      scalar_kind);
+        auto mode = data.edge_type_mode ? static_cast<VectorEdgeTypeMode>(*data.edge_type_mode)
+                                        : VectorEdgeTypeMode::SINGLE;
+        std::vector<EdgeTypeId> edge_types;
+        if (!data.edge_type.empty()) edge_types.push_back(EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type)));
+        if (data.extra_edge_types) {
+          for (const auto &extra : *data.extra_edge_types)
+            edge_types.push_back(EdgeTypeId::FromUint(name_id_mapper->NameToId(extra)));
+        }
+        indices_constraints->indices.vector_edge_indices.emplace_back(VectorEdgeIndexSpec{
+            .index_name = data.index_name,
+            .edge_type_filter = VectorEdgeTypeFilter{.mode = mode, .edge_types = std::move(edge_types)},
+            .property = property_id,
+            .metric_kind = unum_metric_kind,
+            .dimension = data.dimension,
+            .resize_coefficient = data.resize_coefficient,
+            .capacity = data.capacity,
+            .scalar_kind = scalar_kind});
       },
       [&](WalVectorIndexDrop const &data) {
         VectorIndexRecovery::UpdateOnIndexDrop(
@@ -2127,26 +2141,38 @@ void EncodeTextEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
 }
 
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &index_spec) {
+  const auto &filter = index_spec.label_filter;
   encoder.WriteString(index_spec.index_name);
-  encoder.WriteString(name_id_mapper.IdToName(index_spec.label_id.AsUint()));
+  encoder.WriteString(filter.labels.empty() ? "" : name_id_mapper.IdToName(filter.labels[0].AsUint()));
   encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
   encoder.WriteString(NameFromMetric(index_spec.metric_kind));
   encoder.WriteUint(index_spec.dimension);
   encoder.WriteUint(index_spec.resize_coefficient);
   encoder.WriteUint(index_spec.capacity);
   encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
+  encoder.WriteUint(static_cast<uint64_t>(filter.mode));
+  encoder.WriteUint(filter.labels.size() > 1 ? filter.labels.size() - 1 : 0);
+  for (std::size_t i = 1; i < filter.labels.size(); ++i) {
+    encoder.WriteString(name_id_mapper.IdToName(filter.labels[i].AsUint()));
+  }
 }
 
 void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
                                const VectorEdgeIndexSpec &index_spec) {
+  const auto &filter = index_spec.edge_type_filter;
   encoder.WriteString(index_spec.index_name);
-  encoder.WriteString(name_id_mapper.IdToName(index_spec.edge_type_id.AsUint()));
+  encoder.WriteString(filter.edge_types.empty() ? "" : name_id_mapper.IdToName(filter.edge_types[0].AsUint()));
   encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
   encoder.WriteString(NameFromMetric(index_spec.metric_kind));
   encoder.WriteUint(index_spec.dimension);
   encoder.WriteUint(index_spec.resize_coefficient);
   encoder.WriteUint(index_spec.capacity);
   encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
+  encoder.WriteUint(static_cast<uint64_t>(filter.mode));
+  encoder.WriteUint(filter.edge_types.size() > 1 ? filter.edge_types.size() - 1 : 0);
+  for (std::size_t i = 1; i < filter.edge_types.size(); ++i) {
+    encoder.WriteString(name_id_mapper.IdToName(filter.edge_types[i].AsUint()));
+  }
 }
 
 void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }

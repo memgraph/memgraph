@@ -70,6 +70,8 @@ using memgraph::storage::TypeConstraintKind;
 using memgraph::storage::TypeConstraints;
 using memgraph::storage::VectorIndex;
 using memgraph::storage::VectorIndexSpec;
+using memgraph::storage::VectorLabelFilter;
+using memgraph::storage::VectorLabelMode;
 using memgraph::storage::Vertex;
 using memgraph::storage::durability::ParallelizedSchemaCreationInfo;
 using memgraph::storage::replication::SnapshotReq;
@@ -571,8 +573,14 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
 
-  auto spec =
-      VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity, kScalarKind};
+  auto spec = VectorIndexSpec{.index_name = "vector_idx",
+                              .label_filter = VectorLabelFilter{VectorLabelMode::SINGLE, {label}},
+                              .property = prop,
+                              .metric_kind = metric,
+                              .dimension = kDimension,
+                              .resize_coefficient = resize_coefficient,
+                              .capacity = kCapacity,
+                              .scalar_kind = kScalarKind};
 
   auto vertices = SkipList<Vertex>();
   auto vertices_acc = vertices.access();
@@ -591,8 +599,14 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
 
-  auto spec =
-      VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity, kScalarKind};
+  auto spec = VectorIndexSpec{.index_name = "vector_idx",
+                              .label_filter = VectorLabelFilter{VectorLabelMode::SINGLE, {label}},
+                              .property = prop,
+                              .metric_kind = metric,
+                              .dimension = kDimension,
+                              .resize_coefficient = resize_coefficient,
+                              .capacity = kCapacity,
+                              .scalar_kind = kScalarKind};
 
   auto vertices = SkipList<Vertex>();
   auto vertices_acc = vertices.access();

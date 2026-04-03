@@ -4228,7 +4228,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
       info,
       memory,
       search_results,
-      [impl](auto label_id) { return impl->LabelToName(label_id); },
+      [impl](const auto &filter) { return filter.Format([&](auto id) { return impl->LabelToName(id); }); },
       impl,
       memgraph::storage::VectorIndexType::ON_NODES);
 
@@ -4236,7 +4236,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
       edge_info,
       memory,
       search_results,
-      [impl](auto edge_type_id) { return impl->EdgeTypeToName(edge_type_id); },
+      [impl](const auto &filter) { return filter.Format([&](auto id) { return impl->EdgeTypeToName(id); }); },
       impl,
       memgraph::storage::VectorIndexType::ON_EDGES);
 
