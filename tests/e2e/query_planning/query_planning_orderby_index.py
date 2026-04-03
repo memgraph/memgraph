@@ -297,6 +297,62 @@ def test_correctness_distinct_alias(memgraph):
     assert values == [10, 20, 30, 40, 50]
 
 
+def test_plan_with_orderby_return(memgraph):
+    """WITH ... ORDER BY ... RETURN — OrderBy eliminated, Produce(RETURN) above OrderBy(WITH)."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+
+    expected = [
+        " * Produce {p}",
+        " * Produce {n}",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
+
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 WITH n ORDER BY n.prop RETURN n.prop AS p")
+    assert expected == actual
+
+
+def test_correctness_with_orderby_return(memgraph):
+    """WITH ... ORDER BY ... RETURN — correct order after elimination."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+    for v in [30, 10, 50, 20, 40]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 WITH n ORDER BY n.prop RETURN n.prop AS p"))
+    values = [r["p"] for r in results]
+    assert values == [10, 20, 30, 40, 50]
+
+
+def test_plan_with_distinct_orderby_return(memgraph):
+    """WITH DISTINCT ... ORDER BY ... RETURN — OrderBy eliminated, Distinct kept."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+
+    expected = [
+        " * Produce {p}",
+        " * Distinct",
+        " * Produce {n}",
+        " * ScanAllByLabelProperties (n :L {prop})",
+        " * Once",
+    ]
+
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 WITH DISTINCT n ORDER BY n.prop RETURN n.prop AS p")
+    assert expected == actual
+
+
+def test_correctness_with_distinct_orderby_return(memgraph):
+    """WITH DISTINCT ... ORDER BY ... RETURN — correct order and dedup after elimination."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+    # Create duplicates in reverse order to verify both ordering and dedup.
+    for v in [50, 40, 30, 20, 10, 50, 40, 30, 20, 10]:
+        memgraph.execute(f"CREATE (:L {{prop: {v}}})")
+
+    results = list(
+        memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 WITH DISTINCT n ORDER BY n.prop RETURN n.prop AS p")
+    )
+    values = [r["p"] for r in results]
+    assert values == [10, 20, 30, 40, 50]
+
+
 def test_correctness_equality_pinned_alias(memgraph):
     """Equality-pinned skip works through alias projection."""
     memgraph.execute("CREATE INDEX ON :L(a, b);")
