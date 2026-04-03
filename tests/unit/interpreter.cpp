@@ -1354,6 +1354,20 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValues) {
   }
 }
 
+#ifdef MG_ENTERPRISE
+TYPED_TEST(InterpreterTest, UserTransactionMemoryLimitWithoutExplicitQueryLimitIsEnforced) {
+  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+
+  auto user_resource = std::make_shared<memgraph::utils::UserResources>();
+  user_resource->SetTransactionsMemoryLimit(1);
+  this->default_interpreter.interpreter.SetUser(
+      this->default_interpreter.auth_checker.GenQueryUser(std::optional<std::string>{"user1"}, {}), user_resource);
+
+  ASSERT_THROW(this->Interpret("UNWIND range(1, 1000) AS i RETURN collect(i)"), memgraph::utils::BasicException);
+  EXPECT_EQ(user_resource->GetTransactionsMemory().first, 0);
+}
+#endif
+
 TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
   {
     auto [stream, qid] = this->Prepare(

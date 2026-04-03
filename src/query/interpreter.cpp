@@ -2994,6 +2994,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // User-specific resource monitoring
   if (user_resource_ &&
       user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
+    memgraph::memory::StartTrackingCurrentThread(&memory_tracker);  // Needs the query tracker for accurate tracking
     memgraph::memory::StartTrackingUserResource(user_resource_.get());
   }
 #endif
@@ -3318,6 +3319,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       &*current_db
             .execution_db_accessor_;  // todo pass the full current_db into planner...make plan optimisation optional
 
+#if USE_JEMALLOC
+  // PlanCache_t uses DbAwareAllocator, so prepare-time cache insertions must run
+  // with the owning DB arena installed in TLS for correct per-DB attribution.
+  const memory::DbArenaFullScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+#endif
+
   const auto is_cacheable = parsed_query.is_cacheable;
   auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
 
@@ -3435,6 +3442,11 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   MG_ASSERT(current_db.execution_db_accessor_, "Explain query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
+#if USE_JEMALLOC
+  // EXPLAIN populates the inner query's cached plan during prepare.
+  const memory::DbArenaFullScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+#endif
+
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
 
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
@@ -3541,6 +3553,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
+
+#if USE_JEMALLOC
+  // PROFILE also parses/plans an inner Cypher query and may populate the DB-owned plan cache.
+  const memory::DbArenaFullScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+#endif
 
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,

@@ -13,14 +13,17 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 #define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
 #include "dbms/database.hpp"
+#include "interpreter_faker.hpp"
 #include "memory/db_arena.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/indices/property_path.hpp"
@@ -1465,6 +1468,42 @@ TEST_F(DbMemoryTrackingTest, ArenaIdxIsZeroWithoutJemalloc) {
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt);
   EXPECT_EQ((*db_acc_opt)->ArenaIdx(), 0u) << "Without jemalloc, arena idx must be 0";
+}
+
+TEST_F(DbMemoryTrackingTest, PlanCacheInsertionsAreAttributedToOwningDatabase) {
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
+  auto db_acc_opt = db_gk.access();
+  ASSERT_TRUE(db_acc_opt);
+  auto &db = *db_acc_opt;
+
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      std::nullopt};
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
+                                                          nullptr,
+                                                          nullptr,
+                                                          repl_state,
+                                                          system_state
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          std::nullopt,
+                                                          nullptr
+#endif
+  };
+  InterpreterFaker interpreter_faker{&interpreter_context, db};
+
+  const int64_t before = db->DbStorageMemoryUsage();
+  constexpr int kQueryCount = 200;
+  for (int i = 0; i < kQueryCount; ++i) {
+    interpreter_faker.Interpret("RETURN 1 AS a" + std::to_string(i));
+  }
+
+  const int64_t after = db->DbStorageMemoryUsage();
+  EXPECT_EQ(db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), static_cast<size_t>(kQueryCount));
+  EXPECT_GT(after, before + static_cast<int64_t>(4096))
+      << "DB storage tracker should include plan-cache node allocations done during prepare. before=" << before
+      << " after=" << after;
 }
 
 #endif  // USE_JEMALLOC

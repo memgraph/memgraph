@@ -81,4 +81,5 @@ workloads:
   - name: "Per-DB memory tracking check"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["configuration/db_memory_tracking.py"]
+    proc: "tests/e2e/memory/procedures"
     <<: *in_memory_cluster
