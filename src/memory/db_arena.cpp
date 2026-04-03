@@ -140,6 +140,9 @@ DbArena::~DbArena() {
   // Purge all dirty/muzzy pages back to the OS FIRST, while our custom hooks are
   // still installed. This ensures dalloc/decommit callbacks fire through our tracker
   // so the DB and global MemoryTrackers are correctly decremented before we unlink them.
+  // Important: there is no "tracker handoff" after this point. DB-owned allocations are
+  // expected to be destroyed before ~DbArena runs, and the DB MemoryTrackers outlive this
+  // purge so any final hook callbacks still propagate into the DB/global hierarchy here.
   // Note: we intentionally skip arena.N.destroy because jemalloc's arena destruction
   // is experimental and can corrupt metadata when arena indices are reused (e.g. in tests).
   // The arena will be cleaned up when the process exits.
