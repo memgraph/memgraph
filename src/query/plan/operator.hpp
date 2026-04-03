@@ -857,6 +857,7 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
   storage::LabelId label_;
   std::vector<storage::PropertyPath> properties_;
   std::vector<ExpressionRange> expression_ranges_;
+  storage::IndexOrder index_order_{storage::IndexOrder::ASC};
 
   std::string ToString() const override;
 

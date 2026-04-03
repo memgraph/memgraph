@@ -434,6 +434,12 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view));
   }
 
+  VerticesIterable Vertices(storage::View view, storage::LabelId label,
+                            std::span<storage::PropertyPath const> properties,
+                            std::span<storage::PropertyValueRange const> property_ranges, storage::IndexOrder order) {
+    return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view, order));
+  }
+
   VerticesChunkedIterable ChunkedVertices(storage::View view, size_t num_chunks) {
     return VerticesChunkedIterable{accessor_->ChunkedVertices(view, num_chunks)};
   }
@@ -847,8 +853,9 @@ class DbAccessor final {
 
   std::expected<void, storage::StorageIndexDefinitionError> CreateIndex(
       storage::LabelId label, std::vector<storage::PropertyPath> &&properties,
+      storage::IndexOrder order = storage::IndexOrder::ASC,
       storage::CheckCancelFunction cancel_check = storage::neverCancel) {
-    return accessor_->CreateIndex(label, std::move(properties), std::move(cancel_check));
+    return accessor_->CreateIndex(label, std::move(properties), order, std::move(cancel_check));
   }
 
   std::expected<void, storage::StorageIndexDefinitionError> CreateIndex(

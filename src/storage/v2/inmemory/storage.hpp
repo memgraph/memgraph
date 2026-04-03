@@ -209,6 +209,10 @@ class InMemoryStorage final : public Storage {
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
+    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
+                              std::span<storage::PropertyValueRange const> property_ranges, View view,
+                              IndexOrder order) override;
+
     VerticesChunkedIterable ChunkedVertices(View view, size_t num_chunks) override;
     VerticesChunkedIterable ChunkedVertices(LabelId label, View view, size_t num_chunks) override;
     VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<storage::PropertyPath const> properties,
@@ -454,6 +458,7 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
+                                                                 IndexOrder order,
                                                                  CheckCancelFunction cancel_check) override;
 
     /// Create an index.

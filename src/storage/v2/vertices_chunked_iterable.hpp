@@ -18,20 +18,29 @@
 namespace memgraph::storage {
 
 class VerticesChunkedIterable final {
-  enum class Type { ALL_CHUNKED, BY_LABEL_IN_MEMORY_CHUNKED, BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED };
+  enum class Type {
+    ALL_CHUNKED,
+    BY_LABEL_IN_MEMORY_CHUNKED,
+    BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED,
+    BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED,
+  };
 
   Type type_;
 
   union {
     AllVerticesChunkedIterable all_chunked_vertices_;
     InMemoryLabelIndex::ChunkedIterable in_memory_chunked_vertices_by_label_;
-    InMemoryLabelPropertyIndex::ChunkedIterable in_memory_chunked_vertices_by_label_property_;
+    InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>
+        in_memory_chunked_vertices_by_label_property_;
+    InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>
+        in_memory_chunked_vertices_by_label_property_desc_;
   };
 
  public:
   explicit VerticesChunkedIterable(AllVerticesChunkedIterable);
   explicit VerticesChunkedIterable(InMemoryLabelIndex::ChunkedIterable);
-  explicit VerticesChunkedIterable(InMemoryLabelPropertyIndex::ChunkedIterable);
+  explicit VerticesChunkedIterable(InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>);
+  explicit VerticesChunkedIterable(InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>);
 
   VerticesChunkedIterable(const VerticesChunkedIterable &) = delete;
   VerticesChunkedIterable &operator=(const VerticesChunkedIterable &) = delete;
@@ -47,7 +56,10 @@ class VerticesChunkedIterable final {
     union {
       AllVerticesChunkedIterable::Iterator all_chunked_it_;
       InMemoryLabelIndex::ChunkedIterable::Iterator in_memory_chunked_by_label_it_;
-      InMemoryLabelPropertyIndex::ChunkedIterable::Iterator in_memory_chunked_by_label_property_it_;
+      InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>::Iterator
+          in_memory_chunked_by_label_property_it_;
+      InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>::Iterator
+          in_memory_chunked_by_label_property_desc_it_;
     };
 
     void Destroy() noexcept;
@@ -55,7 +67,8 @@ class VerticesChunkedIterable final {
    public:
     explicit Iterator(AllVerticesChunkedIterable::Iterator);
     explicit Iterator(InMemoryLabelIndex::ChunkedIterable::Iterator);
-    explicit Iterator(InMemoryLabelPropertyIndex::ChunkedIterable::Iterator);
+    explicit Iterator(InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>::Iterator);
+    explicit Iterator(InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>::Iterator);
 
     Iterator(const Iterator &);
     Iterator &operator=(const Iterator &);

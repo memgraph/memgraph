@@ -286,6 +286,10 @@ class Storage {
     virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                       std::span<storage::PropertyValueRange const> property_ranges, View view) = 0;
 
+    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
+                                      std::span<storage::PropertyValueRange const> property_ranges, View view,
+                                      IndexOrder order) = 0;
+
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
       return Vertices(
           label, properties, std::vector(properties.size(), storage::PropertyValueRange::IsNotNull()), view);
@@ -520,6 +524,7 @@ class Storage {
                                                                          CheckCancelFunction cancel_check) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
+                                                                         IndexOrder order,
                                                                          CheckCancelFunction cancel_check) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
@@ -536,8 +541,9 @@ class Storage {
       return CreateIndex(label, neverCancel);
     }
 
-    auto CreateIndex(LabelId label, PropertiesPaths properties) -> std::expected<void, StorageIndexDefinitionError> {
-      return CreateIndex(label, std::move(properties), neverCancel);
+    auto CreateIndex(LabelId label, PropertiesPaths properties, IndexOrder order = IndexOrder::ASC)
+        -> std::expected<void, StorageIndexDefinitionError> {
+      return CreateIndex(label, std::move(properties), order, neverCancel);
     }
 
     auto CreateIndex(EdgeTypeId edge_type) -> std::expected<void, StorageIndexDefinitionError> {
