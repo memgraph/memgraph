@@ -1027,6 +1027,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (!matched) continue;
 
       if (auto *prop = dynamic_cast<PropertyLookup *>(matched->expression_)) {
+        // Verify the PropertyLookup is on the scan symbol (e.g. n.prop AS a, inner is "n").
+        // Nested property indices exist (PropertyPath supports multi-level paths), but an alias
+        // like WITH n.map AS m ... ORDER BY m.key has inner referring to "m" (the alias), not the
+        // scan symbol — so it correctly fails here and the OrderBy is preserved.
         auto *inner = dynamic_cast<Identifier *>(prop->expression_);
         if (!inner || inner->name_ != expected_source) {
           info.valid = false;
@@ -1077,8 +1081,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (!IsOrderPreserving(type_info)) return;
     }
 
-    // Continue past OrderBy to find the parent Produce from an outer clause (e.g. RETURN
-    // wrapping WITH ... ORDER BY).
+    // The planner always wraps a ReturnBody (which contains OrderBy) in a Produce
+    // (rule_based_planner.cpp: last_op = std::make_unique<Produce>(...)), so OrderBy always
+    // has a parent Produce from its own clause. Include it because it may define aliases the
+    // ORDER BY references (e.g. RETURN n.prop AS a ORDER BY a — "a" is in the Produce above).
     if (it != prev_ops_.rend()) {
       ++it;
       if (it != prev_ops_.rend() && (*it)->GetTypeInfo() == Produce::kType) {
@@ -1089,7 +1095,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (ctx.has_unresolved()) {
       // Iterate in reverse: produces were collected scan→OrderBy, but alias resolution needs OrderBy→scan order.
       for (auto [produce, expected_source] : std::ranges::reverse_view(produces)) {
-        if (!ctx.has_unresolved()) break;
         ResolveAliasesThroughProduce(produce, ctx, expected_source);
         if (!ctx.valid) return;
       }

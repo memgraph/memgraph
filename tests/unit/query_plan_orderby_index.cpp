@@ -1159,4 +1159,61 @@ TYPED_TEST(OrderByIndexTest, MixedPropertyLookupAndAliasEliminated) {
       << "OrderBy should be eliminated (mixed alias + PropertyLookup, both from same scan symbol)";
 }
 
+// Test 43: Nested PropertyLookup on alias — ORDER BY m.key where m is a map alias, not a node.
+TYPED_TEST(OrderByIndexTest, NestedPropertyLookupOnAliasNotEliminated) {
+  // MATCH (n:L) WHERE n.a > 0 WITH n.a AS m RETURN m ORDER BY m.a
+  // m is a scalar/map from n.a — m.a is a nested access, not an index-backed property.
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, prop_a.second, 1);
+
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(0)));
+  auto *with_clause = WITH(PROPERTY_LOOKUP(dba, "n", prop_a.second), AS("m"));
+  auto *return_clause = RETURN("m", ORDER_BY(PROPERTY_LOOKUP(dba, "m", prop_a.second)));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated (m.a is nested access on alias, not index-backed)";
+}
+
+// Test 44: PropertyLookup alias renamed through multiple WITHs — ORDER BY t where t ← prop ← n.p.
+TYPED_TEST(OrderByIndexTest, PropertyAliasRenameChainEliminated) {
+  // MATCH (n:L) WHERE n.p > 0 WITH n.p AS prop WITH prop AS t RETURN t ORDER BY t
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_p = PROPERTY_PAIR(dba, "p");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, prop_p.second, 1);
+
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_p.second), LITERAL(0)));
+  auto *with1_clause = WITH(PROPERTY_LOOKUP(dba, "n", prop_p.second), AS("prop"));
+  auto *with2_clause = WITH(IDENT("prop"), AS("t"));
+  auto *return_clause = RETURN("t", ORDER_BY(IDENT("t")));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with1_clause);
+  single->clauses_.push_back(with2_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (alias chain t ← prop ← n.p resolved through Produces)";
+}
+
 }  // namespace
