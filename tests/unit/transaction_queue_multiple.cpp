@@ -75,8 +75,7 @@ class TransactionQueueMultipleTest : public ::testing::Test {
                                                           nullptr,
                                                           nullptr,
                                                           repl_state,
-                                                          system_state,
-                                                          nullptr
+                                                          system_state
 #ifdef MG_ENTERPRISE
                                                           ,
                                                           std::nullopt,
