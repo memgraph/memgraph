@@ -52,6 +52,9 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["server/test_ssl_hot_reload.py"]
     <<: *template_cluster_ssl_reload
+  - name: "Server SSL hot reload coordinator"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["server/test_ssl_hot_reload_coordinator.py"]
   - name: "Server SSL hot reload without SSL"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["server/test_ssl_reload_no_ssl.py"]
