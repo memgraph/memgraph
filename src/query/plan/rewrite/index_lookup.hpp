@@ -22,6 +22,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -710,11 +711,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
     DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in PostVisit");
-    auto ctx = std::move(order_by_stack_.back());
-    order_by_stack_.pop_back();
-    if (ctx.should_eliminate) {
+    if (order_by_stack_.back().should_eliminate) {
       SetOnParent(op.input());
     }
+    order_by_stack_.pop_back();
     return true;
   }
 
@@ -907,8 +907,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     int64_t num_of_index_hints;
   };
 
-  /// Resolve pure renames through a Produce (e.g. n AS m). PropertyLookup aliases
-  /// (e.g. n.prop AS a) are handled by ResolveAliasesThroughProduce.
+  /// Resolve pure renames through a Produce (e.g. n AS m). Returns nullopt if the scan symbol isn't
+  /// directly projected (e.g. only PropertyLookup aliases like n.prop AS a exist). In that case
+  /// tracked_name becomes stale, but this is harmless: ResolveAliasesThroughProduce's Identifier
+  /// pass-through branch doesn't check expected_source, so aliases keep resolving through outer
+  /// Produces until they reach the PropertyLookup Produce where expected_source is still correct.
   static std::optional<std::string_view> ResolveProduceMapping(Produce *produce, std::string_view tracked_name) {
     for (const auto *ne : produce->named_expressions_) {
       auto *ident = dynamic_cast<Identifier *>(ne->expression_);
@@ -921,13 +924,25 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // TODO: Extend to edge property index scans (also SkipList-backed, ASC order).
 
   /// Extracted ORDER BY info for elimination matching.
+  /// Each ORDER BY expression is either already resolved (PropertyLookup → property path)
+  /// or an unresolved alias (bare Identifier) that ResolveAliasesThroughProduce fills in later.
+  struct OrderByEntry {
+    storage::PropertyPath resolved;  // filled if PropertyLookup, or after alias resolution
+    std::string alias;               // non-empty if bare Identifier (unresolved)
+
+    bool is_resolved() const { return alias.empty(); }
+  };
+
   struct OrderByInfo {
     OrderBy *op = nullptr;
     Symbol scan_symbol;
-    std::vector<storage::PropertyPath> property_paths;
-    std::vector<std::string> unresolved_aliases;
+    std::vector<OrderByEntry> entries;
     bool valid = false;
     bool should_eliminate = false;
+
+    bool has_unresolved() const {
+      return std::ranges::any_of(entries, [](const auto &e) { return !e.is_resolved(); });
+    }
   };
 
   std::vector<OrderByInfo> order_by_stack_;
@@ -946,25 +961,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (ord.ordering() != Ordering::ASC) return info;
     }
 
-    bool all_prop_lookup = true;
-    bool all_bare_ident = true;
+    bool scan_symbol_set = false;
     for (auto *expr : order_by_exprs) {
-      if (!dynamic_cast<PropertyLookup *>(expr)) all_prop_lookup = false;
-      if (!dynamic_cast<Identifier *>(expr)) all_bare_ident = false;
-    }
-    if (!all_prop_lookup && !all_bare_ident) return info;
-
-    if (all_prop_lookup) {
-      bool first = true;
-      for (auto *expr : order_by_exprs) {
-        auto *prop_lookup = dynamic_cast<PropertyLookup *>(expr);
+      if (auto *prop_lookup = dynamic_cast<PropertyLookup *>(expr)) {
         auto *ident = dynamic_cast<Identifier *>(prop_lookup->expression_);
         if (!ident) return info;
 
         const auto &sym = symbol_table_->at(*ident);
-        if (first) {
+        if (!scan_symbol_set) {
           info.scan_symbol = sym;
-          first = false;
+          scan_symbol_set = true;
         } else if (info.scan_symbol != sym) {
           return info;
         }
@@ -974,11 +980,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         for (const auto &pix : prop_lookup->property_path_) {
           prop_ids.emplace_back(GetProperty(pix));
         }
-        info.property_paths.emplace_back(std::move(prop_ids));
-      }
-    } else {
-      for (auto *expr : order_by_exprs) {
-        info.unresolved_aliases.emplace_back(dynamic_cast<Identifier *>(expr)->name_);
+        info.entries.push_back({storage::PropertyPath{std::move(prop_ids)}, {}});
+      } else if (auto *ident = dynamic_cast<Identifier *>(expr)) {
+        info.entries.push_back({{}, ident->name_});
+      } else {
+        return info;
       }
     }
 
@@ -999,58 +1005,47 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
            type_info == Produce::kType;
   }
 
-  /// Resolve bare-Identifier ORDER BY aliases through a Produce. Returns true if all resolved
-  /// to PropertyLookup, false if all passed through as renames. Bails (info.valid = false) on mixed.
-  bool ResolveAliasesThroughProduce(Produce *produce, OrderByInfo &info, std::string_view expected_source) {
-    std::vector<storage::PropertyPath> resolved_paths;
-    std::vector<std::string> remaining;
+  /// Resolve unresolved ORDER BY entries through a Produce. Each unresolved entry (bare alias)
+  /// is looked up in the Produce's named expressions:
+  ///   - PropertyLookup (n.prop AS a): resolved in-place if inner identifier matches expected_source.
+  ///   - Identifier (a AS b): alias is updated to the inner name (pass-through to next Produce).
+  ///   - Anything else: bail.
+  void ResolveAliasesThroughProduce(Produce *produce, OrderByInfo &info, std::string_view expected_source) {
+    for (auto &entry : info.entries) {
+      if (entry.is_resolved()) continue;
 
-    for (const auto &alias : info.unresolved_aliases) {
       const NamedExpression *matched = nullptr;
       for (const auto *ne : produce->named_expressions_) {
-        if (ne->name_ == alias) {
+        if (ne->name_ == entry.alias) {
           matched = ne;
           break;
         }
       }
-      if (!matched) {
-        info.valid = false;
-        return false;
-      }
+      // Alias not projected by this Produce — skip and try the next one closer to scan.
+      // Example: WITH n, n.a AS a RETURN n ORDER BY a, n.b — the RETURN Produce doesn't
+      // project "a", but the WITH Produce does.
+      if (!matched) continue;
 
       if (auto *prop = dynamic_cast<PropertyLookup *>(matched->expression_)) {
         auto *inner = dynamic_cast<Identifier *>(prop->expression_);
         if (!inner || inner->name_ != expected_source) {
           info.valid = false;
-          return false;
+          return;
         }
         std::vector<storage::PropertyId> prop_ids;
         prop_ids.reserve(prop->property_path_.size());
         for (const auto &pix : prop->property_path_) {
           prop_ids.push_back(GetProperty(pix));
         }
-        resolved_paths.emplace_back(std::move(prop_ids));
+        entry.resolved = storage::PropertyPath{std::move(prop_ids)};
+        entry.alias.clear();
       } else if (auto *ident = dynamic_cast<Identifier *>(matched->expression_)) {
-        remaining.push_back(ident->name_);
+        entry.alias = ident->name_;
       } else {
         info.valid = false;
-        return false;
+        return;
       }
     }
-
-    if (!resolved_paths.empty() && !remaining.empty()) {
-      info.valid = false;
-      return false;
-    }
-
-    if (!resolved_paths.empty()) {
-      info.property_paths = std::move(resolved_paths);
-      info.unresolved_aliases.clear();
-      return true;
-    }
-
-    info.unresolved_aliases = std::move(remaining);
-    return false;
   }
 
   /// Walk prev_ops_ from scan upward to the OrderBy on the stack, verifying order-preserving
@@ -1066,13 +1061,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::string_view pre_last_produce_name = tracked_name;
     std::vector<std::pair<Produce *, std::string_view>> produces;
 
-    for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
-      auto *op = *it;
-      const auto &type_info = op->GetTypeInfo();
+    auto it = prev_ops_.rbegin();
+    for (; it != prev_ops_.rend() && *it != ctx.op; ++it) {
+      const auto &type_info = (*it)->GetTypeInfo();
 
       if (type_info == Produce::kType) {
         pre_last_produce_name = tracked_name;
-        auto *produce = dynamic_cast<Produce *>(op);
+        auto *produce = dynamic_cast<Produce *>(*it);
         produces.emplace_back(produce, tracked_name);
         auto resolved = ResolveProduceMapping(produce, tracked_name);
         if (resolved) tracked_name = *resolved;
@@ -1082,31 +1077,28 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (!IsOrderPreserving(type_info)) return;
     }
 
-    // Find the parent Produce above OrderBy (RETURN/WITH scope), skipping Distinct.
-    for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend(); ++it) {
-      if (*it != ctx.op) continue;
-      for (auto parent = it + 1; parent != prev_ops_.rend(); ++parent) {
-        const auto &pt = (*parent)->GetTypeInfo();
-        if (pt == Produce::kType) {
-          produces.emplace_back(dynamic_cast<Produce *>(*parent), tracked_name);
-          break;
-        }
-        if (pt != Distinct::kType) break;
+    // Continue past OrderBy to find the parent Produce from an outer clause (e.g. RETURN
+    // wrapping WITH ... ORDER BY).
+    if (it != prev_ops_.rend()) {
+      ++it;
+      if (it != prev_ops_.rend() && (*it)->GetTypeInfo() == Produce::kType) {
+        produces.emplace_back(dynamic_cast<Produce *>(*it), tracked_name);
       }
-      break;
     }
 
-    std::reverse(produces.begin(), produces.end());  // need OrderBy→scan order for alias resolution
-
-    if (!ctx.unresolved_aliases.empty()) {
-      for (const auto &[produce, expected_source] : produces) {
-        if (ctx.unresolved_aliases.empty()) break;
+    if (ctx.has_unresolved()) {
+      // Iterate in reverse: produces were collected scan→OrderBy, but alias resolution needs OrderBy→scan order.
+      for (auto [produce, expected_source] : std::ranges::reverse_view(produces)) {
+        if (!ctx.has_unresolved()) break;
         ResolveAliasesThroughProduce(produce, ctx, expected_source);
         if (!ctx.valid) return;
       }
-      if (!ctx.unresolved_aliases.empty()) return;
-    } else {
-      // Dual-scope: RETURN n AS m ORDER BY n.prop and ORDER BY m.prop are both valid.
+      if (ctx.has_unresolved()) return;
+    }
+
+    // Dual-scope check: if any PropertyLookup entry set scan_symbol in ExtractOrderByInfo, verify it
+    // matches the actual scan symbol. RETURN n AS m ORDER BY n.prop and ORDER BY m.prop are both valid.
+    if (!ctx.scan_symbol.name().empty()) {
       const auto &ob_name = ctx.scan_symbol.name();
       if (tracked_name != ob_name && pre_last_produce_name != ob_name) return;
     }
@@ -1117,8 +1109,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &expr_ranges = scan_by_props->expression_ranges_;
 
     size_t ob_ptr = 0;
-    for (size_t i = 0; i < index_properties.size() && ob_ptr < ctx.property_paths.size(); ++i) {
-      if (index_properties[i] == ctx.property_paths[ob_ptr]) {
+    for (size_t i = 0; i < index_properties.size() && ob_ptr < ctx.entries.size(); ++i) {
+      if (index_properties[i] == ctx.entries[ob_ptr].resolved) {
         ++ob_ptr;
       } else if (i < expr_ranges.size() && expr_ranges[i].type_ == PropertyFilter::Type::EQUAL) {
         continue;
@@ -1127,10 +1119,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
     }
 
-    // TODO: When ob_ptr < ctx.property_paths.size() but ob_ptr > 0, the index covers a prefix of the
+    // TODO: When ob_ptr < ctx.entries.size() but ob_ptr > 0, the index covers a prefix of the
     // ORDER BY columns. We could partially eliminate by rewriting OrderBy to only sort on the remaining
     // columns, since the index already provides order on the first ob_ptr columns.
-    if (ob_ptr != ctx.property_paths.size()) return;
+    if (ob_ptr != ctx.entries.size()) return;
 
     ctx.should_eliminate = true;
   }
