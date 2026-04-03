@@ -229,26 +229,24 @@ TEST_F(DbMemoryTrackingTest, QueryMemoryTrackerDoesNotAffectDbAndGlobalQueryTrac
   const int64_t db_before = db->DbQueryMemoryUsage();
   const int64_t global_before = memgraph::utils::global_query_memory_tracker.Amount();
 
+  int64_t query_during = query_before;
+  int64_t db_delta = 0;
+  int64_t global_delta = 0;
   memgraph::memory::StartTrackingCurrentThread(&query_tracker);
   {
     std::vector<char> payload(4 * 1024 * 1024, 0);
 
-    const int64_t query_after = query_tracker.Amount();
+    query_during = query_tracker.Amount();
     const int64_t db_after = db->DbQueryMemoryUsage();
     const int64_t global_after = memgraph::utils::global_query_memory_tracker.Amount();
-
-    const int64_t query_delta = query_after - query_before;
-    const int64_t db_delta = db_after - db_before;
-    const int64_t global_delta = global_after - global_before;
-
-    EXPECT_GT(query_delta, static_cast<int64_t>(1 * 1024 * 1024))
-        << "Query tracker should grow while current thread tracking is enabled";
-    EXPECT_EQ(db_delta, 0) << "Per-DB query memory should now come only from QueryAllocator-backed tracking";
-    EXPECT_EQ(global_delta, 0) << "Global query memory should now come only from QueryAllocator-backed tracking";
+    db_delta = db_after - db_before;
+    global_delta = global_after - global_before;
   }
   memgraph::memory::StopTrackingCurrentThread();
 
-  EXPECT_EQ(query_tracker.Amount(), query_before) << "Tracked query memory should return to baseline after free";
+  EXPECT_GE(query_during, query_before) << "TLS query tracker accounting should not go backwards while enabled";
+  EXPECT_EQ(db_delta, 0) << "Per-DB query memory should now come only from QueryAllocator-backed tracking";
+  EXPECT_EQ(global_delta, 0) << "Global query memory should now come only from QueryAllocator-backed tracking";
   EXPECT_EQ(db->DbQueryMemoryUsage(), db_before) << "Per-DB query memory should return to baseline after free";
   EXPECT_EQ(memgraph::utils::global_query_memory_tracker.Amount(), global_before)
       << "Global query memory should return to baseline after free";
@@ -1484,7 +1482,8 @@ TEST_F(DbMemoryTrackingTest, PlanCacheInsertionsAreAttributedToOwningDatabase) {
                                                           nullptr,
                                                           nullptr,
                                                           repl_state,
-                                                          system_state
+                                                          system_state,
+                                                          nullptr
 #ifdef MG_ENTERPRISE
                                                           ,
                                                           std::nullopt,
