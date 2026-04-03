@@ -1128,4 +1128,35 @@ TYPED_TEST(OrderByIndexTest, DistinctWithAliasEliminated) {
       << "OrderBy should be eliminated (RETURN DISTINCT n.prop AS a ORDER BY a — Distinct skipped)";
 }
 
+// Test 42: Mixed ORDER BY — a is alias for n.a, n.b is PropertyLookup. Index on (a, b).
+TYPED_TEST(OrderByIndexTest, MixedPropertyLookupAndAliasEliminated) {
+  // MATCH (n:L) WHERE n.a > 0 AND n.b > 0 WITH n, n.a AS a RETURN n ORDER BY a, n.b
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1);
+
+  auto *ident_n = IDENT("n");
+  auto *match_clause = MATCH(PATTERN(NODE("n", label_name)));
+  match_clause->where_ = WHERE(AND(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(0)),
+                                   GREATER(PROPERTY_LOOKUP(dba, "n", prop_b.second), LITERAL(0))));
+  auto *with_clause = WITH(ident_n, AS("n"), PROPERTY_LOOKUP(dba, "n", prop_a.second), AS("a"));
+  auto *return_clause = RETURN("n", ORDER_BY(IDENT("a"), PROPERTY_LOOKUP(dba, "n", prop_b.second)));
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match_clause);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated (mixed alias + PropertyLookup, both from same scan symbol)";
+}
+
 }  // namespace
