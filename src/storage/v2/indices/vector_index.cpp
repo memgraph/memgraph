@@ -19,6 +19,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/small_vector.hpp"
 
@@ -212,6 +213,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, NameIdMapper *name_id_m
         ++processed;
       }
     } catch (const utils::OutOfMemoryException &) {
+      const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
       // Rollback: restore already-processed vertices to their indexed representation.
       for (std::size_t i = 0; i < processed; ++i) {
         auto *vertex = indexed_vertices[i];
