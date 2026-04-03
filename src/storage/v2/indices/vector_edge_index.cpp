@@ -226,7 +226,7 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, utils::SkipList<Ver
         if (!mg_index.index.contains(edge)) continue;
 
         auto vector_property = edge->properties.GetProperty(spec.property);
-        if (ShouldUnregisterFromIndex(vector_property, index_id)) {
+        if (UnregisterIndexId(vector_property, index_id)) {
           mg_index.index.get(edge, vector.data());
           edge->properties.SetProperty(spec.property, PropertyValue(vector));
         } else {
@@ -576,7 +576,7 @@ void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, Nam
           if (it == recovery_info.index_entries.end()) continue;
 
           auto edge_property = edge->properties.GetProperty(recovery_info.spec.property);
-          if (ShouldUnregisterFromIndex(edge_property, index_id)) {
+          if (UnregisterIndexId(edge_property, index_id)) {
             edge->properties.SetProperty(recovery_info.spec.property,
                                          PropertyValue(std::vector<double>(it->second.begin(), it->second.end())));
           } else {

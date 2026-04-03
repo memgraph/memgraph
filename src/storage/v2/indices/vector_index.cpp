@@ -187,7 +187,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
     for (auto &vertex : vertices) {
       if (mg_index.index.contains(&vertex)) {
         auto vector_property = vertex.properties.GetProperty(spec.property);
-        if (ShouldUnregisterFromIndex(vector_property, index_id)) {
+        if (UnregisterIndexId(vector_property, index_id)) {
           mg_index.index.get(&vertex, vector.data());
           vertex.properties.SetProperty(spec.property, PropertyValue(vector));
         } else {
@@ -619,7 +619,7 @@ void VectorIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdM
 
         auto vertex_property = vertex->properties.GetProperty(recovery_info.spec.property);
         auto index_id = name_id_mapper->NameToId(index_name);
-        if (ShouldUnregisterFromIndex(vertex_property, index_id)) {
+        if (UnregisterIndexId(vertex_property, index_id)) {
           vertex->properties.SetProperty(recovery_info.spec.property,
                                          PropertyValue(std::vector<double>(vector.begin(), vector.end())));
         } else {
@@ -679,7 +679,7 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
       auto old_property_value = vertex->properties.GetProperty(recovery_info->spec.property);
       auto index_id = name_id_mapper->NameToId(recovery_info->spec.index_name);
 
-      if (ShouldUnregisterFromIndex(old_property_value, index_id)) {
+      if (UnregisterIndexId(old_property_value, index_id)) {
         // If the list of index ids is empty, we restore the vector from the recovery info. Otherwise, we keep the
         // property value as is.
         if (auto it = recovery_info->index_entries.find(vertex->gid); it != recovery_info->index_entries.end()) {

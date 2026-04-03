@@ -322,17 +322,18 @@ inline utils::small_vector<float> RegisterIndexId(PropertyValue &property, uint6
   return vector;
 }
 
-/// @brief Removes an index ID from a property's vector index ID list.
-/// @param property_value The property value to modify (must be a VectorIndexId).
-/// @param index_id The index ID to remove.
-/// @return true if the property should be restored (no more index IDs), false otherwise.
-inline bool ShouldUnregisterFromIndex(PropertyValue &property_value, uint64_t index_id) {
+/// @brief Removes an index ID from a property's VectorIndexId list.
+/// Mutates property_value by erasing index_id from its ID list.
+/// @pre Caller must verify the entity exists in the uSearch index before calling —
+///      the early-exit for non-VectorIndexId properties assumes the caller will restore from uSearch.
+/// @return true if no index IDs remain (caller should restore the raw vector), false otherwise.
+inline bool UnregisterIndexId(PropertyValue &property_value, uint64_t index_id) {
   if (!property_value.IsVectorIndexId()) {
-    return true;  // Not a vector index ID, should restore
+    return true;
   }
   auto &ids = property_value.ValueVectorIndexIds();
   ids.erase(ranges::remove(ids, index_id), ids.end());
-  return ids.empty();  // Return true if should restore (no more IDs)
+  return ids.empty();
 }
 
 /// @brief Returns the maximum number of concurrent threads for vector index operations.
