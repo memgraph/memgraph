@@ -592,19 +592,8 @@ void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, Nam
 void VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(PropertyId property, const PropertyValue &value, const Edge *edge,
                                                       std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec) {
   const auto maybe_vector = std::invoke([&]() -> std::optional<utils::small_vector<float>> {
-    switch (value.type()) {
-      case PropertyValue::Type::VectorIndexId:
-        return value.ValueVectorIndexList();
-      case PropertyValue::Type::List:
-      case PropertyValue::Type::IntList:
-      case PropertyValue::Type::DoubleList:
-      case PropertyValue::Type::NumericList:
-        return ListToVector(value);
-      case PropertyValue::Type::Null:
-        return utils::small_vector<float>{};
-      default:
-        return std::nullopt;
-    }
+    if (value.IsVectorIndexId()) return value.ValueVectorIndexList();
+    return TryListToVector(value);
   });
   if (!maybe_vector) return;
 

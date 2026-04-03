@@ -702,19 +702,8 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, const Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
   const auto maybe_vector = std::invoke([&]() -> std::optional<utils::small_vector<float>> {
-    switch (value.type()) {
-      case PropertyValue::Type::VectorIndexId:
-        return value.ValueVectorIndexList();
-      case PropertyValue::Type::List:
-      case PropertyValue::Type::IntList:
-      case PropertyValue::Type::DoubleList:
-      case PropertyValue::Type::NumericList:
-        return ListToVector(value);
-      case PropertyValue::Type::Null:
-        return utils::small_vector<float>{};
-      default:
-        return std::nullopt;
-    }
+    if (value.IsVectorIndexId()) return value.ValueVectorIndexList();
+    return TryListToVector(value);
   });
   if (!maybe_vector) return;
 
