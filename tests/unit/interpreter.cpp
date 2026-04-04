@@ -21,6 +21,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "interpreter_faker.hpp"
+#include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
@@ -1355,6 +1356,7 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValues) {
 #ifdef MG_ENTERPRISE
 TYPED_TEST(InterpreterTest, UserTransactionMemoryLimitWithoutExplicitQueryLimitIsEnforced) {
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  memgraph::license::global_license_checker.EnableTesting();
 
   auto user_resource = std::make_shared<memgraph::utils::UserResources>();
   user_resource->SetTransactionsMemoryLimit(1);
