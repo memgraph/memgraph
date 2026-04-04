@@ -93,8 +93,7 @@ void TryAddEdgesToIndex(synchronized_mg_vector_edge_index_t &mg_index, VectorEdg
       continue;
     }
     auto vector = ListToVector(property);
-    const EdgeIndexEntry entry{&from_vertex, to_vertex, edge};
-    UpdateVectorIndex(mg_index, spec, entry, vector, thread_id);
+    UpdateVectorIndex(mg_index, spec, edge, vector, thread_id);
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
     }

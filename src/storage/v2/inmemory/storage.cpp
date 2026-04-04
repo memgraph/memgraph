@@ -3016,15 +3016,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // Remove edges from vector edge index BEFORE vertex skip-list removal.
     // edge_endpoints_ stores Vertex* — freeing vertices first would leave dangling pointers.
     if (!current_deleted_edges.empty() && !indices_.vector_edge_index_.Empty()) {
-      auto edge_acc = edges_.access();
-      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
-                                     auto it = edge_acc.find(gid);
-                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
-                                     return &*it;
-                                   }) |
-                                   std::ranges::to<std::vector>();
-
-      indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
+      indices_.RemoveEdgesFromVectorEdgeIndices(current_deleted_edges);
     }
 
     for (auto vertex : current_deleted_vertices) {
@@ -3037,14 +3029,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto edge_acc = edges_.access();
 
     if (current_deleted_vertices.empty() && !indices_.vector_edge_index_.Empty()) {
-      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
-                                     auto it = edge_acc.find(gid);
-                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
-                                     return &*it;
-                                   }) |
-                                   std::ranges::to<std::vector>();
-
-      indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
+      indices_.RemoveEdgesFromVectorEdgeIndices(current_deleted_edges);
     }
 
     for (auto edge : current_deleted_edges) {
@@ -3073,12 +3058,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // Remove edges from vector edge index BEFORE vertex skip-list removal.
     if (!indices_.vector_edge_index_.Empty()) {
       auto edge_acc = edges_.access();
-      auto const analytical_deleted_edges =
-          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
-          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
-
-      if (!analytical_deleted_edges.empty()) {
-        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
+      std::list<Gid, memory::DbAwareAllocator<Gid>> analytical_deleted_edge_gids;
+      for (auto const &edge : edge_acc) {
+        if (edge.delta() == nullptr && edge.deleted()) {
+          analytical_deleted_edge_gids.push_back(edge.gid);
+        }
+      }
+      if (!analytical_deleted_edge_gids.empty()) {
+        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edge_gids);
       }
     }
 
