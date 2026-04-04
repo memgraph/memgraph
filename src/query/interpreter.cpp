@@ -9309,18 +9309,8 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       std::visit(
           [&trigger, &db_accessor]<typename T>(T &&arg) {
             using ErrorType = std::remove_cvref_t<T>;
-            if constexpr (std::is_same_v<ErrorType, storage::SyncReplicationError>) {
-              spdlog::warn("At least one SYNC replica has not confirmed execution of the trigger '{}'.",
-                           trigger.Name());
-            } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
-              spdlog::warn(
-                  "At least one STRICT_SYNC replica has not confirmed execution of the trigger '{}'. Transaction "
-                  "will "
-                  "be "
-                  "aborted. ",
-                  trigger.Name());
-            } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
-              spdlog::warn(rpc::kRpcTimeoutMsg);
+            if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+              spdlog::warn("Trigger '{}' replication: {}", trigger.Name(), storage::FormatReplicationError(arg));
             } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
               const auto &constraint_violation = arg;
               switch (constraint_violation.type) {
@@ -9548,10 +9538,6 @@ void Interpreter::Commit() {
   };
   utils::OnScopeExit const reset_members(reset_necessary_members);
 
-  bool commit_confirmed_by_all_sync_replicas{true};
-  bool commit_confirmed_by_all_strict_sync_replicas{true};
-  bool rpc_timeout{false};
-
   auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
   bool const is_main = (*locked_repl_state)->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
@@ -9564,21 +9550,16 @@ void Interpreter::Commit() {
   // Proactively unlock repl_state
   locked_repl_state.reset();
 
+  std::optional<std::string> replication_error_msg;
   if (!maybe_commit_error) {
     const auto &error = maybe_commit_error.error();
 
     std::visit(
         [&execution_db_accessor = current_db_.execution_db_accessor_,
-         &commit_confirmed_by_all_sync_replicas,
-         &commit_confirmed_by_all_strict_sync_replicas,
-         &rpc_timeout]<typename T>(const T &arg) {
+         &replication_error_msg]<typename T>(const T &arg) {
           using ErrorType = std::remove_cvref_t<T>;
-          if constexpr (std::is_same_v<ErrorType, storage::SyncReplicationError>) {
-            commit_confirmed_by_all_sync_replicas = false;
-          } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
-            commit_confirmed_by_all_strict_sync_replicas = false;
-          } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
-            rpc_timeout = true;
+          if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+            replication_error_msg = storage::FormatReplicationError(arg);
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
             const auto &constraint_violation = arg;
             auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
@@ -9641,18 +9622,9 @@ void Interpreter::Commit() {
   }
 
   SPDLOG_DEBUG("Finished committing the transaction");
-  if (!commit_confirmed_by_all_sync_replicas) {
-    throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
-  }
 
-  if (!commit_confirmed_by_all_strict_sync_replicas) {
-    throw ReplicationException(
-        "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted "
-        "on all instances.");
-  }
-
-  if (rpc_timeout) {
-    throw ReplicationException(rpc::kRpcTimeoutMsg);
+  if (replication_error_msg) {
+    throw ReplicationException(*replication_error_msg);
   }
 
   if (IsQueryLoggingActive()) {
