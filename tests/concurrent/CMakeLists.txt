@@ -33,22 +33,22 @@ add_concurrent_test(stack.cpp)
 target_link_libraries(${test_prefix}stack mg-utils gflags)
 
 add_concurrent_test(skip_list_insert.cpp)
-target_link_libraries(${test_prefix}skip_list_insert mg-utils)
+target_link_libraries(${test_prefix}skip_list_insert mg-utils mg-memory)
 
 add_concurrent_test(skip_list_insert_competitive.cpp)
-target_link_libraries(${test_prefix}skip_list_insert_competitive mg-utils)
+target_link_libraries(${test_prefix}skip_list_insert_competitive mg-utils mg-memory)
 
 add_concurrent_test(skip_list_mixed.cpp)
-target_link_libraries(${test_prefix}skip_list_mixed mg-utils)
+target_link_libraries(${test_prefix}skip_list_mixed mg-utils mg-memory)
 
 add_concurrent_test(skip_list_remove.cpp)
-target_link_libraries(${test_prefix}skip_list_remove mg-utils)
+target_link_libraries(${test_prefix}skip_list_remove mg-utils mg-memory)
 
 add_concurrent_test(skip_list_remove_competitive.cpp)
-target_link_libraries(${test_prefix}skip_list_remove_competitive mg-utils)
+target_link_libraries(${test_prefix}skip_list_remove_competitive mg-utils mg-memory)
 
 add_concurrent_test(skip_list_find.cpp)
-target_link_libraries(${test_prefix}skip_list_find mg-utils)
+target_link_libraries(${test_prefix}skip_list_find mg-utils mg-memory)
 
 add_concurrent_test(spin_lock.cpp)
 target_link_libraries(${test_prefix}spin_lock mg-utils)

@@ -17,6 +17,7 @@
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/memory_tracker.hpp"
 
 namespace memgraph::storage {
 
@@ -108,7 +109,7 @@ class VectorEdgeIndex {
 
   using VectorSearchEdgeResults = std::vector<std::tuple<EdgeIndexEntry, double, double>>;
 
-  VectorEdgeIndex();
+  explicit VectorEdgeIndex(utils::MemoryTracker *memory_tracker = nullptr);
   ~VectorEdgeIndex();
   VectorEdgeIndex(VectorEdgeIndex &&) noexcept;
   VectorEdgeIndex &operator=(VectorEdgeIndex &&) noexcept;
@@ -149,8 +150,10 @@ class VectorEdgeIndex {
   /// @brief Aborts the entries in the vector edge index.
   void AbortEntries(AbortProcessor::AbortableInfo &cleanup_collection);
 
-  /// @brief Removes edges from the index.
-  void RemoveEdges(std::vector<Edge *> const &edges_to_remove);
+  /// @brief Removes edges from the index by GID.
+  /// Must be called before the edge is removed from the skip list (while the pointer is still valid).
+  /// @param deleted_edge_gids The GIDs of the edges to remove.
+  void RemoveEdges(std::list<Gid, memory::DbAwareAllocator<Gid>> const &deleted_edge_gids) const;
 
   /// @brief Returns an abort processor snapshot used during transaction abort.
   AbortProcessor GetAbortProcessor() const;
@@ -193,6 +196,7 @@ class VectorEdgeIndex {
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;
+  utils::MemoryTracker *memory_tracker_{nullptr};
 };
 
 }  // namespace memgraph::storage

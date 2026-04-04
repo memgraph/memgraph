@@ -76,7 +76,8 @@ class TextIndex {
 
   void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 
-  void RecoverIndex(const TextIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
+  void RecoverIndex(const TextIndexSpec &index_info,
+                    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
                     NameIdMapper *name_id_mapper,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 

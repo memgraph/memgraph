@@ -12,6 +12,7 @@
 #include "query/interpreter.hpp"
 #include <fmt/core.h>
 #include "ctre.hpp"
+#include "memory/db_arena.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -2872,7 +2873,8 @@ struct PullPlan {
                     storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr
+                    std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
+                    unsigned db_arena_idx = 0
 #ifdef MG_ENTERPRISE
                     ,
                     std::optional<size_t> parallel_execution = std::nullopt,
@@ -2915,7 +2917,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                    TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
                    FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   utils::PriorityThreadPool *worker_pool
+                   utils::PriorityThreadPool *worker_pool, const unsigned db_arena_idx
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
@@ -2947,6 +2949,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.parallel_execution = parallel_execution;
 #endif
   ctx_.db_accessor = dba;
+  ctx_.db_arena_idx = db_arena_idx;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
@@ -2979,6 +2982,10 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
+  // Update the TLS arena index used to route allocations to the correct database arena.
+  // The previous arena is restored on scope exit so pool threads are unaffected.
+  const memory::DbArenaFullScope db_arena_scope{ctx_.db_arena_idx};
+
   auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
   // Single query memory limit
   memory_tracker.SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
@@ -3312,6 +3319,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       &*current_db
             .execution_db_accessor_;  // todo pass the full current_db into planner...make plan optimisation optional
 
+#if USE_JEMALLOC
+  // PlanCache_t uses DbAwareAllocator, so prepare-time cache insertions must run
+  // with the owning DB arena installed in TLS for correct per-DB attribution.
+  const memory::DbArenaFullScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+#endif
+
   const auto is_cacheable = parsed_query.is_cacheable;
   auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
 
@@ -3377,9 +3390,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
                                               hops_limit,
-                                              interpreter_context->worker_pool
+                                              interpreter_context->worker_pool,
+                                              current_db.db_acc_->get()->ArenaIdx()
 #ifdef MG_ENTERPRISE
-                                              ,
+                                                  ,
                                               parallel_execution,
                                               user_resource
 #endif
@@ -3427,6 +3441,11 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
 
   MG_ASSERT(current_db.execution_db_accessor_, "Explain query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
+
+#if USE_JEMALLOC
+  // EXPLAIN populates the inner query's cached plan during prepare.
+  const memory::DbArenaFullScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+#endif
 
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
 
@@ -3535,6 +3554,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
+#if USE_JEMALLOC
+  // PROFILE also parses/plans an inner Cypher query and may populate the DB-owned plan cache.
+  const memory::DbArenaFullScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+#endif
+
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
                                              std::move(parsed_inner_query.ast_storage),
@@ -3575,6 +3599,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          stopping_context = std::move(stopping_context),
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
+                                         db_arena_idx = current_db.db_acc_->get()->ArenaIdx(),
                                          &query_logger = interpreter.query_logger_
 #ifdef MG_ENTERPRISE
                                          ,
@@ -3599,7 +3624,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         memory_limit,
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
                                         hops_limit,
-                                        interpreter_context->worker_pool
+                                        interpreter_context->worker_pool,
+                                        db_arena_idx
 #ifdef MG_ENTERPRISE
                                         ,
                                         parallel_execution,
@@ -6750,11 +6776,15 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
       header = {"storage info", "value"};
       handler = [storage = current_db.db_acc_->get()->storage(),
+                 db = current_db.db_acc_->get(),
                  interpreter_isolation_level,
                  next_transaction_isolation_level] {
         auto info = storage->GetBaseInfo();
         const int64_t vm_max_map_count_storage_info =
             utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
+        const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
+        const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
+        const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("name"), TypedValue(storage->name())},
             {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
@@ -6769,10 +6799,17 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
             {TypedValue("memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
+            {TypedValue("db_memory_tracked"),
+             TypedValue(utils::GetReadableSize(db_storage_memory + db_embedding_memory + db_query_memory))},
+            {TypedValue("db_storage_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory))},
+            {TypedValue("db_embedding_memory_tracked"), TypedValue(utils::GetReadableSize(db_embedding_memory))},
+            {TypedValue("db_query_memory_tracked"), TypedValue(utils::GetReadableSize(db_query_memory))},
             {TypedValue("allocation_limit"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("graph_memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
+            {TypedValue("query_memory_tracked"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::global_query_memory_tracker.Amount())))},
             {TypedValue("vector_index_memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::vector_index_memory_tracker.Amount())))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
@@ -8654,7 +8691,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (tx_query_enum == TransactionQuery::BEGIN) {
       ResetInterpreter();
     }
-    auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
+    auto *db_query_tracker = current_db_.db_acc_ ? current_db_.db_acc_->get()->DbQueryMemoryTracker() : nullptr;
+    auto &query_execution = query_executions_.emplace_back(QueryExecution::Create(db_query_tracker));
     query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
@@ -8713,12 +8751,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
+    auto *db_query_tracker = current_db_.db_acc_ ? current_db_.db_acc_->get()->DbQueryMemoryTracker() : nullptr;
     // Setup QueryExecution
     // TODO: Use CreateThreadSafe for multi-threaded queries
     if (has_load_parquet || parallel_execution) {
-      query_executions_.emplace_back(QueryExecution::CreateThreadSafe());
+      query_executions_.emplace_back(QueryExecution::CreateThreadSafe(db_query_tracker));
     } else {
-      query_executions_.emplace_back(QueryExecution::Create());
+      query_executions_.emplace_back(QueryExecution::Create(db_query_tracker));
     }
     auto &query_execution = query_executions_.back();
     query_execution_ptr = &query_execution;
@@ -9269,7 +9308,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                             TriggerContext original_trigger_context, std::shared_ptr<QueryUserOrRole> triggering_user) {
   // Run the triggers
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
-    QueryAllocator execution_memory{};
+    QueryAllocator execution_memory{db_acc->DbQueryMemoryTracker()};
 
     // create a new transaction for each trigger
     auto tx_acc = db_acc->Access(memgraph::storage::WRITE);
@@ -9518,7 +9557,7 @@ void Interpreter::Commit() {
   if (trigger_context) {
     // Run the triggers
     for (const auto &trigger : db->trigger_store()->BeforeCommitTriggers().access()) {
-      QueryAllocator execution_memory{};
+      QueryAllocator execution_memory{db->DbQueryMemoryTracker()};
       AdvanceCommand();
       try {
         auto is_main = interpreter_context_->repl_state.ReadLock()->IsMain();

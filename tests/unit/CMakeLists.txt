@@ -594,6 +594,13 @@ add_unit_test(storage_v2_constraints
     LINK_TARGETS mg::storage mg-dbms
 )
 
+if(USE_JEMALLOC)
+    add_unit_test(db_memory_tracking
+        SOURCES db_memory_tracking.cpp
+        LINK_TARGETS mg::storage mg-dbms
+    )
+endif()
+
 add_unit_test(storage_v2_decoder_encoder
     SOURCES storage_v2_decoder_encoder.cpp
     LINK_TARGETS mg::storage

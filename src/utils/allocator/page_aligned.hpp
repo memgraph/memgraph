@@ -15,9 +15,13 @@
 #include <cstddef>
 #include <new>
 
+#include "utils/db_aware_allocator.hpp"
+
 namespace memgraph::utils {
 
-// custom allocator, ensures all allocations are page aligned
+// custom allocator, ensures all allocations are page aligned.
+// When arena_idx != 0 (jemalloc builds only), allocations are routed to that
+// jemalloc arena so they are attributed to the owning DB's MemoryTracker.
 template <typename T>
 struct PageAlignedAllocator {
   static constexpr std::size_t PAGE_SIZE = 4096;
@@ -25,21 +29,32 @@ struct PageAlignedAllocator {
 
   PageAlignedAllocator() = default;
 
+  explicit PageAlignedAllocator(unsigned arena_idx) noexcept : arena_idx_(arena_idx) {}
+
   template <class U>
-  explicit PageAlignedAllocator(const PageAlignedAllocator<U> &) noexcept {}
+  explicit PageAlignedAllocator(const PageAlignedAllocator<U> &other) noexcept : arena_idx_(other.arena_idx_) {}
 
   auto allocate(std::size_t n) -> T * {
     auto size = std::max(n * sizeof(T), PAGE_SIZE);
     // Round up to the nearest multiple of PAGE_SIZE
     size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
-    // we must use new/delete as it will correctly throw appropriate exception
-    void *ptr = operator new(size, std::align_val_t{PAGE_SIZE});
-    return static_cast<T *>(ptr);
+    return static_cast<T *>(memory::DbAllocateBytes(size, arena_idx_, PAGE_SIZE));
   }
 
-  void deallocate(T *p, std::size_t) const noexcept { operator delete(p, std::align_val_t{PAGE_SIZE}); }
+  void deallocate(T *p, std::size_t n) const noexcept {
+    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
+    // free query-thread allocations regardless of which thread calls deallocate.
+    // Recalculate the actual allocated size (mirroring allocate) for sized deallocation.
+    auto size = std::max(n * sizeof(T), PAGE_SIZE);
+    size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+    memory::DbDeallocateBytes(static_cast<void *>(p), size, PAGE_SIZE);
+  }
 
-  constexpr friend bool operator==(PageAlignedAllocator const &, PageAlignedAllocator const &) noexcept { return true; }
+  friend bool operator==(PageAlignedAllocator const &lhs, PageAlignedAllocator const &rhs) noexcept {
+    return lhs.arena_idx_ == rhs.arena_idx_;
+  }
+
+  unsigned arena_idx_{0};
 };
 
 }  // namespace memgraph::utils

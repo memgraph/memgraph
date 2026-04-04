@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 
+#include "memory/db_arena.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
@@ -180,7 +181,42 @@ class Database {
    */
   void StopAllBackgroundTasks();
 
+  /**
+   * @brief jemalloc arena index owned by this database (0 if not using jemalloc).
+   *        Allocations on threads with tls_db_arena_idx == ArenaIdx() are attributed
+   *        to this database's memory tracker.
+   */
+  unsigned ArenaIdx() const noexcept {
+#if USE_JEMALLOC
+    return db_arena_.idx();
+#else
+    return 0;
+#endif
+  }
+
+  int64_t DbMemoryUsage() const noexcept {
+    return DbStorageMemoryUsage() + DbEmbeddingMemoryUsage() + DbQueryMemoryUsage();
+  }
+
+  int64_t DbStorageMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
+
+  int64_t DbEmbeddingMemoryUsage() const noexcept { return db_embedding_memory_tracker_.Amount(); }
+
+  int64_t DbQueryMemoryUsage() const noexcept { return db_query_memory_tracker_.Amount(); }
+
+  utils::MemoryTracker *DbQueryMemoryTracker() noexcept { return &db_query_memory_tracker_; }
+
  private:
+  //!< Tracks committed OS pages in db_arena_. Parent=graph_memory_tracker so per-DB
+  //!< allocations roll up into the global graph tracker → total_memory_tracker hierarchy.
+  utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker};
+  //!< Tracks vector-index allocations for this DB. Parent=vector_index_memory_tracker.
+  utils::MemoryTracker db_embedding_memory_tracker_{&utils::vector_index_memory_tracker};
+  //!< Tracks query-scoped allocations for this DB. Parent=global_query_memory_tracker.
+  utils::MemoryTracker db_query_memory_tracker_{&utils::global_query_memory_tracker};
+#if USE_JEMALLOC
+  memory::DbArena db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
+#endif
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers

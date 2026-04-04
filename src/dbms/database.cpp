@@ -14,10 +14,14 @@
 #include <memory>
 
 #include "dbms/inmemory/storage_helper.hpp"
+#include "memory/db_arena.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
+#if USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
@@ -57,10 +61,39 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
 Database::~Database() = default;
 
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
+    :
+#if USE_JEMALLOC
+      db_arena_(&db_memory_tracker_),
+#endif
+      trigger_store_(
+          std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers", ArenaIdx())),
+      after_commit_trigger_pool_{1},
       streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
+
+#if USE_JEMALLOC
+  // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
+  const memory::DbArenaFullScope db_arena_scope{ArenaIdx()};
+#endif
+
+  config.arena_idx = ArenaIdx();
+  config.db_embedding_memory_tracker = &db_embedding_memory_tracker_;
+  streams()->SetArenaIdx(ArenaIdx());
+
+#if USE_JEMALLOC
+  // Pin the after-commit trigger thread to this DB's arena so trigger allocations are attributed correctly.
+  if (const unsigned idx = ArenaIdx(); idx != 0) {
+    after_commit_trigger_pool_.AddTask([idx] {
+      static thread_local bool arena_pinned = false;
+      if (!arena_pinned) {
+        je_mallctl("thread.arena", nullptr, nullptr, const_cast<unsigned *>(&idx), sizeof(unsigned));
+        memory::tls_db_arena_idx = idx;
+        arena_pinned = true;
+      }
+    });
+  }
+#endif
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
@@ -91,6 +124,9 @@ void Database::SwitchToOnDisk() {
   // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
   auto preserved_factory = storage_->get_database_protector_factory();
 
+#if USE_JEMALLOC
+  const memory::DbArenaFullScope db_arena_scope{ArenaIdx()};
+#endif
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(
       std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);
 }

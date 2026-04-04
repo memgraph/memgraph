@@ -28,11 +28,16 @@ default_storage_info_dict = {
     "memory_tracked": "",  # machine dependent
     "allocation_limit": "",  # machine dependent
     "graph_memory_tracked": "",  # machine dependent
+    "query_memory_tracked": "",  # machine dependent
     "vector_index_memory_tracked": "",  # machine dependent
     "global_isolation_level": "SNAPSHOT_ISOLATION",
     "session_isolation_level": "",
     "next_session_isolation_level": "",
     "storage_mode": "IN_MEMORY_TRANSACTIONAL",
+    "db_memory_tracked": "",  # machine dependent
+    "db_storage_memory_tracked": "",  # machine dependent
+    "db_embedding_memory_tracked": "",  # machine dependent
+    "db_query_memory_tracked": "",  # machine dependent
 }
 
 
@@ -66,7 +71,12 @@ def test_does_default_config_match():
         "memory_tracked",
         "allocation_limit",
         "graph_memory_tracked",
+        "query_memory_tracked",
         "vector_index_memory_tracked",
+        "db_memory_tracked",
+        "db_storage_memory_tracked",
+        "db_embedding_memory_tracked",
+        "db_query_memory_tracked",
         "vm_max_map_count",
     ]
     # Number of different data-points returned by SHOW STORAGE INFO

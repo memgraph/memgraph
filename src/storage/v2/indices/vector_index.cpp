@@ -46,7 +46,8 @@ struct VectorIndex::Impl {
   std::unordered_map<uint64_t, IndexItem> index_by_id_;
 };
 
-VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
+VectorIndex::VectorIndex(utils::MemoryTracker *memory_tracker)
+    : pimpl(std::make_unique<Impl>()), memory_tracker_(memory_tracker) {}
 
 VectorIndex::~VectorIndex() = default;
 
@@ -87,6 +88,7 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
   const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
 
+  const TrackedVectorAllocatorMemoryTrackerScope tracker_scope{memory_tracker_};
   auto mg_vector_index = mg_vector_index_t::make(metric);
   if (!mg_vector_index) {
     throw query::VectorSearchException(fmt::format(

@@ -21,6 +21,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "interpreter_faker.hpp"
+#include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
@@ -607,6 +608,31 @@ TYPED_TEST(InterpreterTest, ShowStorageInfoInMulticommandTransaction) {
   this->Interpret("BEGIN");
   ASSERT_THROW(this->Interpret("SHOW STORAGE INFO"), memgraph::query::InfoInMulticommandTxException);
   this->Interpret("ROLLBACK");
+}
+
+TYPED_TEST(InterpreterTest, ShowStorageInfoIncludesQueryTrackingFields) {
+  auto stream = this->Interpret("SHOW STORAGE INFO");
+  ASSERT_EQ(stream.GetHeader().size(), 2U);
+  EXPECT_EQ(stream.GetHeader()[0], "storage info");
+  EXPECT_EQ(stream.GetHeader()[1], "value");
+
+  std::map<std::string, memgraph::communication::bolt::Value> values;
+  for (const auto &row : stream.GetResults()) {
+    ASSERT_EQ(row.size(), 2U);
+    values.emplace(row[0].ValueString(), row[1]);
+  }
+
+  EXPECT_TRUE(values.contains("db_memory_tracked"));
+  EXPECT_TRUE(values.contains("db_storage_memory_tracked"));
+  EXPECT_TRUE(values.contains("db_embedding_memory_tracked"));
+  EXPECT_TRUE(values.contains("db_query_memory_tracked"));
+  EXPECT_TRUE(values.contains("query_memory_tracked"));
+
+  EXPECT_TRUE(values.at("db_memory_tracked").IsString());
+  EXPECT_TRUE(values.at("db_storage_memory_tracked").IsString());
+  EXPECT_TRUE(values.at("db_embedding_memory_tracked").IsString());
+  EXPECT_TRUE(values.at("db_query_memory_tracked").IsString());
+  EXPECT_TRUE(values.at("query_memory_tracked").IsString());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -1328,6 +1354,21 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValues) {
     AssertAllValuesAreZero(stats, {"properties-set"});
   }
 }
+
+#ifdef MG_ENTERPRISE
+TYPED_TEST(InterpreterTest, UserTransactionMemoryLimitWithoutExplicitQueryLimitIsEnforced) {
+  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  memgraph::license::global_license_checker.EnableTesting();
+
+  auto user_resource = std::make_shared<memgraph::utils::UserResources>();
+  user_resource->SetTransactionsMemoryLimit(1);
+  this->default_interpreter.interpreter.SetUser(
+      this->default_interpreter.auth_checker.GenQueryUser(std::optional<std::string>{"user1"}, {}), user_resource);
+
+  ASSERT_THROW(this->Interpret("UNWIND range(1, 1000) AS i RETURN collect(i)"), memgraph::utils::BasicException);
+  EXPECT_EQ(user_resource->GetTransactionsMemory().first, 0);
+}
+#endif
 
 TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
   {
