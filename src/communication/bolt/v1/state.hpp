@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,6 +47,13 @@ enum class State : uint8_t {
    * DISCARD_ALL command.
    */
   Result,
+
+  /**
+   * Scheduler-driven yield during Pull: no message was sent to the client.
+   * Session must reschedule with continue_after_yield and run ContinuePull()
+   * without reading a new message.
+   */
+  Yielded,
 
   /**
    * This state handles errors, if client handles error response correctly next

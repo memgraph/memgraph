@@ -212,39 +212,60 @@ class TestParallelProfileWarmup:
 
     def test_profile_multiple_runs_cpu_time_consistency(self):
         """
-        Test that CPU time is relatively consistent across multiple warm runs.
+        Test that relative CPU time (TSC-based) is consistent across multiple warm runs,
+        and that absolute CPU time is non-zero and non-negative.
 
-        First run may include thread pool initialization overhead.
-        Subsequent runs should report similar CPU times.
+        ABSOLUTE TIME is derived from wall-clock (steady_clock) measurements which have
+        significant OS scheduling jitter for short operations (~µs range). Even warm runs
+        can vary by 10-50x for operations processing a few hundred rows. We therefore test
+        RELATIVE TIME (pure TSC-cycle ratio) which is stable regardless of OS jitter, and
+        only sanity-check that ABSOLUTE TIME is a positive number.
+
+        First run may include thread pool initialization overhead; it is excluded.
         """
-        # Create test data
-        self.memgraph.execute_query("UNWIND range(1, 300) AS i CREATE (:ConsistNode {id: i})")
+        # Use enough data so each branch does several ms of work, making OS jitter a small fraction.
+        # With 50000 nodes / 4 threads = ~12500 nodes per thread; at ~10ns/node that is ~125µs per branch,
+        # well above typical OS scheduling jitter (~10-50µs).
+        self.memgraph.execute_query("UNWIND range(1, 50000) AS i CREATE (:ConsistNode {id: i})")
 
         query = pq("MATCH (n:ConsistNode) RETURN n.id ORDER BY n.id")
 
         # Run multiple times
-        cpu_times = []
+        rel_times = []
+        abs_times = []
         for _ in range(4):
             profile = self._get_profile_plan(query)
             # Try parallel operator first, then serial
-            cpu_time = self._get_operator_absolute_time(profile, "ScanChunk")
-            if cpu_time is None:
-                cpu_time = self._get_operator_absolute_time(profile, "Scan")
-            if cpu_time is not None:
-                cpu_times.append(cpu_time)
+            rel_time = self._get_operator_relative_time(profile, "ScanChunk")
+            if rel_time is None:
+                rel_time = self._get_operator_relative_time(profile, "Scan")
+            abs_time = self._get_operator_absolute_time(profile, "ScanChunk")
+            if abs_time is None:
+                abs_time = self._get_operator_absolute_time(profile, "Scan")
+            if rel_time is not None:
+                rel_times.append(rel_time)
+            if abs_time is not None:
+                abs_times.append(abs_time)
 
-        # Check that warm runs (after first) are consistent
-        if len(cpu_times) >= 3:
-            warm_times = cpu_times[1:]  # Skip first run
+        # Check warm runs (after first)
+        if len(rel_times) >= 3:
+            warm_rel = rel_times[1:]
+            warm_abs = abs_times[1:] if len(abs_times) >= 3 else []
 
-            # Warm runs should all be non-zero
-            for i, t in enumerate(warm_times):
-                assert t >= 0, f"Warm run {i+2} has invalid CPU time {t}"
+            # Relative times (TSC-based) should be positive and consistent (within 5x)
+            for i, t in enumerate(warm_rel):
+                assert t > 0, f"Warm run {i+2} has zero/negative relative time {t}"
+            if all(t > 0 for t in warm_rel):
+                max_ratio = max(warm_rel) / min(warm_rel)
+                assert max_ratio < 5, f"Warm run relative times vary too much: {warm_rel}, ratio={max_ratio:.2f}"
 
-            # Warm runs should be within 10x of each other (conservative)
-            if all(t > 0 for t in warm_times):
-                max_ratio = max(warm_times) / min(warm_times)
-                assert max_ratio < 10, f"Warm run CPU times vary too much: {warm_times}, ratio={max_ratio:.2f}"
+            # Absolute times (wall-clock based) should be positive and consistent (within 10x).
+            # Larger dataset keeps actual work time well above OS scheduling jitter.
+            for i, t in enumerate(warm_abs):
+                assert t > 0, f"Warm run {i+2} has zero/non-positive absolute time {t}"
+            if all(t > 0 for t in warm_abs):
+                max_ratio = max(warm_abs) / min(warm_abs)
+                assert max_ratio < 10, f"Warm run absolute times vary too much: {warm_abs}, ratio={max_ratio:.2f}"
 
     def test_profile_first_vs_subsequent_runs(self):
         """
