@@ -330,6 +330,10 @@ inline bool graph_is_transactional(mgp_graph *graph) { return MgInvoke<int>(mgp_
 
 inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }
 
+inline int64_t graph_get_transaction_id(mgp_graph *graph) {
+  return MgInvoke<int64_t>(mgp_graph_get_transaction_id, graph);
+}
+
 inline mgp_vertex *graph_create_vertex(mgp_graph *graph, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_graph_create_vertex, graph, memory);
 }

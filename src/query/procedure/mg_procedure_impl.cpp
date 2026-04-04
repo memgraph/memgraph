@@ -3674,6 +3674,18 @@ mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
   return mgp_error::MGP_ERROR_NO_ERROR;
 };
 
+mgp_error mgp_graph_get_transaction_id(mgp_graph *graph, int64_t *result) {
+  return WrapExceptions([graph, result] {
+    auto maybe_tx_id = graph->getImpl()->GetTransactionId();
+    if (!maybe_tx_id) {
+      throw std::runtime_error(
+          "Cannot retrieve transaction ID: the transaction associated with this graph is no longer active. "
+          "This can happen if the procedure is called outside of a valid transaction context.");
+    }
+    *result = static_cast<int64_t>(*maybe_tx_id);
+  });
+}
+
 mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [=]() -> mgp_vertex * {

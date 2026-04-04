@@ -1,0 +1,2 @@
+-- Memgraph uses Cypher, not SQL. See init.cypher for the data seeding script.
+-- This file exists for structural consistency with other test directories.

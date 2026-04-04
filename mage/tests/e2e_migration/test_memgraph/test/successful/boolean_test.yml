@@ -1,0 +1,11 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.boolean_col AS boolean_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.boolean_col) AS boolean_col_type, row.boolean_col AS boolean_col
+
+output:
+  - boolean_col_type: 'BOOLEAN'
+    boolean_col: true
