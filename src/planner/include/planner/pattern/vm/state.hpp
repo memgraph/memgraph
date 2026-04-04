@@ -1,0 +1,255 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+import memgraph.planner.core.eids;
+
+#include <span>
+#include <vector>
+
+#include <boost/container/small_vector.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
+
+#include <absl/container/flat_hash_set.h>
+#include <cassert>
+
+#include "planner/pattern/vm/types.hpp"
+
+namespace memgraph::planner::core::pattern::vm {
+
+// === Specialized iteration state types ===
+// Each type uses exhausted state as inactive indicator (no separate discriminator needed).
+// The compiler statically knows which iteration type each register uses.
+
+/// Span-based iterator (advances via subspan)
+/// Empty span = inactive/exhausted
+template <typename Id>
+struct SpanIter {
+  std::span<Id const> items;
+
+  [[nodiscard]] auto exhausted() const -> bool { return items.empty(); }
+
+  [[nodiscard]] auto remaining() const -> std::size_t { return items.size(); }
+
+  [[nodiscard]] auto current() const -> Id { return items.front(); }
+
+  void advance() { items = items.subspan(1); }
+};
+
+/// Iterating e-nodes in an e-class
+using ENodesIter = SpanIter<ENodeId>;
+
+/// Iterating all canonical e-classes
+using AllEClassesIter = SpanIter<EClassId>;
+
+/// Set-based iterator (for boost::unordered_flat_set iteration)
+/// Default-constructed (it == end) = inactive/exhausted
+template <typename Set>
+struct SetIter {
+  using iterator = typename Set::const_iterator;
+  using value_type = typename Set::value_type;
+
+  SetIter() = default;
+
+  explicit SetIter(Set const &set) : it(set.begin()), end(set.end()) {}
+
+  [[nodiscard]] auto exhausted() const -> bool { return it == end; }
+
+  [[nodiscard]] auto remaining() const -> std::size_t { return static_cast<std::size_t>(std::distance(it, end)); }
+
+  [[nodiscard]] auto current() const -> value_type { return *it; }
+
+  void advance() { ++it; }
+
+ private:
+  iterator it{};
+  iterator end{};
+};
+
+/// Iterating parent e-nodes
+using ParentsIter = SetIter<boost::unordered_flat_set<ENodeId>>;
+
+/// Iterating e-classes by symbol
+using SymbolEClassesIter = SetIter<boost::unordered_flat_set<EClassId>>;
+
+/// Open-addressing hash set for deduplication (much better cache locality than std::unordered_set)
+using FastEClassSet = absl::flat_hash_set<EClassId>;
+
+/// Configuration for VMState reset
+struct VMStateConfig {
+  std::size_t num_eclass_regs;
+  std::size_t num_enode_regs;
+  std::span<SlotIdx const> binding_order;  // size == num_slots
+  std::span<uint8_t const> slot_to_order;  // size == num_slots
+};
+
+/// VM execution state
+struct VMState {
+  // E-class registers (result of navigation)
+  std::vector<EClassId> eclass_regs;
+
+  // E-node registers (current e-node in iteration)
+  std::vector<ENodeId> enode_regs;
+
+  // Variable binding slots
+  boost::container::small_vector<EClassId, 8> slots;
+
+  // Per-slot seen sets for deduplication.
+  // seen_per_slot[i] tracks which values we've seen at slot i for the CURRENT prefix.
+  // The prefix is defined by slots bound BEFORE slot i in binding order.
+  // When slot j is rebound to a different value, we clear seen_per_slot for slots
+  // that are bound AFTER j (not slots with higher indices).
+  std::vector<FastEClassSet> seen_per_slot;
+
+  // Program counter
+  std::size_t pc{0};
+
+  // Iteration state: separate homogeneous vectors indexed by register
+  // Each type uses exhausted state as inactive indicator (no explicit deactivation needed)
+  // The compiler statically determines which type each register uses
+  // When an iteration exhausts, its state is naturally inert; fresh iterations overwrite
+  std::vector<ENodesIter> enodes_iters;                   // E-node iterations (span-based)
+  std::vector<ParentsIter> parents_iters;                 // Parent iterations (index-based)
+  std::vector<AllEClassesIter> eclasses_iters;            // All e-classes iterations (span-based)
+  std::vector<SymbolEClassesIter> symbol_eclasses_iters;  // Symbol-filtered e-class iterations (set-based)
+
+  // Binding order information (set during reset, from CompiledPattern)
+  // binding_order_[i] = slot at position i in binding order
+  // slot_to_order_[slot] = position of slot in binding order
+  std::span<SlotIdx const> binding_order_;
+  std::span<uint8_t const> slot_to_order_;
+
+  // High watermark: highest position in binding_order that has seen data.
+  // -1 means no slots have been marked seen. Used to avoid clearing empty sets.
+  int seen_watermark_{-1};
+
+  /// Initialize state for execution
+  void reset(VMStateConfig const &cfg);
+
+  /// Start an e-node iteration on a register (uses span)
+  void start_enode_iter(uint8_t reg, std::span<ENodeId const> nodes) { enodes_iters[reg] = ENodesIter{nodes}; }
+
+  /// Start a parent iteration on a register
+  void start_parent_iter(uint8_t reg, boost::unordered_flat_set<ENodeId> const &parents) {
+    parents_iters[reg] = ParentsIter{parents};
+  }
+
+  /// Start an all-eclasses iteration on a register (uses span of e-class IDs)
+  void start_all_eclasses_iter(uint8_t reg, std::span<EClassId const> eclasses) {
+    eclasses_iters[reg] = AllEClassesIter{eclasses};
+  }
+
+  /// Get e-nodes iterator for a register
+  [[nodiscard]] auto get_enodes_iter(uint8_t reg) -> ENodesIter & { return enodes_iters[reg]; }
+
+  [[nodiscard]] auto get_enodes_iter(uint8_t reg) const -> ENodesIter const & { return enodes_iters[reg]; }
+
+  /// Get parents iterator for a register
+  [[nodiscard]] auto get_parents_iter(uint8_t reg) -> ParentsIter & { return parents_iters[reg]; }
+
+  [[nodiscard]] auto get_parents_iter(uint8_t reg) const -> ParentsIter const & { return parents_iters[reg]; }
+
+  /// Get all e-classes iterator for a register
+  [[nodiscard]] auto get_eclasses_iter(uint8_t reg) -> AllEClassesIter & { return eclasses_iters[reg]; }
+
+  [[nodiscard]] auto get_eclasses_iter(uint8_t reg) const -> AllEClassesIter const & { return eclasses_iters[reg]; }
+
+  /// Start a symbol-filtered e-classes iteration on a register
+  /// @pre set is non-empty (caller must check before calling)
+  void start_symbol_eclasses_iter(uint8_t reg, boost::unordered_flat_set<EClassId> const &set) {
+    assert(!set.empty());
+    symbol_eclasses_iters[reg] = SymbolEClassesIter{set};
+  }
+
+  /// Get symbol-filtered e-classes iterator for a register
+  [[nodiscard]] auto get_symbol_eclasses_iter(uint8_t reg) -> SymbolEClassesIter & {
+    return symbol_eclasses_iters[reg];
+  }
+
+  [[nodiscard]] auto get_symbol_eclasses_iter(uint8_t reg) const -> SymbolEClassesIter const & {
+    return symbol_eclasses_iters[reg];
+  }
+
+  /// Try to bind a slot with deduplication check.
+  /// Returns false if this value has already been fully explored at this slot (backtrack).
+  /// Returns true if this is a value to explore.
+  ///
+  /// The seen set tracks values that have been marked as exhausted (via mark_seen).
+  /// A value is exhausted when we've finished exploring all paths with that binding
+  /// (either yielded or exhausted all downstream iterations).
+  [[nodiscard]] auto try_bind(std::size_t slot, EClassId eclass) -> bool;
+
+  /// Mark a slot's current value as seen (exhausted) for deduplication.
+  /// Called when an iteration exhausts (for earlier slots) or at yield time (for last slot).
+  void mark_seen(std::size_t slot);
+
+  /// Get bound value
+  [[nodiscard]] auto get(std::size_t slot) const -> EClassId { return slots[slot]; }
+};
+
+inline void VMState::reset(VMStateConfig const &cfg) {
+  assert(cfg.binding_order.size() == cfg.slot_to_order.size());
+  auto const num_slots = cfg.binding_order.size();
+  slots.assign(num_slots, EClassId{});
+  pc = 0;
+
+  // Store binding order information as spans (no allocation)
+  binding_order_ = cfg.binding_order;
+  slot_to_order_ = cfg.slot_to_order;
+
+  // Resize register arrays if needed
+  if (eclass_regs.size() < cfg.num_eclass_regs) {
+    eclass_regs.resize(cfg.num_eclass_regs);
+    eclasses_iters.resize(cfg.num_eclass_regs);
+    symbol_eclasses_iters.resize(cfg.num_eclass_regs);
+  }
+  if (enode_regs.size() < cfg.num_enode_regs) {
+    enode_regs.resize(cfg.num_enode_regs);
+    enodes_iters.resize(cfg.num_enode_regs);
+    parents_iters.resize(cfg.num_enode_regs);
+  }
+
+  // Reset per-slot seen maps for deduplication.
+  for (auto &seen_set : seen_per_slot) {
+    seen_set.clear();
+  }
+  seen_watermark_ = -1;
+  seen_per_slot.resize(num_slots);
+}
+
+inline auto VMState::try_bind(std::size_t slot, EClassId eclass) -> bool {
+  // Check if we've already exhausted this value at this slot
+  if (seen_per_slot[slot].contains(eclass)) {
+    return false;  // Already exhausted - backtrack
+  }
+
+  // Clear seen sets for slots bound after this one, up to the watermark.
+  // Uses watermark to avoid clearing already-empty sets.
+  auto my_order = static_cast<int>(slot_to_order_[slot]);
+  while (seen_watermark_ > my_order) {
+    seen_per_slot[value_of(binding_order_[seen_watermark_])].clear();
+    --seen_watermark_;
+  }
+  slots[slot] = eclass;
+  return true;
+}
+
+inline void VMState::mark_seen(std::size_t slot) {
+  seen_per_slot[slot].insert(slots[slot]);
+  // Update watermark if this slot is later in binding order
+  auto order_pos = static_cast<int>(slot_to_order_[slot]);
+  if (order_pos > seen_watermark_) {
+    seen_watermark_ = order_pos;
+  }
+}
+
+}  // namespace memgraph::planner::core::pattern::vm
