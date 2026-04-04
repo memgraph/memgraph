@@ -256,8 +256,15 @@ class UserImpersonation {
 #ifdef MG_ENTERPRISE
 enum class MatchingMode : uint8_t { ANY, EXACTLY };
 
+/// Transparent hash so that unordered_set<string> can be looked up by string_view without constructing a string.
+struct TransparentStringHash {
+  using is_transparent = void;
+
+  std::size_t operator()(std::string_view sv) const noexcept { return std::hash<std::string_view>{}(sv); }
+};
+
 struct FineGrainedAccessRule {
-  std::unordered_set<std::string> symbols;
+  std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> symbols;
   FineGrainedPermission permissions;
   MatchingMode matching_mode;
 
@@ -274,7 +281,12 @@ class FineGrainedAccessPermissions final {
   FineGrainedAccessPermissions &operator=(FineGrainedAccessPermissions &&) = default;
   ~FineGrainedAccessPermissions() = default;
 
-  PermissionLevel Has(std::span<const std::string> symbols, FineGrainedPermission fine_grained_permission) const;
+  PermissionLevel Has(std::span<const std::string_view> symbols, FineGrainedPermission fine_grained_permission) const;
+
+  PermissionLevel Has(std::initializer_list<std::string_view> symbols,
+                      FineGrainedPermission fine_grained_permission) const {
+    return Has(std::span<const std::string_view>(symbols.begin(), symbols.size()), fine_grained_permission);
+  }
 
   PermissionLevel HasGlobal(FineGrainedPermission fine_grained_permission) const;
 
