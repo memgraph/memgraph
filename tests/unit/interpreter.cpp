@@ -1355,7 +1355,7 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValues) {
   }
 }
 
-#ifdef MG_ENTERPRISE
+#if defined(MG_ENTERPRISE) && USE_JEMALLOC
 TYPED_TEST(InterpreterTest, UserTransactionMemoryLimitWithoutExplicitQueryLimitIsEnforced) {
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
   memgraph::license::global_license_checker.EnableTesting();
@@ -1368,7 +1368,7 @@ TYPED_TEST(InterpreterTest, UserTransactionMemoryLimitWithoutExplicitQueryLimitI
   ASSERT_THROW(this->Interpret("UNWIND range(1, 1000) AS i RETURN collect(i)"), memgraph::utils::BasicException);
   EXPECT_EQ(user_resource->GetTransactionsMemory().first, 0);
 }
-#endif
+#endif  // MG_ENTERPRISE && USE_JEMALLOC
 
 TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
   {
