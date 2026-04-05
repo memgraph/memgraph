@@ -29,16 +29,33 @@ struct PageAlignedAllocator {
 
   PageAlignedAllocator() = default;
 
-  explicit PageAlignedAllocator(unsigned arena_idx) noexcept : arena_idx_(arena_idx) {}
+  // arena_idx is only meaningful in jemalloc builds; in non-jemalloc builds
+  // the constructor is accepted for API uniformity but the field is omitted so
+  // the allocator remains a zero-size (EBO-eligible) stateless type.
+  explicit PageAlignedAllocator([[maybe_unused]] unsigned arena_idx) noexcept
+#if USE_JEMALLOC
+      : arena_idx_(arena_idx)
+#endif
+  {
+  }
 
   template <class U>
-  explicit PageAlignedAllocator(const PageAlignedAllocator<U> &other) noexcept : arena_idx_(other.arena_idx_) {}
+  explicit PageAlignedAllocator([[maybe_unused]] const PageAlignedAllocator<U> &other) noexcept
+#if USE_JEMALLOC
+      : arena_idx_(other.arena_idx_)
+#endif
+  {
+  }
 
   auto allocate(std::size_t n) -> T * {
     auto size = std::max(n * sizeof(T), PAGE_SIZE);
     // Round up to the nearest multiple of PAGE_SIZE
     size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+#if USE_JEMALLOC
     return static_cast<T *>(memory::DbAllocateBytes(size, arena_idx_, PAGE_SIZE));
+#else
+    return static_cast<T *>(::operator new(size, std::align_val_t{PAGE_SIZE}));
+#endif
   }
 
   void deallocate(T *p, std::size_t n) const noexcept {
@@ -47,14 +64,24 @@ struct PageAlignedAllocator {
     // Recalculate the actual allocated size (mirroring allocate) for sized deallocation.
     auto size = std::max(n * sizeof(T), PAGE_SIZE);
     size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+#if USE_JEMALLOC
     memory::DbDeallocateBytes(static_cast<void *>(p), size, PAGE_SIZE);
+#else
+    ::operator delete(p, size, std::align_val_t{PAGE_SIZE});
+#endif
   }
 
   friend bool operator==(PageAlignedAllocator const &lhs, PageAlignedAllocator const &rhs) noexcept {
+#if USE_JEMALLOC
     return lhs.arena_idx_ == rhs.arena_idx_;
+#else
+    return true;
+#endif
   }
 
+#if USE_JEMALLOC
   unsigned arena_idx_{0};
+#endif
 };
 
 }  // namespace memgraph::utils

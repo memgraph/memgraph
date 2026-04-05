@@ -27,6 +27,17 @@ void JeFree(void *ptr, std::size_t size, int flags) noexcept;
 #endif
 
 namespace memgraph::memory {
+
+// Thread-local arena index for the currently active database.
+// 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
+// Set by DbArenaScope for shared query threads and directly at thread-start
+// for DB-owned background threads (GC, snapshot, TTL, async indexer, ...).
+//
+// DEVNOTE: initial-exec TLS model requires this to be in the main executable,
+//          not a shared library. Matches the pattern used by query_memory_control.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+inline thread_local unsigned tls_db_arena_idx [[gnu::tls_model("initial-exec")]] = 0;
+
 // Allocate `bytes` bytes with the given `alignment`, attributed to arena `idx`.
 // Returns void* — use DbAllocate<T> for typed element-count based allocation.
 [[nodiscard]] inline void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
@@ -72,16 +83,6 @@ template <typename T>
 [[nodiscard]] T *DbAllocate(std::size_t n, unsigned idx) {
   return static_cast<T *>(DbAllocateBytes(n * sizeof(T), idx, alignof(T)));
 }
-
-// Thread-local arena index for the currently active database.
-// 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
-// Set by DbArenaScope for shared query threads and directly at thread-start
-// for DB-owned background threads (GC, snapshot, TTL, async indexer, ...).
-//
-// DEVNOTE: initial-exec TLS model requires this to be in the main executable,
-//          not a shared library. Matches the pattern used by query_memory_control.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-inline thread_local unsigned tls_db_arena_idx [[gnu::tls_model("initial-exec")]] = 0;
 
 // Stateless C++ allocator that routes allocations to the DB arena currently
 // pinned on this thread (tls_db_arena_idx).  When no arena is pinned (idx==0)
