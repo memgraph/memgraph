@@ -237,3 +237,9 @@ workloads:
   - name: "Vector index memory tracking"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["memory/vector_index_memory.py"]
+
+  - name: "Per-DB memory tracking check"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/db_memory_tracking.py"]
+    proc: "tests/e2e/memory/procedures"
+    <<: *in_memory_1024_MiB_limit_cluster

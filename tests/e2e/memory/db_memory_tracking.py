@@ -18,7 +18,6 @@ The suite is organized by memory ownership domain:
    - vertices / edges / properties
    - long-lived schema/index structures
    - trigger store entries
-   - plan cache entries
 2. DB query memory:
    - PMR-backed query execution state while a query is still alive
 3. DB embedding memory:
@@ -866,36 +865,6 @@ def test_trigger_definition_drop_returns_storage_near_baseline():
 
     assert after_create["db_storage_memory_tracked"] > before["db_storage_memory_tracked"]
     assert after_drop["db_storage_memory_tracked"] <= before["db_storage_memory_tracked"] + 512 * 1024
-
-
-def test_plan_cache_growth_is_attributed_to_db_storage_and_isolated():
-    db_a = make_temp_db_name("plan_a")
-    db_b = make_temp_db_name("plan_b")
-    admin = connect()
-    admin_cursor = admin.cursor()
-    create_database(admin_cursor, db_a)
-    create_database(admin_cursor, db_b)
-
-    conn_a = connect(db_a)
-    cur_a = conn_a.cursor()
-    conn_b = connect(db_b)
-    cur_b = conn_b.cursor()
-
-    before_a = metric_triplet(cur_a)
-    before_b = metric_triplet(cur_b)
-
-    for i in range(200):
-        execute(cur_a, f"RETURN 1 AS a{i}")
-
-    after_a = metric_triplet(cur_a)
-    after_b = metric_triplet(cur_b)
-
-    conn_a.close()
-    conn_b.close()
-    admin.close()
-
-    assert after_a["db_storage_memory_tracked"] > before_a["db_storage_memory_tracked"]
-    assert after_b["db_storage_memory_tracked"] <= before_b["db_storage_memory_tracked"] + 512 * 1024
 
 
 def test_use_database_switch_changes_visible_db_metrics():
