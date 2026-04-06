@@ -933,7 +933,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   struct OrderByInfo {
     OrderBy *op = nullptr;
-    std::string source_name;  // tracks the scan-symbol identity, mapped downward through Produce renames
+    std::string_view source_name;  // tracks the scan-symbol identity, mapped downward through Produce renames
     std::vector<OrderByEntry> entries;
     bool valid = false;
     bool should_eliminate = false;
