@@ -304,7 +304,10 @@ def test_main_cannot_connect(test_name):
     try:
         execute_and_fetch_all(main_cursor, "create ()")
     except Exception as e:
-        assert "Failed to replicate to SYNC replicas 'instance_1' and 'instance_2'" in str(e)
+        # Depending on exact replication timing, there could be a different reason for a failure for instance_1 and instance_2, that's why we check for a failure in this way
+        assert "Failed to replicate to SYNC replica" in str(e)
+        assert "instance_1" in str(e)
+        assert "instance_2" in str(e)
 
 
 def test_global_edge_index_drop_replication(test_name):
