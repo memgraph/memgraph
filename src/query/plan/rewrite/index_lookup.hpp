@@ -966,9 +966,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         for (const auto &pix : prop_lookup->property_path_) {
           prop_ids.emplace_back(GetProperty(pix));
         }
-        info.entries.push_back({storage::PropertyPath{std::move(prop_ids)}, {}});
+        info.entries.emplace_back(storage::PropertyPath{std::move(prop_ids)}, std::string_view{});
       } else if (auto *ident = dynamic_cast<Identifier *>(expr)) {
-        info.entries.push_back({{}, ident->name_});
+        info.entries.emplace_back(storage::PropertyPath{}, ident->name_);
       } else {
         return info;
       }
