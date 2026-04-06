@@ -29,3 +29,17 @@ def connect_ssl(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, sslmode=mgclient.MG_SSLMODE_REQUIRE, **kwargs)
     connection.autocommit = True
     return connection
+
+
+def get_data_path(file: str, test: str):
+    """
+    Data is stored in server/ folder.
+    """
+    return f"server/{file}/{test}"
+
+
+def get_logs_path(file: str, test: str):
+    """
+    Logs are stored in server folder.
+    """
+    return f"server/{file}/{test}"
