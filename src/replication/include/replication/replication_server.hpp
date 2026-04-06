@@ -27,13 +27,13 @@ class ReplicationServer {
   ~ReplicationServer();
 
   bool Start();
-  bool Shutdown();
+  bool Shutdown() const;
 
  protected:
   communication::ServerContext rpc_server_context_;
 
  public:
-  rpc::Server rpc_server_;  // TODO: Interface or something
+  mutable rpc::Server rpc_server_;  // TODO: Interface or something
 };
 
 }  // namespace memgraph::replication

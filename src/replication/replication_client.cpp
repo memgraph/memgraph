@@ -29,10 +29,12 @@ ReplicationClient::ReplicationClient(const ReplicationClientConfig &config)
       replica_check_frequency_{config.replica_check_frequency},
       mode_{config.mode} {}
 
-void ReplicationClient::Shutdown() {
+void ReplicationClient::Shutdown() const {
   replica_checker_.Stop();
-  thread_pool_.ShutDown();
+  // We should first shutdown the replication client and only then shutdown thread pool because thread pool is relying
+  // on RPC client
   rpc_client_.Shutdown();
+  thread_pool_.ShutDown();
 }
 
 ReplicationClient::~ReplicationClient() {
