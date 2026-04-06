@@ -25,11 +25,7 @@ from common import (
     show_replication_role,
     wait_until_main_writeable_assert_replica_down,
 )
-from mg_utils import (
-    mg_sleep_and_assert,
-    mg_sleep_and_assert_collection,
-    mg_sleep_and_assert_until_role_change,
-)
+from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection, mg_sleep_and_assert_until_role_change
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -290,7 +286,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:2});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    assert "Failed to replicate to SYNC replica" in str(e.value)
 
     assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
 
@@ -449,7 +445,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:1});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    assert "Failed to replicate to SYNC replica" in str(e.value)
 
     assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
     assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
@@ -714,7 +710,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch3Vertex {prop:1});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    assert "Failed to replicate to SYNC replica" in str(e.value)
 
     # 14
 
@@ -1057,7 +1053,7 @@ def test_replication_works_on_replica_instance_restart(test_name):
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE ();")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    assert "Failed to replicate to SYNC replica" in str(e.value)
 
     res_instance_1 = execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
     assert res_instance_1 == 1

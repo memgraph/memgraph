@@ -18,20 +18,14 @@ from multiprocessing import Pool
 
 import interactive_mg_runner
 import pytest
-from common import (
-  connect,
-  execute_and_fetch_all,
-  get_data_path,
-  get_logs_path,
-  get_vertex_count,
-)
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, get_vertex_count
 from mg_utils import (
-  mg_sleep_and_assert,
-  mg_sleep_and_assert_collection,
-  mg_sleep_and_assert_eval_function,
-  mg_sleep_and_assert_multiple,
-  mg_sleep_and_assert_until_role_change,
-  wait_for_status_change,
+    mg_sleep_and_assert,
+    mg_sleep_and_assert_collection,
+    mg_sleep_and_assert_eval_function,
+    mg_sleep_and_assert_multiple,
+    mg_sleep_and_assert_until_role_change,
+    wait_for_status_change,
 )
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -197,10 +191,7 @@ def test_uc_replication(test_name):
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance3_cursor, create_query)
-    assert (
-        "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted on all instances."
-        in str(e.value)
-    )
+    assert "Failed to replicate to STRICT_SYNC replica" in str(e.value)
 
     # Start instance_1
     interactive_mg_runner.start(inner_instances_description, "instance_1")
@@ -259,10 +250,7 @@ def run_until_success(cursor, query):
             execute_and_fetch_all(cursor, query)
             break
         except Exception as e:
-            if (
-                "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted on all instances."
-                in str(e)
-            ):
+            if "Failed to replicate to STRICT_SYNC replica" in str(e):
                 time.sleep(1)
                 continue
             assert "Unknown error"
@@ -281,10 +269,7 @@ def test_replica_down_up_works(test_name):
     instance3_cursor = connect(host="localhost", port=7689).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
-    assert (
-        "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted on all instances."
-        in str(e.value)
-    )
+    assert "Failed to replicate to STRICT_SYNC replica" in str(e.value)
 
     # Replica comes back
     interactive_mg_runner.start(inner_instances_description, "instance_2")
@@ -366,10 +351,7 @@ def test_replica_down_before_commit(test_name):
     instance3_cursor = connect(host="localhost", port=7689).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
-    assert (
-        "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted on all instances."
-        in str(e.value)
-    )
+    assert "Failed to replicate to STRICT_SYNC replica" in str(e.value)
     # Commit shouldn't be visible on the current main
     mg_sleep_and_assert(0, partial(get_vertex_count, instance3_cursor))
 
@@ -396,10 +378,7 @@ def test_replica_after_restart_no_committed_data(test_name):
     instance3_cursor = connect(host="localhost", port=7689).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
-    assert (
-        "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted on all instances."
-        in str(e.value)
-    )
+    assert "Failed to replicate to STRICT_SYNC replica" in str(e.value)
 
     # Data restart shouldn't change the fact that txn got aborted
     instance2_cursor = connect(host="localhost", port=7688).cursor()

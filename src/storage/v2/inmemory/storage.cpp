@@ -1065,18 +1065,25 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
           FinalizeCommitPhase(durability_commit_timestamp);
-          // Throw exception if we couldn't commit on one of SYNC replica
+
+          auto failures = replicating_txn.CollectStartTxnErrors();
           if (!repl_prepare_phase_status.has_value()) {
-            if (repl_prepare_phase_status.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
-              return std::unexpected{TimeoutReplicationError{}};
+            for (auto const &f : repl_prepare_phase_status.error().failures) {
+              // A replica that failed to start also fails during finalize — keep only the start error
+              if (!std::ranges::any_of(failures, [&](auto const &e) { return e.name == f.name; })) {
+                failures.push_back(f);
+              }
             }
-            return std::unexpected{SyncReplicationError{}};
+          }
+          if (!failures.empty()) {
+            return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
           }
           return {};
         }
 
         // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
         // cluster.
+
         if (repl_prepare_phase_status.has_value()) {
           // All replicas voted yes, hence they want to commit the current transaction
           FinalizeCommitPhase(durability_commit_timestamp);
@@ -1090,15 +1097,23 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         replicating_txn.FinalizeTransaction(
             repl_prepare_phase_status.has_value(), mem_storage->uuid(), protector, durability_commit_timestamp);
 
+        // Collect all failures: start-txn errors and ship-delta errors are mutually exclusive per replica
+        // It is ok to put this after FinalizeTransaction because it is impossible for repl_prepare_phase_status
+        // to have a value if there were some start txn errors
+        auto failures = replicating_txn.CollectStartTxnErrors();
         if (!repl_prepare_phase_status.has_value()) {
+          for (auto const &f : repl_prepare_phase_status.error().failures) {
+            // A replica that failed to start also fails during finalize — keep only the start error
+            if (!std::ranges::any_of(failures, [&](auto const &e) { return e.name == f.name; })) {
+              failures.push_back(f);
+            }
+          }
+        }
+        if (!failures.empty()) {
           // Release engine lock because we don't have to hold it anymore for abort
           engine_guard.unlock();
           AbortAndResetCommitTs();
-
-          if (repl_prepare_phase_status.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
-            return std::unexpected{TimeoutReplicationError{}};
-          }
-          return std::unexpected{StrictSyncReplicationError{}};
+          return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = false}};
         }
 
         return {};
@@ -1213,14 +1228,16 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     CommitArgs commit_args) {
   auto result = PrepareForCommitPhase(std::move(commit_args));
 
-  const auto fatal_error =
-      !result && std::visit(
-                     [](const auto &e) {
-                       // All errors are handled at a higher level.
-                       // Replication errros are not fatal and should procede with finialize transaction
-                       return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
-                     },
-                     result.error());
+  const auto fatal_error = !result && std::visit(
+                                          [](const auto &e) {
+                                            using E = std::remove_cvref_t<decltype(e)>;
+                                            if constexpr (std::is_same_v<E, storage::ReplicationError>) {
+                                              // Replication errors are fatal only if the transaction was aborted
+                                              return !e.transaction_committed;
+                                            }
+                                            return true;  // all other errors are fatal
+                                          },
+                                          result.error());
 
   if (fatal_error) {
     // PrepareForCommitPhase aborted the transaction internally (e.g. constraint/serialization error).
@@ -3155,7 +3172,7 @@ void InMemoryStorage::FinalizeWalFile() {
 auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                                      TransactionReplication &replicating_txn,
                                                                      CommitArgs const &commit_args)
-    -> std::expected<void, io::network::ClientCommunicationError> {
+    -> std::expected<void, ShipDeltasError> {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // If replica executes this:
