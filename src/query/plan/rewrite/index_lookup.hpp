@@ -926,7 +926,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   /// or an unresolved alias (bare Identifier) that ResolveDownward fills in during PreVisit descent.
   struct OrderByEntry {
     storage::PropertyPath resolved;  // filled if PropertyLookup, or after alias resolution
-    std::string alias;               // non-empty if bare Identifier (unresolved)
+    std::string_view alias;          // non-empty if bare Identifier (unresolved)
 
     bool is_resolved() const { return alias.empty(); }
   };
@@ -1051,7 +1051,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           prop_ids.push_back(GetProperty(pix));
         }
         entry.resolved = storage::PropertyPath{std::move(prop_ids)};
-        entry.alias.clear();
+        entry.alias = {};
       } else if (auto *ident = dynamic_cast<Identifier *>(matched->expression_)) {
         entry.alias = ident->name_;
       } else {
