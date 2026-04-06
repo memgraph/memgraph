@@ -707,16 +707,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
-    auto info = ExtractOrderByInfo(op);
-    if (info.valid) {
-      // The planner always wraps a ReturnBody (which contains OrderBy) in a Produce, so OrderBy's
-      // parent is a Produce that may define aliases the ORDER BY references (e.g. RETURN n.prop AS a
-      // ORDER BY a — "a" is in the Produce above). Resolve through it now while descending.
-      if (prev_ops_.size() >= 2 && prev_ops_[prev_ops_.size() - 2]->GetTypeInfo() == Produce::kType) {
-        ResolveDownward(dynamic_cast<Produce *>(prev_ops_[prev_ops_.size() - 2]), info);
-      }
-    }
-    order_by_stack_.emplace_back(std::move(info));
+    order_by_stack_.emplace_back(ExtractOrderByInfo(op));
     return true;
   }
 
