@@ -9016,6 +9016,7 @@ void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_
 
 Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserParameters_fn params_getter,
                                          QueryExtras const &extras) {
+  current_query_string_ = query_string;
   LogQueryMessage(fmt::format("Accepted query: {}", query_string));
 #ifdef MG_ENTERPRISE
   if (!flags::CoordinationSetupInstance().IsCoordinator()) {
@@ -9071,6 +9072,13 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
+    if (interpreter_context_->failed_query_log) {
+      interpreter_context_->failed_query_log->Record(session_info_.uuid,
+                                                     session_info_.username,
+                                                     current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
+                                                     query_string,
+                                                     e.what());
+    }
     AbortCommand({});
     throw;
   }
@@ -9770,6 +9778,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
+    if (interpreter_context_->failed_query_log) {
+      interpreter_context_->failed_query_log->Record(session_info_.uuid,
+                                                     session_info_.username,
+                                                     current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
+                                                     current_query_string_,
+                                                     e.what());
+    }
     AbortCommand(query_execution_ptr);
     throw;
   }

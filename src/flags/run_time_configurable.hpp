@@ -84,6 +84,13 @@ const std::chrono::time_zone *GetTimezone();
 std::string GetQueryLogDirectory();
 
 /**
+ * @brief Get the failed query log directory value
+ *
+ * @return std::string
+ */
+std::string GetFailedQueryLogDir();
+
+/**
  * @brief Get the also-log-to-stderr value
  * @return bool
  */
