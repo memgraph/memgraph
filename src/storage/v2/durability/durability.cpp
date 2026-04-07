@@ -376,6 +376,10 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
                        "Text edge indices",
                        [](const auto &info) { return info.edge_type; });
 
+  // Publish recovered text indices to active_indices_
+  updater(indices->text_index_.GetActiveIndices());
+  updater(indices->text_edge_index_.GetActiveIndices());
+
   // Point idx
   {
     spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());

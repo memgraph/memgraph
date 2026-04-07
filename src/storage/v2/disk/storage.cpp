@@ -2000,7 +2000,7 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
 
   spdlog::trace("rocksdb: Commit successful");
 
-  memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, disk_storage->name_id_mapper_.get());
+  transaction_.active_indices_->text_->ApplyTrackedChanges(transaction_, disk_storage->name_id_mapper_.get());
   disk_storage->durable_metadata_.UpdateMetaData(
       disk_storage->timestamp_, disk_storage->vertex_count_, disk_storage->edge_count_);
   is_transaction_active_ = false;
@@ -2546,7 +2546,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
       .edge_type = {/* edge type indices */},
       .edge_type_property = {/* edge_type_property */},
       .edge_property = {/*edge property*/},
-      .text_indices = storage_->indices_.text_index_.ListIndices(),
+      .text_indices = transaction_.active_indices_->text_->ListIndices(),
       .text_edge_indices = {/* text edge indices */},
       .point_label_property = {/* point indices */},
       .vector_indices_spec = {/* vector indices */}};

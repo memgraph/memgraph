@@ -1218,8 +1218,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
 
   CheckForFastDiscardOfDeltas();
-  memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
-  memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  transaction_.active_indices_->text_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   is_transaction_active_ = false;
 }
 
@@ -4315,8 +4315,8 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       .edge_type_property =
           transaction_.active_indices_->edge_type_properties_->ListIndices(transaction_.start_timestamp),
       .edge_property = transaction_.active_indices_->edge_property_->ListIndices(transaction_.start_timestamp),
-      .text_indices = storage_->indices_.text_index_.ListIndices(),
-      .text_edge_indices = storage_->indices_.text_edge_index_.ListIndices(),
+      .text_indices = transaction_.active_indices_->text_->ListIndices(),
+      .text_edge_indices = transaction_.active_indices_->text_edge_->ListIndices(),
       .point_label_property = storage_->indices_.point_index_.ListIndices(),
       .vector_indices_spec = storage_->indices_.vector_index_.ListIndices(),
       .vector_edge_indices_spec = storage_->indices_.vector_edge_index_.ListIndices()};

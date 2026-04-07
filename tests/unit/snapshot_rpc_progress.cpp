@@ -127,7 +127,9 @@ class SnapshotRpcProgressTest : public ::testing::Test {
                                            std::make_shared<InMemoryLabelPropertyIndex::ActiveIndices>(),
                                            std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
                                            std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
-                                           std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>());
+                                           std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::TextIndex::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>());
     });
   }
 };
