@@ -991,7 +991,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   /// Incrementally resolve ORDER BY info as we descend through a Produce.
-  /// Called from PreVisit(Produce) and PreVisit(OrderBy) (for the parent Produce above OrderBy).
+  /// Called from PreVisit(Produce) during the visitor's top-down traversal.
   ///
   /// Two steps, order matters:
   /// 1. Track source_name through renames (e.g. Produce has `n AS m` → source_name "m" becomes "n").
