@@ -91,6 +91,9 @@ struct InterpreterContext {
 
   std::optional<FailedQueryLog> failed_query_log;
 
+  /// Returns true if the failed query log is active (directory configured and logging enabled).
+  bool IsFailedQueryLoggingEnabled() const;
+
   struct {
     auto next() -> uint64_t { return transaction_id++; }
 

@@ -89,6 +89,9 @@ DEFINE_string(query_log_directory, "", "Path to directory where the query logs s
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(failed_query_log_dir, "", "Path to directory where failed query logs should be stored.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(failed_query_logging_enabled, false, "Set to true to enable failed query logging.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_string(storage_snapshot_interval, "",
               "Define periodic snapshot schedule via cron format or as a period in seconds.");
@@ -157,6 +160,9 @@ constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 
 constexpr auto kFailedQueryLogDirGFlagsKey = "failed-query-log-dir";
 
+constexpr auto kFailedQueryLoggingEnabledSettingKey = "failed-query-logging-enabled";
+constexpr auto kFailedQueryLoggingEnabledGFlagsKey = "failed-query-logging-enabled";
+
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
@@ -192,6 +198,7 @@ std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
+std::atomic<bool> failed_query_logging_enabled_{false};
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
@@ -544,6 +551,16 @@ void Initialize(utils::Settings &settings) {
           return std::unexpected{"storage.access_timeout_sec must be a valid unsigned integer"};
         }
       });
+
+  /*
+   * Register failed query logging enabled flag (runtime-configurable)
+   */
+  register_flag(
+      kFailedQueryLoggingEnabledGFlagsKey,
+      kFailedQueryLoggingEnabledSettingKey,
+      kRestore,
+      [](const std::string &val) { failed_query_logging_enabled_ = val == "true"; },
+      ValidBoolStr);
 }
 
 std::string GetServerName() {
@@ -577,6 +594,8 @@ std::string GetFailedQueryLogDir() {
   gflags::GetCommandLineOption(kFailedQueryLogDirGFlagsKey, &s);
   return s;
 }
+
+bool GetFailedQueryLoggingEnabled() { return failed_query_logging_enabled_.load(std::memory_order_acquire); }
 
 bool GetAlsoLogToStderr() {
   std::string v;

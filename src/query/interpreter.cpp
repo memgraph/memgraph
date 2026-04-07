@@ -8445,7 +8445,7 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
-    if (interpreter_context_->failed_query_log) {
+    if (interpreter_context_->IsFailedQueryLoggingEnabled()) {
       interpreter_context_->failed_query_log->Record(session_info_.uuid,
                                                      session_info_.username,
                                                      current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
@@ -9118,7 +9118,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
-    if (interpreter_context_->failed_query_log) {
+    if (interpreter_context_->IsFailedQueryLoggingEnabled()) {
       interpreter_context_->failed_query_log->Record(session_info_.uuid,
                                                      session_info_.username,
                                                      current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",

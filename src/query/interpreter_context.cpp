@@ -59,6 +59,10 @@ InterpreterContext::InterpreterContext(
   }
 }
 
+bool InterpreterContext::IsFailedQueryLoggingEnabled() const {
+  return failed_query_log.has_value() && flags::run_time::GetFailedQueryLoggingEnabled();
+}
+
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
     const std::unordered_set<Interpreter *> &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids,
     QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker) {

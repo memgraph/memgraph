@@ -91,6 +91,13 @@ std::string GetQueryLogDirectory();
 std::string GetFailedQueryLogDir();
 
 /**
+ * @brief Get the failed query logging enabled flag (runtime-configurable).
+ *
+ * @return bool
+ */
+bool GetFailedQueryLoggingEnabled();
+
+/**
  * @brief Get the also-log-to-stderr value
  * @return bool
  */

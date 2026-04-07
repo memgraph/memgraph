@@ -59,5 +59,29 @@ def test_successful_query_not_logged(memgraph):
     assert good_query not in log_contents, f"Successful query should not be in failed query log:\n{log_contents}"
 
 
+def test_disabled_at_runtime_stops_logging(memgraph):
+    """Disable failed query logging at runtime and verify nothing new is appended."""
+    log_before = _read_failed_query_log()
+
+    # Disable at runtime
+    memgraph.execute('SET DATABASE SETTING "failed-query-logging-enabled" TO "false";')
+
+    bad_query = "INVALID CYPHER QUERY"
+    try:
+        list(memgraph.execute_and_fetch(bad_query))
+    except Exception:
+        pass
+
+    time.sleep(1)
+
+    log_after = _read_failed_query_log()
+    assert (
+        log_after == log_before
+    ), f"No new entries should be logged when disabled.\nBefore:\n{log_before}\nAfter:\n{log_after}"
+
+    # Re-enable for other tests
+    memgraph.execute('SET DATABASE SETTING "failed-query-logging-enabled" TO "true";')
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
