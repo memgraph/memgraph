@@ -692,7 +692,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     memgraph::metrics::IncrementCounter(memgraph::metrics::SuccessfulQuery);
 
     // Slow query logging
-    if (interpreter_context_->slow_query_log) {
+    if (interpreter_context_->IsSlowQueryLoggingEnabled()) {
       auto threshold_ms = flags::run_time::GetSlowQueryLogThresholdMs();
       if (threshold_ms > 0) {
         auto it = maybe_summary->find("plan_execution_time");

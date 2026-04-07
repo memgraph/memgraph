@@ -96,6 +96,9 @@ struct InterpreterContext {
   /// Returns true if the failed query log is active (directory configured and logging enabled).
   bool IsFailedQueryLoggingEnabled() const;
 
+  /// Returns true if the slow query log is active (directory configured and logging enabled).
+  bool IsSlowQueryLoggingEnabled() const;
+
   struct {
     auto next() -> uint64_t { return transaction_id++; }
 

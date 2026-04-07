@@ -77,6 +77,18 @@ startup_config_dict = {
     ),
     "failed_query_log_dir": ("", "", "Path to directory where failed query logs should be stored."),
     "failed_query_logging_enabled": ("false", "false", "Set to true to enable failed query logging."),
+    "slow_query_log_dir": ("", "", "Path to directory where slow query logs should be stored."),
+    "slow_query_logging_enabled": ("false", "false", "Set to true to enable slow query logging."),
+    "slow_query_log_threshold_ms": (
+        "0",
+        "0",
+        "Queries with execution time exceeding this threshold (in milliseconds) are logged to the slow query log. Set to 0 to disable.",
+    ),
+    "slow_query_log_auto_explain": (
+        "false",
+        "false",
+        "When enabled, the EXPLAIN plan is included in the slow query log entries.",
+    ),
     "file_download_conn_timeout_sec": (
         "10",
         "10",

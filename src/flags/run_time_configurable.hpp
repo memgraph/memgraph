@@ -102,6 +102,13 @@ bool GetFailedQueryLoggingEnabled();
  *
  * @return std::string
  */
+/**
+ * @brief Get the slow query logging enabled flag (runtime-configurable).
+ *
+ * @return bool
+ */
+bool GetSlowQueryLoggingEnabled();
+
 std::string GetSlowQueryLogDir();
 
 /**

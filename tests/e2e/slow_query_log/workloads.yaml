@@ -1,7 +1,7 @@
 slow_query_log: &slow_query_log
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--slow-query-log-dir=/tmp/mg_slow_query_log_test", "--slow-query-log-threshold-ms=1000"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--slow-query-log-dir=/tmp/mg_slow_query_log_test", "--slow-query-logging-enabled=true", "--slow-query-log-threshold-ms=1000"]
       log_file: "slow_query_log.log"
       setup_queries: []
       validation_queries: []

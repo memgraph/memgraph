@@ -135,6 +135,10 @@ modifications:
     value: "/var/log/memgraph/failed_queries"
     override: true
 
+  - name: "slow_query_log_dir"
+    value: "/var/log/memgraph/slow_queries"
+    override: true
+
 undocumented:
   - "flag_file"
   - "also_log_to_stderr"
