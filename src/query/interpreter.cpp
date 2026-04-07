@@ -6517,12 +6517,18 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     throw InfoInMulticommandTxException();
   }
 
-  MG_ASSERT(current_db.db_acc_, "Database info query expects a current DB");
-  MG_ASSERT(current_db.db_transactional_accessor_, "Database info query expects a current DB transaction");
-  auto *dba = &*current_db.execution_db_accessor_;
-  auto *storage_acc = current_db.db_transactional_accessor_.get();
-
   auto *info_query = utils::Downcast<DatabaseInfoQuery>(parsed_query.query);
+
+  storage::Storage::Accessor *storage_acc = nullptr;
+  DbAccessor *dba = nullptr;
+  if (info_query->info_type_ == DatabaseInfoQuery::InfoType::INDEX ||
+      info_query->info_type_ == DatabaseInfoQuery::InfoType::CONSTRAINT) {
+    MG_ASSERT(current_db.db_acc_, "Database info query expects a current DB");
+    MG_ASSERT(current_db.db_transactional_accessor_, "Database info query expects a current DB transaction");
+    dba = &*current_db.execution_db_accessor_;
+    storage_acc = current_db.db_transactional_accessor_.get();
+  }
+
   std::vector<std::string> header;
   std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
   auto *database = current_db.db_acc_->get();
@@ -6541,6 +6547,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view point_label_property_index_mark{"point"};
         const std::string_view vector_label_property_index_mark{"label+property_vector"};
         const std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
+
         auto info = dba->ListAllIndices();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_properties.size() + info.text_indices.size());
@@ -6697,13 +6704,13 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::EDGE_TYPES: {
       header = {"edge types"};
-      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
+      handler = [storage = current_db.db_acc_->get()->storage()] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
               "The metadata collection for edge-types is disabled. To enable it, restart your instance and set the "
               "storage-enable-schema-metadata flag to True.");
         }
-        auto edge_types = dba->ListAllPossiblyPresentEdgeTypes();
+        auto edge_types = storage->ListAllPossiblyPresentEdgeTypes();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(edge_types.size());
         for (auto &edge_type : edge_types) {
@@ -6717,13 +6724,13 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::NODE_LABELS: {
       header = {"node labels"};
-      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
+      handler = [storage = current_db.db_acc_->get()->storage()] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
               "The metadata collection for node-labels is disabled. To enable it, restart your instance and set the "
               "storage-enable-schema-metadata flag to True.");
         }
-        auto node_labels = dba->ListAllPossiblyPresentVertexLabels();
+        auto node_labels = storage->ListAllPossiblyPresentVertexLabels();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(node_labels.size());
         for (auto &node_label : node_labels) {
@@ -6786,10 +6793,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     case DatabaseInfoQuery::InfoType::VECTOR_INDEX: {
       header = {
           "index_name", "label", "property", "capacity", "dimension", "metric", "size", "scalar_kind", "index_type"};
-      handler = [database, dba] {
+      handler = [database] {
         auto *storage = database->storage();
-        auto vector_indices = dba->ListAllVectorIndices();
-        auto vector_edge_indices = dba->ListAllVectorEdgeIndices();
+        auto vector_indices = storage->indices_.vector_index_.ListVectorIndicesInfo();
+        auto vector_edge_indices = storage->indices_.vector_edge_index_.ListVectorIndicesInfo();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(vector_indices.size());
 
@@ -8678,7 +8685,12 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(AnalyzeGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 
-  void Visit(DatabaseInfoQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(DatabaseInfoQuery &parsed_query) override {
+    if (parsed_query.info_type_ == DatabaseInfoQuery::InfoType::INDEX ||
+        parsed_query.info_type_ == DatabaseInfoQuery::InfoType::CONSTRAINT) {
+      accessor_type_ = storage::StorageAccessType::READ;
+    }
+  }
 
   void Visit(ShowEnumsQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 

@@ -512,10 +512,6 @@ class Storage {
 
     auto const &uuid() const { return storage_->uuid(); }
 
-    std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
-
-    std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
-
     virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
                                                                          CheckCancelFunction cancel_check) = 0;
 
@@ -1078,6 +1074,9 @@ class Storage {
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
   }
+
+  std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
+  std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
 
   /// Returns the current snapshot of active indices
   auto GetActiveIndices() const -> ActiveIndicesPtr { return indices_.active_indices_.ReadCopy(); }
