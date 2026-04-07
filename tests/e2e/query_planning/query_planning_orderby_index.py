@@ -9,6 +9,8 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import sys
+
 import pytest
 from common import memgraph
 
@@ -112,7 +114,7 @@ def test_correctness_basic_ascending(memgraph):
         memgraph.execute(f"CREATE (:L {{prop: {v}}})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop"))
-    values = [r["n"].properties["prop"] for r in results]
+    values = [r["n"]._properties["prop"] for r in results]
     assert values == [10, 20, 30, 40, 50]
 
 
@@ -123,7 +125,7 @@ def test_correctness_with_limit(memgraph):
         memgraph.execute(f"CREATE (:L {{prop: {v}}})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop LIMIT 3"))
-    values = [r["n"].properties["prop"] for r in results]
+    values = [r["n"]._properties["prop"] for r in results]
     assert values == [10, 20, 30]
 
 
@@ -135,7 +137,7 @@ def test_correctness_equality_skip(memgraph):
     memgraph.execute("CREATE (:L {a: 20, b: 0})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 10 RETURN n ORDER BY n.b"))
-    values = [r["n"].properties["b"] for r in results]
+    values = [r["n"]._properties["b"] for r in results]
     assert values == [1, 1, 3, 4, 5]
 
 
@@ -147,7 +149,7 @@ def test_correctness_composite_order(memgraph):
         memgraph.execute(f"CREATE (:L {{a: {a}, b: {b}}})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a > 0 RETURN n ORDER BY n.a, n.b"))
-    pairs = [(r["n"].properties["a"], r["n"].properties["b"]) for r in results]
+    pairs = [(r["n"]._properties["a"], r["n"]._properties["b"]) for r in results]
     assert pairs == [(1, 1), (1, 2), (2, 1), (2, 3), (3, 1)]
 
 
@@ -159,7 +161,7 @@ def test_correctness_with_expand(memgraph):
     memgraph.execute("CREATE (:L {prop: 20})-[:R]->(:M)")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L)-[r]->(m) WHERE n.prop > 5 RETURN n, m ORDER BY n.prop"))
-    values = [r["n"].properties["prop"] for r in results]
+    values = [r["n"]._properties["prop"] for r in results]
     assert values == [10, 20, 30]
 
 
@@ -171,7 +173,7 @@ def test_correctness_equality_plus_range(memgraph):
     memgraph.execute("CREATE (:L {a: 2, b: 5})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 1 AND n.b > 15 RETURN n ORDER BY n.b"))
-    values = [r["n"].properties["b"] for r in results]
+    values = [r["n"]._properties["b"] for r in results]
     assert values == [20, 30, 40, 50]
 
 
@@ -182,7 +184,7 @@ def test_correctness_with_rename(memgraph):
         memgraph.execute(f"CREATE (:L {{prop: {v}}})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 WITH n AS m RETURN m ORDER BY m.prop"))
-    values = [r["m"].properties["prop"] for r in results]
+    values = [r["m"]._properties["prop"] for r in results]
     assert values == [10, 20, 30, 40, 50]
 
 
@@ -193,7 +195,7 @@ def test_correctness_return_rename_input_scope(memgraph):
         memgraph.execute(f"CREATE (:L {{prop: {v}}})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n AS m ORDER BY n.prop"))
-    values = [r["m"].properties["prop"] for r in results]
+    values = [r["m"]._properties["prop"] for r in results]
     assert values == [10, 20, 30, 40, 50]
 
 
@@ -212,7 +214,7 @@ def test_correctness_in_filter_order_preserved(memgraph):
         memgraph.execute(f"CREATE (:L {{a: {a}, b: {b}}})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a IN [3, 1] RETURN n ORDER BY n.b"))
-    values = [r["n"].properties["b"] for r in results]
+    values = [r["n"]._properties["b"] for r in results]
     assert values == [5, 10, 20, 30]
 
 
@@ -340,14 +342,14 @@ def test_plan_with_distinct_orderby_return(memgraph):
 
 
 def test_correctness_with_distinct_orderby_return(memgraph):
-    """WITH DISTINCT ... ORDER BY ... RETURN — correct order and dedup after elimination."""
+    """WITH DISTINCT prop ORDER BY prop RETURN — correct order and dedup after elimination."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
     # Create duplicates in reverse order to verify both ordering and dedup.
     for v in [50, 40, 30, 20, 10, 50, 40, 30, 20, 10]:
         memgraph.execute(f"CREATE (:L {{prop: {v}}})")
 
     results = list(
-        memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 WITH DISTINCT n ORDER BY n.prop RETURN n.prop AS p")
+        memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 WITH DISTINCT n.prop AS p ORDER BY p RETURN p")
     )
     values = [r["p"] for r in results]
     assert values == [10, 20, 30, 40, 50]
@@ -363,3 +365,77 @@ def test_correctness_equality_pinned_alias(memgraph):
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 1 WITH n.b AS b RETURN b ORDER BY b"))
     values = [r["b"] for r in results]
     assert values == [10, 20, 30, 40, 50]
+
+
+def test_plan_triple_scan_all_eliminated(memgraph):
+    """ORDER BY c.id, b.id, a.id eliminated — three nested scans in outermost-first order."""
+    memgraph.execute("SET DATABASE SETTING 'cartesian-product-enabled' TO 'false';")
+    memgraph.execute("CREATE INDEX ON :I(id);")
+    memgraph.execute("CREATE INDEX ON :J(id);")
+    memgraph.execute("CREATE INDEX ON :K(id);")
+
+    expected = [
+        " * Produce {c, b, a}",
+        " * ScanAllByLabelProperties (a :I {id})",
+        " * ScanAllByLabelProperties (b :J {id})",
+        " * ScanAllByLabelProperties (c :K {id})",
+        " * Once",
+    ]
+
+    actual = get_plan(
+        memgraph,
+        "MATCH (c:K), (b:J), (a:I) WHERE c.id > 0 AND b.id > 0 AND a.id > 0 RETURN c, b, a ORDER BY c.id, b.id, a.id",
+    )
+    memgraph.execute("SET DATABASE SETTING 'cartesian-product-enabled' TO 'true';")
+    assert expected == actual
+
+
+def test_plan_triple_scan_outermost_only_eliminated(memgraph):
+    """ORDER BY only on outermost scan — eliminated even with two inner scans."""
+    memgraph.execute("SET DATABASE SETTING 'cartesian-product-enabled' TO 'false';")
+    memgraph.execute("CREATE INDEX ON :L2(id);")
+    memgraph.execute("CREATE INDEX ON :M2(id);")
+    memgraph.execute("CREATE INDEX ON :N2(id);")
+
+    expected = [
+        " * Produce {c, b, a}",
+        " * ScanAllByLabelProperties (a :L2 {id})",
+        " * ScanAllByLabelProperties (b :M2 {id})",
+        " * ScanAllByLabelProperties (c :N2 {id})",
+        " * Once",
+    ]
+
+    actual = get_plan(
+        memgraph,
+        "MATCH (c:N2), (b:M2), (a:L2) WHERE c.id > 0 AND b.id > 0 AND a.id > 0 RETURN c, b, a ORDER BY c.id",
+    )
+    memgraph.execute("SET DATABASE SETTING 'cartesian-product-enabled' TO 'true';")
+    assert expected == actual
+
+
+def test_plan_triple_scan_wrong_order_not_eliminated(memgraph):
+    """ORDER BY inner, outer, middle — wrong nesting order, OrderBy must be kept."""
+    memgraph.execute("SET DATABASE SETTING 'cartesian-product-enabled' TO 'false';")
+    memgraph.execute("CREATE INDEX ON :O(id);")
+    memgraph.execute("CREATE INDEX ON :P(id);")
+    memgraph.execute("CREATE INDEX ON :Q(id);")
+
+    expected = [
+        " * OrderBy {a, c, b}",
+        " * Produce {a, c, b}",
+        " * ScanAllByLabelProperties (a :O {id})",
+        " * ScanAllByLabelProperties (b :P {id})",
+        " * ScanAllByLabelProperties (c :Q {id})",
+        " * Once",
+    ]
+
+    actual = get_plan(
+        memgraph,
+        "MATCH (c:Q), (b:P), (a:O) WHERE c.id > 0 AND b.id > 0 AND a.id > 0 RETURN a, c, b ORDER BY a.id, c.id, b.id",
+    )
+    memgraph.execute("SET DATABASE SETTING 'cartesian-product-enabled' TO 'true';")
+    assert expected == actual
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-rA"]))
