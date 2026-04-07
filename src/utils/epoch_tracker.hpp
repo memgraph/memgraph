@@ -43,20 +43,19 @@ class EpochTracker {
   struct Block {
     std::atomic<Block *> prev{nullptr};
     std::atomic<Block *> succ{nullptr};
-    uint64_t first_id{0};
+    uint64_t const first_id;  // immutable after construction; safe to read without lock
     std::atomic<uint64_t> field[kBlockFields];
 
-    Block() { std::memset(field, 0, sizeof(field)); }
+    explicit Block(uint64_t id) : first_id{id} { std::memset(field, 0, sizeof(field)); }
   };
 
   Block *AllocateBlock(Block *expected_head) {
     auto guard = std::lock_guard{lock_};
     Block *curr_head = head_.load(std::memory_order_acquire);
     if (curr_head != expected_head) return curr_head;  // someone else allocated while we waited
-    auto *block = new Block{};
+    auto *block = new Block{last_id_};
     block->prev.store(curr_head, std::memory_order_release);
     block->succ.store(nullptr, std::memory_order_release);
-    block->first_id = last_id_;
     last_id_ += kIdsInBlock;
     if (curr_head == nullptr) {
       tail_.store(block, std::memory_order_release);
