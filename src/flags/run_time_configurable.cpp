@@ -86,6 +86,9 @@ DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA forma
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(failed_query_log_dir, "", "Path to directory where failed query logs should be stored.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_string(storage_snapshot_interval, "",
               "Define periodic snapshot schedule via cron format or as a period in seconds.");
@@ -564,6 +567,12 @@ std::string GetQueryLogDirectory() {
   std::string s;
   // Thread safe read of gflag
   gflags::GetCommandLineOption(kQueryLogDirectoryGFlagsKey, &s);
+  return s;
+}
+
+std::string GetFailedQueryLogDir() {
+  std::string s;
+  gflags::GetCommandLineOption("failed-query-log-dir", &s);
   return s;
 }
 
