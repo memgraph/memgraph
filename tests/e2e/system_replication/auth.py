@@ -416,7 +416,6 @@ def test_manual_roles_recovery(connection, test_name):
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
-                "--data_directory",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
             "data_directory": f"{get_data_path(file, test_name)}/replica1",

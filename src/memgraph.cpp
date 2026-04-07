@@ -14,6 +14,9 @@
 #include <exception>
 #include <memory>
 #include <optional>
+#include <ranges>
+#include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -96,6 +99,46 @@ void WarnDeprecatedFlags() {
     const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
     if (!info.is_default) spdlog::warn("{}", message);
   };
+}
+
+/// Memgraph does not use positional arguments. After gflags parsing, any remaining
+/// argv[1..argc-1] entries are unexpected — typically caused by writing `--bool-flag false`
+/// (space-separated) instead of `--bool-flag=false`. gflags bool flags don't consume the
+/// next argument; `--flag false` silently sets the flag to true and orphans "false".
+void CheckSuspiciousPositionalArgs(int argc, char **argv) {
+  if (argc <= 1) return;
+
+  auto is_bool_like = [](std::string_view arg) {
+    using namespace std::string_view_literals;
+    constexpr auto kBoolValues =
+        std::array{"true"sv, "false"sv, "yes"sv, "no"sv, "1"sv, "0"sv, "t"sv, "f"sv, "y"sv, "n"sv};
+    auto lower = memgraph::utils::ToLowerCase(arg);
+    return std::ranges::any_of(kBoolValues, [&](std::string_view bv) { return lower == bv; });
+  };
+
+  auto args = std::span(argv + 1, static_cast<size_t>(argc - 1));
+  std::ostringstream oss;
+  bool any_bool_like = false;
+  for (auto *a : args) {
+    if (oss.tellp() > 0) oss << ", ";
+    oss << "'" << a << "'";
+    if (is_bool_like(a)) any_bool_like = true;
+  }
+  auto all_args = std::move(oss).str();
+
+  auto level = FLAGS_strict_flag_check ? spdlog::level::err : spdlog::level::warn;
+  if (any_bool_like) {
+    spdlog::log(level,
+                "Unexpected positional argument(s): {}. "
+                "This is likely caused by writing '--bool-flag false' (space-separated). "
+                "Boolean flags require '=' syntax, e.g. '--bool-flag=false', or use '--nobool-flag'. "
+                "Without '=', the flag is set to true regardless of the value that follows it.",
+                all_args);
+  } else {
+    spdlog::log(
+        level, "Unexpected positional argument(s): {}. Memgraph does not accept positional arguments.", all_args);
+  }
+  if (FLAGS_strict_flag_check) std::exit(EXIT_FAILURE);
 }
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
@@ -214,6 +257,7 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  CheckSuspiciousPositionalArgs(argc, argv);
   WarnDeprecatedFlags();
 
   if (FLAGS_h) {
