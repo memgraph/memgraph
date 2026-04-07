@@ -4272,11 +4272,12 @@ void InMemoryStorage::Clear() {
   commit_log_.reset();
   commit_log_.emplace();
 
-  // Drop any pending GC work (committed_transactions_ is holding on to old deltas)
+  // Drop any pending GC work
   deleted_vertices_->clear();
   deleted_edges_->clear();
   garbage_undo_buffers_->clear();
   committed_transactions_->clear();
+  waiting_gc_deltas_->clear();
 
   // Clear incoming async index creation requests
   async_indexer_.Clear();
