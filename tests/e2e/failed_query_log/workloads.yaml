@@ -1,0 +1,13 @@
+failed_query_log: &failed_query_log
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--failed-query-log-dir=/tmp/mg_failed_query_log_test", "--failed-query-logging-enabled=true"]
+      log_file: "failed_query_log.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Failed query log"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["failed_query_log/failed_query_log.py"]
+    <<: *failed_query_log

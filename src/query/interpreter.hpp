@@ -15,6 +15,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/query_logger.hpp"
@@ -555,6 +556,14 @@ class Interpreter final {
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
 
+  // The query string of the most recently parsed query; used to report the
+  // originating query when a Pull failure occurs.
+  std::string current_query_string_;
+
+  // Cached EXPLAIN plan text for the most recently prepared query; used by
+  // the slow query log when --slow-query-log-auto-explain is enabled.
+  std::string cached_plan_text_;
+
   InterpreterContext *interpreter_context_;
 
   std::optional<FrameChangeCollector> frame_change_collector_;
@@ -661,6 +670,13 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPull);
+    if (interpreter_context_->IsFailedQueryLoggingEnabled()) {
+      interpreter_context_->failed_query_log->Record(session_info_.uuid,
+                                                     session_info_.username,
+                                                     current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
+                                                     current_query_string_,
+                                                     e.what());
+    }
     // PeriodicCommitException means the storage layer already aborted the transaction internally.
     // Null the accessor first so AbortCommand does not call Abort() a second time.
     if (dynamic_cast<const PeriodicCommitException *>(&e)) {
@@ -674,6 +690,27 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // Toggle first successfully completed query
     metrics::FirstSuccessfulQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::SuccessfulQuery);
+
+    // Slow query logging
+    if (interpreter_context_->IsSlowQueryLoggingEnabled()) {
+      auto threshold_ms = flags::run_time::GetSlowQueryLogThresholdMs();
+      if (threshold_ms > 0) {
+        auto it = maybe_summary->find("plan_execution_time");
+        if (it != maybe_summary->end() && it->second.IsDouble()) {
+          // plan_execution_time is in seconds
+          double duration_ms = it->second.ValueDouble() * 1000.0;
+          if (duration_ms >= static_cast<double>(threshold_ms)) {
+            interpreter_context_->slow_query_log->Record(session_info_.uuid,
+                                                         session_info_.username,
+                                                         current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
+                                                         current_query_string_,
+                                                         duration_ms,
+                                                         cached_plan_text_);
+          }
+        }
+      }
+    }
+
     // return the execution summary
     maybe_summary->insert_or_assign("has_more", false);
     return std::move(*maybe_summary);

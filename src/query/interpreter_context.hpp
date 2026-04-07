@@ -21,7 +21,9 @@
 
 #include "parameters/parameters.hpp"
 #include "query/config.hpp"
+#include "query/failed_query_log.hpp"
 #include "query/replication_query_handler.hpp"
+#include "query/slow_query_log.hpp"
 #include "query/typed_value.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
@@ -87,6 +89,15 @@ struct InterpreterContext {
   // Used to check active transactions
   // TODO: Have a way to read the current database
   utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
+
+  std::optional<FailedQueryLog> failed_query_log;
+  std::optional<SlowQueryLog> slow_query_log;
+
+  /// Returns true if the failed query log is active (directory configured and logging enabled).
+  bool IsFailedQueryLoggingEnabled() const;
+
+  /// Returns true if the slow query log is active (directory configured and logging enabled).
+  bool IsSlowQueryLoggingEnabled() const;
 
   struct {
     auto next() -> uint64_t { return transaction_id++; }

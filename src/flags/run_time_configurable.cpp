@@ -86,6 +86,27 @@ DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA forma
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(failed_query_log_dir, "", "Path to directory where failed query logs should be stored.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(failed_query_logging_enabled, false, "Set to true to enable failed query logging.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(slow_query_log_dir, "", "Path to directory where slow query logs should be stored.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(slow_query_log_threshold_ms, 0,
+              "Queries with execution time exceeding this threshold (in milliseconds) are logged to the slow query "
+              "log. Set to 0 to disable.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(slow_query_logging_enabled, false, "Set to true to enable slow query logging.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(slow_query_log_auto_explain, false,
+            "When enabled, the EXPLAIN plan is included in the slow query log entries.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_string(storage_snapshot_interval, "",
               "Define periodic snapshot schedule via cron format or as a period in seconds.");
@@ -152,6 +173,22 @@ constexpr auto kStorageGcAggressiveGFlagsKey = "storage-gc-aggressive";
 constexpr auto kQueryLogDirectorySettingKey = "query-log-directory";
 constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 
+constexpr auto kFailedQueryLogDirGFlagsKey = "failed-query-log-dir";
+
+constexpr auto kFailedQueryLoggingEnabledSettingKey = "failed-query-logging-enabled";
+constexpr auto kFailedQueryLoggingEnabledGFlagsKey = "failed-query-logging-enabled";
+
+constexpr auto kSlowQueryLogDirGFlagsKey = "slow-query-log-dir";
+
+constexpr auto kSlowQueryLoggingEnabledSettingKey = "slow-query-logging-enabled";
+constexpr auto kSlowQueryLoggingEnabledGFlagsKey = "slow-query-logging-enabled";
+
+constexpr auto kSlowQueryLogThresholdMsSettingKey = "slow-query-log-threshold-ms";
+constexpr auto kSlowQueryLogThresholdMsGFlagsKey = "slow-query-log-threshold-ms";
+
+constexpr auto kSlowQueryLogAutoExplainSettingKey = "slow-query-log-auto-explain";
+constexpr auto kSlowQueryLogAutoExplainGFlagsKey = "slow-query-log-auto-explain";
+
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
@@ -187,6 +224,10 @@ std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
+std::atomic<bool> failed_query_logging_enabled_{false};
+std::atomic<bool> slow_query_logging_enabled_{false};
+std::atomic<uint64_t> slow_query_log_threshold_ms_{0};
+std::atomic<bool> slow_query_log_auto_explain_{false};
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
@@ -539,6 +580,55 @@ void Initialize(utils::Settings &settings) {
           return std::unexpected{"storage.access_timeout_sec must be a valid unsigned integer"};
         }
       });
+
+  /*
+   * Register failed query logging enabled flag (runtime-configurable)
+   */
+  register_flag(
+      kFailedQueryLoggingEnabledGFlagsKey,
+      kFailedQueryLoggingEnabledSettingKey,
+      kRestore,
+      [](const std::string &val) { failed_query_logging_enabled_ = val == "true"; },
+      ValidBoolStr);
+
+  /*
+   * Register slow query logging enabled flag (runtime-configurable)
+   */
+  register_flag(
+      kSlowQueryLoggingEnabledGFlagsKey,
+      kSlowQueryLoggingEnabledSettingKey,
+      kRestore,
+      [](const std::string &val) { slow_query_logging_enabled_ = val == "true"; },
+      ValidBoolStr);
+
+  /*
+   * Register slow query log threshold (runtime-configurable)
+   */
+  register_flag(
+      kSlowQueryLogThresholdMsGFlagsKey,
+      kSlowQueryLogThresholdMsSettingKey,
+      kRestore,
+      [](std::string_view val) {
+        slow_query_log_threshold_ms_.store(utils::ParseStringToUint64(val), std::memory_order_release);
+      },
+      [](auto in) -> utils::Settings::ValidatorResult {
+        try {
+          utils::ParseStringToUint64(in);
+          return {};
+        } catch (utils::ParseException const &) {
+          return std::unexpected{"slow-query-log-threshold-ms must be a valid unsigned integer"};
+        }
+      });
+
+  /*
+   * Register slow query log auto-explain flag (runtime-configurable)
+   */
+  register_flag(
+      kSlowQueryLogAutoExplainGFlagsKey,
+      kSlowQueryLogAutoExplainSettingKey,
+      kRestore,
+      [](const std::string &val) { slow_query_log_auto_explain_ = val == "true"; },
+      ValidBoolStr);
 }
 
 std::string GetServerName() {
@@ -566,6 +656,26 @@ std::string GetQueryLogDirectory() {
   gflags::GetCommandLineOption(kQueryLogDirectoryGFlagsKey, &s);
   return s;
 }
+
+std::string GetFailedQueryLogDir() {
+  std::string s;
+  gflags::GetCommandLineOption(kFailedQueryLogDirGFlagsKey, &s);
+  return s;
+}
+
+bool GetFailedQueryLoggingEnabled() { return failed_query_logging_enabled_.load(std::memory_order_acquire); }
+
+bool GetSlowQueryLoggingEnabled() { return slow_query_logging_enabled_.load(std::memory_order_acquire); }
+
+std::string GetSlowQueryLogDir() {
+  std::string s;
+  gflags::GetCommandLineOption(kSlowQueryLogDirGFlagsKey, &s);
+  return s;
+}
+
+uint64_t GetSlowQueryLogThresholdMs() { return slow_query_log_threshold_ms_.load(std::memory_order_acquire); }
+
+bool GetSlowQueryLogAutoExplain() { return slow_query_log_auto_explain_.load(std::memory_order_acquire); }
 
 bool GetAlsoLogToStderr() {
   std::string v;

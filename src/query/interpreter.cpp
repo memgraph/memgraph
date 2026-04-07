@@ -3328,10 +3328,13 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     interpreter.LogQueryMessage(hint);
   }
 
-  if (interpreter.IsQueryLoggingActive()) {
+  if (interpreter.IsQueryLoggingActive() || flags::run_time::GetSlowQueryLogAutoExplain()) {
     std::stringstream printed_plan;
     plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
     interpreter.LogQueryMessage(fmt::format("Explain plan:\n{}", printed_plan.str()));
+    interpreter.cached_plan_text_ = printed_plan.str();
+  } else {
+    interpreter.cached_plan_text_.clear();
   }
 
   PrepareCaching(plan->ast_storage(), frame_change_collector);
@@ -8389,6 +8392,8 @@ void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_
 
 Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserParameters_fn params_getter,
                                          QueryExtras const &extras) {
+  current_query_string_ = query_string;
+  cached_plan_text_.clear();
   LogQueryMessage(fmt::format("Accepted query: {}", query_string));
 #ifdef MG_ENTERPRISE
   if (!flags::CoordinationSetupInstance().IsCoordinator()) {
@@ -8444,6 +8449,13 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
+    if (interpreter_context_->IsFailedQueryLoggingEnabled()) {
+      interpreter_context_->failed_query_log->Record(session_info_.uuid,
+                                                     session_info_.username,
+                                                     current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
+                                                     query_string,
+                                                     e.what());
+    }
     AbortCommand({});
     throw;
   }
@@ -9110,6 +9122,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
+    if (interpreter_context_->IsFailedQueryLoggingEnabled()) {
+      interpreter_context_->failed_query_log->Record(session_info_.uuid,
+                                                     session_info_.username,
+                                                     current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
+                                                     current_query_string_,
+                                                     e.what());
+    }
     AbortCommand(query_execution_ptr);
     throw;
   }

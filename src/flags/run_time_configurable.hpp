@@ -84,6 +84,50 @@ const std::chrono::time_zone *GetTimezone();
 std::string GetQueryLogDirectory();
 
 /**
+ * @brief Get the failed query log directory value
+ *
+ * @return std::string
+ */
+std::string GetFailedQueryLogDir();
+
+/**
+ * @brief Get the failed query logging enabled flag (runtime-configurable).
+ *
+ * @return bool
+ */
+bool GetFailedQueryLoggingEnabled();
+
+/**
+ * @brief Get the slow query log directory value
+ *
+ * @return std::string
+ */
+/**
+ * @brief Get the slow query logging enabled flag (runtime-configurable).
+ *
+ * @return bool
+ */
+bool GetSlowQueryLoggingEnabled();
+
+std::string GetSlowQueryLogDir();
+
+/**
+ * @brief Get the slow query log threshold in milliseconds (runtime-configurable).
+ *        Queries exceeding this threshold are logged. 0 means disabled.
+ *
+ * @return uint64_t
+ */
+uint64_t GetSlowQueryLogThresholdMs();
+
+/**
+ * @brief Get the slow query log auto-explain flag (runtime-configurable).
+ *        When true, the EXPLAIN plan is included in slow query log entries.
+ *
+ * @return bool
+ */
+bool GetSlowQueryLogAutoExplain();
+
+/**
  * @brief Get the also-log-to-stderr value
  * @return bool
  */
