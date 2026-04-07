@@ -982,6 +982,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   /// Expand/ExpandVariable may multiply rows (1:N), but the scan symbol's order is preserved.
   /// Unwind (user-written) multiplies rows but preserves scan-symbol order; the IN-list rewrite
   /// Unwind below the scan is caught separately via has_in_filter in PostVisit(ScanAll).
+  // TODO: Cartesian preserves order on its left (first) input but not the right (second).
+  //       ORDER BY elimination could work for the left branch.
   static bool IsOrderPreserving(const utils::TypeInfo &type_info) {
     return type_info == Filter::kType || type_info == ConstructNamedPath::kType ||
            type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
