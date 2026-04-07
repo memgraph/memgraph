@@ -1481,7 +1481,7 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection, tes
             "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup", "true"],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
             # need to do it manually
             "setup_queries": [],
             "log_file": f"{get_logs_path(file, test_name)}/main.log",
