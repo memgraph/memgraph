@@ -181,7 +181,7 @@
 
                           (catch org.neo4j.driver.exceptions.ClientException e
                             (cond
-                              (utils/sync-replica-down? e)
+                              (utils/is-replica-down? e)
                               (assoc op :type :info :value {:str "Nodes updated. SYNC replica is down."})
 
                               (utils/main-reached-rpc-timeout? e)
@@ -227,8 +227,8 @@
 
                               (catch org.neo4j.driver.exceptions.ClientException e
                                 (cond
-                                  (utils/sync-replica-down? e)
-                                  (assoc op :type :info :value {:str "TTL edges created. SYNC replica is down."})
+                                  (utils/is-replica-down? e)
+                                  (assoc op :type :info :value {:str "TTL edges created. Replica is down."})
 
                                   (utils/main-reached-rpc-timeout? e)
                                   (assoc op :type :info :value {:str "RPC timeout"})
@@ -275,8 +275,8 @@
 
                               (catch org.neo4j.driver.exceptions.ClientException e
                                 (cond
-                                  (utils/sync-replica-down? e)
-                                  (assoc op :type :info :value {:str "Edges deleted. SYNC replica is down."})
+                                  (utils/is-replica-down? e)
+                                  (assoc op :type :info :value {:str "Edges deleted. Replica is down."})
 
                                   (utils/main-reached-rpc-timeout? e)
                                   (assoc op :type :info :value {:str "RPC timeout"})
@@ -383,8 +383,8 @@
 
                                 (catch org.neo4j.driver.exceptions.TransientException e
                                   (cond
-                                    (utils/sync-replica-down? e)
-                                    (assoc op :type :info :value {:str "SYNC replica is down during import."})
+                                    (utils/is-replica-down? e)
+                                    (assoc op :type :info :value {:str "Replica is down during import."})
 
                                     (utils/main-reached-rpc-timeout? e)
                                     (assoc op :type :info :value {:str "RPC timeout"})

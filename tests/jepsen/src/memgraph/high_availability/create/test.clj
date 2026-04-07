@@ -297,11 +297,8 @@
                                      (utils/main-reached-rpc-timeout? e)
                                      (assoc op :type :info :value "RPC timeout")
 
-                                     (utils/strict-sync-replica-down? e)
-                                     (assoc op :type :info :value {:str "STRICT_SYNC replica is down."})
-
-                                     (utils/sync-replica-down? e)
-                                     (assoc op :type :info :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
+                                     (utils/is-replica-down? e)
+                                     (assoc op :type :info :value {:str "Nodes created. Replica is down." :max-idx @max-idx})
 
                                      (utils/asked-to-abort-shutdown? e)
                                      (assoc op :type :info :value {:str "Transaction was asked to abort because of the shutdown."})
