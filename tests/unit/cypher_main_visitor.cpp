@@ -5380,12 +5380,11 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
   // mg.procedures returns something, so it needs to have a YIELD.
   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures()"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures() PROCEDURE MEMORY UNLIMITED"), SemanticException);
-  // TODO: Implement support for the following syntax. These are defined in
-  // Neo4j and accepted in openCypher CIP.
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc RETURN 42"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42 RETURN *"), SyntaxException);
+  // YIELD WHERE is now supported; unknown procedure triggers SemanticException.
+  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42 RETURN *"), SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
