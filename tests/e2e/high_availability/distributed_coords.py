@@ -281,6 +281,35 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
+def test_main_cannot_connect(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+
+    main_cursor = connect(host="localhost", port=7689).cursor()
+    try:
+        execute_and_fetch_all(main_cursor, "create ()")
+    except Exception as e:
+        assert "Failed to replicate to SYNC replica 'instance_1'" in str(e)
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_2")
+
+    main_cursor = connect(host="localhost", port=7689).cursor()
+    try:
+        execute_and_fetch_all(main_cursor, "create ()")
+    except Exception as e:
+        # Depending on exact replication timing, there could be a different reason for a failure for instance_1 and instance_2, that's why we check for a failure in this way
+        assert "Failed to replicate to SYNC replica" in str(e)
+        assert "instance_1" in str(e)
+        assert "instance_2" in str(e)
+
+
 def test_global_edge_index_drop_replication(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
@@ -2328,7 +2357,7 @@ def test_main_reselected_to_become_main(test_name):
     main_cursor = connect(host="localhost", port=7689).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE (n:Node {name: 'node'})")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    assert "Failed to replicate to SYNC replica" in str(e.value)
 
     # check it was written
     def check_data():

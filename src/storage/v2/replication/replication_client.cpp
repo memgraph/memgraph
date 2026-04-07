@@ -13,7 +13,6 @@
 
 #include "flags/coord_flag_env_handler.hpp"
 #include "memory/db_arena.hpp"
-#include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -337,7 +336,7 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
 //    If creating stream fails, set the state to MAYBE_BEHIND. RPC lock is taken.
 auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, DatabaseProtector const &protector,
                                                            uint64_t const durability_commit_timestamp)
-    -> std::optional<ReplicaStream> {
+    -> std::expected<ReplicaStream, StartTxnReplicationError> {
   utils::MetricsTimer const timer{metrics::StartTxnReplication_us};
   auto locked_state = replica_state_.Lock();
   spdlog::trace(
@@ -346,7 +345,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     using enum ReplicaState;
     case RECOVERY: {
       spdlog::debug("Replica {} is behind MAIN instance", client_.name_);
-      return std::nullopt;
+      return std::unexpected{StartTxnReplicationError{ReplicaNotInSyncErr{}}};
     }
     case REPLICATING: {
       spdlog::debug("Replica {} missed a transaction", client_.name_);
@@ -354,19 +353,19 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
       // the previous transaction. We will go to MAYBE_BEHIND state so that frequent heartbeat enqueues the recovery
       // task to the queue.
       *locked_state = MAYBE_BEHIND;
-      return std::nullopt;
+      return std::unexpected{StartTxnReplicationError{ReplicaNotInSyncErr{}}};
     }
     case MAYBE_BEHIND: {
       spdlog::error(
           utils::MessageWithLink("Couldn't replicate data to {}.", client_.name_, "https://memgr.ph/replication"));
       TryCheckReplicaStateAsync(storage, protector);
-      return std::nullopt;
+      return std::unexpected{StartTxnReplicationError{ReplicaNotInSyncErr{}}};
     }
     case DIVERGED_FROM_MAIN: {
       spdlog::error(utils::MessageWithLink("Couldn't replicate data to {} since replica has diverged from main.",
                                            client_.name_,
                                            "https://memgr.ph/replication"));
-      return std::nullopt;
+      return std::unexpected{StartTxnReplicationError{ReplicaDivergedErr{}}};
     }
     case READY: {
       try {
@@ -394,15 +393,19 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
         if (!maybe_stream_handler) {
           spdlog::trace("Couldn't obtain RPC lock for committing to ASYNC replica.");
           *locked_state = MAYBE_BEHIND;
-          return std::nullopt;
+          return std::unexpected{StartTxnReplicationError{FailedToGetAsyncRpcLock{}}};
         }
 
         *locked_state = REPLICATING;
         return ReplicaStream(storage, std::move(*maybe_stream_handler));
+      } catch (rpc::RpcFailedToConnectException const &) {
+        *locked_state = MAYBE_BEHIND;
+        spdlog::error("Failed to connect to replica {} while starting txn replication", client_.name_);
+        return std::unexpected{StartTxnReplicationError{FailedToConnectErr{}}};
       } catch (const rpc::RpcFailedException &) {
         *locked_state = MAYBE_BEHIND;
         LogRpcFailure();
-        return std::nullopt;
+        return std::unexpected{StartTxnReplicationError{GenericRpcError{}}};
       }
     }
     default:

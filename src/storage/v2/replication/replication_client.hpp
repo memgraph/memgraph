@@ -20,6 +20,7 @@
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
@@ -140,7 +141,8 @@ class ReplicationStorageClient {
    * @param durability_commit_timestamp LDT with which this txn should be committed
    */
   auto StartTransactionReplication(Storage *storage, DatabaseProtector const &protector,
-                                   uint64_t const durability_commit_timestamp) -> std::optional<ReplicaStream>;
+                                   uint64_t durability_commit_timestamp)
+      -> std::expected<ReplicaStream, StartTxnReplicationError>;
 
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever

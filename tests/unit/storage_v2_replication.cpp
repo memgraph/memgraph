@@ -805,8 +805,6 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   }
 }
 
-// ASYNC replication currently doesn't work because tasks get pushed to thread pool with reference to replica
-// streams which get destroyed in between
 TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   MinMemgraph main(main_conf);
   MinMemgraph replica_async(repl_conf);
