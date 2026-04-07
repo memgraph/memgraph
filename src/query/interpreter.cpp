@@ -8393,6 +8393,7 @@ void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_
 Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserParameters_fn params_getter,
                                          QueryExtras const &extras) {
   current_query_string_ = query_string;
+  cached_plan_text_.clear();
   LogQueryMessage(fmt::format("Accepted query: {}", query_string));
 #ifdef MG_ENTERPRISE
   if (!flags::CoordinationSetupInstance().IsCoordinator()) {
