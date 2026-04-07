@@ -30,12 +30,20 @@ namespace {
 void *db_arena_alloc(extent_hooks_t *hooks, void *new_addr, size_t size, size_t alignment, bool *zero, bool *commit,
                      unsigned arena_ind) {
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
-  if (*commit) {
+  const bool requested_commit = *commit;
+  // Pre-track if commit was requested (mandatory — base hook must return committed or fail).
+  if (requested_commit) {
     if (!dh->tracker->Alloc(static_cast<int64_t>(size))) return nullptr;
   }
   void *ptr = dh->base_hooks->alloc(dh->base_hooks, new_addr, size, alignment, zero, commit, arena_ind);
-  if (ptr == nullptr && *commit) {
-    dh->tracker->Free(static_cast<int64_t>(size));
+  if (ptr == nullptr) {
+    if (requested_commit) dh->tracker->Free(static_cast<int64_t>(size));
+    return nullptr;
+  }
+  // *commit is an out-parameter: the base hook may have committed pages even if we didn't ask.
+  if (*commit && !requested_commit) {
+    const utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+    dh->tracker->Alloc(static_cast<int64_t>(size));
   }
   return ptr;
 }

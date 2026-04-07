@@ -74,7 +74,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 
 #if USE_JEMALLOC
   // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
-  const memory::DbArenaFullScope db_arena_scope{ArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{ArenaIdx()};
 #endif
 
   config.arena_idx = ArenaIdx();
@@ -83,14 +83,10 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 
 #if USE_JEMALLOC
   // Pin the after-commit trigger thread to this DB's arena so trigger allocations are attributed correctly.
-  if (const unsigned idx = ArenaIdx(); idx != 0) {
-    after_commit_trigger_pool_.AddTask([idx] {
-      static thread_local bool arena_pinned = false;
-      if (!arena_pinned) {
-        je_mallctl("thread.arena", nullptr, nullptr, const_cast<unsigned *>(&idx), sizeof(unsigned));
-        memory::tls_db_arena_idx = idx;
-        arena_pinned = true;
-      }
+  if (unsigned idx = ArenaIdx(); idx != 0) {
+    after_commit_trigger_pool_.AddTask([idx]() mutable {
+      je_mallctl("thread.arena", nullptr, nullptr, &idx, sizeof(unsigned));
+      memory::tls_db_arena_idx = idx;
     });
   }
 #endif
@@ -125,7 +121,7 @@ void Database::SwitchToOnDisk() {
   auto preserved_factory = storage_->get_database_protector_factory();
 
 #if USE_JEMALLOC
-  const memory::DbArenaFullScope db_arena_scope{ArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{ArenaIdx()};
 #endif
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(
       std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);

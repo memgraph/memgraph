@@ -22,7 +22,8 @@
 
 namespace memgraph::storage {
 
-inline thread_local utils::MemoryTracker *tls_tracked_vector_allocator_memory_tracker = nullptr;
+inline thread_local utils::MemoryTracker *tls_tracked_vector_allocator_memory_tracker
+    [[gnu::tls_model("initial-exec")]] = nullptr;
 
 inline auto CurrentTrackedVectorAllocatorMemoryTracker() -> utils::MemoryTracker * {
   return tls_tracked_vector_allocator_memory_tracker != nullptr ? tls_tracked_vector_allocator_memory_tracker

@@ -78,7 +78,7 @@ class ArenaPool {
   // Return `idx` to the pool so a future Acquire() can reuse it.
   // Must only be called after extent hooks are restored to the default and the
   // arena is fully purged (DbArena destructor guarantees this ordering).
-  void Release(unsigned idx) noexcept {
+  void Release(unsigned idx) {
     if (idx == 0) return;
     std::lock_guard<std::mutex> lock(mux_);
     pool_.push_back(idx);
@@ -160,11 +160,6 @@ struct DbArenaScope {
  private:
   unsigned prev_;
 };
-
-// Alias kept for call-site compatibility. Updates only tls_db_arena_idx (TLS),
-// does NOT redirect thread.arena via je_mallctl. Only allocations going through
-// DbAwareAllocator / ArenaAwareAllocator containers are attributed to the DB arena.
-using DbArenaFullScope = DbArenaScope;
 
 // A std::jthread wrapper that sets tls_db_arena_idx on the new thread so that
 // allocations through DbAwareAllocator / ArenaAwareAllocator containers are

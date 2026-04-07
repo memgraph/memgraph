@@ -367,7 +367,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
     return;
   }
   // Move db acc
-  const memory::DbArenaFullScope db_arena_scope{db_acc->get()->ArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{db_acc->get()->ArenaIdx()};
   auto const *storage = db_acc->get()->storage();
   auto const commit_info = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
 
@@ -438,7 +438,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     return;
   }
 
-  const memory::DbArenaFullScope db_arena_scope{db_acc->get()->ArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{db_acc->get()->ArenaIdx()};
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   // Abort prev txn if needed
@@ -510,7 +510,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     return;
   }
 
-  const memory::DbArenaFullScope db_arena_scope{db_acc->get()->ArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{db_acc->get()->ArenaIdx()};
 
   // In this handler, we can either commit or abort. If cached accessor is nullptr, it is impossible we should commit
   // because replying to prepare happens after assignment to the accessor
@@ -604,7 +604,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     return;
   }
 
-  const memory::DbArenaFullScope db_arena_scope{db_acc->get()->ArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{db_acc->get()->ArenaIdx()};
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   // Creating a snapshot on replica is mutually exclusive with receiving snapshot from main
@@ -801,7 +801,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
     return;
   }
 
-  const memory::DbArenaFullScope db_arena_scope{db_acc->get()->ArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{db_acc->get()->ArenaIdx()};
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   AbortPrevTxnIfNeeded(storage);
 
@@ -926,7 +926,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
     return;
   }
 
-  const memory::DbArenaFullScope db_arena_scope{db_acc->get()->ArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{db_acc->get()->ArenaIdx()};
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   AbortPrevTxnIfNeeded(storage);
 

@@ -2984,7 +2984,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
                                                                 std::map<std::string, TypedValue> *summary) {
   // Update the TLS arena index used to route allocations to the correct database arena.
   // The previous arena is restored on scope exit so pool threads are unaffected.
-  const memory::DbArenaFullScope db_arena_scope{ctx_.db_arena_idx};
+  const memory::DbArenaScope db_arena_scope{ctx_.db_arena_idx};
 
   auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
   // Single query memory limit
@@ -3322,7 +3322,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 #if USE_JEMALLOC
   // PlanCache_t uses DbAwareAllocator, so prepare-time cache insertions must run
   // with the owning DB arena installed in TLS for correct per-DB attribution.
-  const memory::DbArenaFullScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
 #endif
 
   const auto is_cacheable = parsed_query.is_cacheable;
@@ -3444,7 +3444,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
 
 #if USE_JEMALLOC
   // EXPLAIN populates the inner query's cached plan during prepare.
-  const memory::DbArenaFullScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
 #endif
 
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
@@ -3556,7 +3556,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
 #if USE_JEMALLOC
   // PROFILE also parses/plans an inner Cypher query and may populate the DB-owned plan cache.
-  const memory::DbArenaFullScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
 #endif
 
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;

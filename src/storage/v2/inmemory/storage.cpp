@@ -475,14 +475,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     gc_runner_.SetInterval(config_.gc.interval);
     gc_runner_.Run("Storage GC", [this] {
 #if USE_JEMALLOC
-      // Pin this GC thread's jemalloc arena to the DB arena (once per thread).
       if (config_.arena_idx != 0) {
-        static thread_local bool arena_pinned = false;
-        if (!arena_pinned) {
-          je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
-          memory::tls_db_arena_idx = config_.arena_idx;
-          arena_pinned = true;
-        }
+        je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
+        memory::tls_db_arena_idx = config_.arena_idx;
       }
 #endif
       this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
@@ -4232,12 +4227,8 @@ void InMemoryStorage::CreateSnapshotHandler(
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
 #if USE_JEMALLOC
     if (config_.arena_idx != 0) {
-      static thread_local bool arena_pinned = false;
-      if (!arena_pinned) {
-        je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
-        memory::tls_db_arena_idx = config_.arena_idx;
-        arena_pinned = true;
-      }
+      je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
+      memory::tls_db_arena_idx = config_.arena_idx;
     }
 #endif
     if (!token.stop_requested()) {
