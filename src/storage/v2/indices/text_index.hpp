@@ -25,6 +25,9 @@
 
 namespace memgraph::storage {
 
+struct ActiveIndicesUpdater;
+struct Transaction;
+
 struct TextIndexData {
   mutable mgcxx::text_search::Context context;
   LabelId scope;
@@ -41,23 +44,66 @@ struct TextSearchResult {
   double score;
 };
 
+/// Abstract interface for text index operations accessed through ActiveIndices snapshots.
+struct TextIndexActiveIndices {
+  virtual ~TextIndexActiveIndices() = default;
+
+  virtual void UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx) = 0;
+  virtual void UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx) = 0;
+  virtual void UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, PropertyId property) = 0;
+  virtual void RemoveNode(const Vertex *vertex_after_update, Transaction &tx) = 0;
+
+  virtual std::vector<TextSearchResult> Search(const std::string &index_name, const std::string &search_query,
+                                               text_search_mode search_mode, std::size_t limit,
+                                               const Transaction &tx) = 0;
+  virtual std::string Aggregate(const std::string &index_name, const std::string &search_query,
+                                const std::string &aggregation_query) = 0;
+
+  virtual bool IndexExists(const std::string &index_name) const = 0;
+  virtual std::vector<TextIndexSpec> ListIndices() const = 0;
+  virtual std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const = 0;
+
+  virtual void ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) = 0;
+};
+
+using TextIndexActiveIndicesPtr = std::shared_ptr<TextIndexActiveIndices>;
+
 class TextIndex {
- private:
-  std::filesystem::path text_index_storage_dir_;
-
-  void CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info);
-
-  std::vector<TextIndexData *> LabelApplicableTextIndices(std::span<storage::LabelId const> labels);
-
-  static std::vector<TextIndexData *> GetIndicesMatchingProperties(std::span<TextIndexData *const> label_indices,
-                                                                   std::span<const PropertyId> properties);
-
-  static void AddNodeToTextIndex(std::int64_t gid, nlohmann::json properties, std::string all_property_values,
-                                 mgcxx::text_search::Context &context);
-
  public:
+  using IndexContainer = std::map<std::string, std::shared_ptr<TextIndexData>, std::less<>>;
+
+  /// Concrete ActiveIndices implementation holding an immutable snapshot of the index container.
+  struct ActiveIndices : TextIndexActiveIndices {
+    explicit ActiveIndices(std::shared_ptr<IndexContainer const> container = std::make_shared<IndexContainer>())
+        : index_container_(std::move(container)) {}
+
+    void UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx) override;
+    void UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx) override;
+    void UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, PropertyId property) override;
+    void RemoveNode(const Vertex *vertex_after_update, Transaction &tx) override;
+
+    std::vector<TextSearchResult> Search(const std::string &index_name, const std::string &search_query,
+                                         text_search_mode search_mode, std::size_t limit,
+                                         const Transaction &tx) override;
+    std::string Aggregate(const std::string &index_name, const std::string &search_query,
+                          const std::string &aggregation_query) override;
+
+    bool IndexExists(const std::string &index_name) const override;
+    std::vector<TextIndexSpec> ListIndices() const override;
+    std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const override;
+
+    void ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) override;
+
+   private:
+    std::vector<TextIndexData *> LabelApplicableTextIndices(std::span<storage::LabelId const> labels) const;
+    static std::vector<TextIndexData *> GetIndicesMatchingProperties(std::span<TextIndexData *const> label_indices,
+                                                                     std::span<const PropertyId> properties);
+
+    std::shared_ptr<IndexContainer const> index_container_;
+  };
+
   explicit TextIndex(const std::filesystem::path &storage_dir)
-      : text_index_storage_dir_(storage_dir / kTextIndicesDirectory) {}
+      : text_index_storage_dir_(storage_dir / kTextIndicesDirectory), index_(std::make_shared<IndexContainer>()) {}
 
   TextIndex(const TextIndex &) = delete;
   TextIndex(TextIndex &&) = delete;
@@ -66,39 +112,34 @@ class TextIndex {
 
   ~TextIndex() = default;
 
-  void UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx);
+  /// Returns the current active indices snapshot for use in transactions.
+  auto GetActiveIndices() -> std::shared_ptr<TextIndexActiveIndices> { return std::make_shared<ActiveIndices>(index_); }
 
-  void UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx);
-
-  void UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, PropertyId property);
-
-  void RemoveNode(const Vertex *vertex_after_update, Transaction &tx);
-
-  void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
+  void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper,
+                   ActiveIndicesUpdater const &updater);
 
   void RecoverIndex(const TextIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
                     NameIdMapper *name_id_mapper,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  void DropIndex(const std::string &index_name);
+  void DropIndex(const std::string &index_name, ActiveIndicesUpdater const &updater);
 
   bool IndexExists(const std::string &index_name) const;
 
-  std::vector<TextSearchResult> Search(const std::string &index_name, const std::string &search_query,
-                                       text_search_mode search_mode, std::size_t limit, const Transaction &tx);
-
-  std::string Aggregate(const std::string &index_name, const std::string &search_query,
-                        const std::string &aggregation_query);
-
-  static void ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper);
-
+  /// ListIndices on the owning class (for snapshot creation, outside transaction context).
   std::vector<TextIndexSpec> ListIndices() const;
-
-  std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const;
 
   void Clear();
 
-  std::map<std::string, TextIndexData, std::less<>> index_;
+ private:
+  std::filesystem::path text_index_storage_dir_;
+  std::shared_ptr<IndexContainer> index_;
+
+  void CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info);
+  void PublishActiveIndices(ActiveIndicesUpdater const &updater);
+
+  static void AddNodeToTextIndex(std::int64_t gid, nlohmann::json properties, std::string all_property_values,
+                                 mgcxx::text_search::Context &context);
 };
 
 }  // namespace memgraph::storage
