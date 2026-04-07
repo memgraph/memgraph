@@ -31,6 +31,9 @@ ReplicationClient::ReplicationClient(const ReplicationClientConfig &config)
 
 void ReplicationClient::Shutdown() {
   replica_checker_.Stop();
+  // Abort is needed to break possible ongoing task in thread pool. Doesn't destroy underlying object, just invokes
+  // socket shutdown operation
+  rpc_client_.Abort();
   thread_pool_.ShutDown();
   rpc_client_.Shutdown();
 }
