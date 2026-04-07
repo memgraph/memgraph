@@ -1,0 +1,13 @@
+slow_query_log: &slow_query_log
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--slow-query-log-dir=/tmp/mg_slow_query_log_test", "--slow-query-log-threshold-ms=1000"]
+      log_file: "slow_query_log.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Slow query log"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["slow_query_log/slow_query_log.py"]
+    <<: *slow_query_log

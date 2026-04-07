@@ -91,6 +91,21 @@ std::string GetQueryLogDirectory();
 std::string GetFailedQueryLogDir();
 
 /**
+ * @brief Get the slow query log directory value
+ *
+ * @return std::string
+ */
+std::string GetSlowQueryLogDir();
+
+/**
+ * @brief Get the slow query log threshold in milliseconds (runtime-configurable).
+ *        Queries exceeding this threshold are logged. 0 means disabled.
+ *
+ * @return uint64_t
+ */
+uint64_t GetSlowQueryLogThresholdMs();
+
+/**
  * @brief Get the also-log-to-stderr value
  * @return bool
  */

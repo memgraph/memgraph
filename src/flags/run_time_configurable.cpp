@@ -89,6 +89,14 @@ DEFINE_string(query_log_directory, "", "Path to directory where the query logs s
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(failed_query_log_dir, "", "Path to directory where failed query logs should be stored.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(slow_query_log_dir, "", "Path to directory where slow query logs should be stored.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(slow_query_log_threshold_ms, 0,
+              "Queries with execution time exceeding this threshold (in milliseconds) are logged to the slow query "
+              "log. Set to 0 to disable.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_string(storage_snapshot_interval, "",
               "Define periodic snapshot schedule via cron format or as a period in seconds.");
@@ -157,6 +165,11 @@ constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 
 constexpr auto kFailedQueryLogDirGFlagsKey = "failed-query-log-dir";
 
+constexpr auto kSlowQueryLogDirGFlagsKey = "slow-query-log-dir";
+
+constexpr auto kSlowQueryLogThresholdMsSettingKey = "slow-query-log-threshold-ms";
+constexpr auto kSlowQueryLogThresholdMsGFlagsKey = "slow-query-log-threshold-ms";
+
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
@@ -192,6 +205,7 @@ std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
+std::atomic<uint64_t> slow_query_log_threshold_ms_{0};
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
@@ -544,6 +558,25 @@ void Initialize(utils::Settings &settings) {
           return std::unexpected{"storage.access_timeout_sec must be a valid unsigned integer"};
         }
       });
+
+  /*
+   * Register slow query log threshold (runtime-configurable)
+   */
+  register_flag(
+      kSlowQueryLogThresholdMsGFlagsKey,
+      kSlowQueryLogThresholdMsSettingKey,
+      kRestore,
+      [](std::string_view val) {
+        slow_query_log_threshold_ms_.store(utils::ParseStringToUint64(val), std::memory_order_release);
+      },
+      [](auto in) -> utils::Settings::ValidatorResult {
+        try {
+          utils::ParseStringToUint64(in);
+          return {};
+        } catch (utils::ParseException const &) {
+          return std::unexpected{"slow-query-log-threshold-ms must be a valid unsigned integer"};
+        }
+      });
 }
 
 std::string GetServerName() {
@@ -577,6 +610,14 @@ std::string GetFailedQueryLogDir() {
   gflags::GetCommandLineOption(kFailedQueryLogDirGFlagsKey, &s);
   return s;
 }
+
+std::string GetSlowQueryLogDir() {
+  std::string s;
+  gflags::GetCommandLineOption(kSlowQueryLogDirGFlagsKey, &s);
+  return s;
+}
+
+uint64_t GetSlowQueryLogThresholdMs() { return slow_query_log_threshold_ms_.load(std::memory_order_acquire); }
 
 bool GetAlsoLogToStderr() {
   std::string v;

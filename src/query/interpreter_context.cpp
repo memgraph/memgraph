@@ -57,6 +57,10 @@ InterpreterContext::InterpreterContext(
   if (!failed_query_log_dir.empty()) {
     failed_query_log.emplace(failed_query_log_dir);
   }
+  auto slow_query_log_dir = flags::run_time::GetSlowQueryLogDir();
+  if (!slow_query_log_dir.empty()) {
+    slow_query_log.emplace(slow_query_log_dir);
+  }
 }
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(

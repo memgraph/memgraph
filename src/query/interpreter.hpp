@@ -15,6 +15,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/query_logger.hpp"
@@ -685,6 +686,26 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // Toggle first successfully completed query
     metrics::FirstSuccessfulQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::SuccessfulQuery);
+
+    // Slow query logging
+    if (interpreter_context_->slow_query_log) {
+      auto threshold_ms = flags::run_time::GetSlowQueryLogThresholdMs();
+      if (threshold_ms > 0) {
+        auto it = maybe_summary->find("plan_execution_time");
+        if (it != maybe_summary->end() && it->second.IsDouble()) {
+          // plan_execution_time is in seconds
+          double duration_ms = it->second.ValueDouble() * 1000.0;
+          if (duration_ms >= static_cast<double>(threshold_ms)) {
+            interpreter_context_->slow_query_log->Record(session_info_.uuid,
+                                                         session_info_.username,
+                                                         current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
+                                                         current_query_string_,
+                                                         duration_ms);
+          }
+        }
+      }
+    }
+
     // return the execution summary
     maybe_summary->insert_or_assign("has_more", false);
     return std::move(*maybe_summary);

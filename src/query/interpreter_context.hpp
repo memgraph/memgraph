@@ -23,6 +23,7 @@
 #include "query/config.hpp"
 #include "query/failed_query_log.hpp"
 #include "query/replication_query_handler.hpp"
+#include "query/slow_query_log.hpp"
 #include "query/typed_value.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
@@ -90,6 +91,7 @@ struct InterpreterContext {
   utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
 
   std::optional<FailedQueryLog> failed_query_log;
+  std::optional<SlowQueryLog> slow_query_log;
 
   struct {
     auto next() -> uint64_t { return transaction_id++; }
