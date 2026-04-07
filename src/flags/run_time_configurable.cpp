@@ -90,6 +90,9 @@ DEFINE_string(query_log_directory, "", "Path to directory where the query logs s
 DEFINE_string(failed_query_log_dir, "", "Path to directory where failed query logs should be stored.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(failed_query_logging_enabled, false, "Set to true to enable failed query logging.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(slow_query_log_dir, "", "Path to directory where slow query logs should be stored.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -169,6 +172,9 @@ constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 
 constexpr auto kFailedQueryLogDirGFlagsKey = "failed-query-log-dir";
 
+constexpr auto kFailedQueryLoggingEnabledSettingKey = "failed-query-logging-enabled";
+constexpr auto kFailedQueryLoggingEnabledGFlagsKey = "failed-query-logging-enabled";
+
 constexpr auto kSlowQueryLogDirGFlagsKey = "slow-query-log-dir";
 
 constexpr auto kSlowQueryLogThresholdMsSettingKey = "slow-query-log-threshold-ms";
@@ -212,6 +218,7 @@ std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
+std::atomic<bool> failed_query_logging_enabled_{false};
 std::atomic<uint64_t> slow_query_log_threshold_ms_{0};
 std::atomic<bool> slow_query_log_auto_explain_{false};
 
@@ -568,6 +575,16 @@ void Initialize(utils::Settings &settings) {
       });
 
   /*
+   * Register failed query logging enabled flag (runtime-configurable)
+   */
+  register_flag(
+      kFailedQueryLoggingEnabledGFlagsKey,
+      kFailedQueryLoggingEnabledSettingKey,
+      kRestore,
+      [](const std::string &val) { failed_query_logging_enabled_ = val == "true"; },
+      ValidBoolStr);
+
+  /*
    * Register slow query log threshold (runtime-configurable)
    */
   register_flag(
@@ -587,7 +604,7 @@ void Initialize(utils::Settings &settings) {
       });
 
   /*
-   * Register slow query log explain flag (runtime-configurable)
+   * Register slow query log auto-explain flag (runtime-configurable)
    */
   register_flag(
       kSlowQueryLogAutoExplainGFlagsKey,
@@ -628,6 +645,8 @@ std::string GetFailedQueryLogDir() {
   gflags::GetCommandLineOption(kFailedQueryLogDirGFlagsKey, &s);
   return s;
 }
+
+bool GetFailedQueryLoggingEnabled() { return failed_query_logging_enabled_.load(std::memory_order_acquire); }
 
 std::string GetSlowQueryLogDir() {
   std::string s;

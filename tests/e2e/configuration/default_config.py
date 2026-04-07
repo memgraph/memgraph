@@ -75,6 +75,8 @@ startup_config_dict = {
         "true",
         "Controls whether the database recovers persisted data on startup.",
     ),
+    "failed_query_log_dir": ("", "", "Path to directory where failed query logs should be stored."),
+    "failed_query_logging_enabled": ("false", "false", "Set to true to enable failed query logging."),
     "file_download_conn_timeout_sec": (
         "10",
         "10",

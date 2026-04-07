@@ -131,6 +131,10 @@ modifications:
     value: "/var/log/memgraph/session_trace"
     override: true
 
+  - name: "failed_query_log_dir"
+    value: "/var/log/memgraph/failed_queries"
+    override: true
+
 undocumented:
   - "flag_file"
   - "also_log_to_stderr"

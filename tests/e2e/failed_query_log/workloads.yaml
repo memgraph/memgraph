@@ -1,7 +1,7 @@
 failed_query_log: &failed_query_log
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--failed-query-log-dir=/tmp/mg_failed_query_log_test"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--failed-query-log-dir=/tmp/mg_failed_query_log_test", "--failed-query-logging-enabled=true"]
       log_file: "failed_query_log.log"
       setup_queries: []
       validation_queries: []
