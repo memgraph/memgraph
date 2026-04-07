@@ -425,7 +425,7 @@ class Client {
       if (!client_->Connect(endpoint_)) {
         spdlog::error("Couldn't connect to remote address {}", endpoint_.SocketAddress());
         client_ = std::nullopt;
-        throw GenericRpcFailedException();
+        throw RpcFailedToConnectException();
       }
     }
 

@@ -45,7 +45,7 @@ def ignore_elapsed_time_from_results(results: typing.List[tuple]) -> typing.List
 
 def execute_and_ignore_dead_replica(cursor, query):
     """
-    Ignores At least one SYNC replica error
+    Ignores SYNC replica replication failure error
     :param cursor: Cursor to the instance where you want to execute the query
     :param query: Query to be executed
     :return: nothing
@@ -53,7 +53,7 @@ def execute_and_ignore_dead_replica(cursor, query):
     try:
         execute_and_fetch_all(cursor, query)
     except Exception as e:
-        assert "At least one SYNC replica has not confirmed committing last transaction." in str(e)
+        assert "Failed to replicate to SYNC replica" in str(e)
 
 
 def count_files(directory):
@@ -97,7 +97,7 @@ def wait_until_main_writeable_assert_replica_down(cursor, query):
         except Exception as e:
             if "Write queries currently forbidden on the main instance" in str(e):
                 continue
-            assert "At least one SYNC replica has not confirmed committing last transaction." in str(e)
+            assert "Failed to replicate to SYNC replica" in str(e)
             break
 
 
