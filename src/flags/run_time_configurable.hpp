@@ -106,6 +106,14 @@ std::string GetSlowQueryLogDir();
 uint64_t GetSlowQueryLogThresholdMs();
 
 /**
+ * @brief Get the slow query log auto-explain flag (runtime-configurable).
+ *        When true, the EXPLAIN plan is included in slow query log entries.
+ *
+ * @return bool
+ */
+bool GetSlowQueryLogAutoExplain();
+
+/**
  * @brief Get the also-log-to-stderr value
  * @return bool
  */

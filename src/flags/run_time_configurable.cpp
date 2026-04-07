@@ -97,6 +97,10 @@ DEFINE_uint64(slow_query_log_threshold_ms, 0,
               "Queries with execution time exceeding this threshold (in milliseconds) are logged to the slow query "
               "log. Set to 0 to disable.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(slow_query_log_auto_explain, false,
+            "When enabled, the EXPLAIN plan is included in the slow query log entries.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_string(storage_snapshot_interval, "",
               "Define periodic snapshot schedule via cron format or as a period in seconds.");
@@ -170,6 +174,9 @@ constexpr auto kSlowQueryLogDirGFlagsKey = "slow-query-log-dir";
 constexpr auto kSlowQueryLogThresholdMsSettingKey = "slow-query-log-threshold-ms";
 constexpr auto kSlowQueryLogThresholdMsGFlagsKey = "slow-query-log-threshold-ms";
 
+constexpr auto kSlowQueryLogAutoExplainSettingKey = "slow-query-log-auto-explain";
+constexpr auto kSlowQueryLogAutoExplainGFlagsKey = "slow-query-log-auto-explain";
+
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
@@ -206,6 +213,7 @@ std::atomic<bool> storage_gc_aggressive_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
 std::atomic<uint64_t> slow_query_log_threshold_ms_{0};
+std::atomic<bool> slow_query_log_auto_explain_{false};
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
@@ -577,6 +585,16 @@ void Initialize(utils::Settings &settings) {
           return std::unexpected{"slow-query-log-threshold-ms must be a valid unsigned integer"};
         }
       });
+
+  /*
+   * Register slow query log explain flag (runtime-configurable)
+   */
+  register_flag(
+      kSlowQueryLogAutoExplainGFlagsKey,
+      kSlowQueryLogAutoExplainSettingKey,
+      kRestore,
+      [](const std::string &val) { slow_query_log_auto_explain_ = val == "true"; },
+      ValidBoolStr);
 }
 
 std::string GetServerName() {
@@ -618,6 +636,8 @@ std::string GetSlowQueryLogDir() {
 }
 
 uint64_t GetSlowQueryLogThresholdMs() { return slow_query_log_threshold_ms_.load(std::memory_order_acquire); }
+
+bool GetSlowQueryLogAutoExplain() { return slow_query_log_auto_explain_.load(std::memory_order_acquire); }
 
 bool GetAlsoLogToStderr() {
   std::string v;

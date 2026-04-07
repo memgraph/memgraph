@@ -33,8 +33,9 @@ class SlowQueryLog {
   SlowQueryLog &operator=(SlowQueryLog &&) = default;
 
   /// Records a slow query. Thread-safe.
+  /// If plan_text is non-empty, the EXPLAIN plan is appended to the log entry.
   void Record(std::string_view session_uuid, std::string_view username, std::string_view db, std::string_view query,
-              double duration_ms);
+              double duration_ms, std::string_view plan_text = {});
 
  private:
   std::shared_ptr<spdlog::logger> logger_;

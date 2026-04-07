@@ -560,6 +560,10 @@ class Interpreter final {
   // originating query when a Pull failure occurs.
   std::string current_query_string_;
 
+  // Cached EXPLAIN plan text for the most recently prepared query; used by
+  // the slow query log when --slow-query-log-auto-explain is enabled.
+  std::string cached_plan_text_;
+
   InterpreterContext *interpreter_context_;
 
   std::optional<FrameChangeCollector> frame_change_collector_;
@@ -700,7 +704,8 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
                                                          session_info_.username,
                                                          current_db_.db_acc_ ? current_db_.db_acc_->get()->name() : "",
                                                          current_query_string_,
-                                                         duration_ms);
+                                                         duration_ms,
+                                                         cached_plan_text_);
           }
         }
       }

@@ -81,5 +81,30 @@ def test_threshold_zero_disables_logging(memgraph):
     memgraph.execute('SET DATABASE SETTING "slow-query-log-threshold-ms" TO "1000";')
 
 
+def test_auto_explain_logs_plan(memgraph):
+    """Enable auto-explain, run a slow query, verify the EXPLAIN plan is in the log."""
+    # Enable auto-explain at runtime
+    memgraph.execute('SET DATABASE SETTING "slow-query-log-auto-explain" TO "true";')
+
+    # Record current log size
+    log_before = _read_slow_query_log()
+
+    # Run an expensive cartesian product
+    slow_query = "UNWIND range(1, 1000) AS a UNWIND range(1, 1000) AS b RETURN count(*)"
+    list(memgraph.execute_and_fetch(slow_query))
+
+    time.sleep(2)
+
+    log_after = _read_slow_query_log()
+    new_entries = log_after[len(log_before) :]
+
+    assert "plan:" in new_entries, f"Expected 'plan:' in log entry but got:\n{new_entries}"
+    assert "Produce" in new_entries, f"Expected 'Produce' operator in plan but got:\n{new_entries}"
+    assert "Unwind" in new_entries, f"Expected 'Unwind' operator in plan but got:\n{new_entries}"
+
+    # Disable auto-explain
+    memgraph.execute('SET DATABASE SETTING "slow-query-log-auto-explain" TO "false";')
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

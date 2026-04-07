@@ -3328,10 +3328,13 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     interpreter.LogQueryMessage(hint);
   }
 
-  if (interpreter.IsQueryLoggingActive()) {
+  if (interpreter.IsQueryLoggingActive() || flags::run_time::GetSlowQueryLogAutoExplain()) {
     std::stringstream printed_plan;
     plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
     interpreter.LogQueryMessage(fmt::format("Explain plan:\n{}", printed_plan.str()));
+    interpreter.cached_plan_text_ = printed_plan.str();
+  } else {
+    interpreter.cached_plan_text_.clear();
   }
 
   PrepareCaching(plan->ast_storage(), frame_change_collector);

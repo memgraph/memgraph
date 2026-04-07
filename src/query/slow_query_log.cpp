@@ -44,8 +44,18 @@ SlowQueryLog::~SlowQueryLog() {
 }
 
 void SlowQueryLog::Record(std::string_view session_uuid, std::string_view username, std::string_view db,
-                          std::string_view query, double duration_ms) {
-  logger_->info("[{}] [{}] [{}] duration: {:.3f} ms | query: {}", session_uuid, username, db, duration_ms, query);
+                          std::string_view query, double duration_ms, std::string_view plan_text) {
+  if (plan_text.empty()) {
+    logger_->info("[{}] [{}] [{}] duration: {:.3f} ms | query: {}", session_uuid, username, db, duration_ms, query);
+  } else {
+    logger_->info("[{}] [{}] [{}] duration: {:.3f} ms | query: {} | plan:\n{}",
+                  session_uuid,
+                  username,
+                  db,
+                  duration_ms,
+                  query,
+                  plan_text);
+  }
 }
 
 }  // namespace memgraph::query
