@@ -155,6 +155,8 @@ constexpr auto kStorageGcAggressiveGFlagsKey = "storage-gc-aggressive";
 constexpr auto kQueryLogDirectorySettingKey = "query-log-directory";
 constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 
+constexpr auto kFailedQueryLogDirGFlagsKey = "failed-query-log-dir";
+
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
@@ -572,7 +574,7 @@ std::string GetQueryLogDirectory() {
 
 std::string GetFailedQueryLogDir() {
   std::string s;
-  gflags::GetCommandLineOption("failed-query-log-dir", &s);
+  gflags::GetCommandLineOption(kFailedQueryLogDirGFlagsKey, &s);
   return s;
 }
 
