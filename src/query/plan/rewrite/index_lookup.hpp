@@ -987,7 +987,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
            type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
            type_info == Expand::kType || type_info == ExpandVariable::kType || type_info == Optional::kType ||
            type_info == Distinct::kType || type_info == EvaluatePatternFilter::kType ||
-           type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType;
+           type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType ||
+           type_info == Produce::kType;
   }
 
   /// Incrementally resolve ORDER BY info as we descend through a Produce.
@@ -1066,7 +1067,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // Verify all operators between scan and OrderBy are order-preserving.
     for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
       const auto &type_info = (*it)->GetTypeInfo();
-      if (type_info != Produce::kType && !IsOrderPreserving(type_info)) return;
+      if (!IsOrderPreserving(type_info)) return;
     }
 
     // Match ORDER BY properties against index columns, skipping equality-pinned columns.
@@ -1085,9 +1086,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
     }
 
-    // TODO: When ob_ptr < ctx.entries.size() but ob_ptr > 0, the index covers a prefix of the
-    // ORDER BY columns. We could partially eliminate by rewriting OrderBy to only sort on the remaining
-    // columns, since the index already provides order on the first ob_ptr columns.
     if (ob_ptr != ctx.entries.size()) return;
 
     ctx.should_eliminate = true;
