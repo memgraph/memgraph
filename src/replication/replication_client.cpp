@@ -31,10 +31,11 @@ ReplicationClient::ReplicationClient(const ReplicationClientConfig &config)
 
 void ReplicationClient::Shutdown() const {
   replica_checker_.Stop();
-  // We should first shutdown the replication client and only then shutdown thread pool because thread pool is relying
-  // on RPC client
-  rpc_client_.Shutdown();
+  // Abort is needed to break possible ongoing task in thread pool. Doesn't destroy underlying object, just invokes
+  // socket shutdown operation
+  rpc_client_.Abort();
   thread_pool_.ShutDown();
+  rpc_client_.Shutdown();
 }
 
 ReplicationClient::~ReplicationClient() {
