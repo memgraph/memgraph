@@ -88,8 +88,8 @@ void DiskUniqueConstraints::ActiveConstraints::AbortEntries([[maybe_unused]] Abo
 
 bool DiskUniqueConstraints::ActiveConstraints::empty() const { return constraints_->constraints_.empty(); }
 
-auto DiskUniqueConstraints::GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> {
-  return std::make_unique<ActiveConstraints>(this);
+auto DiskUniqueConstraints::GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> {
+  return std::make_shared<ActiveConstraints>(this);
 }
 
 DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {

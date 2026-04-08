@@ -899,7 +899,7 @@ void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from
 
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
   // ExistenceConstraints validation block
-  auto const has_any_existence_constraints = !transaction_.active_constraints_.existence_->empty();
+  auto const has_any_existence_constraints = !transaction_.active_constraints_->existence_->empty();
   if (has_any_existence_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
     auto validation_result = storage_->constraints_.existence_constraints_->Validate(
@@ -912,7 +912,7 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Exis
 }
 
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueConstraintsViolation() const {
-  auto const has_any_unique_constraints = !transaction_.active_constraints_.unique_->empty();
+  auto const has_any_unique_constraints = !transaction_.active_constraints_->unique_->empty();
   if (has_any_unique_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
     // Before committing and validating vertices against unique constraints,
@@ -921,7 +921,7 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Uniq
     const auto vertices_to_update = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
 
     for (auto const *vertex : vertices_to_update) {
-      transaction_.active_constraints_.unique_->UpdateBeforeCommit(vertex, transaction_);
+      transaction_.active_constraints_->unique_->UpdateBeforeCommit(vertex, transaction_);
     }
 
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -1344,18 +1344,18 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   if (!transaction_.deltas.empty()) {
     auto index_abort_processor = storage_->indices_.GetAbortProcessor(*transaction_.active_indices_);
 
-    auto const has_any_unique_constraints = !transaction_.active_constraints_.unique_->empty();
+    auto const has_any_unique_constraints = !transaction_.active_constraints_->unique_->empty();
     if (has_any_unique_constraints && transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
       // Need to remove elements from constraints before handling of the deltas, so the elements match the correct
       // values. Use AbortProcessor pattern for efficient constraint-first iteration (one accessor per constraint).
       auto vertices_to_check = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
-      auto abort_processor = transaction_.active_constraints_.unique_->GetAbortProcessor();
+      auto abort_processor = transaction_.active_constraints_->unique_->GetAbortProcessor();
       for (auto const *vertex : vertices_to_check) {
-        transaction_.active_constraints_.unique_->CollectForAbort(abort_processor, vertex);
+        transaction_.active_constraints_->unique_->CollectForAbort(abort_processor, vertex);
       }
-      transaction_.active_constraints_.unique_->AbortEntries(std::move(abort_processor.abortable_info_),
-                                                             transaction_.start_timestamp);
+      transaction_.active_constraints_->unique_->AbortEntries(std::move(abort_processor.abortable_info_),
+                                                              transaction_.start_timestamp);
     }
 
     // We collect vertices and edges we've created here and then splice them into
@@ -2167,8 +2167,10 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
     throw;
   }
   // Defer publication to commit time for MVCC correctness
-  auto publisher = [existence_constraints, label, property](uint64_t commit_ts) {
+  auto updater = in_memory->constraints_.MakeUpdater();
+  auto publisher = [existence_constraints, label, property, updater](uint64_t commit_ts) {
     existence_constraints->PublishConstraint(label, property, commit_ts);
+    updater(existence_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
@@ -2185,6 +2187,8 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
   if (!existence_constraints->DropConstraint(label, property)) {
     return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
+  auto updater = in_memory->constraints_.MakeUpdater();
+  updater(existence_constraints->GetActiveConstraints());
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
   return {};
 }
@@ -2205,8 +2209,10 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
     return ret.value();
   }
   // Defer publication to commit time for MVCC correctness
-  auto publisher = [mem_unique_constraints, label, properties](uint64_t commit_ts) {
+  auto updater = in_memory->constraints_.MakeUpdater();
+  auto publisher = [mem_unique_constraints, label, properties, updater](uint64_t commit_ts) {
     mem_unique_constraints->PublishConstraint(label, properties, commit_ts);
+    updater(mem_unique_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
@@ -2225,6 +2231,8 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
+  auto updater = in_memory->constraints_.MakeUpdater();
+  updater(mem_unique_constraints->GetActiveConstraints());
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
@@ -2251,8 +2259,10 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
     throw;
   }
   // Defer publication to commit time for MVCC correctness
-  auto publisher = [type_constraints, label, property, kind](uint64_t commit_ts) {
+  auto updater = in_memory->constraints_.MakeUpdater();
+  auto publisher = [type_constraints, label, property, kind, updater](uint64_t commit_ts) {
     type_constraints->PublishConstraint(label, property, kind, commit_ts);
+    updater(type_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
@@ -2270,6 +2280,8 @@ std::expected<void, StorageTypeConstraintDroppingError> InMemoryStorage::InMemor
   if (!deleted_constraint) {
     return std::unexpected{StorageTypeConstraintDroppingError{ConstraintDefinitionError{}}};
   }
+  auto updater = in_memory->constraints_.MakeUpdater();
+  updater(type_constraints->GetActiveConstraints());
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, kind);
   return {};
 }
@@ -2506,7 +2518,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   uint64_t last_durable_ts = 0;
   std::optional<PointIndexContext> point_index_context;
   ActiveIndicesPtr active_indices;
-  std::optional<ActiveConstraints> active_constraints;
+  ActiveConstraintsPtr active_constraints;
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
@@ -2529,7 +2541,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           false,
           *std::move(point_index_context),
           std::move(active_indices),
-          *std::move(active_constraints),
+          std::move(active_constraints),
           std::move(async_index_helper),
           last_durable_ts};
 }
@@ -2545,7 +2557,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto active_constraints = GetActiveConstraints();
       // Constraints violation require deltas so we can abort. Hence in analytical can not support any constraint
-      if (!active_constraints.empty()) {
+      if (active_constraints && !active_constraints->empty()) {
         throw utils::BasicException(
             "Constraints are not supported in analytical storage mode. Please drop them before "
             "changing storage mode to analytical or use transactional mode.");
@@ -4359,9 +4371,9 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
 }
 
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
-  return {.existence = transaction_.active_constraints_.existence_->ListConstraints(transaction_.start_timestamp),
-          .unique = transaction_.active_constraints_.unique_->ListConstraints(transaction_.start_timestamp),
-          .type = transaction_.active_constraints_.type_->ListConstraints(transaction_.start_timestamp)};
+  return {.existence = transaction_.active_constraints_->existence_->ListConstraints(transaction_.start_timestamp),
+          .unique = transaction_.active_constraints_->unique_->ListConstraints(transaction_.start_timestamp),
+          .type = transaction_.active_constraints_->type_->ListConstraints(transaction_.start_timestamp)};
 }
 
 void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {

@@ -70,7 +70,7 @@ class UniqueConstraints {
                                   uint64_t transaction_start_timestamp) = 0;
   };
 
-  virtual auto GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> = 0;
+  virtual auto GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> = 0;
 
   enum class CreationStatus {
     SUCCESS,
