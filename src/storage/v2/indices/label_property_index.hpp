@@ -12,6 +12,7 @@
 #pragma once
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -22,11 +23,6 @@
 #include <ranges>
 
 namespace memgraph::storage {
-
-// TODO: A cleaner long-term approach would be to add a comparator template parameter to SkipList
-// (e.g. SkipList<TObj, Compare = std::compare_three_way>) and reuse the same Entry type.
-// This avoids the DescEntry duplication but requires modifying the core concurrent SkipList data structure.
-enum class IndexOrder : uint8_t { ASC = 0, DESC = 1 };
 
 struct ActiveIndicesUpdater;
 struct LabelPropertyIndexActiveIndices;

@@ -35,7 +35,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/description_store.hpp"
-#include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
