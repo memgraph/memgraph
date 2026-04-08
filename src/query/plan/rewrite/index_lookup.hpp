@@ -958,6 +958,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     bool valid{false};
     bool should_eliminate{false};
     bool order_preserving_path{true};  // set false if walk from first scan to OrderBy fails
+    Ordering ordering_direction{Ordering::ASC};
 
     bool has_unresolved() const {
       return std::ranges::any_of(entries, [](const auto &e) { return !e.is_resolved(); });
@@ -1127,6 +1128,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     if (entry_idx != ctx.entries.size()) return;
+
+    // Verify every scan's index order matches the query ordering direction.
+    auto desired_order =
+        ctx.ordering_direction == Ordering::DESC ? storage::IndexOrder::DESC : storage::IndexOrder::ASC;
+    for (const auto *scan : ctx.provided_scans) {
+      if (scan->index_order_ != desired_order) return;
+    }
 
     ctx.should_eliminate = true;
   }
