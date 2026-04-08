@@ -26,15 +26,6 @@ compiler.ubsan=True
 compiler.tsan=True
 {% endif %}
 os=Linux
-{% if enable_asan %}
-openssl/*:compiler.asan=False
-{% endif %}
-{% if enable_ubsan %}
-openssl/*:compiler.ubsan=False
-{% endif %}
-{% if enable_tsan %}
-openssl/*:compiler.tsan=False
-{% endif %}
 
 [conf]
 m4/*:tools.build:cflags=["-std=gnu17"]
@@ -46,17 +37,9 @@ tools.build:cflags+=["-fsanitize={{ sanitizers|join(',') }}", "-fno-omit-frame-p
 tools.build:cxxflags+=["-fsanitize={{ sanitizers|join(',') }}", "-fno-omit-frame-pointer"{% if enable_ubsan %}, "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ os.path.join(current_dir, 'tools', 'ubsan.ignore') }}"{% endif %}]
 tools.build:exelinkflags+=["-fsanitize={{ sanitizers|join(',') }}"{% if enable_ubsan %}, "-fno-sanitize=vptr,function"{% endif %}]
 tools.build:sharedlinkflags+=["-fsanitize={{ sanitizers|join(',') }}"{% if enable_ubsan %}, "-fno-sanitize=vptr,function"{% endif %}]
-# Build OpenSSL shared without sanitizers — the ASAN-instrumented libcrypto.so
-# leaks into LD_LIBRARY_PATH and breaks autotools configure scripts of other
-# deps. At runtime, memgraph links against the system OpenSSL anyway.
-openssl/*:tools.build:cflags=[]
-openssl/*:tools.build:cxxflags=[]
-openssl/*:tools.build:exelinkflags=[]
-openssl/*:tools.build:sharedlinkflags=[]
 {% endif %}
 
 [options]
 boost/*:without_stacktrace=True
 boost/*:without_locale=True
 boost/*:extra_b2_flags=cxxflags=--target={{ target_triple }} cflags=--target={{ target_triple }} linkflags=--target={{ target_triple }}
-openssl/*:shared=True

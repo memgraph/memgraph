@@ -101,10 +101,13 @@ class Memgraph(ConanFile):
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
         self.requires("zlib/1.3.1")
-        # We force Memgraph and all its dependencies to dynamically link to OpenSSL. We use version
-        # 3.0 here so that the binary can dynamically link to any version of OpenSSL >=3 and < 4,
-        # therefore allowing it to work with any package provided by our supported Linux distributions.
-        self.requires("openssl/3.0.18", override=True, options={"shared": True})
+        # Production builds dynamically link OpenSSL so the binary can use any system-provided
+        # OpenSSL >=3 and <4. Sanitizer builds use static OpenSSL to avoid ASAN-instrumented
+        # libcrypto.so leaking into LD_LIBRARY_PATH and breaking autotools configure scripts
+        # of other dependencies during the Conan build.
+        sanitizers = os.getenv("MG_SANITIZERS", "")
+        openssl_shared = not bool(sanitizers)
+        self.requires("openssl/3.0.18", override=True, options={"shared": openssl_shared})
 
     def build_requirements(self):
         self.tool_requires("cmake/4.1.2")
