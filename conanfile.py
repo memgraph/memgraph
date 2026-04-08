@@ -65,15 +65,7 @@ class Memgraph(ConanFile):
         self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
         self.requires("aws-sdk-cpp/1.11.692")
         self.requires("asio/1.36.0")
-        arch_to_triple = {"x86_64": "x86_64", "armv8": "aarch64"}
-        machine = arch_to_triple.get(str(self.settings.arch), str(self.settings.arch))
-        target_triple = f"{machine}-linux-gnu"
-        self.requires(
-            "boost/1.88.0",
-            options={
-                "extra_b2_flags": f"cxxflags=--target={target_triple} cflags=--target={target_triple} linkflags=--target={target_triple}",
-            },
-        )
+        self.requires("boost/1.88.0-memgraph", override=True)
         self.requires("bzip2/1.0.8")
         self.requires("cppitertools/2.2")
         self.requires("croncpp/2023.03.30")

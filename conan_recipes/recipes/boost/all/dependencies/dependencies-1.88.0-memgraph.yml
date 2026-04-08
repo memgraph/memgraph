@@ -1,0 +1,300 @@
+configure_options:
+- atomic
+- charconv
+- chrono
+- cobalt
+- container
+- context
+- contract
+- coroutine
+- date_time
+- exception
+- fiber
+- filesystem
+- graph
+- graph_parallel
+- iostreams
+- json
+- locale
+- log
+- math
+- mpi
+- nowide
+- process
+- program_options
+- python
+- random
+- regex
+- serialization
+- stacktrace
+- system
+- test
+- thread
+- timer
+- type_erasure
+- url
+- wave
+dependencies:
+  atomic: []
+  charconv: []
+  chrono:
+  - system
+  cobalt:
+  - container
+  - context
+  - system
+  container: []
+  context: []
+  contract:
+  - exception
+  - thread
+  coroutine:
+  - context
+  - exception
+  - system
+  date_time: []
+  exception: []
+  fiber:
+  - context
+  - filesystem
+  fiber_numa:
+  - fiber
+  filesystem:
+  - atomic
+  - system
+  graph:
+  - math
+  - random
+  - regex
+  - serialization
+  graph_parallel:
+  - filesystem
+  - graph
+  - mpi
+  - random
+  - serialization
+  iostreams:
+  - random
+  - regex
+  json:
+  - container
+  - system
+  locale:
+  - charconv
+  - thread
+  log:
+  - atomic
+  - date_time
+  - exception
+  - filesystem
+  - random
+  - regex
+  - system
+  - thread
+  log_setup:
+  - log
+  math: []
+  math_c99:
+  - math
+  math_c99f:
+  - math
+  math_c99l:
+  - math
+  math_tr1:
+  - math
+  math_tr1f:
+  - math
+  math_tr1l:
+  - math
+  mpi:
+  - graph
+  - serialization
+  mpi_python:
+  - mpi
+  - python
+  nowide:
+  - filesystem
+  numpy:
+  - python
+  prg_exec_monitor:
+  - test
+  process:
+  - filesystem
+  - system
+  - context
+  program_options: []
+  python: []
+  random:
+  - system
+  regex: []
+  serialization: []
+  stacktrace: []
+  stacktrace_addr2line:
+  - stacktrace
+  stacktrace_backtrace:
+  - stacktrace
+  stacktrace_basic:
+  - stacktrace
+  stacktrace_from_exception:
+  - stacktrace
+  stacktrace_noop:
+  - stacktrace
+  stacktrace_windbg:
+  - stacktrace
+  stacktrace_windbg_cached:
+  - stacktrace
+  system: []
+  test:
+  - exception
+  test_exec_monitor:
+  - test
+  thread:
+  - atomic
+  - chrono
+  - container
+  - date_time
+  - exception
+  - system
+  timer: []
+  type_erasure:
+  - thread
+  unit_test_framework:
+  - prg_exec_monitor
+  - test
+  - test_exec_monitor
+  url:
+  - system
+  wave:
+  - filesystem
+  - serialization
+  wserialization:
+  - serialization
+libs:
+  atomic:
+  - boost_atomic
+  charconv:
+  - boost_charconv
+  chrono:
+  - boost_chrono
+  cobalt:
+  - boost_cobalt
+  container:
+  - boost_container
+  context:
+  - boost_context
+  contract:
+  - boost_contract
+  coroutine:
+  - boost_coroutine
+  date_time:
+  - boost_date_time
+  exception:
+  - boost_exception
+  fiber:
+  - boost_fiber
+  fiber_numa:
+  - boost_fiber_numa
+  filesystem:
+  - boost_filesystem
+  graph:
+  - boost_graph
+  graph_parallel:
+  - boost_graph_parallel
+  iostreams:
+  - boost_iostreams
+  json:
+  - boost_json
+  locale:
+  - boost_locale
+  log:
+  - boost_log
+  log_setup:
+  - boost_log_setup
+  math: []
+  math_c99:
+  - boost_math_c99
+  math_c99f:
+  - boost_math_c99f
+  math_c99l:
+  - boost_math_c99l
+  math_tr1:
+  - boost_math_tr1
+  math_tr1f:
+  - boost_math_tr1f
+  math_tr1l:
+  - boost_math_tr1l
+  mpi:
+  - boost_mpi
+  mpi_python:
+  - boost_mpi_python
+  nowide:
+  - boost_nowide
+  numpy:
+  - boost_numpy{py_major}{py_minor}
+  prg_exec_monitor:
+  - boost_prg_exec_monitor
+  process:
+  - boost_process
+  program_options:
+  - boost_program_options
+  python:
+  - boost_python{py_major}{py_minor}
+  random:
+  - boost_random
+  regex:
+  - boost_regex
+  serialization:
+  - boost_serialization
+  stacktrace: []
+  stacktrace_addr2line:
+  - boost_stacktrace_addr2line
+  stacktrace_backtrace:
+  - boost_stacktrace_backtrace
+  stacktrace_basic:
+  - boost_stacktrace_basic
+  stacktrace_from_exception:
+  - boost_stacktrace_from_exception
+  stacktrace_noop:
+  - boost_stacktrace_noop
+  stacktrace_windbg:
+  - boost_stacktrace_windbg
+  stacktrace_windbg_cached:
+  - boost_stacktrace_windbg_cached
+  system:
+  - boost_system
+  test: []
+  test_exec_monitor:
+  - boost_test_exec_monitor
+  thread:
+  - boost_thread
+  timer:
+  - boost_timer
+  type_erasure:
+  - boost_type_erasure
+  unit_test_framework:
+  - boost_unit_test_framework
+  url:
+  - boost_url
+  wave:
+  - boost_wave
+  wserialization:
+  - boost_wserialization
+requirements:
+  iostreams:
+  - bzip2
+  - lzma
+  - zlib
+  - zstd
+  locale:
+  - iconv
+  - icu
+  python:
+  - python
+  regex:
+  - icu
+  stacktrace:
+  - backtrace
+static_only:
+- boost_exception
+- boost_test_exec_monitor
+version: 1.88.0
