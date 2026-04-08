@@ -1196,8 +1196,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   atomic_struct_update<CommitTsInfo>(mem_storage->repl_storage_state_.commit_ts_info_, update_func);
 
   // Install the new point index, if needed
-  mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
-                                                          transaction_.point_index_ctx_);
+  auto point_updater = mem_storage->indices_.MakeUpdater();
+  mem_storage->indices_.point_index_.InstallNewPointIndex(
+      transaction_.point_index_change_collector_, transaction_.point_index_ctx_, point_updater);
 
   // Call other callbacks that publish/install upon commit
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
@@ -2044,7 +2045,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE, "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
-  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
+  auto updater = in_memory->indices_.MakeUpdater();
+  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access(), updater)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
@@ -2058,7 +2060,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE, "Dropping point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
-  if (!point_index.DropPointIndex(label, property)) {
+  auto updater = in_memory->indices_.MakeUpdater();
+  if (!point_index.DropPointIndex(label, property, updater)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
@@ -4329,7 +4332,7 @@ void InMemoryStorage::Clear() {
 }
 
 bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, PropertyId property) const {
-  return storage_->indices_.point_index_.PointIndexExists(label, property);
+  return transaction_.active_indices_->point_->PointIndexExists(label, property);
 }
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
@@ -4342,7 +4345,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       .edge_property = transaction_.active_indices_->edge_property_->ListIndices(transaction_.start_timestamp),
       .text_indices = transaction_.active_indices_->text_->ListIndices(),
       .text_edge_indices = transaction_.active_indices_->text_edge_->ListIndices(),
-      .point_label_property = storage_->indices_.point_index_.ListIndices(),
+      .point_label_property = transaction_.active_indices_->point_->ListIndices(),
       .vector_indices_spec = storage_->indices_.vector_index_.ListIndices(),
       .vector_edge_indices_spec = storage_->indices_.vector_edge_index_.ListIndices()};
 }
