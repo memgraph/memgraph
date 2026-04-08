@@ -51,7 +51,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
     DeletionEntries entries_for_deletion;
   };
 
-  auto GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> override;
+  auto GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> override;
 
   explicit DiskUniqueConstraints(const Config &config);
 

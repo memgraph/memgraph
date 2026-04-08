@@ -237,6 +237,12 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
   RecoverUniqueConstraints(
       constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info, snapshot_info);
   RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info, snapshot_info);
+
+  // Publish recovered constraints to active_constraints_
+  auto updater = constraints->MakeUpdater();
+  updater(constraints->existence_constraints_->GetActiveConstraints());
+  updater(constraints->unique_constraints_->GetActiveConstraints());
+  updater(constraints->type_constraints_->GetActiveConstraints());
 }
 
 void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,

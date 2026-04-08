@@ -1079,11 +1079,7 @@ class Storage {
   /// Returns the current snapshot of active indices
   auto GetActiveIndices() const -> ActiveIndicesPtr { return indices_.active_indices_.ReadCopy(); }
 
-  auto GetActiveConstraints() const -> ActiveConstraints {
-    return ActiveConstraints{constraints_.existence_constraints_->GetActiveConstraints(),
-                             constraints_.unique_constraints_->GetActiveConstraints(),
-                             constraints_.type_constraints_->GetActiveConstraints()};
-  }
+  auto GetActiveConstraints() const -> ActiveConstraintsPtr { return constraints_.active_constraints_.ReadCopy(); }
 
   /// Check if async indexer is idle (no pending work)
   /// @return true if async indexer is idle, false if actively processing or has pending work
