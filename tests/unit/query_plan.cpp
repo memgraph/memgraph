@@ -2304,6 +2304,29 @@ TYPED_TEST(TestPlanner, CallProcedureStandalone) {
       ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_, ast_call->result_fields_, result_syms));
 }
 
+TYPED_TEST(TestPlanner, CallProcedureWithYieldWhere) {
+  // Test CALL proc() YIELD field WHERE field > 0 RETURN field
+  FakeDbAccessor dba;
+  auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
+  ast_call->procedure_name_ = "proc";
+  ast_call->result_fields_ = {"field"};
+  ast_call->result_identifiers_ = {IDENT("field")};
+  ast_call->where_ = WHERE(GREATER(IDENT("field"), LITERAL(0)));
+  auto *query = QUERY(SINGLE_QUERY(ast_call, RETURN("field")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  std::vector<Symbol> result_syms;
+  result_syms.reserve(ast_call->result_identifiers_.size());
+  for (const auto *ident : ast_call->result_identifiers_) {
+    result_syms.push_back(symbol_table.at(*ident));
+  }
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_, ast_call->result_fields_, result_syms),
+            ExpectFilter(),
+            ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, CallProcedureAfterScanAll) {
   // Test MATCH (n) CALL proc(n) YIELD field AS result RETURN result
   FakeDbAccessor dba;

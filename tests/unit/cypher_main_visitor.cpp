@@ -4877,6 +4877,26 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, CallProcedureWithYieldWhere) {
+  AddProc(*mock_module, "proc", {}, {"res"}, ProcedureType::READ);
+  auto &ast_generator = *GetParam();
+
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mock_module.proc() YIELD res WHERE res > 0"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  ASSERT_TRUE(call_proc);
+  ASSERT_EQ(call_proc->procedure_name_, "mock_module.proc");
+  ASSERT_EQ(call_proc->result_fields_.size(), 1U);
+  ASSERT_EQ(call_proc->result_fields_[0], "res");
+  ASSERT_TRUE(call_proc->where_);
+  ASSERT_TRUE(call_proc->where_->expression_);
+  CheckRWType(query, kRead);
+}
+
 TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
   AddProc(*mock_module, "proc", {"arg1", "arg2", "arg3"}, {"res"}, ProcedureType::READ);
   auto &ast_generator = *GetParam();
@@ -5360,12 +5380,11 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
   // mg.procedures returns something, so it needs to have a YIELD.
   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures()"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures() PROCEDURE MEMORY UNLIMITED"), SemanticException);
-  // TODO: Implement support for the following syntax. These are defined in
-  // Neo4j and accepted in openCypher CIP.
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc RETURN 42"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42 RETURN *"), SyntaxException);
+  // YIELD WHERE is now supported; unknown procedure triggers SemanticException.
+  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42 RETURN *"), SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
