@@ -197,6 +197,7 @@ startup_config_dict = {
         "true",
         "Controls whether .old dir will be used to store latest snapshot and WAL files.",
     ),
+    "strict_flag_check": ("true", "true", "If true, error and exit when suspicious positional arguments are detected."),
     "storage_access_timeout_sec": ("1", "1", "Query's storage level access timeout in seconds."),
     "storage_gc_aggressive": ("false", "false", "Enable aggressive garbage collection."),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),

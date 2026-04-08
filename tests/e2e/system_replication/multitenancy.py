@@ -52,7 +52,8 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def create_memgraph_instances_with_role_recovery(test_name: str) -> Dict[str, Any]:
+def create_memgraph_instances_with_role_recovery(test_name: str, data_recovery: bool = False) -> Dict[str, Any]:
+    data_recovery_flag = str(data_recovery).lower()
     return {
         "replica_1": {
             "args": [
@@ -60,10 +61,8 @@ def create_memgraph_instances_with_role_recovery(test_name: str) -> Dict[str, An
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level",
                 "TRACE",
-                "--replication-restore-state-on-startup",
-                "true",
-                "--data-recovery-on-startup",
-                "false",
+                "--replication-restore-state-on-startup=true",
+                f"--data-recovery-on-startup={data_recovery_flag}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
             "data_directory": f"{get_data_path(file, test_name)}/replica1",
@@ -73,10 +72,8 @@ def create_memgraph_instances_with_role_recovery(test_name: str) -> Dict[str, An
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
-                "--replication-restore-state-on-startup",
-                "true",
-                "--data-recovery-on-startup",
-                "false",
+                "--replication-restore-state-on-startup=true",
+                f"--data-recovery-on-startup={data_recovery_flag}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
             "data_directory": f"{get_data_path(file, test_name)}/replica2",
@@ -921,7 +918,7 @@ def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name
     # 4/ Validate data on replica
 
     # 0/
-    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name, data_recovery=True)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     do_manual_setting_up(connection)

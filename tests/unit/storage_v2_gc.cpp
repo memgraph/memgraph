@@ -1404,3 +1404,55 @@ TEST(StorageV2Gc, HasNonSequentialDeltasFlagClearedWhenAllDeltasRemoved) {
     ASSERT_FALSE(v1->vertex_->has_uncommitted_non_sequential_deltas());
   }
 }
+
+TEST(StorageV2Gc, ClearDrainsWaitingGcDeltas) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    v1_gid = acc->CreateVertex().Gid();
+    v2_gid = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    // Populate the garbage collector's waiting_gc_deltas_ by creating
+    // non-sequential deltas, whilst also prohibiting fast GC collection.
+    auto acc0 = storage->Access(ms::WRITE);
+    auto acc1 = storage->Access(ms::WRITE);
+    auto acc2 = storage->Access(ms::WRITE);
+
+    auto v1_t1 = acc1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = acc1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).has_value());
+
+    auto v1_t2 = acc2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = acc2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).has_value());
+
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    acc2.reset();
+    acc1->Abort();
+    acc1.reset();
+  }
+
+  // Clear should discard entire storage state, including pending
+  // non-sequential deltas in the waiting_gc_deltas_ list.
+  {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->Clear();
+  }
+
+  // Subsequent commit triggers FastDiscardOfDeltas, which walks
+  // waiting_gc_deltas_. If any uncleared state lingers after Clear(), this
+  // will flag an error in ASAN.
+  {
+    auto acc = storage->Access(ms::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
