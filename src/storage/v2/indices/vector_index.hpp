@@ -123,6 +123,14 @@ struct VectorIndexRecovery {
       NameIdMapper *name_id_mapper);
 };
 
+/// Abstract interface for vector index metadata queries accessed through ActiveIndices snapshots.
+struct VectorIndexActiveIndices {
+  virtual ~VectorIndexActiveIndices() = default;
+  virtual std::vector<VectorIndexSpec> ListIndices() const = 0;
+  virtual std::vector<VectorIndexInfo> ListVectorIndicesInfo() const = 0;
+  virtual std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const = 0;
+};
+
 /// @class VectorIndex
 /// @brief High-level interface for managing vector indexes.
 ///
@@ -152,10 +160,26 @@ class VectorIndex {
 
   using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
 
+  /// Concrete ActiveIndices implementation that delegates to VectorIndex const methods.
+  /// VectorIndex is thread-safe and operates at READ_UNCOMMITTED, so no snapshot copy is needed.
+  struct ActiveIndices : VectorIndexActiveIndices {
+    explicit ActiveIndices(VectorIndex const *owner = nullptr) : owner_(owner) {}
+
+    std::vector<VectorIndexSpec> ListIndices() const override;
+    std::vector<VectorIndexInfo> ListVectorIndicesInfo() const override;
+    std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const override;
+
+   private:
+    VectorIndex const *owner_;
+  };
+
   VectorIndex();
   ~VectorIndex();
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
+
+  /// Returns the current active indices snapshot for use in transactions.
+  auto GetActiveIndices() -> std::shared_ptr<VectorIndexActiveIndices> { return std::make_shared<ActiveIndices>(this); }
 
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.

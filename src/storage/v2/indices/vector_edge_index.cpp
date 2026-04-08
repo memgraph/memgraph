@@ -604,4 +604,22 @@ void VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(PropertyId property, const
   }
 }
 
+// ---- VectorEdgeIndex::ActiveIndices (delegates to owning VectorEdgeIndex) ----
+
+std::vector<VectorEdgeIndexSpec> VectorEdgeIndex::ActiveIndices::ListIndices() const {
+  if (!owner_) return {};
+  return owner_->ListIndices();
+}
+
+std::vector<VectorEdgeIndexInfo> VectorEdgeIndex::ActiveIndices::ListVectorIndicesInfo() const {
+  if (!owner_) return {};
+  return owner_->ListVectorIndicesInfo();
+}
+
+std::optional<uint64_t> VectorEdgeIndex::ActiveIndices::ApproximateEdgesVectorCount(EdgeTypeId edge_type,
+                                                                                    PropertyId property) const {
+  if (!owner_) return std::nullopt;
+  return owner_->ApproximateEdgesVectorCount(edge_type, property);
+}
+
 }  // namespace memgraph::storage

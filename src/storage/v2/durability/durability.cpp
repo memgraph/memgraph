@@ -419,6 +419,11 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Vector edge indices are recreated.");
   }
 
+  // Publish recovered vector indices to active_indices_
+
+  updater(indices->vector_index_.GetActiveIndices());
+  updater(indices->vector_edge_index_.GetActiveIndices());
+
   spdlog::info("Indices are recreated.");
 }
 

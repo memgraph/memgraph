@@ -69,7 +69,9 @@ void Indices::DropGraphClearIndices() {
                                          edge_property_index_->GetActiveIndices(),
                                          text_index_.GetActiveIndices(),
                                          text_edge_index_.GetActiveIndices(),
-                                         point_index_.GetActiveIndices());
+                                         point_index_.GetActiveIndices(),
+                                         vector_index_.GetActiveIndices(),
+                                         vector_edge_index_.GetActiveIndices());
   });
 }
 
@@ -139,7 +141,9 @@ Indices::Indices(const Config &config, StorageMode storage_mode)
                                          edge_property_index_->GetActiveIndices(),
                                          text_index_.GetActiveIndices(),
                                          text_edge_index_.GetActiveIndices(),
-                                         point_index_.GetActiveIndices());
+                                         point_index_.GetActiveIndices(),
+                                         vector_index_.GetActiveIndices(),
+                                         vector_edge_index_.GetActiveIndices());
   });
 }
 

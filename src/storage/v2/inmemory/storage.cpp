@@ -2068,6 +2068,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       !vector_index.CreateIndex(spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  auto updater = in_memory->indices_.MakeUpdater();
+  updater(vector_index.GetActiveIndices());
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
@@ -2081,9 +2083,12 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto vertices_acc = in_memory->vertices_.access();
+  auto updater = in_memory->indices_.MakeUpdater();
   if (vector_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
+    updater(vector_index.GetActiveIndices());
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
   } else if (vector_edge_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
+    updater(vector_edge_index.GetActiveIndices());
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   } else {
     return std::unexpected{IndexDefinitionError{}};
@@ -2118,6 +2123,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  auto updater = in_memory->indices_.MakeUpdater();
+  updater(vector_edge_index.GetActiveIndices());
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
@@ -4321,8 +4328,8 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       .text_indices = transaction_.active_indices_->text_->ListIndices(),
       .text_edge_indices = transaction_.active_indices_->text_edge_->ListIndices(),
       .point_label_property = transaction_.active_indices_->point_->ListIndices(),
-      .vector_indices_spec = storage_->indices_.vector_index_.ListIndices(),
-      .vector_edge_indices_spec = storage_->indices_.vector_edge_index_.ListIndices()};
+      .vector_indices_spec = transaction_.active_indices_->vector_->ListIndices(),
+      .vector_edge_indices_spec = transaction_.active_indices_->vector_edge_->ListIndices()};
 }
 
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
@@ -4488,11 +4495,11 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
 }
 
 std::vector<VectorIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorIndices() const {
-  return storage_->indices_.vector_index_.ListVectorIndicesInfo();
+  return transaction_.active_indices_->vector_->ListVectorIndicesInfo();
 }
 
 std::vector<VectorEdgeIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorEdgeIndices() const {
-  return storage_->indices_.vector_edge_index_.ListVectorIndicesInfo();
+  return transaction_.active_indices_->vector_edge_->ListVectorIndicesInfo();
 }
 
 auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,

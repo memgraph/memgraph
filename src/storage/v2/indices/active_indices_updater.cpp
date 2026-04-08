@@ -18,43 +18,133 @@ namespace memgraph::storage {
 // ActiveIndices::With* factory methods — each returns a new snapshot with one field replaced.
 
 ActiveIndicesPtr ActiveIndices::WithLabel(std::shared_ptr<LabelIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(
-      std::move(x), label_properties_, edge_type_, edge_type_properties_, edge_property_, text_, text_edge_, point_);
+  return std::make_shared<ActiveIndices>(std::move(x),
+                                         label_properties_,
+                                         edge_type_,
+                                         edge_type_properties_,
+                                         edge_property_,
+                                         text_,
+                                         text_edge_,
+                                         point_,
+                                         vector_,
+                                         vector_edge_);
 }
 
 ActiveIndicesPtr ActiveIndices::WithLabelProperties(std::shared_ptr<LabelPropertyIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(
-      label_, std::move(x), edge_type_, edge_type_properties_, edge_property_, text_, text_edge_, point_);
+  return std::make_shared<ActiveIndices>(label_,
+                                         std::move(x),
+                                         edge_type_,
+                                         edge_type_properties_,
+                                         edge_property_,
+                                         text_,
+                                         text_edge_,
+                                         point_,
+                                         vector_,
+                                         vector_edge_);
 }
 
 ActiveIndicesPtr ActiveIndices::WithEdgeType(std::shared_ptr<EdgeTypeIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(
-      label_, label_properties_, std::move(x), edge_type_properties_, edge_property_, text_, text_edge_, point_);
+  return std::make_shared<ActiveIndices>(label_,
+                                         label_properties_,
+                                         std::move(x),
+                                         edge_type_properties_,
+                                         edge_property_,
+                                         text_,
+                                         text_edge_,
+                                         point_,
+                                         vector_,
+                                         vector_edge_);
 }
 
 ActiveIndicesPtr ActiveIndices::WithEdgeTypeProperties(std::shared_ptr<EdgeTypePropertyIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(
-      label_, label_properties_, edge_type_, std::move(x), edge_property_, text_, text_edge_, point_);
+  return std::make_shared<ActiveIndices>(label_,
+                                         label_properties_,
+                                         edge_type_,
+                                         std::move(x),
+                                         edge_property_,
+                                         text_,
+                                         text_edge_,
+                                         point_,
+                                         vector_,
+                                         vector_edge_);
 }
 
 ActiveIndicesPtr ActiveIndices::WithEdgeProperty(std::shared_ptr<EdgePropertyIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(
-      label_, label_properties_, edge_type_, edge_type_properties_, std::move(x), text_, text_edge_, point_);
+  return std::make_shared<ActiveIndices>(label_,
+                                         label_properties_,
+                                         edge_type_,
+                                         edge_type_properties_,
+                                         std::move(x),
+                                         text_,
+                                         text_edge_,
+                                         point_,
+                                         vector_,
+                                         vector_edge_);
 }
 
 ActiveIndicesPtr ActiveIndices::WithText(std::shared_ptr<TextIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(
-      label_, label_properties_, edge_type_, edge_type_properties_, edge_property_, std::move(x), text_edge_, point_);
+  return std::make_shared<ActiveIndices>(label_,
+                                         label_properties_,
+                                         edge_type_,
+                                         edge_type_properties_,
+                                         edge_property_,
+                                         std::move(x),
+                                         text_edge_,
+                                         point_,
+                                         vector_,
+                                         vector_edge_);
 }
 
 ActiveIndicesPtr ActiveIndices::WithTextEdge(std::shared_ptr<TextEdgeIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(
-      label_, label_properties_, edge_type_, edge_type_properties_, edge_property_, text_, std::move(x), point_);
+  return std::make_shared<ActiveIndices>(label_,
+                                         label_properties_,
+                                         edge_type_,
+                                         edge_type_properties_,
+                                         edge_property_,
+                                         text_,
+                                         std::move(x),
+                                         point_,
+                                         vector_,
+                                         vector_edge_);
 }
 
 ActiveIndicesPtr ActiveIndices::WithPoint(std::shared_ptr<PointIndexActiveIndices> x) const {
-  return std::make_shared<ActiveIndices>(
-      label_, label_properties_, edge_type_, edge_type_properties_, edge_property_, text_, text_edge_, std::move(x));
+  return std::make_shared<ActiveIndices>(label_,
+                                         label_properties_,
+                                         edge_type_,
+                                         edge_type_properties_,
+                                         edge_property_,
+                                         text_,
+                                         text_edge_,
+                                         std::move(x),
+                                         vector_,
+                                         vector_edge_);
+}
+
+ActiveIndicesPtr ActiveIndices::WithVector(std::shared_ptr<VectorIndexActiveIndices> x) const {
+  return std::make_shared<ActiveIndices>(label_,
+                                         label_properties_,
+                                         edge_type_,
+                                         edge_type_properties_,
+                                         edge_property_,
+                                         text_,
+                                         text_edge_,
+                                         point_,
+                                         std::move(x),
+                                         vector_edge_);
+}
+
+ActiveIndicesPtr ActiveIndices::WithVectorEdge(std::shared_ptr<VectorEdgeIndexActiveIndices> x) const {
+  return std::make_shared<ActiveIndices>(label_,
+                                         label_properties_,
+                                         edge_type_,
+                                         edge_type_properties_,
+                                         edge_property_,
+                                         text_,
+                                         text_edge_,
+                                         point_,
+                                         vector_,
+                                         std::move(x));
 }
 
 // ActiveIndicesUpdater::operator() overloads — delegate to the With* factory methods.
@@ -112,6 +202,20 @@ void ActiveIndicesUpdater::operator()(std::shared_ptr<PointIndexActiveIndices> c
   active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
     MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
     ai = ai->WithPoint(x);
+  });
+}
+
+void ActiveIndicesUpdater::operator()(std::shared_ptr<VectorIndexActiveIndices> const &x) const {
+  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
+    MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
+    ai = ai->WithVector(x);
+  });
+}
+
+void ActiveIndicesUpdater::operator()(std::shared_ptr<VectorEdgeIndexActiveIndices> const &x) const {
+  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
+    MG_ASSERT(ai, "ActiveIndices must be initialized before updating. Was Storage fully constructed?");
+    ai = ai->WithVectorEdge(x);
   });
 }
 
