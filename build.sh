@@ -190,6 +190,7 @@ fi
 conan config install conan_config
 
 # Register vendored recipes as a local-recipes-index remote
+# NOTE: also registered in release/package/mgbuild.sh — keep in sync
 conan remote add memgraph-recipes "$(pwd)/conan_recipes" -t local-recipes-index --force
 
 # fetch libs that aren't provided by conan yet

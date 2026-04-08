@@ -1,14 +1,12 @@
 import os
-import shutil
 
 from conan import ConanFile
 from conan.errors import ConanInvalidConfiguration
 from conan.tools.env import VirtualBuildEnv
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, rename, rmdir
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get
 from conan.tools.gnu import Autotools, AutotoolsToolchain
 from conan.tools.layout import basic_layout
-from conan.tools.microsoft import is_msvc, is_msvc_static_runtime
-from conan.tools.scm import Version
+from conan.tools.microsoft import is_msvc
 
 
 class JemallocConan(ConanFile):
@@ -95,6 +93,7 @@ class JemallocConan(ConanFile):
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)
+        apply_conandata_patches(self)
 
     def generate(self):
         env = VirtualBuildEnv(self)
@@ -126,7 +125,6 @@ class JemallocConan(ConanFile):
         tc.generate()
 
     def build(self):
-        apply_conandata_patches(self)
         autotools = Autotools(self)
         autotools.configure()
         autotools.make()

@@ -85,6 +85,7 @@ class Memgraph(ConanFile):
             options={
                 "prefix": "je_",
                 "enable_cxx": False,
+                "enable_fill": False,
                 "lg_page": "12",
                 "lg_hugepage": "21",
                 "malloc_conf": "background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
@@ -105,8 +106,8 @@ class Memgraph(ConanFile):
         # OpenSSL >=3 and <4. Sanitizer builds use static OpenSSL to avoid ASAN-instrumented
         # libcrypto.so leaking into LD_LIBRARY_PATH and breaking autotools configure scripts
         # of other dependencies during the Conan build.
-        sanitizers = os.getenv("MG_SANITIZERS", "")
-        openssl_shared = not bool(sanitizers)
+        has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
+        openssl_shared = not has_sanitizers
         self.requires("openssl/3.0.18", override=True, options={"shared": openssl_shared})
 
     def build_requirements(self):

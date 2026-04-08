@@ -23,6 +23,10 @@ class LibbcryptConan(ConanFile):
         if self.settings.os == "Windows":
             del self.options.fPIC
 
+    def configure(self):
+        if self.options.shared:
+            self.options.rm_safe("fPIC")
+
     def layout(self):
         basic_layout(self, src_folder="src")
 
@@ -38,9 +42,12 @@ class LibbcryptConan(ConanFile):
         crypt_blowfish_makefile = os.path.join(self.source_folder, "crypt_blowfish", "Makefile")
         replace_in_file(self, crypt_blowfish_makefile, "-Wcast-align", "")
 
-        self.run(
-            f"make -C {self.source_folder} CC={self.conf.get('tools.build:compiler_executables').get('c', 'cc')}",
-        )
+        # The upstream Makefile hardcodes its own CFLAGS, so AutotoolsToolchain env vars
+        # (including sanitizer flags) don't reach the compilation. This is acceptable:
+        # libbcrypt is a static library, and when linked into an ASAN binary the ASAN
+        # runtime handles interception at the process level.
+        cc = self.conf.get("tools.build:compiler_executables", default={}).get("c", "cc")
+        self.run(f"make -C {self.source_folder} CC={cc}")
 
     def package(self):
         copy(self, "COPYING", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))
