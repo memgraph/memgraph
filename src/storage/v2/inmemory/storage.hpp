@@ -762,6 +762,9 @@ class InMemoryStorage final : public Storage {
 
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
+  // Wipe all storage state. Caller must hold main_lock_ exclusively.
+  void Clear();
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -784,8 +787,6 @@ class InMemoryStorage final : public Storage {
   EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
 
   EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
-
-  void Clear();
 
   // Main object storage
   utils::SkipList<Vertex> vertices_;
