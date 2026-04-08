@@ -386,7 +386,7 @@ def test_correctness_desc_index_descending_order(memgraph):
         memgraph.execute(f"CREATE (:L {{prop: {v}}})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC"))
-    values = [r["n"].properties["prop"] for r in results]
+    values = [r["n"]._properties["prop"] for r in results]
     assert values == [50, 40, 30, 20, 10]
 
 
@@ -397,7 +397,7 @@ def test_correctness_desc_index_with_limit(memgraph):
         memgraph.execute(f"CREATE (:L {{prop: {v}}})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC LIMIT 3"))
-    values = [r["n"].properties["prop"] for r in results]
+    values = [r["n"]._properties["prop"] for r in results]
     assert values == [50, 40, 30]
 
 
@@ -409,7 +409,7 @@ def test_correctness_desc_composite_order(memgraph):
         memgraph.execute(f"CREATE (:L {{a: {a}, b: {b}}})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a > 0 RETURN n ORDER BY n.a DESC, n.b DESC"))
-    pairs = [(r["n"].properties["a"], r["n"].properties["b"]) for r in results]
+    pairs = [(r["n"]._properties["a"], r["n"]._properties["b"]) for r in results]
     assert pairs == [(3, 1), (2, 3), (2, 1), (1, 2), (1, 1)]
 
 
@@ -421,7 +421,7 @@ def test_correctness_desc_equality_pinned(memgraph):
     memgraph.execute("CREATE (:L {a: 2, b: 5})")
 
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 1 RETURN n ORDER BY n.b DESC"))
-    values = [r["n"].properties["b"] for r in results]
+    values = [r["n"]._properties["b"] for r in results]
     assert values == [50, 40, 30, 20, 10]
 
 
@@ -456,7 +456,7 @@ def test_both_asc_and_desc_index_coexist(memgraph):
     assert not any("OrderBy" in step for step in plan_asc), "OrderBy ASC should be eliminated with ASC index"
 
     results_asc = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop"))
-    values_asc = [r["n"].properties["prop"] for r in results_asc]
+    values_asc = [r["n"]._properties["prop"] for r in results_asc]
     assert values_asc == [10, 20, 30, 40, 50]
 
     # DESC order — should be eliminated
@@ -464,7 +464,7 @@ def test_both_asc_and_desc_index_coexist(memgraph):
     assert not any("OrderBy" in step for step in plan_desc), "OrderBy DESC should be eliminated with DESC index"
 
     results_desc = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC"))
-    values_desc = [r["n"].properties["prop"] for r in results_desc]
+    values_desc = [r["n"]._properties["prop"] for r in results_desc]
     assert values_desc == [50, 40, 30, 20, 10]
 
 

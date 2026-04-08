@@ -205,7 +205,7 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex, auto &current_vertex_accessor,
                         auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
                         const auto &upper_bound, bool &skip_lower_bound_check, auto &permutation_helper,
-                        bool use_cache = true) {
+                        bool use_cache = true, bool reverse_iteration = false) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
       continue;
@@ -252,6 +252,12 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 
     enum class Result : uint8_t { Skip, NoMoreValidEntries, WithAllBounds };
 
+    // In ASC iteration: values increase, so UNDER → skip (will reach range), OVER → stop (past range).
+    // In DESC iteration: values decrease, so UNDER → stop (past range), OVER → skip (will reach range).
+    auto const out_of_range_below = reverse_iteration ? Result::NoMoreValidEntries : Result::Skip;
+    auto const out_of_range_above_all_at_boundary = reverse_iteration ? Result::Skip : Result::NoMoreValidEntries;
+    auto const out_of_range_above_not_at_boundary = Result::Skip;
+
     auto bounds_checker = [&]() {
       auto at_boundary_counter = 0;
       // level 0
@@ -261,21 +267,13 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
             DMG_ASSERT(false, "this can't happen");
             break;
           case InBoundResult::IN_BOUNDS:
-            // This property value is within the boundary, proceed onto the next member of the prefix level
             break;
           case InBoundResult::IN_BOUNDS_AT_UB: {
-            // This property value is within the boundary, proceed onto the next member of the prefix level
-            // But also this is the boundary of this given prefix level
-            // We must track if all preceeding prefix levels of are at the boundary to be able to exit scan as
-            // early as possible
             ++at_boundary_counter;
             break;
           }
           case InBoundResult::OVER: {
-            // This property value is over the boundary
-            // We are at level 0, hence no preceeding prefix levels, we can safely know that there are no more
-            // entries that would be within any of the preceeding boundaries.
-            return Result::NoMoreValidEntries;
+            return out_of_range_above_all_at_boundary;
           }
         };
       }
@@ -283,28 +281,19 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
       for (auto level = skip_lower_bound_check ? 1 : 0; level < lower_bound.size(); ++level) {
         switch (value_within_bounds(lower_bound[level], upper_bound[level], index_iterator->values.values_[level])) {
           case InBoundResult::UNDER: {
-            // This property value is under the boundary, hence we need to skip
-            return Result::Skip;
+            return out_of_range_below;
           }
           case InBoundResult::IN_BOUNDS: {
-            // This property value is within the boundary, proceed onto the next member of the prefix level
             break;
           }
           case InBoundResult::IN_BOUNDS_AT_UB: {
-            // This property value is within the boundary, proceed onto the next member of the prefix level
-            // But also this is the boundary of this given prefix level
-            // We must track if all preceeding prefix levels of are at the boundary to be able to exit scan as
-            // early as possible
             ++at_boundary_counter;
             break;
           }
           case InBoundResult::OVER: {
-            // This property value is over the boundary
-            // If all preceeding prefix levels are at the boundary, we can safely know that there are no more
-            // entries that would be within any of the preceeding boundaries.
-            // otherwise we skip
             auto const all_preceeding_levels_at_boundary = at_boundary_counter == level;
-            return all_preceeding_levels_at_boundary ? Result::NoMoreValidEntries : Result::Skip;
+            return all_preceeding_levels_at_boundary ? out_of_range_above_all_at_boundary
+                                                     : out_of_range_above_not_at_boundary;
           }
         }
       }
@@ -978,10 +967,8 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::operator++() {
 template <typename EntryT>
 void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid() {
   if constexpr (std::same_as<EntryT, DescEntry>) {
-    // For DESC index: swap upper/lower bounds since iteration is in reverse value order.
-    // In DESC skip list, forward iteration goes from high values to low values.
-    // So the "lower bound" (smallest value we want) acts as the stop condition (upper_bound_ in ASC terms),
-    // and the "upper bound" (largest value we want) acts as the start condition.
+    // For DESC index: bounds stay in normal order (lower, upper) but we set reverse_iteration=true
+    // to flip the UNDER/OVER semantics, since forward iteration goes from high to low values.
     AdvanceUntilValid_(index_iterator_,
                        self_->index_accessor_.end(),
                        current_vertex_,
@@ -990,10 +977,12 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
                        self_->transaction_,
                        self_->view_,
                        self_->label_,
-                       self_->upper_bound_,
                        self_->lower_bound_,
+                       self_->upper_bound_,
                        skip_lower_bound_check_,
-                       self_->permutation_helper_);
+                       self_->permutation_helper_,
+                       /*use_cache=*/true,
+                       /*reverse_iteration=*/true);
   } else {
     AdvanceUntilValid_(index_iterator_,
                        self_->index_accessor_.end(),
@@ -1053,74 +1042,83 @@ typename InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator InMemoryLabelPro
 
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties) const {
-  auto it = index_container_->asc_indices_.find(label);
-  DMG_ASSERT(it != index_container_->asc_indices_.end(),
-             "Index for label {} and properties {} doesn't exist",
-             label.AsUint(),
-             JoinPropertiesAsString(properties));
-  auto it2 = it->second.find(properties);
-  DMG_ASSERT(it2 != it->second.end(),
-             "Index for label {} and properties {} doesn't exist",
-             label.AsUint(),
-             JoinPropertiesAsString(properties));
-  return it2->second->skiplist.size();
+  // Check ASC indices first, then DESC.
+  if (auto it = index_container_->asc_indices_.find(label); it != index_container_->asc_indices_.end()) {
+    if (auto it2 = it->second.find(properties); it2 != it->second.end()) {
+      return it2->second->skiplist.size();
+    }
+  }
+  if (auto it = index_container_->desc_indices_.find(label); it != index_container_->desc_indices_.end()) {
+    if (auto it2 = it->second.find(properties); it2 != it->second.end()) {
+      return it2->second->skiplist.size();
+    }
+  }
+  DMG_ASSERT(
+      false, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
+  return 0;
 }
 
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValue const> values) const {
-  auto const it = index_container_->asc_indices_.find(label);
-  DMG_ASSERT(it != index_container_->asc_indices_.end(),
-             "Index for label {} and properties {} doesn't exist",
-             label.AsUint(),
-             JoinPropertiesAsString(properties));
-
-  auto const it2 = it->second.find(properties);
-  DMG_ASSERT(it2 != it->second.end(),
-             "Index for label {} and properties {} doesn't exist",
-             label.AsUint(),
-             JoinPropertiesAsString(properties));
-
-  auto acc = it2->second->skiplist.access();
-  if (!ranges::all_of(values, [](auto &&prop) { return prop.IsNull(); })) {
-    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-    std::vector v(values.begin(), values.end());
-    return acc.estimate_count(v, utils::SkipListLayerForCountEstimation(acc.size()));
-  }
-
-  // An entry with all values being `Null` won't ever appear in the index,
-  // because it indicates that the properties shouldn't exist. Instead, this
-  // is used as an indicator to estimate the average number of equal elements in
-  // the list (for any given value).
-  return acc.estimate_average_number_of_equals(
-      [](const auto &first, const auto &second) { return first.values == second.values; },
+  auto const estimate_from = [&](auto &skiplist) -> uint64_t {
+    auto acc = skiplist.access();
+    if (!ranges::all_of(values, [](auto &&prop) { return prop.IsNull(); })) {
       // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-      utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
+      std::vector v(values.begin(), values.end());
+      return acc.estimate_count(v, utils::SkipListLayerForCountEstimation(acc.size()));
+    }
+    // An entry with all values being `Null` won't ever appear in the index,
+    // because it indicates that the properties shouldn't exist. Instead, this
+    // is used as an indicator to estimate the average number of equal elements in
+    // the list (for any given value).
+    return acc.estimate_average_number_of_equals(
+        [](const auto &first, const auto &second) { return first.values == second.values; },
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+        utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
+  };
+
+  if (auto const it = index_container_->asc_indices_.find(label); it != index_container_->asc_indices_.end()) {
+    if (auto const it2 = it->second.find(properties); it2 != it->second.end()) {
+      return estimate_from(it2->second->skiplist);
+    }
+  }
+  if (auto const it = index_container_->desc_indices_.find(label); it != index_container_->desc_indices_.end()) {
+    if (auto const it2 = it->second.find(properties); it2 != it->second.end()) {
+      return estimate_from(it2->second->skiplist);
+    }
+  }
+  DMG_ASSERT(
+      false, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
+  return 0;
 }
 
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> bounds) const {
-  auto const it = index_container_->asc_indices_.find(label);
-  DMG_ASSERT(it != index_container_->asc_indices_.end(),
-             "Index for label {} and properties {} doesn't exist",
-             label.AsUint(),
-             JoinPropertiesAsString(properties));
-
-  auto const it2 = it->second.find(properties);
-  DMG_ASSERT(it2 != it->second.end(),
-             "Index for label {} and properties {} doesn't exist",
-             label.AsUint(),
-             JoinPropertiesAsString(properties));
-
-  auto acc = it2->second->skiplist.access();
-
-  auto in_bounds_for_all_prefix = [&](Entry const &entry) {
-    constexpr auto within_bounds = [](PropertyValue const &value, PropertyValueRange const &bounds) -> bool {
-      return bounds.IsValueInRange(value);
+  auto const estimate_from = [&](auto &skiplist) -> uint64_t {
+    auto acc = skiplist.access();
+    auto in_bounds_for_all_prefix = [&](auto const &entry) {
+      constexpr auto within_bounds = [](PropertyValue const &value, PropertyValueRange const &bounds) -> bool {
+        return bounds.IsValueInRange(value);
+      };
+      auto value_within_bounds = [&](auto &&p) { return std::apply(within_bounds, p); };
+      return std::ranges::all_of(std::ranges::views::zip(entry.values.values_, bounds), value_within_bounds);
     };
-    auto value_within_bounds = [&](auto &&p) { return std::apply(within_bounds, p); };
-    return std::ranges::all_of(std::ranges::views::zip(entry.values.values_, bounds), value_within_bounds);
+    return std::ranges::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
   };
-  return std::ranges::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
+
+  if (auto const it = index_container_->asc_indices_.find(label); it != index_container_->asc_indices_.end()) {
+    if (auto const it2 = it->second.find(properties); it2 != it->second.end()) {
+      return estimate_from(it2->second->skiplist);
+    }
+  }
+  if (auto const it = index_container_->desc_indices_.find(label); it != index_container_->desc_indices_.end()) {
+    if (auto const it2 = it->second.find(properties); it2 != it->second.end()) {
+      return estimate_from(it2->second->skiplist);
+    }
+  }
+  DMG_ASSERT(
+      false, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
+  return 0;
 }
 
 std::vector<std::pair<LabelId, std::vector<PropertyPath>>> InMemoryLabelPropertyIndex::ClearIndexStats() {
@@ -1429,11 +1427,12 @@ void InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::Iterator::AdvanceUntil
                        self_->transaction_,
                        self_->view_,
                        self_->label_,
-                       self_->upper_bound_,
                        self_->lower_bound_,
+                       self_->upper_bound_,
                        skip_lower_bound_check_,
                        self_->permutation_helper_,
-                       false);
+                       /*use_cache=*/false,
+                       /*reverse_iteration=*/true);
   } else {
     AdvanceUntilValid_(index_iterator_,
                        typename utils::SkipList<EntryT>::ChunkedIterator{},

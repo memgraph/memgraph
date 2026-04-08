@@ -9442,56 +9442,6 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
       spdlog::info("Metadata of label+property indices are recovered.");
     }
 
-    // Recover DESC label+property indices.
-    {
-      auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Couldn't recover the number of DESC label properties indices.");
-      spdlog::info("Recovering metadata of {} DESC label+properties indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
-        auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Couldn't read label for DESC label properties index.");
-        auto property_paths = get_property_paths("DESC label properties index");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties_desc,
-                                    {get_label_from_id(*label), property_paths},
-                                    "The DESC label+property index already exists!");
-      }
-      spdlog::info("Metadata of DESC label+property indices are recovered.");
-    }
-
-    // Recover DESC label+property indices statistics.
-    {
-      auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Couldn't recover the number of entries for DESC label property statistics!");
-      for (uint64_t i = 0; i < *size; ++i) {
-        const auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Couldn't read label for DESC label property index statistics!");
-        auto property_paths = get_property_paths("DESC label property index statistics");
-        const auto count = snapshot.ReadUint();
-        if (!count) throw RecoveryFailure("Couldn't read count for DESC label property index statistics!");
-        const auto distinct_values_count = snapshot.ReadUint();
-        if (!distinct_values_count)
-          throw RecoveryFailure("Couldn't read distinct values count for DESC label property index statistics!");
-        const auto statistic = snapshot.ReadDouble();
-        if (!statistic)
-          throw RecoveryFailure("Couldn't read statistics value for DESC label-property index statistics!");
-        const auto avg_group_size = snapshot.ReadDouble();
-        if (!avg_group_size)
-          throw RecoveryFailure("Couldn't read average group size for DESC label property index statistics!");
-        const auto avg_degree = snapshot.ReadDouble();
-        if (!avg_degree)
-          throw RecoveryFailure("Couldn't read average degree for DESC label property index statistics!");
-        const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_property_desc_stats.emplace_back(
-            label_id,
-            std::make_pair(std::move(property_paths),
-                           LabelPropertyIndexStats{.count = *count,
-                                                   .distinct_values_count = *distinct_values_count,
-                                                   .statistic = *statistic,
-                                                   .avg_group_size = *avg_group_size,
-                                                   .avg_degree = *avg_degree}));
-      }
-    }
-
     spdlog::info("Recovering metadata of indices.");
     if (!snapshot.SetPosition(info.offset_edge_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
@@ -10374,6 +10324,56 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
+    }
+
+    // Recover DESC label+property indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of DESC label properties indices.");
+      spdlog::info("Recovering metadata of {} DESC label+properties indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for DESC label properties index.");
+        auto property_paths = get_property_paths("DESC label properties index");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties_desc,
+                                    {get_label_from_id(*label), property_paths},
+                                    "The DESC label+property index already exists!");
+      }
+      spdlog::info("Metadata of DESC label+property indices are recovered.");
+    }
+
+    // Recover DESC label+property indices statistics.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of entries for DESC label property statistics!");
+      for (uint64_t i = 0; i < *size; ++i) {
+        const auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for DESC label property index statistics!");
+        auto property_paths = get_property_paths("DESC label property index statistics");
+        const auto count = snapshot.ReadUint();
+        if (!count) throw RecoveryFailure("Couldn't read count for DESC label property index statistics!");
+        const auto distinct_values_count = snapshot.ReadUint();
+        if (!distinct_values_count)
+          throw RecoveryFailure("Couldn't read distinct values count for DESC label property index statistics!");
+        const auto statistic = snapshot.ReadDouble();
+        if (!statistic)
+          throw RecoveryFailure("Couldn't read statistics value for DESC label-property index statistics!");
+        const auto avg_group_size = snapshot.ReadDouble();
+        if (!avg_group_size)
+          throw RecoveryFailure("Couldn't read average group size for DESC label property index statistics!");
+        const auto avg_degree = snapshot.ReadDouble();
+        if (!avg_degree)
+          throw RecoveryFailure("Couldn't read average degree for DESC label property index statistics!");
+        const auto label_id = get_label_from_id(*label);
+        indices_constraints.indices.label_property_desc_stats.emplace_back(
+            label_id,
+            std::make_pair(std::move(property_paths),
+                           LabelPropertyIndexStats{.count = *count,
+                                                   .distinct_values_count = *distinct_values_count,
+                                                   .statistic = *statistic,
+                                                   .avg_group_size = *avg_group_size,
+                                                   .avg_degree = *avg_degree}));
+      }
     }
 
     spdlog::info("Recovering metadata of indices.");

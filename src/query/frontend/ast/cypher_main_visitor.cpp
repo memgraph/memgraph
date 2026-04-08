@@ -464,24 +464,34 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
       throw SemanticException("Index WITH CONFIG requires a literal config map, not an expression.");
     }
     auto config = std::any_cast<ConfigMap>(config_ctx->configMap()->accept(this));
+
+    auto resolve_string = [this](Expression *expr) -> std::optional<std::string> {
+      if (auto *lit = dynamic_cast<PrimitiveLiteral *>(expr)) {
+        return std::string(lit->value_.ValueString());
+      }
+      if (auto *param = dynamic_cast<ParameterLookup *>(expr); param && parameters_) {
+        auto const &val = parameters_->AtTokenPosition(param->token_position_);
+        if (val.IsString()) return std::string(val.ValueString());
+      }
+      return std::nullopt;
+    };
+
     for (auto const &[key_expr, value_expr] : config) {
-      auto *key_lit = dynamic_cast<PrimitiveLiteral *>(key_expr);
-      auto *value_lit = dynamic_cast<PrimitiveLiteral *>(value_expr);
-      if (!key_lit || !value_lit) {
+      auto key = resolve_string(key_expr);
+      auto value = resolve_string(value_expr);
+      if (!key || !value) {
         throw SemanticException("Index config keys and values must be string literals.");
       }
-      auto key = key_lit->value_.ValueString();
-      if (key == "order") {
-        auto value = value_lit->value_.ValueString();
-        if (value == "ASC") {
+      if (*key == "order") {
+        if (*value == "ASC") {
           index_query->order_ = storage::IndexOrder::ASC;
-        } else if (value == "DESC") {
+        } else if (*value == "DESC") {
           index_query->order_ = storage::IndexOrder::DESC;
         } else {
-          throw SemanticException("Invalid index order '{}'. Expected 'ASC' or 'DESC'.", value);
+          throw SemanticException("Invalid index order '{}'. Expected 'ASC' or 'DESC'.", *value);
         }
       } else {
-        throw SemanticException("Unknown index config key '{}'. Supported keys: 'order'.", key);
+        throw SemanticException("Unknown index config key '{}'. Supported keys: 'order'.", *key);
       }
     }
   }
