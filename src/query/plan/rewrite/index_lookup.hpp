@@ -39,7 +39,7 @@
 #include "query/plan/rewrite/general.hpp"
 #include "query/plan/rewrite/order_by_elimination.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/indices/label_properties_indices_info.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 
 import memgraph.utils.fnv;

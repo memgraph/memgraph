@@ -13,6 +13,7 @@
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/index_order.hpp"
+#include "storage/v2/indices/label_properties_indices_info.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -85,16 +86,6 @@ struct PropertyValueRange {
   PropertyValueRange(Type type, std::optional<utils::Bound<PropertyValue>> lower,
                      std::optional<utils::Bound<PropertyValue>> upper)
       : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
-};
-
-// These positions are in reference to the // labels + properties passed into
-// `RelevantLabelPropertiesIndicesInfo`
-struct LabelPropertiesIndicesInfo {
-  std::size_t label_pos_;
-  std::vector<int64_t> properties_pos_;  // -1 means missing
-  LabelId label_;
-  std::vector<PropertyPath> properties_;
-  IndexOrder order_{IndexOrder::ASC};
 };
 
 struct IndexOrderedPropertyValues {

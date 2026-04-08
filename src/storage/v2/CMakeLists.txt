@@ -109,7 +109,9 @@ target_sources(mg-storage-v2
         id_types.hpp
         indices/active_indices.hpp
         indices/active_indices_updater.hpp
+        indices/index_order.hpp
         indices/indices_utils.hpp
+        indices/label_properties_indices_info.hpp
         indices/point_index.hpp
         indices/point_index_change_collector.hpp
         indices/point_index_expensive_header.hpp
