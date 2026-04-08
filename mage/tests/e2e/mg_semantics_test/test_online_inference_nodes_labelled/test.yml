@@ -1,0 +1,9 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    CALL mg_semantics.inference_nodes_labelled('Dog') YIELD node
+    RETURN node.name AS name;
+  output:
+    - name: "Buddy"

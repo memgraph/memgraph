@@ -1,0 +1,6 @@
+- query: >-
+    CALL mg_semantics.graphconfig_show() YIELD key, value
+    WITH key, value ORDER BY key
+    RETURN collect(key) AS keys;
+  output:
+    - keys: ["handleMultival", "handleRDFTypes", "handleVocabUris", "keepCustomDataTypes", "keepLangTag", "typesToLabels"]

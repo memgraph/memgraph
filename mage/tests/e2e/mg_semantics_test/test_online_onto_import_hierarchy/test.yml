@@ -1,0 +1,8 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    MATCH (child)-[:SCO]->(parent) RETURN count(*) AS cnt;
+  output:
+    - cnt: 2

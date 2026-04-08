@@ -1,0 +1,8 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    MATCH (n {uri: 'http://example.org/Alice'}) RETURN n.`http://schema.org/name` AS name;
+  output:
+    - name: "Alice"

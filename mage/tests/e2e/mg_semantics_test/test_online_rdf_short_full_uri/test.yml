@@ -1,0 +1,6 @@
+- query: >-
+    RETURN mg_semantics.rdf_short_form_from_full_uri('http://schema.org/Person') AS short,
+           mg_semantics.rdf_full_uri_from_short_form('schema__Person') AS full;
+  output:
+    - short: "schema__Person"
+      full: "http://schema.org/Person"

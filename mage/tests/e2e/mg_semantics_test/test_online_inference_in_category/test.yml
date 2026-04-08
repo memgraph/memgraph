@@ -1,0 +1,9 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    MATCH (item {uri: 'http://example.org/Physics'}), (cat {uri: 'http://example.org/Science'})
+    RETURN mg_semantics.inference_in_category(item, cat) AS in_cat;
+  output:
+    - in_cat: true

@@ -1,0 +1,10 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    CALL mg_semantics.graphconfig_show() YIELD key, value
+    WITH key, value WHERE key = 'handleMultival'
+    RETURN value;
+  output:
+    - value: "ARRAY"

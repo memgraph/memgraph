@@ -1,0 +1,6 @@
+- query: >-
+    CALL mg_semantics.rdf_stream_inline('<http://example.org/A> <http://schema.org/name> "Alice" .\n<http://example.org/A> <http://schema.org/knows> <http://example.org/B> .', 'N-Triples')
+    YIELD subject, predicate, object, isLiteral
+    RETURN count(*) AS cnt;
+  output:
+    - cnt: 2

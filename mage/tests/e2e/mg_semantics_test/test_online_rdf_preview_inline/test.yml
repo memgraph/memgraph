@@ -1,0 +1,6 @@
+- query: >-
+    CALL mg_semantics.rdf_preview_inline('<http://example.org/A> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://schema.org/Person> .\n<http://example.org/A> <http://schema.org/name> "Alice" .', 'N-Triples')
+    YIELD nodes
+    RETURN size(nodes) AS node_count;
+  output:
+    - node_count: 1

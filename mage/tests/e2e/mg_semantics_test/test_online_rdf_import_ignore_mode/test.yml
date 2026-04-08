@@ -1,0 +1,8 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    MATCH (n:Person) RETURN n.name AS name;
+  output:
+    - name: "Alice"

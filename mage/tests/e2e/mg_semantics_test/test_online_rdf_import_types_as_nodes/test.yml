@@ -1,0 +1,8 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    MATCH ()-[r:HAS_TYPE]->() RETURN count(r) AS cnt;
+  output:
+    - cnt: 2

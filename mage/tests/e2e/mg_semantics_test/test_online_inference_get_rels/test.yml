@@ -1,0 +1,10 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    MATCH (a {uri: 'http://example.org/A'})
+    CALL mg_semantics.inference_get_rels(a, 'KNOWS') YIELD node
+    RETURN node.uri AS target_uri;
+  output:
+    - target_uri: "http://example.org/B"

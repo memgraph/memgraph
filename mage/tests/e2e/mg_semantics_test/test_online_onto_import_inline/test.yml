@@ -1,0 +1,8 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    MATCH (n:Resource) RETURN count(n) AS cnt;
+  output:
+    - cnt: 2

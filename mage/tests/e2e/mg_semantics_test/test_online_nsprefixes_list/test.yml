@@ -1,0 +1,6 @@
+- query: >-
+    CALL mg_semantics.nsprefixes_list() YIELD prefix
+    WITH collect(prefix) AS prefixes
+    RETURN 'rdf' IN prefixes AND 'rdfs' IN prefixes AND 'owl' IN prefixes AND 'schema' IN prefixes AS has_common;
+  output:
+    - has_common: true

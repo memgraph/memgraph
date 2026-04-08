@@ -1,0 +1,5 @@
+query: >
+    RETURN mg_semantics.rdf_get_data_type('"42"^^<http://www.w3.org/2001/XMLSchema#integer>') AS dt;
+
+output:
+  - dt: "http://www.w3.org/2001/XMLSchema#integer"

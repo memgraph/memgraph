@@ -1,0 +1,8 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    CALL mg_semantics.graphconfig_drop() YIELD status RETURN status;
+  output:
+    - status: "Graph config dropped"
