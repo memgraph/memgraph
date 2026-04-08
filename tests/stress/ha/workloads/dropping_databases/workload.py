@@ -13,6 +13,7 @@ All writes go through a coordinator with bolt+routing.
 No instance restarts.
 """
 import random
+import string
 import sys
 
 from cluster_monitor import ClusterMonitor
@@ -34,6 +35,10 @@ NUM_ROUNDS = 10
 
 def generate_vector(dimensions: int) -> list[float]:
     return [random.uniform(-1.0, 1.0) for _ in range(dimensions)]
+
+
+def random_string(length: int = 16) -> str:
+    return "".join(random.choices(string.ascii_lowercase, k=length))
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +78,14 @@ def create_supernode(db_name: str) -> None:
     """Create the single supernode (id=0) that all other nodes connect to."""
     execute_query(
         COORDINATOR,
-        "CREATE (:Node:Supernode {id: 0, embedding: $embedding})",
-        params={"embedding": generate_vector(VECTOR_DIMENSIONS)},
+        "CREATE (:Node:Supernode {id: 0, embedding: $embedding, name: $name, score: $score, active: $active, tags: $tags})",
+        params={
+            "embedding": generate_vector(VECTOR_DIMENSIONS),
+            "name": random_string(),
+            "score": random.uniform(0.0, 100.0),
+            "active": random.choice([True, False]),
+            "tags": [random_string(8) for _ in range(3)],
+        },
         protocol=Protocol.BOLT_ROUTING,
         query_type=QueryType.WRITE,
         apply_retry_mechanism=True,
@@ -88,6 +99,10 @@ def ingest_batch(batch_start: int, batch_size: int, db_name: str) -> None:
         {
             "id": batch_start + i,
             "embedding": generate_vector(VECTOR_DIMENSIONS),
+            "name": random_string(),
+            "score": random.uniform(0.0, 100.0),
+            "active": random.choice([True, False]),
+            "tags": [random_string(8) for _ in range(3)],
         }
         for i in range(batch_size)
     ]
@@ -95,7 +110,7 @@ def ingest_batch(batch_start: int, batch_size: int, db_name: str) -> None:
         COORDINATOR,
         """
         UNWIND $nodes AS n
-        CREATE (node:Node {id: n.id, embedding: n.embedding})
+        CREATE (node:Node {id: n.id, embedding: n.embedding, name: n.name, score: n.score, active: n.active, tags: n.tags})
         WITH node
         MATCH (super:Supernode {id: 0})
         CREATE (node)-[:CONNECTED_TO]->(super)
