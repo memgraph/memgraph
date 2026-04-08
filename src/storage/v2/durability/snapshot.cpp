@@ -11643,40 +11643,22 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
     };
 
-    // Write ASC label+properties indices.
+    // Write ASC label+properties indices and statistics.
     {
-      auto label_property = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
-      write_label_property_indices(label_property);
-      if (snapshot_aborted()) {
-        return std::nullopt;
-      }
+      auto asc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
+      write_label_property_indices(asc_indices);
+      if (snapshot_aborted()) return std::nullopt;
+      write_label_property_stats(asc_indices);
+      if (snapshot_aborted()) return std::nullopt;
     }
 
-    // Write ASC label+property indices statistics.
+    // Write DESC label+properties indices and statistics.
     {
-      auto label_property_path_pair = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
-      write_label_property_stats(label_property_path_pair);
-      if (snapshot_aborted()) {
-        return std::nullopt;
-      }
-    }
-
-    // Write DESC label+properties indices.
-    {
-      auto label_property_desc = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
-      write_label_property_indices(label_property_desc);
-      if (snapshot_aborted()) {
-        return std::nullopt;
-      }
-    }
-
-    // Write DESC label+property indices statistics.
-    {
-      auto label_property_desc = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
-      write_label_property_stats(label_property_desc);
-      if (snapshot_aborted()) {
-        return std::nullopt;
-      }
+      auto desc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
+      write_label_property_indices(desc_indices);
+      if (snapshot_aborted()) return std::nullopt;
+      write_label_property_stats(desc_indices);
+      if (snapshot_aborted()) return std::nullopt;
     }
 
     // Write edge-type indices.
