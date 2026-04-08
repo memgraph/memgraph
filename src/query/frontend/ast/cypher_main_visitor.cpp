@@ -460,10 +460,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
 
   // Parse optional WITH CONFIG {"order": "ASC"|"DESC"}
   if (auto *config_ctx = ctx->configsMap) {
-    if (!config_ctx->configMap()) {
-      throw SemanticException("Index WITH CONFIG requires a literal config map, not an expression.");
-    }
-    auto config = std::any_cast<ConfigMap>(config_ctx->configMap()->accept(this));
+    auto config = std::any_cast<ConfigMap>(config_ctx->accept(this));
 
     auto resolve_string = [this](Expression *expr) -> std::optional<std::string> {
       if (auto *lit = dynamic_cast<PrimitiveLiteral *>(expr)) {
