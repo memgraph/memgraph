@@ -229,6 +229,16 @@ def main():
             print("ERROR: Database drop verification failed!")
             sys.exit(1)
 
+        # Phase 4: Verify cluster health
+        print(f"\n[Round {round_num}] Phase 4: Verify cluster health")
+        if not monitor.verify_all_ready():
+            print("ERROR: Not all replicas are ready after round!")
+            sys.exit(1)
+        if not monitor.verify_instances_up():
+            print("ERROR: Not all instances are up after round!")
+            sys.exit(1)
+        print(f"  OK: all replicas ready and instances up.")
+
         print(f"\n[Round {round_num}] Complete.")
 
     print("\nFinal cluster status:")
