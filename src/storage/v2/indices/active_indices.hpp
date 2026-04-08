@@ -28,6 +28,8 @@ namespace memgraph::storage {
 struct TextIndexActiveIndices;
 struct TextEdgeIndexActiveIndices;
 struct PointIndexActiveIndices;
+struct VectorIndexActiveIndices;
+struct VectorEdgeIndexActiveIndices;
 
 struct IndicesCollection {
   std::vector<storage::LabelId> label_;
@@ -40,14 +42,13 @@ struct IndicesCollection {
 struct ActiveIndices {
   ActiveIndices() = delete;  // to avoid nullptr
 
-  explicit ActiveIndices(std::shared_ptr<LabelIndexActiveIndices> label,
-                         std::shared_ptr<LabelPropertyIndexActiveIndices> label_properties,
-                         std::shared_ptr<EdgeTypeIndexActiveIndices> edge_type,
-                         std::shared_ptr<EdgeTypePropertyIndexActiveIndices> edge_type_properties,
-                         std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property,
-                         std::shared_ptr<TextIndexActiveIndices> text,
-                         std::shared_ptr<TextEdgeIndexActiveIndices> text_edge,
-                         std::shared_ptr<PointIndexActiveIndices> point)
+  explicit ActiveIndices(
+      std::shared_ptr<LabelIndexActiveIndices> label, std::shared_ptr<LabelPropertyIndexActiveIndices> label_properties,
+      std::shared_ptr<EdgeTypeIndexActiveIndices> edge_type,
+      std::shared_ptr<EdgeTypePropertyIndexActiveIndices> edge_type_properties,
+      std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property, std::shared_ptr<TextIndexActiveIndices> text,
+      std::shared_ptr<TextEdgeIndexActiveIndices> text_edge, std::shared_ptr<PointIndexActiveIndices> point,
+      std::shared_ptr<VectorIndexActiveIndices> vector, std::shared_ptr<VectorEdgeIndexActiveIndices> vector_edge)
       : label_{std::move(label)},
         label_properties_{std::move(label_properties)},
         edge_type_{std::move(edge_type)},
@@ -55,7 +56,9 @@ struct ActiveIndices {
         edge_property_{std::move(edge_property)},
         text_{std::move(text)},
         text_edge_{std::move(text_edge)},
-        point_{std::move(point)} {}
+        point_{std::move(point)},
+        vector_{std::move(vector)},
+        vector_edge_{std::move(vector_edge)} {}
 
   /// Factory methods that return a new ActiveIndices with one field replaced.
   /// Keeps layout knowledge in one place and eliminates positional argument mistakes.
@@ -70,6 +73,9 @@ struct ActiveIndices {
   [[nodiscard]] std::shared_ptr<ActiveIndices const> WithText(std::shared_ptr<TextIndexActiveIndices> x) const;
   [[nodiscard]] std::shared_ptr<ActiveIndices const> WithTextEdge(std::shared_ptr<TextEdgeIndexActiveIndices> x) const;
   [[nodiscard]] std::shared_ptr<ActiveIndices const> WithPoint(std::shared_ptr<PointIndexActiveIndices> x) const;
+  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithVector(std::shared_ptr<VectorIndexActiveIndices> x) const;
+  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithVectorEdge(
+      std::shared_ptr<VectorEdgeIndexActiveIndices> x) const;
 
   bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
     // label
@@ -108,6 +114,8 @@ struct ActiveIndices {
   std::shared_ptr<TextIndexActiveIndices> text_;
   std::shared_ptr<TextEdgeIndexActiveIndices> text_edge_;
   std::shared_ptr<PointIndexActiveIndices> point_;
+  std::shared_ptr<VectorIndexActiveIndices> vector_;
+  std::shared_ptr<VectorEdgeIndexActiveIndices> vector_edge_;
 };
 
 using ActiveIndicesPtr = std::shared_ptr<ActiveIndices const>;

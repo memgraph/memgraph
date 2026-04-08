@@ -740,4 +740,22 @@ void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const Propert
   }
 }
 
+// ---- VectorIndex::ActiveIndices (delegates to owning VectorIndex) ----
+
+std::vector<VectorIndexSpec> VectorIndex::ActiveIndices::ListIndices() const {
+  if (!owner_) return {};
+  return owner_->ListIndices();
+}
+
+std::vector<VectorIndexInfo> VectorIndex::ActiveIndices::ListVectorIndicesInfo() const {
+  if (!owner_) return {};
+  return owner_->ListVectorIndicesInfo();
+}
+
+std::optional<uint64_t> VectorIndex::ActiveIndices::ApproximateNodesVectorCount(LabelId label,
+                                                                                PropertyId property) const {
+  if (!owner_) return std::nullopt;
+  return owner_->ApproximateNodesVectorCount(label, property);
+}
+
 }  // namespace memgraph::storage

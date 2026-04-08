@@ -69,6 +69,14 @@ struct VectorEdgeIndexRecovery {
                                       std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec);
 };
 
+/// Abstract interface for vector edge index metadata queries accessed through ActiveIndices snapshots.
+struct VectorEdgeIndexActiveIndices {
+  virtual ~VectorEdgeIndexActiveIndices() = default;
+  virtual std::vector<VectorEdgeIndexSpec> ListIndices() const = 0;
+  virtual std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const = 0;
+  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+};
+
 /// @class VectorEdgeIndex
 /// @brief High-level interface for managing vector edge indexes.
 ///
@@ -108,10 +116,27 @@ class VectorEdgeIndex {
 
   using VectorSearchEdgeResults = std::vector<std::tuple<EdgeIndexEntry, double, double>>;
 
+  /// Concrete ActiveIndices implementation that delegates to VectorEdgeIndex const methods.
+  struct ActiveIndices : VectorEdgeIndexActiveIndices {
+    explicit ActiveIndices(VectorEdgeIndex const *owner = nullptr) : owner_(owner) {}
+
+    std::vector<VectorEdgeIndexSpec> ListIndices() const override;
+    std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const override;
+    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override;
+
+   private:
+    VectorEdgeIndex const *owner_;
+  };
+
   VectorEdgeIndex();
   ~VectorEdgeIndex();
   VectorEdgeIndex(VectorEdgeIndex &&) noexcept;
   VectorEdgeIndex &operator=(VectorEdgeIndex &&) noexcept;
+
+  /// Returns the current active indices snapshot for use in transactions.
+  auto GetActiveIndices() -> std::shared_ptr<VectorEdgeIndexActiveIndices> {
+    return std::make_shared<ActiveIndices>(this);
+  }
 
   /// @brief Creates a new index based on the provided specification.
   bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
