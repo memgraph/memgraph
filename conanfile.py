@@ -54,6 +54,8 @@ class Memgraph(ConanFile):
         # causing bcrypt's self-test to fail. saslauthd is a Unix auth daemon
         # irrelevant to Kafka SASL client usage.
         "cyrus-sasl/*:with_saslauthd": False,
+        "boost/*:without_stacktrace": True,
+        "boost/*:without_locale": True,
     }
 
     def requirements(self):
@@ -84,8 +86,6 @@ class Memgraph(ConanFile):
         self.requires(
             "boost/1.88.0",
             options={
-                "without_stacktrace": True,
-                "without_locale": True,
                 "extra_b2_flags": f"cxxflags=--target={target_triple} cflags=--target={target_triple} linkflags=--target={target_triple}",
             },
         )
