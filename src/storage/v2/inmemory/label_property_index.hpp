@@ -362,6 +362,23 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         Transaction *transaction, size_t num_chunks);
 
    private:
+    // Finds the index for (label, properties) in asc_indices_ or desc_indices_ and applies fn to it.
+    // Returns std::nullopt if the index doesn't exist in either map.
+    template <typename Fn>
+    auto WithFoundIndex(LabelId label, std::span<PropertyPath const> properties, Fn &&fn) const
+        -> std::optional<uint64_t> {
+      auto const try_find = [&](auto &indices_map) -> std::optional<uint64_t> {
+        auto it = indices_map.find(label);
+        if (it == indices_map.end()) return std::nullopt;
+        auto it2 = it->second.find(properties);
+        if (it2 == it->second.end()) return std::nullopt;
+        return fn(*it2->second);
+      };
+      if (auto r = try_find(index_container_->asc_indices_)) return r;
+      if (auto r = try_find(index_container_->desc_indices_)) return r;
+      return std::nullopt;
+    }
+
     std::shared_ptr<IndexContainer const> index_container_;
   };
 
