@@ -526,11 +526,8 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
   };
 
   try {
-    if (order == IndexOrder::ASC) {
-      populate(GetAscIndividualIndex(label, properties));
-    } else {
-      populate(GetDescIndividualIndex(label, properties));
-    }
+    (order == IndexOrder::ASC) ? populate(GetAscIndividualIndex(label, properties))
+                               : populate(GetDescIndividualIndex(label, properties));
   } catch (const PopulateCancel &) {
     DropIndex(label, properties, updater, order);
     return std::unexpected{IndexPopulateError::Cancellation};
@@ -544,16 +541,13 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
 
 bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths const &properties,
                                               uint64_t commit_timestamp, IndexOrder order) {
-  if (order == IndexOrder::ASC) {
-    auto index = GetAscIndividualIndex(label, properties);
+  auto publish = [&](auto &&index) {
     if (!index) return false;
     index->Publish(commit_timestamp);
-  } else {
-    auto index = GetDescIndividualIndex(label, properties);
-    if (!index) return false;
-    index->Publish(commit_timestamp);
-  }
-  return true;
+    return true;
+  };
+  return (order == IndexOrder::ASC) ? publish(GetAscIndividualIndex(label, properties))
+                                    : publish(GetDescIndividualIndex(label, properties));
 }
 
 template <typename EntryT>
@@ -700,24 +694,19 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
     auto new_index = std::make_shared<IndexContainer>(*index);
 
-    bool dropped = false;
-    if (order == IndexOrder::ASC) {
-      auto it1 = new_index->asc_indices_.find(label);
-      if (it1 == new_index->asc_indices_.end()) return false;
+    auto const drop_from = [&](auto &indices_map, auto &reverse_lookup) {
+      auto it1 = indices_map.find(label);
+      if (it1 == indices_map.end()) return false;
       auto &properties_map = it1->second;
-      dropped = DropFromIndicesMap(properties_map, new_index->asc_reverse_lookup_, properties, label);
-      if (dropped && properties_map.empty()) {
-        new_index->asc_indices_.erase(it1);
+      bool ok = DropFromIndicesMap(properties_map, reverse_lookup, properties, label);
+      if (ok && properties_map.empty()) {
+        indices_map.erase(it1);
       }
-    } else {
-      auto it1 = new_index->desc_indices_.find(label);
-      if (it1 == new_index->desc_indices_.end()) return false;
-      auto &properties_map = it1->second;
-      dropped = DropFromIndicesMap(properties_map, new_index->desc_reverse_lookup_, properties, label);
-      if (dropped && properties_map.empty()) {
-        new_index->desc_indices_.erase(it1);
-      }
-    }
+      return ok;
+    };
+
+    bool dropped = (order == IndexOrder::ASC) ? drop_from(new_index->asc_indices_, new_index->asc_reverse_lookup_)
+                                              : drop_from(new_index->desc_indices_, new_index->desc_reverse_lookup_);
 
     if (!dropped) return false;
 
@@ -1049,26 +1038,16 @@ typename InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator InMemoryLabelPro
 
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties) const {
-  // Check ASC indices first, then DESC.
-  if (auto it = index_container_->asc_indices_.find(label); it != index_container_->asc_indices_.end()) {
-    if (auto it2 = it->second.find(properties); it2 != it->second.end()) {
-      return it2->second->skiplist.size();
-    }
-  }
-  if (auto it = index_container_->desc_indices_.find(label); it != index_container_->desc_indices_.end()) {
-    if (auto it2 = it->second.find(properties); it2 != it->second.end()) {
-      return it2->second->skiplist.size();
-    }
-  }
+  auto result = WithFoundIndex(label, properties, [](auto &index) -> uint64_t { return index.skiplist.size(); });
   DMG_ASSERT(
-      false, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
-  return 0;
+      result, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
+  return *result;
 }
 
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValue const> values) const {
-  auto const estimate_from = [&](auto &skiplist) -> uint64_t {
-    auto acc = skiplist.access();
+  auto result = WithFoundIndex(label, properties, [&](auto &index) -> uint64_t {
+    auto acc = index.skiplist.access();
     if (!ranges::all_of(values, [](auto &&prop) { return prop.IsNull(); })) {
       // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
       std::vector v(values.begin(), values.end());
@@ -1082,27 +1061,16 @@ uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
         [](const auto &first, const auto &second) { return first.values == second.values; },
         // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
         utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
-  };
-
-  if (auto const it = index_container_->asc_indices_.find(label); it != index_container_->asc_indices_.end()) {
-    if (auto const it2 = it->second.find(properties); it2 != it->second.end()) {
-      return estimate_from(it2->second->skiplist);
-    }
-  }
-  if (auto const it = index_container_->desc_indices_.find(label); it != index_container_->desc_indices_.end()) {
-    if (auto const it2 = it->second.find(properties); it2 != it->second.end()) {
-      return estimate_from(it2->second->skiplist);
-    }
-  }
+  });
   DMG_ASSERT(
-      false, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
-  return 0;
+      result, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
+  return *result;
 }
 
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> bounds) const {
-  auto const estimate_from = [&](auto &skiplist) -> uint64_t {
-    auto acc = skiplist.access();
+  auto result = WithFoundIndex(label, properties, [&](auto &index) -> uint64_t {
+    auto acc = index.skiplist.access();
     auto in_bounds_for_all_prefix = [&](auto const &entry) {
       constexpr auto within_bounds = [](PropertyValue const &value, PropertyValueRange const &bounds) -> bool {
         return bounds.IsValueInRange(value);
@@ -1111,21 +1079,10 @@ uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
       return std::ranges::all_of(std::ranges::views::zip(entry.values.values_, bounds), value_within_bounds);
     };
     return std::ranges::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
-  };
-
-  if (auto const it = index_container_->asc_indices_.find(label); it != index_container_->asc_indices_.end()) {
-    if (auto const it2 = it->second.find(properties); it2 != it->second.end()) {
-      return estimate_from(it2->second->skiplist);
-    }
-  }
-  if (auto const it = index_container_->desc_indices_.find(label); it != index_container_->desc_indices_.end()) {
-    if (auto const it2 = it->second.find(properties); it2 != it->second.end()) {
-      return estimate_from(it2->second->skiplist);
-    }
-  }
+  });
   DMG_ASSERT(
-      false, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
-  return 0;
+      result, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
+  return *result;
 }
 
 std::vector<std::pair<LabelId, std::vector<PropertyPath>>> InMemoryLabelPropertyIndex::ClearIndexStats() {
