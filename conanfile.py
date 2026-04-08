@@ -49,6 +49,11 @@ class Memgraph(ConanFile):
         "aws-sdk-cpp/*:iam": False,
         "aws-sdk-cpp/*:identity-management": True,
         "aws-sdk-cpp/*:transfer": True,
+        # Disable saslauthd in cyrus-sasl — it adds -lcrypt (system libcrypt.so)
+        # whose crypt_rn symbol collides with our vendored libbcrypt's crypt_rn,
+        # causing bcrypt's self-test to fail. saslauthd is a Unix auth daemon
+        # irrelevant to Kafka SASL client usage.
+        "cyrus-sasl/*:with_saslauthd": False,
     }
 
     def requirements(self):
