@@ -35,13 +35,13 @@ InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry> EdgeImpo
     Transaction *transaction) const {
   auto index = in_memory_indices_.label_property_index_->GetActiveIndices();
   return static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(index.get())
-      ->Vertices(label,
-                 std::array{PropertyPath{property}},
-                 std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
-                 vertices_.access(),
-                 view,
-                 storage,
-                 transaction);
+      ->Vertices<InMemoryLabelPropertyIndex::Entry>(label,
+                                                    std::array{PropertyPath{property}},
+                                                    std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
+                                                    vertices_.access(),
+                                                    view,
+                                                    storage,
+                                                    transaction);
 }
 
 bool EdgeImportModeCache::CreateIndex(

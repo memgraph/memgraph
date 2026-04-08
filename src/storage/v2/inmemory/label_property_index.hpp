@@ -68,6 +68,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   template <typename EntryT = Entry>
   struct IndividualIndex {
+    using EntryType = EntryT;
+
     explicit IndividualIndex(PropertiesPermutationHelper permutations_helper)
         : permutations_helper(std::move(permutations_helper)) {}
 
@@ -100,30 +102,25 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   using DescEntryDetail = std::tuple<PropertiesPaths const *, IndividualIndex<DescEntry> *>;
   using DescReverseLookup = std::unordered_map<PropertyId, std::multimap<LabelId, DescEntryDetail>>;
 
-  // Backward-compatible aliases
-  using PropertiesIndices = AscPropertiesIndices;
-  using LabelPropertiesIndices = AscLabelPropertiesIndices;
-  using EntryDetail = AscEntryDetail;
-  using ReverseLabelPropertiesIndices = AscReverseLookup;
-
   struct IndexContainer {
+   private:
+    template <typename IndicesMap, typename ReverseLookup>
+    static void BuildReverseLookup(IndicesMap const &indices, ReverseLookup &reverse_lookup) {
+      for (auto const &[label, by_label] : indices) {
+        for (auto const &[propertyPaths, entry] : by_label) {
+          using EntryDetailT = std::tuple<PropertiesPaths const *, typename std::decay_t<decltype(*entry)> *>;
+          auto const ed = EntryDetailT{&propertyPaths, entry.get()};
+          for (auto const &prop : propertyPaths) {
+            reverse_lookup[prop[0]].emplace(label, ed);
+          }
+        }
+      }
+    }
+
+   public:
     IndexContainer(IndexContainer const &other) : asc_indices_(other.asc_indices_), desc_indices_(other.desc_indices_) {
-      for (auto const &[label, by_label] : asc_indices_) {
-        for (auto const &[propertyPaths, entry] : by_label) {
-          auto const ed = AscEntryDetail{&propertyPaths, entry.get()};
-          for (auto const &prop : propertyPaths) {
-            asc_reverse_lookup_[prop[0]].emplace(label, ed);
-          }
-        }
-      }
-      for (auto const &[label, by_label] : desc_indices_) {
-        for (auto const &[propertyPaths, entry] : by_label) {
-          auto const ed = DescEntryDetail{&propertyPaths, entry.get()};
-          for (auto const &prop : propertyPaths) {
-            desc_reverse_lookup_[prop[0]].emplace(label, ed);
-          }
-        }
-      }
+      BuildReverseLookup(asc_indices_, asc_reverse_lookup_);
+      BuildReverseLookup(desc_indices_, desc_reverse_lookup_);
     }
 
     IndexContainer(IndexContainer &&) = default;
@@ -141,20 +138,15 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     DescReverseLookup desc_reverse_lookup_;
   };
 
-  struct AscAllIndicesEntry {
-    std::shared_ptr<IndividualIndex<Entry>> index_;
+  template <typename EntryT>
+  struct AllIndicesEntry_ {
+    std::shared_ptr<IndividualIndex<EntryT>> index_;
     LabelId label_;
     PropertiesPaths properties_;
   };
 
-  struct DescAllIndicesEntry {
-    std::shared_ptr<IndividualIndex<DescEntry>> index_;
-    LabelId label_;
-    PropertiesPaths properties_;
-  };
-
-  // Backward-compatible alias
-  using AllIndicesEntry = AscAllIndicesEntry;
+  using AscAllIndicesEntry = AllIndicesEntry_<Entry>;
+  using DescAllIndicesEntry = AllIndicesEntry_<DescEntry>;
 
   using PropertiesIndicesStats = std::map<PropertiesPaths, storage::LabelPropertyIndexStats, Compare>;
 
@@ -340,21 +332,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                 std::span<PropertyValueRange const> bounds) const -> uint64_t override;
 
+    template <typename EntryT>
     auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-                  View view, Storage *storage, Transaction *transaction) -> Iterable<Entry>;
+                  View view, Storage *storage, Transaction *transaction) -> Iterable<EntryT>;
 
+    template <typename EntryT>
     auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
                   memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
-                  Storage *storage, Transaction *transaction) -> Iterable<Entry>;
-
-    auto DescVertices(LabelId label, std::span<PropertyPath const> properties,
-                      std::span<PropertyValueRange const> range, View view, Storage *storage, Transaction *transaction)
-        -> Iterable<DescEntry>;
-
-    auto DescVertices(LabelId label, std::span<PropertyPath const> properties,
-                      std::span<PropertyValueRange const> range,
-                      memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
-                      Storage *storage, Transaction *transaction) -> Iterable<DescEntry>;
+                  Storage *storage, Transaction *transaction) -> Iterable<EntryT>;
 
     ChunkedIterable<Entry> ChunkedVertices(
         LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
@@ -377,6 +362,16 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       if (auto r = try_find(index_container_->asc_indices_)) return r;
       if (auto r = try_find(index_container_->desc_indices_)) return r;
       return std::nullopt;
+    }
+
+    // Returns the indices map (asc or desc) based on EntryT.
+    template <typename EntryT>
+    auto const &IndicesMap() const {
+      if constexpr (std::same_as<EntryT, DescEntry>) {
+        return index_container_->desc_indices_;
+      } else {
+        return index_container_->asc_indices_;
+      }
     }
 
     std::shared_ptr<IndexContainer const> index_container_;
@@ -408,10 +403,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
  private:
   void CleanupAllIndices();
-  auto GetAscIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
-      -> std::shared_ptr<IndividualIndex<Entry>>;
-  auto GetDescIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
-      -> std::shared_ptr<IndividualIndex<DescEntry>>;
+
+  template <typename EntryT>
+  auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
+      -> std::shared_ptr<IndividualIndex<EntryT>>;
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};
