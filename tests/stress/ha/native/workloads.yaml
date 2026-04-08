@@ -62,3 +62,6 @@ workloads:
 
   - config: ../workloads/concurrent_edge_supernode_mixed_commit_abort/workload.yaml
     enabled: true
+
+  - config: ../workloads/dropping_databases/workload.yaml
+    enabled: true

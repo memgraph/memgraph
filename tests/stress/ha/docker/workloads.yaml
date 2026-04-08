@@ -47,6 +47,9 @@ workloads:
   - config: ../workloads/vector_index_concurrent_ops/workload.yaml
     enabled: true
 
+  - config: ../workloads/dropping_databases/workload.yaml
+    enabled: true
+
   # Running currently only as the native test. Too complex at the moment to set-up root access for Docker test
   - config: ../workloads/rpc_timeout/workload.yaml
     enabled: false
