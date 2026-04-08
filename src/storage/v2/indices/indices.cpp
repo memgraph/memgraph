@@ -68,7 +68,8 @@ void Indices::DropGraphClearIndices() {
                                          edge_type_property_index_->GetActiveIndices(),
                                          edge_property_index_->GetActiveIndices(),
                                          text_index_.GetActiveIndices(),
-                                         text_edge_index_.GetActiveIndices());
+                                         text_edge_index_.GetActiveIndices(),
+                                         point_index_.GetActiveIndices());
   });
 }
 
@@ -137,7 +138,8 @@ Indices::Indices(const Config &config, StorageMode storage_mode)
                                          edge_type_property_index_->GetActiveIndices(),
                                          edge_property_index_->GetActiveIndices(),
                                          text_index_.GetActiveIndices(),
-                                         text_edge_index_.GetActiveIndices());
+                                         text_edge_index_.GetActiveIndices(),
+                                         point_index_.GetActiveIndices());
   });
 }
 
@@ -190,7 +192,7 @@ void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, Prop
   }
 }
 
-bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) {
+bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) const {
   return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property) ||
          vector_edge_.IsInteresting(property);
 }

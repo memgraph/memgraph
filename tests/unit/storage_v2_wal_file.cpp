@@ -62,7 +62,8 @@ class DeltaGenerator final {
                            std::make_unique<memgraph::storage::InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgePropertyIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::TextIndex::ActiveIndices>(),
-                           std::make_unique<memgraph::storage::TextEdgeIndex::ActiveIndices>()),
+                           std::make_unique<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
+                           std::make_unique<memgraph::storage::PointIndexStorage::ActiveIndices>()),
                        memgraph::storage::ActiveConstraints{
                            std::make_unique<memgraph::storage::ExistenceConstraints::ActiveConstraints>(),
                            std::make_unique<memgraph::storage::InMemoryUniqueConstraints::ActiveConstraints>(),

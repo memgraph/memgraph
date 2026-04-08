@@ -327,7 +327,7 @@ class InMemoryStorage final : public Storage {
     }
 
     std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
-      return storage_->indices_.point_index_.ApproximatePointCount(label, property);
+      return transaction_.active_indices_->point_->ApproximatePointCount(label, property);
     }
 
     std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {

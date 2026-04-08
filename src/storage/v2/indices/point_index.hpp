@@ -85,30 +85,59 @@ struct PointIndexContext {
   std::shared_ptr<index_container_t> current_indexes_;
 };
 
+struct ActiveIndicesUpdater;
+
+/// Abstract interface for point index metadata queries accessed through ActiveIndices snapshots.
+struct PointIndexActiveIndices {
+  virtual ~PointIndexActiveIndices() = default;
+  virtual bool PointIndexExists(LabelId labelId, PropertyId propertyId) const = 0;
+  virtual std::optional<uint64_t> ApproximatePointCount(LabelId labelId, PropertyId propertyId) const = 0;
+  virtual std::vector<std::pair<LabelId, PropertyId>> ListIndices() const = 0;
+};
+
 struct PointIndexStorage {
-  // TODO: consider passkey idiom
+  /// Concrete ActiveIndices implementation holding an immutable snapshot of the index container.
+  struct ActiveIndices : PointIndexActiveIndices {
+    explicit ActiveIndices(std::shared_ptr<index_container_t> indexes = std::make_shared<index_container_t>())
+        : indexes_(std::move(indexes)) {}
+
+    bool PointIndexExists(LabelId labelId, PropertyId propertyId) const override;
+    std::optional<uint64_t> ApproximatePointCount(LabelId labelId, PropertyId propertyId) const override;
+    std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
+
+   private:
+    std::shared_ptr<index_container_t> indexes_;
+  };
 
   // Query (modify index set)
   bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                        ActiveIndicesUpdater const &updater,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
-  bool DropPointIndex(LabelId label, PropertyId property);
+  bool DropPointIndex(LabelId label, PropertyId property, ActiveIndicesUpdater const &updater);
 
   // Transaction (establish what to collect + able to build next index)
   auto CreatePointIndexContext() const -> PointIndexContext { return PointIndexContext{indexes_}; }
 
+  /// Returns the current active indices snapshot for use in transactions.
+  auto GetActiveIndices() -> std::shared_ptr<PointIndexActiveIndices> {
+    return std::make_shared<ActiveIndices>(indexes_);
+  }
+
   // Commit
-  void InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context);
+  void InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context,
+                            ActiveIndicesUpdater const &updater);
 
   void Clear();
 
+  /// ListIndices on the owning class (for snapshot creation, outside transaction context).
   std::vector<std::pair<LabelId, PropertyId>> ListIndices();
-
-  std::optional<uint64_t> ApproximatePointCount(LabelId labelId, PropertyId propertyId);
 
   bool PointIndexExists(LabelId labelId, PropertyId propertyId);
 
  private:
   std::shared_ptr<index_container_t> indexes_ = std::make_shared<index_container_t>();
+
+  void PublishActiveIndices(ActiveIndicesUpdater const &updater);
 };
 
 }  // namespace memgraph::storage

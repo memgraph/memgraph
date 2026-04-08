@@ -129,7 +129,8 @@ class SnapshotRpcProgressTest : public ::testing::Test {
                                            std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
                                            std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>(),
                                            std::make_shared<memgraph::storage::TextIndex::ActiveIndices>(),
-                                           std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>());
+                                           std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
+                                           std::make_shared<memgraph::storage::PointIndexStorage::ActiveIndices>());
     });
   }
 };
@@ -537,7 +538,9 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
+  InitActiveIndicesStore();
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
+  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
@@ -564,7 +567,9 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 40);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
+  InitActiveIndicesStore();
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
+  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
