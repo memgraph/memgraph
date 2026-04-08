@@ -63,22 +63,7 @@ class Memgraph(ConanFile):
         self.requires("abseil/20250512.1")
         self.requires("antlr4-cppruntime/4.13.2")
         self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
-        self.requires(
-            "aws-sdk-cpp/1.11.692",
-            options={
-                "config": True,
-                "s3": True,
-                "monitoring": False,
-                "queues": False,
-                "sqs": False,
-                "access-management": False,
-                "cognito-identity": True,
-                "iam": False,
-                "identity-management": True,
-                "transfer": True,
-                "text-to-speech": False,
-            },
-        )
+        self.requires("aws-sdk-cpp/1.11.692")
         self.requires("asio/1.36.0")
         arch_to_triple = {"x86_64": "x86_64", "armv8": "aarch64"}
         machine = arch_to_triple.get(str(self.settings.arch), str(self.settings.arch))

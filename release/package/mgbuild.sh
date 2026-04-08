@@ -601,9 +601,6 @@ build_memgraph () {
     docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add artifactory $conan_remote --force"
   fi
 
-  # Install our config
-  docker exec -u mg "$build_container" bash -c "$CMD_START && conan config install ./conan_config"
-
   # Register vendored recipes as a local-recipes-index remote
   # NOTE: also registered in build.sh — keep in sync
   docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add memgraph-recipes /home/mg/memgraph/conan_recipes -t local-recipes-index --force"

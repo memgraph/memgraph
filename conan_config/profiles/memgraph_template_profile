@@ -36,4 +36,15 @@ tools.build:cflags+=["-fsanitize={{ sanitizers|join(',') }}", "-fno-omit-frame-p
 tools.build:cxxflags+=["-fsanitize={{ sanitizers|join(',') }}", "-fno-omit-frame-pointer"{% if enable_ubsan %}, "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ os.path.join(current_dir, 'tools', 'ubsan.ignore') }}"{% endif %}]
 tools.build:exelinkflags+=["-fsanitize={{ sanitizers|join(',') }}"{% if enable_ubsan %}, "-fno-sanitize=vptr,function"{% endif %}]
 tools.build:sharedlinkflags+=["-fsanitize={{ sanitizers|join(',') }}"{% if enable_ubsan %}, "-fno-sanitize=vptr,function"{% endif %}]
+# b2's clang.jam init-flags-cross generates --target=x86_64-pc-linux for Linux,
+# but clang's ASAN runtime lives at x86_64-unknown-linux-gnu. Any b2-driven
+# link that needs -fsanitize=address fails because the ASAN runtime can't be
+# found. This breaks Boost.Iostreams' ac auto-detection of zlib/bzip2.
+# Clear sanitizer flags for the Boost build as a workaround. Boost is a static
+# library so the ASAN runtime in the final binary still intercepts all calls.
+# Upstream: https://github.com/bfgroup/b2/issues/584
+boost/*:tools.build:cflags=[]
+boost/*:tools.build:cxxflags=[]
+boost/*:tools.build:exelinkflags=[]
+boost/*:tools.build:sharedlinkflags=[]
 {% endif %}
