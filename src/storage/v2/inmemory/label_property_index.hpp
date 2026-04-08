@@ -341,12 +341,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                                 std::span<PropertyValueRange const> bounds) const -> uint64_t override;
 
     auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-                  View view, Storage *storage, Transaction *transaction, IndexOrder order = IndexOrder::ASC)
-        -> Iterable<Entry>;
+                  View view, Storage *storage, Transaction *transaction) -> Iterable<Entry>;
 
     auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
                   memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
-                  Storage *storage, Transaction *transaction, IndexOrder order = IndexOrder::ASC) -> Iterable<Entry>;
+                  Storage *storage, Transaction *transaction) -> Iterable<Entry>;
 
     auto DescVertices(LabelId label, std::span<PropertyPath const> properties,
                       std::span<PropertyValueRange const> range, View view, Storage *storage, Transaction *transaction)
