@@ -1,2 +1,7 @@
 
 src:/opt/toolchain-v7/lib/clang/20/include/emmintrin.h
+
+# librdkafka: left shift of negative value in zig-zag varint encoder (rdvarint.h:71)
+# Well-defined in practice (two's complement) but UB per the C standard.
+# TODO: submit fix upstream — cast to uint64_t before shifting.
+src:*/rdvarint.h
