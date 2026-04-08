@@ -248,6 +248,9 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
     }
     ident->MapTo(CreateSymbol(ident->name_, true));
   }
+  if (call_proc.where_) {
+    call_proc.where_->Accept(*this);
+  }
   return true;
 }
 
