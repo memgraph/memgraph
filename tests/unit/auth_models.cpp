@@ -155,7 +155,8 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_EQ(etp.value(), 27);
     const auto &etp_rules = auth_object.fine_grained_access_handler().edge_type_permissions().GetPermissions();
     ASSERT_EQ(etp_rules.size(), 1);
-    ASSERT_EQ(etp_rules[0].symbols, std::unordered_set<std::string>{"E"});
+    ASSERT_EQ(etp_rules[0].symbols.size(), 1);
+    ASSERT_TRUE(etp_rules[0].symbols.contains("E"));
     ASSERT_EQ(static_cast<uint64_t>(etp_rules[0].permissions), 1);
 
     const auto &lp = auth_object.fine_grained_access_handler().label_permissions().GetGlobalPermission();

@@ -46,11 +46,10 @@ bool IsAuthorizedLabels(memgraph::auth::FineGrainedAccessPermissions const &perm
     return true;
   }
 
-  auto const label_names = labels |
-                           rv::transform([dba](memgraph::storage::LabelId label) { return dba->LabelToName(label); }) |
-                           r::to_vector;
-
-  return permissions.Has(std::span<const std::string>(label_names),
+  std::vector<std::string_view> label_views;
+  label_views.reserve(labels.size());
+  for (auto label : labels) label_views.push_back(dba->LabelToName(label));
+  return permissions.Has(label_views,
                          memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
          memgraph::auth::PermissionLevel::GRANT;
 }
@@ -78,8 +77,8 @@ bool IsAuthorizedEdgeType(memgraph::auth::FineGrainedAccessPermissions const &pe
     return true;
   }
 
-  auto const &edge_type_name = dba->EdgeTypeToName(edgeType);
-  return permissions.Has(std::span{&edge_type_name, 1},
+  std::string_view edge_type_name = dba->EdgeTypeToName(edgeType);
+  return permissions.Has(std::span<const std::string_view>{&edge_type_name, 1},
                          memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
          memgraph::auth::PermissionLevel::GRANT;
 }
