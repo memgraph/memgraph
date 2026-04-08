@@ -417,6 +417,7 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           EncodeLabelProperties(encoder, mapper(), label_id, property_paths);
+          encoder.WriteUint(static_cast<uint64_t>(memgraph::storage::IndexOrder::ASC));
         });
         break;
       }
@@ -543,9 +544,9 @@ class DeltaGenerator final {
           case LABEL_INDEX_STATS_SET:
             return {WalLabelIndexStatsSet{label, stats}};
           case LABEL_PROPERTIES_INDEX_CREATE:
-            return {WalLabelPropertyIndexCreate{label, {property_paths_as_str}}};
+            return {WalLabelPropertyIndexCreate{label, {property_paths_as_str}, memgraph::storage::IndexOrder::ASC}};
           case LABEL_PROPERTIES_INDEX_DROP:
-            return {WalLabelPropertyIndexDrop{label, {property_paths_as_str}}};
+            return {WalLabelPropertyIndexDrop{label, {property_paths_as_str}, memgraph::storage::IndexOrder::ASC}};
           case LABEL_PROPERTIES_INDEX_STATS_SET:
             return {WalLabelPropertyIndexStatsSet{label, {property_paths_as_str}, stats}};
           case LABEL_PROPERTIES_INDEX_STATS_CLEAR:
