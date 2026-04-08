@@ -1,6 +1,5 @@
 {% set toolchain_path = os.getenv("MG_TOOLCHAIN_ROOT", "/ERROR_MG_TOOLCHAIN_ROOT_NOT_SET") %}
 {% set target_arch = {"aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
-{% set target_triple = platform.machine() + "-linux-gnu" %}
 {% set current_dir = os.getcwd() %}
 
 # Sanitizer configuration - will be set via environment variables
@@ -38,8 +37,3 @@ tools.build:cxxflags+=["-fsanitize={{ sanitizers|join(',') }}", "-fno-omit-frame
 tools.build:exelinkflags+=["-fsanitize={{ sanitizers|join(',') }}"{% if enable_ubsan %}, "-fno-sanitize=vptr,function"{% endif %}]
 tools.build:sharedlinkflags+=["-fsanitize={{ sanitizers|join(',') }}"{% if enable_ubsan %}, "-fno-sanitize=vptr,function"{% endif %}]
 {% endif %}
-
-[options]
-boost/*:without_stacktrace=True
-boost/*:without_locale=True
-boost/*:extra_b2_flags=cxxflags=--target={{ target_triple }} cflags=--target={{ target_triple }} linkflags=--target={{ target_triple }}
