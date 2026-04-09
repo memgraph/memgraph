@@ -2079,7 +2079,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   if (vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
-  } else if (vector_edge_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
+  } else if (vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   } else {
     return std::unexpected{IndexDefinitionError{}};

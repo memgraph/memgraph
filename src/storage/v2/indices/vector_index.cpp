@@ -180,7 +180,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, NameIdMapper *name_id_m
   auto &mg_index = index_item.mg_index;
   auto &spec = index_item.spec;
   {
-    auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+    auto guard = std::lock_guard{mg_index.mutex};
 
     const auto dimension = mg_index.index.dimensions();
     CheckGraphMemoryForIndexDrop(index_name, mg_index.index.size(), dimension);
