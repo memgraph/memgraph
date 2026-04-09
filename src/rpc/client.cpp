@@ -17,10 +17,16 @@ Client::Client(io::network::Endpoint endpoint, communication::ClientContext *con
                std::unordered_map<std::string_view, int> const &rpc_timeouts_ms)
     : endpoint_(std::move(endpoint)), context_(context), rpc_timeouts_ms_(rpc_timeouts_ms) {}
 
+void Client::Abort() {
+  // Shut down the socket to abort any pending read, write, or connect
+  // operations on another thread. Does NOT destroy the client object,
+  // so it is safe to call concurrently with an in-flight RPC.
+  if (!client_) return;
+  client_->Shutdown();
+}
+
 void Client::Shutdown() {
   if (!client_) return;
-  // We need to call Shutdown on the client to abort any pending read or
-  // write operations.
   client_->Shutdown();
   client_ = std::nullopt;
 }
