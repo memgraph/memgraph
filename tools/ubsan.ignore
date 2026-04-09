@@ -5,3 +5,6 @@ src:/opt/toolchain-v7/lib/clang/20/include/emmintrin.h
 # Well-defined in practice (two's complement) but UB per the C standard.
 # Upstream: https://github.com/confluentinc/librdkafka/issues/5395
 src:*/rdvarint.h
+
+# librdkafka: signed integer overflow in timestamp conversion (rdkafka_int.h:1171)
+src:*/rdkafka_int.h
