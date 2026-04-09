@@ -3,7 +3,7 @@ import os
 from conan import ConanFile
 from conan.errors import ConanInvalidConfiguration
 from conan.tools.env import VirtualBuildEnv
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, trim_conandata
 from conan.tools.gnu import Autotools, AutotoolsToolchain
 from conan.tools.layout import basic_layout
 from conan.tools.microsoft import is_msvc
@@ -66,6 +66,9 @@ class JemallocConan(ConanFile):
             if not self.options.shared and self.options.fPIC:
                 libname += "_pic"
         return libname
+
+    def export(self):
+        trim_conandata(self)
 
     def export_sources(self):
         export_conandata_patches(self)

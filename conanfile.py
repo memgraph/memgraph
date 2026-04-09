@@ -60,18 +60,21 @@ class Memgraph(ConanFile):
 
     def requirements(self):
         # self.requires("gflags/2.2.2") # we cannot use this gflags because we have a custom one!
+
+        # Direct dependencies — packages we #include or link against directly
         self.requires("abseil/20250512.1")
         self.requires("antlr4-cppruntime/4.13.2")
         self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
-        self.requires("aws-sdk-cpp/1.11.692")
         self.requires("asio/1.36.0")
-        self.requires("boost/1.88.0-memgraph", override=True)
+        self.requires("aws-sdk-cpp/1.11.692")
+        # force=True makes this both a direct require (so CMakeDeps generates
+        # full Boost::headers config) and overrides transitive boost ranges
+        self.requires("boost/1.88.0-memgraph", force=True)
         self.requires("bzip2/1.0.8")
         self.requires("cppitertools/2.2")
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
         self.requires("fmt/11.2.0")
-        self.requires("libbcrypt/1.0-memgraph")
         self.requires(
             "jemalloc/5.2.1-memgraph",
             options={
@@ -83,24 +86,27 @@ class Memgraph(ConanFile):
                 "malloc_conf": "background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
             },
         )
-        self.requires("libcurl/8.17.0", override=True)
-        self.requires("librdtsc/0.3-memgraph")
+        self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.6.1", options={"ssl": True, "sasl": True})
+        self.requires("librdtsc/0.3-memgraph")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
         self.requires("nlohmann_json/3.11.3-memgraph")
-        self.requires("range-v3/0.12.0")
-        self.requires("simdjson/4.2.2")
-        self.requires("snappy/1.2.1", override=True)
-        self.requires("spdlog/1.15.3")
-        self.requires("strong_type/v15")
-        self.requires("zlib/1.3.1")
+        has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
+        openssl_shared = not has_sanitizers
         # Production builds dynamically link OpenSSL so the binary can use any system-provided
         # OpenSSL >=3 and <4. Sanitizer builds use static OpenSSL to avoid ASAN-instrumented
         # libcrypto.so leaking into LD_LIBRARY_PATH and breaking autotools configure scripts
         # of other dependencies during the Conan build.
-        has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
-        openssl_shared = not has_sanitizers
-        self.requires("openssl/3.0.18", override=True, options={"shared": openssl_shared})
+        self.requires("openssl/3.0.18", options={"shared": openssl_shared})
+        self.requires("range-v3/0.12.0")
+        self.requires("simdjson/4.2.2")
+        self.requires("spdlog/1.15.3")
+        self.requires("strong_type/v15")
+        self.requires("zlib/1.3.1")
+
+        # Version overrides — pin transitive dependency versions
+        self.requires("libcurl/8.17.0", override=True)
+        self.requires("snappy/1.2.1", override=True)
 
     def build_requirements(self):
         self.tool_requires("cmake/4.1.2")

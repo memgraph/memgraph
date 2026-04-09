@@ -5,7 +5,7 @@ from conan.tools.build import build_jobs, cross_building, valid_min_cppstd, supp
 from conan.tools.env import VirtualBuildEnv
 from conan.tools.files import (
     apply_conandata_patches, chdir, collect_libs, copy, export_conandata_patches,
-    get, mkdir, rename, replace_in_file, rm, rmdir, save
+    get, mkdir, rename, replace_in_file, rm, rmdir, save, trim_conandata
 )
 from conan.tools.gnu import AutotoolsToolchain
 from conan.tools.layout import basic_layout
@@ -158,6 +158,7 @@ class BoostConan(ConanFile):
 
     def export(self):
         copy(self, f"dependencies/{self._dependency_filename}", src=self.recipe_folder, dst=self.export_folder)
+        trim_conandata(self)
 
     def export_sources(self):
         export_conandata_patches(self)

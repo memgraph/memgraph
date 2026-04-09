@@ -13,15 +13,15 @@
         "rapidcheck/cci.20231215#4d04e275bc3a07d2a20e9fdd8f05c021%1750175299.326",
         "range-v3/0.12.0#4c05d91d7b40e6b91b44b5345ac64408%1689218196.637",
         "openssl/3.0.18#eac62ac34e57db6df6a7af9a60f5beed%1759746693.341",
-        "nlohmann_json/3.11.3-memgraph#ff560c2c48c07b3a20d41dc3f91213a1%1775173802.9259086",
+        "nlohmann_json/3.11.3-memgraph#4ed8236994ba529291a1ea2800f92cf4%1775751343.802218",
         "mgclient/1.4.3#acde49e45b64f83be2b6ad993226a4b7%1724630575.998",
         "lz4/1.9.4#4ed63aa8e019d795cd3b8c0d2dd66cda%1743433190.812",
-        "librdtsc/0.3-memgraph#d97117e669ab18efcc91a630a82cd0a7%1775173802.7382817",
+        "librdtsc/0.3-memgraph#2803c2dacb12e03423e68b23dd4d6317%1775751343.6540544",
         "librdkafka/2.6.1#116229ffd03b3dce904dc05bdfef3515%1733059279.286",
         "libevent/2.1.12#7a7a21762e2b4ed13d29aee3e10c19e7%1751271631.406",
         "libcurl/8.17.0#5f7b5b769dc3468ce693048cd8d7dd64%1764325761.224",
-        "libbcrypt/1.0-memgraph#68fb5bd24936c02f4271ce64b2ab78dd%1775173802.4001064",
-        "jemalloc/5.2.1-memgraph#37ec6ef029d425968c7b320d9fe3c406%1775173802.5660703",
+        "libbcrypt/1.0-memgraph#274bb651d9486d6954019073532c8a1e%1775751343.5123775",
+        "jemalloc/5.2.1-memgraph#59c2f343d980ad9658d4e0c3c2272f0d%1775751343.3770926",
         "gtest/1.17.0#5224b3b3ff3b4ce1133cbdd27d53ee7d%1755784855.585",
         "fmt/11.2.0#579bb2cdf4a7607621beea4eb4651e0f%1746298708.362",
         "cyrus-sasl/2.1.28#7454252270ecd9a8701db266fd9e26db%1767716835.731",
@@ -29,7 +29,7 @@
         "croncpp/2023.03.30#7ca459a1acfa234e759182a8bafa7ddf%1722442009.811",
         "cppitertools/2.2#387562fa5016e7692d673955f66d2e7a%1741517127.057",
         "bzip2/1.0.8#c470882369c2d95c5c77e970c0c7e321%1762886692.465",
-        "boost/1.88.0-memgraph#59ee989893529c91891f851cbdbb3789%1775724960.177935",
+        "boost/1.88.0-memgraph#987d5fb7d1d6615e2d95270aa1912b81%1775751343.125485",
         "benchmark/1.9.4#ce4403f7a24d3e1f907cd9da4b678be4%1749892625.885",
         "aws-sdk-cpp/1.11.692#e551a518f5f50c6d83e40dfda38e7449%1763482341.231",
         "aws-crt-cpp/0.35.2#e11cf5e3d2a9273d4413bb5f8c6e502e%1763415447.617",
@@ -81,9 +81,6 @@
         ],
         "snappy/1.1.9": [
             "snappy/1.2.1"
-        ],
-        "openssl/[>=1.1 <4]": [
-            "openssl/3.0.18"
         ],
         "libcurl/[>=7.78.0 <9]": [
             "libcurl/8.17.0"

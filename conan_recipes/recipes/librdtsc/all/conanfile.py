@@ -2,7 +2,7 @@ import os
 
 from conan import ConanFile
 from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, trim_conandata
 
 
 class LibrdtscConan(ConanFile):
@@ -17,6 +17,9 @@ class LibrdtscConan(ConanFile):
     settings = "os", "arch", "compiler", "build_type"
     options = {"shared": [True, False], "fPIC": [True, False]}
     default_options = {"shared": False, "fPIC": True}
+
+    def export(self):
+        trim_conandata(self)
 
     def export_sources(self):
         export_conandata_patches(self)
