@@ -31,23 +31,36 @@ void Validate(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result
   auto message = std::string(arguments[1].ValueString());
   const auto params = arguments[2].ValueList();
 
-  // Replace %s placeholders with params
+  // Replace format specifiers: %d (int), %f (double), %s (string)
+  std::size_t pos = 0;
   for (const auto &param : params) {
-    auto pos = message.find("%s");
-    if (pos == std::string::npos) break;
+    pos = message.find('%', pos);
+    if (pos == std::string::npos || pos + 1 >= message.size()) break;
+
+    const char spec = message[pos + 1];
+    if (!std::isalpha(spec)) {
+      ++pos;
+      continue;
+    }
+
     std::string replacement;
-    if (param.IsString()) {
-      replacement = param.ValueString();
-    } else if (param.IsInt()) {
-      replacement = std::to_string(param.ValueInt());
-    } else if (param.IsDouble()) {
-      replacement = std::to_string(param.ValueDouble());
-    } else if (param.IsBool()) {
-      replacement = param.ValueBool() ? "true" : "false";
-    } else {
-      replacement = "<unsupported type>";
+    switch (spec) {
+      case 'd':
+        replacement = std::to_string(param.ValueInt());
+        break;
+      case 'f':
+        replacement = std::to_string(param.ValueDouble());
+        break;
+      case 's':
+        replacement = std::string(param.ValueString());
+        break;
+      default:
+        static_cast<void>(
+            mgp_result_set_error_msg(result, ("Unsupported format specifier: %" + std::string(1, spec)).c_str()));
+        return;
     }
     message.replace(pos, 2, replacement);
+    pos += replacement.size();
   }
 
   static_cast<void>(mgp_result_set_error_msg(result, message.c_str()));
