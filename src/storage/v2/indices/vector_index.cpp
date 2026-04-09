@@ -714,22 +714,17 @@ void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const Propert
   }
 }
 
-// ---- VectorIndex::ActiveIndices (delegates to owning VectorIndex) ----
+// ---- VectorIndex::ActiveIndices (snapshot-based) ----
 
-std::vector<VectorIndexSpec> VectorIndex::ActiveIndices::ListIndices() const {
-  if (!owner_) return {};
-  return owner_->ListIndices();
-}
+std::vector<VectorIndexSpec> VectorIndex::ActiveIndices::ListIndices() const { return specs_; }
 
-std::vector<VectorIndexInfo> VectorIndex::ActiveIndices::ListVectorIndicesInfo() const {
-  if (!owner_) return {};
-  return owner_->ListVectorIndicesInfo();
-}
+std::vector<VectorIndexInfo> VectorIndex::ActiveIndices::ListVectorIndicesInfo() const { return infos_; }
 
 std::optional<uint64_t> VectorIndex::ActiveIndices::ApproximateNodesVectorCount(LabelId label,
                                                                                 PropertyId property) const {
-  if (!owner_) return std::nullopt;
-  return owner_->ApproximateNodesVectorCount(label, property);
+  auto it = r::find_if(infos_, [&](const auto &info) { return info.label_id == label && info.property == property; });
+  if (it != infos_.end()) return it->size;
+  return std::nullopt;
 }
 
 }  // namespace memgraph::storage

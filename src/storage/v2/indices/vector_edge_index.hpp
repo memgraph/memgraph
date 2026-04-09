@@ -116,16 +116,20 @@ class VectorEdgeIndex {
 
   using VectorSearchEdgeResults = std::vector<std::tuple<EdgeIndexEntry, double, double>>;
 
-  /// Concrete ActiveIndices implementation that delegates to VectorEdgeIndex const methods.
+  /// Concrete ActiveIndices implementation holding a snapshot of vector edge index metadata.
   struct ActiveIndices : VectorEdgeIndexActiveIndices {
-    explicit ActiveIndices(VectorEdgeIndex const *owner = nullptr) : owner_(owner) {}
+    ActiveIndices() = default;
+
+    ActiveIndices(std::vector<VectorEdgeIndexSpec> specs, std::vector<VectorEdgeIndexInfo> infos)
+        : specs_(std::move(specs)), infos_(std::move(infos)) {}
 
     std::vector<VectorEdgeIndexSpec> ListIndices() const override;
     std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const override;
     std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override;
 
    private:
-    VectorEdgeIndex const *owner_;
+    std::vector<VectorEdgeIndexSpec> specs_;
+    std::vector<VectorEdgeIndexInfo> infos_;
   };
 
   VectorEdgeIndex();
@@ -134,8 +138,8 @@ class VectorEdgeIndex {
   VectorEdgeIndex &operator=(VectorEdgeIndex &&) noexcept;
 
   /// Returns the current active indices snapshot for use in transactions.
-  auto GetActiveIndices() -> std::shared_ptr<VectorEdgeIndexActiveIndices> {
-    return std::make_shared<ActiveIndices>(this);
+  auto GetActiveIndices() const -> std::shared_ptr<VectorEdgeIndexActiveIndices> {
+    return std::make_shared<ActiveIndices>(ListIndices(), ListVectorIndicesInfo());
   }
 
   /// @brief Creates a new index based on the provided specification.

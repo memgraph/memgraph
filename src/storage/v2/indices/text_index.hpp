@@ -129,6 +129,8 @@ class TextIndex {
   /// ListIndices on the owning class (for snapshot creation, outside transaction context).
   std::vector<TextIndexSpec> ListIndices() const;
 
+  /// Drops all text indices. Does NOT publish to ActiveIndicesStore —
+  /// the caller (DropGraphClearIndices) is responsible for republishing.
   void Clear();
 
  private:
