@@ -622,17 +622,19 @@ TYPED_TEST(InterpreterTest, ShowStorageInfoIncludesQueryTrackingFields) {
     values.emplace(row[0].ValueString(), row[1]);
   }
 
+  EXPECT_TRUE(values.contains("global_memory_tracked"));
+  EXPECT_TRUE(values.contains("global_runtime_allocation_limit"));
+  EXPECT_TRUE(values.contains("global_license_allocation_limit"));
   EXPECT_TRUE(values.contains("db_memory_tracked"));
   EXPECT_TRUE(values.contains("db_storage_memory_tracked"));
   EXPECT_TRUE(values.contains("db_embedding_memory_tracked"));
   EXPECT_TRUE(values.contains("db_query_memory_tracked"));
-  EXPECT_TRUE(values.contains("query_memory_tracked"));
 
+  EXPECT_TRUE(values.at("global_memory_tracked").IsString());
   EXPECT_TRUE(values.at("db_memory_tracked").IsString());
   EXPECT_TRUE(values.at("db_storage_memory_tracked").IsString());
   EXPECT_TRUE(values.at("db_embedding_memory_tracked").IsString());
   EXPECT_TRUE(values.at("db_query_memory_tracked").IsString());
-  EXPECT_TRUE(values.at("query_memory_tracked").IsString());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

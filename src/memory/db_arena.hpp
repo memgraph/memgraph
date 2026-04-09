@@ -84,8 +84,6 @@ class ArenaPool {
     pool_.push_back(idx);
   }
 
-  // Discard all recycled arena indices so the next Acquire() creates a fresh arena.
-  // Useful in tests to avoid stale committed extents from previous test databases.
   void Drain() {
     std::lock_guard<std::mutex> lock(mux_);
     pool_.clear();

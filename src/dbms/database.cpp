@@ -106,6 +106,11 @@ DatabaseInfo Database::GetInfo() const {
   info.storage_info = storage_->GetInfo();
   info.triggers = trigger_store_->GetTriggerInfo().size();
   info.streams = streams_->GetStreamInfo().size();
+  info.db_memory_tracked = DbMemoryUsage();
+  info.db_peak_memory_tracked = DbPeakMemoryUsage();
+  info.db_storage_memory_tracked = DbStorageMemoryUsage();
+  info.db_embedding_memory_tracked = DbEmbeddingMemoryUsage();
+  info.db_query_memory_tracked = DbQueryMemoryUsage();
   return info;
 }
 

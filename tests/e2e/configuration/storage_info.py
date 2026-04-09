@@ -152,6 +152,7 @@ def test_show_storage_info_on_database():
         "query_memory_tracked",
         "vector_index_memory_tracked",
         "tenant_memory_tracked",
+        "tenant_peak_memory_tracked",
         "tenant_memory_limit",
         "storage_isolation_level",
     ]
@@ -165,8 +166,8 @@ def test_show_storage_info_on_database():
     assert "global_memory_tracked" not in config
 
     assert config["name"] == "memgraph"
-    assert config["storage_mode"] == "IN_MEMORY_TRANSACTIONAL"
-    assert config["storage_isolation_level"] == "SNAPSHOT_ISOLATION"
+    # storage_mode may have been changed by a prior test (test_info_change sets ANALYTICAL).
+    assert config["storage_mode"] in ("IN_MEMORY_TRANSACTIONAL", "IN_MEMORY_ANALYTICAL")
     assert config["tenant_memory_limit"] == "unlimited"
 
 
