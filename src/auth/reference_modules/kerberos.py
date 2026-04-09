@@ -31,7 +31,76 @@ def _load_config_from_env():
     config["realm"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_REALM", "")
     config["username_field"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_USERNAME_FIELD", "name")
     config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING", ""))
+
+    # LDAP group-based role mapping (optional)
+    config["role_mapping_mode"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING_MODE", "principal")
+    config["ldap_uri"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_URI", "")
+    config["ldap_base_dn"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_BASE_DN", "")
+    config["ldap_search_base"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_SEARCH_BASE", "")
     return config
+
+
+def _resolve_roles_principal(client_principal: str, role_mapping: dict) -> dict:
+    """Map roles by matching the Kerberos principal name against static mappings."""
+    roles = []
+    principal_name = client_principal.split("@")[0] if "@" in client_principal else client_principal
+    for idp_role, mg_roles in role_mapping.items():
+        if idp_role == client_principal or idp_role == principal_name or idp_role == "*":
+            roles.extend(mg_roles)
+    return {"roles": roles}
+
+
+def _resolve_roles_ldap(client_principal: str, role_mapping: dict, config: dict) -> dict:
+    """Query AD/LDAP for the user's group membership, then map groups to roles."""
+    try:
+        import ldap3
+    except ImportError:
+        return {"error": "ldap3 package not installed. Run: pip install ldap3"}
+
+    ldap_uri = config["ldap_uri"]
+    if not ldap_uri:
+        return {"error": "MEMGRAPH_SSO_KERBEROS_LDAP_URI is required when role_mapping_mode is 'ldap'"}
+
+    base_dn = config["ldap_base_dn"]
+    if not base_dn:
+        return {"error": "MEMGRAPH_SSO_KERBEROS_LDAP_BASE_DN is required when role_mapping_mode is 'ldap'"}
+
+    principal_name = client_principal.split("@")[0] if "@" in client_principal else client_principal
+    search_base = config["ldap_search_base"] or base_dn
+
+    try:
+        server = ldap3.Server(ldap_uri, get_info=ldap3.ALL)
+        conn = ldap3.Connection(server, authentication=ldap3.SASL, sasl_mechanism=ldap3.KERBEROS)
+        if not conn.bind():
+            return {"error": f"LDAP bind failed: {conn.result}"}
+
+        # Search for the user by sAMAccountName and read their memberOf attribute
+        search_filter = f"(&(objectClass=user)(sAMAccountName={ldap3.utils.conv.escape_filter_chars(principal_name)}))"
+        conn.search(search_base, search_filter, attributes=["memberOf"])
+
+        if not conn.entries:
+            return {"error": f"User {principal_name} not found in LDAP under {search_base}"}
+
+        member_of = conn.entries[0].memberOf.values if conn.entries[0].memberOf else []
+        conn.unbind()
+    except Exception as e:
+        return {"error": f"LDAP query failed: {str(e)}"}
+
+    # Extract CN from group DNs: "CN=mg-admins,OU=Groups,DC=corp,DC=com" → "mg-admins"
+    user_groups = set()
+    for group_dn in member_of:
+        for rdn in group_dn.split(","):
+            if rdn.strip().upper().startswith("CN="):
+                user_groups.add(rdn.strip()[3:])
+                break
+
+    # Match groups against role mapping
+    roles = []
+    for mapping_key, mg_roles in role_mapping.items():
+        if mapping_key in user_groups or mapping_key == "*":
+            roles.extend(mg_roles)
+
+    return {"roles": roles}
 
 
 def authenticate(response: str, scheme: str):
@@ -93,12 +162,17 @@ def authenticate(response: str, scheme: str):
                 "errors": f"Client realm {client_realm} does not match expected realm {realm}",
             }
 
-    roles = []
     role_mapping = config["role_mapping"]
-    principal_name = client_principal.split("@")[0] if "@" in client_principal else client_principal
-    for idp_role, mg_roles in role_mapping.items():
-        if idp_role == client_principal or idp_role == principal_name or idp_role == "*":
-            roles.extend(mg_roles)
+    role_mapping_mode = config["role_mapping_mode"]
+
+    if role_mapping_mode == "ldap":
+        resolved = _resolve_roles_ldap(client_principal, role_mapping, config)
+    else:
+        resolved = _resolve_roles_principal(client_principal, role_mapping)
+
+    if "error" in resolved:
+        return {"authenticated": False, "errors": resolved["error"]}
+    roles = resolved["roles"]
 
     if not roles:
         return {
