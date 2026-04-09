@@ -413,19 +413,18 @@ def test_plan_triple_scan_outermost_only_eliminated(memgraph):
     assert expected == actual
 
 
-def test_plan_triple_scan_wrong_order_not_eliminated(memgraph):
-    """ORDER BY inner, outer, middle — wrong nesting order, OrderBy must be kept."""
+def test_plan_triple_scan_reordered_to_eliminate(memgraph):
+    """ORDER BY a.id, c.id, b.id — planner reorders scans to match ORDER BY and eliminates it."""
     memgraph.execute("SET DATABASE SETTING 'cartesian-product-enabled' TO 'false';")
     memgraph.execute("CREATE INDEX ON :O(id);")
     memgraph.execute("CREATE INDEX ON :P(id);")
     memgraph.execute("CREATE INDEX ON :Q(id);")
 
     expected = [
-        " * OrderBy {a, c, b}",
         " * Produce {a, c, b}",
-        " * ScanAllByLabelProperties (a :O {id})",
         " * ScanAllByLabelProperties (b :P {id})",
         " * ScanAllByLabelProperties (c :Q {id})",
+        " * ScanAllByLabelProperties (a :O {id})",
         " * Once",
     ]
 
@@ -435,6 +434,38 @@ def test_plan_triple_scan_wrong_order_not_eliminated(memgraph):
     )
     memgraph.execute("SET DATABASE SETTING 'cartesian-product-enabled' TO 'true';")
     assert expected == actual
+
+
+def test_plan_variable_start_prefers_elimination(memgraph):
+    """Variable-start planner should pick the plan that eliminates OrderBy.
+
+    MATCH (n:X)-[r]->(m:X) WHERE n.id > 0 AND m.id > 0 RETURN n, m ORDER BY m.id
+
+    Two candidate plans exist (start from n vs start from m). Starting from m
+    lets ScanAllByLabelProperties provide the ORDER BY m.id order, eliminating
+    the OrderBy operator. The cost estimator must assign non-zero cost to
+    OrderBy so the planner prefers the plan without it.
+    """
+    memgraph.execute("CREATE INDEX ON :X(id);")
+
+    plan = get_plan(memgraph, "MATCH (n:X)-[r]->(m:X) WHERE n.id > 0 AND m.id > 0 RETURN n, m ORDER BY m.id")
+    assert not any(
+        "OrderBy" in step for step in plan
+    ), "OrderBy should be eliminated — planner should start from m so the index provides order"
+
+
+def test_correctness_variable_start_elimination(memgraph):
+    """Results correct when variable-start planner eliminates OrderBy via starting vertex choice."""
+    memgraph.execute("CREATE INDEX ON :X(id);")
+    memgraph.execute("CREATE (:X {id: 30})-[:R]->(:X {id: 3})")
+    memgraph.execute("CREATE (:X {id: 10})-[:R]->(:X {id: 1})")
+    memgraph.execute("CREATE (:X {id: 20})-[:R]->(:X {id: 2})")
+
+    results = list(
+        memgraph.execute_and_fetch("MATCH (n:X)-[r]->(m:X) WHERE n.id > 0 AND m.id > 0 RETURN n, m ORDER BY m.id")
+    )
+    values = [r["m"]._properties["id"] for r in results]
+    assert values == [1, 2, 3]
 
 
 if __name__ == "__main__":

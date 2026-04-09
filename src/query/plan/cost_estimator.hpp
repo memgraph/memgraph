@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cmath>
+
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
@@ -67,11 +69,15 @@ struct PlanCost {
  * can never reduce it's input cardinality), but since Merge always happens
  * after the read part, and can't be reoredered, we can ignore that.
  *
- * Limiting and accumulating (Aggregate, OrderBy, Accumulate) operations are
+ * Limiting and accumulating (Aggregate, Accumulate) operations are
  * cardinality modifiers that always execute at the end of the query part. Their
  * cardinality influence is irrelevant because they execute the same
  * for all plans for a single query part, and query part reordering is not
  * allowed.
+ *
+ * OrderBy is an exception: index-scan rewriting can eliminate an OrderBy when
+ * the scan already provides the required order, so plans with and without
+ * OrderBy must have different costs. We model it as O(n log n) work.
  *
  * This kind of cost estimation can only be used for comparing logical plans.
  * It's aim is to estimate cost(A) to be less then cost(B) in every case where
@@ -103,6 +109,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kForeach{1.0};
     static constexpr double kUnion{1.0};
     static constexpr double kSubquery{1.0};
+    static constexpr double kOrderBy{1.0};
+    static constexpr double kOrderByMinCardinality{2.0};  // sort is non-trivial even at low row counts
   };
 
   struct CardParam {
@@ -260,6 +268,15 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(OrderBy & /*op*/) override {
+    // OrderBy performs O(n log n) comparison-based sorting. Use a minimum
+    // cardinality of 2 so that plans which eliminate the sort are always
+    // preferred over those that keep it, even when the DB is empty.
+    const auto n = std::max(CostParam::kOrderByMinCardinality, cardinality_);
+    cost_ += CostParam::kOrderBy * n * std::log2(n);
+    return true;
+  }
+
   bool PreVisit(AggregateParallel &op) override {
     // Start of parallel execution
     // Set parallel execution mode for cost calculation
@@ -272,7 +289,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // Start of parallel execution
     // Set parallel execution mode for cost calculation
     num_threads_ = op.num_threads_;
-    // NOTE No cost for OrderBy (regardless of parallel vs single threaded)
+    return true;
+  }
+
+  bool PostVisit(OrderByParallel & /*op*/) override {
+    const auto n = std::max(CostParam::kOrderByMinCardinality, cardinality_);
+    cost_ += CostParam::kOrderBy * n * std::log2(n) / num_threads_;
     return true;
   }
 
