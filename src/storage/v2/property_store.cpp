@@ -2556,6 +2556,7 @@ PropertyValue PropertyStore::GetProperty(PropertyId property, const IndexedPrope
 }
 
 template PropertyValue PropertyStore::GetProperty(PropertyId, const IndexedPropertyDecoder<Vertex> &) const;
+template PropertyValue PropertyStore::GetProperty(PropertyId, const IndexedPropertyDecoder<Edge> &) const;
 
 ExtendedPropertyType PropertyStore::GetExtendedPropertyType(PropertyId property) const {
   auto get_property_type = [&](Reader &reader) -> ExtendedPropertyType {
@@ -2783,6 +2784,7 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPrope
 }
 
 template std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<Vertex> &) const;
+template std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<Edge> &) const;
 
 std::map<PropertyId, ExtendedPropertyType> PropertyStore::ExtendedPropertyTypes() const {
   auto get_properties = [&](Reader &reader) {

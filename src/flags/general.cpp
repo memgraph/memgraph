@@ -53,6 +53,9 @@ DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creatin
 
 // General purpose flags.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(strict_flag_check, true, "If true, error and exit when suspicious positional arguments are detected.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

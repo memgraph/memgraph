@@ -129,7 +129,7 @@ callProcedure : CALL procedureName '(' ( expression ( ',' expression )* )? ')' (
 
 procedureName : symbolicName ( '.' symbolicName )* ;
 
-yieldProcedureResults : YIELD ( '*' | ( procedureResult ( ',' procedureResult )* ) ) ;
+yieldProcedureResults : YIELD ( '*' | ( procedureResult ( ',' procedureResult )* ) ) ( where )? ;
 
 memoryLimit : MEMORY ( UNLIMITED | LIMIT literal ( MB | KB ) ) ;
 

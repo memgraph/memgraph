@@ -15,6 +15,10 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/transaction.hpp"
+
+namespace r = ranges;
+namespace rv = r::views;
 
 namespace memgraph::storage {
 
@@ -22,9 +26,11 @@ void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const Text
   try {
     nlohmann::json mappings = {};
     mappings["properties"] = {};
-    mappings["properties"]["metadata"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
     mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
     mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
+    mappings["properties"]["edge_gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
+    mappings["properties"]["from_vertex_gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
+    mappings["properties"]["to_vertex_gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
 
     auto [_, success] = index_.try_emplace(
         index_info.index_name,
@@ -65,16 +71,15 @@ std::vector<TextEdgeIndexData *> TextEdgeIndex::GetIndicesMatchingProperties(
 }
 
 void TextEdgeIndex::AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
-                                       nlohmann::json properties, std::string property_values_as_str,
+                                       nlohmann::json properties, std::string all_property_values,
                                        mgcxx::text_search::Context &context) {
-  if (property_values_as_str.empty()) return;
+  if (all_property_values.empty()) return;
   nlohmann::json document = {};
   document["data"] = std::move(properties);
-  document["all"] = std::move(property_values_as_str);
-  document["metadata"] = {};
-  document["metadata"]["edge_gid"] = edge_gid;
-  document["metadata"]["from_vertex_gid"] = from_vertex_gid;
-  document["metadata"]["to_vertex_gid"] = to_vertex_gid;
+  document["all"] = std::move(all_property_values);
+  document["edge_gid"] = static_cast<std::uint64_t>(edge_gid);
+  document["from_vertex_gid"] = static_cast<std::uint64_t>(from_vertex_gid);
+  document["to_vertex_gid"] = static_cast<std::uint64_t>(to_vertex_gid);
 
   try {
     mgcxx::text_search::add_document(
@@ -143,29 +148,32 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
                                  NameIdMapper *name_id_mapper,
                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
-  const auto index_directory_already_exists = std::filesystem::exists(index_path);
-  CreateTantivyIndex(index_path, index_info);
+  auto needs_rebuild = !std::filesystem::exists(index_path);
+  try {
+    CreateTantivyIndex(index_path, index_info);
+  } catch (const query::TextSearchException &) {
+    if (needs_rebuild) throw;
+    // It's possible that index on disk has incompatible schema if, for example, new required properties were added to
+    // the index spec in new versions
+    spdlog::warn("Text edge index {} has incompatible schema on disk, rebuilding.", index_info.index_name);
+    std::error_code ec;
+    std::filesystem::remove_all(index_path, ec);
+    if (ec)
+      throw query::TextSearchException(
+          "Failed to remove stale text edge index {}: {}", index_info.index_name, ec.message());
+    needs_rebuild = true;
+    CreateTantivyIndex(index_path, index_info);
+  }
 
-  if (!index_directory_already_exists) {
-    // If index didn't exist, we need to index all edges. (This happens if we recover only from the snapshot)
+  if (needs_rebuild) {
     auto &context = index_.at(index_info.index_name).context;
-    std::vector<PropertyId> properties_to_index;
-    properties_to_index.reserve(index_info.properties.size());
-
     for (const auto &vertex : vertices) {
       for (const auto &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
         if (edge_type != index_info.edge_type) continue;
 
         auto *edge = edge_ref.ptr;
-        auto edge_properties = edge->properties.ExtractPropertyIds();
-        properties_to_index.clear();
-        if (index_info.properties.empty()) {
-          properties_to_index = std::move(edge_properties);
-        } else {
-          std::ranges::copy_if(index_info.properties, std::back_inserter(properties_to_index), [&](auto property) {
-            return std::ranges::contains(edge_properties, property);
-          });
-        }
+        auto properties_to_index =
+            FilterPropertiesToIndex(index_info.properties, edge->properties.ExtractPropertyIds());
         if (properties_to_index.empty()) continue;
 
         auto properties_to_index_map = ExtractProperties(edge->properties, properties_to_index);
@@ -211,29 +219,56 @@ void TextEdgeIndex::DropIndex(const std::string &index_name) {
 bool TextEdgeIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
 
 std::vector<TextEdgeSearchResult> TextEdgeIndex::Search(const std::string &index_name, const std::string &search_query,
-                                                        text_search_mode search_mode, std::size_t limit) {
-  auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
-    if (const auto it = index_.find(index_name); it != index_.end()) {
-      return it->second.context;
-    }
+                                                        text_search_mode search_mode, std::size_t limit,
+                                                        const Transaction &tx) {
+  auto it = index_.find(index_name);
+  if (it == index_.end()) {
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
-  });
-  const auto search_results = PerformTextSearch(context, search_query, search_mode, limit);
-
-  std::vector<TextEdgeSearchResult> found_edges;
-  for (const auto &doc : search_results.docs) {
-    // Create string using both data pointer and length to avoid buffer overflow
-    // The CXX .data() method may not null-terminate the string properly
-    const std::string doc_string(doc.data.data(), doc.data.length());
-    const auto doc_json = nlohmann::json::parse(doc_string);
-
-    const auto edge_gid = storage::Gid::FromString(doc_json["metadata"]["edge_gid"].dump());
-    const auto from_vertex_gid = storage::Gid::FromString(doc_json["metadata"]["from_vertex_gid"].dump());
-    const auto to_vertex_gid = storage::Gid::FromString(doc_json["metadata"]["to_vertex_gid"].dump());
-
-    found_edges.emplace_back(edge_gid, from_vertex_gid, to_vertex_gid, doc.score);
   }
-  return found_edges;
+  auto &index_data = it->second;
+  auto &context = index_data.context;
+
+  mgcxx::text_search::EdgeGidScoreOutput search_results;
+  try {
+    if (!tx.text_search_session_) {
+      tx.text_search_session_ = std::make_unique<TextSearchSession>();
+    }
+    auto &searcher = *tx.text_search_session_->GetOrAcquire(&index_data, context);
+
+    const auto lowered_query = ToLowerCasePreservingBooleanOperators(search_query);
+    switch (search_mode) {
+      case text_search_mode::SPECIFIED_PROPERTIES:
+        search_results = mgcxx::text_search::search_edge_gids_pinned(
+            context, searcher, mgcxx::text_search::SearchInput{.search_query = lowered_query, .limit = limit});
+        break;
+      case text_search_mode::REGEX:
+        search_results = mgcxx::text_search::regex_search_edge_gids_pinned(
+            context,
+            searcher,
+            mgcxx::text_search::SearchInput{.search_fields = {"all"}, .search_query = lowered_query, .limit = limit});
+        break;
+      case text_search_mode::ALL_PROPERTIES:
+        search_results = mgcxx::text_search::search_edge_gids_pinned(
+            context,
+            searcher,
+            mgcxx::text_search::SearchInput{.search_fields = {"all"}, .search_query = lowered_query, .limit = limit});
+        break;
+      default:
+        throw query::TextSearchException(
+            "Unsupported search mode: please use one of text_search.search_edges, text_search.search_all_edges, or "
+            "text_search.regex_search_edges.");
+    }
+  } catch (const std::exception &e) {
+    throw query::TextSearchException("Tantivy error: {}", e.what());
+  }
+
+  return search_results.docs | rv::transform([](const auto &doc) -> TextEdgeSearchResult {
+           return {.edge_gid = storage::Gid::FromUint(doc.edge_gid),
+                   .from_vertex_gid = storage::Gid::FromUint(doc.from_gid),
+                   .to_vertex_gid = storage::Gid::FromUint(doc.to_gid),
+                   .score = doc.score};
+         }) |
+         r::to<std::vector>();
 }
 
 std::string TextEdgeIndex::Aggregate(const std::string &index_name, const std::string &search_query,
@@ -249,7 +284,7 @@ std::string TextEdgeIndex::Aggregate(const std::string &index_name, const std::s
     aggregation_result = mgcxx::text_search::aggregate(
         context,
         mgcxx::text_search::SearchInput{
-            .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
+            .search_fields = {"data"}, .search_query = search_query, .aggregation_query = aggregation_query});
 
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
@@ -303,23 +338,47 @@ std::optional<uint64_t> TextEdgeIndex::ApproximateEdgesTextCount(std::string_vie
 
 void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
   for (const auto &[index_data_ptr, pending] : tx.text_edge_index_change_collector_) {
-    // Take exclusive lock to properly serialize all updates and hold it for the entire operation
+    struct PreparedEdgeDoc {
+      std::int64_t edge_gid;
+      std::int64_t from_vertex_gid;
+      std::int64_t to_vertex_gid;
+      nlohmann::json properties;
+      std::string all_property_values;
+    };
+
+    std::vector<std::int64_t> gids_to_remove;
+    gids_to_remove.reserve(pending.to_remove.size());
+    for (const auto *edge : pending.to_remove) {
+      gids_to_remove.push_back(edge->gid.AsInt());
+    }
+
+    std::vector<PreparedEdgeDoc> docs_to_add;
+    docs_to_add.reserve(pending.to_add.size());
+    for (const auto &edge_with_vertices : pending.to_add) {
+      auto edge_properties = index_data_ptr->properties.empty()
+                                 ? edge_with_vertices.edge->properties.Properties()
+                                 : ExtractProperties(edge_with_vertices.edge->properties, index_data_ptr->properties);
+      docs_to_add.push_back({edge_with_vertices.edge->gid.AsInt(),
+                             edge_with_vertices.from_vertex->gid.AsInt(),
+                             edge_with_vertices.to_vertex->gid.AsInt(),
+                             SerializeProperties(edge_properties, name_id_mapper),
+                             StringifyProperties(edge_properties)});
+    }
+
     const std::lock_guard lock(index_data_ptr->write_mutex);
     try {
-      for (const auto *edge : pending.to_remove) {
-        auto search_edge_to_be_deleted =
-            mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.edge_gid:{}", edge->gid.AsInt())};
-        mgcxx::text_search::delete_document(index_data_ptr->context, search_edge_to_be_deleted, kDoSkipCommit);
+      for (auto gid : gids_to_remove) {
+        mgcxx::text_search::delete_document(
+            index_data_ptr->context,
+            mgcxx::text_search::SearchInput{.search_query = fmt::format("edge_gid:{}", gid)},
+            kDoSkipCommit);
       }
-      for (const auto &edge_with_vertices : pending.to_add) {
-        auto edge_properties = index_data_ptr->properties.empty()
-                                   ? edge_with_vertices.edge->properties.Properties()
-                                   : ExtractProperties(edge_with_vertices.edge->properties, index_data_ptr->properties);
-        TextEdgeIndex::AddEdgeToTextIndex(edge_with_vertices.edge->gid.AsInt(),
-                                          edge_with_vertices.from_vertex->gid.AsInt(),
-                                          edge_with_vertices.to_vertex->gid.AsInt(),
-                                          SerializeProperties(edge_properties, name_id_mapper),
-                                          StringifyProperties(edge_properties),
+      for (auto &doc : docs_to_add) {
+        TextEdgeIndex::AddEdgeToTextIndex(doc.edge_gid,
+                                          doc.from_vertex_gid,
+                                          doc.to_vertex_gid,
+                                          std::move(doc.properties),
+                                          std::move(doc.all_property_values),
                                           index_data_ptr->context);
       }
       mgcxx::text_search::commit(index_data_ptr->context);
