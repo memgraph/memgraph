@@ -18,6 +18,7 @@ OPTIONS:
     --config-only           Only configure CMake, don't build
     --dev                   Developer mode: enables --skip-init --skip-os-deps --keep-build
     --update-lockfile       Update conan.lock before installing dependencies
+    --graph-info            Generate dependency graph as graph.html and exit
     --help                  Show this help message
 
 ENVIRONMENT VARIABLES:
@@ -64,6 +65,7 @@ skip_os_deps=false
 VENV_DIR="${VENV_DIR:-env}"
 offline=false
 update_lockfile=false
+graph_info=false
 RESERVE_CORES=0
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -106,6 +108,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --update-lockfile)
             update_lockfile=true
+            shift
+            ;;
+        --graph-info)
+            graph_info=true
             shift
             ;;
         --reserve-cores)
@@ -237,6 +243,19 @@ if [[ -n "$MG_SANITIZERS" ]]; then
     export MG_SANITIZERS="$MG_SANITIZERS"
 else
     echo "No sanitizers enabled"
+fi
+
+# generate dependency graph and exit early
+if [[ "$graph_info" = true ]]; then
+    echo "Generating dependency graph -> graph.html"
+    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan graph info . \
+      -pr:h memgraph_template_profile \
+      -pr:b memgraph_build_profile \
+      -s build_type="$BUILD_TYPE" \
+      -s os.distro="$DISTRO" \
+      --format=html > graph.html
+    echo "Open graph.html in a browser to view the dependency graph"
+    exit 0
 fi
 
 # update lockfile if requested

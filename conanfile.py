@@ -54,6 +54,20 @@ class Memgraph(ConanFile):
         "cyrus-sasl/*:with_saslauthd": False,
         "boost/*:without_stacktrace": True,
         "boost/*:without_locale": True,
+        "arrow/*:with_s3": True,
+        "arrow/*:with_snappy": True,
+        "arrow/*:with_mimalloc": False,
+        "librdkafka/*:ssl": True,
+        "librdkafka/*:sasl": True,
+        "mgclient/*:with_cpp": True,
+        "jemalloc/*:prefix": "je_",
+        "jemalloc/*:enable_cxx": False,
+        "jemalloc/*:enable_fill": False,
+        "jemalloc/*:lg_page": "12",
+        "jemalloc/*:lg_hugepage": "21",
+        "jemalloc/*:malloc_conf": "background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
+        "rapidcheck/*:enable_gtest": True,
+        "rapidcheck/*:enable_gmock": True,
     }
 
     def requirements(self):
@@ -62,7 +76,7 @@ class Memgraph(ConanFile):
         # Direct dependencies — packages we #include or link against directly
         self.requires("abseil/20250512.1")
         self.requires("antlr4-cppruntime/4.13.2")
-        self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
+        self.requires("arrow/22.0.0")
         self.requires("asio/1.36.0")
         self.requires("aws-sdk-cpp/1.11.692")
         # force=True makes this both a direct require (so CMakeDeps generates
@@ -73,21 +87,11 @@ class Memgraph(ConanFile):
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
         self.requires("fmt/11.2.0")
-        self.requires(
-            "jemalloc/5.2.1-memgraph",
-            options={
-                "prefix": "je_",
-                "enable_cxx": False,
-                "enable_fill": False,
-                "lg_page": "12",
-                "lg_hugepage": "21",
-                "malloc_conf": "background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
-            },
-        )
+        self.requires("jemalloc/5.2.1-memgraph")
         self.requires("libbcrypt/1.0-memgraph")
-        self.requires("librdkafka/2.6.1", options={"ssl": True, "sasl": True})
+        self.requires("librdkafka/2.6.1")
         self.requires("librdtsc/0.3-memgraph")
-        self.requires("mgclient/1.4.3", options={"with_cpp": True})
+        self.requires("mgclient/1.4.3")
         self.requires("nlohmann_json/3.11.3-memgraph")
         has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
         openssl_shared = not has_sanitizers
@@ -114,10 +118,7 @@ class Memgraph(ConanFile):
 
         self.test_requires("benchmark/[>=1.9 <2]")
         self.test_requires("gtest/[>=1.17 <2]", force=True)
-        self.test_requires(
-            "rapidcheck/cci.20231215",
-            options={"enable_gtest": True, "enable_gmock": True},
-        )
+        self.test_requires("rapidcheck/cci.20231215")
 
     def validate(self):
         """Validate configuration before generation"""
