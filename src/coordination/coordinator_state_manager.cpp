@@ -12,14 +12,32 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_state_manager.hpp"
+
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <sys/types.h>
+#include <filesystem>
+#include <libnuraft/srv_config.hxx>
+#include <libnuraft/srv_state.hxx>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <range/v3/iterator/basic_iterator.hpp>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/transform.hpp>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+#include <variant>
+
 #include "coordination/coordination_observer.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/log_level.hpp"
 #include "coordination/utils.hpp"
 #include "utils/logging.hpp"
 
-#include <spdlog/spdlog.h>
-#include <nlohmann/json.hpp>
-#include <range/v3/view.hpp>
+#include <cstdlib>
 
 namespace memgraph::coordination {
 using nuraft::cluster_config;
@@ -207,7 +225,17 @@ auto CoordinatorStateManager::load_log_store() -> std::shared_ptr<log_store> { r
 
 auto CoordinatorStateManager::server_id() -> int32 { return my_id_; }
 
-auto CoordinatorStateManager::system_exit(int const exit_code) -> void {}
+auto CoordinatorStateManager::system_exit(int const exit_code) -> void {
+  try {
+    spdlog::critical("NuRaft triggered system exit with code: {}", exit_code);
+    // NOLINTNEXTLINE(bugprone-empty-catch)
+  } catch (std::exception const & /*e*/) {
+  }
+  // Use quick_exit() to terminate immediately without running global destructors.
+  // NuRaft calls ::exit(-1) after this callback, which can cause the static
+  // destruction order fiasco
+  std::quick_exit(exit_code);
+}
 
 auto CoordinatorStateManager::GetSrvConfig() const -> std::shared_ptr<srv_config> { return my_srv_config_; }
 

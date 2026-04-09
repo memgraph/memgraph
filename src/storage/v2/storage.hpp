@@ -18,6 +18,7 @@
 #include "storage/v2/commit_args.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_protector.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_chunked_iterable.hpp"
 #include "storage/v2/edges_iterable.hpp"
@@ -37,6 +38,9 @@
 #include "utils/event_counter.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
+
+namespace r = ranges;
+namespace rv = r::views;
 
 namespace memgraph::metrics {
 extern const Event SnapshotCreationLatency_us;
@@ -58,16 +62,14 @@ extern const Event ActiveTypeConstraints;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
-
 class SharedAccessTimeout : public utils::BasicException {
  public:
   SharedAccessTimeout()
       : utils::BasicException(
-            "Cannot get shared access to the storage. Try stopping other queries that are running in parallel. "
-            "You can increase the storage timeout (--storage-access-timeout-sec) to give your query more time to "
-            "complete. "
-            "For more information, see "
-            "https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
+            "Cannot get shared access to the storage. Try stopping other parallel queries. "
+            "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
+            "or via the --storage-access-timeout-sec flag. Run SHOW CONFIG to return the current value. "
+            "See: https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
   SPECIALIZE_GET_EXCEPTION_NAME(SharedAccessTimeout)
 };
 
@@ -75,13 +77,11 @@ class UniqueAccessTimeout : public utils::BasicException {
  public:
   UniqueAccessTimeout()
       : utils::BasicException(
-            "Cannot get unique access to the storage. Try stopping other queries that are running in parallel. "
-            "Note: periodic snapshots also hold access to the storage even when no user queries are running. "
-            "You can increase the storage timeout (--storage-access-timeout-sec) to give your query more time to "
-            "complete. "
-            "You can also configure the periodic snapshot to run at a different interval. "
-            "For more information, see "
-            "https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
+            "Cannot get unique access to the storage. Try stopping other parallel queries. "
+            "Note: Periodic snapshots also hold storage access. "
+            "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
+            "or via the --storage-access-timeout-sec flag. Run SHOW CONFIG to return the current value. "
+            "See: https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
   SPECIALIZE_GET_EXCEPTION_NAME(UniqueAccessTimeout)
 };
 
@@ -89,11 +89,10 @@ class ReadOnlyAccessTimeout : public utils::BasicException {
  public:
   ReadOnlyAccessTimeout()
       : utils::BasicException(
-            "Cannot get read only access to the storage. Try stopping other queries that are running in parallel. "
-            "You can increase the storage timeout (--storage-access-timeout-sec) to give your query more time to "
-            "complete. "
-            "For more information, see "
-            "https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
+            "Cannot get read-only access to the storage. Try stopping other parallel queries. "
+            "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
+            "or via the --storage-access-timeout-sec flag. Run SHOW CONFIG to return the current value. "
+            "See: https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReadOnlyAccessTimeout)
 };
 
@@ -422,7 +421,7 @@ class Storage {
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> {
-      return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+      return transaction_.active_indices_->label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
     virtual bool EdgeTypeIndexReady(EdgeTypeId edge_type) const = 0;
@@ -439,7 +438,7 @@ class Storage {
 
     std::vector<TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
                                                   text_search_mode search_mode, std::size_t limit) const {
-      return storage_->indices_.text_index_.Search(index_name, search_query, search_mode, limit);
+      return storage_->indices_.text_index_.Search(index_name, search_query, search_mode, limit, transaction_);
     }
 
     std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
@@ -455,7 +454,7 @@ class Storage {
     std::vector<TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name,
                                                           const std::string &search_query, text_search_mode search_mode,
                                                           std::size_t limit) const {
-      return storage_->indices_.text_edge_index_.Search(index_name, search_query, search_mode, limit);
+      return storage_->indices_.text_edge_index_.Search(index_name, search_query, search_mode, limit, transaction_);
     }
 
     std::string EdgeTextIndexAggregate(const std::string &index_name, const std::string &search_query,
@@ -646,6 +645,282 @@ class Storage {
 
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
+    void SetLabelDescription(std::span<std::string const> label_names, std::string_view desc) {
+      auto labels = ResolveLabels(label_names);
+      storage_->description_store_.SetLabel(labels, desc);
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                          DescriptionTargetKind::LABEL,
+                                          std::move(labels),
+                                          EdgeTypeId{},
+                                          PropertyId{},
+                                          std::string{desc});
+    }
+
+    bool DeleteLabelDescription(std::span<std::string const> label_names) {
+      auto labels = ResolveLabels(label_names);
+      auto deleted = storage_->description_store_.DeleteLabel(labels);
+      if (deleted) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                            DescriptionTargetKind::LABEL,
+                                            std::move(labels),
+                                            EdgeTypeId{},
+                                            PropertyId{});
+      }
+      return deleted;
+    }
+
+    std::optional<std::string> GetLabelDescription(std::span<std::string const> label_names) const {
+      return storage_->description_store_.GetLabel(ResolveLabels(label_names));
+    }
+
+    void SetEdgeTypeDescription(std::string_view name, std::string_view desc) {
+      auto edge_type = storage_->NameToEdgeType(name);
+      storage_->description_store_.SetEdgeType(edge_type, desc);
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                          DescriptionTargetKind::EDGE_TYPE,
+                                          std::vector<LabelId>{},
+                                          edge_type,
+                                          PropertyId{},
+                                          std::string{desc});
+    }
+
+    bool DeleteEdgeTypeDescription(std::string_view name) {
+      auto edge_type = storage_->NameToEdgeType(name);
+      auto deleted = storage_->description_store_.DeleteEdgeType(edge_type);
+      if (deleted) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                            DescriptionTargetKind::EDGE_TYPE,
+                                            std::vector<LabelId>{},
+                                            edge_type,
+                                            PropertyId{});
+      }
+      return deleted;
+    }
+
+    std::optional<std::string> GetEdgeTypeDescription(std::string_view name) const {
+      return storage_->description_store_.GetEdgeType(storage_->NameToEdgeType(name));
+    }
+
+    void SetLabelPropertyDescription(std::span<std::string const> label_qualifier, std::string_view prop_name,
+                                     std::string_view desc) {
+      auto labels = ResolveLabels(label_qualifier);
+      auto prop = storage_->NameToProperty(prop_name);
+      storage_->description_store_.SetLabelProperty(labels, prop, desc);
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                          DescriptionTargetKind::LABEL_PROPERTY,
+                                          std::move(labels),
+                                          EdgeTypeId{},
+                                          prop,
+                                          std::string{desc});
+    }
+
+    bool DeleteLabelPropertyDescription(std::span<std::string const> label_qualifier, std::string_view prop_name) {
+      auto labels = ResolveLabels(label_qualifier);
+      auto prop = storage_->NameToProperty(prop_name);
+      bool deleted = storage_->description_store_.DeleteLabelProperty(labels, prop);
+      if (deleted) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                            DescriptionTargetKind::LABEL_PROPERTY,
+                                            std::move(labels),
+                                            EdgeTypeId{},
+                                            prop);
+      }
+      return deleted;
+    }
+
+    std::optional<std::string> GetLabelPropertyDescription(std::span<std::string const> label_qualifier,
+                                                           std::string_view prop_name) const {
+      return storage_->description_store_.GetLabelProperty(ResolveLabels(label_qualifier),
+                                                           storage_->NameToProperty(prop_name));
+    }
+
+    void SetEdgeTypePropertyDescription(std::string_view edge_type_name, std::string_view prop_name,
+                                        std::string_view desc) {
+      auto edge_type = storage_->NameToEdgeType(edge_type_name);
+      auto prop = storage_->NameToProperty(prop_name);
+      storage_->description_store_.SetEdgeTypeProperty(edge_type, prop, desc);
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                          DescriptionTargetKind::EDGE_TYPE_PROPERTY,
+                                          std::vector<LabelId>{},
+                                          edge_type,
+                                          prop,
+                                          std::string{desc});
+    }
+
+    bool DeleteEdgeTypePropertyDescription(std::string_view edge_type_name, std::string_view prop_name) {
+      auto edge_type = storage_->NameToEdgeType(edge_type_name);
+      auto prop = storage_->NameToProperty(prop_name);
+      bool deleted = storage_->description_store_.DeleteEdgeTypeProperty(edge_type, prop);
+      if (deleted) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                            DescriptionTargetKind::EDGE_TYPE_PROPERTY,
+                                            std::vector<LabelId>{},
+                                            edge_type,
+                                            prop);
+      }
+      return deleted;
+    }
+
+    std::optional<std::string> GetEdgeTypePropertyDescription(std::string_view edge_type_name,
+                                                              std::string_view prop_name) const {
+      return storage_->description_store_.GetEdgeTypeProperty(storage_->NameToEdgeType(edge_type_name),
+                                                              storage_->NameToProperty(prop_name));
+    }
+
+    void SetPropertyDescription(std::string_view prop_name, std::string_view desc) {
+      auto prop = storage_->NameToProperty(prop_name);
+      storage_->description_store_.SetProperty(prop, desc);
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                          DescriptionTargetKind::PROPERTY,
+                                          std::vector<LabelId>{},
+                                          EdgeTypeId{},
+                                          prop,
+                                          std::string{desc});
+    }
+
+    bool DeletePropertyDescription(std::string_view prop_name) {
+      auto prop = storage_->NameToProperty(prop_name);
+      bool deleted = storage_->description_store_.DeleteProperty(prop);
+      if (deleted) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                            DescriptionTargetKind::PROPERTY,
+                                            std::vector<LabelId>{},
+                                            EdgeTypeId{},
+                                            prop);
+      }
+      return deleted;
+    }
+
+    std::optional<std::string> GetPropertyDescription(std::string_view prop_name) const {
+      return storage_->description_store_.GetProperty(storage_->NameToProperty(prop_name));
+    }
+
+    void SetEdgeTypePatternDescription(std::span<std::string const> from_label_names, std::string_view edge_type_name,
+                                       std::span<std::string const> to_label_names, std::string_view desc) {
+      auto from_labels = ResolveLabels(from_label_names);
+      auto edge_type = storage_->NameToEdgeType(edge_type_name);
+      auto to_labels = ResolveLabels(to_label_names);
+      storage_->description_store_.SetEdgeTypePattern(from_labels, edge_type, to_labels, desc);
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                          DescriptionTargetKind::EDGE_TYPE_PATTERN,
+                                          std::vector<LabelId>{},
+                                          edge_type,
+                                          PropertyId{},
+                                          std::string{desc},
+                                          std::move(from_labels),
+                                          std::move(to_labels));
+    }
+
+    bool DeleteEdgeTypePatternDescription(std::span<std::string const> from_label_names,
+                                          std::string_view edge_type_name,
+                                          std::span<std::string const> to_label_names) {
+      auto from_labels = ResolveLabels(from_label_names);
+      auto edge_type = storage_->NameToEdgeType(edge_type_name);
+      auto to_labels = ResolveLabels(to_label_names);
+      auto deleted = storage_->description_store_.DeleteEdgeTypePattern(from_labels, edge_type, to_labels);
+      if (deleted) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                            DescriptionTargetKind::EDGE_TYPE_PATTERN,
+                                            std::vector<LabelId>{},
+                                            edge_type,
+                                            PropertyId{},
+                                            std::move(from_labels),
+                                            std::move(to_labels));
+      }
+      return deleted;
+    }
+
+    std::optional<std::string> GetEdgeTypePatternDescription(std::span<std::string const> from_label_names,
+                                                             std::string_view edge_type_name,
+                                                             std::span<std::string const> to_label_names) const {
+      return storage_->description_store_.GetEdgeTypePattern(
+          ResolveLabels(from_label_names), storage_->NameToEdgeType(edge_type_name), ResolveLabels(to_label_names));
+    }
+
+    void SetEdgeTypePatternPropertyDescription(std::span<std::string const> from_label_names,
+                                               std::string_view edge_type_name,
+                                               std::span<std::string const> to_label_names, std::string_view prop_name,
+                                               std::string_view desc) {
+      auto from_labels = ResolveLabels(from_label_names);
+      auto edge_type = storage_->NameToEdgeType(edge_type_name);
+      auto to_labels = ResolveLabels(to_label_names);
+      auto prop = storage_->NameToProperty(prop_name);
+      storage_->description_store_.SetEdgeTypePatternProperty(from_labels, edge_type, to_labels, prop, desc);
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                          DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY,
+                                          std::vector<LabelId>{},
+                                          edge_type,
+                                          prop,
+                                          std::string{desc},
+                                          std::move(from_labels),
+                                          std::move(to_labels));
+    }
+
+    bool DeleteEdgeTypePatternPropertyDescription(std::span<std::string const> from_label_names,
+                                                  std::string_view edge_type_name,
+                                                  std::span<std::string const> to_label_names,
+                                                  std::string_view prop_name) {
+      auto from_labels = ResolveLabels(from_label_names);
+      auto edge_type = storage_->NameToEdgeType(edge_type_name);
+      auto to_labels = ResolveLabels(to_label_names);
+      auto prop = storage_->NameToProperty(prop_name);
+      auto deleted =
+          storage_->description_store_.DeleteEdgeTypePatternProperty(from_labels, edge_type, to_labels, prop);
+      if (deleted) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                            DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY,
+                                            std::vector<LabelId>{},
+                                            edge_type,
+                                            prop,
+                                            std::move(from_labels),
+                                            std::move(to_labels));
+      }
+      return deleted;
+    }
+
+    std::optional<std::string> GetEdgeTypePatternPropertyDescription(std::span<std::string const> from_label_names,
+                                                                     std::string_view edge_type_name,
+                                                                     std::span<std::string const> to_label_names,
+                                                                     std::string_view prop_name) const {
+      return storage_->description_store_.GetEdgeTypePatternProperty(ResolveLabels(from_label_names),
+                                                                     storage_->NameToEdgeType(edge_type_name),
+                                                                     ResolveLabels(to_label_names),
+                                                                     storage_->NameToProperty(prop_name));
+    }
+
+    void SetDatabaseDescription(std::string_view desc) {
+      storage_->description_store_.SetDatabase(desc);
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                          DescriptionTargetKind::DATABASE,
+                                          std::vector<LabelId>{},
+                                          EdgeTypeId{},
+                                          PropertyId{},
+                                          std::string{desc});
+    }
+
+    bool DeleteDatabaseDescription() {
+      bool deleted = storage_->description_store_.DeleteDatabase();
+      if (deleted) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                            DescriptionTargetKind::DATABASE,
+                                            std::vector<LabelId>{},
+                                            EdgeTypeId{},
+                                            PropertyId{});
+      }
+      return deleted;
+    }
+
+    std::optional<std::string> GetDatabaseDescription() const { return storage_->description_store_.GetDatabase(); }
+
+    std::vector<DescriptionEntry> GetAllDescriptions() const { return storage_->description_store_.GetAll(); }
+
+   private:
+    std::vector<LabelId> ResolveLabels(std::span<std::string const> names) const {
+      return names | rv::transform([this](std::string_view name) { return storage_->NameToLabel(name); }) |
+             r::to<std::vector>();
+    }
+
+   public:
     auto GetEnumValue(std::string_view name, std::string_view value) const -> std::expected<Enum, EnumStorageError> {
       return storage_->enum_store_.ToEnum(name, value);
     }
@@ -675,7 +950,7 @@ class Storage {
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
 
     bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
-      return transaction_.active_indices_.CheckIndicesAreReady(required_indices);
+      return transaction_.active_indices_->CheckIndicesAreReady(required_indices);
     }
 
     bool TransactionHasSerializationError() const { return transaction_.has_serialization_error; }
@@ -787,6 +1062,8 @@ class Storage {
 
   virtual StorageInfo GetInfo() = 0;
 
+  size_t GetDescriptionCount() const { return description_store_.Size(); }
+
   virtual std::unordered_map<LabelId, uint64_t> GetLabelCounts() const = 0;
 
   virtual void UpdateLabelCount(LabelId label, int64_t change) = 0;
@@ -799,15 +1076,8 @@ class Storage {
     return repl_storage_state_.GetReplicaState(name);
   }
 
-  auto GetActiveIndices() const -> ActiveIndices {
-    return ActiveIndices{
-        indices_.label_index_->GetActiveIndices(),
-        indices_.label_property_index_->GetActiveIndices(),
-        indices_.edge_type_index_->GetActiveIndices(),
-        indices_.edge_type_property_index_->GetActiveIndices(),
-        indices_.edge_property_index_->GetActiveIndices(),
-    };
-  }
+  /// Returns the current snapshot of active indices
+  auto GetActiveIndices() const -> ActiveIndicesPtr { return indices_.active_indices_.ReadCopy(); }
 
   auto GetActiveConstraints() const -> ActiveConstraints {
     return ActiveConstraints{constraints_.existence_constraints_->GetActiveConstraints(),
@@ -879,6 +1149,7 @@ class Storage {
 
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;
+  DescriptionStore description_store_;
 
   SchemaInfo schema_info_;
 

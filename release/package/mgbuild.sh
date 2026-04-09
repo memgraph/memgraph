@@ -78,7 +78,7 @@ DEFAULT_MGDEPS_CACHE_PORT="80"
 DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
-DEFAULT_RUST_VERSION="1.85"
+DEFAULT_RUST_VERSION="1.89"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -162,6 +162,7 @@ print_help () {
   echo -e "  --dest-dir string             Specify a custom path for destination directory on host. Provide relative path inside memgraph directory."
   echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
   echo -e "                                This directory should contain the memgraph package."
+  echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
 
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login (default empty)"
@@ -427,7 +428,7 @@ upload_conan_cache() {
 
 build_memgraph () {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env && rustup toolchain install $DEFAULT_RUST_VERSION && export RUSTUP_TOOLCHAIN=$DEFAULT_RUST_VERSION"
   local container_build_dir="$MGBUILD_ROOT_DIR/build"
   local container_output_dir="$container_build_dir/output"
   local arm_flag=""
@@ -830,6 +831,7 @@ package_docker() {
   local generate_sbom=false
   local malloc=false
   local custom_mirror=false
+  local keep_image_loaded=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
@@ -852,6 +854,10 @@ package_docker() {
         [[ "$2" == "true" ]] && custom_mirror=true
         shift 2
       ;;
+      --keep-image-loaded)
+        keep_image_loaded=$2
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -867,10 +873,10 @@ package_docker() {
 
   if [[ "$build_type" == "Release" ]]; then
     echo "Package release"
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc
+    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   else
     echo "Package other"
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc
+    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
@@ -1063,6 +1069,7 @@ test_memgraph() {
   local EXPORT_AWS_KEY_ID="export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}"
   local EXPORT_AWS_SECRET_KEY="export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
+  local default_benchmark_result_file='benchmark_result.json'
 
   resolve_native_ha_monitoring_targets() {
     local monitoring_targets_output
@@ -1166,7 +1173,9 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=standalone/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
     ;;
     stress-native-ha)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_AWS_KEY_ID && $EXPORT_AWS_SECRET_KEY && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=ha/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
+      # Set up passwordless sudo for mg user (needed by stress tests that use iptables)
+      docker exec -u root $build_container bash -c "apt-get update -qq && apt-get install -y -qq sudo && adduser mg sudo && echo 'mg ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_AWS_KEY_ID && $EXPORT_AWS_SECRET_KEY && export REPLICATION_MODE=${REPLICATION_MODE:-sync} && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=ha/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
     ;;
     stress-docker-ha)
       export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license
@@ -1237,7 +1246,7 @@ test_memgraph() {
       shift 1
       local DATASET='pokec'
       local DATASET_SIZE='medium'
-      local EXPORT_RESULTS_FILE='benchmark_result.json'
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1266,7 +1275,7 @@ test_memgraph() {
     ;;
     mgbench-supernode)
       shift 1
-      local EXPORT_RESULTS_FILE='benchmark_result.json'
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --export-results-file)
@@ -1280,7 +1289,7 @@ test_memgraph() {
     ;;
     mgbench-load-parquet)
       shift 1
-      local EXPORT_RESULTS_FILE='benchmark_result.json'
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --export-results-file)
@@ -1291,6 +1300,86 @@ test_memgraph() {
       done
 
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE load_parquet"
+    ;;
+    mgbench-vector-search-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-vector-search-index"
+            echo "Supported flags: --export-results-file"
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_index/default/vector/*"
+    ;;
+    mgbench-vector-search-edge-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-vector-search-edge-index" >&2
+            echo "Supported flags: --export-results-file" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_edge_index/default/vector/*"
+    ;;
+    mgbench-text-search-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-text-search-index" >&2
+            echo "Supported flags: --export-results-file" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_index/default/text/*"
+    ;;
+    mgbench-text-search-edge-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-text-search-edge-index" >&2
+            echo "Supported flags: --export-results-file" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_edge_index/default/text/*"
     ;;
     upload-to-bench-graph)
       shift 1

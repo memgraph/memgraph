@@ -46,6 +46,7 @@ enum class Marker : uint8_t {
   SECTION_EDGE_INDICES = 0x28,
   SECTION_ENUMS = 0x29,
   SECTION_TTL = 0x2a,
+  SECTION_DESCRIPTIONS = 0x2b,
 
   SECTION_OFFSETS = 0x42,
 
@@ -92,6 +93,9 @@ enum class Marker : uint8_t {
   DELTA_TTL_OPERATION = 0x78,
   DELTA_TEXT_EDGE_INDEX_CREATE = 0x79,
 
+  DELTA_DESCRIPTION_SET = 0x7a,
+  DELTA_DESCRIPTION_DELETE = 0x7b,
+
   VALUE_FALSE = 0x00,
   VALUE_TRUE = 0xff,
 };
@@ -125,6 +129,7 @@ static constexpr std::array kMarkersAll = {
     Marker::SECTION_OFFSETS,
     Marker::SECTION_ENUMS,
     Marker::SECTION_TTL,
+    Marker::SECTION_DESCRIPTIONS,
     Marker::DELTA_VERTEX_CREATE,
     Marker::DELTA_VERTEX_DELETE,
     Marker::DELTA_VERTEX_ADD_LABEL,
@@ -167,6 +172,8 @@ static constexpr std::array kMarkersAll = {
     Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP,
     Marker::DELTA_TTL_OPERATION,
     Marker::DELTA_TEXT_EDGE_INDEX_CREATE,
+    Marker::DELTA_DESCRIPTION_SET,
+    Marker::DELTA_DESCRIPTION_DELETE,
     Marker::VALUE_FALSE,
     Marker::VALUE_TRUE,
 };

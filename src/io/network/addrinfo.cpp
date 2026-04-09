@@ -10,11 +10,16 @@
 // licenses/APL.txt.
 
 #include "io/network/addrinfo.hpp"
+
+#include <sys/socket.h>
+#include <cerrno>
+#include <concepts>
+#include <cstring>
+#include <iterator>
+#include <utility>
+
 #include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
-
-#include <concepts>
-#include <iterator>
 
 namespace memgraph::io::network {
 

@@ -39,6 +39,7 @@ using memgraph::replication_coordination_glue::FrequentHeartbeatRpc;
 using memgraph::replication_coordination_glue::SwapMainUUIDRpc;
 using memgraph::rpc::Client;
 using memgraph::rpc::GenericRpcFailedException;
+using memgraph::rpc::RpcTimeoutException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
 using memgraph::storage::replication::HeartbeatRpc;
@@ -58,7 +59,7 @@ TEST(RpcTimeout, TimeoutNoFailure) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -93,7 +94,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -118,7 +119,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<Echo>("Sending request");
-  EXPECT_THROW(stream.SendAndWait(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWait(), RpcTimeoutException);
 }
 
 // Simulate server with one thread being busy processing other RPC message.
@@ -128,7 +129,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -176,7 +177,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
   auto sum_thread_ = std::jthread([&sum_stream]() { sum_stream.SendAndWait(); });
   // Wait so that server receives first SumReq and then EchoMessage
   std::this_thread::sleep_for(100ms);
-  EXPECT_THROW(echo_stream.SendAndWait(), GenericRpcFailedException);
+  EXPECT_THROW(echo_stream.SendAndWait(), RpcTimeoutException);
 }
 
 TEST(RpcTimeout, SendingToWrongSocket) {
@@ -185,7 +186,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 
@@ -210,7 +211,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<Echo>("Sending request");
-  EXPECT_THROW(stream.SendAndWait(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWait(), RpcTimeoutException);
 }
 
 template <memgraph::rpc::IsRpc T>
@@ -228,21 +229,23 @@ void RegisterRpcCallback(Server &rpc_server) {
   });
 }
 
+namespace {
 template <memgraph::rpc::IsRpc T>
 void SendAndAssert(Client &client) {
   rpc_akn.store(false);
   auto stream = client.Stream<T>();
-  EXPECT_THROW(stream.SendAndWait(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWait(), RpcTimeoutException);
   rpc_akn.store(true);  // Signal the timeout occurred
   rpc_akn.wait(false);  // Wait for the reset
 }
+}  // namespace
 
 TEST(RpcTimeout, Timeouts) {
   Endpoint endpoint{"localhost", port};
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 2};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    rpc_server.Shutdown();
+    ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
   }};
 

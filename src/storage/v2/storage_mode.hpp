@@ -14,6 +14,7 @@
 #include <array>
 #include <cstdint>
 #include <string_view>
+#include <utility>
 
 namespace memgraph::storage {
 

@@ -110,12 +110,12 @@ jobs:
   BuildAndPush:
     name: "Build and Test MAGE"
     runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
-    timeout-minutes: ${{ inputs.cugraph && 45 || 30 }}
+    timeout-minutes: ${{ inputs.cugraph && 45 || 35 }}
     outputs:
       s3_package_url: ${{ steps.output-url.outputs.s3_url }}
     steps:
       - name: Checkout repository and submodules
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           submodules: recursive
@@ -460,7 +460,7 @@ jobs:
 
       - name: Upload SBOM to GitHub
         if: ${{ inputs.generate_sbom == true }}
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "mage-sbom"
           path: "sbom/"
@@ -565,23 +565,51 @@ jobs:
           docker save ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG | gzip > output/${ARTIFACT_NAME}.tar.gz
           du -h output/${ARTIFACT_NAME}.tar.gz
 
+      - name: Run Docker smoke tests
+        if: ${{ inputs.run_smoke_tests == true }}
+        run: |
+          last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+          last_version="${last_version#v}"
+          if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+            last_version="${last_version}-relwithdebinfo"
+          fi
+          if [[ "$MALLOC" == "true" ]]; then
+            last_version="${last_version}-malloc"
+          fi
+          if [[ "$CUDA" == "true" ]]; then
+            last_version="${last_version}-cuda"
+          fi
+          echo "Resolved LAST_VERSION=$last_version"
+          docker pull "${DOCKER_REPOSITORY_NAME}:${last_version}"
+
+          export MEMGRAPH_NEXT_DOCKERHUB_IMAGE="${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG"
+          export MEMGRAPH_LAST_DOCKERHUB_IMAGE="${DOCKER_REPOSITORY_NAME}:${last_version}"
+
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            test-mage smoke \
+            --next-image $MEMGRAPH_NEXT_DOCKERHUB_IMAGE \
+            --last-image $MEMGRAPH_LAST_DOCKERHUB_IMAGE
+
       - name: Push query module archive to GitHub
         if: ${{ inputs.push_to_github }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.ARTIFACT_NAME }}-query-modules"
           path: "mage/mage.tar.gz"
 
       - name: Push DEB package to GitHub
         if: ${{ inputs.push_to_github && env.PACKAGE_DEB == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.ARTIFACT_NAME }}-deb"
           path: "${{ env.DEB_PACKAGE }}"
 
       - name: Push docker image to GitHub
         if: ${{ inputs.push_to_github }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.IMAGE_TAG }}-docker"
           path: "output/${{ env.ARTIFACT_NAME }}.tar.gz"
@@ -628,50 +656,3 @@ jobs:
         if: always()
         run: |
           ./tools/ci/docker_cleanup.sh
-
-  SetupSmokeTest:
-    runs-on: [self-hosted]
-    needs: [BuildAndPush]
-    if: ${{ inputs.run_smoke_tests && inputs.push_to_s3 }}
-    outputs:
-      last_version: ${{ steps.get-latest-tag.outputs.clean_tag }}
-    steps:
-      - name: Checkout repository and submodules
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
-
-      - name: Get Latest MAGE Tag
-        id: get-latest-tag
-        run: |
-          tag="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
-          clean_tag="${tag#v}"
-          if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
-            clean_tag="${clean_tag}-relwithdebinfo"
-          fi
-          if [[ "$MALLOC" == "true" ]]; then
-            clean_tag="${clean_tag}-malloc"
-          fi
-          if [[ "$CUDA" == "true" ]]; then
-            clean_tag="${clean_tag}-cuda"
-          fi
-          echo "Found latest tag: ${clean_tag}"
-          echo "clean_tag=$clean_tag" >> $GITHUB_OUTPUT
-
-  RunSmokeTests:
-    if: ${{ inputs.run_smoke_tests }}
-    needs: [BuildAndPush, SetupSmokeTest]
-    uses: ./.github/workflows/reusable_smoke_test_docker.yml
-    with:
-      arch: "${{ inputs.arch }}"
-      next_version: "${{ needs.BuildAndPush.outputs.s3_package_url }}"
-      last_version: "${{ needs.SetupSmokeTest.outputs.last_version }}"
-      malloc: ${{ inputs.malloc }}
-      cuda: ${{ inputs.cuda }}
-      relwithdebinfo: ${{ inputs.build_type == 'RelWithDebInfo' }}
-      ref: ${{ inputs.ref }}
-      image_type: "mage"
-    secrets: inherit

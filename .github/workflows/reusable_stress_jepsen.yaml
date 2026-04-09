@@ -1,9 +1,5 @@
 name: "Jepsen HA Stress Tests"
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ inputs.mt }}
-  cancel-in-progress: false
-
 on:
   workflow_call:
     inputs:
@@ -37,6 +33,10 @@ on:
         description: "If enabled, .old dir will be used."
         type: boolean
         default: true
+      shutdown-signal:
+        description: "Signal to use for terminating instances (KILL (SIGKILL), TERM (SIGTERM))"
+        type: string
+        default: "KILL"
 
 
 env:
@@ -63,7 +63,7 @@ jobs:
     timeout-minutes: 720
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
 
@@ -166,9 +166,9 @@ jobs:
 
           if [[ "${{ inputs.mt }}" == "true" ]]; then
             NEMESIS_SLEEP_SEC=$((90 * ${{ inputs.num-tenants }}))
-            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --num-tenants ${{ inputs.num-tenants }} --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --recovery-time 600 --nemesis-start-sleep $NEMESIS_SLEEP_SEC"
+            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --num-tenants ${{ inputs.num-tenants }} --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --shutdown-signal ${{ inputs.shutdown-signal }} --recovery-time 600 --nemesis-start-sleep $NEMESIS_SLEEP_SEC"
           else
-            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --recovery-time 600 --nemesis-start-sleep 25"
+            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --shutdown-signal ${{ inputs.shutdown-signal }} --recovery-time 600 --nemesis-start-sleep 25"
           fi
 
           ./run.sh test \
@@ -190,7 +190,7 @@ jobs:
       - name: Save Jepsen report
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "Jepsen Report-${{ inputs.name }}"
           path: tests/jepsen/Jepsen.tar.gz

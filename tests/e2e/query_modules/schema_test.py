@@ -634,5 +634,70 @@ def test_node_type_properties_zoned_datetime():
     assert list(result[1]) == [":`Event`", ["Event"], "scheduled", ["ZonedDateTime"], True]
 
 
+def test_node_type_properties_point2d():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (n:Place {name: 'Zagreb', location: point({x: 15.9819, y: 45.8150, srid: 4326})})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 2
+    assert list(result[0]) == [":`Place`", ["Place"], "location", ["Point2d"], True]
+    assert list(result[1]) == [":`Place`", ["Place"], "name", ["String"], True]
+
+
+def test_node_type_properties_point3d():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (n:Place {name: 'Zagreb', location: point({x: 15.9819, y: 45.8150, z: 150.0, srid: 4979})})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 2
+    assert list(result[0]) == [":`Place`", ["Place"], "location", ["Point3d"], True]
+    assert list(result[1]) == [":`Place`", ["Place"], "name", ["String"], True]
+
+
+def test_node_type_properties_enum():
+    cursor = connect().cursor()
+    # No DROP ENUM cleanup needed — e2e runner starts a fresh memgraph instance
+    execute_and_fetch_all(cursor, "CREATE ENUM Status VALUES { Good, Okay, Bad };")
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (n:Item {name: 'Widget', status: Status::Good})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 2
+    assert list(result[0]) == [":`Item`", ["Item"], "name", ["String"], True]
+    assert list(result[1]) == [":`Item`", ["Item"], "status", ["Enum"], True]
+
+
+def test_rel_type_properties_point2d():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (a:Person {name: 'Alice'})-[r:VISITED {location: point({x: 15.9819, y: 45.8150, srid: 4326})}]->(b:Place {name: 'Zagreb'})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties() YIELD relType, propertyName, propertyTypes, mandatory "
+        "RETURN relType, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`VISITED`", "location", ["Point2d"], True]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

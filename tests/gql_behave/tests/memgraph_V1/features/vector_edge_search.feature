@@ -97,8 +97,8 @@ Feature: Vector edge search related features
         And with new vector edge index test_index on :E1(prop1) with dimension 2 and capacity 10
         And having executed
             """
-            CREATE (a)-[:E1 {prop1: [1.1, 1.1]}]->(b)
-            CREATE (a)-[:E1 {prop1: [2.1, 2.1]}]->(b)
+            CREATE (a)-[:E1 {prop1: [1.5, 1.5]}]->(b)
+            CREATE (a)-[:E1 {prop1: [2.5, 2.5]}]->(b)
             """
         When executing query:
             """
@@ -106,15 +106,15 @@ Feature: Vector edge search related features
             """
         Then the result should be:
             | edge                      |
-            | [:E1 {prop1: [1.1, 1.1]}] |
+            | [:E1 {prop1: [1.5, 1.5]}] |
 
     Scenario: Vector edge search performs on integer values
         Given an empty graph
         And with new vector edge index test_index on :E1(prop1) with dimension 2 and capacity 10
         And having executed
             """
-            CREATE (a)-[:E1 {prop1: [1.1, 1.1]}]->(b)
-            CREATE (a)-[:E1 {prop1: [2.1, 2.1]}]->(b)
+            CREATE (a)-[:E1 {prop1: [1.5, 1.5]}]->(b)
+            CREATE (a)-[:E1 {prop1: [2.5, 2.5]}]->(b)
             """
         When executing query:
             """
@@ -122,7 +122,7 @@ Feature: Vector edge search related features
             """
         Then the result should be:
             | edge                      |
-            | [:E1 {prop1: [2.1, 2.1]}] |
+            | [:E1 {prop1: [2.5, 2.5]}] |
 
     Scenario: Vector edge search raises error on value that is not integer or double
         Given an empty graph
@@ -137,3 +137,46 @@ Feature: Vector edge search related features
             CALL vector_search.search_edges("test_index", 1, ["invalid", "invalid"]) YIELD * RETURN edge;
             """
         Then an error should be raised
+
+    Scenario: Create vector edge index with parameterized config with all options
+        Given an empty graph
+        And parameters are:
+            | config | {dimension: 2, capacity: 10, metric: "cos", resize_coefficient: 2, scalar_kind: "i8"} |
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX test_index ON :E1(prop1) WITH CONFIG $config
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type                  |
+            | 64       | 2         | 'test_index' | 'E1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'edge-type+property_vector' |
+
+    Scenario: Create vector edge index with parameterized config that is not a map raises error
+        Given an empty graph
+        And parameters are:
+            | config | not_a_map |
+        When executing query:
+            """
+            CREATE VECTOR EDGE INDEX test_index ON :E1(prop1) WITH CONFIG $config
+            """
+        Then an error should be raised
+
+    Scenario: Create vector edge index with parameterized config values
+        Given an empty graph
+        And parameters are:
+            | dim | 2  |
+            | cap | 10 |
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX test_index ON :E1(prop1) WITH CONFIG {"dimension": $dim, "capacity": $cap}
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type                  |
+            | 64       | 2         | 'test_index' | 'E1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'edge-type+property_vector' |

@@ -13,8 +13,8 @@
 
 #include <arpa/inet.h>
 #include <netdb.h>
-
-#include <climits>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <cstring>
 #include <string>
 

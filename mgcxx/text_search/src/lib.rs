@@ -19,7 +19,7 @@ use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{QueryParser, RegexQuery};
 use tantivy::schema::*;
-use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
+use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument};
 
 // NOTE: Result<T> == Result<T,std::io::Error>.
 #[cxx::bridge(namespace = "mgcxx::text_search")]
@@ -29,7 +29,6 @@ mod ffi {
         tantivyContext: Box<TantivyContext>,
     }
 
-    // TODO(gitbuda): Write all the right combinations.
     /// mappings format (JSON string expected):
     ///   {
     ///     "properties": {
@@ -66,18 +65,39 @@ mod ffi {
         return_fields: Vec<String>,
         aggregation_query: String,
         limit: usize,
-        // TODO(gitbuda): Add stuff like skip.
         // NOTE: Any primitive value here is a bit of a problem because of default value on the C++
         // side.
     }
+    // NOTE: SearchOutput is currently only used by the old search()/regex_search() functions which
+    // are not called from C++ anymore (replaced by the *_gids_pinned variants). Keeping it around
+    // because we will need it once we add single-store mode to the text index (returning full
+    // documents directly from Tantivy instead of doing a separate storage lookup by GID).
     struct SearchOutput {
         docs: Vec<DocumentOutput>,
-        // TODO(gitbuda): Add stuff like page (skip, limit).
+    }
+
+    struct GidScore {
+        gid: u64,
+        score: f32,
+    }
+    struct GidScoreOutput {
+        docs: Vec<GidScore>,
+    }
+
+    struct EdgeGidScore {
+        edge_gid: u64,
+        from_gid: u64,
+        to_gid: u64,
+        score: f32,
+    }
+    struct EdgeGidScoreOutput {
+        docs: Vec<EdgeGidScore>,
     }
 
     // NOTE: Since return type is Result<T>, always return Result<Something>.
     extern "Rust" {
         type TantivyContext;
+        type SearcherContext;
         fn init(_log_level: &String) -> Result<()>;
         /// path is just passed into std::path::Path::new -> pass any absolute or relative path to
         /// yours process working directory
@@ -95,9 +115,33 @@ mod ffi {
         ) -> Result<()>;
         fn commit(context: &mut Context) -> Result<()>;
         fn rollback(context: &mut Context) -> Result<()>;
+        // NOTE: search() and regex_search() are not currently called from C++ — the optimized
+        // *_gids_pinned variants are used instead. Keeping these because we will need them once we
+        // add single-store mode to the text index (returning full documents from Tantivy).
         fn search(context: &mut Context, input: &SearchInput) -> Result<SearchOutput>;
         fn regex_search(context: &mut Context, input: &SearchInput) -> Result<SearchOutput>;
         fn aggregate(context: &mut Context, input: &SearchInput) -> Result<DocumentOutput>;
+        fn acquire_searcher(context: &mut Context) -> Result<Box<SearcherContext>>;
+        fn search_gids_pinned(
+            context: &mut Context,
+            searcher: &SearcherContext,
+            input: &SearchInput,
+        ) -> Result<GidScoreOutput>;
+        fn regex_search_gids_pinned(
+            context: &mut Context,
+            searcher: &SearcherContext,
+            input: &SearchInput,
+        ) -> Result<GidScoreOutput>;
+        fn search_edge_gids_pinned(
+            context: &mut Context,
+            searcher: &SearcherContext,
+            input: &SearchInput,
+        ) -> Result<EdgeGidScoreOutput>;
+        fn regex_search_edge_gids_pinned(
+            context: &mut Context,
+            searcher: &SearcherContext,
+            input: &SearchInput,
+        ) -> Result<EdgeGidScoreOutput>;
         fn get_num_docs(context: &mut Context) -> Result<u64>;
         fn drop_index(context: Context) -> Result<()>;
     }
@@ -106,6 +150,64 @@ mod ffi {
 impl ffi::SearchInput {
     fn effective_limit(&self) -> usize {
         if self.limit == 0 { 1000 } else { self.limit }
+    }
+}
+
+fn owned_value_to_json(val: OwnedValue) -> serde_json::Value {
+    match val {
+        OwnedValue::Null => serde_json::Value::Null,
+        OwnedValue::Str(s) => serde_json::Value::String(s),
+        OwnedValue::U64(n) => serde_json::json!(n),
+        OwnedValue::I64(n) => serde_json::json!(n),
+        OwnedValue::F64(n) => serde_json::json!(n),
+        OwnedValue::Bool(b) => serde_json::Value::Bool(b),
+        OwnedValue::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(owned_value_to_json).collect())
+        }
+        OwnedValue::Object(entries) => {
+            let map: serde_json::Map<String, serde_json::Value> = entries
+                .into_iter()
+                .map(|(k, v)| (k, owned_value_to_json(v)))
+                .collect();
+            serde_json::Value::Object(map)
+        }
+        other => match serde_json::to_value(&other) {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!(
+                    "Failed to serialize OwnedValue to JSON in owned_value_to_json: value={:?}, error={}",
+                    other,
+                    e
+                );
+                serde_json::Value::Null
+            }
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_owned_value_to_json_nested() {
+        let doc = OwnedValue::Object(vec![
+            ("name".to_string(), OwnedValue::Str("test".to_string())),
+            ("count".to_string(), OwnedValue::I64(-3)),
+            ("tags".to_string(), OwnedValue::Array(vec![
+                OwnedValue::Bool(true),
+                OwnedValue::U64(42),
+            ])),
+            ("nested".to_string(), OwnedValue::Object(vec![
+                ("x".to_string(), OwnedValue::F64(1.5)),
+            ])),
+            ("empty".to_string(), OwnedValue::Null),
+        ]);
+        assert_eq!(
+            owned_value_to_json(doc),
+            json!({"name": "test", "count": -3, "tags": [true, 42u64], "nested": {"x": 1.5}, "empty": null})
+        );
     }
 }
 
@@ -118,13 +220,13 @@ pub struct TantivyContext {
 }
 
 fn init(_log_level: &String) -> Result<(), std::io::Error> {
-    // TODO(gitbuda): Used as a library code inside a C++ application -> align logger format.
+    // NOTE: Logger format is not aligned with the C++ host application.
     let log_init_res = env_logger::try_init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "warn"),
     );
-    // TODO(gitbuda): If more than one module tries to do this -> the later call might fail ->
-    // in that case, this code should be adjusted (or the error should be ignored because the
-    // logger is already initialized) -> if this happens consider what would be the best solution.
+    // NOTE: If more than one module calls env_logger::try_init, the later call will fail because
+    // the logger is already initialized. Currently we treat this as a hard error; if this becomes
+    // a problem, consider ignoring the AlreadyInitialized variant.
     if let Err(e) = log_init_res {
         return Err(Error::new(
                 ErrorKind::Other,
@@ -134,7 +236,6 @@ fn init(_log_level: &String) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-// TODO(gitbuda): Implement full range of extract_schema options.
 fn create_index_schema(
     mappings: &serde_json::Map<String, Value>,
 ) -> Result<Schema, std::io::Error> {
@@ -519,6 +620,8 @@ fn search_get_fields(
     Ok(result)
 }
 
+// NOTE: Not currently called from C++ — replaced by search_gids_pinned(). Keeping for future
+// single-store text index mode where we return full documents directly from Tantivy.
 fn search(
     context: &mut ffi::Context,
     input: &ffi::SearchInput,
@@ -578,27 +681,8 @@ fn search(
                 Some(f) => f,
                 None => continue,
             };
-            // TODO(gitbuda): Shouldn't not just be JSON -> deduce from mappings!
-            let field_as_tantivy_json = match field_data {
-                OwnedValue::Object(f) => f,
-                _ => {
-                    // TODO(gitbuda): Is error here the best?
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("Unable to convert field data to json"),
-                    ));
-                }
-            };
-            let field_as_json = match serde_json::to_value(field_as_tantivy_json) {
-                Ok(f) => f,
-                Err(_) => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("Unable to convert field data to json"),
-                    ));
-                }
-            };
-            data.insert(name.to_string(), field_as_json);
+            let owned: OwnedValue = field_data.into();
+            data.insert(name.to_string(), owned_value_to_json(owned));
         }
 
         docs.push(ffi::DocumentOutput {
@@ -620,6 +704,8 @@ fn search(
     Ok(ffi::SearchOutput { docs })
 }
 
+// NOTE: Not currently called from C++ — replaced by regex_search_gids_pinned(). Keeping for
+// future single-store text index mode where we return full documents directly from Tantivy.
 fn regex_search(
     context: &mut ffi::Context,
     input: &ffi::SearchInput,
@@ -678,27 +764,8 @@ fn regex_search(
                 Some(f) => f,
                 None => continue,
             };
-            // TODO(gitbuda): Shouldn't not just be JSON -> deduce from mappings!
-            let field_as_tantivy_json = match field_data {
-                OwnedValue::Object(f) => f,
-                _ => {
-                    // TODO(gitbuda): Is error here the best?
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("Unable to convert field data to json. Data we have: {:?}", field_data),
-                    ));
-                }
-            };
-            let field_as_json = match serde_json::to_value(field_as_tantivy_json) {
-                Ok(f) => f,
-                Err(_) => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("Unable to convert field data to json"),
-                    ));
-                }
-            };
-            data.insert(name.to_string(), field_as_json);
+            let owned: OwnedValue = field_data.into();
+            data.insert(name.to_string(), owned_value_to_json(owned));
         }
         docs.push(ffi::DocumentOutput {
             data: match to_string(&data) {
@@ -717,6 +784,241 @@ fn regex_search(
         });
     }
     Ok(ffi::SearchOutput { docs })
+}
+
+fn extract_u64_field(
+    doc: &TantivyDocument,
+    field: Field,
+    field_name: &str,
+    index_path: &std::path::PathBuf,
+) -> Result<u64, std::io::Error> {
+    let value = doc.get_first(field).ok_or_else(|| {
+        Error::new(
+            ErrorKind::Other,
+            format!(
+                "Document missing {} field in {:?}",
+                field_name, index_path
+            ),
+        )
+    })?;
+    let owned: OwnedValue = value.into();
+    match owned {
+        OwnedValue::U64(n) => Ok(n),
+        other => Err(Error::new(
+            ErrorKind::Other,
+            format!(
+                "{} field has unexpected type {:?} in {:?}",
+                field_name, other, index_path
+            ),
+        )),
+    }
+}
+
+pub struct SearcherContext {
+    searcher: tantivy::Searcher,
+}
+
+fn acquire_searcher(
+    context: &mut ffi::Context,
+) -> Result<Box<SearcherContext>, std::io::Error> {
+    let searcher = context.tantivyContext.index_reader.searcher();
+    Ok(Box::new(SearcherContext { searcher }))
+}
+
+fn search_gids_pinned(
+    context: &mut ffi::Context,
+    searcher_ctx: &SearcherContext,
+    input: &ffi::SearchInput,
+) -> Result<ffi::GidScoreOutput, std::io::Error> {
+    let index_path = &context.tantivyContext.index_path;
+    let index = &context.tantivyContext.index;
+    let schema = &context.tantivyContext.schema;
+
+    let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
+    let query_parser = QueryParser::for_index(index, search_fields);
+    let query = query_parser.parse_query(&input.search_query).map_err(|e| {
+        Error::new(
+            ErrorKind::Other,
+            format!("Unable to create search query for {:?} -> {}", index_path, e),
+        )
+    })?;
+
+    let top_docs = searcher_ctx
+        .searcher
+        .search(&query, &TopDocs::with_limit(input.effective_limit()))
+        .map_err(|e| {
+            Error::new(
+                ErrorKind::Other,
+                format!("Unable to perform text search under {:?} -> {}", index_path, e),
+            )
+        })?;
+
+    let gid_field = schema.get_field("gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("gid field not found in {:?} -> {}", index_path, e))
+    })?;
+
+    let mut docs: Vec<ffi::GidScore> = Vec::with_capacity(top_docs.len());
+    for (score, doc_address) in top_docs {
+        let doc: TantivyDocument = searcher_ctx.searcher.doc(doc_address).map_err(|e| {
+            Error::new(
+                ErrorKind::Other,
+                format!("Unable to find document inside {:?} -> {}", index_path, e),
+            )
+        })?;
+        let gid = extract_u64_field(&doc, gid_field, "gid", index_path)?;
+        docs.push(ffi::GidScore { gid, score });
+    }
+    Ok(ffi::GidScoreOutput { docs })
+}
+
+fn regex_search_gids_pinned(
+    context: &mut ffi::Context,
+    searcher_ctx: &SearcherContext,
+    input: &ffi::SearchInput,
+) -> Result<ffi::GidScoreOutput, std::io::Error> {
+    let index_path = &context.tantivyContext.index_path;
+    let schema = &context.tantivyContext.schema;
+
+    let search_field = search_get_fields(&input.search_fields, schema, index_path)?[0];
+    let query = RegexQuery::from_pattern(&input.search_query, search_field).map_err(|e| {
+        Error::new(
+            ErrorKind::Other,
+            format!("Unable to create regex search query for {:?} -> {}", index_path, e),
+        )
+    })?;
+
+    let top_docs = searcher_ctx
+        .searcher
+        .search(&query, &TopDocs::with_limit(input.effective_limit()))
+        .map_err(|e| {
+            Error::new(
+                ErrorKind::Other,
+                format!("Unable to perform text search under {:?} -> {}", index_path, e),
+            )
+        })?;
+
+    let gid_field = schema.get_field("gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("gid field not found in {:?} -> {}", index_path, e))
+    })?;
+
+    let mut docs: Vec<ffi::GidScore> = Vec::with_capacity(top_docs.len());
+    for (score, doc_address) in top_docs {
+        let doc: TantivyDocument = searcher_ctx.searcher.doc(doc_address).map_err(|e| {
+            Error::new(
+                ErrorKind::Other,
+                format!("Unable to find document inside {:?} -> {}", index_path, e),
+            )
+        })?;
+        let gid = extract_u64_field(&doc, gid_field, "gid", index_path)?;
+        docs.push(ffi::GidScore { gid, score });
+    }
+    Ok(ffi::GidScoreOutput { docs })
+}
+
+fn search_edge_gids_pinned(
+    context: &mut ffi::Context,
+    searcher_ctx: &SearcherContext,
+    input: &ffi::SearchInput,
+) -> Result<ffi::EdgeGidScoreOutput, std::io::Error> {
+    let index_path = &context.tantivyContext.index_path;
+    let index = &context.tantivyContext.index;
+    let schema = &context.tantivyContext.schema;
+
+    let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
+    let query_parser = QueryParser::for_index(index, search_fields);
+    let query = query_parser.parse_query(&input.search_query).map_err(|e| {
+        Error::new(
+            ErrorKind::Other,
+            format!("Unable to create search query for {:?} -> {}", index_path, e),
+        )
+    })?;
+
+    let top_docs = searcher_ctx
+        .searcher
+        .search(&query, &TopDocs::with_limit(input.effective_limit()))
+        .map_err(|e| {
+            Error::new(
+                ErrorKind::Other,
+                format!("Unable to perform text search under {:?} -> {}", index_path, e),
+            )
+        })?;
+
+    let edge_gid_field = schema.get_field("edge_gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("edge_gid not found in {:?} -> {}", index_path, e))
+    })?;
+    let from_gid_field = schema.get_field("from_vertex_gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("from_vertex_gid not found in {:?} -> {}", index_path, e))
+    })?;
+    let to_gid_field = schema.get_field("to_vertex_gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("to_vertex_gid not found in {:?} -> {}", index_path, e))
+    })?;
+
+    let mut docs: Vec<ffi::EdgeGidScore> = Vec::with_capacity(top_docs.len());
+    for (score, doc_address) in top_docs {
+        let doc: TantivyDocument = searcher_ctx.searcher.doc(doc_address).map_err(|e| {
+            Error::new(
+                ErrorKind::Other,
+                format!("Unable to find document inside {:?} -> {}", index_path, e),
+            )
+        })?;
+        let edge_gid = extract_u64_field(&doc, edge_gid_field, "edge_gid", index_path)?;
+        let from_gid = extract_u64_field(&doc, from_gid_field, "from_vertex_gid", index_path)?;
+        let to_gid = extract_u64_field(&doc, to_gid_field, "to_vertex_gid", index_path)?;
+        docs.push(ffi::EdgeGidScore { edge_gid, from_gid, to_gid, score });
+    }
+    Ok(ffi::EdgeGidScoreOutput { docs })
+}
+
+fn regex_search_edge_gids_pinned(
+    context: &mut ffi::Context,
+    searcher_ctx: &SearcherContext,
+    input: &ffi::SearchInput,
+) -> Result<ffi::EdgeGidScoreOutput, std::io::Error> {
+    let index_path = &context.tantivyContext.index_path;
+    let schema = &context.tantivyContext.schema;
+
+    let search_field = search_get_fields(&input.search_fields, schema, index_path)?[0];
+    let query = RegexQuery::from_pattern(&input.search_query, search_field).map_err(|e| {
+        Error::new(
+            ErrorKind::Other,
+            format!("Unable to create regex search query for {:?} -> {}", index_path, e),
+        )
+    })?;
+
+    let top_docs = searcher_ctx
+        .searcher
+        .search(&query, &TopDocs::with_limit(input.effective_limit()))
+        .map_err(|e| {
+            Error::new(
+                ErrorKind::Other,
+                format!("Unable to perform text search under {:?} -> {}", index_path, e),
+            )
+        })?;
+
+    let edge_gid_field = schema.get_field("edge_gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("edge_gid not found in {:?} -> {}", index_path, e))
+    })?;
+    let from_gid_field = schema.get_field("from_vertex_gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("from_vertex_gid not found in {:?} -> {}", index_path, e))
+    })?;
+    let to_gid_field = schema.get_field("to_vertex_gid").map_err(|e| {
+        Error::new(ErrorKind::Other, format!("to_vertex_gid not found in {:?} -> {}", index_path, e))
+    })?;
+
+    let mut docs: Vec<ffi::EdgeGidScore> = Vec::with_capacity(top_docs.len());
+    for (score, doc_address) in top_docs {
+        let doc: TantivyDocument = searcher_ctx.searcher.doc(doc_address).map_err(|e| {
+            Error::new(
+                ErrorKind::Other,
+                format!("Unable to find document inside {:?} -> {}", index_path, e),
+            )
+        })?;
+        let edge_gid = extract_u64_field(&doc, edge_gid_field, "edge_gid", index_path)?;
+        let from_gid = extract_u64_field(&doc, from_gid_field, "from_vertex_gid", index_path)?;
+        let to_gid = extract_u64_field(&doc, to_gid_field, "to_vertex_gid", index_path)?;
+        docs.push(ffi::EdgeGidScore { edge_gid, from_gid, to_gid, score });
+    }
+    Ok(ffi::EdgeGidScoreOutput { docs })
 }
 
 fn aggregate(

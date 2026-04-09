@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,13 +27,17 @@ class ReplicationServer {
   ~ReplicationServer();
 
   bool Start();
-  void Shutdown();
+  // const because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires constness
+  // of functions being invoked
+  bool Shutdown() const;
 
  protected:
   communication::ServerContext rpc_server_context_;
 
  public:
-  rpc::Server rpc_server_;  // TODO: Interface or something
+  // mutable because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires
+  // constness of functions being invoked
+  mutable rpc::Server rpc_server_;  // TODO: Interface or something
 };
 
 }  // namespace memgraph::replication

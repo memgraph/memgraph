@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,12 +13,13 @@
 
 #include <chrono>
 #include <cstdint>
-#include <string>
-
 #include <nlohmann/json_fwd.hpp>
+#include <optional>
+#include <string>
 
 #include "license/license.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/timer.hpp"
 
 namespace memgraph::license {

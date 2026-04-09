@@ -35,7 +35,7 @@ class Server {
   ~Server() = default;
 
   bool Start();
-  void Shutdown();
+  bool Shutdown();
   void AwaitShutdown();
   bool IsRunning();
 

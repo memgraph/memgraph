@@ -60,10 +60,11 @@ class InMemoryLabelIndex : public LabelIndex {
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                          ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// Returns false if there was no index to drop
-  bool DropIndex(LabelId label) override;
+  bool DropIndex(LabelId label, ActiveIndicesUpdater const &updater) override;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
@@ -203,11 +204,12 @@ class InMemoryLabelIndex : public LabelIndex {
     std::shared_ptr<IndexContainer const> index_container_;
   };
 
-  auto GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> override;
+  auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;
 
-  auto RegisterIndex(LabelId) -> bool;
+  auto RegisterIndex(LabelId, ActiveIndicesUpdater const &updater) -> bool;
   auto PopulateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                     ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;

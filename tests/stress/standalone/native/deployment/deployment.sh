@@ -17,20 +17,47 @@ if [[ ! -x "$MEMGRAPH_BINARY" ]]; then
     exit 1
 fi
 DATA_DIR="stress_data"
+LOG_DIR="${LOG_DIR:-stress_logs}"
 
 # Default flags for Memgraph
 DEFAULT_FLAGS=(
     "--also-log-to-stderr=true"
     "--bolt-server-name-for-init=Neo4j/"
     "--data-directory=$DATA_DIR"
-    "--log-file="
+    "--log-file=$LOG_DIR/memgraph.log"
     "--log-level=TRACE"
     "--query-execution-timeout-sec=1200"
     "--storage-snapshot-interval-sec=300"
     "--storage-properties-on-edges=true"
     "--storage-wal-enabled=true"
+    "--storage-snapshot-on-exit=false"
     "--telemetry-enabled=false"
 )
+
+is_memgraph_running() {
+    # Check if port is in use
+    if nc -z 127.0.0.1 7687 2>/dev/null; then
+        return 0
+    fi
+    # Check if data directory lock is held
+    local lock_file="$DATA_DIR/.lock"
+    if [[ -f "$lock_file" ]] && ! flock -n "$lock_file" true 2>/dev/null; then
+        return 0
+    fi
+    # Check if PID is alive and not a zombie
+    if [[ -f "memgraph.pid" ]]; then
+        local pid
+        pid=$(cat memgraph.pid)
+        if kill -0 "$pid" 2>/dev/null; then
+            local state
+            state=$(awk '/^State:/{print $2}' /proc/"$pid"/status 2>/dev/null)
+            if [[ "$state" != "Z" ]]; then
+                return 0
+            fi
+        fi
+    fi
+    return 1
+}
 
 clean_data_directory() {
     if [[ -d "$DATA_DIR" ]]; then
@@ -70,52 +97,74 @@ merge_flags() {
 start_memgraph() {
     echo "Starting Memgraph Standalone..."
 
-    # Ensure clean data directory before startup
-    clean_data_directory
+    # Ensure no lingering Memgraph process before starting
+    if is_memgraph_running; then
+        echo "ERROR: A Memgraph process is still running (port 7687 in use or data directory lock held)."
+        exit 1
+    fi
 
     # Merge default flags with user-provided flags (overrides defaults)
     FINAL_FLAGS=$(merge_flags "$@")
 
+    # Ensure clean data directory before startup
+    clean_data_directory
+
     CMD="$MEMGRAPH_BINARY $FINAL_FLAGS"
     echo "Executing: $CMD"
 
-    $CMD &  # Run the command
+    mkdir -p "$LOG_DIR"
+    $CMD &
     MG_PID=$!
     echo $MG_PID > memgraph.pid
     wait_for_server 7687
 }
 
 stop_memgraph() {
-    if [[ -f "memgraph.pid" ]]; then
-        MG_PID=$(cat memgraph.pid)
-        echo "Stopping Memgraph Standalone (PID: $MG_PID)..."
+    local graceful_timeout_sec=60
 
-        kill $MG_PID
-
-        # Loop to check if Memgraph has fully stopped
-        for i in {1..10}; do  # Wait up to 10 seconds
-            if ! kill -0 $MG_PID 2>/dev/null; then
-                echo "Memgraph has stopped."
-                rm -f memgraph.pid
-
-                # Cleanup data directory after Memgraph stops
-                clean_data_directory
-                return
-            fi
-            echo "Waiting for Memgraph to stop..."
-            sleep 1
-        done
-
-        echo "Warning: Memgraph process $MG_PID is still running after 10 seconds."
-    else
+    if [[ ! -f "memgraph.pid" ]]; then
         echo "No running Memgraph process found."
+        return 0
     fi
+
+    MG_PID=$(cat memgraph.pid)
+    echo "Stopping Memgraph Standalone (PID: $MG_PID)..."
+    kill "$MG_PID" 2>/dev/null || true
+
+    echo "Waiting for Memgraph to stop..."
+    for ((i=1; i<=graceful_timeout_sec; i++)); do
+        if ! is_memgraph_running; then
+            echo "Memgraph has stopped."
+            rm -f memgraph.pid
+            clean_data_directory
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "Force killing..."
+    kill -9 "$MG_PID" 2>/dev/null || true
+
+    # Check if still running after SIGKILL
+    sleep 2
+    if is_memgraph_running; then
+        echo "ERROR: Memgraph is still running after SIGKILL (port 7687 in use or data directory lock held). Aborting."
+        exit 1
+    fi
+
+    echo "Memgraph has been force-killed."
+    rm -f memgraph.pid
+    clean_data_directory
 }
 
 wait_for_server() {
     local port=$1
     echo "Waiting for Memgraph on port $port..."
     while ! nc -z 127.0.0.1 $port; do
+        if ! kill -0 "$MG_PID" 2>/dev/null; then
+            echo "ERROR: Memgraph process $MG_PID exited before becoming ready."
+            exit 1
+        fi
         sleep 0.5
     done
     echo "Memgraph is running on port $port."
@@ -130,7 +179,7 @@ case "$1" in
         stop_memgraph
         ;;
     status)
-        if nc -z 127.0.0.1 7687; then
+        if is_memgraph_running; then
             echo "Memgraph is running."
         else
             echo "Memgraph is not running."

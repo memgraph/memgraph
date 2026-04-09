@@ -12,7 +12,8 @@
 #pragma once
 
 #include <netdb.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <memory>
 #include <string>

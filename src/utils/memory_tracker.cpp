@@ -11,7 +11,12 @@
 
 #include "utils/memory_tracker.hpp"
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <algorithm>
 #include <atomic>
+#include <functional>
+#include <type_traits>
 
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"

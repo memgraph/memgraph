@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <range/v3/view/transform.hpp>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -33,6 +34,7 @@
 #include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -2529,6 +2531,9 @@ class CallProcedure : public memgraph::query::Clause {
           }
         }
       }
+      if (cont && where_) {
+        where_->Accept(visitor);
+      }
     }
     return visitor.PostVisit(*this);
   }
@@ -2541,6 +2546,7 @@ class CallProcedure : public memgraph::query::Clause {
   size_t memory_scale_{1024U};
   bool is_write_;
   bool void_procedure_{false};
+  memgraph::query::Where *where_{nullptr};
 
   CallProcedure *Clone(AstStorage *storage) const override {
     CallProcedure *object = storage->Create<CallProcedure>();
@@ -2558,6 +2564,7 @@ class CallProcedure : public memgraph::query::Clause {
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
     object->void_procedure_ = void_procedure_;
+    object->where_ = where_ ? where_->Clone(storage) : nullptr;
     return object;
   }
 
@@ -4252,6 +4259,22 @@ class ShowSchemaInfoQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class ReloadSSLQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ReloadSSLQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ReloadSSLQuery *Clone(AstStorage *storage) const override { return storage->Create<ReloadSSLQuery>(); }
+
+ private:
+  friend class AstStorage;
+};
+
 class TtlQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -4293,6 +4316,44 @@ class SessionTraceQuery : public memgraph::query::Query {
   SessionTraceQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<SessionTraceQuery>();
     object->enabled_ = enabled_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class DescriptionQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action : uint8_t { SET, DELETE, SHOW_ALL };
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  Action action_;
+  storage::DescriptionTargetKind target_kind_;
+  std::vector<LabelIx> labels_;
+  EdgeTypeIx edge_type_;
+  std::vector<PropertyIx> properties_;
+  std::vector<LabelIx> from_labels_;
+  std::vector<LabelIx> to_labels_;
+  std::string database_name_;
+  std::string description_;
+
+  DescriptionQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DescriptionQuery>();
+    object->action_ = action_;
+    object->target_kind_ = target_kind_;
+    object->labels_ = labels_;
+    object->edge_type_ = edge_type_;
+    object->properties_ = properties_;
+    object->from_labels_ = from_labels_;
+    object->to_labels_ = to_labels_;
+    object->database_name_ = database_name_;
+    object->description_ = description_;
     return object;
   }
 

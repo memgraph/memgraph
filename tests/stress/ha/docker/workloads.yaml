@@ -24,6 +24,9 @@ workloads:
   - config: ../workloads/concurrent_edge_write/workload.yaml
     enabled: true
 
+  - config: ../workloads/concurrent_index_creation/workload.yaml
+    enabled: true
+
   - config: ../workloads/rag/workload.yaml
     enabled: true
 
@@ -33,5 +36,24 @@ workloads:
   - config: ../workloads/restarting_instances/workload.yaml
     enabled: true
 
+  # TODO: re-enable once fixed
   - config: ../workloads/vector_index_recovery/workload.yaml
+    enabled: false
+
+  # TODO: re-enable once fixed
+  - config: ../workloads/vector_edge_index_recovery/workload.yaml
+    enabled: false
+
+  - config: ../workloads/vector_index_concurrent_ops/workload.yaml
     enabled: true
+
+  # Running currently only as the native test. Too complex at the moment to set-up root access for Docker test
+  - config: ../workloads/rpc_timeout/workload.yaml
+    enabled: false
+
+  # Responsive reads currently disabled as the amount of work to make it responsive
+  # With respect to replication time and the engine lock taken at that time is substantial
+  # Users are advised to just wait for the replication to complete so auth / show indexes / show metrics
+  # queries can continue executing
+  - config: ../workloads/responsive_reads/workload.yaml
+    enabled: false

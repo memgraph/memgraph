@@ -44,6 +44,7 @@ DEFAULT_DATA_FLAGS=(
     "--storage-properties-on-edges=true"
     "--storage-snapshot-interval-sec=300"
     "--storage-wal-enabled=true"
+    "--storage-snapshot-on-exit=false"
     "--telemetry-enabled=false"
     "--query-execution-timeout-sec=1200"
 )
@@ -53,7 +54,7 @@ DEFAULT_COORD_FLAGS=(
     "--also-log-to-stderr=true"
     "--bolt-server-name-for-init=Neo4j/"
     "--log-file="
-    "--log-level=WARNING"
+    "--log-level=TRACE"
     "--telemetry-enabled=false"
 )
 
@@ -209,11 +210,18 @@ setup_ha() {
         exit 1
     fi
 
-    echo "Registering instances..."
+    # Determine replication mode clause
+    local repl_mode="${REPLICATION_MODE:-sync}"
+    local repl_clause=""
+    if [[ "$repl_mode" == "strict_sync" ]]; then
+        repl_clause="AS STRICT_SYNC"
+    fi
+
+    echo "Registering instances (replication mode: $repl_mode)..."
     if ! echo "
-    REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7687\", \"management_server\": \"127.0.0.1:13011\", \"replication_server\": \"127.0.0.1:10001\"};
-    REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7688\", \"management_server\": \"127.0.0.1:13012\", \"replication_server\": \"127.0.0.1:10002\"};
-    REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7689\", \"management_server\": \"127.0.0.1:13013\", \"replication_server\": \"127.0.0.1:10003\"};
+    REGISTER INSTANCE instance_1 $repl_clause WITH CONFIG {\"bolt_server\": \"127.0.0.1:7687\", \"management_server\": \"127.0.0.1:13011\", \"replication_server\": \"127.0.0.1:10001\"};
+    REGISTER INSTANCE instance_2 $repl_clause WITH CONFIG {\"bolt_server\": \"127.0.0.1:7688\", \"management_server\": \"127.0.0.1:13012\", \"replication_server\": \"127.0.0.1:10002\"};
+    REGISTER INSTANCE instance_3 $repl_clause WITH CONFIG {\"bolt_server\": \"127.0.0.1:7689\", \"management_server\": \"127.0.0.1:13013\", \"replication_server\": \"127.0.0.1:10003\"};
     SET INSTANCE instance_1 TO MAIN;
     " | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691; then
         echo "ERROR: Failed to register instances"
@@ -253,7 +261,6 @@ wait_for_healthy_cluster() {
 _stop_processes() {
     # Stops all Memgraph processes without cleaning data directories.
     local graceful_timeout_sec=60
-    local force_kill_settle_sec=20
 
     if [[ ! -f "memgraph_ha.pid" ]]; then
         echo "No running Memgraph processes found."
@@ -304,22 +311,7 @@ _stop_processes() {
         kill -9 "$pid" 2>/dev/null || true
     done
 
-    echo "Waiting ${force_kill_settle_sec} seconds before final stop check..."
-    sleep "$force_kill_settle_sec"
-
-    local still_running=()
-    for pid in "${remaining_pids[@]}"; do
-        if kill -0 "$pid" 2>/dev/null; then
-            still_running+=("$pid")
-        fi
-    done
-
-    if [[ ${#still_running[@]} -gt 0 ]]; then
-        echo "ERROR: Failed to stop all Memgraph processes: ${still_running[*]}"
-        return 1
-    fi
-
-    echo "All Memgraph processes have stopped after force kill."
+    echo "Warning: Some Memgraph processes may still be in D-state (kernel I/O), continuing anyway."
     rm -f memgraph_ha.pid
     return 0
 }
@@ -350,7 +342,7 @@ restart_all() {
     echo "Restarting all Memgraph HA instances (preserving data)..."
     _stop_processes
     sleep 2
-    _start_processes
+    _start_processes "$@"
     echo "All Memgraph HA instances restarted (data preserved)"
 }
 
@@ -375,7 +367,8 @@ case "$1" in
         collect_logs "$2"
         ;;
     restart)
-        restart_all
+        shift
+        restart_all "$@"
         ;;
     monitoring-targets)
         print_monitoring_targets "$2"

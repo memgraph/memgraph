@@ -17,7 +17,7 @@ from standalone_monitor import StandaloneMonitor
 HOST = "127.0.0.1"
 PORT = 7687
 
-ITERATIONS = 50
+ITERATIONS = 10
 TOTAL_NODES = 50_000_000
 TOTAL_EDGES = 25_000_000
 
@@ -45,6 +45,14 @@ def main():
                 print(f"Iteration {i}/{ITERATIONS}")
                 print(f"{'=' * 60}")
 
+                # -- Create indices --
+                index_start = time.time()
+                session.run("CREATE INDEX ON :Node;").consume()
+                session.run("CREATE INDEX ON :Node(id);").consume()
+                session.run("CREATE INDEX ON :Node(name);").consume()
+                index_elapsed = time.time() - index_start
+                print(f"  Created indices: {index_elapsed:.1f}s")
+
                 # -- Create nodes with a property --
                 create_start = time.time()
                 session.run(
@@ -62,7 +70,7 @@ def main():
                 ).consume()
                 edge_elapsed = time.time() - edge_start
                 print(f"  Created {TOTAL_EDGES:,} edges: {edge_elapsed:.1f}s")
-                create_elapsed = node_elapsed + edge_elapsed
+                create_elapsed = index_elapsed + node_elapsed + edge_elapsed
 
                 monitor.log_storage_info(label=f"ITER {i} AFTER CREATE")
 

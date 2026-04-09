@@ -11,7 +11,10 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
+#include <memory>
 #include <string>
+
 #include "utils/observer.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
@@ -120,6 +123,12 @@ auto GetStorageSnapshotInterval() -> std::string;
  * @return uint64_t
  */
 auto GetFileDownloadConnTimeoutSec() -> uint64_t;
+
+/**
+ * @brief Get the storage access timeout value
+ * @return uint64_t
+ */
+auto GetStorageAccessTimeoutSec() -> std::chrono::seconds;
 
 /**
  * @brief Attach observer to the global snapshor period variable

@@ -252,11 +252,11 @@ class DiskStorage final : public Storage {
                                          VertexAccessor *to_vertex) override;
 
     bool LabelIndexReady(LabelId label) const override {
-      return transaction_.active_indices_.label_->IndexReady(label);
+      return transaction_.active_indices_->label_->IndexReady(label);
     }
 
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
-      return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
+      return transaction_.active_indices_->label_properties_->IndexReady(label, properties);
     }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
@@ -334,7 +334,6 @@ class DiskStorage final : public Storage {
     utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) override;
 
     utils::small_vector<float> GetVectorFromVectorIndex(Vertex *vertex, std::string_view index_name) const override;
-
     std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
 
     std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(

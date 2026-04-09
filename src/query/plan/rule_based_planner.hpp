@@ -417,6 +417,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                                              call_proc->is_write_,
                                                              procedure_id++,
                                                              call_proc->void_procedure_);
+            if (call_proc->where_) {
+              auto *filter_expr = call_proc->where_->expression_;
+              Filters where_filters;
+              where_filters.CollectFilterExpression(filter_expr, *context.symbol_table);
+              input_op = std::make_unique<Filter>(std::move(input_op),
+                                                  std::vector<std::shared_ptr<LogicalOperator>>{},
+                                                  filter_expr,
+                                                  std::move(where_filters));
+            }
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
             context.bound_symbols.insert(row_sym);

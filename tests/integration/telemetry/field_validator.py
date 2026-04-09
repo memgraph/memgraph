@@ -336,6 +336,7 @@ def _verify_storage_fields(storage_data: dict) -> bool:
         ("property_store_compression_level", dict),  # Number of databases with each compression level
         ("label_node_count_histogram", dict),  # Histogram of number of labels having 1-9, 10-99, ..., 10M+ nodes
         ("num_parameters", int),  # Number of server-side parameters
+        ("num_descriptions", int),  # Number of server-side descriptions
     ]
 
     durability_fields = [
@@ -401,6 +402,12 @@ def _verify_storage_fields(storage_data: dict) -> bool:
     assert isinstance(
         storage_data["num_parameters"], int
     ), f"Invalid type for 'num_parameters': expected int, got {type(storage_data['num_parameters'])}"
+
+    # Verify descriptions
+    assert "num_descriptions" in storage_data, f"Missing 'num_descriptions' field in storage data {storage_data}"
+    assert isinstance(
+        storage_data["num_descriptions"], int
+    ), f"Invalid type for 'num_descriptions': expected int, got {type(storage_data['num_descriptions'])}"
 
     return True
 

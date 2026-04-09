@@ -149,10 +149,10 @@ impl Vertex {
         }
     }
 
-    pub fn labels_count(&self) -> Result<u64> {
+    pub fn labels_count(&self) -> Result<usize> {
         unsafe {
             invoke_mgp_func_with_res!(
-                u64,
+                usize,
                 Error::UnableToReturnVertexLabelsCountDeletedObjectError,
                 ffi::mgp_vertex_labels_count,
                 self.ptr
@@ -160,7 +160,7 @@ impl Vertex {
         }
     }
 
-    pub fn label_at(&self, index: u64) -> Result<CString> {
+    pub fn label_at(&self, index: usize) -> Result<CString> {
         unsafe {
             let c_label =
                 match invoke_mgp_func!(mgp_label, ffi::mgp_vertex_label_at, self.ptr, index) {

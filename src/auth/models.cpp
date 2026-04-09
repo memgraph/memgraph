@@ -8,20 +8,14 @@
 
 #include "auth/models.hpp"
 
-#include <cstdint>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <utility>
 #include <variant>
 
-#include <gflags/gflags.h>
-#include <nlohmann/json.hpp>
-
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
-#include "dbms/constants.hpp"
 #include "license/license.hpp"
-#include "nlohmann/detail/exceptions.hpp"
-#include "query/constants.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/string.hpp"
 #include "utils/uuid.hpp"
@@ -91,6 +85,7 @@ const std::vector<Permission> kPermissionsAll = {
     Permission::PROFILE_RESTRICTION,
     Permission::PARALLEL_EXECUTION,
     Permission::SERVER_SIDE_PARAMETERS,
+    Permission::SERVER_SIDE_DESCRIPTIONS,
 };
 
 #ifdef MG_ENTERPRISE
@@ -179,6 +174,8 @@ std::string PermissionToString(Permission permission) {
       return "PARALLEL_EXECUTION";
     case Permission::SERVER_SIDE_PARAMETERS:
       return "SERVER_SIDE_PARAMETERS";
+    case Permission::SERVER_SIDE_DESCRIPTIONS:
+      return "SERVER_SIDE_DESCRIPTIONS";
   }
 }
 
