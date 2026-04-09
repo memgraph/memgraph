@@ -1005,7 +1005,7 @@ std::optional<py::ExceptionInfo> InsertField(PyObject *key, PyObject *val, mgp_r
   if (mgp_result_record_insert(record, field_name, field_val) != mgp_error::MGP_ERROR_NO_ERROR) {
     std::stringstream ss;
     ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '" << py::Object::FromBorrow(val)
-       << "'; did you set the correct field type?";
+       << "'; did you set the correct field type? Please check if the procedure signature matches the return values.";
     const auto &msg = ss.str();
     PyErr_SetString(PyExc_ValueError, msg.c_str());
     mgp_value_destroy(field_val);
