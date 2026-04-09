@@ -221,19 +221,11 @@ RuntimeEnv DetectRuntimeEnv() {
   return RuntimeEnv::NO_KUBERNETES;
 }
 
-namespace {
-unsigned LogicalCPUCoresFromProcCpuinfo() {
-  auto lines = utils::ReadLines("/proc/cpuinfo");
-  return static_cast<unsigned>(
-      std::ranges::count_if(lines, [](const auto &line) { return line.starts_with("processor"); }));
-}
-}  // namespace
-
 unsigned GetSafeHardwareConcurrency(unsigned fallback) {
   auto hw = std::thread::hardware_concurrency();
   if (hw != 0) return hw;
 
-  hw = LogicalCPUCoresFromProcCpuinfo();
+  hw = static_cast<unsigned>(GetCPUInfo("").cpu_count);
   return hw != 0 ? hw : std::max(fallback, 1U);
 }
 
