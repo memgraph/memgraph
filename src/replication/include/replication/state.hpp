@@ -156,6 +156,8 @@ struct ReplicationState {
 
   std::optional<nlohmann::json> GetTelemetryJson() const;
 
+  // const because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires constness
+  // of functions being invoked
   void Shutdown() const;
 
   auto GetDeltasBatchProgressSize() const -> uint64_t;
