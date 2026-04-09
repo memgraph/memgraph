@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
@@ -193,27 +194,23 @@ bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpd
 bool InMemoryEdgeTypeIndex::PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(edge_type);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  auto *gauge = metric_handles_ ? metric_handles_->active_edge_type_indices : nullptr;
+  index->Publish(commit_timestamp, gauge);
   return true;
 }
 
-void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge) {
   status_.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
+  gauge_ = metrics::ScopedGauge{gauge};
 }
 
-InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() {
-  if (status_.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
-  }
-}
+InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() = default;
 
 bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater) {
   auto const result = index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
-    {
-      auto const it = indices_container->indices_.find(edge_type);
-      if (it == indices_container->indices_.cend()) return false;
-    }
+    auto const it = indices_container->indices_.find(edge_type);
+    if (it == indices_container->indices_.cend()) return false;
+    it->second->gauge_.release();
 
     auto new_container = std::make_shared<IndicesContainer>();
     for (auto const &[existing_edge_type, index] : indices_container->indices_) {
@@ -324,6 +321,22 @@ void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
   index_.WithLock([](std::shared_ptr<IndicesContainer const> &index) { index = std::make_shared<IndicesContainer>(); });
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &all_indices) {
     all_indices = std::make_unique<std::vector<AllIndicesEntry>>();
+  });
+}
+
+void InMemoryEdgeTypeIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
+  metric_handles_ = metric_handles;
+  if (!metric_handles_) return;
+  auto *gauge = metric_handles_->active_edge_type_indices;
+  index_.WithReadLock([&](std::shared_ptr<IndicesContainer const> const &ptr) {
+    double count = 0;
+    for (auto const &[edge_type, idx] : ptr->indices_) {
+      if (idx->status_.IsReady()) {
+        idx->gauge_ = metrics::ScopedGauge{gauge};
+        ++count;
+      }
+    }
+    gauge->Set(count);
   });
 }
 

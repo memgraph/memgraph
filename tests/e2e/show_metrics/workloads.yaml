@@ -6,9 +6,39 @@ show_metrics_cluster: &show_metrics_cluster
       setup_queries: []
       validation_queries: []
 
+show_metrics_snapshot_cluster: &show_metrics_snapshot_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-snapshot-interval-sec=1"]
+      log_file: "show_metrics_snapshot.log"
+      setup_queries: []
+      validation_queries: []
+
+show_metrics_http_cluster: &show_metrics_http_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--metrics-port=9091"]
+      log_file: "show_metrics_http.log"
+      setup_queries: []
+      validation_queries: []
+
 
 workloads:
   - name: "Show metrics info"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["show_metrics/show_metrics.py"]
     <<: *show_metrics_cluster
+
+  - name: "Show metrics info snapshot"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_metrics/show_metrics_snapshot.py"]
+    <<: *show_metrics_snapshot_cluster
+
+  - name: "Show metrics info HTTP endpoint"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_metrics/show_metrics_http.py"]
+    <<: *show_metrics_http_cluster
+
+  - name: "Show metrics info recovery"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_metrics/show_metrics_recovery.py"]

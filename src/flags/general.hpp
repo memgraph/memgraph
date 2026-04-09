@@ -30,6 +30,8 @@ DECLARE_int32(monitoring_port);
 DECLARE_string(metrics_address);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_int32(metrics_port);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(metrics_format);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(init_file);

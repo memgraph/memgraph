@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -116,6 +116,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   utils::Priority ApproximateQueryPriority() const;
 
   inline bool Execute() { return Execute_(*this); }
+
+  metrics::DatabaseMetricHandles *GetMetricHandles() {
+    auto &db_acc = interpreter_.current_db_.db_acc_;
+    return db_acc ? db_acc->get()->metric_handles() : nullptr;
+  }
 
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);

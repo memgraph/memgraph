@@ -59,7 +59,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/atomic_utils.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/memory_tracker.hpp"
@@ -74,12 +73,6 @@ import memgraph.utils.aws;
 
 namespace r = ranges;
 namespace rv = r::views;
-
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-extern const Event GCLatency_us;
-extern const Event GCSkiplistCleanupLatency_us;
-}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 namespace {
@@ -350,6 +343,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Disable ttl until after recovery and role switch / write enabled
     ttl_.SetUserCheck([]() -> bool { return false; });
     // Recover data
+    utils::Timer recovery_timer;
     auto info = recovery_.RecoverData(
         uuid(),
         repl_storage_state_,
@@ -368,6 +362,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         name(),
         &ttl_,
         &description_store_);
+    snapshot_recovery_latency_s_ = recovery_timer.Elapsed().count();
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -2035,7 +2030,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
+  if (in_memory->metric_handles_) in_memory->metric_handles_->active_point_indices->Increment();
   return {};
 }
 
@@ -2049,7 +2044,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
+  if (in_memory->metric_handles_) in_memory->metric_handles_->active_point_indices->Decrement();
   return {};
 }
 
@@ -2067,7 +2062,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
+  if (in_memory->metric_handles_) in_memory->metric_handles_->active_vector_indices->Increment();
   return {};
 }
 
@@ -2079,9 +2074,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto vertices_acc = in_memory->vertices_.access();
   if (vector_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
+    if (in_memory->metric_handles_) in_memory->metric_handles_->active_vector_indices->Decrement();
   } else if (vector_edge_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+    if (in_memory->metric_handles_) in_memory->metric_handles_->active_vector_edge_indices->Decrement();
   } else {
     return std::unexpected{IndexDefinitionError{}};
   }
@@ -2117,7 +2112,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+  if (in_memory->metric_handles_) in_memory->metric_handles_->active_vector_edge_indices->Increment();
   return {};
 }
 
@@ -2498,7 +2493,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           std::move(active_indices),
           *std::move(active_constraints),
           std::move(async_index_helper),
-          last_durable_ts};
+          last_durable_ts,
+          metric_handles_ ? metric_handles_->unreleased_delta_objects : nullptr};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
@@ -2584,7 +2580,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   spdlog::trace("Storage GC on '{}' started [{}]", name(), periodic ? "periodic" : "forced");
   auto trace_on_exit = utils::OnScopeExit{[&] {
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed());
-    memgraph::metrics::Measure(memgraph::metrics::GCLatency_us, elapsed.count());
+    if (metric_handles_) metric_handles_->gc_latency_seconds->Observe(std::chrono::duration<double>(elapsed).count());
     spdlog::trace("Storage GC on '{}' finished [{}]. Duration: {:.3f}s",
                   name(),
                   periodic ? "periodic" : "forced",
@@ -2915,9 +2911,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
     }
   }
-  memgraph::metrics::Measure(
-      memgraph::metrics::GCSkiplistCleanupLatency_us,
-      std::chrono::duration_cast<std::chrono::microseconds>(skiplist_cleanup_timer.Elapsed()).count());
+  {
+    auto skiplist_elapsed = std::chrono::duration<double>(skiplist_cleanup_timer.Elapsed());
+    if (metric_handles_) metric_handles_->gc_skiplist_cleanup_latency_seconds->Observe(skiplist_elapsed.count());
+  }
 
   {
     auto guard = std::unique_lock{engine_lock_};
@@ -3078,9 +3075,11 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_res = utils::GetMemoryRES();
-  memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
-  info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
-  info.unreleased_delta_objects = memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects);
+  metrics::Metrics().global.peak_memory_res_bytes->Set(
+      std::max(static_cast<double>(info.memory_res), metrics::Metrics().global.peak_memory_res_bytes->Value()));
+  info.peak_memory_res = static_cast<uint64_t>(metrics::Metrics().global.peak_memory_res_bytes->Value());
+  info.unreleased_delta_objects =
+      metric_handles_ ? static_cast<uint64_t>(metric_handles_->unreleased_delta_objects->Value()) : 0;
 
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
@@ -3783,8 +3782,10 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
     last_snapshot_digest_ = std::move(current_digest);
   }
 
-  memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
-                             std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  {
+    auto snapshot_elapsed = std::chrono::duration<double>(timer.Elapsed());
+    if (metric_handles_) metric_handles_->snapshot_creation_latency_seconds->Observe(snapshot_elapsed.count());
+  }
 
   return *snapshot_path;
 }

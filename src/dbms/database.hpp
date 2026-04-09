@@ -26,6 +26,10 @@ class Streams;
 }  // namespace stream
 }  // namespace memgraph::query
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 namespace memgraph::dbms {
 
 struct DatabaseInfo {
@@ -50,7 +54,6 @@ class Database {
    */
   explicit Database(storage::Config config,
                     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
-
   ~Database();
 
   /**
@@ -180,12 +183,38 @@ class Database {
    */
   void StopAllBackgroundTasks();
 
+  metrics::DatabaseMetricHandles const *metric_handles() const { return metrics_.get(); }
+
+  metrics::DatabaseMetricHandles *metric_handles() { return metrics_.get(); }
+
  private:
+  class ScopedMetrics {
+   public:
+    ScopedMetrics() = default;
+
+    explicit ScopedMetrics(metrics::DatabaseMetricHandles *handles) : handles_(handles) {}
+
+    ~ScopedMetrics();
+
+    ScopedMetrics(ScopedMetrics const &) = delete;
+    ScopedMetrics &operator=(ScopedMetrics const &) = delete;
+    ScopedMetrics(ScopedMetrics &&) = delete;
+    ScopedMetrics &operator=(ScopedMetrics &&) = delete;
+
+    metrics::DatabaseMetricHandles *get() const { return handles_; }
+
+    void reset(metrics::DatabaseMetricHandles *handles);
+
+   private:
+    metrics::DatabaseMetricHandles *handles_{nullptr};
+  };
+
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
   std::unique_ptr<query::stream::Streams> streams_;     //!< Streams associated with the storage
   query::PlanCacheLRU plan_cache_;                      //!< Plan cache associated with the storage
+  ScopedMetrics metrics_;
 };
 
 }  // namespace memgraph::dbms

@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "dbms/inmemory/storage_helper.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -54,8 +55,6 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
-Database::~Database() = default;
-
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : trigger_store_(std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers")),
       streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
@@ -70,6 +69,24 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   } else {
     storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
   }
+
+  metrics_.reset(metrics::Metrics().AddDatabase(storage_->name()));
+  storage_->SetMetricHandles(metrics_.get());
+}
+
+Database::~Database() {
+  if (storage_) {
+    storage_->SetMetricHandles(nullptr);
+  }
+}
+
+Database::ScopedMetrics::~ScopedMetrics() {
+  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
+}
+
+void Database::ScopedMetrics::reset(metrics::DatabaseMetricHandles *handles) {
+  if (handles_) metrics::Metrics().RemoveDatabase(handles_);
+  handles_ = handles;
 }
 
 DatabaseInfo Database::GetInfo() const {
@@ -93,6 +110,10 @@ void Database::SwitchToOnDisk() {
 
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(
       std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);
+
+  if (metrics_.get()) {
+    storage_->SetMetricHandles(metrics_.get());
+  }
 }
 
 }  // namespace memgraph::dbms

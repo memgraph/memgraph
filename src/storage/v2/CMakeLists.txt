@@ -159,11 +159,11 @@ target_link_libraries(mg-storage-v2
     Threads::Threads
     mg-utils
     mg-flags
+    mg-metrics
     gflags
     abseil::abseil
     mg-rpc
     mg-slk
-    mg-events
     mg-memory
     range-v3::range-v3
     mgcxx_text_search

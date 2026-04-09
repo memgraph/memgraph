@@ -26,6 +26,6 @@ target_sources(mg-communication
     FILES
     metrics.hpp
 )
-target_link_libraries(mg-communication Boost::headers Threads::Threads mg-utils mg-io mg-auth fmt::fmt gflags mg-communication-metrics mg-events mg-storage-v2)
+target_link_libraries(mg-communication Boost::headers Threads::Threads mg-utils mg-io mg-auth fmt::fmt gflags mg-communication-metrics mg-storage-v2)
 
 target_link_libraries(mg-communication openssl::openssl)
