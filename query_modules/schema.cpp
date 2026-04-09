@@ -140,9 +140,9 @@ struct PropertyInfo {
         number_of_property_occurrences(Schema::kInitialNumberOfPropertyOccurances) {}
 };
 
-struct LabelsInfo {
+struct LabelOrRelTypeInfo {
   std::unordered_map<std::string, PropertyInfo> properties;  // key is a property name
-  int64_t number_of_label_occurrences = 0;
+  int64_t number_of_occurrences = 0;
 };
 
 std::unordered_set<std::string> ExtractStringSetFromConfig(const mgp::Map &config, const std::string_view key) {
@@ -165,21 +165,10 @@ std::unordered_set<std::string> ExtractStringSetFromConfig(const mgp::Map &confi
 bool ShouldIncludeLabels(const std::set<std::string> &labels, const std::unordered_set<std::string> &include_labels,
                          const std::unordered_set<std::string> &exclude_labels) {
   if (!include_labels.empty()) {
-    bool found = false;
-    for (const auto &label : labels) {
-      if (include_labels.contains(label)) {
-        found = true;
-        break;
-      }
-    }
-    if (!found) return false;
+    if (!std::ranges::any_of(labels, [&](const auto &label) { return include_labels.contains(label); })) return false;
   }
   if (!exclude_labels.empty()) {
-    for (const auto &label : labels) {
-      if (exclude_labels.contains(label)) {
-        return false;
-      }
-    }
+    if (std::ranges::any_of(labels, [&](const auto &label) { return exclude_labels.contains(label); })) return false;
   }
   return true;
 }
@@ -225,9 +214,12 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
     auto include_rels = ExtractStringSetFromConfig(config, kConfigIncludeRels);
     auto exclude_rels = ExtractStringSetFromConfig(config, kConfigExcludeRels);
     auto sample = ExtractIntFromConfig(config, kConfigSample, kDefaultSample);
+    if (sample < -1) {
+      throw std::invalid_argument("Sample must be a non-negative integer or -1 (full scan).");
+    }
     auto max_rels = ExtractIntFromConfig(config, kConfigMaxRels, kDefaultMaxRels);
 
-    std::unordered_map<std::set<std::string>, LabelsInfo, LabelsHash, LabelsComparator> node_types_properties;
+    std::unordered_map<std::set<std::string>, LabelOrRelTypeInfo, LabelsHash, LabelsComparator> node_types_properties;
 
     for (const auto node : mgp::Graph(memgraph_graph).Nodes()) {
       std::set<std::string> labels_set = {};
@@ -263,9 +255,9 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
       }
 
       auto &current_labels_info = node_types_properties[labels_set];
-      current_labels_info.number_of_label_occurrences++;
+      current_labels_info.number_of_occurrences++;
 
-      if (sample > 0 && current_labels_info.number_of_label_occurrences > sample) {
+      if (sample > 0 && current_labels_info.number_of_occurrences > sample) {
         continue;
       }
 
@@ -291,8 +283,8 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
         label_type += ":`" + std::string(label) + "`";
         labels_list.AppendExtend(mgp::Value(label));
       }
-      auto effective_count = (sample > 0) ? std::min(sample, labels_info.number_of_label_occurrences)
-                                          : labels_info.number_of_label_occurrences;
+      auto effective_count =
+          (sample > 0) ? std::min(sample, labels_info.number_of_occurrences) : labels_info.number_of_occurrences;
       for (const auto &prop : labels_info.properties) {
         auto prop_types = mgp::List();
         for (const auto &prop_type : prop.second.property_types) {
@@ -317,7 +309,7 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
 void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
 
-  std::unordered_map<std::string, LabelsInfo> rel_types_properties;
+  std::unordered_map<std::string, LabelOrRelTypeInfo> rel_types_properties;
   const auto record_factory = mgp::RecordFactory(result);
   try {
     auto arguments = mgp::List(args);
@@ -327,6 +319,9 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
     auto include_rels = ExtractStringSetFromConfig(config, kConfigIncludeRels);
     auto exclude_rels = ExtractStringSetFromConfig(config, kConfigExcludeRels);
     auto sample = ExtractIntFromConfig(config, kConfigSample, kDefaultSample);
+    if (sample < -1) {
+      throw std::invalid_argument("Sample must be a non-negative integer or -1 (full scan).");
+    }
     auto max_rels = ExtractIntFromConfig(config, kConfigMaxRels, kDefaultMaxRels);
 
     const auto graph = mgp::Graph(memgraph_graph);
@@ -363,7 +358,7 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
         rels_read++;
 
         auto &rel_info = rel_types_properties[rel_type];
-        rel_info.number_of_label_occurrences++;
+        rel_info.number_of_occurrences++;
 
         if (rel.Properties().empty()) {
           continue;
@@ -388,7 +383,7 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
         for (const auto &prop_type : prop.second.property_types) {
           prop_types.AppendExtend(mgp::Value(prop_type));
         }
-        bool mandatory = prop.second.number_of_property_occurrences == labels_info.number_of_label_occurrences;
+        bool mandatory = prop.second.number_of_property_occurrences == labels_info.number_of_occurrences;
         auto record = record_factory.NewRecord();
         ProcessPropertiesRel(record, type_str, prop.first, prop_types, mandatory);
       }

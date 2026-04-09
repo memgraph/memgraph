@@ -756,9 +756,9 @@ def test_node_type_properties_config_sample():
         "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
     )
     assert len(result) == 2
-    names = {list(r)[2] for r in result}
-    assert "name" in names
-    assert "owner" in names
+    mandatory = {list(r)[2]: list(r)[4] for r in result}
+    assert mandatory["name"] is True
+    assert mandatory["owner"] is True
 
 
 def test_node_type_properties_config_include_and_exclude_labels():
