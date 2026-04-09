@@ -215,7 +215,7 @@ def get(
 
 
 @mgp.read_proc
-def update(ctx: mgp.ProcCtx, edges: mgp.List[mgp.Edge]) -> mgp.Record():
+def update(ctx: mgp.ProcCtx, edges: mgp.List[mgp.Edge]):
     """
     For this function to work, Learner and Updater must be set.
 
