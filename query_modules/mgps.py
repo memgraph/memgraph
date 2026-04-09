@@ -14,3 +14,9 @@ def validate_predicate(predicate: bool, message: str, params: list):
         raise Exception(message % tuple(params))
     else:
         return True
+
+
+@mgp.write_proc
+def validate(ctx: mgp.ProcCtx, predicate: bool, message: str, params: mgp.List[mgp.Any]):
+    if predicate:
+        raise Exception(message % tuple(params))

@@ -8027,74 +8027,9 @@ class CallProcedureCursor : public Cursor {
   }
 };
 
-class CallValidateProcedureCursor : public Cursor {
-  const CallProcedure *self_;
-  UniqueCursorPtr input_cursor_;
-
- public:
-  CallValidateProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
-
-  bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("CallValidateProcedureCursor");
-
-    AbortCheck(context);
-    if (!input_cursor_->Pull(frame, context)) {
-      return false;
-    }
-
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::NEW,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user);
-
-    const auto args = self_->arguments_;
-    if (args.size() != 3U) {
-      throw QueryRuntimeException("'mgps.validate' requires exactly 3 arguments.");
-    }
-
-    const auto predicate = args[0]->Accept(evaluator);
-    const bool predicate_val = predicate.ValueBool();
-
-    if (predicate_val) [[unlikely]] {
-      const auto &message = args[1]->Accept(evaluator);
-      const auto &message_args = args[2]->Accept(evaluator);
-
-      using TString = std::remove_cvref_t<decltype(message.ValueString())>;
-      using TElement = std::remove_cvref_t<decltype(message_args.ValueList()[0])>;
-
-      utils::JStringFormatter<TString, TElement> formatter;
-
-      try {
-        const auto &msg = formatter.FormatString(message.ValueString(), message_args.ValueList());
-        throw QueryRuntimeException(msg);
-      } catch (const utils::JStringFormatException &e) {
-        throw QueryRuntimeException(e.what());
-      }
-    }
-
-    return true;
-  }
-
-  void Reset() override { input_cursor_->Reset(); }
-
-  void Shutdown() override {}
-};
-
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CallProcedureOperator);
   CallProcedure::IncrementCounter(procedure_name_);
-
-  if (void_procedure_ && procedure_name_ == "mgps.validate") {
-    return MakeUniqueCursorPtr<CallValidateProcedureCursor>(mem, this, mem);
-  }
-
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }
 

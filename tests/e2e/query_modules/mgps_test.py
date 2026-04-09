@@ -25,5 +25,16 @@ def test_mgps1():
     assert (result) == ["community", "Memgraph", ["5.9.0"]]
 
 
+def test_mgps_validate_false_predicate():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CALL mgps.validate(false, 'should not throw', []);")
+
+
+def test_mgps_validate_true_predicate():
+    cursor = connect().cursor()
+    with pytest.raises(Exception, match="validation failed"):
+        execute_and_fetch_all(cursor, "CALL mgps.validate(true, 'validation failed: %s', ['test']);")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
