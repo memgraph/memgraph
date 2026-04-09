@@ -7981,6 +7981,11 @@ class CallProcedureCursor : public Cursor {
         memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
       }
+
+      if (self_->void_procedure_) {
+        return true;
+      }
+
       result_row_it_ = result_.rows.begin();
       if (!result_.is_transactional) {
         skip_rows_with_deleted_values();
@@ -8086,11 +8091,7 @@ UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CallProcedureOperator);
   CallProcedure::IncrementCounter(procedure_name_);
 
-  if (void_procedure_) {
-    // Currently we do not support Call procedures that do not return
-    // anything. This cursor is way too specific, but it provides a workaround
-    // to ensure GraphQL compatibility until we start supporting truly void
-    // procedures.
+  if (void_procedure_ && procedure_name_ == "mgps.validate") {
     return MakeUniqueCursorPtr<CallValidateProcedureCursor>(mem, this, mem);
   }
 

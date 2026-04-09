@@ -1193,6 +1193,10 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
     if (!py_args) return py::FetchError();
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
+    if (py_res.Ptr() == Py_None) {
+      // Void procedure - no records to process.
+      return std::nullopt;
+    }
     if (PySequence_Check(py_res.Ptr())) {
       if (is_batched) {
         return AddMultipleBatchRecordsFromPython(result, py_res, graph, memory);
