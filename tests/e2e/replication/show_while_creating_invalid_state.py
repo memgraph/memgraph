@@ -1810,14 +1810,14 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection,
             "127.0.0.1:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "invalid"},
-            {"memgraph": {"ts": 2, "behind": -3, "status": "invalid"}},
+            {"memgraph": {"ts": 2, "behind": -2, "status": "invalid"}},
         ),
         (
             "sync_replica2",
             "127.0.0.1:10002",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 5, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
         ),
     ]
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)

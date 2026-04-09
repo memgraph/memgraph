@@ -4507,11 +4507,11 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
 }
 
 std::vector<VectorIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorIndices() const {
-  return transaction_.active_indices_->vector_->ListVectorIndicesInfo();
+  return storage_->indices_.vector_index_.ListVectorIndicesInfo();
 }
 
 std::vector<VectorEdgeIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorEdgeIndices() const {
-  return transaction_.active_indices_->vector_edge_->ListVectorIndicesInfo();
+  return storage_->indices_.vector_edge_index_.ListVectorIndicesInfo();
 }
 
 auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
