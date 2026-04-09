@@ -10,10 +10,15 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <spdlog/common.h>
+#include <spdlog/sinks/ansicolor_sink.h>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+
 #include "spdlog/sinks/sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
-
-#include <optional>
 
 namespace memgraph::flags {
 

@@ -11,9 +11,11 @@
 
 #pragma once
 
-#include "gflags/gflags.h"
-
 #include <filesystem>
+#include <format>
+#include <vector>
+
+#include "gflags/gflags.h"
 
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -35,6 +37,9 @@ DECLARE_string(init_file);
 DECLARE_string(init_data_file);
 
 // General purpose flags.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(strict_flag_check);
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(data_directory);
 

@@ -12,6 +12,7 @@
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <range/v3/all.hpp>
 
 #include <cerrno>
 #include <cstring>
@@ -405,11 +406,11 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
   {
     spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
     auto vertices_acc = vertices->access();
-    for (const auto &spec : indices_metadata.vector_edge_indices) {
-      indices->vector_edge_index_.RecoverIndex(spec, vertices_acc, snapshot_info);
+    for (auto &recovery_info : indices_metadata.vector_edge_indices) {
+      indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, snapshot_info);
       spdlog::info("Vector edge index on :{}({}) is recreated from metadata",
-                   name_id_mapper->IdToName(spec.edge_type_id.AsUint()),
-                   name_id_mapper->IdToName(spec.property.AsUint()));
+                   name_id_mapper->IdToName(recovery_info.spec.edge_type_id.AsUint()),
+                   name_id_mapper->IdToName(recovery_info.spec.property.AsUint()));
     }
     spdlog::info("Vector edge indices are recreated.");
   }
@@ -534,7 +535,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
     uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    std::string const &db_name, memgraph::storage::ttl::TTL *ttl) {
+    std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
+    memgraph::storage::DescriptionStore *description_store) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info(
       "Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_, wal_directory_);
@@ -583,7 +585,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                                           config,
                                           enum_store,
                                           schema_info,
-                                          ttl);
+                                          ttl,
+                                          description_store);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
@@ -703,7 +706,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                             enum_store,
                             schema_info,
                             find_edge,
-                            ttl);
+                            ttl,
+                            description_store);
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};

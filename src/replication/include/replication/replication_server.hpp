@@ -27,13 +27,17 @@ class ReplicationServer {
   ~ReplicationServer();
 
   bool Start();
-  bool Shutdown();
+  // const because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires constness
+  // of functions being invoked
+  bool Shutdown() const;
 
  protected:
   communication::ServerContext rpc_server_context_;
 
  public:
-  rpc::Server rpc_server_;  // TODO: Interface or something
+  // mutable because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires
+  // constness of functions being invoked
+  mutable rpc::Server rpc_server_;  // TODO: Interface or something
 };
 
 }  // namespace memgraph::replication

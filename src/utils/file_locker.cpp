@@ -10,8 +10,14 @@
 // licenses/APL.txt.
 
 #include "utils/file_locker.hpp"
+
+#include <spdlog/spdlog.h>
 #include <filesystem>
+#include <mutex>
+#include <utility>
+
 #include "utils/file.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::utils {
 

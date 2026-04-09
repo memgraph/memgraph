@@ -42,7 +42,9 @@
 #include "storage/v2/vertex_info_cache.hpp"
 #include "utils/pmr/list.hpp"
 
-#include <rocksdb/utilities/transaction.h>
+namespace rocksdb {
+class Transaction;
+}  // namespace rocksdb
 
 namespace memgraph::storage {
 
@@ -241,6 +243,9 @@ struct Transaction {
 
   /// Text edge index change tracking (batched apply on commit)
   TextEdgeIndexChangeCollector text_edge_index_change_collector_;
+
+  /// Pinned tantivy searcher cache for snapshot-consistent text index reads within this transaction
+  mutable std::unique_ptr<TextSearchSession> text_search_session_;
 
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;

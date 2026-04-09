@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -100,7 +100,7 @@ jobs:
       - name: Save enterprise DEB package
         if: ${{ env.RUN_ID == '' }}
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "Enterprise DEB package${{ env.RUN_ID }} (malloc)"
           path: build/output/${{ env.OS }}/memgraph*.deb

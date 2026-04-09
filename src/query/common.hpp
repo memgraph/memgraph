@@ -17,12 +17,12 @@
 #include <string>
 #include <string_view>
 
+#include <range/v3/view/zip.hpp>
 #include "query/exceptions.hpp"
 #include "query/fmt.hpp"
 #include "query/frontend/ast/ordering.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"
-#include "range/v3/all.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -63,6 +63,12 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
         return a.UnsafeValuePoint3d() <=> b.UnsafeValuePoint3d();
         break;
       case TypedValue::Type::List:
+        return std::lexicographical_compare_three_way(a.UnsafeValueList().begin(),
+                                                      a.UnsafeValueList().end(),
+                                                      b.UnsafeValueList().begin(),
+                                                      b.UnsafeValueList().end(),
+                                                      TypedValueCompare);
+        break;
       case TypedValue::Type::Map:
       case TypedValue::Type::Vertex:
       case TypedValue::Type::Edge:

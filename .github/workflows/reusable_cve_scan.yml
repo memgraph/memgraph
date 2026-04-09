@@ -44,12 +44,12 @@ jobs:
     runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "Linux", "Docker", "ARM64", "Ubuntu24.04"]') || fromJSON('["self-hosted", "Linux", "Docker", "X64", "Ubuntu24.04"]') }}
     steps:
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: '3.12'
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -210,21 +210,21 @@ jobs:
 
       - name: Upload cve-bin-tool Binary Scan Artifact
         if: ${{ inputs.run_cbt }}
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-bin-tool-memgraph-summary
           path: "${{ env.CVE_DIR }}/cve-bin-tool-memgraph-summary.json"
 
       - name: Upload cve-bin-tool Language Scan Artifact
         if: ${{ inputs.run_cbt  }}
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-bin-tool-language-summary
           path: "${{ env.CVE_DIR }}/cve-bin-tool-lang-summary.json"
 
       - name: Upload cve-bin-tool APT Package Scan Artifact
         if: ${{ inputs.run_cbt }}
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-bin-tool-apt-summary
           path: "${{ env.CVE_DIR }}/cve-bin-tool-apt-summary.json"
@@ -266,7 +266,7 @@ jobs:
 
       - name: Upload Combined Report Artifact
         if: ${{ inputs.run_trivy || inputs.run_grype }}
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-report
           path: |

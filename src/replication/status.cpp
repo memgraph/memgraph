@@ -10,13 +10,18 @@
 // licenses/APL.txt.
 
 #include "replication/status.hpp"
+
+#include <chrono>
+#include <nlohmann/json.hpp>
+#include <string>
+#include <utility>
+
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/common.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
-
-#include <nlohmann/json.hpp>
 
 namespace memgraph::replication::durability {
 

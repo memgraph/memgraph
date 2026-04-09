@@ -144,14 +144,19 @@ class Client {
             throw GenericRpcFailedException();
           }
           if (ret.status == slk::StreamStatus::PARTIAL) {
-            if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
-                                      /* exactly_len = */ false,
-                                      /* timeout_ms = */ timeout_ms_)) {
+            if (auto const res = self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
+                                                      /* exactly_len = */ false,
+                                                      /* timeout_ms = */ timeout_ms_);
+                !res.has_value()) {
               // Failed connection, abort and let somebody retry in the future.
               defunct_ = true;
               self_->Shutdown();
               guard_.unlock();
-              throw GenericRpcFailedException();
+              if (res.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
+                throw RpcTimeoutException();
+              } else {
+                throw GenericRpcFailedException();
+              }
             }
           } else {
             response_data_size = ret.stream_size;
@@ -232,14 +237,19 @@ class Client {
           throw GenericRpcFailedException();
         }
         if (ret.status == slk::StreamStatus::PARTIAL) {
-          if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
-                                    /* exactly_len = */ false,
-                                    /* timeout_ms = */ timeout_ms_)) {
+          if (auto const res = self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
+                                                    /* exactly_len = */ false,
+                                                    /* timeout_ms = */ timeout_ms_);
+              !res.has_value()) {
             // Failed connection, abort and let somebody retry in the future.
             defunct_ = true;
             self_->Shutdown();
             guard_.unlock();
-            throw GenericRpcFailedException();
+            if (res.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
+              throw RpcTimeoutException();
+            } else {
+              throw GenericRpcFailedException();
+            }
           }
         } else {
           response_data_size = ret.stream_size;
@@ -291,11 +301,15 @@ class Client {
     static auto GenBuilderCallback(Client *client, StreamHandler *self, std::optional<int> timeout_ms) {
       return [client, self, timeout_ms](const uint8_t *data, size_t size, bool have_more) {
         if (self->defunct_) throw GenericRpcFailedException();
-        if (!client->client_->Write(data, size, have_more, timeout_ms)) {
+        if (auto const res = client->client_->Write(data, size, have_more, timeout_ms); !res.has_value()) {
           self->defunct_ = true;
           client->Shutdown();
           self->guard_.unlock();
-          throw GenericRpcFailedException();
+          if (res.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
+            throw RpcTimeoutException();
+          } else {
+            throw GenericRpcFailedException();
+          }
         }
       };
     }
@@ -411,7 +425,7 @@ class Client {
       if (!client_->Connect(endpoint_)) {
         spdlog::error("Couldn't connect to remote address {}", endpoint_.SocketAddress());
         client_ = std::nullopt;
-        throw GenericRpcFailedException();
+        throw RpcFailedToConnectException();
       }
     }
 
@@ -460,6 +474,13 @@ class Client {
   }
 
   /// Call this function from another thread to abort a pending RPC call.
+  /// Unlike Shutdown(), this does not destroy the client object, making it
+  /// safe to call while another thread is using the client.
+  void Abort();
+
+  /// Shut down and destroy the underlying connection. Not safe to call
+  /// concurrently with in-flight RPCs — call Abort() first, then join
+  /// the worker thread, then call Shutdown().
   void Shutdown();
 
   auto Endpoint() const -> io::network::Endpoint const & { return endpoint_; }

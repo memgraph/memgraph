@@ -1919,6 +1919,10 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
           throw utils::NotYetImplemented("Vector index is not implemented for DiskStorage. {}", kErrorMessage);
         case MetadataDelta::Action::TTL_OPERATION:
           throw utils::NotYetImplemented("TTL operations are not implemented for DiskStorage. {}", kErrorMessage);
+        case MetadataDelta::Action::DESCRIPTION_SET:
+        case MetadataDelta::Action::DESCRIPTION_DELETE:
+          throw utils::NotYetImplemented("Description operations are not implemented for DiskStorage. {}",
+                                         kErrorMessage);
       }
     }
   } else if (transaction_.deltas.empty() ||

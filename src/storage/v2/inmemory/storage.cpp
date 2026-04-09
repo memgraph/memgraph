@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include <range/v3/all.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -120,6 +121,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
     add_case(TTL_OPERATION);
+    add_case(DESCRIPTION_SET);
+    add_case(DESCRIPTION_DELETE);
     default:
       LOG_FATAL("Unknown MetadataDelta::Action");
   }
@@ -363,7 +366,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
         [this](Gid edge_gid) { return FindEdge(edge_gid); },
         name(),
-        &ttl_);
+        &ttl_,
+        &description_store_);
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -1036,7 +1040,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   // If main executes this: Block until we receive votes from all replicas.
   // If replica executes this:,
-  bool const repl_prepare_phase_status =
+  auto const repl_prepare_phase_status =
       HandleDurabilityAndReplicate(durability_commit_timestamp, replicating_txn, commit_args);
 
   // If replica executes this
@@ -1061,16 +1065,26 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
           FinalizeCommitPhase(durability_commit_timestamp);
-          // Throw exception if we couldn't commit on one of SYNC replica
-          if (!repl_prepare_phase_status) {
-            return std::unexpected{SyncReplicationError{}};
+
+          auto failures = replicating_txn.CollectStartTxnErrors();
+          if (!repl_prepare_phase_status.has_value()) {
+            for (auto const &f : repl_prepare_phase_status.error().failures) {
+              // A replica that failed to start also fails during finalize — keep only the start error
+              if (!std::ranges::any_of(failures, [&](auto const &e) { return e.name == f.name; })) {
+                failures.push_back(f);
+              }
+            }
+          }
+          if (!failures.empty()) {
+            return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
           }
           return {};
         }
 
         // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
         // cluster.
-        if (repl_prepare_phase_status) {
+
+        if (repl_prepare_phase_status.has_value()) {
           // All replicas voted yes, hence they want to commit the current transaction
           FinalizeCommitPhase(durability_commit_timestamp);
         }
@@ -1081,14 +1095,25 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         }
         // Send to all replicas they can finalize a transaction
         replicating_txn.FinalizeTransaction(
-            repl_prepare_phase_status, mem_storage->uuid(), protector, durability_commit_timestamp);
+            repl_prepare_phase_status.has_value(), mem_storage->uuid(), protector, durability_commit_timestamp);
 
-        if (!repl_prepare_phase_status) {
+        // Collect all failures: start-txn errors and ship-delta errors are mutually exclusive per replica
+        // It is ok to put this after FinalizeTransaction because it is impossible for repl_prepare_phase_status
+        // to have a value if there were some start txn errors
+        auto failures = replicating_txn.CollectStartTxnErrors();
+        if (!repl_prepare_phase_status.has_value()) {
+          for (auto const &f : repl_prepare_phase_status.error().failures) {
+            // A replica that failed to start also fails during finalize — keep only the start error
+            if (!std::ranges::any_of(failures, [&](auto const &e) { return e.name == f.name; })) {
+              failures.push_back(f);
+            }
+          }
+        }
+        if (!failures.empty()) {
           // Release engine lock because we don't have to hold it anymore for abort
           engine_guard.unlock();
           AbortAndResetCommitTs();
-
-          return std::unexpected{StrictSyncReplicationError{}};
+          return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = false}};
         }
 
         return {};
@@ -1203,14 +1228,16 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     CommitArgs commit_args) {
   auto result = PrepareForCommitPhase(std::move(commit_args));
 
-  const auto fatal_error =
-      !result && std::visit(
-                     [](const auto &e) {
-                       // All errors are handled at a higher level.
-                       // Replication errros are not fatal and should procede with finialize transaction
-                       return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
-                     },
-                     result.error());
+  const auto fatal_error = !result && std::visit(
+                                          [](const auto &e) {
+                                            using E = std::remove_cvref_t<decltype(e)>;
+                                            if constexpr (std::is_same_v<E, storage::ReplicationError>) {
+                                              // Replication errors are fatal only if the transaction was aborted
+                                              return !e.transaction_committed;
+                                            }
+                                            return true;  // all other errors are fatal
+                                          },
+                                          result.error());
 
   if (fatal_error) {
     // PrepareForCommitPhase aborted the transaction internally (e.g. constraint/serialization error).
@@ -1336,11 +1363,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::vector<Gid> my_deleted_vertices;
     std::vector<Gid> my_deleted_edges;
 
-    std::map<EdgeTypePropKey,
-             std::vector<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>>>>
-        vector_edge_type_property_restore;  // No need to cleanup, because edge type can't be removed and when null
-                                            // property is set, it's like removing the property from the index
-
     // TWO passes needed here
     // Abort will modify objects to restore state to how they were before this txn
     // The passes will find the head delta for each object and process the whole object,
@@ -1369,37 +1391,17 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 auto prop_id = current->property.key;
                 auto *from_vertex = current->property.out_vertex;
 
-                const auto &vector_indexed_edge_types = index_abort_processor.vector_edge_.p2et.find(prop_id);
-                auto vec_prop_is_interesting =
-                    vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end();
-
                 auto processor_prop_is_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
-                if (processor_prop_is_interesting || vec_prop_is_interesting) {
+                if (processor_prop_is_interesting) {
                   // TODO: MVCC collect out_edges (including ones deleted this txn)
                   //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
                   //       ATM we don't handle that corner case. Setting a property on an edge that would then be
                   //       removed
-
-                  if (processor_prop_is_interesting) {
-                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                      if (edge_ref.ptr != edge) continue;
-                      index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
-                    }
-                  }
-
-                  // Collect edge vector
-                  if (vec_prop_is_interesting) {
-                    // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
-                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                      if (edge_ref.ptr != edge) continue;
-                      // handle vector index -> we need to check if the edge type is indexed in the vector index
-                      if (r::find(vector_indexed_edge_types->second, edge_type) !=
-                          vector_indexed_edge_types->second.end()) {
-                        // this edge type is indexed in the vector index
-                        vector_edge_type_property_restore[EdgeTypePropKey{edge_type, prop_id}].emplace_back(
-                            *current->property.value, std::make_tuple(from_vertex, to_vertex, edge));
-                      }
-                    }
+                  for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                    if (edge_ref.ptr != edge) continue;
+                    index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
+                    index_abort_processor.vector_edge_.CollectOnPropertyChange(
+                        edge_type, prop_id, *current->property.value, from_vertex, to_vertex, edge);
                   }
                 }
 
@@ -1662,10 +1664,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                   *transaction_.active_indices_,
                                   transaction_.start_timestamp,
                                   mem_storage->name_id_mapper_.get());
-    for (auto const &[edge_type_prop, prop_edges] : vector_edge_type_property_restore) {
-      storage_->indices_.vector_edge_index_.RestoreEntries(edge_type_prop, prop_edges);
-    }
-
     // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
     if (!my_deleted_edges.empty() && mem_storage->config_.salient.items.enable_edges_metadata) {
       auto edges_metadata_acc = mem_storage->edges_metadata_.access();
@@ -2079,10 +2077,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
-  auto vertices_acc = in_memory->vertices_.access();
-  if (vector_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
+  if (vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
-  } else if (vector_edge_index.DropIndex(index_name)) {
+  } else if (vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   } else {
     return std::unexpected{IndexDefinitionError{}};
@@ -2114,7 +2111,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector edge index with the same name as vector index on nodes
   if (vector_index.IndexExists(spec.index_name, in_memory->name_id_mapper_.get()) ||
-      !vector_edge_index.CreateIndex(spec, vertices_acc)) {
+      !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
@@ -2960,7 +2957,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto vertex_acc = vertices_.access();
 
     if (!indices_.vector_index_.Empty()) {
-      // Remove from vector indices BEFORE skip list removal while Vertex* is still valid.
       auto const vertices_to_remove = current_deleted_vertices |
                                       std::ranges::views::transform([&vertex_acc](auto const gid) {
                                         auto it = vertex_acc.find(gid);
@@ -2972,6 +2968,20 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       indices_.RemoveVerticesFromVectorIndices(vertices_to_remove);
     }
 
+    // Remove edges from vector edge index BEFORE vertex skip-list removal.
+    // edge_endpoints_ stores Vertex* — freeing vertices first would leave dangling pointers.
+    if (!current_deleted_edges.empty() && !indices_.vector_edge_index_.Empty()) {
+      auto edge_acc = edges_.access();
+      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
+                                     auto it = edge_acc.find(gid);
+                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
+                                     return &*it;
+                                   }) |
+                                   std::ranges::to<std::vector>();
+
+      indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
+    }
+
     for (auto vertex : current_deleted_vertices) {
       MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
     }
@@ -2979,11 +2989,19 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   // EDGES
   if (!current_deleted_edges.empty()) {
-    if (!indices_.vector_edge_index_.Empty()) {
-      indices_.RemoveEdgesFromVectorEdgeIndices(current_deleted_edges);
+    auto edge_acc = edges_.access();
+
+    if (current_deleted_vertices.empty() && !indices_.vector_edge_index_.Empty()) {
+      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
+                                     auto it = edge_acc.find(gid);
+                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
+                                     return &*it;
+                                   }) |
+                                   std::ranges::to<std::vector>();
+
+      indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
     }
 
-    auto edge_acc = edges_.access();
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
@@ -2998,7 +3016,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto vertex_acc = vertices_.access();
 
     if (!indices_.vector_index_.Empty()) {
-      // Collect deleted vertex pointers BEFORE skip-list removal while Vertex* is still valid.
       auto const analytical_deleted_vertices =
           vertex_acc | std::ranges::views::filter([](auto const &v) { return v.delta() == nullptr && v.deleted(); }) |
           std::ranges::views::transform([](auto &v) { return &v; }) | std::ranges::to<std::vector>();
@@ -3008,8 +3025,19 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       }
     }
 
+    // Remove edges from vector edge index BEFORE vertex skip-list removal.
+    if (!indices_.vector_edge_index_.Empty()) {
+      auto edge_acc = edges_.access();
+      auto const analytical_deleted_edges =
+          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
+          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
+
+      if (!analytical_deleted_edges.empty()) {
+        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
+      }
+    }
+
     for (auto &vertex : vertex_acc) {
-      // a deleted vertex which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
       if (vertex.delta() == nullptr && vertex.deleted()) {
         vertex_acc.remove(vertex);
       }
@@ -3020,22 +3048,18 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   if (need_full_scan_edges) {
     auto edge_acc = edges_.access();
 
-    if (!indices_.vector_edge_index_.Empty()) {
-      // Collect deleted edge GIDs BEFORE skip-list removal while Edge* is still valid.
-      std::list<Gid> analytical_deleted_edge_gids;
-      for (auto const &edge : edge_acc) {
-        if (edge.delta() == nullptr && edge.deleted()) {
-          analytical_deleted_edge_gids.push_back(edge.gid);
-        }
-      }
-      if (!analytical_deleted_edge_gids.empty()) {
-        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edge_gids);
+    if (!need_full_scan_vertices && !indices_.vector_edge_index_.Empty()) {
+      auto const analytical_deleted_edges =
+          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
+          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
+
+      if (!analytical_deleted_edges.empty()) {
+        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
       }
     }
 
     auto edge_metadata_acc = edges_metadata_.access();
     for (auto &edge : edge_acc) {
-      // a deleted edge which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
       if (edge.delta() == nullptr && edge.deleted()) {
         edge_acc.remove(edge);
         edge_metadata_acc.remove(edge.gid);
@@ -3144,9 +3168,10 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
-bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
+auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                                      TransactionReplication &replicating_txn,
-                                                                     CommitArgs const &commit_args) {
+                                                                     CommitArgs const &commit_args)
+    -> std::expected<void, ShipDeltasError> {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // If replica executes this:
@@ -3352,6 +3377,33 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
                                          md_delta.ttl_operation_info.period,
                                          md_delta.ttl_operation_info.start_time,
                                          md_delta.ttl_operation_info.should_run_edge_ttl);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_SET: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionSet(encoder,
+                                           *mem_storage->name_id_mapper_,
+                                           md_delta.description_op.kind,
+                                           md_delta.description_op.labels,
+                                           md_delta.description_op.edge_type,
+                                           md_delta.description_op.property,
+                                           md_delta.description_op.description,
+                                           md_delta.description_op.from_labels,
+                                           md_delta.description_op.to_labels);
+        });
+        break;
+      }
+      case MetadataDelta::Action::DESCRIPTION_DELETE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeDescriptionDelete(encoder,
+                                              *mem_storage->name_id_mapper_,
+                                              md_delta.description_op.kind,
+                                              md_delta.description_op.labels,
+                                              md_delta.description_op.edge_type,
+                                              md_delta.description_op.property,
+                                              md_delta.description_op.from_labels,
+                                              md_delta.description_op.to_labels);
         });
         break;
       }
@@ -3843,7 +3895,8 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
                                           config_,
                                           &enum_store_,
                                           config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-                                          &ttl_);
+                                          &ttl_,
+                                          &description_store_);
     spdlog::debug("Snapshot recovered successfully");
     // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
     // This snapshot creates a new state and cannot have any WALs associated with it at this point
@@ -4218,11 +4271,12 @@ void InMemoryStorage::Clear() {
   commit_log_.reset();
   commit_log_.emplace();
 
-  // Drop any pending GC work (committed_transactions_ is holding on to old deltas)
+  // Drop any pending GC work
   deleted_vertices_->clear();
   deleted_edges_->clear();
   garbage_undo_buffers_->clear();
   committed_transactions_->clear();
+  waiting_gc_deltas_->clear();
 
   // Clear incoming async index creation requests
   async_indexer_.Clear();
@@ -4379,8 +4433,10 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 
   mem_storage->vertices_.clear();
+  mem_storage->waiting_gc_deltas_->clear();
   mem_storage->edges_.clear();
   mem_storage->edge_count_.store(0, std::memory_order_release);
+  mem_storage->description_store_.Clear();
 
   memory::PurgeUnusedMemory();
 }

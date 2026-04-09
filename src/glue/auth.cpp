@@ -10,8 +10,9 @@
 // licenses/APL.txt.
 
 #include "glue/auth.hpp"
+
 #include "auth/models.hpp"
-#include "query/exceptions.hpp"
+#include "frontend/ast/query/auth_query.hpp"
 
 namespace memgraph::glue {
 
@@ -77,6 +78,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::PARALLEL_EXECUTION;
     case query::AuthQuery::Privilege::SERVER_SIDE_PARAMETERS:
       return auth::Permission::SERVER_SIDE_PARAMETERS;
+    case query::AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS:
+      return auth::Permission::SERVER_SIDE_DESCRIPTIONS;
   }
 }
 

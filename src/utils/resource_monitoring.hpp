@@ -11,9 +11,6 @@
 
 #pragma once
 
-#include "utils/memory_tracker.hpp"
-#include "utils/rw_spin_lock.hpp"
-
 #include <atomic>
 #include <cstddef>
 #include <limits>
@@ -23,6 +20,9 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+
+#include "utils/memory_tracker.hpp"
+#include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::utils {
 

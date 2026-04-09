@@ -1,0 +1,1 @@
+CREATE (a:Person {feat: [1.0, 2.0], age: 30, class: 0})-[:KNOWS {weight: 0.5}]->(b:Person {feat: [3.0, 4.0], age: 25, class: 1})-[:KNOWS {weight: 0.8}]->(c:Person {feat: [5.0, 6.0], age: 35, class: 0});

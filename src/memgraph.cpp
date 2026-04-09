@@ -14,6 +14,9 @@
 #include <exception>
 #include <memory>
 #include <optional>
+#include <ranges>
+#include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -96,6 +99,46 @@ void WarnDeprecatedFlags() {
     const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
     if (!info.is_default) spdlog::warn("{}", message);
   };
+}
+
+/// Memgraph does not use positional arguments. After gflags parsing, any remaining
+/// argv[1..argc-1] entries are unexpected — typically caused by writing `--bool-flag false`
+/// (space-separated) instead of `--bool-flag=false`. gflags bool flags don't consume the
+/// next argument; `--flag false` silently sets the flag to true and orphans "false".
+void CheckSuspiciousPositionalArgs(int argc, char **argv) {
+  if (argc <= 1) return;
+
+  auto is_bool_like = [](std::string_view arg) {
+    using namespace std::string_view_literals;
+    constexpr auto kBoolValues =
+        std::array{"true"sv, "false"sv, "yes"sv, "no"sv, "1"sv, "0"sv, "t"sv, "f"sv, "y"sv, "n"sv};
+    auto lower = memgraph::utils::ToLowerCase(arg);
+    return std::ranges::any_of(kBoolValues, [&](std::string_view bv) { return lower == bv; });
+  };
+
+  auto args = std::span(argv + 1, static_cast<size_t>(argc - 1));
+  std::ostringstream oss;
+  bool any_bool_like = false;
+  for (auto *a : args) {
+    if (oss.tellp() > 0) oss << ", ";
+    oss << "'" << a << "'";
+    if (is_bool_like(a)) any_bool_like = true;
+  }
+  auto all_args = std::move(oss).str();
+
+  auto level = FLAGS_strict_flag_check ? spdlog::level::err : spdlog::level::warn;
+  if (any_bool_like) {
+    spdlog::log(level,
+                "Unexpected positional argument(s): {}. "
+                "This is likely caused by writing '--bool-flag false' (space-separated). "
+                "Boolean flags require '=' syntax, e.g. '--bool-flag=false', or use '--nobool-flag'. "
+                "Without '=', the flag is set to true regardless of the value that follows it.",
+                all_args);
+  } else {
+    spdlog::log(
+        level, "Unexpected positional argument(s): {}. Memgraph does not accept positional arguments.", all_args);
+  }
+  if (FLAGS_strict_flag_check) std::exit(EXIT_FAILURE);
 }
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
@@ -214,6 +257,7 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  CheckSuspiciousPositionalArgs(argc, argv);
   WarnDeprecatedFlags();
 
   if (FLAGS_h) {
@@ -692,6 +736,19 @@ int main(int argc, char **argv) {
     io_n_threads = 1U;
   }
 
+  // Used by interpreter context
+  std::string service_name = "Bolt";
+  auto bolt_server_context = !FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()
+                                 ? ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file)
+                                 : ServerContext{};
+  if (bolt_server_context.use_ssl()) {
+    service_name = "BoltS";
+    spdlog::info("Using secure Bolt connection (with SSL)");
+  } else {
+    spdlog::warn(
+        memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
+  }
+
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config,
       settings.get(),
@@ -699,6 +756,7 @@ int main(int argc, char **argv) {
       &dbms_handler,
       repl_state,
       system,
+      &bolt_server_context,
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
@@ -764,16 +822,6 @@ int main(int argc, char **argv) {
   }
 #endif
 
-  ServerContext context;
-  std::string service_name = "Bolt";
-  if (!FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()) {
-    context = ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file);
-    service_name = "BoltS";
-    spdlog::info("Using secure Bolt connection (with SSL)");
-  } else {
-    spdlog::warn(
-        memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
-  }
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{boost::asio::ip::make_address(FLAGS_bolt_address),
                                                                      static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
@@ -789,7 +837,7 @@ int main(int argc, char **argv) {
                                           .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
 #endif
 
-  memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, io_n_threads);
+  memgraph::glue::ServerT server(server_endpoint, &session_context, &bolt_server_context, service_name, io_n_threads);
 
   const auto machine_id = memgraph::utils::GetMachineId();
 
@@ -828,7 +876,7 @@ int main(int argc, char **argv) {
 
   memgraph::communication::websocket::SafeAuth websocket_auth{auth_.get()};
   memgraph::communication::websocket::Server websocket_server{
-      {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
+      {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &bolt_server_context, websocket_auth};
 
   spdlog::trace("Websocket server created.");
   if (!websocket_server.HasErrorHappened()) {
@@ -842,7 +890,7 @@ int main(int argc, char **argv) {
 // TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
   memgraph::glue::MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &bolt_server_context};
   spdlog::trace("Metrics server created.");
 #endif
 
@@ -870,17 +918,22 @@ int main(int argc, char **argv) {
 // replication state
 #ifdef MG_ENTERPRISE
     if (coordinator_state && coordinator_state->IsDataInstance()) {
+      spdlog::trace("Closing data instance mgmt server");
       coordinator_state->GetDataInstanceManagementServer().Shutdown();
     }
 #endif
 
     // Don't replicate on shutdown anymore
     {
-      auto locked_repl_state = repl_state.Lock();
+      // Read lock is fine because we are only shutting down all the state which should be concurrently safe to do with
+      // other operations This allow terminating current commit that is taking place
+      auto locked_repl_state = repl_state.ReadLock();
+      spdlog::trace("Closing repl state");
       locked_repl_state->Shutdown();
     }
 
     dbms_handler.ForEach([](memgraph::dbms::DatabaseAccess acc) {
+      spdlog::trace("Closing background tasks and deleting repl clients for db: {}", acc->name());
       // Stop all triggers, streams and ttl
       acc->StopAllBackgroundTasks();
       acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
@@ -889,7 +942,9 @@ int main(int argc, char **argv) {
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending
     // queries.
+    spdlog::trace("Shutting down interpreter context");
     interpreter_context_.Shutdown();
+    spdlog::trace("Shutting down websocket server");
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();

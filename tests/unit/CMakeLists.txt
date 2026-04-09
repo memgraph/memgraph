@@ -685,6 +685,11 @@ add_unit_test(storage_v2_replication
     LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue
 )
 
+add_unit_test(storage_v2_error
+    SOURCES storage_v2_error.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_isolation_level
     SOURCES storage_v2_isolation_level.cpp
     LINK_TARGETS mg::storage

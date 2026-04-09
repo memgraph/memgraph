@@ -11,8 +11,9 @@
 
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
-
+#include <cstdint>
 #include <limits>
+
 #include "utils/flag_validation.hpp"
 
 #ifdef MG_ENTERPRISE
