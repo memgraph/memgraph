@@ -160,17 +160,20 @@ class VectorIndex {
 
   using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
 
-  /// Concrete ActiveIndices implementation that delegates to VectorIndex const methods.
-  /// VectorIndex is thread-safe and operates at READ_UNCOMMITTED, so no snapshot copy is needed.
+  /// Concrete ActiveIndices implementation holding a snapshot of vector index metadata.
   struct ActiveIndices : VectorIndexActiveIndices {
-    explicit ActiveIndices(VectorIndex const *owner = nullptr) : owner_(owner) {}
+    ActiveIndices() = default;
+
+    ActiveIndices(std::vector<VectorIndexSpec> specs, std::vector<VectorIndexInfo> infos)
+        : specs_(std::move(specs)), infos_(std::move(infos)) {}
 
     std::vector<VectorIndexSpec> ListIndices() const override;
     std::vector<VectorIndexInfo> ListVectorIndicesInfo() const override;
     std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const override;
 
    private:
-    VectorIndex const *owner_;
+    std::vector<VectorIndexSpec> specs_;
+    std::vector<VectorIndexInfo> infos_;
   };
 
   VectorIndex();
@@ -179,7 +182,9 @@ class VectorIndex {
   VectorIndex &operator=(VectorIndex &&) noexcept;
 
   /// Returns the current active indices snapshot for use in transactions.
-  auto GetActiveIndices() -> std::shared_ptr<VectorIndexActiveIndices> { return std::make_shared<ActiveIndices>(this); }
+  auto GetActiveIndices() const -> std::shared_ptr<VectorIndexActiveIndices> {
+    return std::make_shared<ActiveIndices>(ListIndices(), ListVectorIndicesInfo());
+  }
 
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.

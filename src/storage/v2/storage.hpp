@@ -1089,6 +1089,17 @@ class Storage {
   /// @note For storage types without async indexing, this always returns true
   virtual bool IsAsyncIndexerIdle() const = 0;
 
+  /// Live approximate counts from the underlying vector indices (not from snapshot).
+  /// Vector index counts change on every data mutation but the ActiveIndices snapshot
+  /// is only refreshed on Create/Drop, so we read directly from the live index.
+  std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const {
+    return indices_.vector_index_.ApproximateNodesVectorCount(label, property);
+  }
+
+  std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const {
+    return indices_.vector_edge_index_.ApproximateEdgesVectorCount(edge_type, property);
+  }
+
   /// Check if async indexer thread has stopped
   /// @return true if async indexer thread has stopped (due to null protector or shutdown), false otherwise
   /// @note For storage types without async indexing, this always returns true

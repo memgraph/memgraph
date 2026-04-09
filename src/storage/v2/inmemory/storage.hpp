@@ -332,11 +332,11 @@ class InMemoryStorage final : public Storage {
     }
 
     std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {
-      return transaction_.active_indices_->vector_->ApproximateNodesVectorCount(label, property);
+      return storage_->indices_.vector_index_.ApproximateNodesVectorCount(label, property);
     }
 
     std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override {
-      return transaction_.active_indices_->vector_edge_->ApproximateEdgesVectorCount(edge_type, property);
+      return storage_->indices_.vector_edge_index_.ApproximateEdgesVectorCount(edge_type, property);
     }
 
     std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const override {
