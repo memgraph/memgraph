@@ -27,14 +27,14 @@ inline thread_local utils::MemoryTracker *tls_tracked_vector_allocator_memory_tr
 
 inline auto CurrentTrackedVectorAllocatorMemoryTracker() -> utils::MemoryTracker * {
   return tls_tracked_vector_allocator_memory_tracker != nullptr ? tls_tracked_vector_allocator_memory_tracker
-                                                                : &utils::vector_index_memory_tracker;
+                                                                : &utils::total_memory_tracker;
 }
 
 class TrackedVectorAllocatorMemoryTrackerScope {
  public:
   explicit TrackedVectorAllocatorMemoryTrackerScope(utils::MemoryTracker *tracker)
       : previous_tracker_(tls_tracked_vector_allocator_memory_tracker) {
-    tls_tracked_vector_allocator_memory_tracker = tracker != nullptr ? tracker : &utils::vector_index_memory_tracker;
+    tls_tracked_vector_allocator_memory_tracker = tracker != nullptr ? tracker : &utils::total_memory_tracker;
   }
 
   TrackedVectorAllocatorMemoryTrackerScope(const TrackedVectorAllocatorMemoryTrackerScope &) = delete;
@@ -70,14 +70,14 @@ class TrackedVectorAllocator {
   TrackedVectorAllocator(TrackedVectorAllocator &&other) noexcept
       : inner_(std::move(other.inner_)),
         tracked_bytes_(other.tracked_bytes_.exchange(0, std::memory_order_relaxed)),
-        tracker_(std::exchange(other.tracker_, &utils::vector_index_memory_tracker)) {}
+        tracker_(std::exchange(other.tracker_, &utils::total_memory_tracker)) {}
 
   TrackedVectorAllocator &operator=(TrackedVectorAllocator &&other) noexcept {
     if (this != &other) {
       reset();
       inner_ = std::move(other.inner_);
       tracked_bytes_.store(other.tracked_bytes_.exchange(0, std::memory_order_relaxed), std::memory_order_relaxed);
-      tracker_ = std::exchange(other.tracker_, &utils::vector_index_memory_tracker);
+      tracker_ = std::exchange(other.tracker_, &utils::total_memory_tracker);
     }
     return *this;
   }
@@ -136,7 +136,7 @@ class TrackedVectorAllocator {
  private:
   unum::usearch::memory_mapping_allocator_gt<alignment_ak> inner_;
   std::atomic<size_type> tracked_bytes_{0};
-  utils::MemoryTracker *tracker_{&utils::vector_index_memory_tracker};
+  utils::MemoryTracker *tracker_{&utils::total_memory_tracker};
 };
 
 }  // namespace memgraph::storage

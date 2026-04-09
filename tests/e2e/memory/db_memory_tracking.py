@@ -167,10 +167,7 @@ def metric_triplet(cursor):
         "db_storage_memory_tracked": parse_size_bytes(info["db_storage_memory_tracked"]),
         "db_embedding_memory_tracked": parse_size_bytes(info["db_embedding_memory_tracked"]),
         "db_query_memory_tracked": parse_size_bytes(info["db_query_memory_tracked"]),
-        "memory_tracked": parse_size_bytes(info["memory_tracked"]),
-        "graph_memory_tracked": parse_size_bytes(info["graph_memory_tracked"]),
-        "query_memory_tracked": parse_size_bytes(info["query_memory_tracked"]),
-        "vector_index_memory_tracked": parse_size_bytes(info["vector_index_memory_tracked"]),
+        "global_memory_tracked": parse_size_bytes(info["global_memory_tracked"]),
     }
 
 
@@ -294,10 +291,7 @@ def test_show_storage_info_contains_db_split_fields():
         "db_storage_memory_tracked",
         "db_embedding_memory_tracked",
         "db_query_memory_tracked",
-        "memory_tracked",
-        "graph_memory_tracked",
-        "query_memory_tracked",
-        "vector_index_memory_tracked",
+        "global_memory_tracked",
     }
     assert required.issubset(set(info.keys())), f"Missing keys: {required - set(info.keys())}"
 
@@ -1021,7 +1015,7 @@ def test_drop_database_releases_global_memory():
     execute(db_cursor, "FREE MEMORY")
     db_after_alloc = metric_triplet(memgraph_cursor)
     debug_log(f"drop-db after alloc db={db_name} metrics={db_after_alloc}")
-    assert db_after_alloc["graph_memory_tracked"] > baseline["graph_memory_tracked"]
+    assert db_after_alloc["global_memory_tracked"] > baseline["global_memory_tracked"]
 
     db_conn.close()
     drop_database(admin_cursor, db_name)
@@ -1029,10 +1023,10 @@ def test_drop_database_releases_global_memory():
     execute(memgraph_cursor, "FREE MEMORY")
     assert_metric_returns_near_baseline(
         memgraph_cursor,
-        "graph_memory_tracked",
-        baseline["graph_memory_tracked"],
+        "global_memory_tracked",
+        baseline["global_memory_tracked"],
         1024 * 1024,
-        message="global graph tracker did not return near baseline after database drop",
+        message="total memory tracker did not return near baseline after database drop",
     )
     after_drop = metric_triplet(memgraph_cursor)
     debug_log(f"drop-db after drop db={db_name} metrics={after_drop}")
@@ -1040,7 +1034,7 @@ def test_drop_database_releases_global_memory():
     memgraph_conn.close()
     admin.close()
 
-    assert after_drop["graph_memory_tracked"] <= baseline["graph_memory_tracked"] + 1024 * 1024
+    assert after_drop["global_memory_tracked"] <= baseline["global_memory_tracked"] + 1024 * 1024
 
 
 if __name__ == "__main__":

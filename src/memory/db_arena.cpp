@@ -70,7 +70,8 @@ bool db_arena_commit(extent_hooks_t *hooks, void *addr, size_t size, size_t offs
   const bool err = dh->base_hooks->commit(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
     const utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
-    dh->tracker->Alloc(static_cast<int64_t>(length));
+    dh->tracker->Alloc(
+        static_cast<int64_t>(length));  // TODO: is this safe? -> what if alloc fails, should we return true?
   }
   return err;
 }
@@ -118,9 +119,6 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
   // Acquire an arena index — reuse a recycled one if available, otherwise create fresh.
   arena_idx_ = ArenaPool::Instance().Acquire();
 
-  // New arenas inherit opt.dirty_decay_ms / opt.muzzy_decay_ms from the global jemalloc
-  // configuration (set via MALLOC_CONF at startup). No need to override here — recycled
-  // arenas retain the same values since we never modify decay on release.
   const std::string arena_key = "arena." + std::to_string(arena_idx_);
 
   // Read the default (or previously-restored) hooks on the arena so we can call through.
@@ -140,6 +138,24 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
                    static_cast<void *>(const_cast<extent_hooks_t **>(&new_hooks)),
                    sizeof(extent_hooks_t *));
   MG_ASSERT(err == 0, "Failed to install custom hooks on DB arena {} (err={})", arena_idx_, err);
+
+  // Seed the tracker with the arena's current mapped bytes. Recycled arenas
+  // carry committed extents from previous owners whose tracker is now destroyed.
+  // Without seeding, the tracker starts at 0 but purge_forced/dalloc hooks
+  // will call Free() for those stale extents, driving the tracker negative.
+  {
+    uint64_t epoch = 1;
+    size_t esz = sizeof(epoch);
+    je_mallctl("epoch", &epoch, &esz, &epoch, esz);
+
+    size_t mapped = 0;
+    size_t msz = sizeof(mapped);
+    const auto mapped_key = "stats.arenas." + std::to_string(arena_idx_) + ".mapped";
+    if (je_mallctl(mapped_key.c_str(), &mapped, &msz, nullptr, 0) == 0 && mapped > 0) {
+      const utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+      tracker->Alloc(static_cast<int64_t>(mapped));
+    }
+  }
 }
 
 DbArena::~DbArena() {

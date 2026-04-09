@@ -194,9 +194,7 @@ class Database {
 #endif
   }
 
-  int64_t DbMemoryUsage() const noexcept {
-    return DbStorageMemoryUsage() + DbEmbeddingMemoryUsage() + DbQueryMemoryUsage();
-  }
+  int64_t DbMemoryUsage() const noexcept { return db_total_memory_tracker_.Amount(); }
 
   int64_t DbStorageMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
 
@@ -206,14 +204,22 @@ class Database {
 
   utils::MemoryTracker *DbQueryMemoryTracker() noexcept { return &db_query_memory_tracker_; }
 
+  void SetTenantMemoryLimit(int64_t bytes) { db_total_memory_tracker_.SetHardLimit(bytes); }
+
+  void ClearTenantMemoryLimit() { db_total_memory_tracker_.ResetLimit(); }
+
+  int64_t TenantMemoryLimit() const noexcept { return db_total_memory_tracker_.HardLimit(); }
+
  private:
-  //!< Tracks committed OS pages in db_arena_. Parent=graph_memory_tracker so per-DB
-  //!< allocations roll up into the global graph tracker → total_memory_tracker hierarchy.
-  utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker};
-  //!< Tracks vector-index allocations for this DB. Parent=vector_index_memory_tracker.
-  utils::MemoryTracker db_embedding_memory_tracker_{&utils::vector_index_memory_tracker};
-  //!< Tracks query-scoped allocations for this DB. Parent=global_query_memory_tracker.
-  utils::MemoryTracker db_query_memory_tracker_{&utils::global_query_memory_tracker};
+  //!< Per-DB total: parent of all three domain trackers below. Rolls up to total_memory_tracker.
+  //!< Tenant profile memory limits are enforced here via SetHardLimit.
+  utils::MemoryTracker db_total_memory_tracker_{&utils::total_memory_tracker};
+  //!< Tracks committed OS pages in db_arena_ (storage: vertices, edges, indices, deltas).
+  utils::MemoryTracker db_memory_tracker_{&db_total_memory_tracker_};
+  //!< Tracks vector-index allocations for this DB (mmap via TrackedVectorAllocator).
+  utils::MemoryTracker db_embedding_memory_tracker_{&db_total_memory_tracker_};
+  //!< Tracks query-scoped allocations for this DB (PMR via TrackingMemoryResource).
+  utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
 #if USE_JEMALLOC
   memory::DbArena db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
 #endif

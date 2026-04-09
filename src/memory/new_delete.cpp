@@ -116,13 +116,13 @@ inline void deleteSized(void *ptr, const std::size_t /*unused*/, const std::alig
 
 inline void TrackMemory(std::size_t size) {
 #if !USE_JEMALLOC
-  memgraph::utils::graph_memory_tracker.Alloc(static_cast<int64_t>(size));
+  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
 #endif
 }
 
 inline void TrackMemory(std::size_t size, const std::align_val_t align) {
 #if !USE_JEMALLOC
-  memgraph::utils::graph_memory_tracker.Alloc(static_cast<int64_t>(size));
+  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
 #endif
 }
 
@@ -150,10 +150,10 @@ inline void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size
   try {
 #if !USE_JEMALLOC
     if (size) {
-      memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(size));
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
       // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
-      memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
     }
 #endif
   } catch (...) {
@@ -164,10 +164,10 @@ inline void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unuse
   try {
 #if !USE_JEMALLOC
     if (size) {
-      memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(size));
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
       // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
-      memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
     }
 #endif
   } catch (...) {

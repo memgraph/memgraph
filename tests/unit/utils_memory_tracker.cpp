@@ -60,9 +60,9 @@ TEST(MemoryTrackerTest, ExceptionBlocker) {
   ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
 }
 
-// Tests for parent-child memory tracker propagation (vector index tracking).
-// graph_memory_tracker and vector_index_memory_tracker are children of total_memory_tracker
-// so that every byte tracked in a child is also reflected in the parent aggregate.
+// Tests for parent-child memory tracker propagation.
+// Per-DB domain trackers are children of db_total_memory_tracker_ which is a child of
+// total_memory_tracker, so every byte tracked in a child is reflected in the parent aggregate.
 
 TEST(EmbeddingTrackingTest, TwoChildrenTrackedSeparatelyParentAggregates) {
   auto parent = MemoryTracker{};
