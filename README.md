@@ -33,38 +33,56 @@
 
 ## :clipboard: Description
 
-Memgraph is an open source graph database built for real-time streaming and
-compatible with Neo4j. Whether you're a developer or a data scientist with
-interconnected data, Memgraph will get you the immediate actionable insights
-fast.
+Memgraph is a high-performance, in-memory graph database that powers real-time
+AI context and graph analytics. Built in C/C++, it serves as the graph engine
+for GraphRAG pipelines, AI memory systems, and agentic workflows — delivering
+sub-millisecond multi-hop traversals for any system that needs structured,
+connected context alongside semantic search.
 
-Memgraph directly connects to your streaming infrastructure. You can ingest data
-from sources like Kafka, SQL, or plain CSV files. Memgraph provides a standard
-interface to query your data with Cypher, a widely-used and declarative query
-language that is easy to write, understand and optimize for performance. This is
-achieved by using the property graph data model, which stores data in terms of
-objects, their attributes, and the relationships that connect them. This is a
-natural and effective way to model many real-world problems without relying on
-complex SQL schemas.
+Vector search finds what’s similar. Graph reasoning finds what’s connected —
+following relationships, dependencies, and hierarchies that similarity alone
+can’t capture. Memgraph provides both in a single query layer: built-in vector
+indexes for similarity search combined with full graph traversal, so retrieval
+pipelines can run as a single atomic database operation instead of being
+scattered across multiple systems.
 
-Memgraph is implemented in C/C++ and leverages an in-memory first architecture
-to ensure that you’re getting the [best possible
-performance](http://memgraph.com/benchgraph) consistently and without surprises.
-It’s also ACID-compliant and highly available.
+The same architecture drives real-time graph analytics for fraud detection,
+network analysis, infrastructure monitoring, and other operational workloads
+where milliseconds matter. Memgraph is fully compatible with Neo4j’s Cypher
+query language, ACID-compliant, and highly available.
 
 ## :zap: Features
 
-- Custom query modules - Run Python, Rust, and C/C++ code natively; check out
-  the [MAGE](mage/README.md) graph algorithm library.
-- Deep-path traversals - Use advanced capabilities such as accumulators and path
-  filtering without adding additional application logic.
-- Native support for machine learning
-- Streaming support & dynamic algorithms
-- Multi-tenancy
-- High availability replication
-- Authentication & authorization
-- Role-based and label-based access control
-- Monitoring via HTTP server
+#### AI & Graph Intelligence
+- **Vector search indexes** - Built-in vector indexes with cosine similarity for
+  hybrid graph + vector retrieval in a single query.
+- **Atomic GraphRAG** - Pivot search, graph expansion, ranking, and prompt
+  assembly expressed as a single Cypher query.
+- **[MAGE](mage/README.md) algorithm library** - 40+ graph algorithms in
+  C++, Python, and CUDA including PageRank, community detection, GNN-based
+  link prediction, and temporal graph networks.
+- **LLM utility module** - Graph-aware context formatting for large language
+  models.
+- **Real-time schema introspection** - `SHOW SCHEMA INFO` returns the full
+  graph ontology for Text2Cypher and AI agent integration.
+
+#### Performance & Query Power
+- **In-memory C/C++ engine** - Sub-millisecond traversals with [benchmarked
+  performance](https://memgraph.com/benchgraph).
+- **Deep-path traversals** - Accumulators and path filtering without additional
+  application logic.
+- **Custom query modules** - Extend with Python, Rust, and C/C++ code natively.
+- **Streaming support** - Ingest from Kafka, Pulsar, and RedPanda with dynamic
+  graph algorithms that react to changes in real time.
+
+#### Enterprise
+- **High availability** - Raft-based coordination with automatic failover.
+- **Multi-tenancy** - Isolated databases with per-tenant role assignments.
+- **Fine-grained access control** - Role-based and label-based permissions at
+  the node and edge level.
+- **Authentication & authorization** - SSO integration, user impersonation, and
+  30+ granular permissions.
+- **Encryption in transit, monitoring, backup & restore.**
 
 
 
@@ -100,6 +118,18 @@ your browser.
 [![Cent OS](https://img.shields.io/badge/cent%20os-002260?style=for-the-badge&logo=centos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-from-rpm)
 [![Fedora](https://img.shields.io/badge/fedora-0B57A4?style=for-the-badge&logo=fedora&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-from-rpm)
 [![RedHat](https://img.shields.io/badge/redhat-EE0000?style=for-the-badge&logo=redhat&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-from-rpm)
+
+### Kubernetes
+
+[![Helm](https://img.shields.io/badge/Helm_Charts-0F1689?style=for-the-badge&logo=helm&logoColor=white)](https://github.com/memgraph/helm-charts)
+
+Deploy Memgraph on Kubernetes using the official [Helm charts](https://github.com/memgraph/helm-charts),
+including charts for standalone and high-availability deployments:
+
+```bash
+helm repo add memgraph https://memgraph.github.io/helm-charts
+helm install my-memgraph memgraph/memgraph
+```
 
 You can find the binaries and Docker images on the [Download
 Hub](https://memgraph.com/download) and the installation instructions in the
@@ -144,6 +174,12 @@ Visualize graphs and play with queries to understand your data. [Memgraph Lab](h
 
 [Import data](https://memgraph.com/docs/memgraph/import-data) into Memgraph using Kafka, RedPanda or Pulsar streams, CSV and JSON files, or Cypher commands.
 
+## :bulb: Best Practices
+
+The [memgraph/best-practices](https://github.com/memgraph/best-practices)
+repository contains ready-to-use examples covering graph modeling, data import,
+query optimization, GraphRAG, high-availability deployment, and more.
+
 ## :bookmark_tabs: Documentation
 
 The Memgraph documentation is available at
@@ -181,6 +217,16 @@ We maintain a zero-tolerance policy towards any violations. Our shared commitmen
 Memgraph Community is available under the [BSL
 license](./licenses/BSL.txt).</br> Memgraph Enterprise is available under the
 [MEL license](./licenses/MEL.pdf).
+
+## :star: Special Thanks
+
+We're grateful to all internal and especially external contributors who have
+helped improve Memgraph through bug fixes, features, and documentation. Thank
+you for making Memgraph better!
+
+<a href="https://github.com/memgraph/memgraph/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=memgraph/memgraph" />
+</a>
 
 ## :busts_in_silhouette: Community
 
