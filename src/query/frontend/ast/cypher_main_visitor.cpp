@@ -1896,6 +1896,9 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   }
 
   auto *yield_ctx = ctx->yieldProcedureResults();
+  if (yield_ctx && call_proc->void_procedure_) {
+    throw SemanticException("YIELD may not be used on void procedures which do not return any result fields.");
+  }
   if (!yield_ctx) {
     if (!maybe_found->second->results.empty() && !call_proc->void_procedure_) {
       throw SemanticException(
