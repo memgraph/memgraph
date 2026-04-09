@@ -2,7 +2,7 @@ image:
   repository: docker.io/memgraph/memgraph
   # It is a bad practice to set the image tag name to 'latest' as it can trigger automatic upgrade of the charts
   # With some of the pullPolicy values. Please consider fixing the tag to a specific Memgraph version
-  tag: {{VERSION_TAG}}
+  tag: "{{VERSION_TAG}}"
   pullPolicy: IfNotPresent
 
 storage:
@@ -13,6 +13,19 @@ storage:
     # If you set any name, such storage class must exist.
     libStorageClassName: csi-hostpath-delayed
     createLogStorageClaim: true
+    logPVCSize: "1Gi"
+    logStorageAccessMode: "ReadWriteOnce"
+    logStorageClassName: csi-hostpath-delayed
+    ## Create a Persistant Volume Claim for core dumps.
+    coreDumpsStorageClassName:
+    coreDumpsStorageSize: 10Gi
+    coreDumpsMountPath: /var/core/memgraph
+  coordinators:
+    libPVCSize: "1Gi"
+    libStorageAccessMode: "ReadWriteOnce"
+    # By default the name of the storage class isn't set which means that the default storage class will be used.
+    # If you set any name, such storage class must exist.
+    libStorageClassName: csi-hostpath-delayed
     logPVCSize: "1Gi"
     logStorageAccessMode: "ReadWriteOnce"
     logStorageClassName: csi-hostpath-delayed
@@ -362,6 +375,7 @@ commonArgs:
 # Setting the Memgraph's memory limit to more than the available resources can trigger pod eviction and restarts before Memgraph can make a query exception and continue running
 # the pod.
 data:
+<<<<<<< HEAD
   - id: "0"
     restoreDataFromSnapshot: false
     volumeSnapshotName: data-0-snap # Used only if restoreDataFromSnapshot is set to true
@@ -376,6 +390,8 @@ data:
     args: # Args specific to this instance
       - "--storage-snapshot-on-exit=false"
       - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
   - id: "1"
     restoreDataFromSnapshot: false
     volumeSnapshotName: data-1-snap
@@ -384,7 +400,8 @@ data:
     args:
       - "--storage-snapshot-on-exit=false"
       - "--telemetry-enabled=false"
-
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
 coordinators:
   - id: "1"
     restoreDataFromSnapshot: false
@@ -393,6 +410,8 @@ coordinators:
     externalAccessAnnotations: {}
     args:
       - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
 
   - id: "2"
     restoreDataFromSnapshot: false
@@ -401,6 +420,8 @@ coordinators:
     externalAccessAnnotations: {}
     args:
       - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
 
   - id: "3"
     restoreDataFromSnapshot: false
@@ -409,6 +430,8 @@ coordinators:
     externalAccessAnnotations: {}
     args:
       - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
 
 userContainers:
   data: []
@@ -449,3 +472,64 @@ tolerations:
   #     operator: "Equal"
   #     value: "value1"
   #     effect: "NoSchedule"
+=======
+- id: "0"
+  restoreDataFromSnapshot: false
+  volumeSnapshotName: data-0-snap  # Used only if restoreDataFromSnapshot is set to true
+  args:
+  - "--management-port=10000"
+  - "--bolt-port=7687"
+  - "--monitoring-port=7444"
+  - "--monitoring-address=0.0.0.0"
+  - "--data-directory=/var/lib/memgraph/mg_data"
+
+- id: "1"
+  restoreDataFromSnapshot: false
+  volumeSnapshotName: data-1-snap  # Used only if restoreDataFromSnapshot is set to true
+  args:
+  - "--management-port=10000"
+  - "--bolt-port=7687"
+  - "--monitoring-port=7444"
+  - "--monitoring-address=0.0.0.0"
+  - "--data-directory=/var/lib/memgraph/mg_data"
+
+coordinators:
+- id: "1"
+  restoreDataFromSnapshot: false
+  volumeSnapshotName: coord-1-snap  # Used only if restoreDataFromSnapshot is set to true
+  args:
+  - "--coordinator-id=1"
+  - "--coordinator-port=12000"
+  - "--management-port=10000"
+  - "--bolt-port=7687"
+  - "--monitoring-port=7444"
+  - "--monitoring-address=0.0.0.0"
+  - "--coordinator-hostname=memgraph-coordinator-1.default.svc.cluster.local"
+  - "--data-directory=/var/lib/memgraph/mg_data"
+
+- id: "2"
+  restoreDataFromSnapshot: false
+  volumeSnapshotName: coord-2-snap  # Used only if restoreDataFromSnapshot is set to true
+  args:
+  - "--coordinator-id=2"
+  - "--coordinator-port=12000"
+  - "--management-port=10000"
+  - "--bolt-port=7687"
+  - "--monitoring-port=7444"
+  - "--monitoring-address=0.0.0.0"
+  - "--coordinator-hostname=memgraph-coordinator-2.default.svc.cluster.local"
+  - "--data-directory=/var/lib/memgraph/mg_data"
+
+- id: "3"
+  restoreDataFromSnapshot: false
+  volumeSnapshotName: coord-3-snap  # Used only if restoreDataFromSnapshot is set to true
+  args:
+  - "--coordinator-id=3"
+  - "--coordinator-port=12000"
+  - "--management-port=10000"
+  - "--bolt-port=7687"
+  - "--monitoring-port=7444"
+  - "--monitoring-address=0.0.0.0"
+  - "--coordinator-hostname=memgraph-coordinator-3.default.svc.cluster.local"
+  - "--data-directory=/var/lib/memgraph/mg_data"
+>>>>>>> b737f089f (add monitoring to ISSU via helm chart)
