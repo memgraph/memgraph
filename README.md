@@ -54,8 +54,9 @@ query language, ACID-compliant, and highly available.
 ## :zap: Features
 
 #### AI & Graph Intelligence
-- **Vector search indexes** - Built-in vector indexes with cosine similarity for
-  hybrid graph + vector retrieval in a single query.
+- **Vector search indexes & native ML** - Built-in vector indexes with cosine
+  similarity for hybrid graph + vector retrieval in a single query, plus native
+  machine learning support through MAGE.
 - **Atomic GraphRAG** - Pivot search, graph expansion, ranking, and prompt
   assembly expressed as a single Cypher query.
 - **[MAGE](mage/README.md) algorithm library** - 40+ graph algorithms in
@@ -72,6 +73,10 @@ query language, ACID-compliant, and highly available.
 - **Deep-path traversals** - Accumulators and path filtering without additional
   application logic.
 - **Custom query modules** - Extend with Python, Rust, and C/C++ code natively.
+- **Parallel query execution** - Concurrent query processing for high-throughput
+  workloads.
+- **Native Parquet & JSONL loading** - Load data directly from Parquet and JSONL
+  files on local disk, S3, or HTTP endpoints.
 - **Streaming support** - Ingest from Kafka, Pulsar, and RedPanda with dynamic
   graph algorithms that react to changes in real time.
 
@@ -172,13 +177,17 @@ Visualize graphs and play with queries to understand your data. [Memgraph Lab](h
 
 ## :file_folder: Import data
 
-[Import data](https://memgraph.com/docs/memgraph/import-data) into Memgraph using Kafka, RedPanda or Pulsar streams, CSV and JSON files, or Cypher commands.
+[Import data](https://memgraph.com/docs/memgraph/import-data) into Memgraph using Kafka, RedPanda or Pulsar streams, CSV, JSON, Parquet, and JSONL files (from local disk, S3, or HTTP), or Cypher commands.
 
 ## :bulb: Best Practices
 
 The [memgraph/best-practices](https://github.com/memgraph/best-practices)
 repository contains ready-to-use examples covering graph modeling, data import,
 query optimization, GraphRAG, high-availability deployment, and more.
+
+## :world_map: Roadmap
+
+See what's coming next on the [memgraph/roadmap](https://github.com/memgraph/roadmap).
 
 ## :bookmark_tabs: Documentation
 
