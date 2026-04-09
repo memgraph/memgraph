@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -118,6 +118,12 @@ inline mgp_value *value_make_zoned_date_time(mgp_zoned_date_time *val) {
 
 inline mgp_value *value_make_duration(mgp_duration *val) { return MgInvoke<mgp_value *>(mgp_value_make_duration, val); }
 
+inline mgp_value *value_make_point_2d(mgp_point_2d *val) { return MgInvoke<mgp_value *>(mgp_value_make_point_2d, val); }
+
+inline mgp_value *value_make_point_3d(mgp_point_3d *val) { return MgInvoke<mgp_value *>(mgp_value_make_point_3d, val); }
+
+inline mgp_value *value_make_enum(mgp_enum *val) { return MgInvoke<mgp_value *>(mgp_value_make_enum, val); }
+
 // Copy value
 
 // TODO: implement within MGP API
@@ -178,6 +184,16 @@ inline mgp_duration *value_get_duration(mgp_value *val) {
   return MgInvoke<mgp_duration *>(mgp_value_get_duration, val);
 }
 
+inline mgp_point_2d *value_get_point_2d(mgp_value *val) {
+  return MgInvoke<mgp_point_2d *>(mgp_value_get_point_2d, val);
+}
+
+inline mgp_point_3d *value_get_point_3d(mgp_value *val) {
+  return MgInvoke<mgp_point_3d *>(mgp_value_get_point_3d, val);
+}
+
+inline mgp_enum *value_get_enum(mgp_value *val) { return MgInvoke<mgp_enum *>(mgp_value_get_enum, val); }
+
 // Check type of value
 
 inline bool value_is_null(mgp_value *val) { return MgInvoke<int>(mgp_value_is_null, val); }
@@ -212,6 +228,12 @@ inline bool value_is_duration(mgp_value *val) { return MgInvoke<int>(mgp_value_i
 
 inline bool value_is_zoned_date_time(mgp_value *val) { return MgInvoke<int>(mgp_value_is_zoned_date_time, val); }
 
+inline bool value_is_point_2d(mgp_value *val) { return MgInvoke<int>(mgp_value_is_point_2d, val); }
+
+inline bool value_is_point_3d(mgp_value *val) { return MgInvoke<int>(mgp_value_is_point_3d, val); }
+
+inline bool value_is_enum(mgp_value *val) { return MgInvoke<int>(mgp_value_is_enum, val); }
+
 // Get type
 
 inline mgp_type *type_any() { return MgInvoke<mgp_type *>(mgp_type_any); }
@@ -243,6 +265,14 @@ inline mgp_type *type_local_time() { return MgInvoke<mgp_type *>(mgp_type_local_
 inline mgp_type *type_local_date_time() { return MgInvoke<mgp_type *>(mgp_type_local_date_time); }
 
 inline mgp_type *type_duration() { return MgInvoke<mgp_type *>(mgp_type_duration); }
+
+inline mgp_type *type_zoned_date_time() { return MgInvoke<mgp_type *>(mgp_type_zoned_date_time); }
+
+inline mgp_type *type_point_2d() { return MgInvoke<mgp_type *>(mgp_type_point_2d); }
+
+inline mgp_type *type_point_3d() { return MgInvoke<mgp_type *>(mgp_type_point_3d); }
+
+inline mgp_type *type_enum() { return MgInvoke<mgp_type *>(mgp_type_enum); }
 
 inline mgp_type *type_nullable(mgp_type *type) { return MgInvoke<mgp_type *>(mgp_type_nullable, type); }
 
@@ -336,20 +366,20 @@ inline mgp_map *graph_search_text_index(mgp_graph *graph, const char *index_name
 
 inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
                                                 const char *aggregation_query, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_aggregate_over_text_index, graph, index_name, search_query, aggregation_query,
-                             memory);
+  return MgInvoke<mgp_map *>(
+      mgp_graph_aggregate_over_text_index, graph, index_name, search_query, aggregation_query, memory);
 }
 
 inline mgp_map *graph_search_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,
                                              text_search_mode search_mode, std::size_t limit, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_search_text_edge_index, graph, index_name, search_query, search_mode, limit,
-                             memory);
+  return MgInvoke<mgp_map *>(
+      mgp_graph_search_text_edge_index, graph, index_name, search_query, search_mode, limit, memory);
 }
 
 inline mgp_map *graph_aggregate_over_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,
                                                      const char *aggregation_query, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_aggregate_over_text_edge_index, graph, index_name, search_query,
-                             aggregation_query, memory);
+  return MgInvoke<mgp_map *>(
+      mgp_graph_aggregate_over_text_edge_index, graph, index_name, search_query, aggregation_query, memory);
 }
 
 inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memory) {
@@ -373,8 +403,8 @@ inline mgp_map *graph_search_vector_index(mgp_graph *graph, const char *index_na
 
 inline mgp_map *graph_search_vector_index_on_edges(mgp_graph *graph, const char *index_name, mgp_list *search_vector,
                                                    size_t result_size, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_search_vector_index_on_edges, graph, index_name, search_vector, result_size,
-                             memory);
+  return MgInvoke<mgp_map *>(
+      mgp_graph_search_vector_index_on_edges, graph, index_name, search_vector, result_size, memory);
 }
 
 inline mgp_map *graph_show_index_info(mgp_graph *graph, mgp_memory *memory) {
@@ -446,6 +476,7 @@ inline mgp_value *list_at(mgp_list *list, size_t index) { return MgInvoke<mgp_va
 // mgp_map
 
 inline mgp_map *map_make_empty(mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_make_empty, memory); }
+
 inline mgp_map *unordered_map_make_empty(mgp_memory *memory) {
   return MgInvoke<mgp_map *>(mgp_unordered_map_make_empty, memory);
 }
@@ -917,6 +948,70 @@ inline mgp_duration *zoned_date_time_diff(mgp_zoned_date_time *first, mgp_zoned_
 inline mgp_zoned_date_time *zoned_date_time_now(mgp_memory *memory) {
   return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_now, memory);
 }
+
+// mgp_point_2d
+
+inline mgp_point_2d *point_2d_copy(mgp_point_2d *point, mgp_memory *memory) {
+  return MgInvoke<mgp_point_2d *>(mgp_point_2d_copy, point, memory);
+}
+
+inline void point_2d_destroy(mgp_point_2d *point) { mgp_point_2d_destroy(point); }
+
+inline mgp_point_2d *point_2d_make(double x, double y, uint16_t srid, mgp_memory *memory) {
+  return MgInvoke<mgp_point_2d *>(mgp_point_2d_make, x, y, srid, memory);
+}
+
+inline double point_2d_get_x(mgp_point_2d *point) { return MgInvoke<double>(mgp_point_2d_get_x, point); }
+
+inline double point_2d_get_y(mgp_point_2d *point) { return MgInvoke<double>(mgp_point_2d_get_y, point); }
+
+inline uint16_t point_2d_get_srid(mgp_point_2d *point) { return MgInvoke<uint16_t>(mgp_point_2d_get_srid, point); }
+
+inline bool point_2d_equal(mgp_point_2d *first, mgp_point_2d *second) {
+  return MgInvoke<int>(mgp_point_2d_equal, first, second);
+}
+
+// mgp_point_3d
+
+inline mgp_point_3d *point_3d_copy(mgp_point_3d *point, mgp_memory *memory) {
+  return MgInvoke<mgp_point_3d *>(mgp_point_3d_copy, point, memory);
+}
+
+inline void point_3d_destroy(mgp_point_3d *point) { mgp_point_3d_destroy(point); }
+
+inline mgp_point_3d *point_3d_make(double x, double y, double z, uint16_t srid, mgp_memory *memory) {
+  return MgInvoke<mgp_point_3d *>(mgp_point_3d_make, x, y, z, srid, memory);
+}
+
+inline double point_3d_get_x(mgp_point_3d *point) { return MgInvoke<double>(mgp_point_3d_get_x, point); }
+
+inline double point_3d_get_y(mgp_point_3d *point) { return MgInvoke<double>(mgp_point_3d_get_y, point); }
+
+inline double point_3d_get_z(mgp_point_3d *point) { return MgInvoke<double>(mgp_point_3d_get_z, point); }
+
+inline uint16_t point_3d_get_srid(mgp_point_3d *point) { return MgInvoke<uint16_t>(mgp_point_3d_get_srid, point); }
+
+inline bool point_3d_equal(mgp_point_3d *first, mgp_point_3d *second) {
+  return MgInvoke<int>(mgp_point_3d_equal, first, second);
+}
+
+// mgp_enum
+
+inline mgp_enum *enum_copy(mgp_enum *val, mgp_memory *memory) {
+  return MgInvoke<mgp_enum *>(mgp_enum_copy, val, memory);
+}
+
+inline void enum_destroy(mgp_enum *val) { mgp_enum_destroy(val); }
+
+inline mgp_enum *enum_make(const char *type_name, const char *value_name, mgp_memory *memory) {
+  return MgInvoke<mgp_enum *>(mgp_enum_make, type_name, value_name, memory);
+}
+
+inline const char *enum_get_type_name(mgp_enum *val) { return MgInvoke<const char *>(mgp_enum_get_type_name, val); }
+
+inline const char *enum_get_value_name(mgp_enum *val) { return MgInvoke<const char *>(mgp_enum_get_value_name, val); }
+
+inline bool enum_equal(mgp_enum *first, mgp_enum *second) { return MgInvoke<int>(mgp_enum_equal, first, second); }
 
 // Procedure
 

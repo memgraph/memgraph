@@ -288,41 +288,58 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
   }
 }
 
-/// @brief Converts a PropertyValue list to a vector of floats.
-/// @param value The PropertyValue to convert. Must be a list of numeric values (floats or integers).
-/// @return A vector of float values.
-/// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
-inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
-  if (value.IsNull()) return {};
-  if (!value.IsAnyList())
-    throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+/// @brief Non-throwing conversion of a PropertyValue list to a vector of floats.
+/// @return The float vector, or nullopt if the value is not a numeric list.
+inline std::optional<utils::small_vector<float>> TryListToVector(const PropertyValue &value) {
+  if (value.IsNull()) return utils::small_vector<float>{};
+  if (!value.IsAnyList()) return std::nullopt;
 
   const auto list_size = value.ListSize();
   utils::small_vector<float> vector;
   vector.reserve(list_size);
   for (std::size_t i = 0; i < list_size; i++) {
     auto numeric_value = GetNumericValueAt(value, i);
-    if (!numeric_value) {
-      throw query::VectorSearchException(
-          "Vector index property must be a list of floats or integers; found non-numeric value at index.");
-    }
-    auto float_value = std::visit([](auto val) { return static_cast<float>(val); }, *numeric_value);
-    vector.push_back(float_value);
+    if (!numeric_value) return std::nullopt;
+    vector.push_back(std::visit([](auto val) { return static_cast<float>(val); }, *numeric_value));
   }
   return vector;
 }
 
-/// @brief Removes an index ID from a property's vector index ID list.
-/// @param property_value The property value to modify (must be a VectorIndexId).
-/// @param index_id The index ID to remove.
-/// @return true if the property should be restored (no more index IDs), false otherwise.
-inline bool ShouldUnregisterFromIndex(PropertyValue &property_value, uint64_t index_id) {
+/// @brief Converts a PropertyValue list to a vector of floats.
+/// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
+inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
+  auto result = TryListToVector(value);
+  if (!result) {
+    throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+  }
+  return *std::move(result);
+}
+
+/// @brief Registers an index ID in the property, converting a raw list to VectorIndexId if needed.
+/// @return The float vector to insert into uSearch.
+inline utils::small_vector<float> RegisterIndexId(PropertyValue &property, uint64_t index_id) {
+  if (property.IsVectorIndexId()) {
+    property.ValueVectorIndexIds().push_back(index_id);
+    return property.ValueVectorIndexList();
+  }
+  auto vector = ListToVector(property);
+  property =
+      PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id}, .vector = vector});
+  return vector;
+}
+
+/// @brief Removes an index ID from a property's VectorIndexId list.
+/// Mutates property_value by erasing index_id from its ID list.
+/// @pre Caller must verify the entity exists in the uSearch index before calling —
+///      the early-exit for non-VectorIndexId properties assumes the caller will restore from uSearch.
+/// @return true if no index IDs remain (caller should restore the raw vector), false otherwise.
+inline bool UnregisterIndexId(PropertyValue &property_value, uint64_t index_id) {
   if (!property_value.IsVectorIndexId()) {
-    return true;  // Not a vector index ID, should restore
+    return true;
   }
   auto &ids = property_value.ValueVectorIndexIds();
   ids.erase(ranges::remove(ids, index_id), ids.end());
-  return ids.empty();  // Return true if should restore (no more IDs)
+  return ids.empty();
 }
 
 /// @brief Checks if dropping a vector index would exceed the total memory limit.

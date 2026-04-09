@@ -81,8 +81,27 @@ jobs:
             echo "mode=strict_sync_mixed" >> $GITHUB_OUTPUT
           fi
 
+  determine-shutdown-signal:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    name: "Determine Shutdown Signal"
+    runs-on: ubuntu-latest
+    outputs:
+      signal: ${{ steps.set_signal.outputs.signal }}
+    steps:
+      - name: Determine shutdown signal based on day
+        id: set_signal
+        run: |
+          DAY=$(date +%d)
+          MOD=$((10#$DAY % 2))
+
+          if [ $MOD -eq 0 ]; then
+            echo "signal=KILL" >> $GITHUB_OUTPUT
+          else
+            echo "signal=TERM" >> $GITHUB_OUTPUT
+          fi
+
   run-jepsen-tests:
-    needs: determine-sync
+    needs: [determine-sync, determine-shutdown-signal]
     strategy:
       fail-fast: false
       matrix:
@@ -96,7 +115,7 @@ jobs:
       num-tenants: ${{ matrix.mt && '3' || '1' }}
       concurrency: ""
       storage-backup-dir-enabled: true
-      shutdown-signal: :KILL
+      shutdown-signal: ${{ needs.determine-shutdown-signal.outputs.signal }}
     secrets: inherit
 
   run-manual-jepsen-tests:

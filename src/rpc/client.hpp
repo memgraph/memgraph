@@ -425,7 +425,7 @@ class Client {
       if (!client_->Connect(endpoint_)) {
         spdlog::error("Couldn't connect to remote address {}", endpoint_.SocketAddress());
         client_ = std::nullopt;
-        throw GenericRpcFailedException();
+        throw RpcFailedToConnectException();
       }
     }
 
@@ -474,6 +474,13 @@ class Client {
   }
 
   /// Call this function from another thread to abort a pending RPC call.
+  /// Unlike Shutdown(), this does not destroy the client object, making it
+  /// safe to call while another thread is using the client.
+  void Abort();
+
+  /// Shut down and destroy the underlying connection. Not safe to call
+  /// concurrently with in-flight RPCs — call Abort() first, then join
+  /// the worker thread, then call Shutdown().
   void Shutdown();
 
   auto Endpoint() const -> io::network::Endpoint const & { return endpoint_; }
