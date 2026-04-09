@@ -185,7 +185,6 @@ bool VectorIndex::DropIndex(std::string_view index_name, NameIdMapper *name_id_m
     const auto dimension = mg_index.index.dimensions();
     CheckGraphMemoryForIndexDrop(index_name, mg_index.index.size(), dimension);
 
-    // Export keys from the index to iterate only indexed vertices.
     auto const index_size = mg_index.index.size();
     std::vector<Vertex *> indexed_vertices(index_size);
     mg_index.index.export_keys(indexed_vertices.data(), 0, index_size);
@@ -224,7 +223,6 @@ bool VectorIndex::DropIndex(std::string_view index_name, NameIdMapper *name_id_m
       throw;
     }
   }
-  // Lock released — safe to erase the entry (which destroys the mutex).
   pimpl->index_by_id_.erase(it);
   return true;
 }

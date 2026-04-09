@@ -218,12 +218,12 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, NameIdMapper *name_
     const auto dimension = mg_index.index.dimensions();
     CheckGraphMemoryForIndexDrop(index_name, mg_index.index.size(), dimension);
 
-    // Export keys from the index to iterate only indexed edges.
     auto const index_size = mg_index.index.size();
     dropped_edges.resize(index_size);
     mg_index.index.export_keys(dropped_edges.data(), 0, index_size);
 
     // Convert indexed vectors back to property values with OOM protection.
+    // Track processed vertices so we can rollback on OOM.
     std::size_t processed = 0;
     try {
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
