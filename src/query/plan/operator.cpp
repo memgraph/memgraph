@@ -7983,6 +7983,8 @@ class CallProcedureCursor : public Cursor {
       }
 
       if (self_->void_procedure_) {
+        result_.rows.clear();
+        result_row_it_ = result_.rows.end();
         return true;
       }
 
