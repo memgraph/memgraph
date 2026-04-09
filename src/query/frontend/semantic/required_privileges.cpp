@@ -212,6 +212,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     AddPrivilege(AuthQuery::Privilege::PROFILE_RESTRICTION);
   }
 
+  void Visit(TenantProfileQuery & /*tenant_profile_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
+  }
+
   bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;

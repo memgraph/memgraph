@@ -49,6 +49,7 @@
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "frontend/ast/query/tenant_profile.hpp"
 #include "frontend/ast/query/user_profile.hpp"
 #include "frontend/semantic/rw_checker.hpp"
 #include "io/network/endpoint.hpp"
@@ -153,6 +154,7 @@ extern const Event RollbackedTransactions;
 extern const Event ActiveTransactions;
 
 extern const Event ShowSchema;
+extern const Event ShowStorageInfoOnDatabase;
 }  // namespace memgraph::metrics
 
 namespace {
@@ -6774,15 +6776,16 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
   switch (info_query->info_type_) {
     case SystemInfoQuery::InfoType::STORAGE: {
       if (info_query->database_) {
-        // SHOW STORAGE INFO ON DATABASE db_xyz — per-database fields only.
-        header = {"storage info", "value"};
+#ifdef MG_ENTERPRISE
         handler = [db_name = *info_query->database_, db_handler = interpreter_context->dbms_handler]
             -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
           if (!db_handler) {
             throw QueryRuntimeException("Database handler is not available");
           }
+          memgraph::metrics::IncrementCounter(memgraph::metrics::ShowStorageInfoOnDatabase);
           auto db_acc = db_handler->Get(db_name);
           auto *db = db_acc.get();
+          if (!db) throw QueryRuntimeException("Database '{}' was dropped during query execution.", db_name);
           auto *storage = db->storage();
           auto info = storage->GetBaseInfo();
 
@@ -6790,6 +6793,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
           const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
           const auto db_total_memory = static_cast<double>(db->DbMemoryUsage());
+          const auto db_peak_memory = static_cast<double>(db->DbPeakMemoryUsage());
           const auto tenant_limit = db->TenantMemoryLimit();
 
           std::vector<std::vector<TypedValue>> results{
@@ -6805,6 +6809,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
               {TypedValue("query_memory_tracked"), TypedValue(utils::GetReadableSize(db_query_memory))},
               {TypedValue("vector_index_memory_tracked"), TypedValue(utils::GetReadableSize(db_embedding_memory))},
               {TypedValue("tenant_memory_tracked"), TypedValue(utils::GetReadableSize(db_total_memory))},
+              {TypedValue("tenant_peak_memory_tracked"), TypedValue(utils::GetReadableSize(db_peak_memory))},
               {TypedValue("tenant_memory_limit"),
                TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
                                            : std::string("unlimited"))},
@@ -6812,8 +6817,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
+#else
+        throw QueryRuntimeException("SHOW STORAGE INFO ON DATABASE is only available in the enterprise edition.");
+#endif
       } else {
-        // SHOW STORAGE INFO — session-level view (existing behavior).
         MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
         handler = [storage = current_db.db_acc_->get()->storage(),
                    db = current_db.db_acc_->get(),
@@ -8139,6 +8146,221 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       .rw_type = RWType::R};
 }  // namespace memgraph::query
 
+PreparedQuery PrepareTenantProfileQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
+                                        Interpreter *interpreter) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException("Tenant profiles require a valid enterprise license.");
+  }
+
+  auto *query = utils::Downcast<TenantProfileQuery>(parsed_query.query);
+  auto *db_handler = interpreter_context->dbms_handler;
+  const bool is_replica = interpreter_context->repl_state.ReadLock()->IsReplica();
+
+  EvaluationContext eval_ctx;
+  eval_ctx.timestamp = QueryTimestamp();
+  eval_ctx.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{eval_ctx};
+  for (auto &[key, lv] : query->limits_) {
+    if (lv.type == UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT) {
+      const auto val = lv.mem_limit.expr->Accept(evaluator);
+      if (val.IsInt() && val.ValueInt() > 0) {
+        lv.mem_limit.value = static_cast<uint64_t>(val.ValueInt());
+      } else {
+        throw QueryException("Expected a positive integer for limit '{}'", key);
+      }
+    }
+  }
+
+  auto extract_memory_limit = [](const TenantProfileQuery::limits_t &limits) -> int64_t {
+    for (const auto &[key, lv] : limits) {
+      if (key != "memory_limit") {
+        throw QueryException("Unknown tenant profile limit key: '{}'", key);
+      }
+      if (lv.type == UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT) {
+        const auto result = static_cast<int64_t>(lv.mem_limit.value) * static_cast<int64_t>(lv.mem_limit.scale);
+        if (result <= 0) throw QueryException("Memory limit overflow or non-positive value");
+        return result;
+      }
+      if (lv.type == UserProfileQuery::LimitValueResult::Type::UNLIMITED) {
+        return 0;
+      }
+    }
+    return 0;
+  };
+
+  auto join_strings = [](const std::unordered_set<std::string> &set) {
+    std::string s;
+    for (const auto &d : set) {
+      if (!s.empty()) s += ", ";
+      s += d;
+    }
+    return s;
+  };
+
+  Callback callback;
+
+  switch (query->action_) {
+    case TenantProfileQuery::Action::CREATE: {
+      if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
+      auto memory_limit = extract_memory_limit(query->limits_);
+      callback.fn = [tp = db_handler->tenant_profiles(),
+                     name = std::move(query->profile_name_),
+                     memory_limit,
+                     interpreter]() -> std::vector<std::vector<TypedValue>> {
+        if (!tp->Create(name, memory_limit)) {
+          throw QueryRuntimeException("Tenant profile '{}' already exists.", name);
+        }
+        if (interpreter->system_transaction_) {
+          interpreter->system_transaction_->AddAction<dbms::TenantProfileAction>(
+              dbms::TenantProfileAction::Action::CREATE, name, "", memory_limit);
+        }
+        return {};
+      };
+    } break;
+
+    case TenantProfileQuery::Action::ALTER: {
+      if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
+      auto memory_limit = extract_memory_limit(query->limits_);
+      callback.fn = [tp = db_handler->tenant_profiles(),
+                     name = std::move(query->profile_name_),
+                     memory_limit,
+                     db_handler,
+                     interpreter]() -> std::vector<std::vector<TypedValue>> {
+        auto attached_dbs = tp->Alter(name, memory_limit);
+        if (!attached_dbs) {
+          throw QueryRuntimeException("Tenant profile '{}' not found.", name);
+        }
+        for (const auto &db_name : *attached_dbs) {
+          try {
+            auto db_acc = db_handler->Get(db_name);
+            if (memory_limit > 0) {
+              db_acc.get()->SetTenantMemoryLimit(memory_limit);
+            } else {
+              db_acc.get()->ClearTenantMemoryLimit();
+            }
+          } catch (const dbms::UnknownDatabaseException &) {
+          }
+        }
+        if (interpreter->system_transaction_) {
+          interpreter->system_transaction_->AddAction<dbms::TenantProfileAction>(
+              dbms::TenantProfileAction::Action::ALTER, name, "", memory_limit);
+        }
+        return {};
+      };
+    } break;
+
+    case TenantProfileQuery::Action::DROP: {
+      if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
+      callback.fn = [tp = db_handler->tenant_profiles(),
+                     name = std::move(query->profile_name_),
+                     interpreter]() -> std::vector<std::vector<TypedValue>> {
+        if (!tp->Drop(name)) {
+          throw QueryRuntimeException(
+              "Tenant profile '{}' not found or has databases attached. Detach all databases first.", name);
+        }
+        if (interpreter->system_transaction_) {
+          interpreter->system_transaction_->AddAction<dbms::TenantProfileAction>(
+              dbms::TenantProfileAction::Action::DROP, name, "", 0);
+        }
+        return {};
+      };
+    } break;
+
+    case TenantProfileQuery::Action::SHOW_ALL: {
+      callback.header = {"profile", "memory_limit", "databases"};
+      callback.fn = [tp = db_handler->tenant_profiles(), join_strings]() -> std::vector<std::vector<TypedValue>> {
+        std::vector<std::vector<TypedValue>> res;
+        for (const auto &p : tp->GetAll()) {
+          auto limit_str = p.memory_limit > 0 ? utils::GetReadableSize(static_cast<double>(p.memory_limit))
+                                              : std::string("unlimited");
+          res.push_back({TypedValue(p.name), TypedValue(limit_str), TypedValue(join_strings(p.databases))});
+        }
+        return res;
+      };
+    } break;
+
+    case TenantProfileQuery::Action::SHOW_ONE: {
+      callback.header = {"profile", "memory_limit", "databases"};
+      callback.fn = [tp = db_handler->tenant_profiles(),
+                     name = std::move(query->profile_name_),
+                     join_strings]() -> std::vector<std::vector<TypedValue>> {
+        auto p = tp->Get(name);
+        if (!p) throw QueryRuntimeException("Tenant profile '{}' not found.", name);
+        auto limit_str = p->memory_limit > 0 ? utils::GetReadableSize(static_cast<double>(p->memory_limit))
+                                             : std::string("unlimited");
+        return {{TypedValue(p->name), TypedValue(limit_str), TypedValue(join_strings(p->databases))}};
+      };
+    } break;
+
+    case TenantProfileQuery::Action::SET_ON_DATABASE: {
+      if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
+      callback.fn = [tp = db_handler->tenant_profiles(),
+                     db_handler,
+                     profile_name = std::move(query->profile_name_),
+                     db_name = std::move(query->db_name_),
+                     interpreter]() -> std::vector<std::vector<TypedValue>> {
+        auto db_acc = db_handler->Get(db_name);
+        auto memory_limit = tp->AttachToDatabase(profile_name, db_name);
+        if (!memory_limit) {
+          throw QueryRuntimeException("Tenant profile '{}' not found.", profile_name);
+        }
+        if (*memory_limit > 0) {
+          db_acc.get()->SetTenantMemoryLimit(*memory_limit);
+        } else {
+          db_acc.get()->ClearTenantMemoryLimit();
+        }
+        if (interpreter->system_transaction_) {
+          interpreter->system_transaction_->AddAction<dbms::TenantProfileAction>(
+              dbms::TenantProfileAction::Action::SET_ON_DATABASE, profile_name, db_name, *memory_limit);
+        }
+        return {};
+      };
+    } break;
+
+    case TenantProfileQuery::Action::REMOVE_FROM_DATABASE: {
+      if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
+      callback.fn = [tp = db_handler->tenant_profiles(),
+                     db_handler,
+                     db_name = std::move(query->db_name_),
+                     interpreter]() -> std::vector<std::vector<TypedValue>> {
+        if (!tp->DetachFromDatabase(db_name)) {
+          throw QueryRuntimeException("No tenant profile attached to database '{}'.", db_name);
+        }
+        try {
+          auto db_acc = db_handler->Get(db_name);
+          db_acc.get()->ClearTenantMemoryLimit();
+        } catch (const dbms::UnknownDatabaseException &) {
+        }
+        if (interpreter->system_transaction_) {
+          interpreter->system_transaction_->AddAction<dbms::TenantProfileAction>(
+              dbms::TenantProfileAction::Action::REMOVE_FROM_DATABASE, "", db_name, 0);
+        }
+        return {};
+      };
+    } break;
+  }
+
+  return PreparedQuery{
+      .header = std::move(callback.header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [cb = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          pull_plan = std::make_shared<PullPlanVector>(cb());
+        }
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE,
+  };
+#else
+  throw QueryRuntimeException("Tenant profiles are only available in the enterprise edition.");
+#endif
+}
+
 PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                       Interpreter *interpreter) {
 #ifdef MG_ENTERPRISE
@@ -8542,6 +8764,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(UserProfileQuery & /*unused*/) override {}
 
+  void Visit(TenantProfileQuery & /*unused*/) override {}
+
   void Visit(MultiDatabaseQuery & /*unused*/) override {}
 
   void Visit(ReplicationQuery & /*unused*/) override {}
@@ -8817,7 +9041,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     bool system_queries =
         utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
         utils::Downcast<ReplicationQuery>(parsed_query.query) ||
-        utils::Downcast<UserProfileQuery>(parsed_query.query) || utils::Downcast<ParameterQuery>(parsed_query.query);
+        utils::Downcast<UserProfileQuery>(parsed_query.query) ||
+        utils::Downcast<TenantProfileQuery>(parsed_query.query) || utils::Downcast<ParameterQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
     auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
@@ -9135,6 +9360,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
     } else if (utils::Downcast<UserProfileQuery>(parsed_query.query)) {
       prepared_query = PrepareUserProfileQuery(std::move(parsed_query), interpreter_context_, this);
+    } else if (utils::Downcast<TenantProfileQuery>(parsed_query.query)) {
+      prepared_query = PrepareTenantProfileQuery(std::move(parsed_query), interpreter_context_, this);
     } else if (utils::Downcast<DescriptionQuery>(parsed_query.query)) {
       prepared_query = PrepareDescriptionQuery(std::move(parsed_query), current_db_);
     } else {

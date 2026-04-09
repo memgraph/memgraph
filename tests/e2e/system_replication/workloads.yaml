@@ -8,3 +8,6 @@ workloads:
   - name: "Replicate parameters"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["system_replication/replicate_parameters.py"]
+  - name: "Replicate tenant profiles"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["system_replication/replicate_tenant_profiles.py"]

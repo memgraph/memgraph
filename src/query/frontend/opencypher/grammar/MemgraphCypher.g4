@@ -196,6 +196,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STORAGE_MODE
                       | STREAM
                       | STREAMS
+                      | TENANT
                       | STRICT_SYNC
                       | STRING
                       | SYNC
@@ -291,6 +292,7 @@ query : cypherQuery
       | ttlQuery
       | setSessionTraceQuery
       | userProfileQuery
+      | tenantProfileQuery
       | descriptionQuery
       | reloadSSLQuery
       ;
@@ -886,6 +888,26 @@ userProfileQuery : createUserProfile
                  | clearUserProfile
                  | showResourceConsumption
                  ;
+
+createTenantProfile : CREATE TENANT PROFILE profile=symbolicName LIMIT tenantLimitList ;
+alterTenantProfile  : ALTER TENANT PROFILE profile=symbolicName SET tenantLimitList ;
+dropTenantProfile   : DROP TENANT PROFILE profile=symbolicName ;
+showTenantProfiles  : SHOW TENANT PROFILES ;
+showTenantProfile   : SHOW TENANT PROFILE profile=symbolicName ;
+setTenantProfileOnDatabase    : SET TENANT PROFILE ON DATABASE db=symbolicName TO profile=symbolicName ;
+removeTenantProfileFromDatabase : REMOVE TENANT PROFILE FROM DATABASE db=symbolicName ;
+
+tenantLimitList : tenantLimitKV ( ',' tenantLimitKV )* ;
+tenantLimitKV   : key=symbolicName val=limitValue ;
+
+tenantProfileQuery : createTenantProfile
+                   | alterTenantProfile
+                   | dropTenantProfile
+                   | showTenantProfiles
+                   | showTenantProfile
+                   | setTenantProfileOnDatabase
+                   | removeTenantProfileFromDatabase
+                   ;
 
 descriptionQuery
     : setDescription

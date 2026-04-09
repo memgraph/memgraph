@@ -15,6 +15,7 @@
 #include "query/frontend/ast/query/auth_query.hpp"
 #include "query/frontend/ast/query/exists.hpp"
 #include "query/frontend/ast/query/pattern_comprehension.hpp"
+#include "query/frontend/ast/query/tenant_profile.hpp"
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -454,6 +455,9 @@ constexpr utils::TypeInfo query::SessionTraceQuery::kType{
 
 constexpr utils::TypeInfo query::UserProfileQuery::kType{
     .id = utils::TypeId::AST_USER_PROFILE_QUERY, .name = "UserProfileQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::TenantProfileQuery::kType{
+    .id = utils::TypeId::AST_TENANT_PROFILE_QUERY, .name = "TenantProfileQuery", .superclass = &query::Query::kType};
 
 namespace query {
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue>);

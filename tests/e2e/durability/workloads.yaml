@@ -29,3 +29,6 @@ workloads:
   - name: "Parameters durability"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/parameters_durability.py"]
+  - name: "Tenant profile durability"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/tenant_profile_durability.py"]

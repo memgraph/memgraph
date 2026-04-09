@@ -28,6 +28,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/ast/query/expression.hpp"
+#include "query/frontend/ast/query/tenant_profile.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
@@ -198,6 +199,78 @@ antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfo
   }
   // Should never get here
   throw utils::NotYetImplemented("System info query: '{}'", ctx->getText());
+}
+
+antlrcpp::Any CypherMainVisitor::visitTenantProfileQuery(MemgraphCypher::TenantProfileQueryContext *ctx) {
+  return visitChildren(ctx);
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateTenantProfile(MemgraphCypher::CreateTenantProfileContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::CREATE;
+  q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  for (auto *kv : ctx->tenantLimitList()->tenantLimitKV()) {
+    auto key = utils::ToLowerCase(std::any_cast<std::string>(kv->key->accept(this)));
+    auto value = VisitLimitValue(kv->val, this);
+    q->limits_.emplace_back(key, value);
+  }
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitAlterTenantProfile(MemgraphCypher::AlterTenantProfileContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::ALTER;
+  q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  for (auto *kv : ctx->tenantLimitList()->tenantLimitKV()) {
+    auto key = utils::ToLowerCase(std::any_cast<std::string>(kv->key->accept(this)));
+    auto value = VisitLimitValue(kv->val, this);
+    q->limits_.emplace_back(key, value);
+  }
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropTenantProfile(MemgraphCypher::DropTenantProfileContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::DROP;
+  q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowTenantProfiles(MemgraphCypher::ShowTenantProfilesContext * /*ctx*/) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::SHOW_ALL;
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowTenantProfile(MemgraphCypher::ShowTenantProfileContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::SHOW_ONE;
+  q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetTenantProfileOnDatabase(
+    MemgraphCypher::SetTenantProfileOnDatabaseContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::SET_ON_DATABASE;
+  q->db_name_ = std::any_cast<std::string>(ctx->db->accept(this));
+  q->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  query_ = q;
+  return q;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRemoveTenantProfileFromDatabase(
+    MemgraphCypher::RemoveTenantProfileFromDatabaseContext *ctx) {
+  auto *q = storage_->Create<TenantProfileQuery>();
+  q->action_ = TenantProfileQuery::Action::REMOVE_FROM_DATABASE;
+  q->db_name_ = std::any_cast<std::string>(ctx->db->accept(this));
+  query_ = q;
+  return q;
 }
 
 antlrcpp::Any CypherMainVisitor::visitConstraintQuery(MemgraphCypher::ConstraintQueryContext *ctx) {

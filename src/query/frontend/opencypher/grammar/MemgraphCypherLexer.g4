@@ -195,6 +195,7 @@ STOP                    : S T O P ;
 STORAGE                 : S T O R A G E;
 STORAGE_MODE            : S T O R A G E UNDERSCORE M O D E ;
 STREAM                  : S T R E A M ;
+TENANT                  : T E N A N T ;
 STREAMS                 : S T R E A M S ;
 STRICT_SYNC             : S T R I C T UNDERSCORE S Y N C ;
 STRING                  : S T R I N G ;

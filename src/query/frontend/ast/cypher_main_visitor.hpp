@@ -147,6 +147,15 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return SystemInfoQuery*
    */
   antlrcpp::Any visitSystemInfoQuery(MemgraphCypher::SystemInfoQueryContext *ctx) override;
+  antlrcpp::Any visitTenantProfileQuery(MemgraphCypher::TenantProfileQueryContext *ctx) override;
+  antlrcpp::Any visitCreateTenantProfile(MemgraphCypher::CreateTenantProfileContext *ctx) override;
+  antlrcpp::Any visitAlterTenantProfile(MemgraphCypher::AlterTenantProfileContext *ctx) override;
+  antlrcpp::Any visitDropTenantProfile(MemgraphCypher::DropTenantProfileContext *ctx) override;
+  antlrcpp::Any visitShowTenantProfiles(MemgraphCypher::ShowTenantProfilesContext *ctx) override;
+  antlrcpp::Any visitShowTenantProfile(MemgraphCypher::ShowTenantProfileContext *ctx) override;
+  antlrcpp::Any visitSetTenantProfileOnDatabase(MemgraphCypher::SetTenantProfileOnDatabaseContext *ctx) override;
+  antlrcpp::Any visitRemoveTenantProfileFromDatabase(
+      MemgraphCypher::RemoveTenantProfileFromDatabaseContext *ctx) override;
 
   /**
    * @return Constraint
