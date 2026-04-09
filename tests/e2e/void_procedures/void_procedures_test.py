@@ -31,7 +31,8 @@ def test_signature_returns_but_impl_does_not(connection):
 
 def test_signature_void_but_impl_returns(connection):
     cursor = connection.cursor()
-    execute_and_fetch_all(cursor, "CALL void_procs.signature_void_but_impl_returns();")
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, "CALL void_procs.signature_void_but_impl_returns();")
 
 
 def test_signature_void_but_impl_returns_yield_fails(connection):
