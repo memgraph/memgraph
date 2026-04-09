@@ -136,17 +136,35 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     // Used to make UpdateOnSetProperty faster
     AscReverseLookup asc_reverse_lookup_;
     DescReverseLookup desc_reverse_lookup_;
+
+    template <typename Fn>
+    void ForEachIndicesMap(Fn &&fn) const {
+      fn(asc_indices_);
+      fn(desc_indices_);
+    }
+
+    template <typename Fn>
+    void ForEachIndicesMap(Fn &&fn) {
+      fn(asc_indices_);
+      fn(desc_indices_);
+    }
+
+    template <typename Fn>
+    void ForEachReverseLookup(Fn &&fn) const {
+      fn(asc_reverse_lookup_);
+      fn(desc_reverse_lookup_);
+    }
   };
 
   template <typename EntryT>
-  struct AllIndicesEntry_ {
+  struct BasicAllIndicesEntry {
     std::shared_ptr<IndividualIndex<EntryT>> index_;
     LabelId label_;
     PropertiesPaths properties_;
   };
 
-  using AscAllIndicesEntry = AllIndicesEntry_<Entry>;
-  using DescAllIndicesEntry = AllIndicesEntry_<DescEntry>;
+  using AscAllIndicesEntry = BasicAllIndicesEntry<Entry>;
+  using DescAllIndicesEntry = BasicAllIndicesEntry<DescEntry>;
 
   using PropertiesIndicesStats = std::map<PropertiesPaths, storage::LabelPropertyIndexStats, Compare>;
 
@@ -403,10 +421,17 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
  private:
   void CleanupAllIndices();
+  void CleanupStatsForDrop(IndexContainer const &new_index, LabelId label, std::vector<PropertyPath> const &properties);
 
   template <typename EntryT>
   auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
       -> std::shared_ptr<IndividualIndex<EntryT>>;
+
+  template <typename Fn>
+  void ForEachAllIndices(Fn &&fn) {
+    fn(asc_all_indices_);
+    fn(desc_all_indices_);
+  }
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

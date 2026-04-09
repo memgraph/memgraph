@@ -463,7 +463,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
     auto config = std::any_cast<ConfigMap>(config_ctx->accept(this));
 
     auto resolve_string = [this](Expression *expr) -> std::optional<std::string> {
-      if (auto *lit = dynamic_cast<PrimitiveLiteral *>(expr)) {
+      if (auto *lit = dynamic_cast<PrimitiveLiteral *>(expr); lit && lit->value_.IsString()) {
         return std::string(lit->value_.ValueString());
       }
       if (auto *param = dynamic_cast<ParameterLookup *>(expr); param && parameters_) {

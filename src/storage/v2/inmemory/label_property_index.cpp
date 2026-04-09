@@ -609,8 +609,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
     }
   };
 
-  insert_into(index_container_->asc_indices_);
-  insert_into(index_container_->desc_indices_);
+  index_container_->ForEachIndicesMap(insert_into);
 }
 
 void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value,
@@ -637,8 +636,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
     }
   };
 
-  update_from_reverse_lookup(index_container_->asc_reverse_lookup_);
-  update_from_reverse_lookup(index_container_->desc_reverse_lookup_);
+  index_container_->ForEachReverseLookup(update_from_reverse_lookup);
 }
 
 namespace {
@@ -674,12 +672,78 @@ bool DropFromIndicesMap(IndicesMap &indices_map_for_label, ReverseLookup &revers
 }
 }  // namespace
 
+namespace {
+// Drops the index for (label, properties) from indices_map + reverse_lookup.
+// Also erases the label key from indices_map if it becomes empty.
+// Returns true if the index was found and dropped.
+template <typename IndicesMap, typename ReverseLookup>
+bool DropFromOrder(IndicesMap &indices_map, ReverseLookup &reverse_lookup, LabelId label,
+                   std::vector<PropertyPath> const &properties) {
+  auto it1 = indices_map.find(label);
+  if (it1 == indices_map.end()) return false;
+  auto &properties_map = it1->second;
+  bool ok = DropFromIndicesMap(properties_map, reverse_lookup, properties, label);
+  if (ok && properties_map.empty()) {
+    indices_map.erase(it1);
+  }
+  return ok;
+}
+}  // namespace
+
+void InMemoryLabelPropertyIndex::CleanupStatsForDrop(IndexContainer const &new_index, LabelId label,
+                                                     std::vector<PropertyPath> const &properties) {
+  auto const make_props_subspan = [&](std::size_t length) {
+    return std::span{properties.cbegin(), properties.cbegin() + length + 1};
+  };
+  auto const count_prefix_usage = [&](auto &label_indices, std::size_t prefix_len) -> std::size_t {
+    auto const prefix = make_props_subspan(prefix_len);
+    return ranges::count_if(label_indices, [&](auto &&each) {
+      auto &&[index_properties, _] = each;
+      return ranges::starts_with(index_properties, prefix);
+    });
+  };
+
+  auto stats_ptr = stats_.Lock();
+  auto it1 = stats_ptr->find(label);
+  if (it1 == stats_ptr->end()) return;
+
+  auto &stats_properties_map = it1->second;
+  for (std::size_t prefix_len = 0; prefix_len < properties.size(); ++prefix_len) {
+    std::size_t total_usage = 0;
+    if (auto ait = new_index.asc_indices_.find(label); ait != new_index.asc_indices_.end()) {
+      total_usage += count_prefix_usage(ait->second, prefix_len);
+    }
+    if (auto dit = new_index.desc_indices_.find(label); dit != new_index.desc_indices_.end()) {
+      total_usage += count_prefix_usage(dit->second, prefix_len);
+    }
+    if (total_usage != 0) continue;
+
+    auto it2 = stats_properties_map.find(make_props_subspan(prefix_len));
+    if (it2 == stats_properties_map.end()) continue;
+    stats_properties_map.erase(it2);
+    if (stats_properties_map.empty()) {
+      stats_ptr->erase(it1);
+      break;
+    }
+  }
+}
+
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
                                            ActiveIndicesUpdater const &updater) {
-  // Drop without order specification: drops both ASC and DESC
-  bool dropped_asc = DropIndex(label, properties, updater, IndexOrder::ASC);
-  bool dropped_desc = DropIndex(label, properties, updater, IndexOrder::DESC);
-  return dropped_asc || dropped_desc;
+  // Single lock+copy: drop from both ASC and DESC in one atomic update
+  auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
+    auto new_index = std::make_shared<IndexContainer>(*index);
+    bool dropped_asc = DropFromOrder(new_index->asc_indices_, new_index->asc_reverse_lookup_, label, properties);
+    bool dropped_desc = DropFromOrder(new_index->desc_indices_, new_index->desc_reverse_lookup_, label, properties);
+    if (!dropped_asc && !dropped_desc) return false;
+
+    CleanupStatsForDrop(*new_index, label, properties);
+    index = std::move(new_index);
+    updater(std::make_shared<ActiveIndices>(index));
+    return true;
+  });
+  CleanupAllIndices();
+  return result;
 }
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
@@ -687,62 +751,12 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
     auto new_index = std::make_shared<IndexContainer>(*index);
 
-    auto const drop_from = [&](auto &indices_map, auto &reverse_lookup) {
-      auto it1 = indices_map.find(label);
-      if (it1 == indices_map.end()) return false;
-      auto &properties_map = it1->second;
-      bool ok = DropFromIndicesMap(properties_map, reverse_lookup, properties, label);
-      if (ok && properties_map.empty()) {
-        indices_map.erase(it1);
-      }
-      return ok;
-    };
-
-    bool dropped = (order == IndexOrder::ASC) ? drop_from(new_index->asc_indices_, new_index->asc_reverse_lookup_)
-                                              : drop_from(new_index->desc_indices_, new_index->desc_reverse_lookup_);
-
+    bool dropped = (order == IndexOrder::ASC)
+                       ? DropFromOrder(new_index->asc_indices_, new_index->asc_reverse_lookup_, label, properties)
+                       : DropFromOrder(new_index->desc_indices_, new_index->desc_reverse_lookup_, label, properties);
     if (!dropped) return false;
 
-    // Cleanup stats - count how many ASC + DESC indices use each property prefix
-    auto const make_props_subspan = [&](std::size_t length) {
-      return std::span{properties.cbegin(), properties.cbegin() + length + 1};
-    };
-
-    auto const count_prefix_usage = [&](auto &label_indices, std::size_t prefix_len) -> std::size_t {
-      auto const prefix = make_props_subspan(prefix_len);
-      return ranges::count_if(label_indices, [&](auto &&each) {
-        auto &&[index_properties, _] = each;
-        return ranges::starts_with(index_properties, prefix);
-      });
-    };
-
-    std::invoke([&] {
-      auto stats_ptr = stats_.Lock();
-      auto it1 = stats_ptr->find(label);
-      if (it1 == stats_ptr->end()) return;
-
-      auto &stats_properties_map = it1->second;
-
-      for (std::size_t prefix_len = 0; prefix_len < properties.size(); ++prefix_len) {
-        std::size_t total_usage = 0;
-        if (auto ait = new_index->asc_indices_.find(label); ait != new_index->asc_indices_.end()) {
-          total_usage += count_prefix_usage(ait->second, prefix_len);
-        }
-        if (auto dit = new_index->desc_indices_.find(label); dit != new_index->desc_indices_.end()) {
-          total_usage += count_prefix_usage(dit->second, prefix_len);
-        }
-        if (total_usage != 0) continue;
-
-        auto it2 = stats_properties_map.find(make_props_subspan(prefix_len));
-        if (it2 == stats_properties_map.end()) continue;
-        stats_properties_map.erase(it2);
-        if (stats_properties_map.empty()) {
-          stats_ptr->erase(it1);
-          break;
-        }
-      }
-    });
-
+    CleanupStatsForDrop(*new_index, label, properties);
     index = std::move(new_index);
     updater(std::make_shared<ActiveIndices>(index));
     return true;
@@ -867,8 +881,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_times
     }
   };
 
-  collect_from(index_container_->asc_indices_);
-  collect_from(index_container_->desc_indices_);
+  index_container_->ForEachIndicesMap(collect_from);
   return ret;
 }
 
@@ -931,8 +944,7 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
     }
   };
 
-  remove_from(asc_all_indices_);
-  remove_from(desc_all_indices_);
+  ForEachAllIndices(remove_from);
 }
 
 template <typename EntryT>
@@ -1135,8 +1147,7 @@ void InMemoryLabelPropertyIndex::RunGC() {
       index->skiplist.run_gc();
     }
   };
-  run_gc(asc_all_indices_);
-  run_gc(desc_all_indices_);
+  ForEachAllIndices(run_gc);
 }
 
 template <typename EntryT>
@@ -1213,8 +1224,7 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
       all_indices = std::make_unique<Vec>();
     });
   };
-  clear(asc_all_indices_);
-  clear(desc_all_indices_);
+  ForEachAllIndices(clear);
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
@@ -1239,8 +1249,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> Lab
     }
   };
 
-  collect_from(index_container_->asc_indices_);
-  collect_from(index_container_->desc_indices_);
+  index_container_->ForEachIndicesMap(collect_from);
   return res;
 }
 
@@ -1249,6 +1258,8 @@ auto InMemoryLabelPropertyIndex::GetActiveIndices() const -> std::shared_ptr<Lab
 }
 
 void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {
+  // AbortableInfo is keyed by label+properties and spans both index orders.
+  // An entry to abort may only exist in ASC, DESC, or both — soft lookup is intentional.
   auto const abort_from = [&](auto &indices_map) {
     using EntryT = typename std::decay_t<decltype(indices_map)>::mapped_type::mapped_type::element_type::EntryType;
     for (auto const &[label, by_properties] : info) {
@@ -1264,8 +1275,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const
       }
     }
   };
-  abort_from(index_container_->asc_indices_);
-  abort_from(index_container_->desc_indices_);
+  index_container_->ForEachIndicesMap(abort_from);
 }
 
 void InMemoryLabelPropertyIndex::CleanupAllIndices() {
@@ -1278,8 +1288,7 @@ void InMemoryLabelPropertyIndex::CleanupAllIndices() {
       }
     });
   };
-  cleanup(asc_all_indices_);
-  cleanup(desc_all_indices_);
+  ForEachAllIndices(cleanup);
 }
 
 template <typename EntryT>

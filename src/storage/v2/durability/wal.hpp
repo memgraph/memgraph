@@ -134,9 +134,11 @@ struct LabelPropertyOpInfo {
 
 struct LabelOrderedPropertiesOpInfo {
   friend bool operator==(const LabelOrderedPropertiesOpInfo &, const LabelOrderedPropertiesOpInfo &) = default;
-  using ctr_types = std::tuple<std::string, CompositePropertyPaths>;
+  using ctr_types =
+      std::tuple<std::string, CompositePropertyPaths, VersionDependant<kDescriptionAndDescIndexSupport, IndexOrder>>;
   std::string label;
   CompositePropertyPaths composite_property_paths;
+  std::optional<IndexOrder> order;  // std::nullopt for pre-v34 WALs, defaults to ASC
 };
 
 struct LabelUnorderedPropertiesOpInfo {
@@ -252,23 +254,9 @@ struct WalLabelIndexStatsSet {
   std::string json_stats;
 };
 
-struct WalLabelPropertyIndexCreate {
-  friend bool operator==(const WalLabelPropertyIndexCreate &, const WalLabelPropertyIndexCreate &) = default;
-  using ctr_types =
-      std::tuple<std::string, CompositePropertyPaths, VersionDependant<kDescriptionAndDescIndexSupport, IndexOrder>>;
-  std::string label;
-  CompositePropertyPaths composite_property_paths;
-  std::optional<IndexOrder> order;  // std::nullopt for pre-v34 WALs, defaults to ASC
-};
+struct WalLabelPropertyIndexCreate : LabelOrderedPropertiesOpInfo {};
 
-struct WalLabelPropertyIndexDrop {
-  friend bool operator==(const WalLabelPropertyIndexDrop &, const WalLabelPropertyIndexDrop &) = default;
-  using ctr_types =
-      std::tuple<std::string, CompositePropertyPaths, VersionDependant<kDescriptionAndDescIndexSupport, IndexOrder>>;
-  std::string label;
-  CompositePropertyPaths composite_property_paths;
-  std::optional<IndexOrder> order;  // std::nullopt for pre-v34 WALs, defaults to ASC
-};
+struct WalLabelPropertyIndexDrop : LabelOrderedPropertiesOpInfo {};
 
 struct WalPointIndexCreate : LabelPropertyOpInfo {};
 
