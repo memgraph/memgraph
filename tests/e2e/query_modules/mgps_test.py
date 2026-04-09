@@ -25,15 +25,46 @@ def test_mgps1():
     assert (result) == ["community", "Memgraph", ["5.9.0"]]
 
 
-def test_mgps_validate_false_predicate():
+# Python void procedure: mgps.validate
+
+
+def test_mgps_validate_py_false():
     cursor = connect().cursor()
     execute_and_fetch_all(cursor, "CALL mgps.validate(false, 'should not throw', []);")
 
 
-def test_mgps_validate_true_predicate():
+def test_mgps_validate_py_true():
     cursor = connect().cursor()
     with pytest.raises(Exception, match="validation failed"):
         execute_and_fetch_all(cursor, "CALL mgps.validate(true, 'validation failed: %s', ['test']);")
+
+
+# C++ void procedure: mgps_cpp.validate
+
+
+def test_mgps_validate_cpp_false():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CALL mgps_cpp.validate(false, 'should not throw', []);")
+
+
+def test_mgps_validate_cpp_true():
+    cursor = connect().cursor()
+    with pytest.raises(Exception, match="cpp error"):
+        execute_and_fetch_all(cursor, "CALL mgps_cpp.validate(true, 'cpp error: %s', ['test']);")
+
+
+# Neo4j alias: apoc.util.validate -> mgps_cpp.validate
+
+
+def test_mgps_validate_apoc_alias_false():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CALL apoc.util.validate(false, 'should not throw', []);")
+
+
+def test_mgps_validate_apoc_alias_true():
+    cursor = connect().cursor()
+    with pytest.raises(Exception, match="apoc error"):
+        execute_and_fetch_all(cursor, "CALL apoc.util.validate(true, 'apoc error: %s', ['test']);")
 
 
 if __name__ == "__main__":
