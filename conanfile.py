@@ -12,14 +12,12 @@ required_conan_version = ">=2.26.0"
 
 class Memgraph(ConanFile):
     name = "memgraph"
-    version = "0.0.1"  # TODO
+    version = "0.0.1"
     package_type = "application"
-
-    # license = TODO
-    # author = TODO
+    license = "https://memgraph.com/legal"
     url = "https://github.com/memgraph/memgraph"
     homepage = "https://memgraph.com"
-    description = "Conan file for Memgraph"
+    description = "In-memory graph database"
     settings = "os", "compiler", "build_type", "arch"
 
     exports_sources = (
