@@ -175,11 +175,13 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
 }
 
 antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfoQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 2, "SystemInfoQuery should have exactly two children!");
   auto *info_query = storage_->Create<SystemInfoQuery>();
   query_ = info_query;
   if (ctx->storageInfo()) {
     info_query->info_type_ = SystemInfoQuery::InfoType::STORAGE;
+    if (ctx->storageInfo()->db) {
+      info_query->database_ = std::any_cast<std::string>(ctx->storageInfo()->db->accept(this));
+    }
     return info_query;
   }
   if (ctx->buildInfo()) {

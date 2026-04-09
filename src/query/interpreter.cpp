@@ -6773,51 +6773,93 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
 
   switch (info_query->info_type_) {
     case SystemInfoQuery::InfoType::STORAGE: {
-      MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
+      if (info_query->database_) {
+        // SHOW STORAGE INFO ON DATABASE db_xyz — per-database fields only.
+        header = {"storage info", "value"};
+        handler = [db_name = *info_query->database_, db_handler = interpreter_context->dbms_handler]
+            -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
+          if (!db_handler) {
+            throw QueryRuntimeException("Database handler is not available");
+          }
+          auto db_acc = db_handler->Get(db_name);
+          auto *db = db_acc.get();
+          auto *storage = db->storage();
+          auto info = storage->GetBaseInfo();
+
+          const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
+          const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
+          const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
+          const auto db_total_memory = static_cast<double>(db->DbMemoryUsage());
+          const auto tenant_limit = db->TenantMemoryLimit();
+
+          std::vector<std::vector<TypedValue>> results{
+              {TypedValue("name"), TypedValue(storage->name())},
+              {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
+              {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))},
+              {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
+              {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
+              {TypedValue("average_degree"), TypedValue(info.average_degree)},
+              {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
+              {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
+              {TypedValue("graph_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory))},
+              {TypedValue("query_memory_tracked"), TypedValue(utils::GetReadableSize(db_query_memory))},
+              {TypedValue("vector_index_memory_tracked"), TypedValue(utils::GetReadableSize(db_embedding_memory))},
+              {TypedValue("tenant_memory_tracked"), TypedValue(utils::GetReadableSize(db_total_memory))},
+              {TypedValue("tenant_memory_limit"),
+               TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
+                                           : std::string("unlimited"))},
+              {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+          };
+          return std::pair{results, QueryHandlerResult::NOTHING};
+        };
+      } else {
+        // SHOW STORAGE INFO — session-level view (existing behavior).
+        MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
+        handler = [storage = current_db.db_acc_->get()->storage(),
+                   db = current_db.db_acc_->get(),
+                   interpreter_isolation_level,
+                   next_transaction_isolation_level] {
+          auto info = storage->GetBaseInfo();
+          const int64_t vm_max_map_count_storage_info =
+              utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
+          const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
+          const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
+          const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
+          std::vector<std::vector<TypedValue>> results{
+              {TypedValue("name"), TypedValue(storage->name())},
+              {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
+              {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
+              {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
+              {TypedValue("average_degree"), TypedValue(info.average_degree)},
+              {TypedValue("vm_max_map_count"), TypedValue(vm_max_map_count_storage_info)},
+              {TypedValue("memory_res"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_res)))},
+              {TypedValue("peak_memory_res"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(info.peak_memory_res)))},
+              {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
+              {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
+              {TypedValue("global_memory_tracked"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
+              {TypedValue("global_runtime_allocation_limit"),
+               TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.MaximumHardLimit())))},
+              {TypedValue("global_license_allocation_limit"), TypedValue(std::invoke([] {
+                 auto info = license::global_license_checker.GetLicenseInfo().Lock();
+                 const int64_t limit = info->has_value() ? (*info)->license.memory_limit : 0;
+                 return limit > 0 ? utils::GetReadableSize(static_cast<double>(limit)) : std::string("unlimited");
+               }))},
+              {TypedValue("db_memory_tracked"),
+               TypedValue(utils::GetReadableSize(db_storage_memory + db_embedding_memory + db_query_memory))},
+              {TypedValue("db_storage_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory))},
+              {TypedValue("db_embedding_memory_tracked"), TypedValue(utils::GetReadableSize(db_embedding_memory))},
+              {TypedValue("db_query_memory_tracked"), TypedValue(utils::GetReadableSize(db_query_memory))},
+              {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+              {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
+              {TypedValue("next_session_isolation_level"),
+               TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
+              {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))}};
+          return std::pair{results, QueryHandlerResult::NOTHING};
+        };
+      }
       header = {"storage info", "value"};
-      handler = [storage = current_db.db_acc_->get()->storage(),
-                 db = current_db.db_acc_->get(),
-                 interpreter_isolation_level,
-                 next_transaction_isolation_level] {
-        auto info = storage->GetBaseInfo();
-        const int64_t vm_max_map_count_storage_info =
-            utils::GetVmMaxMapCount().value_or(memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT);
-        const auto db_storage_memory = static_cast<double>(db->DbStorageMemoryUsage());
-        const auto db_embedding_memory = static_cast<double>(db->DbEmbeddingMemoryUsage());
-        const auto db_query_memory = static_cast<double>(db->DbQueryMemoryUsage());
-        std::vector<std::vector<TypedValue>> results{
-            {TypedValue("name"), TypedValue(storage->name())},
-            {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
-            {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
-            {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
-            {TypedValue("average_degree"), TypedValue(info.average_degree)},
-            {TypedValue("vm_max_map_count"), TypedValue(vm_max_map_count_storage_info)},
-            {TypedValue("memory_res"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_res)))},
-            {TypedValue("peak_memory_res"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(info.peak_memory_res)))},
-            {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
-            {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
-            {TypedValue("global_memory_tracked"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
-            {TypedValue("global_runtime_allocation_limit"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.MaximumHardLimit())))},
-            {TypedValue("global_license_allocation_limit"), TypedValue(std::invoke([] {
-               auto info = license::global_license_checker.GetLicenseInfo().Lock();
-               const int64_t limit = info->has_value() ? (*info)->license.memory_limit : 0;
-               return limit > 0 ? utils::GetReadableSize(static_cast<double>(limit)) : std::string("unlimited");
-             }))},
-            {TypedValue("db_memory_tracked"),
-             TypedValue(utils::GetReadableSize(db_storage_memory + db_embedding_memory + db_query_memory))},
-            {TypedValue("db_storage_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory))},
-            {TypedValue("db_embedding_memory_tracked"), TypedValue(utils::GetReadableSize(db_embedding_memory))},
-            {TypedValue("db_query_memory_tracked"), TypedValue(utils::GetReadableSize(db_query_memory))},
-            {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
-            {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
-            {TypedValue("next_session_isolation_level"),
-             TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
-            {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))}};
-        return std::pair{results, QueryHandlerResult::NOTHING};
-      };
     } break;
     case SystemInfoQuery::InfoType::BUILD: {
       header = {"build info", "value"};
