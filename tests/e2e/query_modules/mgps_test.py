@@ -67,5 +67,36 @@ def test_mgps_validate_apoc_alias_true():
         execute_and_fetch_all(cursor, "CALL apoc.util.validate(true, 'apoc error: %s', ['test']);")
 
 
+# YIELD on void procedure should fail
+
+
+def test_mgps_validate_py_yield_asterisk_fails():
+    cursor = connect().cursor()
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, "CALL mgps.validate(false, 'msg', []) YIELD * RETURN *;")
+
+
+def test_mgps_validate_py_yield_field_fails():
+    cursor = connect().cursor()
+    with pytest.raises(Exception):
+        execute_and_fetch_all(
+            cursor, "WITH false AS predicate CALL mgps.validate(predicate, 'message %d', [42]) YIELD n RETURN n;"
+        )
+
+
+def test_mgps_validate_cpp_yield_asterisk_fails():
+    cursor = connect().cursor()
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, "CALL mgps_cpp.validate(false, 'msg', []) YIELD * RETURN *;")
+
+
+def test_mgps_validate_cpp_yield_field_fails():
+    cursor = connect().cursor()
+    with pytest.raises(Exception):
+        execute_and_fetch_all(
+            cursor, "WITH false AS predicate CALL mgps_cpp.validate(predicate, 'message %d', [42]) YIELD n RETURN n;"
+        )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
