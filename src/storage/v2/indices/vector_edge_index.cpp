@@ -604,4 +604,18 @@ void VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(PropertyId property, const
   }
 }
 
+// ---- VectorEdgeIndex::ActiveIndices (snapshot-based) ----
+
+std::vector<VectorEdgeIndexSpec> VectorEdgeIndex::ActiveIndices::ListIndices() const { return specs_; }
+
+std::vector<VectorEdgeIndexInfo> VectorEdgeIndex::ActiveIndices::ListVectorIndicesInfo() const { return infos_; }
+
+std::optional<uint64_t> VectorEdgeIndex::ActiveIndices::ApproximateEdgesVectorCount(EdgeTypeId edge_type,
+                                                                                    PropertyId property) const {
+  auto it =
+      r::find_if(infos_, [&](const auto &info) { return info.edge_type_id == edge_type && info.property == property; });
+  if (it != infos_.end()) return it->size;
+  return std::nullopt;
+}
+
 }  // namespace memgraph::storage

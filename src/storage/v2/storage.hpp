@@ -433,33 +433,34 @@ class Storage {
     virtual bool EdgePropertyIndexExists(PropertyId property) const = 0;
 
     bool TextIndexExists(const std::string &index_name) const {
-      return storage_->indices_.text_index_.IndexExists(index_name);
+      return transaction_.active_indices_->text_->IndexExists(index_name);
     }
 
     std::vector<TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
                                                   text_search_mode search_mode, std::size_t limit) const {
-      return storage_->indices_.text_index_.Search(index_name, search_query, search_mode, limit, transaction_);
+      return transaction_.active_indices_->text_->Search(index_name, search_query, search_mode, limit, transaction_);
     }
 
     std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                    const std::string &aggregation_query) const {
-      return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
+      return transaction_.active_indices_->text_->Aggregate(index_name, search_query, aggregation_query);
     }
 
     std::string TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
                                        const std::string &aggregation_query) const {
-      return storage_->indices_.text_edge_index_.Aggregate(index_name, search_query, aggregation_query);
+      return transaction_.active_indices_->text_edge_->Aggregate(index_name, search_query, aggregation_query);
     }
 
     std::vector<TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name,
                                                           const std::string &search_query, text_search_mode search_mode,
                                                           std::size_t limit) const {
-      return storage_->indices_.text_edge_index_.Search(index_name, search_query, search_mode, limit, transaction_);
+      return transaction_.active_indices_->text_edge_->Search(
+          index_name, search_query, search_mode, limit, transaction_);
     }
 
     std::string EdgeTextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                        const std::string &aggregation_query) const {
-      return storage_->indices_.text_edge_index_.Aggregate(index_name, search_query, aggregation_query);
+      return transaction_.active_indices_->text_edge_->Aggregate(index_name, search_query, aggregation_query);
     }
 
     virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
@@ -511,10 +512,6 @@ class Storage {
     auto id_view() const { return storage_->name_view(); }
 
     auto const &uuid() const { return storage_->uuid(); }
-
-    std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
-
-    std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
     virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
                                                                          CheckCancelFunction cancel_check) = 0;
@@ -1076,19 +1073,29 @@ class Storage {
     return repl_storage_state_.GetReplicaState(name);
   }
 
+  std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
+  std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
+
   /// Returns the current snapshot of active indices
   auto GetActiveIndices() const -> ActiveIndicesPtr { return indices_.active_indices_.ReadCopy(); }
 
-  auto GetActiveConstraints() const -> ActiveConstraints {
-    return ActiveConstraints{constraints_.existence_constraints_->GetActiveConstraints(),
-                             constraints_.unique_constraints_->GetActiveConstraints(),
-                             constraints_.type_constraints_->GetActiveConstraints()};
-  }
+  auto GetActiveConstraints() const -> ActiveConstraintsPtr { return constraints_.active_constraints_.ReadCopy(); }
 
   /// Check if async indexer is idle (no pending work)
   /// @return true if async indexer is idle, false if actively processing or has pending work
   /// @note For storage types without async indexing, this always returns true
   virtual bool IsAsyncIndexerIdle() const = 0;
+
+  /// Live approximate counts from the underlying vector indices (not from snapshot).
+  /// Vector index counts change on every data mutation but the ActiveIndices snapshot
+  /// is only refreshed on Create/Drop, so we read directly from the live index.
+  std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const {
+    return indices_.vector_index_.ApproximateNodesVectorCount(label, property);
+  }
+
+  std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const {
+    return indices_.vector_edge_index_.ApproximateEdgesVectorCount(edge_type, property);
+  }
 
   /// Check if async indexer thread has stopped
   /// @return true if async indexer thread has stopped (due to null protector or shutdown), false otherwise

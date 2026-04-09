@@ -6408,11 +6408,6 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     throw InfoInMulticommandTxException();
   }
 
-  MG_ASSERT(current_db.db_acc_, "Database info query expects a current DB");
-  MG_ASSERT(current_db.db_transactional_accessor_, "Database info query expects a current DB transaction");
-  auto *dba = &*current_db.execution_db_accessor_;
-  auto *storage_acc = current_db.db_transactional_accessor_.get();
-
   auto *info_query = utils::Downcast<DatabaseInfoQuery>(parsed_query.query);
   std::vector<std::string> header;
   std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
@@ -6420,54 +6415,71 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   switch (info_query->info_type_) {
     case DatabaseInfoQuery::InfoType::INDEX: {
       header = {"index type", "label", "property", "count"};
-      handler = [database, dba, storage_acc] {
+      handler = [database] {
         auto *storage = database->storage();
-        const std::string_view label_index_mark{"label"};
-        const std::string_view label_property_index_mark{"label+property"};
-        const std::string_view edge_type_index_mark{"edge-type"};
-        const std::string_view edge_type_property_index_mark{"edge-type+property"};
-        const std::string_view edge_property_index_mark{"edge-property"};
-        const std::string_view text_label_index_mark{"label_text"};
-        const std::string_view text_edge_type_index_mark{"edge-type_text"};
-        const std::string_view point_label_property_index_mark{"point"};
-        const std::string_view vector_label_property_index_mark{"label+property_vector"};
-        const std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
-        auto info = dba->ListAllIndices();
+        constexpr std::string_view label_index_mark{"label"};
+        constexpr std::string_view label_property_index_mark{"label+property"};
+        constexpr std::string_view edge_type_index_mark{"edge-type"};
+        constexpr std::string_view edge_type_property_index_mark{"edge-type+property"};
+        constexpr std::string_view edge_property_index_mark{"edge-property"};
+        constexpr std::string_view text_label_index_mark{"label_text"};
+        constexpr std::string_view text_edge_type_index_mark{"edge-type_text"};
+        constexpr std::string_view point_label_property_index_mark{"point"};
+        constexpr std::string_view vector_label_property_index_mark{"label+property_vector"};
+        constexpr std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
+
+        auto ai = storage->GetActiveIndices();
+        auto const ts = std::numeric_limits<uint64_t>::max();
+        storage::IndicesInfo const info{
+            .label = ai->label_->ListIndices(ts),
+            .label_properties = ai->label_properties_->ListIndices(ts),
+            .edge_type = ai->edge_type_->ListIndices(ts),
+            .edge_type_property = ai->edge_type_properties_->ListIndices(ts),
+            .edge_property = ai->edge_property_->ListIndices(ts),
+            .text_indices = ai->text_->ListIndices(),
+            .text_edge_indices = ai->text_edge_->ListIndices(),
+            .point_label_property = ai->point_->ListIndices(),
+            .vector_indices_spec = ai->vector_->ListIndices(),
+            .vector_edge_indices_spec = ai->vector_edge_->ListIndices(),
+        };
+
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_properties.size() + info.text_indices.size());
         for (const auto &item : info.label) {
           results.push_back({TypedValue(label_index_mark),
                              TypedValue(storage->LabelToName(item)),
                              TypedValue(),
-                             TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
+                             TypedValue(static_cast<int>(ai->label_->ApproximateVertexCount(item)))});
         }
         for (const auto &[label, properties] : info.label_properties) {
           auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
             return TypedValue{PropertyPathToName(storage, property_path)};
           };
           auto props = properties | rv::transform(prop_path_to_name) | ranges::to_vector;
-          results.push_back({TypedValue(label_property_index_mark),
-                             TypedValue(storage->LabelToName(label)),
-                             TypedValue(std::move(props)),
-                             TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(label, properties)))});
+          results.push_back(
+              {TypedValue(label_property_index_mark),
+               TypedValue(storage->LabelToName(label)),
+               TypedValue(std::move(props)),
+               TypedValue(static_cast<int>(ai->label_properties_->ApproximateVertexCount(label, properties)))});
         }
         for (const auto &item : info.edge_type) {
           results.push_back({TypedValue(edge_type_index_mark),
                              TypedValue(storage->EdgeTypeToName(item)),
                              TypedValue(),
-                             TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
+                             TypedValue(static_cast<int>(ai->edge_type_->ApproximateEdgeCount(item)))});
         }
         for (const auto &item : info.edge_type_property) {
-          results.push_back({TypedValue(edge_type_property_index_mark),
-                             TypedValue(storage->EdgeTypeToName(item.first)),
-                             TypedValue(storage->PropertyToName(item.second)),
-                             TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item.first, item.second)))});
+          results.push_back(
+              {TypedValue(edge_type_property_index_mark),
+               TypedValue(storage->EdgeTypeToName(item.first)),
+               TypedValue(storage->PropertyToName(item.second)),
+               TypedValue(static_cast<int>(ai->edge_type_properties_->ApproximateEdgeCount(item.first, item.second)))});
         }
         for (const auto &item : info.edge_property) {
           results.push_back({TypedValue(edge_property_index_mark),
                              TypedValue(),
                              TypedValue(storage->PropertyToName(item)),
-                             TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
+                             TypedValue(static_cast<int>(ai->edge_property_->ApproximateEdgeCount(item)))});
         }
         for (const auto &[index_name, label, properties] : info.text_indices) {
           auto prop_names =
@@ -6478,7 +6490,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
               {TypedValue(fmt::format("{} (name: {})", text_label_index_mark, index_name)),
                TypedValue(storage->LabelToName(label)),
                TypedValue(std::move(prop_names)),
-               TypedValue(static_cast<int>(storage_acc->ApproximateVerticesTextCount(index_name).value_or(0)))});
+               TypedValue(static_cast<int>(ai->text_->ApproximateVerticesTextCount(index_name).value_or(0)))});
         }
         for (const auto &[index_name, label, properties] : info.text_edge_indices) {
           auto prop_names =
@@ -6489,32 +6501,30 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
               {TypedValue(fmt::format("{} (name: {})", text_edge_type_index_mark, index_name)),
                TypedValue(storage->EdgeTypeToName(label)),
                TypedValue(std::move(prop_names)),
-               TypedValue(static_cast<int>(storage_acc->ApproximateEdgesTextCount(index_name).value_or(0)))});
+               TypedValue(static_cast<int>(ai->text_edge_->ApproximateEdgesTextCount(index_name).value_or(0)))});
         }
         for (const auto &[label_id, prop_id] : info.point_label_property) {
-          results.push_back({TypedValue(point_label_property_index_mark),
-                             TypedValue(storage->LabelToName(label_id)),
-                             TypedValue(storage->PropertyToName(prop_id)),
-                             TypedValue(static_cast<int>(
-                                 storage_acc->ApproximateVerticesPointCount(label_id, prop_id).value_or(0)))});
+          results.push_back(
+              {TypedValue(point_label_property_index_mark),
+               TypedValue(storage->LabelToName(label_id)),
+               TypedValue(storage->PropertyToName(prop_id)),
+               TypedValue(static_cast<int>(ai->point_->ApproximatePointCount(label_id, prop_id).value_or(0)))});
         }
 
         for (const auto &spec : info.vector_indices_spec) {
-          results.push_back(
-              {TypedValue(vector_label_property_index_mark),
-               TypedValue(storage->LabelToName(spec.label_id)),
-               TypedValue(storage->PropertyToName(spec.property)),
-               TypedValue(static_cast<int>(
-                   storage_acc->ApproximateVerticesVectorCount(spec.label_id, spec.property).value_or(0)))});
+          results.push_back({TypedValue(vector_label_property_index_mark),
+                             TypedValue(storage->LabelToName(spec.label_id)),
+                             TypedValue(storage->PropertyToName(spec.property)),
+                             TypedValue(static_cast<int>(
+                                 storage->ApproximateVerticesVectorCount(spec.label_id, spec.property).value_or(0)))});
         }
 
         for (const auto &spec : info.vector_edge_indices_spec) {
-          results.push_back(
-              {TypedValue(vector_edge_property_index_mark),
-               TypedValue(storage->EdgeTypeToName(spec.edge_type_id)),
-               TypedValue(storage->PropertyToName(spec.property)),
-               TypedValue(static_cast<int>(
-                   storage_acc->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)))});
+          results.push_back({TypedValue(vector_edge_property_index_mark),
+                             TypedValue(storage->EdgeTypeToName(spec.edge_type_id)),
+                             TypedValue(storage->PropertyToName(spec.property)),
+                             TypedValue(static_cast<int>(
+                                 storage->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)))});
         }
 
         std::ranges::sort(results, [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -6553,8 +6563,15 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::CONSTRAINT: {
       header = {"constraint type", "label", "properties", "data_type"};
-      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
-        auto info = dba->ListAllConstraints();
+      handler = [storage = current_db.db_acc_->get()->storage()] {
+        auto ac = storage->GetActiveConstraints();
+        auto const ts = std::numeric_limits<uint64_t>::max();
+        storage::ConstraintsInfo const info{
+            .existence = ac->existence_->ListConstraints(ts),
+            .unique = ac->unique_->ListConstraints(ts),
+            .type = ac->type_->ListConstraints(ts),
+        };
+
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.existence.size() + info.unique.size() + info.type.size());
         for (const auto &item : info.existence) {
@@ -6586,13 +6603,13 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::EDGE_TYPES: {
       header = {"edge types"};
-      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
+      handler = [storage = current_db.db_acc_->get()->storage()] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
               "The metadata collection for edge-types is disabled. To enable it, restart your instance and set the "
               "storage-enable-schema-metadata flag to True.");
         }
-        auto edge_types = dba->ListAllPossiblyPresentEdgeTypes();
+        auto edge_types = storage->ListAllPossiblyPresentEdgeTypes();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(edge_types.size());
         for (auto &edge_type : edge_types) {
@@ -6606,13 +6623,13 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::NODE_LABELS: {
       header = {"node labels"};
-      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
+      handler = [storage = current_db.db_acc_->get()->storage()] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
               "The metadata collection for node-labels is disabled. To enable it, restart your instance and set the "
               "storage-enable-schema-metadata flag to True.");
         }
-        auto node_labels = dba->ListAllPossiblyPresentVertexLabels();
+        auto node_labels = storage->ListAllPossiblyPresentVertexLabels();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(node_labels.size());
         for (auto &node_label : node_labels) {
@@ -6675,10 +6692,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     case DatabaseInfoQuery::InfoType::VECTOR_INDEX: {
       header = {
           "index_name", "label", "property", "capacity", "dimension", "metric", "size", "scalar_kind", "index_type"};
-      handler = [database, dba] {
+      handler = [database] {
         auto *storage = database->storage();
-        auto vector_indices = dba->ListAllVectorIndices();
-        auto vector_edge_indices = dba->ListAllVectorEdgeIndices();
+        auto vector_indices = storage->indices_.vector_index_.ListVectorIndicesInfo();
+        auto vector_edge_indices = storage->indices_.vector_edge_index_.ListVectorIndicesInfo();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(vector_indices.size());
 
@@ -8488,6 +8505,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(ParameterQuery & /*unused*/) override {}
 
+  void Visit(DatabaseInfoQuery & /*unused*/) override {}
+
   void Visit(DescriptionQuery &desc_query) override {
     if (desc_query.action_ == DescriptionQuery::Action::SET || desc_query.action_ == DescriptionQuery::Action::DELETE) {
       accessor_type_ = storage::StorageAccessType::UNIQUE;
@@ -8567,8 +8586,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(DumpQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 
   void Visit(AnalyzeGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
-
-  void Visit(DatabaseInfoQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 
   void Visit(ShowEnumsQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 

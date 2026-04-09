@@ -20,11 +20,14 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
-#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "text_search.hpp"
 
 namespace memgraph::storage {
+
+struct Transaction;
+
+struct ActiveIndicesUpdater;
 
 struct TextEdgeIndexData {
   mutable mgcxx::text_search::Context context;
@@ -44,24 +47,66 @@ struct TextEdgeSearchResult {
   double score;
 };
 
+/// Abstract interface for text edge index operations accessed through ActiveIndices snapshots.
+struct TextEdgeIndexActiveIndices {
+  virtual ~TextEdgeIndexActiveIndices() = default;
+
+  virtual void RemoveEdge(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
+                          Transaction &tx) = 0;
+  virtual void UpdateOnSetProperty(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex,
+                                   EdgeTypeId edge_type, Transaction &tx, PropertyId property) = 0;
+
+  virtual std::vector<TextEdgeSearchResult> Search(const std::string &index_name, const std::string &search_query,
+                                                   text_search_mode search_mode, std::size_t limit,
+                                                   const Transaction &tx) = 0;
+  virtual std::string Aggregate(const std::string &index_name, const std::string &search_query,
+                                const std::string &aggregation_query) = 0;
+
+  virtual bool IndexExists(const std::string &index_name) const = 0;
+  virtual std::vector<TextEdgeIndexSpec> ListIndices() const = 0;
+  virtual std::optional<uint64_t> ApproximateEdgesTextCount(std::string_view index_name) const = 0;
+
+  virtual void ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) = 0;
+};
+
+using TextEdgeIndexActiveIndicesPtr = std::shared_ptr<TextEdgeIndexActiveIndices>;
+
 class TextEdgeIndex {
- private:
-  std::filesystem::path text_index_storage_dir_;
-
-  void CreateTantivyIndex(const std::string &index_path, const TextEdgeIndexSpec &index_info);
-
-  std::vector<TextEdgeIndexData *> EdgeTypeApplicableTextIndices(EdgeTypeId edge_type);
-
-  static std::vector<TextEdgeIndexData *> GetIndicesMatchingProperties(
-      std::span<TextEdgeIndexData *const> edge_type_indices, std::span<const PropertyId> properties);
-
-  static void AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
-                                 nlohmann::json properties, std::string all_property_values,
-                                 mgcxx::text_search::Context &context);
-
  public:
+  using IndexContainer = std::map<std::string, std::shared_ptr<TextEdgeIndexData>, std::less<>>;
+
+  /// Concrete ActiveIndices implementation holding an immutable snapshot of the index container.
+  struct ActiveIndices : TextEdgeIndexActiveIndices {
+    explicit ActiveIndices(std::shared_ptr<IndexContainer const> container = std::make_shared<IndexContainer>())
+        : index_container_(std::move(container)) {}
+
+    void RemoveEdge(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
+                    Transaction &tx) override;
+    void UpdateOnSetProperty(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
+                             Transaction &tx, PropertyId property) override;
+
+    std::vector<TextEdgeSearchResult> Search(const std::string &index_name, const std::string &search_query,
+                                             text_search_mode search_mode, std::size_t limit,
+                                             const Transaction &tx) override;
+    std::string Aggregate(const std::string &index_name, const std::string &search_query,
+                          const std::string &aggregation_query) override;
+
+    bool IndexExists(const std::string &index_name) const override;
+    std::vector<TextEdgeIndexSpec> ListIndices() const override;
+    std::optional<uint64_t> ApproximateEdgesTextCount(std::string_view index_name) const override;
+
+    void ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) override;
+
+   private:
+    std::vector<TextEdgeIndexData *> EdgeTypeApplicableTextIndices(EdgeTypeId edge_type) const;
+    static std::vector<TextEdgeIndexData *> GetIndicesMatchingProperties(
+        std::span<TextEdgeIndexData *const> edge_type_indices, std::span<const PropertyId> properties);
+
+    std::shared_ptr<IndexContainer const> index_container_;
+  };
+
   explicit TextEdgeIndex(const std::filesystem::path &storage_dir)
-      : text_index_storage_dir_(storage_dir / kTextIndicesDirectory) {}
+      : text_index_storage_dir_(storage_dir / kTextIndicesDirectory), index_(std::make_shared<IndexContainer>()) {}
 
   TextEdgeIndex(const TextEdgeIndex &) = delete;
   TextEdgeIndex(TextEdgeIndex &&) = delete;
@@ -70,37 +115,39 @@ class TextEdgeIndex {
 
   ~TextEdgeIndex() = default;
 
-  std::map<std::string, TextEdgeIndexData, std::less<>> index_;
+  /// Returns the current active indices snapshot for use in transactions.
+  auto GetActiveIndices() -> std::shared_ptr<TextEdgeIndexActiveIndices> {
+    return std::make_shared<ActiveIndices>(index_);
+  }
 
-  void RemoveEdge(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
-                  Transaction &tx);
-
-  void UpdateOnSetProperty(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
-                           Transaction &tx, PropertyId property);
-
-  void CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
+  void CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper,
+                   ActiveIndicesUpdater const &updater);
 
   void RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
                     NameIdMapper *name_id_mapper,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  void DropIndex(const std::string &index_name);
+  void DropIndex(const std::string &index_name, ActiveIndicesUpdater const &updater);
 
   bool IndexExists(const std::string &index_name) const;
 
-  std::vector<TextEdgeSearchResult> Search(const std::string &index_name, const std::string &search_query,
-                                           text_search_mode search_mode, std::size_t limit, const Transaction &tx);
-
-  std::string Aggregate(const std::string &index_name, const std::string &search_query,
-                        const std::string &aggregation_query);
-
-  static void ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper);
-
+  /// ListIndices on the owning class (for snapshot creation, outside transaction context).
   std::vector<TextEdgeIndexSpec> ListIndices() const;
 
-  std::optional<uint64_t> ApproximateEdgesTextCount(std::string_view index_name) const;
-
+  /// Drops all text edge indices. Does NOT publish to ActiveIndicesStore —
+  /// the caller (DropGraphClearIndices) is responsible for republishing.
   void Clear();
+
+ private:
+  std::filesystem::path text_index_storage_dir_;
+  std::shared_ptr<IndexContainer> index_;
+
+  void CreateTantivyIndex(const std::string &index_path, const TextEdgeIndexSpec &index_info);
+  void PublishActiveIndices(ActiveIndicesUpdater const &updater);
+
+  static void AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
+                                 nlohmann::json properties, std::string all_property_values,
+                                 mgcxx::text_search::Context &context);
 };
 
 }  // namespace memgraph::storage

@@ -714,4 +714,17 @@ void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const Propert
   }
 }
 
+// ---- VectorIndex::ActiveIndices (snapshot-based) ----
+
+std::vector<VectorIndexSpec> VectorIndex::ActiveIndices::ListIndices() const { return specs_; }
+
+std::vector<VectorIndexInfo> VectorIndex::ActiveIndices::ListVectorIndicesInfo() const { return infos_; }
+
+std::optional<uint64_t> VectorIndex::ActiveIndices::ApproximateNodesVectorCount(LabelId label,
+                                                                                PropertyId property) const {
+  auto it = r::find_if(infos_, [&](const auto &info) { return info.label_id == label && info.property == property; });
+  if (it != infos_.end()) return it->size;
+  return std::nullopt;
+}
+
 }  // namespace memgraph::storage

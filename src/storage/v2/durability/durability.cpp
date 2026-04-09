@@ -237,6 +237,12 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
   RecoverUniqueConstraints(
       constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info, snapshot_info);
   RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info, snapshot_info);
+
+  // Publish recovered constraints to active_constraints_
+  auto updater = constraints->MakeUpdater();
+  updater(constraints->existence_constraints_->GetActiveConstraints());
+  updater(constraints->unique_constraints_->GetActiveConstraints());
+  updater(constraints->type_constraints_->GetActiveConstraints());
 }
 
 void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
@@ -376,12 +382,16 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
                        "Text edge indices",
                        [](const auto &info) { return info.edge_type; });
 
+  // Publish recovered text indices to active_indices_
+  updater(indices->text_index_.GetActiveIndices());
+  updater(indices->text_edge_index_.GetActiveIndices());
+
   // Point idx
   {
     spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());
     for (const auto &[label, property] : indices_metadata.point_label_property) {
       // TODO: parallel execution
-      if (!indices->point_index_.CreatePointIndex(label, property, vertices->access(), snapshot_info)) {
+      if (!indices->point_index_.CreatePointIndex(label, property, vertices->access(), updater, snapshot_info)) {
         throw RecoveryFailure("The point index must be created here!");
       }
       spdlog::info("Point index on :{}({}) is recreated from metadata",
@@ -414,6 +424,11 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     }
     spdlog::info("Vector edge indices are recreated.");
   }
+
+  // Publish recovered vector indices to active_indices_
+
+  updater(indices->vector_index_.GetActiveIndices());
+  updater(indices->vector_edge_index_.GetActiveIndices());
 
   spdlog::info("Indices are recreated.");
 }
