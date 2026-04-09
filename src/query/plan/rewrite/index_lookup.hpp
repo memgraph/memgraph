@@ -942,9 +942,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   /// Each ORDER BY expression is either already resolved (PropertyLookup → property path)
   /// or an unresolved alias (bare Identifier) that ResolveDownward fills in during PreVisit descent.
   struct OrderByEntry {
-    storage::PropertyPath resolved;  // filled if PropertyLookup, or after alias resolution
-    std::string_view alias;          // non-empty if bare Identifier (unresolved)
-    std::string_view source_name;    // which scan symbol this entry references
+    storage::PropertyPath resolved;          // filled if PropertyLookup, or after alias resolution
+    std::string_view alias;                  // non-empty if bare Identifier (unresolved)
+    std::string_view source_name;            // which scan symbol this entry references
+    Symbol::Position_t source_position{-1};  // symbol table position — disambiguates same-name symbols
 
     bool is_resolved() const { return alias.empty(); }
   };
@@ -988,9 +989,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         for (const auto &pix : prop_lookup->property_path_) {
           prop_ids.emplace_back(GetProperty(pix));
         }
-        info.entries.emplace_back(storage::PropertyPath{std::move(prop_ids)}, std::string_view{}, ident->name_);
+        info.entries.push_back({storage::PropertyPath{std::move(prop_ids)}, {}, ident->name_, ident->symbol_pos_});
       } else if (auto *ident = dynamic_cast<Identifier *>(expr)) {
-        info.entries.emplace_back(storage::PropertyPath{}, ident->name_, std::string_view{});
+        info.entries.push_back({storage::PropertyPath{}, ident->name_, {}, ident->symbol_pos_});
       } else {
         return info;
       }
@@ -1032,13 +1033,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   /// 2. Resolve unresolved aliases: PropertyLookup (n.prop AS a) resolves in-place and sets
   ///    entry.source_name; Identifier (a AS b) updates the alias to the inner name.
   void ResolveDownward(Produce *produce, OrderByInfo &info) {
-    // Step 1: track source_name through renames for each entry.
+    // Step 1: track source_name and source_position through renames for each entry.
     for (auto &entry : info.entries) {
       if (entry.source_name.empty()) continue;
       for (const auto *ne : produce->named_expressions_) {
         if (ne->name_ != entry.source_name) continue;
         auto *ident = dynamic_cast<Identifier *>(ne->expression_);
-        if (ident) entry.source_name = ident->name_;
+        if (ident) {
+          entry.source_name = ident->name_;
+          entry.source_position = ident->symbol_pos_;
+        }
         break;
       }
     }
@@ -1064,6 +1068,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           return;
         }
         entry.source_name = inner->name_;
+        entry.source_position = inner->symbol_pos_;
         std::vector<storage::PropertyId> prop_ids;
         prop_ids.reserve(prop->property_path_.size());
         for (const auto &pix : prop->property_path_) {
@@ -1073,6 +1078,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         entry.alias = {};
       } else if (auto *ident = dynamic_cast<Identifier *>(matched->expression_)) {
         entry.alias = ident->name_;
+        entry.source_position = ident->symbol_pos_;
       } else {
         info.valid = false;
         return;
@@ -1094,12 +1100,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     while (entry_idx < ctx.entries.size() && scan_idx < ctx.provided_scans.size()) {
       const auto &scan = ctx.provided_scans[scan_idx];
 
-      // Current entry must match the current scan's symbol.
-      if (ctx.entries[entry_idx].source_name != scan->output_symbol_.name()) return;
+      // Current entry must match the current scan's symbol (by position, not name,
+      // to avoid false matches across query parts that reuse the same variable name).
+      if (ctx.entries[entry_idx].source_position != scan->output_symbol_.position()) return;
 
       // Collect contiguous entries for this scan symbol.
       const size_t group_start = entry_idx;
-      while (entry_idx < ctx.entries.size() && ctx.entries[entry_idx].source_name == scan->output_symbol_.name()) {
+      while (entry_idx < ctx.entries.size() &&
+             ctx.entries[entry_idx].source_position == scan->output_symbol_.position()) {
         ++entry_idx;
       }
       const size_t group_size = entry_idx - group_start;

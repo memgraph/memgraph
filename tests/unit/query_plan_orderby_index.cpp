@@ -1216,4 +1216,46 @@ TYPED_TEST(OrderByIndexTest, PropertyAliasRenameChainEliminated) {
       << "OrderBy should be eliminated (alias chain t ← prop ← n.p resolved through Produces)";
 }
 
+// Test: WITH creates a new query part — ORDER BY on inner scan's symbol must not be eliminated.
+// MATCH (n:X) WHERE n.id > 0 WITH n AS m MATCH (n:Y) WHERE n.id > 0 RETURN m, n ORDER BY n.id
+// Plan: OrderBy → Produce → ScanAll(:Y) → Produce(WITH) → ScanAll(:X) → Once
+// The :Y scan is inner (runs per :X row), so ORDER BY n.id (:Y) is not globally sorted.
+TYPED_TEST(OrderByIndexTest, WithNewQueryPartInnerScanNotEliminated) {
+  FakeDbAccessor dba;
+  const auto *label_x = "X";
+  const auto *label_y = "Y";
+  const auto lx = dba.Label(label_x);
+  const auto ly = dba.Label(label_y);
+  const auto id_prop = PROPERTY_PAIR(dba, "id");
+  dba.SetIndexCount(lx, 1);
+  dba.SetIndexCount(lx, id_prop.second, 1);
+  dba.SetIndexCount(ly, 1);
+  dba.SetIndexCount(ly, id_prop.second, 1);
+
+  // MATCH (n:X) WHERE n.id > 0
+  auto *match1 = MATCH(PATTERN(NODE("n", label_x)));
+  match1->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
+  // WITH n AS m
+  auto *with_clause = WITH(IDENT("n"), AS("m"));
+  // MATCH (n:Y) WHERE n.id > 0
+  auto *match2 = MATCH(PATTERN(NODE("n", label_y)));
+  match2->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
+  // RETURN m, n ORDER BY n.id
+  auto *return_clause = RETURN("m", "n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", id_prop.second)));
+
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match1);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(match2);
+  single->clauses_.push_back(return_clause);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should NOT be eliminated — :Y scan is inner (runs per :X row), "
+         "ORDER BY n.id is not globally sorted";
+}
+
 }  // namespace
