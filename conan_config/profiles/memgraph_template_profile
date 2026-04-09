@@ -8,6 +8,10 @@
 {% set enable_asan = "address" in sanitizers %}
 {% set enable_ubsan = "undefined" in sanitizers %}
 {% set enable_tsan = "thread" in sanitizers %}
+{% if enable_ubsan %}
+{% set ubsan_ignore_path = os.path.join(current_dir, 'tools', 'ubsan.ignore') %}
+{% set ubsan_ignore_hash = os.popen("md5sum " + ubsan_ignore_path + " | cut -c1-8").read().strip() %}
+{% endif %}
 
 [settings]
 arch = {{ target_arch }}
@@ -20,6 +24,7 @@ compiler.asan=True
 {% endif %}
 {% if enable_ubsan %}
 compiler.ubsan=True
+compiler.ubsan_ignorelist_hash={{ ubsan_ignore_hash }}
 {% endif %}
 {% if enable_tsan %}
 compiler.tsan=True
