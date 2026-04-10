@@ -41,5 +41,16 @@ def test_signature_void_but_impl_returns_yield_fails(connection):
         execute_and_fetch_all(cursor, "CALL void_procs.signature_void_but_impl_returns() YIELD * RETURN *;")
 
 
+def test_explicit_empty_record(connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "CALL void_procs.explicit_empty_record();")
+
+
+def test_explicit_empty_record_yield_asterisk_fails(connection):
+    cursor = connection.cursor()
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, "CALL void_procs.explicit_empty_record() YIELD * RETURN *;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
