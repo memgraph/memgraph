@@ -110,7 +110,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kUnion{1.0};
     static constexpr double kSubquery{1.0};
     static constexpr double kOrderBy{1.0};
-    static constexpr double kOrderByMinCardinality{2.0};  // sort is non-trivial even at low row counts
+    static constexpr double kOrderByMinCardinality{2.0};
   };
 
   struct CardParam {
@@ -269,11 +269,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(OrderBy & /*op*/) override {
-    // OrderBy performs O(n log n) comparison-based sorting. Use a minimum
-    // cardinality of 2 so that plans which eliminate the sort are always
-    // preferred over those that keep it, even when the DB is empty.
-    const auto n = std::max(CostParam::kOrderByMinCardinality, cardinality_);
-    cost_ += CostParam::kOrderBy * n * std::log2(n);
+    IncrementCost(CostParam::kOrderBy * std::log2(std::max(CostParam::kOrderByMinCardinality, cardinality_)));
     return true;
   }
 
@@ -293,8 +289,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(OrderByParallel & /*op*/) override {
-    const auto n = std::max(CostParam::kOrderByMinCardinality, cardinality_);
-    cost_ += CostParam::kOrderBy * n * std::log2(n) / num_threads_;
+    IncrementCost(CostParam::kOrderBy * std::log2(std::max(CostParam::kOrderByMinCardinality, cardinality_)));
     return true;
   }
 
