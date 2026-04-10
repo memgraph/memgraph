@@ -33,30 +33,30 @@ log = logging.getLogger("memgraph.tests.e2e")
 
 def extract_bolt_port(args):
     for arg_index, arg in enumerate(args):
-        if arg.startswith("--bolt-port="):
+        if arg.startswith("--bolt-port=") or arg.startswith("--bolt_port="):
             maybe_port = arg.split("=")[1]
             if not maybe_port.isdigit():
-                raise Exception("Unable to read Bolt port after --bolt-port=.")
+                raise Exception("Unable to read Bolt port after --bolt-port= / --bolt_port=.")
             return int(maybe_port)
-        elif arg == "--bolt-port":
+        elif arg in ("--bolt-port", "--bolt_port"):
             maybe_port = args[arg_index + 1]
             if not maybe_port.isdigit():
-                raise Exception("Unable to read Bolt port after --bolt-port.")
+                raise Exception("Unable to read Bolt port after --bolt-port / --bolt_port.")
             return int(maybe_port)
     return 7687
 
 
 def extract_management_port(args):
     for arg_index, arg in enumerate(args):
-        if arg.startswith("--management-port="):
+        if arg.startswith("--management-port=") or arg.startswith("--management_port="):
             maybe_port = arg.split("=")[1]
             if not maybe_port.isdigit():
-                raise Exception("Unable to read management port after --management-port=.")
+                raise Exception("Unable to read management port after --management-port= / --management_port=.")
             return int(maybe_port)
-        elif arg == "--management-port":
+        elif arg in ("--management-port", "--management_port"):
             maybe_port = args[arg_index + 1]
             if not maybe_port.isdigit():
-                raise Exception("Unable to read management port after --management-port.")
+                raise Exception("Unable to read management port after --management-port / --management_port.")
             return int(maybe_port)
     return None
 

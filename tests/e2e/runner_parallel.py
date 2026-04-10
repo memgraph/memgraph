@@ -49,6 +49,23 @@ DEFAULT_METRICS_PORT = 9091
 PORT_AFTER_COLON_RE = re.compile(r"(?<=:)(\d{2,5})(?=(?:['\"\s]|$))")
 PORT_KEYWORD_RE = re.compile(r"(?i)(\bPORT\s+)(\d{2,5})")
 
+OFFSETTABLE_FLAGS = {
+    "--bolt-port",
+    "--bolt_port",
+    "--management-port",
+    "--management_port",
+    "--coordinator-port",
+    "--coordinator_port",
+    "--replication-port",
+    "--replication_port",
+    "--rpc-port",
+    "--rpc_port",
+    "--monitoring-port",
+    "--monitoring_port",
+    "--metrics-port",
+    "--metrics_port",
+}
+
 
 def load_args():
     parser = ArgumentParser()
@@ -143,23 +160,13 @@ def _offset_port_flags(args, port_offset):
     if not args:
         return args
 
-    offsettable_flags = {
-        "--bolt-port",
-        "--management-port",
-        "--coordinator-port",
-        "--replication-port",
-        "--rpc-port",
-        "--monitoring-port",
-        "--metrics-port",
-    }
-
     updated = list(args)
     for i, arg in enumerate(updated):
-        if arg in offsettable_flags and i + 1 < len(updated) and str(updated[i + 1]).isdigit():
+        if arg in OFFSETTABLE_FLAGS and i + 1 < len(updated) and str(updated[i + 1]).isdigit():
             updated[i + 1] = str(int(updated[i + 1]) + port_offset)
             continue
 
-        for flag in offsettable_flags:
+        for flag in OFFSETTABLE_FLAGS:
             prefix = f"{flag}="
             if isinstance(arg, str) and arg.startswith(prefix):
                 value = arg[len(prefix) :]
@@ -173,23 +180,13 @@ def _extract_ports_from_args(args):
     if not args:
         return set()
 
-    offsettable_flags = {
-        "--bolt-port",
-        "--management-port",
-        "--coordinator-port",
-        "--replication-port",
-        "--rpc-port",
-        "--monitoring-port",
-        "--metrics-port",
-    }
-
     ports = set()
     for i, arg in enumerate(args):
-        if arg in offsettable_flags and i + 1 < len(args) and str(args[i + 1]).isdigit():
+        if arg in OFFSETTABLE_FLAGS and i + 1 < len(args) and str(args[i + 1]).isdigit():
             ports.add(int(args[i + 1]))
             continue
 
-        for flag in offsettable_flags:
+        for flag in OFFSETTABLE_FLAGS:
             prefix = f"{flag}="
             if isinstance(arg, str) and arg.startswith(prefix):
                 value = arg[len(prefix) :]
@@ -215,24 +212,14 @@ def _replace_port_flags_with_map(args, port_map):
     if not args:
         return args
 
-    offsettable_flags = {
-        "--bolt-port",
-        "--management-port",
-        "--coordinator-port",
-        "--replication-port",
-        "--rpc-port",
-        "--monitoring-port",
-        "--metrics-port",
-    }
-
     updated = list(args)
     for i, arg in enumerate(updated):
-        if arg in offsettable_flags and i + 1 < len(updated) and str(updated[i + 1]).isdigit():
+        if arg in OFFSETTABLE_FLAGS and i + 1 < len(updated) and str(updated[i + 1]).isdigit():
             original = int(updated[i + 1])
             updated[i + 1] = str(port_map.get(original, original))
             continue
 
-        for flag in offsettable_flags:
+        for flag in OFFSETTABLE_FLAGS:
             prefix = f"{flag}="
             if isinstance(arg, str) and arg.startswith(prefix):
                 value = arg[len(prefix) :]
@@ -285,11 +272,11 @@ def _has_port_flag(args, flag):
 
 def _ensure_default_listener_ports(args):
     normalized = list(args or [])
-    if not _has_port_flag(normalized, "--bolt-port"):
+    if not (_has_port_flag(normalized, "--bolt-port") or _has_port_flag(normalized, "--bolt_port")):
         normalized += ["--bolt-port", str(DEFAULT_BOLT_PORT)]
-    if not _has_port_flag(normalized, "--monitoring-port"):
+    if not (_has_port_flag(normalized, "--monitoring-port") or _has_port_flag(normalized, "--monitoring_port")):
         normalized += ["--monitoring-port", str(DEFAULT_MONITORING_PORT)]
-    if not _has_port_flag(normalized, "--metrics-port"):
+    if not (_has_port_flag(normalized, "--metrics-port") or _has_port_flag(normalized, "--metrics_port")):
         normalized += ["--metrics-port", str(DEFAULT_METRICS_PORT)]
     return normalized
 
@@ -298,9 +285,9 @@ def _extract_bolt_port_from_args(args):
     if not args:
         return DEFAULT_BOLT_PORT
     for i, arg in enumerate(args):
-        if arg == "--bolt-port" and i + 1 < len(args) and str(args[i + 1]).isdigit():
+        if arg in ("--bolt-port", "--bolt_port") and i + 1 < len(args) and str(args[i + 1]).isdigit():
             return int(args[i + 1])
-        if isinstance(arg, str) and arg.startswith("--bolt-port="):
+        if isinstance(arg, str) and (arg.startswith("--bolt-port=") or arg.startswith("--bolt_port=")):
             value = arg.split("=", 1)[1]
             if value.isdigit():
                 return int(value)
