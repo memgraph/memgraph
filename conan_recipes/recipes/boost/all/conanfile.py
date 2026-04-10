@@ -158,6 +158,7 @@ class BoostConan(ConanFile):
 
     def export(self):
         copy(self, f"dependencies/{self._dependency_filename}", src=self.recipe_folder, dst=self.export_folder)
+        # Stabilise recipe revision across conan export and local-recipes-index
         trim_conandata(self)
 
     def export_sources(self):
@@ -1577,12 +1578,11 @@ class BoostConan(ConanFile):
                 contents += f" -arch {to_apple_arch(self)}"
 
         contents += " : \n"
-        # Set <triple> to prevent b2's init-flags-cross from generating an
-        # incorrect --target (x86_64-pc-linux instead of the compiler's actual
-        # default triple). Use tools.gnu:host_triplet if set, otherwise "none"
-        # to disable b2's target guessing entirely.
-        # NOTE: cross-compilation requires tools.gnu:host_triplet to be set in
-        # the Conan profile (e.g. aarch64-unknown-linux-gnu for ARM64).
+        # Clang-specific: set <triple> to prevent b2's init-flags-cross from
+        # generating --target=x86_64-pc-linux (wrong triple that breaks ASAN
+        # runtime lookup). "none" disables b2's target guessing, letting clang
+        # use its own default triple.
+        # For cross-compilation, set tools.gnu:host_triplet in the Conan profile.
         # See https://github.com/bfgroup/b2/issues/584
         if "clang" in str(self.settings.compiler):
             triple = self.conf.get("tools.gnu:host_triplet", default="none")

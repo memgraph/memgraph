@@ -19,6 +19,7 @@ class LibrdtscConan(ConanFile):
     default_options = {"shared": False, "fPIC": True}
 
     def export(self):
+        # Stabilise recipe revision across conan export and local-recipes-index
         trim_conandata(self)
 
     def export_sources(self):

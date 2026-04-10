@@ -117,6 +117,7 @@ class Memgraph(ConanFile):
         self.tool_requires("antlr4/4.13.1")
 
         self.test_requires("benchmark/[>=1.9 <2]")
+        # force=True overrides older gtest pinned by transitive dependencies
         self.test_requires("gtest/[>=1.17 <2]", force=True)
         self.test_requires("rapidcheck/cci.20231215")
 

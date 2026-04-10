@@ -7,4 +7,5 @@ src:/opt/toolchain-v7/lib/clang/20/include/emmintrin.h
 src:*/rdvarint.h
 
 # librdkafka: signed integer overflow in timestamp conversion (rdkafka_int.h:1171)
+# TODO: file upstream issue at confluentinc/librdkafka
 src:*/rdkafka_int.h
