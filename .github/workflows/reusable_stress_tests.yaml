@@ -469,6 +469,16 @@ jobs:
           path: build/monitoring/
           if-no-files-found: warn
 
+      - name: Cleanup EKS and monitoring (best effort)
+        if: always()
+        run: |
+          ./tests/stress/ha/eks/deployment/deployment.sh destroy || true
+          cd tools/ci/monitoring
+          MONITORING_USE_HOST_NETWORK=true ./down.sh || true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
+
       - name: Clean up Docker
         if: always()
         run: |

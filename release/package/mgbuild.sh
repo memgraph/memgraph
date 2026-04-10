@@ -1226,7 +1226,13 @@ test_memgraph() {
         echo "Destroying EKS cluster..."
         "$EKS_DEPLOYMENT_SCRIPT" destroy || true
       }
-      trap cleanup_eks EXIT INT TERM
+      cleanup_eks_and_monitoring() {
+        if [[ "$enable_monitoring" == "true" ]]; then
+          stop_monitoring || true
+        fi
+        cleanup_eks
+      }
+      trap cleanup_eks_and_monitoring EXIT INT TERM
 
       "$EKS_DEPLOYMENT_SCRIPT" start-cluster
 

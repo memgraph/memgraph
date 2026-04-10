@@ -31,6 +31,8 @@ HELM_VALUES_FILE="${SCRIPT_DIR}/values.yaml"
 # Monitoring configuration
 ENABLE_MONITORING="${ENABLE_MONITORING:-true}"
 PROMETHEUS_NAMESPACE="monitoring"
+MONITORING_METRICS_PORT="${MONITORING_METRICS_PORT:-9091}"
+MONITORING_WS_PORT="${MONITORING_WS_PORT:-7444}"
 
 # Timeouts
 CLUSTER_CREATE_TIMEOUT="${CLUSTER_CREATE_TIMEOUT:-30m}"
@@ -415,6 +417,50 @@ wait_for_external_ips() {
     echo ""
 }
 
+ensure_monitoring_external_services() {
+    if [[ "${ENABLE_MONITORING}" != "true" ]]; then
+        return 0
+    fi
+
+    log_info "Creating external monitoring services (ports ${MONITORING_METRICS_PORT}/${MONITORING_WS_PORT})..."
+
+    local pods=(
+        "memgraph-coordinator-1-0"
+        "memgraph-coordinator-2-0"
+        "memgraph-coordinator-3-0"
+        "memgraph-data-0-0"
+        "memgraph-data-1-0"
+    )
+
+    local pod base_name svc_name
+    for pod in "${pods[@]}"; do
+        base_name="${pod%-0}"
+        svc_name="${base_name}-monitoring-external"
+
+        cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${svc_name}
+  labels:
+    app.kubernetes.io/name: memgraph-monitoring
+spec:
+  type: LoadBalancer
+  selector:
+    statefulset.kubernetes.io/pod-name: ${pod}
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: ${MONITORING_METRICS_PORT}
+      targetPort: ${MONITORING_METRICS_PORT}
+    - name: websocket
+      protocol: TCP
+      port: ${MONITORING_WS_PORT}
+      targetPort: ${MONITORING_WS_PORT}
+EOF
+    done
+}
+
 setup_ha() {
     log_info "Setting up HA cluster configuration..."
 
@@ -505,6 +551,7 @@ start_memgraph() {
 
     install_memgraph_ha
     wait_for_pods
+    ensure_monitoring_external_services
 
     local external_svc_count
     external_svc_count=$(kubectl get svc --no-headers 2>/dev/null | grep "^memgraph-" | grep -c "LoadBalancer") || external_svc_count=0
@@ -883,16 +930,16 @@ wait_service_ip() {
 
 print_monitoring_targets() {
     local timeout="${1:-${EKS_MONITORING_TARGET_TIMEOUT:-600}}"
-    local metrics_port="${EKS_MONITORING_METRICS_PORT:-9091}"
-    local ws_port="${EKS_MONITORING_WS_PORT:-7444}"
+    local metrics_port="${EKS_MONITORING_METRICS_PORT:-${MONITORING_METRICS_PORT}}"
+    local ws_port="${EKS_MONITORING_WS_PORT:-${MONITORING_WS_PORT}}"
     local services=(coordinator-1 coordinator-2 coordinator-3 data-0 data-1)
     local metrics_targets=""
     local log_ws_targets=""
 
     for svc in "${services[@]}"; do
         local endpoint
-        endpoint="$(wait_service_ip "$svc" "$timeout")" || {
-            echo "Failed to resolve external endpoint for memgraph-${svc}-external" >&2
+        endpoint="$(wait_service_ip "${svc}-monitoring" "$timeout")" || {
+            echo "Failed to resolve external endpoint for memgraph-${svc}-monitoring-external" >&2
             return 1
         }
         metrics_targets+="${metrics_targets:+,}${endpoint}:${metrics_port}"
