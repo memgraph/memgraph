@@ -39,9 +39,7 @@ for GraphRAG pipelines, AI memory systems, and agentic workflows — delivering
 sub-millisecond multi-hop traversals for any system that needs structured,
 connected context alongside semantic vector or text search.
 
-Vector search finds what’s similar. Graph reasoning finds what’s connected —
-following relationships, dependencies, and hierarchies that similarity alone
-can’t capture. Memgraph provides both in a single query layer: built-in vector
+Memgraph provides both in a single query layer: built-in text and vector
 indexes for similarity search combined with full graph traversal, so retrieval
 pipelines can run as a single atomic database operation instead of being
 scattered across multiple systems.
