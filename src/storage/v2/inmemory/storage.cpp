@@ -2916,27 +2916,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   });
 
-  {
-    auto guard = std::unique_lock{engine_lock_};
-    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
-
-    // Deltas from previous GC runs or from aborts can be cleaned up here
-    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-      guard.unlock();
-      if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
-        // We know no transaction is active, it is safe to simply delete all the garbage undos
-        // Nothing can be reading them
-        garbage_undo_buffers.clear();
-      } else {
-        // garbage_undo_buffers is ordered, pop until we can't
-        while (!garbage_undo_buffers.empty() &&
-               garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
-          garbage_undo_buffers.pop_front();
-        }
-      }
-    });
-  }
-
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
@@ -3065,14 +3044,15 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
 
             if (prev.delta->commit_info->timestamp.load() < oldest_active_start_timestamp) {
-              // If previous is from another inactive transaction, no need to
-              // lock the edge/vertex, nothing will read this far or relink to
-              // us directly
-              break;
+              // For a committed non-sequential predecessor, readers skip delta
+              // via next, so we must clear delta->next before freeing
+              // downstream delta to stop traversal into freed deltas.
+              if (!IsDeltaNonSequential(*prev.delta)) {
+                break;
+              }
             }
 
-            // Previous is either active (committed or uncommitted), we need to find
-            // the parent object in order to be able to use its lock.
+            // Previous is active, or inactive non-sequential; find the parent object in order to use its lock.
             auto parent = prev;
             while (parent.type == PreviousPtr::Type::DELTA) {
               parent = parent.delta->prev.Get();
@@ -3183,6 +3163,24 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
       });
     }
+  }
+
+  // Free garbage_undo_buffers after the unlinking loop so that prev pointers
+  // followed during unlinking are never into freed memory.
+  {
+    auto guard = std::unique_lock{engine_lock_};
+    uint64_t const mark_timestamp = timestamp_;
+    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
+      guard.unlock();
+      if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
+        garbage_undo_buffers.clear();
+      } else {
+        while (!garbage_undo_buffers.empty() &&
+               garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
+          garbage_undo_buffers.pop_front();
+        }
+      }
+    });
   }
 
   // EDGES METADATA (has ptr to Vertices, must be before removing vertices)
