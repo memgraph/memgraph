@@ -877,6 +877,28 @@ wait_service_ip() {
     done
 }
 
+print_monitoring_targets() {
+    local timeout="${1:-${EKS_MONITORING_TARGET_TIMEOUT:-600}}"
+    local metrics_port="${EKS_MONITORING_METRICS_PORT:-9091}"
+    local ws_port="${EKS_MONITORING_WS_PORT:-7444}"
+    local services=(coordinator-1 coordinator-2 coordinator-3 data-0 data-1)
+    local metrics_targets=""
+    local log_ws_targets=""
+
+    for svc in "${services[@]}"; do
+        local endpoint
+        endpoint="$(wait_service_ip "$svc" "$timeout")" || {
+            echo "Failed to resolve external endpoint for memgraph-${svc}-external" >&2
+            return 1
+        }
+        metrics_targets+="${metrics_targets:+,}${endpoint}:${metrics_port}"
+        log_ws_targets+="${log_ws_targets:+,}${endpoint}:${ws_port}"
+    done
+
+    echo "MEMGRAPH_METRICS_TARGETS=${metrics_targets}"
+    echo "MEMGRAPH_LOG_WS_TARGETS=${log_ws_targets}"
+}
+
 restart_instance() {
     # Restart an instance by deleting the pod (StatefulSet will recreate it)
     # Accepts formats: data_0, data-0, data_1, data-1, coordinator_1, coordinator-1, etc.
@@ -1081,6 +1103,7 @@ print_usage() {
     echo "  export-metrics [f]  - Export Prometheus metrics to JSON file"
     echo "  get-ip <service>    - Get external IP for a LoadBalancer service"
     echo "  wait-ip <service>   - Wait for external IP and return it"
+    echo "  monitoring-targets  - Print monitoring targets as env assignments"
     echo "  logs <pod>          - Follow logs for a pod"
     echo "  exec <pod>          - Open shell in a pod"
     echo "  port-forward [svc]  - Port forward to a service (default: coordinator)"
@@ -1158,6 +1181,9 @@ case "$1" in
         ;;
     wait-ip)
         wait_service_ip "$2" "$3"
+        ;;
+    monitoring-targets)
+        print_monitoring_targets "$2"
         ;;
     collect-logs)
         collect_logs "$2"

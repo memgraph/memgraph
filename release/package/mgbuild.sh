@@ -1105,17 +1105,39 @@ test_memgraph() {
     export MONITORING_USE_HOST_NETWORK="true"
   }
 
+  resolve_eks_ha_monitoring_targets() {
+    local monitoring_targets_output
+    monitoring_targets_output="$("$PROJECT_ROOT/tests/stress/ha/eks/deployment/deployment.sh" monitoring-targets)"
+
+    while IFS='=' read -r key value; do
+      case "$key" in
+        MEMGRAPH_METRICS_TARGETS)
+          [[ -n "$value" && -z "${MEMGRAPH_METRICS_TARGETS:-}" ]] && export MEMGRAPH_METRICS_TARGETS="$value"
+        ;;
+        MEMGRAPH_LOG_WS_TARGETS)
+          [[ -n "$value" && -z "${MEMGRAPH_LOG_WS_TARGETS:-}" ]] && export MEMGRAPH_LOG_WS_TARGETS="$value"
+        ;;
+      esac
+    done <<< "$monitoring_targets_output"
+  }
+
   if [[ "$enable_monitoring" == "true" ]]; then
     if [[ "$test_name" == "stress-native-ha" ]]; then
       resolve_native_ha_monitoring_targets
     elif [[ "$test_name" == "stress-docker-ha" ]]; then
       resolve_docker_ha_monitoring_targets
+    elif [[ "$test_name" == "stress-eks-ha" ]]; then
+      # EKS targets are available only after the cluster and Memgraph deployment exist.
+      :
     fi
-    if [[ -z "$service_name" ]]; then
-      service_name="$test_name"
-      echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+
+    if [[ "$test_name" != "stress-eks-ha" ]]; then
+      if [[ -z "$service_name" ]]; then
+        service_name="$test_name"
+        echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+      fi
+      start_monitoring
     fi
-    start_monitoring
   fi
 
   trap stop_monitoring EXIT INT TERM
@@ -1195,6 +1217,7 @@ test_memgraph() {
       export MEMGRAPH_ORGANIZATION_NAME=$organization_name
 
       EKS_DEPLOYMENT_SCRIPT="$PROJECT_ROOT/tests/stress/ha/eks/deployment/deployment.sh"
+      local ci_extra_flags=()
 
       cleanup_eks() {
         echo "Destroying EKS cluster..."
@@ -1203,6 +1226,17 @@ test_memgraph() {
       trap cleanup_eks EXIT INT TERM
 
       "$EKS_DEPLOYMENT_SCRIPT" start-cluster
+
+      if [[ "$enable_monitoring" == "true" ]]; then
+        "$EKS_DEPLOYMENT_SCRIPT" start
+        resolve_eks_ha_monitoring_targets
+        if [[ -z "$service_name" ]]; then
+          service_name="$test_name"
+          echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+        fi
+        start_monitoring
+        ci_extra_flags+=(--externally-managed)
+      fi
 
       if [[ ! -d "$PROJECT_ROOT/tests/ve3" ]]; then
         python3 -m venv "$PROJECT_ROOT/tests/ve3"
@@ -1213,7 +1247,7 @@ test_memgraph() {
         source "$PROJECT_ROOT/tests/ve3/bin/activate"
       fi
 
-      cd "$PROJECT_ROOT/tests/stress" && ./continuous_integration --deployment=ha/eks ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}
+      cd "$PROJECT_ROOT/tests/stress" && ./continuous_integration --deployment=ha/eks "${ci_extra_flags[@]}" ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}
     ;;
     durability)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test.log --verbose"
