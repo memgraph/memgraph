@@ -756,6 +756,9 @@ class InMemoryStorage final : public Storage {
   void StopAllBackgroundTasks() override {
     async_indexer_.Shutdown();
     Storage::StopAllBackgroundTasks();
+    if (config_.gc.type == Config::Gc::Type::PERIODIC) {
+      gc_runner_.Stop();
+    }
   }
 
   std::unordered_map<LabelId, uint64_t> GetLabelCounts() const override { return *label_counts_.Lock(); }
