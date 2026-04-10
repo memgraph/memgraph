@@ -1258,4 +1258,247 @@ TYPED_TEST(OrderByIndexTest, WithNewQueryPartInnerScanNotEliminated) {
          "ORDER BY n.id is not globally sorted";
 }
 
+// ==================== Mutation operator tests ====================
+// Tests for ORDER BY elimination through write operators (SET, REMOVE) and Accumulate.
+// Write queries produce: OrderBy → Produce → Accumulate → [mutation] → Scan → Once
+
+// SET n.x = 1 ORDER BY n.id — different property, safe to eliminate.
+TYPED_TEST(OrderByIndexTest, SetPropertyDifferentPropEliminated) {
+  FakeDbAccessor dba;
+  const auto *label_name = "X";
+  const auto label = dba.Label(label_name);
+  const auto id_prop = PROPERTY_PAIR(dba, "id");
+  const auto x_prop = PROPERTY_PAIR(dba, "x");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, id_prop.second, 1);
+
+  // MATCH (n:X) WHERE n.id > 0 SET n.x = 1 RETURN n ORDER BY n.id
+  auto *match = MATCH(PATTERN(NODE("n", label_name)));
+  match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
+  auto *set = SET(PROPERTY_LOOKUP(dba, "n", x_prop.second), LITERAL(1));
+  auto *ret = RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", id_prop.second)));
+
+  auto *query = QUERY(SINGLE_QUERY(match, set, ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated — SET modifies a different property than ORDER BY";
+}
+
+// SET n.id = 0 ORDER BY n.id — same property, must NOT eliminate.
+TYPED_TEST(OrderByIndexTest, SetPropertySamePropNotEliminated) {
+  FakeDbAccessor dba;
+  const auto *label_name = "X";
+  const auto label = dba.Label(label_name);
+  const auto id_prop = PROPERTY_PAIR(dba, "id");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, id_prop.second, 1);
+
+  // MATCH (n:X) WHERE n.id > 0 SET n.id = 0 RETURN n ORDER BY n.id
+  auto *match = MATCH(PATTERN(NODE("n", label_name)));
+  match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
+  auto *set = SET(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0));
+  auto *ret = RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", id_prop.second)));
+
+  auto *query = QUERY(SINGLE_QUERY(match, set, ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must NOT be eliminated — SET modifies the same property as ORDER BY";
+}
+
+// REMOVE n.x ORDER BY n.id — different property, safe to eliminate.
+TYPED_TEST(OrderByIndexTest, RemovePropertyDifferentPropEliminated) {
+  FakeDbAccessor dba;
+  const auto *label_name = "X";
+  const auto label = dba.Label(label_name);
+  const auto id_prop = PROPERTY_PAIR(dba, "id");
+  const auto x_prop = PROPERTY_PAIR(dba, "x");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, id_prop.second, 1);
+
+  // MATCH (n:X) WHERE n.id > 0 REMOVE n.x RETURN n ORDER BY n.id
+  auto *match = MATCH(PATTERN(NODE("n", label_name)));
+  match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
+  auto *remove = REMOVE(PROPERTY_LOOKUP(dba, "n", x_prop.second));
+  auto *ret = RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", id_prop.second)));
+
+  auto *query = QUERY(SINGLE_QUERY(match, remove, ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated — REMOVE targets a different property than ORDER BY";
+}
+
+// REMOVE n.id ORDER BY n.id — same property, must NOT eliminate.
+TYPED_TEST(OrderByIndexTest, RemovePropertySamePropNotEliminated) {
+  FakeDbAccessor dba;
+  const auto *label_name = "X";
+  const auto label = dba.Label(label_name);
+  const auto id_prop = PROPERTY_PAIR(dba, "id");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, id_prop.second, 1);
+
+  // MATCH (n:X) WHERE n.id > 0 REMOVE n.id RETURN n ORDER BY n.id
+  auto *match = MATCH(PATTERN(NODE("n", label_name)));
+  match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
+  auto *remove = REMOVE(PROPERTY_LOOKUP(dba, "n", id_prop.second));
+  auto *ret = RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", id_prop.second)));
+
+  auto *query = QUERY(SINGLE_QUERY(match, remove, ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must NOT be eliminated — REMOVE targets the same property as ORDER BY";
+}
+
+// SET n :Label ORDER BY n.id — SetLabels doesn't affect property order.
+TYPED_TEST(OrderByIndexTest, SetLabelsEliminated) {
+  FakeDbAccessor dba;
+  const auto *label_name = "X";
+  const auto label = dba.Label(label_name);
+  const auto id_prop = PROPERTY_PAIR(dba, "id");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, id_prop.second, 1);
+
+  // MATCH (n:X) WHERE n.id > 0 SET n :NewLabel RETURN n ORDER BY n.id
+  auto *match = MATCH(PATTERN(NODE("n", label_name)));
+  match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
+  auto *set = SET("n", std::vector<std::string>{"NewLabel"});
+  auto *ret = RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", id_prop.second)));
+
+  auto *query = QUERY(SINGLE_QUERY(match, set, ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated — SET labels does not affect property ordering";
+}
+
+// REMOVE n :Label ORDER BY n.id — RemoveLabels doesn't affect property order.
+TYPED_TEST(OrderByIndexTest, RemoveLabelsEliminated) {
+  FakeDbAccessor dba;
+  const auto *label_name = "X";
+  const auto label = dba.Label(label_name);
+  const auto id_prop = PROPERTY_PAIR(dba, "id");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, id_prop.second, 1);
+
+  // MATCH (n:X) WHERE n.id > 0 REMOVE n :SomeLabel RETURN n ORDER BY n.id
+  auto *match = MATCH(PATTERN(NODE("n", label_name)));
+  match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
+  auto *remove = REMOVE("n", std::vector<std::string>{"SomeLabel"});
+  auto *ret = RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", id_prop.second)));
+
+  auto *query = QUERY(SINGLE_QUERY(match, remove, ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated — REMOVE labels does not affect property ordering";
+}
+
+// SET n.id = -n.id WITH n, n.id AS p RETURN n ORDER BY p — alias resolves to the modified property.
+TYPED_TEST(OrderByIndexTest, SetPropertySamePropAliasedThroughWithNotEliminated) {
+  FakeDbAccessor dba;
+  const auto *label_name = "X";
+  const auto label = dba.Label(label_name);
+  const auto id_prop = PROPERTY_PAIR(dba, "id");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, id_prop.second, 1);
+
+  // MATCH (n:X) WHERE n.id > 0 SET n.id = -n.id WITH n, n.id AS p RETURN n ORDER BY p
+  auto *match = MATCH(PATTERN(NODE("n", label_name)));
+  match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
+  auto *set = SET(PROPERTY_LOOKUP(dba, "n", id_prop.second), UMINUS(PROPERTY_LOOKUP(dba, "n", id_prop.second)));
+  auto *with_clause = WITH(IDENT("n"), AS("n"), PROPERTY_LOOKUP(dba, "n", id_prop.second), AS("p"));
+  auto *ret = RETURN("n", ORDER_BY(IDENT("p")));
+
+  auto *single = this->storage.template Create<memgraph::query::SingleQuery>();
+  single->clauses_.push_back(match);
+  single->clauses_.push_back(set);
+  single->clauses_.push_back(with_clause);
+  single->clauses_.push_back(ret);
+  auto *query = QUERY(single);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must NOT be eliminated — alias p resolves to n.id which is modified by SET";
+}
+
+// ==================== Edge index scan tests ====================
+// Tests for ORDER BY elimination via edge property index scans.
+
+// MATCH ()-[e:KNOWS]->() WHERE e.since > 2020 RETURN e.since ORDER BY e.since — basic edge elimination.
+TYPED_TEST(OrderByIndexTest, EdgeTypePropertyRangeEliminated) {
+  FakeDbAccessor dba;
+  const auto *edge_type_name = "KNOWS";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto since_prop = PROPERTY_PAIR(dba, "since");
+  dba.SetIndexCount(edge_type, since_prop.second, 1);
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT, {edge_type_name}), NODE("anon2"))),
+                         WHERE(GREATER(PROPERTY_LOOKUP(dba, "e", since_prop.second), LITERAL(2020))),
+                         RETURN(PROPERTY_LOOKUP(dba, "e", since_prop.second),
+                                AS("es"),
+                                ORDER_BY(PROPERTY_LOOKUP(dba, "e", since_prop.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeTypePropertyRange::kType))
+      << "Plan should use ScanAllByEdgeTypePropertyRange";
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated — edge type property index provides order";
+}
+
+// MATCH ()-[e:KNOWS]->() WHERE e.since > 2020 RETURN e ORDER BY e.name — different property, not eliminated.
+TYPED_TEST(OrderByIndexTest, EdgeTypePropertyRangeDifferentPropNotEliminated) {
+  FakeDbAccessor dba;
+  const auto *edge_type_name = "KNOWS";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto since_prop = PROPERTY_PAIR(dba, "since");
+  const auto name_prop = PROPERTY_PAIR(dba, "name");
+  dba.SetIndexCount(edge_type, since_prop.second, 1);
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT, {edge_type_name}), NODE("anon2"))),
+                         WHERE(GREATER(PROPERTY_LOOKUP(dba, "e", since_prop.second), LITERAL(2020))),
+                         RETURN("e", ORDER_BY(PROPERTY_LOOKUP(dba, "e", name_prop.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must NOT be eliminated — ORDER BY on different property than index";
+}
+
+// MATCH ()-[e]->() WHERE e.since > 2020 RETURN e.since ORDER BY e.since — global edge property index.
+TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyRangeEliminated) {
+  FakeDbAccessor dba;
+  const auto since_prop = PROPERTY_PAIR(dba, "since");
+  dba.SetIndexCount(since_prop.second, 1);  // global edge property index
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT), NODE("anon2"))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "e", since_prop.second), LITERAL(2020))),
+                                   RETURN(PROPERTY_LOOKUP(dba, "e", since_prop.second),
+                                          AS("es"),
+                                          ORDER_BY(PROPERTY_LOOKUP(dba, "e", since_prop.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgePropertyRange::kType))
+      << "Plan should use ScanAllByEdgePropertyRange";
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated — global edge property index provides order";
+}
+
 }  // namespace
