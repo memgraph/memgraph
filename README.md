@@ -52,9 +52,8 @@ query language, ACID-compliant, and highly available.
 ## :zap: Features
 
 #### AI & Graph Intelligence
-- **Vector search indexes & native ML** - Built-in vector indexes with cosine
-  similarity for hybrid graph + vector retrieval in a single query, plus native
-  machine learning support through MAGE.
+- **Indexes** - Built-in vector indexes power hybrid graph retrieval with similarity search in a single query, alongside text and geospatial indexes for keyword and location-aware queries.
+- **Native ML** - Native machine learning support through MAGE extends Memgraph with graph algorithms, embeddings, Graph neural networks,  and advanced analytics.
 - **Atomic GraphRAG** - Pivot search, graph expansion, ranking, and prompt
   assembly expressed as a single Cypher query.
 - **[MAGE](mage/README.md) algorithm library** - 40+ graph algorithms in
