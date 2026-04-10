@@ -28,6 +28,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -250,9 +251,23 @@ struct WalLabelIndexStatsSet {
   std::string json_stats;
 };
 
-struct WalLabelPropertyIndexCreate : LabelOrderedPropertiesOpInfo {};
+struct WalLabelPropertyIndexCreate {
+  friend bool operator==(const WalLabelPropertyIndexCreate &, const WalLabelPropertyIndexCreate &) = default;
+  using ctr_types =
+      std::tuple<std::string, CompositePropertyPaths, VersionDependant<kDescriptionAndDescIndexSupport, IndexOrder>>;
+  std::string label;
+  CompositePropertyPaths composite_property_paths;
+  std::optional<IndexOrder> order;  // std::nullopt for pre-v34 WALs, defaults to ASC
+};
 
-struct WalLabelPropertyIndexDrop : LabelOrderedPropertiesOpInfo {};
+struct WalLabelPropertyIndexDrop {
+  friend bool operator==(const WalLabelPropertyIndexDrop &, const WalLabelPropertyIndexDrop &) = default;
+  using ctr_types =
+      std::tuple<std::string, CompositePropertyPaths, VersionDependant<kDescriptionAndDescIndexSupport, IndexOrder>>;
+  std::string label;
+  CompositePropertyPaths composite_property_paths;
+  std::optional<IndexOrder> order;  // std::nullopt for pre-v34 WALs, defaults to ASC
+};
 
 struct WalPointIndexCreate : LabelPropertyOpInfo {};
 

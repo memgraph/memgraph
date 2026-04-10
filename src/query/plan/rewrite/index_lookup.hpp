@@ -22,6 +22,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -36,6 +37,7 @@
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 
 import memgraph.utils.fnv;
@@ -340,9 +342,36 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // should be the last thing ScanAll::Accept does, so it should be safe.
   bool PostVisit(ScanAll &scan) override {
     prev_ops_.pop_back();
-    auto indexed_scan = GenScanByIndex(scan);
+    auto [indexed_scan, has_in_filter] = GenScanByIndex(scan);
+    bool recorded = false;
     if (indexed_scan) {
+      if (!has_in_filter && !order_by_stack_.empty() && order_by_stack_.back().valid) {
+        auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get());
+        if (scan_by_props) {
+          auto &ctx = order_by_stack_.back();
+          // Batch walk instead of incremental PostVisit checks — avoids scattering
+          // order_by_stack_ logic across ~15 operator PostVisits. Cheap: O(scan-to-OrderBy depth).
+          if (ctx.provided_scans.empty()) {
+            for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
+              const auto &ti = (*it)->GetTypeInfo();
+              if (!IsOrderPreserving(ti) && !IsScanAllVariant(ti)) {
+                ctx.order_preserving_path = false;
+                break;
+              }
+            }
+          }
+          ctx.provided_scans.emplace_back(scan_by_props);
+          recorded = true;
+        }
+      }
       SetOnParent(std::move(indexed_scan));
+    }
+
+    // First-to-PostVisit scan not recorded (no index, IN filter, or not ScanAllByLabelProperties) —
+    // no scan can provide global order, prevent elimination.
+    if (!recorded && !order_by_stack_.empty() && order_by_stack_.back().valid &&
+        order_by_stack_.back().provided_scans.empty()) {
+      order_by_stack_.back().order_preserving_path = false;
     }
     return true;
   }
@@ -396,7 +425,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
       }
     } else {
-      auto indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
+      auto [indexed_scan, _] = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
       if (indexed_scan) {
         expand.set_input(std::move(indexed_scan));
         expand.common_.existing_node = true;
@@ -570,6 +599,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Produce &op) override {
     prev_ops_.push_back(&op);
+    if (!order_by_stack_.empty() && order_by_stack_.back().valid) {
+      ResolveDownward(&op, order_by_stack_.back());
+    }
     return true;
   }
 
@@ -700,11 +732,19 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
+    order_by_stack_.emplace_back(ExtractOrderByInfo(op));
     return true;
   }
 
-  bool PostVisit(OrderBy &) override {
+  bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
+    DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in PostVisit");
+    auto &ctx = order_by_stack_.back();
+    CheckOrderByElimination(ctx);
+    if (ctx.should_eliminate) {
+      SetOnParent(op.input());
+    }
+    order_by_stack_.pop_back();
     return true;
   }
 
@@ -882,6 +922,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<FilterInfo> filters;
     int64_t vertex_count;
     std::optional<storage::LabelPropertyIndexStats> index_stats;
+    storage::IndexOrder order{storage::IndexOrder::ASC};
   };
 
   struct PointLabelPropertyIndex {
@@ -896,6 +937,207 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     int64_t vertex_count;
     int64_t num_of_index_hints;
   };
+
+  // TODO: Extend to edge property index scans (also SkipList-backed, ASC order).
+
+  /// Extracted ORDER BY info for elimination matching.
+  /// Each ORDER BY expression is either already resolved (PropertyLookup → property path)
+  /// or an unresolved alias (bare Identifier) that ResolveDownward fills in during PreVisit descent.
+  struct OrderByEntry {
+    storage::PropertyPath resolved;  // filled if PropertyLookup, or after alias resolution
+    std::string_view alias;          // non-empty if bare Identifier (unresolved)
+    std::string_view source_name;    // which scan symbol this entry references
+
+    bool is_resolved() const { return alias.empty(); }
+  };
+
+  struct OrderByInfo {
+    OrderBy *op{nullptr};
+    std::vector<OrderByEntry> entries;
+    std::vector<const ScanAllByLabelProperties *> provided_scans;  // accumulated bottom-up (outermost first)
+    bool valid{false};
+    bool should_eliminate{false};
+    bool order_preserving_path{true};  // set false if walk from first scan to OrderBy fails
+    Ordering ordering_direction{Ordering::ASC};
+
+    bool has_unresolved() const {
+      return std::ranges::any_of(entries, [](const auto &e) { return !e.is_resolved(); });
+    }
+  };
+
+  std::vector<OrderByInfo> order_by_stack_;
+
+  auto ExtractOrderByInfo(OrderBy &op) -> OrderByInfo {
+    OrderByInfo info;
+    info.op = &op;
+
+    const auto &orderings = op.compare_.orderings();
+    const auto &order_by_exprs = op.order_by_;
+
+    if (orderings.empty()) return info;
+
+    // All ORDER BY columns must have the same direction (all ASC or all DESC).
+    auto const first_ordering = orderings[0].ordering();
+    for (const auto &ord : orderings) {
+      if (ord.ordering() != first_ordering) return info;
+    }
+    info.ordering_direction = first_ordering;
+
+    for (auto *expr : order_by_exprs) {
+      if (auto *prop_lookup = dynamic_cast<PropertyLookup *>(expr)) {
+        auto *ident = dynamic_cast<Identifier *>(prop_lookup->expression_);
+        if (!ident) return info;
+
+        std::vector<storage::PropertyId> prop_ids;
+        prop_ids.reserve(prop_lookup->property_path_.size());
+        for (const auto &pix : prop_lookup->property_path_) {
+          prop_ids.emplace_back(GetProperty(pix));
+        }
+        info.entries.emplace_back(storage::PropertyPath{std::move(prop_ids)}, std::string_view{}, ident->name_);
+      } else if (auto *ident = dynamic_cast<Identifier *>(expr)) {
+        info.entries.emplace_back(storage::PropertyPath{}, ident->name_, std::string_view{});
+      } else {
+        return info;
+      }
+    }
+
+    info.valid = true;
+    return info;
+  }
+
+  /// Check if an operator preserves the relative row order of its input.
+  /// Expand/ExpandVariable may multiply rows (1:N), but the scan symbol's order is preserved.
+  /// Unwind (user-written) multiplies rows but preserves scan-symbol order; the IN-list rewrite
+  /// Unwind below the scan is caught separately via has_in_filter in PostVisit(ScanAll).
+  // TODO: Cartesian preserves order on its left (first) input but not the right (second).
+  //       ORDER BY elimination could work for the left branch.
+  static bool IsOrderPreserving(const utils::TypeInfo &type_info) {
+    return type_info == Filter::kType || type_info == ConstructNamedPath::kType ||
+           type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
+           type_info == Expand::kType || type_info == ExpandVariable::kType || type_info == Optional::kType ||
+           type_info == Distinct::kType || type_info == EvaluatePatternFilter::kType ||
+           type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType ||
+           type_info == Produce::kType;
+  }
+
+  /// ScanAll variants act as nested loops — they preserve the outer scan's row order.
+  /// Used in the order-preserving path walk to allow inner scans between the outermost scan and OrderBy.
+  static bool IsScanAllVariant(const utils::TypeInfo &type_info) {
+    return type_info == ScanAll::kType || type_info == ScanAllByLabel::kType ||
+           type_info == ScanAllByLabelProperties::kType || type_info == ScanAllById::kType ||
+           type_info == ScanAllByPointDistance::kType || type_info == ScanAllByPointWithinbbox::kType;
+  }
+
+  /// Incrementally resolve ORDER BY info as we descend through a Produce.
+  /// Called from PreVisit(Produce) during the visitor's top-down traversal.
+  ///
+  /// Two steps, order matters:
+  /// 1. Track per-entry source_name through renames (e.g. Produce has `n AS m` → entry.source_name
+  ///    "m" becomes "n"). Must happen first so alias resolution in step 2 sees the inner scope.
+  /// 2. Resolve unresolved aliases: PropertyLookup (n.prop AS a) resolves in-place and sets
+  ///    entry.source_name; Identifier (a AS b) updates the alias to the inner name.
+  void ResolveDownward(Produce *produce, OrderByInfo &info) {
+    // Step 1: track source_name through renames for each entry.
+    for (auto &entry : info.entries) {
+      if (entry.source_name.empty()) continue;
+      for (const auto *ne : produce->named_expressions_) {
+        if (ne->name_ != entry.source_name) continue;
+        auto *ident = dynamic_cast<Identifier *>(ne->expression_);
+        if (ident) entry.source_name = ident->name_;
+        break;
+      }
+    }
+
+    // Step 2: resolve unresolved aliases.
+    for (auto &entry : info.entries) {
+      if (entry.is_resolved()) continue;
+
+      const NamedExpression *matched = nullptr;
+      for (const auto *ne : produce->named_expressions_) {
+        if (ne->name_ == entry.alias) {
+          matched = ne;
+          break;
+        }
+      }
+      // Alias not projected by this Produce — skip and try the next one closer to scan.
+      if (!matched) continue;
+
+      if (auto *prop = dynamic_cast<PropertyLookup *>(matched->expression_)) {
+        auto *inner = dynamic_cast<Identifier *>(prop->expression_);
+        if (!inner) {
+          info.valid = false;
+          return;
+        }
+        entry.source_name = inner->name_;
+        std::vector<storage::PropertyId> prop_ids;
+        prop_ids.reserve(prop->property_path_.size());
+        for (const auto &pix : prop->property_path_) {
+          prop_ids.push_back(GetProperty(pix));
+        }
+        entry.resolved = storage::PropertyPath{std::move(prop_ids)};
+        entry.alias = {};
+      } else if (auto *ident = dynamic_cast<Identifier *>(matched->expression_)) {
+        entry.alias = ident->name_;
+      } else {
+        info.valid = false;
+        return;
+      }
+    }
+  }
+
+  /// Match ORDER BY entries against recorded indexed scans.
+  /// Entries must form contiguous groups by source_name, and each group must match a provided scan
+  /// in the same order (outermost scan = first group). Within each group, index columns are matched
+  /// with equality-skip
+  void CheckOrderByElimination(OrderByInfo &ctx) {
+    if (!ctx.valid || !ctx.order_preserving_path || ctx.has_unresolved()) return;
+    if (ctx.provided_scans.empty()) return;
+
+    size_t scan_idx = 0;
+    size_t entry_idx = 0;
+
+    while (entry_idx < ctx.entries.size() && scan_idx < ctx.provided_scans.size()) {
+      const auto &scan = ctx.provided_scans[scan_idx];
+
+      // Current entry must match the current scan's symbol.
+      if (ctx.entries[entry_idx].source_name != scan->output_symbol_.name()) return;
+
+      // Collect contiguous entries for this scan symbol.
+      const size_t group_start = entry_idx;
+      while (entry_idx < ctx.entries.size() && ctx.entries[entry_idx].source_name == scan->output_symbol_.name()) {
+        ++entry_idx;
+      }
+      const size_t group_size = entry_idx - group_start;
+
+      // Match this group against the scan's index columns, skipping equality-pinned columns.
+      size_t ob_ptr = 0;
+      for (size_t i = 0; i < scan->properties_.size() && ob_ptr < group_size; ++i) {
+        if (scan->properties_[i] == ctx.entries[group_start + ob_ptr].resolved) {
+          ++ob_ptr;
+        } else if (i < scan->expression_ranges_.size() &&
+                   scan->expression_ranges_[i].type_ == PropertyFilter::Type::EQUAL) {
+          continue;
+        } else {
+          return;
+        }
+      }
+
+      if (ob_ptr != group_size) return;
+
+      ++scan_idx;
+    }
+
+    if (entry_idx != ctx.entries.size()) return;
+
+    // Verify every scan's index order matches the query ordering direction.
+    auto desired_order =
+        ctx.ordering_direction == Ordering::DESC ? storage::IndexOrder::DESC : storage::IndexOrder::ASC;
+    for (const auto *scan : ctx.provided_scans) {
+      if (scan->index_order_ != desired_order) return;
+    }
+
+    ctx.should_eliminate = true;
+  }
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
 
@@ -1053,6 +1295,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   struct LabelPropertiesIndexInfo {
     storage::LabelId label_{};
     std::vector<storage::PropertyPath> properties_{};
+    storage::IndexOrder order_{storage::IndexOrder::ASC};
   };
 
   struct LabelPropertiesIndexCandidate {
@@ -1127,7 +1370,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     properties = filters_grouped_by_property | rv::keys | r::to_vector;
 
-    for (auto const &[label_pos, properties_poses, index_label, index_properties] :
+    for (auto const &[label_pos, properties_poses, index_label, index_properties, index_order] :
          db_->RelevantLabelPropertiesIndicesInfo(labels, properties)) {
       // properties_poses: [5,3,-1,4]
       constexpr long MISSING = -1;
@@ -1150,8 +1393,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
         candidate_label_properties_indices.insert(
             {std::make_pair(label, prop_ixs),
-             LabelPropertiesIndexCandidate{.filters_ = filters,
-                                           .info_ = {.label_ = index_label, .properties_ = index_properties}}});
+             LabelPropertiesIndexCandidate{
+                 .filters_ = filters,
+                 .info_ = {.label_ = index_label, .properties_ = index_properties, .order_ = index_order}}});
       });
     }
 
@@ -1202,7 +1446,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return LabelPropertyIndex{.label = label,
                                 .properties = it->second.info_.properties_,
                                 .filters = it->second.filters_,
-                                .vertex_count = std::numeric_limits<std::int64_t>::max()};
+                                .vertex_count = std::numeric_limits<std::int64_t>::max(),
+                                .order = it->second.info_.order_};
     }
 
     std::optional<LabelPropertyIndex> found;
@@ -1258,7 +1503,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
       std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
       auto const make_label_property_index = [&]() -> LabelPropertyIndex {
-        return {label_ix, candidate.info_.properties_, candidate.filters_, vertex_count, new_stats};
+        return {
+            label_ix, candidate.info_.properties_, candidate.filters_, vertex_count, new_stats, candidate.info_.order_};
       };
 
       if (!found) {
@@ -1292,6 +1538,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           (cmp_res == 0 && (vertex_count < found->vertex_count ||
                             (vertex_count == found->vertex_count && is_better_type(candidate.filters_, *found))))) {
         found = make_label_property_index();
+        continue;
+      }
+
+      // Tie-breaker: prefer the index whose order matches the pending ORDER BY direction.
+      if (!order_by_stack_.empty() && order_by_stack_.back().valid && vertex_count == found->vertex_count &&
+          candidate.filters_.size() == found->filters.size()) {
+        auto desired_order = order_by_stack_.back().ordering_direction == Ordering::DESC ? storage::IndexOrder::DESC
+                                                                                         : storage::IndexOrder::ASC;
+        if (candidate.info_.order_ == desired_order && found->order != desired_order) {
+          found = make_label_property_index();
+        }
       }
     }
     return found;
@@ -1358,7 +1615,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                  .properties = std::move(best_label_property_index->info_.properties_),
                                  .filters = std::move(best_label_property_index->filters_),
                                  .vertex_count = best_vertex_count,
-                                 .index_stats = {}});
+                                 .index_stats = {},
+                                 .order = best_label_property_index->info_.order_});
         } else {  // Try LabelIndex as a fallback
           if (!label_index_exists) continue;
           best_vertex_count = db_->VerticesCount(label_id);
@@ -1508,11 +1766,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     Symbol node_symbol;                     // Needed for EraseLabelFilter/EraseOrLabelFilter
   };
 
-  // Finds the best indexed scan operator for the given ScanAll without applying side effects.
-  // Returns the operator and metadata about what needs to be erased.
   struct ScanByIndexResult {
     std::shared_ptr<LogicalOperator> operator_;
     ScanByIndexMetadata metadata_;
+    bool has_in_filter = false;  // true when an IN-list filter was rewritten to Unwind + equality scan
   };
 
   // Finds the best indexed scan operator for the given ScanAll without applying side effects.
@@ -1670,6 +1927,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       metadata.labels_to_erase.push_back(found_index->label);
 
+      bool has_in = std::ranges::any_of(found_index->filters, [](const FilterInfo &f) {
+        return f.property_filter && f.property_filter->type_ == PropertyFilter::Type::IN;
+      });
       auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
       auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
 
@@ -1679,7 +1939,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            std::move(found_index->properties),
                                                            std::move(expr_ranges),
                                                            view);
-      return ScanByIndexResult{std::move(op), std::move(metadata)};
+      op->index_order_ = found_index->order;
+      return ScanByIndexResult{std::move(op), std::move(metadata), has_in};
     }
     if (!labels.empty()) {
       auto maybe_label = FindBestLabelIndex(labels);
@@ -1745,6 +2006,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            std::move(label_property_index.properties),
                                                            std::move(expr_ranges),
                                                            view);
+            label_property_index_scan->index_order_ = label_property_index.order;
             if (prev) {
               auto union_op = std::make_unique<Union>(std::move(prev),
                                                       std::move(label_property_index_scan),
@@ -1801,14 +2063,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // In case of a "or" expression on labels the Distinct operator will be returned with the
   // Union operator as input. Union will have as input the ScanAll operator.
   // TODO: Add new operator instead of Distinct + Union
-  std::shared_ptr<LogicalOperator> GenScanByIndex(const ScanAll &scan,
-                                                  const std::optional<int64_t> &max_vertex_count = std::nullopt) {
+  struct GenScanResult {
+    std::shared_ptr<LogicalOperator> op;
+    bool has_in_filter = false;
+  };
+
+  GenScanResult GenScanByIndex(const ScanAll &scan, const std::optional<int64_t> &max_vertex_count = std::nullopt) {
     auto result = FindBestScanByIndex(scan, max_vertex_count);
     if (!result) {
-      return nullptr;
+      return {};
     }
     ApplyScanByIndex(result->metadata_);
-    return std::move(result->operator_);
+    return {std::move(result->operator_), result->has_in_filter};
   }
 };
 
@@ -1822,11 +2088,10 @@ std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalO
   impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints, parameters);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
-    // This shouldn't happen in real use case, because IndexLookupRewriter
-    // removes Filter operations and they cannot be the root op. In case we
-    // somehow missed this, raise NotYetImplemented instead of MG_ASSERT
-    // crashing the application.
-    throw utils::NotYetImplemented("optimizing index lookup");
+    // The root operator was removed (e.g., OrderBy elimination or Filter removal).
+    // Since the internal tree uses shared_ptr but this function returns unique_ptr,
+    // we clone the new root subtree to get a properly-owned unique_ptr hierarchy.
+    return rewriter.new_root_->Clone(ast_storage);
   }
   return root_op;
 }

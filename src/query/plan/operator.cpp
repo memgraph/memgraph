@@ -1638,7 +1638,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
       return std::nullopt;
     }
 
-    return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges));
+    return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabelProperties");
@@ -1667,6 +1667,7 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
   object->expression_ranges_ = expression_ranges_ |
                                rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
+  object->index_order_ = index_order_;
   return object;
 }
 

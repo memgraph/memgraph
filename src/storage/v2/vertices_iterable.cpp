@@ -13,6 +13,9 @@
 
 namespace memgraph::storage {
 
+using AscIterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry>;
+using DescIterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry>;
+
 VerticesIterable::VerticesIterable(AllVerticesIterable vertices) : type_(Type::ALL) {
   new (&all_vertices_) AllVerticesIterable(std::move(vertices));
 }
@@ -21,9 +24,12 @@ VerticesIterable::VerticesIterable(InMemoryLabelIndex::Iterable vertices) : type
   new (&in_memory_vertices_by_label_) InMemoryLabelIndex::Iterable(std::move(vertices));
 }
 
-VerticesIterable::VerticesIterable(InMemoryLabelPropertyIndex::Iterable vertices)
-    : type_(Type::BY_LABEL_PROPERTY_IN_MEMORY) {
-  new (&in_memory_vertices_by_label_property_) InMemoryLabelPropertyIndex::Iterable(std::move(vertices));
+VerticesIterable::VerticesIterable(AscIterable vertices) : type_(Type::BY_LABEL_PROPERTY_IN_MEMORY) {
+  new (&in_memory_vertices_by_label_property_) AscIterable(std::move(vertices));
+}
+
+VerticesIterable::VerticesIterable(DescIterable vertices) : type_(Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY) {
+  new (&in_memory_vertices_by_label_property_desc_) DescIterable(std::move(vertices));
 }
 
 VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept : type_(other.type_) {
@@ -35,8 +41,11 @@ VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept : type_(ot
       new (&in_memory_vertices_by_label_) InMemoryLabelIndex::Iterable(std::move(other.in_memory_vertices_by_label_));
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-      new (&in_memory_vertices_by_label_property_)
-          InMemoryLabelPropertyIndex::Iterable(std::move(other.in_memory_vertices_by_label_property_));
+      new (&in_memory_vertices_by_label_property_) AscIterable(std::move(other.in_memory_vertices_by_label_property_));
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      new (&in_memory_vertices_by_label_property_desc_)
+          DescIterable(std::move(other.in_memory_vertices_by_label_property_desc_));
       break;
   }
 }
@@ -50,7 +59,10 @@ VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept
       in_memory_vertices_by_label_.InMemoryLabelIndex::Iterable::~Iterable();
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-      in_memory_vertices_by_label_property_.InMemoryLabelPropertyIndex::Iterable::~Iterable();
+      in_memory_vertices_by_label_property_.~AscIterable();
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      in_memory_vertices_by_label_property_desc_.~DescIterable();
       break;
   }
   type_ = other.type_;
@@ -62,8 +74,11 @@ VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept
       new (&in_memory_vertices_by_label_) InMemoryLabelIndex::Iterable(std::move(other.in_memory_vertices_by_label_));
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-      new (&in_memory_vertices_by_label_property_)
-          InMemoryLabelPropertyIndex::Iterable(std::move(other.in_memory_vertices_by_label_property_));
+      new (&in_memory_vertices_by_label_property_) AscIterable(std::move(other.in_memory_vertices_by_label_property_));
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      new (&in_memory_vertices_by_label_property_desc_)
+          DescIterable(std::move(other.in_memory_vertices_by_label_property_desc_));
       break;
   }
   return *this;
@@ -78,7 +93,10 @@ VerticesIterable::~VerticesIterable() {
       in_memory_vertices_by_label_.InMemoryLabelIndex::Iterable::~Iterable();
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-      in_memory_vertices_by_label_property_.InMemoryLabelPropertyIndex::Iterable::~Iterable();
+      in_memory_vertices_by_label_property_.~AscIterable();
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      in_memory_vertices_by_label_property_desc_.~DescIterable();
       break;
   }
 }
@@ -91,6 +109,8 @@ VerticesIterable::Iterator VerticesIterable::begin() {
       return Iterator(in_memory_vertices_by_label_.begin());
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return Iterator(in_memory_vertices_by_label_property_.begin());
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      return Iterator(in_memory_vertices_by_label_property_desc_.begin());
   }
 }
 
@@ -102,6 +122,8 @@ VerticesIterable::Iterator VerticesIterable::end() {
       return Iterator(in_memory_vertices_by_label_.end());
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return Iterator(in_memory_vertices_by_label_property_.end());
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      return Iterator(in_memory_vertices_by_label_property_desc_.end());
   }
 }
 
@@ -115,10 +137,14 @@ VerticesIterable::Iterator::Iterator(InMemoryLabelIndex::Iterable::Iterator it) 
   new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(std::move(it));
 }
 
-VerticesIterable::Iterator::Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator it)
-    : type_(Type::BY_LABEL_PROPERTY_IN_MEMORY) {
+VerticesIterable::Iterator::Iterator(AscIterable::Iterator it) : type_(Type::BY_LABEL_PROPERTY_IN_MEMORY) {
   // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-  new (&in_memory_by_label_property_it_) InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(it));
+  new (&in_memory_by_label_property_it_) AscIterable::Iterator(std::move(it));
+}
+
+VerticesIterable::Iterator::Iterator(DescIterable::Iterator it) : type_(Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY) {
+  // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+  new (&in_memory_by_label_property_desc_it_) DescIterable::Iterator(std::move(it));
 }
 
 VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : type_(other.type_) {
@@ -130,8 +156,10 @@ VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : 
       new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(other.in_memory_by_label_it_);
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-      new (&in_memory_by_label_property_it_)
-          InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
+      new (&in_memory_by_label_property_it_) AscIterable::Iterator(other.in_memory_by_label_property_it_);
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      new (&in_memory_by_label_property_desc_it_) DescIterable::Iterator(other.in_memory_by_label_property_desc_it_);
       break;
   }
 }
@@ -149,8 +177,10 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
         new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(other.in_memory_by_label_it_);
         break;
       case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-        new (&in_memory_by_label_property_it_)
-            InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
+        new (&in_memory_by_label_property_it_) AscIterable::Iterator(other.in_memory_by_label_property_it_);
+        break;
+      case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+        new (&in_memory_by_label_property_desc_it_) DescIterable::Iterator(other.in_memory_by_label_property_desc_it_);
         break;
     }
   }
@@ -166,8 +196,10 @@ VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcep
       new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(other.in_memory_by_label_it_);
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-      new (&in_memory_by_label_property_it_)
-          InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
+      new (&in_memory_by_label_property_it_) AscIterable::Iterator(other.in_memory_by_label_property_it_);
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      new (&in_memory_by_label_property_desc_it_) DescIterable::Iterator(other.in_memory_by_label_property_desc_it_);
       break;
   }
 }
@@ -185,8 +217,10 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(VerticesIterab
         new (&in_memory_by_label_it_) InMemoryLabelIndex::Iterable::Iterator(other.in_memory_by_label_it_);
         break;
       case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-        new (&in_memory_by_label_property_it_)
-            InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
+        new (&in_memory_by_label_property_it_) AscIterable::Iterator(other.in_memory_by_label_property_it_);
+        break;
+      case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+        new (&in_memory_by_label_property_desc_it_) DescIterable::Iterator(other.in_memory_by_label_property_desc_it_);
         break;
     }
   }
@@ -204,7 +238,10 @@ void VerticesIterable::Iterator::Destroy() noexcept {
       in_memory_by_label_it_.InMemoryLabelIndex::Iterable::Iterator::~Iterator();
       break;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
-      in_memory_by_label_property_it_.InMemoryLabelPropertyIndex::Iterable::Iterator::~Iterator();
+      in_memory_by_label_property_it_.AscIterable::Iterator::~Iterator();
+      break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      in_memory_by_label_property_desc_it_.DescIterable::Iterator::~Iterator();
       break;
   }
 }
@@ -217,6 +254,8 @@ VertexAccessor const &VerticesIterable::Iterator::operator*() const {
       return *in_memory_by_label_it_;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return *in_memory_by_label_property_it_;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      return *in_memory_by_label_property_desc_it_;
   }
 }
 
@@ -231,6 +270,9 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       ++in_memory_by_label_property_it_;
       break;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      ++in_memory_by_label_property_desc_it_;
+      break;
   }
   return *this;
 }
@@ -244,6 +286,8 @@ bool VerticesIterable::Iterator::operator==(const VerticesIterable::Iterator &ot
       return in_memory_by_label_it_ == other.in_memory_by_label_it_;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return in_memory_by_label_property_it_ == other.in_memory_by_label_property_it_;
+    case Type::BY_LABEL_PROPERTY_DESC_IN_MEMORY:
+      return in_memory_by_label_property_desc_it_ == other.in_memory_by_label_property_desc_it_;
   }
 }
 

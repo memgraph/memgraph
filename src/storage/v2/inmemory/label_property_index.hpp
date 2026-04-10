@@ -29,6 +29,7 @@
 namespace memgraph::storage {
 
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
+ public:
   struct Entry {
     IndexOrderedPropertyValues values;
     Vertex *vertex;
@@ -42,8 +43,33 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     bool operator<=(std::vector<PropertyValue> const &rhs) const;
   };
 
- public:
+  // TODO: A cleaner approach would be to add a comparator template parameter to SkipList
+  // (e.g. SkipList<TObj, Compare = std::compare_three_way>) instead of duplicating Entry.
+  // This would allow using the same Entry type with a reverse comparator for DESC ordering.
+  // We avoid modifying SkipList (a core concurrent data structure) for now.
+  struct DescEntry {
+    IndexOrderedPropertyValues values;
+    Vertex *vertex;
+    uint64_t timestamp;
+
+    friend std::weak_ordering operator<=>(DescEntry const &lhs, DescEntry const &rhs) {
+      // Reverse ONLY the values comparison; vertex+timestamp stay same for MVCC correctness
+      if (auto cmp = (rhs.values <=> lhs.values); cmp != 0) return cmp;
+      if (auto cmp = std::compare_three_way{}(lhs.vertex, rhs.vertex); cmp != 0) return cmp;
+      return lhs.timestamp <=> rhs.timestamp;
+    }
+
+    friend bool operator==(DescEntry const &, DescEntry const &) = default;
+
+    bool operator<(std::vector<PropertyValue> const &rhs) const;
+    bool operator==(std::vector<PropertyValue> const &rhs) const;
+    bool operator<=(std::vector<PropertyValue> const &rhs) const;
+  };
+
+  template <typename EntryT = Entry>
   struct IndividualIndex {
+    using EntryType = EntryT;
+
     explicit IndividualIndex(PropertiesPermutationHelper permutations_helper)
         : permutations_helper(std::move(permutations_helper)) {}
 
@@ -51,7 +77,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     void Publish(uint64_t commit_timestamp);
 
     PropertiesPermutationHelper const permutations_helper;
-    utils::SkipList<Entry> skiplist{};
+    utils::SkipList<EntryT> skiplist{};
     IndexStatus status{};
   };
 
@@ -64,22 +90,37 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     using is_transparent = void;
   };
 
-  using PropertiesIndices = std::map<PropertiesPaths, std::shared_ptr<IndividualIndex>, Compare>;
-  using LabelPropertiesIndices = std::map<LabelId, PropertiesIndices, std::less<>>;
-  using EntryDetail = std::tuple<PropertiesPaths const *, IndividualIndex *>;
-  using ReverseLabelPropertiesIndices = std::unordered_map<PropertyId, std::multimap<LabelId, EntryDetail>>;
+  // ASC index types
+  using AscPropertiesIndices = std::map<PropertiesPaths, std::shared_ptr<IndividualIndex<Entry>>, Compare>;
+  using AscLabelPropertiesIndices = std::map<LabelId, AscPropertiesIndices, std::less<>>;
+  using AscEntryDetail = std::tuple<PropertiesPaths const *, IndividualIndex<Entry> *>;
+  using AscReverseLookup = std::unordered_map<PropertyId, std::multimap<LabelId, AscEntryDetail>>;
+
+  // DESC index types
+  using DescPropertiesIndices = std::map<PropertiesPaths, std::shared_ptr<IndividualIndex<DescEntry>>, Compare>;
+  using DescLabelPropertiesIndices = std::map<LabelId, DescPropertiesIndices, std::less<>>;
+  using DescEntryDetail = std::tuple<PropertiesPaths const *, IndividualIndex<DescEntry> *>;
+  using DescReverseLookup = std::unordered_map<PropertyId, std::multimap<LabelId, DescEntryDetail>>;
 
   struct IndexContainer {
-    IndexContainer(IndexContainer const &other) : indices_(other.indices_) {
-      for (auto const &[label, by_label] : indices_) {
+   private:
+    template <typename IndicesMap, typename ReverseLookup>
+    static void BuildReverseLookup(IndicesMap const &indices, ReverseLookup &reverse_lookup) {
+      for (auto const &[label, by_label] : indices) {
         for (auto const &[propertyPaths, entry] : by_label) {
-          auto const ed = EntryDetail{&propertyPaths, entry.get()};
+          using EntryDetailT = std::tuple<PropertiesPaths const *, typename std::decay_t<decltype(*entry)> *>;
+          auto const ed = EntryDetailT{&propertyPaths, entry.get()};
           for (auto const &prop : propertyPaths) {
-            // Only the top level path
-            reverse_lookup_[prop[0]].emplace(label, ed);
+            reverse_lookup[prop[0]].emplace(label, ed);
           }
         }
       }
+    }
+
+   public:
+    IndexContainer(IndexContainer const &other) : asc_indices_(other.asc_indices_), desc_indices_(other.desc_indices_) {
+      BuildReverseLookup(asc_indices_, asc_reverse_lookup_);
+      BuildReverseLookup(desc_indices_, desc_reverse_lookup_);
     }
 
     IndexContainer(IndexContainer &&) = default;
@@ -88,18 +129,24 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     IndexContainer() = default;
     ~IndexContainer() = default;
 
-    LabelPropertiesIndices indices_;
-    // This is keyed on the top-level property of a nested property. So for
+    AscLabelPropertiesIndices asc_indices_;
+    DescLabelPropertiesIndices desc_indices_;
+    // Keyed on the top-level property of a nested property. So for
     // nested property `a.b.c`, only a key for the top-most `a` exists.
     // Used to make UpdateOnSetProperty faster
-    ReverseLabelPropertiesIndices reverse_lookup_;
+    AscReverseLookup asc_reverse_lookup_;
+    DescReverseLookup desc_reverse_lookup_;
   };
 
-  struct AllIndicesEntry {
-    std::shared_ptr<IndividualIndex> index_;
+  template <typename EntryT>
+  struct AllIndicesEntry_ {
+    std::shared_ptr<IndividualIndex<EntryT>> index_;
     LabelId label_;
     PropertiesPaths properties_;
   };
+
+  using AscAllIndicesEntry = AllIndicesEntry_<Entry>;
+  using DescAllIndicesEntry = AllIndicesEntry_<DescEntry>;
 
   using PropertiesIndicesStats = std::map<PropertiesPaths, storage::LabelPropertyIndexStats, Compare>;
 
@@ -108,28 +155,33 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool CreateIndexOnePass(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                           ActiveIndicesUpdater const &updater,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                          IndexOrder order = IndexOrder::ASC);
 
-  bool RegisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater);
+  bool RegisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater,
+                     IndexOrder order = IndexOrder::ASC);
 
   auto PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
-      -> std::expected<void, IndexPopulateError>;
+                     IndexOrder order = IndexOrder::ASC, Transaction const *tx = nullptr,
+                     CheckCancelFunction cancel_check = neverCancel) -> std::expected<void, IndexPopulateError>;
 
-  bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp);
+  bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp,
+                    IndexOrder order = IndexOrder::ASC);
 
+  template <typename EntryT = Entry>
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
-             LabelId label, PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
-             std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction);
+    Iterable(typename utils::SkipList<EntryT>::Accessor index_accessor,
+             utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label, PropertiesPaths const *properties,
+             PropertiesPermutationHelper const *permutation_helper, std::span<PropertyValueRange const> ranges,
+             View view, Storage *storage, Transaction *transaction);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
+      Iterator(Iterable *self, typename utils::SkipList<EntryT>::Iterator index_iterator);
 
       VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
@@ -143,7 +195,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      utils::SkipList<Entry>::Iterator index_iterator_;
+      typename utils::SkipList<EntryT>::Iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
       bool skip_lower_bound_check_{false};
@@ -154,7 +206,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
    private:
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
-    utils::SkipList<Entry>::Accessor index_accessor_;
+    typename utils::SkipList<EntryT>::Accessor index_accessor_;
 
     // These describe the composite index
     LabelId label_;
@@ -169,9 +221,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Transaction *transaction_;
   };
 
+  template <typename EntryT = Entry>
   class ChunkedIterable {
    public:
-    ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
+    ChunkedIterable(typename utils::SkipList<EntryT>::Accessor index_accessor,
                     utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
                     PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
                     std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction,
@@ -179,7 +232,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     class Iterator {
      public:
-      Iterator(ChunkedIterable *self, utils::SkipList<Entry>::ChunkedIterator index_iterator)
+      Iterator(ChunkedIterable *self, typename utils::SkipList<EntryT>::ChunkedIterator index_iterator)
           : self_(self), index_iterator_(index_iterator), current_vertex_accessor_(nullptr, self_->storage_, nullptr) {
         AdvanceUntilValid();
       }
@@ -200,7 +253,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       void AdvanceUntilValid();
 
       ChunkedIterable *self_;
-      utils::SkipList<Entry>::ChunkedIterator index_iterator_;
+      typename utils::SkipList<EntryT>::ChunkedIterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_{nullptr};
       bool skip_lower_bound_check_{false};
@@ -211,7 +264,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       Iterator end_;
 
      public:
-      Chunk(ChunkedIterable *self, utils::SkipList<Entry>::Chunk &chunk)
+      Chunk(ChunkedIterable *self, typename utils::SkipList<EntryT>::Chunk &chunk)
           : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
 
       Iterator begin() { return begin_; }
@@ -225,7 +278,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
    private:
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
-    utils::SkipList<Entry>::Accessor index_accessor_;
+    typename utils::SkipList<EntryT>::Accessor index_accessor_;
     LabelId label_;
     [[maybe_unused]] PropertiesPaths const *properties_;
     PropertiesPermutationHelper const *permutation_helper_;
@@ -235,7 +288,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
-    utils::SkipList<Entry>::ChunkCollection chunks_;
+    typename utils::SkipList<EntryT>::ChunkCollection chunks_;
   };
 
   struct ActiveIndices : LabelPropertyIndex::ActiveIndices {
@@ -260,6 +313,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     auto ListIndices(uint64_t start_timestamp) const
         -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override;
 
+    auto ListIndices(uint64_t start_timestamp, IndexOrder order) const
+        -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>>;
+
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
     auto GetAbortProcessor() const -> AbortProcessor override;
@@ -276,19 +332,48 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                 std::span<PropertyValueRange const> bounds) const -> uint64_t override;
 
+    template <typename EntryT>
     auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-                  View view, Storage *storage, Transaction *transaction) -> Iterable;
+                  View view, Storage *storage, Transaction *transaction) -> Iterable<EntryT>;
 
+    template <typename EntryT>
     auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
                   memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
-                  Storage *storage, Transaction *transaction) -> Iterable;
+                  Storage *storage, Transaction *transaction) -> Iterable<EntryT>;
 
-    ChunkedIterable ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
-                                    std::span<PropertyValueRange const> range,
-                                    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
-                                    View view, Storage *storage, Transaction *transaction, size_t num_chunks);
+    ChunkedIterable<Entry> ChunkedVertices(
+        LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
+        memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+        Transaction *transaction, size_t num_chunks);
 
    private:
+    // Finds the index for (label, properties) in asc_indices_ or desc_indices_ and applies fn to it.
+    // Returns std::nullopt if the index doesn't exist in either map.
+    template <typename Fn>
+    auto WithFoundIndex(LabelId label, std::span<PropertyPath const> properties, Fn &&fn) const
+        -> std::optional<uint64_t> {
+      auto const try_find = [&](auto &indices_map) -> std::optional<uint64_t> {
+        auto it = indices_map.find(label);
+        if (it == indices_map.end()) return std::nullopt;
+        auto it2 = it->second.find(properties);
+        if (it2 == it->second.end()) return std::nullopt;
+        return fn(*it2->second);
+      };
+      if (auto r = try_find(index_container_->asc_indices_)) return r;
+      if (auto r = try_find(index_container_->desc_indices_)) return r;
+      return std::nullopt;
+    }
+
+    // Returns the indices map (asc or desc) based on EntryT.
+    template <typename EntryT>
+    auto const &IndicesMap() const {
+      if constexpr (std::same_as<EntryT, DescEntry>) {
+        return index_container_->desc_indices_;
+      } else {
+        return index_container_->asc_indices_;
+      }
+    }
+
     std::shared_ptr<IndexContainer const> index_container_;
   };
 
@@ -298,6 +383,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
                  ActiveIndicesUpdater const &updater) override;
+
+  bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties, ActiveIndicesUpdater const &updater,
+                 IndexOrder order);
 
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ClearIndexStats();
 
@@ -315,13 +403,17 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
  private:
   void CleanupAllIndices();
+
+  template <typename EntryT>
   auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
-      -> std::shared_ptr<IndividualIndex>;
+      -> std::shared_ptr<IndividualIndex<EntryT>>;
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};
-  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{
-      std::make_shared<std::vector<AllIndicesEntry> const>()};
+  utils::Synchronized<std::shared_ptr<std::vector<AscAllIndicesEntry> const>, utils::WritePrioritizedRWLock>
+      asc_all_indices_{std::make_shared<std::vector<AscAllIndicesEntry> const>()};
+  utils::Synchronized<std::shared_ptr<std::vector<DescAllIndicesEntry> const>, utils::WritePrioritizedRWLock>
+      desc_all_indices_{std::make_shared<std::vector<DescAllIndicesEntry> const>()};
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
