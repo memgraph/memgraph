@@ -291,7 +291,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByEdgeTypePropertyRange &op) override {
     prev_ops_.pop_back();
-    order_by_helper_.RecordEdgeScan(&op);
+    // Edge range scans don't exist yet — they're created by EdgeIndexRewriter which runs after this pass.
+    // ORDER BY elimination for edge scans is handled there.
     return true;
   }
 
@@ -322,7 +323,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByEdgePropertyRange &op) override {
     prev_ops_.pop_back();
-    order_by_helper_.RecordEdgeScan(&op);
+    // See PostVisit(ScanAllByEdgeTypePropertyRange) above.
     return true;
   }
 
