@@ -2,7 +2,7 @@ import mgp
 
 
 @mgp.write_proc
-def void_proc(ctx: mgp.ProcCtx):
+def dummy(ctx: mgp.ProcCtx):
     pass
 
 
