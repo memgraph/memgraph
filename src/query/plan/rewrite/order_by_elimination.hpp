@@ -42,19 +42,14 @@ class OrderByEliminator {
   // ---------- types --------------------------------------------------------
 
   struct OrderByEntry {
-    storage::PropertyPath resolved;  // filled if PropertyLookup, or after alias resolution
-    // views into AST node name strings -- valid for the lifetime of the AstStorage
-    std::string_view alias;                  // non-empty if bare Identifier (unresolved)
-    std::string_view source_name;            // which scan symbol this entry references
-    Symbol::Position_t source_position{-1};  // symbol table position -- disambiguates same-name symbols
+    storage::PropertyPath resolved;          // filled once the property path is known
+    Symbol::Position_t source_position{-1};  // symbol table position -- used for all matching
 
-    [[nodiscard]] bool is_resolved() const { return alias.empty(); }
+    [[nodiscard]] bool has_path() const { return !resolved.empty(); }
 
     // could this entry's property overlap with the given property?
     // unresolved entries conservatively return true
-    [[nodiscard]] bool may_overlap(storage::PropertyId prop) const {
-      return !is_resolved() || (!resolved.empty() && resolved[0] == prop);
-    }
+    [[nodiscard]] bool may_overlap(storage::PropertyId prop) const { return !has_path() || resolved[0] == prop; }
   };
 
   using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypePropertyRange *,
@@ -65,12 +60,12 @@ class OrderByEliminator {
     OrderBy *op{nullptr};
     std::vector<OrderByEntry> entries;
     std::vector<ProvidedScan> provided_scans;  // accumulated bottom-up (outermost first)
-    bool valid{false};
+    bool well_formed{false};
     bool should_eliminate{false};
     bool order_preserving_path{true};  // set false if walk from first scan to OrderBy fails
 
-    [[nodiscard]] bool has_unresolved() const {
-      return std::ranges::any_of(entries, [](const auto &e) { return !e.is_resolved(); });
+    [[nodiscard]] bool has_pending_entries() const {
+      return std::ranges::any_of(entries, [](const auto &e) { return !e.has_path(); });
     }
   };
 
@@ -182,7 +177,7 @@ class OrderByEliminator {
   }
 
   OrderByInfo *ActiveContext() {
-    if (order_by_stack_.empty() || !order_by_stack_.back().valid) return nullptr;
+    if (order_by_stack_.empty() || !order_by_stack_.back().well_formed) return nullptr;
     return &order_by_stack_.back();
   }
 
@@ -205,16 +200,15 @@ class OrderByEliminator {
         const auto *ident = dynamic_cast<const Identifier *>(prop_lookup->expression_);
         if (!ident) return info;
 
-        info.entries.emplace_back(
-            ResolvePropertyPath(prop_lookup->property_path_), std::string_view{}, ident->name_, ident->symbol_pos_);
+        info.entries.emplace_back(ResolvePropertyPath(prop_lookup->property_path_), ident->symbol_pos_);
       } else if (const auto *ident = dynamic_cast<const Identifier *>(expr)) {
-        info.entries.emplace_back(storage::PropertyPath{}, ident->name_, std::string_view{}, ident->symbol_pos_);
+        info.entries.emplace_back(storage::PropertyPath{}, ident->symbol_pos_);
       } else {
         return info;
       }
     }
 
-    info.valid = true;
+    info.well_formed = true;
     return info;
   }
 
@@ -229,14 +223,13 @@ class OrderByEliminator {
   }
 
   void ResolveDownward(Produce *produce, OrderByInfo &info) const {
-    // step 1: track source_name through renames (e.g. Produce has `n AS m` -> source_name "m" becomes "n")
+    // step 1: track resolved entries through renames (e.g. Produce `n AS m` -> follow to inner symbol)
     for (auto &entry : info.entries) {
-      if (entry.source_name.empty()) continue;
+      DMG_ASSERT(entry.source_position != -1, "ORDER BY entry has unmapped symbol");
       const auto it = std::ranges::find_if(produce->named_expressions_,
-                                           [&](const auto *ne) { return ne->name_ == entry.source_name; });
+                                           [&](const auto *ne) { return ne->symbol_pos_ == entry.source_position; });
       if (it != produce->named_expressions_.end()) {
         if (const auto *ident = dynamic_cast<const Identifier *>((*it)->expression_)) {
-          entry.source_name = ident->name_;
           entry.source_position = ident->symbol_pos_;
         }
       }
@@ -244,28 +237,25 @@ class OrderByEliminator {
 
     // step 2: resolve unresolved aliases (e.g. n.prop AS a -> fill in resolved path)
     for (auto &entry : info.entries) {
-      if (entry.is_resolved()) continue;
+      if (entry.has_path()) continue;
 
-      const auto it =
-          std::ranges::find_if(produce->named_expressions_, [&](const auto *ne) { return ne->name_ == entry.alias; });
+      const auto it = std::ranges::find_if(produce->named_expressions_,
+                                           [&](const auto *ne) { return ne->symbol_pos_ == entry.source_position; });
       if (it == produce->named_expressions_.end()) continue;
       const auto *matched = *it;
 
       if (const auto *prop = dynamic_cast<const PropertyLookup *>(matched->expression_)) {
         const auto *inner = dynamic_cast<const Identifier *>(prop->expression_);
         if (!inner) {
-          info.valid = false;
+          info.well_formed = false;
           return;
         }
-        entry.source_name = inner->name_;
         entry.source_position = inner->symbol_pos_;
         entry.resolved = ResolvePropertyPath(prop->property_path_);
-        entry.alias = {};
       } else if (const auto *ident = dynamic_cast<const Identifier *>(matched->expression_)) {
-        entry.alias = ident->name_;
         entry.source_position = ident->symbol_pos_;
       } else {
-        info.valid = false;
+        info.well_formed = false;
         return;
       }
     }
@@ -298,7 +288,7 @@ class OrderByEliminator {
   }
 
   static void CheckOrderByElimination(OrderByInfo &ctx) {
-    if (!ctx.valid || !ctx.order_preserving_path || ctx.has_unresolved()) return;
+    if (!ctx.well_formed || !ctx.order_preserving_path || ctx.has_pending_entries()) return;
     if (ctx.provided_scans.empty()) return;
 
     size_t scan_idx = 0;
