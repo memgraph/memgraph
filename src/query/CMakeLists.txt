@@ -102,13 +102,6 @@ target_sources(mg-query
     jsonl/reader.cppm
     FILE_SET HEADERS
     FILES
-    plan/rewrite/enum.hpp
-    plan/point_distance_condition.hpp
-    string_helpers.hpp
-    path.hpp
-    plan_v2/egraph.hpp
-    plan_v2/ast_converter.hpp
-    plan_v2/egraph_converter.hpp
     dependant_symbol_visitor.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp
@@ -125,12 +118,16 @@ target_sources(mg-query
     interpret/eval.hpp
     interpret/frame.hpp
     path.hpp
+    plan/parallel_checker.hpp
     plan/point_distance_condition.hpp
     plan/read_write_type_checker.hpp
     plan/rewrite/enum.hpp
+    plan/rewrite/order_by_elimination.hpp
     plan/rewrite/parallel_rewrite.hpp
-    plan/parallel_checker.hpp
     plan/used_index_checker.hpp
+    plan_v2/ast_converter.hpp
+    plan_v2/egraph.hpp
+    plan_v2/egraph_converter.hpp
     procedure/cypher_types.hpp
     string_helpers.hpp
     vertex_accessor.hpp
