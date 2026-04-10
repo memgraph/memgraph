@@ -28,6 +28,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
+#include "query/plan/rewrite/order_by_elimination.hpp"
 #include "storage/v2/id_types.hpp"
 
 namespace memgraph::query::plan {
@@ -38,7 +39,7 @@ template <class TDbAccessor>
 class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   EdgeIndexRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), order_by_eliminator_(db, prev_ops_) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -171,6 +172,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       // Skip over the ScanAll operator
       current->set_input(current->input()->input());
 
+      TryRecordEdgeScan(indexed_scan.get());
       SetOnParent(std::move(indexed_scan));
     }
     return true;
@@ -325,6 +327,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     auto indexed_scan = GenScanByEdgeIndex(scan, scan.common_);
     if (indexed_scan) {
+      TryRecordEdgeScan(indexed_scan.get());
       SetOnParent(std::move(indexed_scan));
     }
     return true;
@@ -422,6 +425,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Produce &op) override {
     prev_ops_.push_back(&op);
+    order_by_eliminator_.OnPreVisitProduce(&op);
     return true;
   }
 
@@ -552,11 +556,15 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
+    order_by_eliminator_.OnPreVisitOrderBy(op);
     return true;
   }
 
-  bool PostVisit(OrderBy &) override {
+  bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
+    if (order_by_eliminator_.OnPostVisitOrderBy(op)) {
+      SetOnParent(op.input());
+    }
     return true;
   }
 
@@ -720,7 +728,16 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
+  OrderByEliminator<TDbAccessor> order_by_eliminator_;
   std::unordered_set<Symbol> additional_bound_symbols_;
+
+  /// Try to record a newly-created edge scan for ORDER BY elimination.
+  /// GenScanByEdgeIndex may wrap the scan in a Filter (for edge-type checking
+  /// on global property indexes), so we look through one level of Filter.
+  void TryRecordEdgeScan(LogicalOperator *op) {
+    const auto *target = (op->GetTypeInfo() == Filter::kType) ? op->input().get() : op;
+    order_by_eliminator_.TryRecordEdgeScan(target);
+  }
 
   struct EdgeTypePropertyIndexInfo {
     std::optional<LabelIx> edge_type_from_filter{};
@@ -1209,6 +1226,9 @@ std::unique_ptr<LogicalOperator> RewriteWithEdgeIndexRewriter(std::unique_ptr<Lo
                                                               TDbAccessor *db) {
   impl::EdgeIndexRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
   root_op->Accept(rewriter);
+  if (rewriter.new_root_) {
+    return rewriter.new_root_->Clone(ast_storage);
+  }
   return root_op;
 }
 
