@@ -128,6 +128,14 @@ class OrderByEliminator {
   }
 
   static bool IsMutationOrderPreserving(const LogicalOperator &op, const OrderByInfo &ctx) {
+    // SetProperty/RemoveProperty have a statically-known PropertyId. The property name
+    // comes from `propertyLookup : '.' propertyKeyName` where `propertyKeyName` is a
+    // `symbolicName` (literal identifier) — the atom before the dot could be a parameter
+    // (e.g. SET $param.prop = 1) but the property name itself cannot. SetProperties
+    // (SET n = expr / SET n += expr) is not handled because the map expression is
+    // opaque at plan time and may touch any property, so it falls through to false.
+    // TODO: SetProperties with a MapLiteral RHS could be handled — the map keys are
+    // literal PropertyIx values, so we could check overlap. Needs db_ access to resolve.
     auto property_overlaps_order_by = [&ctx](storage::PropertyId prop) -> bool {
       for (const auto &entry : ctx.entries) {
         if (!entry.is_resolved()) return true;
@@ -163,7 +171,7 @@ class OrderByEliminator {
 
   storage::PropertyId GetProperty(const PropertyIx &prop) const { return db_->NameToProperty(prop.name); }
 
-  OrderByInfo ExtractOrderByInfo(OrderBy &op) {
+  OrderByInfo ExtractOrderByInfo(OrderBy &op) const {
     OrderByInfo info;
     info.op = &op;
 
@@ -199,7 +207,7 @@ class OrderByEliminator {
     return info;
   }
 
-  void WalkAndCheckOrderPreserving(OrderByInfo &ctx) {
+  void WalkAndCheckOrderPreserving(OrderByInfo &ctx) const {
     for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
       const auto &ti = (*it)->GetTypeInfo();
       if (!IsOrderPreserving(ti) && !IsScanAllVariant(ti) && !IsMutationOrderPreserving(**it, ctx)) {
@@ -209,7 +217,7 @@ class OrderByEliminator {
     }
   }
 
-  void ResolveDownward(Produce *produce, OrderByInfo &info) {
+  void ResolveDownward(Produce *produce, OrderByInfo &info) const {
     for (auto &entry : info.entries) {
       if (entry.source_name.empty()) continue;
       for (const auto *ne : produce->named_expressions_) {
@@ -285,7 +293,7 @@ class OrderByEliminator {
         scan);
   }
 
-  void CheckOrderByElimination(OrderByInfo &ctx) {
+  static void CheckOrderByElimination(OrderByInfo &ctx) {
     if (!ctx.valid || !ctx.order_preserving_path || ctx.has_unresolved()) return;
     if (ctx.provided_scans.empty()) return;
 
