@@ -1067,3 +1067,9 @@ if (MG_ENTERPRISE)
         ${CMAKE_SOURCE_DIR}/query_modules/mg_utility
     )
 endif ()
+
+# Test log retention cleanup
+add_unit_test(logging
+    SOURCES logging.cpp
+    LINK_TARGETS gflags mg-flags
+)
