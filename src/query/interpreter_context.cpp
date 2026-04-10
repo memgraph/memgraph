@@ -14,6 +14,7 @@
 
 #include "query/interpreter_context.hpp"
 
+#include "flags/run_time_configurable.hpp"
 #include "parameters/parameters.hpp"
 #include "query/interpreter.hpp"
 #include "query/query_user.hpp"
@@ -52,6 +53,10 @@ InterpreterContext::InterpreterContext(
       system_{&system},
       bolt_server_context_(bolt_server_context),
       worker_pool(worker_pool) {
+  auto failed_query_log_dir = flags::run_time::GetFailedQueryLogDir();
+  if (!failed_query_log_dir.empty()) {
+    failed_query_log.emplace(failed_query_log_dir);
+  }
 }
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
