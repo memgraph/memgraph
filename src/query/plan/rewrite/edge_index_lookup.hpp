@@ -732,21 +732,11 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::unordered_set<Symbol> additional_bound_symbols_;
 
   /// Try to record a newly-created edge scan for ORDER BY elimination.
-  /// Range and exact-value scans provide ordered iteration. GenScanByEdgeIndex
-  /// may wrap the scan in a Filter (for edge-type checking on global property
-  /// indexes), so we look through one level of Filter.
+  /// GenScanByEdgeIndex may wrap the scan in a Filter (for edge-type checking
+  /// on global property indexes), so we look through one level of Filter.
   void TryRecordEdgeScan(LogicalOperator *op) {
-    // look through one level of Filter wrapping (edge-type check on global property indexes)
-    auto *target = (op->GetTypeInfo() == Filter::kType) ? op->input().get() : op;
-    if (auto *etr = dynamic_cast<ScanAllByEdgeTypePropertyRange *>(target)) {
-      order_by_eliminator_.RecordEdgeScan(etr);
-    } else if (auto *epr = dynamic_cast<ScanAllByEdgePropertyRange *>(target)) {
-      order_by_eliminator_.RecordEdgeScan(epr);
-    } else if (auto *etv = dynamic_cast<ScanAllByEdgeTypePropertyValue *>(target)) {
-      order_by_eliminator_.RecordEdgeScan(etv);
-    } else if (auto *epv = dynamic_cast<ScanAllByEdgePropertyValue *>(target)) {
-      order_by_eliminator_.RecordEdgeScan(epv);
-    }
+    const auto *target = (op->GetTypeInfo() == Filter::kType) ? op->input().get() : op;
+    order_by_eliminator_.TryRecordEdgeScan(target);
   }
 
   struct EdgeTypePropertyIndexInfo {

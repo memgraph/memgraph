@@ -61,7 +61,6 @@ class OrderByEliminator {
     std::vector<OrderByEntry> entries;
     std::vector<ProvidedScan> provided_scans;  // accumulated bottom-up (outermost first)
     bool well_formed{false};
-    bool should_eliminate{false};
     bool order_preserving_path{true};  // set false if walk from first scan to OrderBy fails
 
     [[nodiscard]] bool has_pending_entries() const {
@@ -79,9 +78,8 @@ class OrderByEliminator {
 
   bool OnPostVisitOrderBy(OrderBy & /*op*/) {
     DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in PostVisit");
-    auto &ctx = order_by_stack_.back();
-    CheckOrderByElimination(ctx);
-    const bool eliminate = ctx.should_eliminate;
+    const auto &ctx = order_by_stack_.back();
+    const bool eliminate = CanEliminate(ctx);
     order_by_stack_.pop_back();
     return eliminate;
   }
@@ -92,7 +90,7 @@ class OrderByEliminator {
     }
   }
 
-  void RecordVertexScan(ScanAllByLabelProperties *scan) {
+  void RecordVertexScan(const ScanAllByLabelProperties *scan) {
     if (auto *ctx = ActiveContext()) {
       if (ctx->provided_scans.empty()) WalkAndCheckOrderPreserving(*ctx);
       ctx->provided_scans.emplace_back(scan);
@@ -100,7 +98,7 @@ class OrderByEliminator {
   }
 
   template <typename EdgeScan>
-  void RecordEdgeScan(EdgeScan *scan) {
+  void RecordEdgeScan(const EdgeScan *scan) {
     static_assert(std::is_same_v<EdgeScan, ScanAllByEdgeTypePropertyRange> ||
                       std::is_same_v<EdgeScan, ScanAllByEdgePropertyRange> ||
                       std::is_same_v<EdgeScan, ScanAllByEdgeTypePropertyValue> ||
@@ -112,55 +110,24 @@ class OrderByEliminator {
     }
   }
 
+  /// Try to record an edge scan for ORDER BY elimination.
+  /// Dispatches to RecordEdgeScan for scan types that provide ordered iteration.
+  void TryRecordEdgeScan(const LogicalOperator *op) {
+    if (const auto *etr = dynamic_cast<const ScanAllByEdgeTypePropertyRange *>(op)) {
+      RecordEdgeScan(etr);
+    } else if (const auto *epr = dynamic_cast<const ScanAllByEdgePropertyRange *>(op)) {
+      RecordEdgeScan(epr);
+    } else if (const auto *etv = dynamic_cast<const ScanAllByEdgeTypePropertyValue *>(op)) {
+      RecordEdgeScan(etv);
+    } else if (const auto *epv = dynamic_cast<const ScanAllByEdgePropertyValue *>(op)) {
+      RecordEdgeScan(epv);
+    }
+  }
+
   void MarkFirstScanUnrecorded() {
     if (auto *ctx = ActiveContext()) {
       if (ctx->provided_scans.empty()) ctx->order_preserving_path = false;
     }
-  }
-
-  // ---------- static helpers -----------------------------------------------
-
-  static bool IsOrderPreserving(const utils::TypeInfo &type_info) {
-    return type_info == Filter::kType || type_info == ConstructNamedPath::kType ||
-           type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
-           type_info == Expand::kType || type_info == ExpandVariable::kType || type_info == Optional::kType ||
-           type_info == Distinct::kType || type_info == EvaluatePatternFilter::kType ||
-           type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType ||
-           type_info == Produce::kType || type_info == Accumulate::kType || type_info == SetLabels::kType ||
-           type_info == RemoveLabels::kType;
-  }
-
-  static bool IsMutationOrderPreserving(const LogicalOperator &op, const OrderByInfo &ctx) {
-    // SetProperty/RemoveProperty have a statically-known PropertyId. The property name
-    // comes from `propertyLookup : '.' propertyKeyName` where `propertyKeyName` is a
-    // `symbolicName` (literal identifier) -- the atom before the dot could be a parameter
-    // (e.g. SET $param.prop = 1) but the property name itself cannot. SetProperties
-    // (SET n = expr / SET n += expr) is not handled because the map expression is
-    // opaque at plan time and may touch any property, so it falls through to false.
-    // TODO: SetProperties with a MapLiteral RHS could be handled -- the map keys are
-    // literal PropertyIx values, so we could check overlap. Needs db_ access to resolve.
-    const auto property_overlaps_order_by = [&ctx](storage::PropertyId prop) {
-      return std::ranges::any_of(ctx.entries, [prop](const auto &entry) { return entry.may_overlap(prop); });
-    };
-
-    if (const auto *sp = dynamic_cast<const SetProperty *>(&op)) {
-      return !property_overlaps_order_by(sp->property_);
-    }
-    if (const auto *rp = dynamic_cast<const RemoveProperty *>(&op)) {
-      return !property_overlaps_order_by(rp->property_);
-    }
-    return false;
-  }
-
-  static bool IsScanAllVariant(const utils::TypeInfo &type_info) {
-    return type_info == ScanAll::kType || type_info == ScanAllByLabel::kType ||
-           type_info == ScanAllByLabelProperties::kType || type_info == ScanAllById::kType ||
-           type_info == ScanAllByPointDistance::kType || type_info == ScanAllByPointWithinbbox::kType ||
-           type_info == ScanAllByEdge::kType || type_info == ScanAllByEdgeType::kType ||
-           type_info == ScanAllByEdgeTypeProperty::kType || type_info == ScanAllByEdgeTypePropertyValue::kType ||
-           type_info == ScanAllByEdgeTypePropertyRange::kType || type_info == ScanAllByEdgeProperty::kType ||
-           type_info == ScanAllByEdgePropertyValue::kType || type_info == ScanAllByEdgePropertyRange::kType ||
-           type_info == ScanAllByEdgeId::kType;
   }
 
  private:
@@ -212,15 +179,67 @@ class OrderByEliminator {
     return info;
   }
 
+  // -- order-preserving classification --------------------------------------
+
+  static bool IsOrderPreserving(const utils::TypeInfo &type_info) {
+    return type_info == Filter::kType || type_info == ConstructNamedPath::kType ||
+           type_info == EdgeUniquenessFilter::kType || type_info == Limit::kType || type_info == Skip::kType ||
+           type_info == Expand::kType || type_info == ExpandVariable::kType || type_info == Optional::kType ||
+           type_info == Distinct::kType || type_info == EvaluatePatternFilter::kType ||
+           type_info == RollUpApply::kType || type_info == Apply::kType || type_info == Unwind::kType ||
+           type_info == Produce::kType || type_info == Accumulate::kType || type_info == SetLabels::kType ||
+           type_info == RemoveLabels::kType;
+  }
+
+  static bool IsScanAllVariant(const utils::TypeInfo &type_info) {
+    return type_info == ScanAll::kType || type_info == ScanAllByLabel::kType ||
+           type_info == ScanAllByLabelProperties::kType || type_info == ScanAllById::kType ||
+           type_info == ScanAllByPointDistance::kType || type_info == ScanAllByPointWithinbbox::kType ||
+           type_info == ScanAllByEdge::kType || type_info == ScanAllByEdgeType::kType ||
+           type_info == ScanAllByEdgeTypeProperty::kType || type_info == ScanAllByEdgeTypePropertyValue::kType ||
+           type_info == ScanAllByEdgeTypePropertyRange::kType || type_info == ScanAllByEdgeProperty::kType ||
+           type_info == ScanAllByEdgePropertyValue::kType || type_info == ScanAllByEdgePropertyRange::kType ||
+           type_info == ScanAllByEdgeId::kType;
+  }
+
+  /// Check if a mutation operator (SetProperty, RemoveProperty) modifies a property
+  /// that does not overlap with the ORDER BY columns. Returns true only for mutations
+  /// that provably leave the ordering intact.
+  static bool IsMutationOrderPreserving(const LogicalOperator &op, const OrderByInfo &ctx) {
+    // SetProperty/RemoveProperty have a statically-known PropertyId. SetProperties
+    // (SET n = expr / SET n += expr) is not handled because the map expression is
+    // opaque at plan time and may touch any property, so it falls through to false.
+    // TODO: SetProperties with a MapLiteral RHS could be handled -- the map keys are
+    // literal PropertyIx values, so we could check overlap. Needs db_ access to resolve.
+    const auto property_overlaps_order_by = [&ctx](storage::PropertyId prop) {
+      return std::ranges::any_of(ctx.entries, [prop](const auto &entry) { return entry.may_overlap(prop); });
+    };
+
+    if (const auto *sp = dynamic_cast<const SetProperty *>(&op)) {
+      return !property_overlaps_order_by(sp->property_);
+    }
+    if (const auto *rp = dynamic_cast<const RemoveProperty *>(&op)) {
+      return !property_overlaps_order_by(rp->property_);
+    }
+    return false;
+  }
+
+  /// Would this operator break the row order established by an index scan?
+  static bool BreaksOrder(const LogicalOperator &op, const OrderByInfo &ctx) {
+    const auto &ti = op.GetTypeInfo();
+    return !IsOrderPreserving(ti) && !IsScanAllVariant(ti) && !IsMutationOrderPreserving(op, ctx);
+  }
+
   void WalkAndCheckOrderPreserving(OrderByInfo &ctx) const {
     for (auto it = prev_ops_.rbegin(); it != prev_ops_.rend() && *it != ctx.op; ++it) {
-      const auto &ti = (*it)->GetTypeInfo();
-      if (!IsOrderPreserving(ti) && !IsScanAllVariant(ti) && !IsMutationOrderPreserving(**it, ctx)) {
+      if (BreaksOrder(**it, ctx)) {
         ctx.order_preserving_path = false;
         break;
       }
     }
   }
+
+  // -- alias resolution -----------------------------------------------------
 
   void ResolveDownward(Produce *produce, OrderByInfo &info) const {
     // step 1: track resolved entries through renames (e.g. Produce `n AS m` -> follow to inner symbol)
@@ -261,6 +280,8 @@ class OrderByEliminator {
     }
   }
 
+  // -- scan matching --------------------------------------------------------
+
   static bool MatchGroupAgainstScan(const ProvidedScan &scan, const std::vector<OrderByEntry> &entries,
                                     size_t group_start, size_t group_size) {
     return std::visit(
@@ -287,9 +308,10 @@ class OrderByEliminator {
         scan);
   }
 
-  static void CheckOrderByElimination(OrderByInfo &ctx) {
-    if (!ctx.well_formed || !ctx.order_preserving_path || ctx.has_pending_entries()) return;
-    if (ctx.provided_scans.empty()) return;
+  /// Can the provided scans satisfy all ORDER BY entries without an explicit sort?
+  [[nodiscard]] static bool CanEliminate(const OrderByInfo &ctx) {
+    if (!ctx.well_formed || !ctx.order_preserving_path || ctx.has_pending_entries()) return false;
+    if (ctx.provided_scans.empty()) return false;
 
     size_t scan_idx = 0;
     size_t entry_idx = 0;
@@ -299,7 +321,7 @@ class OrderByEliminator {
       const auto sym_pos =
           std::visit([](const auto *s) { return s->output_symbol_.position(); }, ctx.provided_scans[scan_idx]);
 
-      if (ctx.entries[entry_idx].source_position != sym_pos) return;
+      if (ctx.entries[entry_idx].source_position != sym_pos) return false;
 
       const size_t group_start = entry_idx;
       while (entry_idx < ctx.entries.size() && ctx.entries[entry_idx].source_position == sym_pos) {
@@ -307,14 +329,12 @@ class OrderByEliminator {
       }
       const size_t group_size = entry_idx - group_start;
 
-      if (!MatchGroupAgainstScan(ctx.provided_scans[scan_idx], ctx.entries, group_start, group_size)) return;
+      if (!MatchGroupAgainstScan(ctx.provided_scans[scan_idx], ctx.entries, group_start, group_size)) return false;
 
       ++scan_idx;
     }
 
-    if (entry_idx != ctx.entries.size()) return;
-
-    ctx.should_eliminate = true;
+    return entry_idx == ctx.entries.size();
   }
 };
 
