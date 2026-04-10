@@ -205,6 +205,37 @@ echo "==> Starting monitoring stack (${COMPOSE_PROJECT_NAME})"
   up -d
 
 echo
+echo "Monitoring instances:"
+"${COMPOSE_CMD[@]}" \
+  --project-name "${COMPOSE_PROJECT_NAME}" \
+  "${COMPOSE_FILES[@]}" \
+  ps
+
+echo
+echo "Connectivity probes:"
+if command -v curl >/dev/null 2>&1; then
+  curl -sS -o /dev/null --max-time 5 -w "  remote_write %{http_code} ${REMOTE_WRITE_URL}\n" "${REMOTE_WRITE_URL}" || echo "  remote_write probe failed: ${REMOTE_WRITE_URL}"
+  curl -sS -o /dev/null --max-time 5 -w "  logs_push    %{http_code} ${VLOGS_PUSH_URL}\n" "${VLOGS_PUSH_URL}" || echo "  logs_push probe failed: ${VLOGS_PUSH_URL}"
+else
+  echo "  curl not available; skipping HTTP probes."
+fi
+
+if command -v timeout >/dev/null 2>&1; then
+  IFS=',' read -r -a metrics_probe_targets <<< "${MEMGRAPH_METRICS_TARGETS}"
+  for target in "${metrics_probe_targets[@]}"; do
+    trimmed_target="$(echo "${target}" | xargs)"
+    [[ -z "${trimmed_target}" ]] && continue
+    target_host="${trimmed_target%:*}"
+    target_port="${trimmed_target##*:}"
+    if timeout 5 bash -c ">/dev/tcp/${target_host}/${target_port}" 2>/dev/null; then
+      echo "  metrics target reachable: ${target_host}:${target_port}"
+    else
+      echo "  metrics target unreachable: ${target_host}:${target_port}"
+    fi
+  done
+fi
+
+echo
 echo "Done."
 echo "  VictoriaMetrics write: ${REMOTE_WRITE_URL}"
 echo "  VictoriaLogs push:     ${VLOGS_PUSH_URL}"
