@@ -7983,6 +7983,7 @@ class CallProcedureCursor : public Cursor {
       }
 
       if (self_->void_procedure_) {
+        // we do not throw if a void procedure returns something, so we clear the iterators here
         result_.rows.clear();
         result_row_it_ = result_.rows.end();
         return true;
