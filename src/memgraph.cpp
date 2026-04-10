@@ -918,17 +918,22 @@ int main(int argc, char **argv) {
 // replication state
 #ifdef MG_ENTERPRISE
     if (coordinator_state && coordinator_state->IsDataInstance()) {
+      spdlog::trace("Closing data instance mgmt server");
       coordinator_state->GetDataInstanceManagementServer().Shutdown();
     }
 #endif
 
     // Don't replicate on shutdown anymore
     {
-      auto locked_repl_state = repl_state.Lock();
+      // Read lock is fine because we are only shutting down all the state which should be concurrently safe to do with
+      // other operations This allow terminating current commit that is taking place
+      auto locked_repl_state = repl_state.ReadLock();
+      spdlog::trace("Closing repl state");
       locked_repl_state->Shutdown();
     }
 
     dbms_handler.ForEach([](memgraph::dbms::DatabaseAccess acc) {
+      spdlog::trace("Closing background tasks and deleting repl clients for db: {}", acc->name());
       // Stop all triggers, streams and ttl
       acc->StopAllBackgroundTasks();
       acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
@@ -937,7 +942,9 @@ int main(int argc, char **argv) {
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending
     // queries.
+    spdlog::trace("Shutting down interpreter context");
     interpreter_context_.Shutdown();
+    spdlog::trace("Shutting down websocket server");
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();

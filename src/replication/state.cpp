@@ -408,10 +408,10 @@ std::optional<nlohmann::json> ReplicationState::GetTelemetryJson() const {
   return std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_.data_);
 }
 
-void ReplicationState::Shutdown() {
-  auto const replica_handler = [](RoleReplicaData &replica) { replica.server->Shutdown(); };
-  auto const main_handler = [](RoleMainData &main) {
-    for (auto &repl_client : main.registered_replicas_) {
+void ReplicationState::Shutdown() const {
+  auto const replica_handler = [](const RoleReplicaData &replica) { replica.server->Shutdown(); };
+  auto const main_handler = [](const RoleMainData &main) {
+    for (auto const &repl_client : main.registered_replicas_) {
       repl_client.Shutdown();
     }
   };
