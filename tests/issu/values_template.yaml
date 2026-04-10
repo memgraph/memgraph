@@ -375,7 +375,6 @@ commonArgs:
 # Setting the Memgraph's memory limit to more than the available resources can trigger pod eviction and restarts before Memgraph can make a query exception and continue running
 # the pod.
 data:
-<<<<<<< HEAD
   - id: "0"
     restoreDataFromSnapshot: false
     volumeSnapshotName: data-0-snap # Used only if restoreDataFromSnapshot is set to true
@@ -472,64 +471,3 @@ tolerations:
   #     operator: "Equal"
   #     value: "value1"
   #     effect: "NoSchedule"
-=======
-- id: "0"
-  restoreDataFromSnapshot: false
-  volumeSnapshotName: data-0-snap  # Used only if restoreDataFromSnapshot is set to true
-  args:
-  - "--management-port=10000"
-  - "--bolt-port=7687"
-  - "--monitoring-port=7444"
-  - "--monitoring-address=0.0.0.0"
-  - "--data-directory=/var/lib/memgraph/mg_data"
-
-- id: "1"
-  restoreDataFromSnapshot: false
-  volumeSnapshotName: data-1-snap  # Used only if restoreDataFromSnapshot is set to true
-  args:
-  - "--management-port=10000"
-  - "--bolt-port=7687"
-  - "--monitoring-port=7444"
-  - "--monitoring-address=0.0.0.0"
-  - "--data-directory=/var/lib/memgraph/mg_data"
-
-coordinators:
-- id: "1"
-  restoreDataFromSnapshot: false
-  volumeSnapshotName: coord-1-snap  # Used only if restoreDataFromSnapshot is set to true
-  args:
-  - "--coordinator-id=1"
-  - "--coordinator-port=12000"
-  - "--management-port=10000"
-  - "--bolt-port=7687"
-  - "--monitoring-port=7444"
-  - "--monitoring-address=0.0.0.0"
-  - "--coordinator-hostname=memgraph-coordinator-1.default.svc.cluster.local"
-  - "--data-directory=/var/lib/memgraph/mg_data"
-
-- id: "2"
-  restoreDataFromSnapshot: false
-  volumeSnapshotName: coord-2-snap  # Used only if restoreDataFromSnapshot is set to true
-  args:
-  - "--coordinator-id=2"
-  - "--coordinator-port=12000"
-  - "--management-port=10000"
-  - "--bolt-port=7687"
-  - "--monitoring-port=7444"
-  - "--monitoring-address=0.0.0.0"
-  - "--coordinator-hostname=memgraph-coordinator-2.default.svc.cluster.local"
-  - "--data-directory=/var/lib/memgraph/mg_data"
-
-- id: "3"
-  restoreDataFromSnapshot: false
-  volumeSnapshotName: coord-3-snap  # Used only if restoreDataFromSnapshot is set to true
-  args:
-  - "--coordinator-id=3"
-  - "--coordinator-port=12000"
-  - "--management-port=10000"
-  - "--bolt-port=7687"
-  - "--monitoring-port=7444"
-  - "--monitoring-address=0.0.0.0"
-  - "--coordinator-hostname=memgraph-coordinator-3.default.svc.cluster.local"
-  - "--data-directory=/var/lib/memgraph/mg_data"
->>>>>>> b737f089f (add monitoring to ISSU via helm chart)
