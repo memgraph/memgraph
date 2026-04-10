@@ -4278,6 +4278,20 @@ class ReloadSSLQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class ShowMemoryInfoQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowMemoryInfoQuery *Clone(AstStorage *storage) const override { return storage->Create<ShowMemoryInfoQuery>(); }
+
+ private:
+  friend class AstStorage;
+};
+
 class TtlQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

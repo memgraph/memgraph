@@ -1270,6 +1270,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitShowDatabases(MemgraphCypher::ShowDatabasesContext *ctx) override;
 
+  antlrcpp::Any visitShowMemoryInfo(MemgraphCypher::ShowMemoryInfoContext *ctx) override;
+
   /**
    * @return CreateEnumQuery*
    */

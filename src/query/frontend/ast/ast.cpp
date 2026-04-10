@@ -447,6 +447,9 @@ constexpr utils::TypeInfo query::ShowSchemaInfoQuery::kType{
 constexpr utils::TypeInfo query::ReloadSSLQuery::kType{
     .id = utils::TypeId::AST_RELOAD_SSL_QUERY, .name = "ReloadSSLQuery", .superclass = &query::Query::kType};
 
+constexpr utils::TypeInfo query::ShowMemoryInfoQuery::kType{
+    .id = utils::TypeId::AST_SHOW_MEMORY_INFO_QUERY, .name = "ShowMemoryInfoQuery", .superclass = &query::Query::kType};
+
 constexpr utils::TypeInfo query::TtlQuery::kType{
     .id = utils::TypeId::AST_TTL_QUERY, .name = "TtlQuery", .superclass = &query::Query::kType};
 

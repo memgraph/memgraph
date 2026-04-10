@@ -127,6 +127,7 @@ memgraphCypherKeyword : cypherKeyword
                       | MAIN
                       | MAP
                       | MATCHING
+                      | MEMORY
                       | METRICS
                       | MODE
                       | MODULE_READ
@@ -295,6 +296,7 @@ query : cypherQuery
       | tenantProfileQuery
       | descriptionQuery
       | reloadSSLQuery
+      | showMemoryInfo
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -772,6 +774,8 @@ useDatabase : USE DATABASE databaseName ;
 showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
+
+showMemoryInfo : SHOW MEMORY INFO ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 

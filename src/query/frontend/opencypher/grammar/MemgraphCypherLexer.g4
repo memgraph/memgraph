@@ -129,6 +129,7 @@ LOCK                    : L O C K ;
 MAIN                    : M A I N ;
 MAP                     : M A P ;
 MATCHING                : M A T C H I N G ;
+MEMORY                  : M E M O R Y ;
 METRICS                 : M E T R I C S ;
 MODE                    : M O D E ;
 MODULE_READ             : M O D U L E UNDERSCORE R E A D ;

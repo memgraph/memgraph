@@ -178,5 +178,47 @@ def test_show_nonexistent_profile_fails():
     conn.close()
 
 
+def test_show_memory_info_default():
+    """SHOW MEMORY INFO returns at least one row for the default database."""
+    conn = connect()
+    cursor = conn.cursor()
+
+    rows = execute(cursor, "SHOW MEMORY INFO")
+    assert len(rows) >= 1
+
+    # Find the default database row
+    names = [r[0] for r in rows]
+    assert "memgraph" in names
+
+    default_row = [r for r in rows if r[0] == "memgraph"][0]
+    name, mem_tracked, profile, mem_limit = default_row
+    assert name == "memgraph"
+    assert "B" in mem_tracked  # e.g. "368.00KiB"
+    assert profile is None  # no profile attached by default
+    assert mem_limit == "unlimited"
+
+    conn.close()
+
+
+def test_show_memory_info_with_profile():
+    """SHOW MEMORY INFO reflects the attached tenant profile."""
+    conn = connect()
+    cursor = conn.cursor()
+
+    execute(cursor, "CREATE TENANT PROFILE mem_prof LIMIT memory_limit 512 MB")
+    execute(cursor, "SET TENANT PROFILE ON DATABASE memgraph TO mem_prof")
+
+    rows = execute(cursor, "SHOW MEMORY INFO")
+    default_row = [r for r in rows if r[0] == "memgraph"][0]
+    _, _, profile, mem_limit = default_row
+    assert profile == "mem_prof"
+    assert "512" in mem_limit
+
+    # Clean up
+    execute(cursor, "REMOVE TENANT PROFILE FROM DATABASE memgraph")
+
+    conn.close()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))

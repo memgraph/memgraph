@@ -7627,6 +7627,59 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 #endif
 }
 
+PreparedQuery PrepareShowMemoryInfoQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException(
+        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
+  }
+
+  auto *db_handler = interpreter_context->dbms_handler;
+
+  Callback callback;
+  callback.header = {"name", "tenant_memory_tracked", "profile", "tenant_memory_limit"};
+  callback.fn = [db_handler]() -> std::vector<std::vector<TypedValue>> {
+    std::vector<std::vector<TypedValue>> results;
+    auto *profiles = db_handler->tenant_profiles();
+
+    db_handler->ForEach([&](auto db_acc) {
+      auto *db = db_acc.get();
+      if (!db) return;
+      auto name = db->storage()->name();
+      const auto total_mem = static_cast<double>(db->DbMemoryUsage());
+      const auto limit = db->TenantMemoryLimit();
+      auto profile_name = profiles ? profiles->GetProfileForDatabase(name) : std::nullopt;
+
+      results.emplace_back(std::vector<TypedValue>{
+          TypedValue(std::move(name)),
+          TypedValue(utils::GetReadableSize(total_mem)),
+          profile_name ? TypedValue(std::move(*profile_name)) : TypedValue(),
+          limit > 0 ? TypedValue(utils::GetReadableSize(static_cast<double>(limit))) : TypedValue("unlimited")});
+    });
+
+    return results;
+  };
+
+  return PreparedQuery{
+      .header = std::move(callback.header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          auto results = handler();
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::NOTHING;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+#else
+  throw QueryRuntimeException("SHOW MEMORY INFO is only available in the enterprise edition.");
+#endif
+}
+
 PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Create Enum query expects a current DB");
 
@@ -8784,6 +8837,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(ShowDatabasesQuery & /*unused*/) override {}
 
+  void Visit(ShowMemoryInfoQuery & /*unused*/) override {}
+
   void Visit(ReplicationInfoQuery & /*unused*/) override {}
 
   void Visit(CoordinatorQuery & /*unused*/) override {}
@@ -9313,6 +9368,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareShowDatabaseQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, user_or_role_);
+    } else if (utils::Downcast<ShowMemoryInfoQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowMemoryInfoQuery(std::move(parsed_query), interpreter_context_);
     } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw EdgeImportModeModificationInMulticommandTxException();
