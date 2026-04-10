@@ -732,8 +732,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::unordered_set<Symbol> additional_bound_symbols_;
 
   /// Try to record a newly-created edge scan for ORDER BY elimination.
-  /// Only range scans provide ordered iteration.  GenScanByEdgeIndex may
-  /// wrap the scan in a Filter (for edge-type checking on global property
+  /// Range and exact-value scans provide ordered iteration. GenScanByEdgeIndex
+  /// may wrap the scan in a Filter (for edge-type checking on global property
   /// indexes), so we look through one level of Filter.
   void TryRecordEdgeScan(LogicalOperator *op) {
     if (op->GetTypeInfo() == Filter::kType) {
@@ -743,6 +743,10 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       order_by_helper_.RecordEdgeScan(etr);
     } else if (auto *epr = dynamic_cast<ScanAllByEdgePropertyRange *>(op)) {
       order_by_helper_.RecordEdgeScan(epr);
+    } else if (auto *etv = dynamic_cast<ScanAllByEdgeTypePropertyValue *>(op)) {
+      order_by_helper_.RecordEdgeScan(etv);
+    } else if (auto *epv = dynamic_cast<ScanAllByEdgePropertyValue *>(op)) {
+      order_by_helper_.RecordEdgeScan(epv);
     }
   }
 

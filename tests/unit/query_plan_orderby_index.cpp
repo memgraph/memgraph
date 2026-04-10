@@ -1522,4 +1522,91 @@ TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyRangeDifferentPropNotEliminated) 
       << "OrderBy must NOT be eliminated — ORDER BY on different property than index";
 }
 
+// MATCH ()-[e:KNOWS]->() WHERE e.since = 2020 RETURN e.since ORDER BY e.since — exact value, eliminated.
+TYPED_TEST(OrderByIndexTest, EdgeTypePropertyValueEliminated) {
+  FakeDbAccessor dba;
+  const auto *edge_type_name = "KNOWS";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto since_prop = PROPERTY_PAIR(dba, "since");
+  dba.SetIndexCount(edge_type, since_prop.second, 1);
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT, {edge_type_name}), NODE("anon2"))),
+                         WHERE(EQ(PROPERTY_LOOKUP(dba, "e", since_prop.second), LITERAL(2020))),
+                         RETURN(PROPERTY_LOOKUP(dba, "e", since_prop.second),
+                                AS("es"),
+                                ORDER_BY(PROPERTY_LOOKUP(dba, "e", since_prop.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeTypePropertyValue::kType))
+      << "Plan should use ScanAllByEdgeTypePropertyValue";
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated — exact-value edge scan trivially provides order";
+}
+
+// MATCH ()-[e:KNOWS]->() WHERE e.since = 2020 RETURN e ORDER BY e.name — different property, not eliminated.
+TYPED_TEST(OrderByIndexTest, EdgeTypePropertyValueDifferentPropNotEliminated) {
+  FakeDbAccessor dba;
+  const auto *edge_type_name = "KNOWS";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto since_prop = PROPERTY_PAIR(dba, "since");
+  const auto name_prop = PROPERTY_PAIR(dba, "name");
+  dba.SetIndexCount(edge_type, since_prop.second, 1);
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT, {edge_type_name}), NODE("anon2"))),
+                         WHERE(EQ(PROPERTY_LOOKUP(dba, "e", since_prop.second), LITERAL(2020))),
+                         RETURN("e", ORDER_BY(PROPERTY_LOOKUP(dba, "e", name_prop.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must NOT be eliminated — ORDER BY on different property than index";
+}
+
+// MATCH ()-[e]->() WHERE e.since = 2020 RETURN e.since ORDER BY e.since — global edge property value, eliminated.
+TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyValueEliminated) {
+  FakeDbAccessor dba;
+  const auto since_prop = PROPERTY_PAIR(dba, "since");
+  dba.SetIndexCount(since_prop.second, 1);  // global edge property index
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT), NODE("anon2"))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "e", since_prop.second), LITERAL(2020))),
+                                   RETURN(PROPERTY_LOOKUP(dba, "e", since_prop.second),
+                                          AS("es"),
+                                          ORDER_BY(PROPERTY_LOOKUP(dba, "e", since_prop.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgePropertyValue::kType))
+      << "Plan should use ScanAllByEdgePropertyValue";
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy should be eliminated — exact-value global edge scan trivially provides order";
+}
+
+// MATCH ()-[e]->() WHERE e.since = 2020 RETURN e ORDER BY e.name — global edge value, different property, not
+// eliminated.
+TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyValueDifferentPropNotEliminated) {
+  FakeDbAccessor dba;
+  const auto since_prop = PROPERTY_PAIR(dba, "since");
+  const auto name_prop = PROPERTY_PAIR(dba, "name");
+  dba.SetIndexCount(since_prop.second, 1);  // global edge property index on "since"
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT), NODE("anon2"))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "e", since_prop.second), LITERAL(2020))),
+                                   RETURN("e", ORDER_BY(PROPERTY_LOOKUP(dba, "e", name_prop.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgePropertyValue::kType))
+      << "Plan should use ScanAllByEdgePropertyValue";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must NOT be eliminated — ORDER BY on different property than index";
+}
+
 }  // namespace

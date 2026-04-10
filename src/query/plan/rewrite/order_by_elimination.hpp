@@ -49,7 +49,8 @@ class OrderByEliminator {
   };
 
   using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypePropertyRange *,
-                                    const ScanAllByEdgePropertyRange *>;
+                                    const ScanAllByEdgePropertyRange *, const ScanAllByEdgeTypePropertyValue *,
+                                    const ScanAllByEdgePropertyValue *>;
 
   struct OrderByInfo {
     OrderBy *op{nullptr};
@@ -99,8 +100,10 @@ class OrderByEliminator {
   template <typename EdgeScan>
   void RecordEdgeScan(EdgeScan *scan) {
     static_assert(std::is_same_v<EdgeScan, ScanAllByEdgeTypePropertyRange> ||
-                      std::is_same_v<EdgeScan, ScanAllByEdgePropertyRange>,
-                  "Only range scans provide ordered iteration");
+                      std::is_same_v<EdgeScan, ScanAllByEdgePropertyRange> ||
+                      std::is_same_v<EdgeScan, ScanAllByEdgeTypePropertyValue> ||
+                      std::is_same_v<EdgeScan, ScanAllByEdgePropertyValue>,
+                  "Only range and exact-value scans provide ordered iteration");
     if (order_by_stack_.empty() || !order_by_stack_.back().valid) return;
     auto &ctx = order_by_stack_.back();
     if (ctx.provided_scans.empty()) {
