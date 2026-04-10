@@ -417,6 +417,29 @@ class Properties:
         except KeyError:
             return False
 
+    def to_dict(self) -> dict:
+        """
+        Get all properties as a JSON-serializable dictionary.
+
+        Property values are recursively converted so that temporal types
+        (datetime, date, time, timedelta) become ISO-8601 strings, and all
+        other values pass through unchanged if already JSON-safe.
+
+        Returns:
+            A dict mapping property names to JSON-serializable values.
+
+        Raises:
+            InvalidContextError: If edge or vertex is out of context.
+            DeletedObjectError: If the object has been deleted.
+
+        Examples:
+            ```vertex.properties.to_dict()```
+            ```edge.properties.to_dict()```
+        """
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+        return {prop.name: _value_to_dict(prop.value) for prop in self.items()}
+
 
 class EdgeType:
     """Type of an Edge."""
@@ -993,6 +1016,63 @@ class Path:
             self._edges = tuple(Edge(self._path.edge_at(i)) for i in range(num_edges))
 
         return self._edges
+
+
+def _value_to_dict(value):
+    """Recursively convert an mgp or Python value to a JSON-serializable object.
+
+    Conversion rules:
+        - ``Properties`` -> ``dict`` via ``Properties.to_dict()``
+        - ``list`` / ``tuple`` -> ``list`` (items converted recursively)
+        - ``dict`` -> ``dict`` (values converted recursively)
+        - ``datetime.datetime`` -> ISO-8601 string (checked before ``date``)
+        - ``datetime.date`` -> ISO-8601 string
+        - ``datetime.time`` -> ISO-8601 string
+        - ``datetime.timedelta`` -> ISO-8601 duration string
+        - ``int``, ``float``, ``str``, ``bool``, ``None`` -> returned as-is
+        - anything else -> ``str(value)``
+    """
+    if isinstance(value, Properties):
+        return value.to_dict()
+    if isinstance(value, (list, tuple)):
+        return [_value_to_dict(item) for item in value]
+    if isinstance(value, dict):
+        return {k: _value_to_dict(v) for k, v in value.items()}
+    if isinstance(value, datetime.datetime):
+        return value.isoformat()
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    if isinstance(value, datetime.time):
+        return value.isoformat()
+    if isinstance(value, datetime.timedelta):
+        total = int(value.total_seconds())
+        hours, remainder = divmod(abs(total), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"P0DT{hours}H{minutes}M{seconds}.{value.microseconds:06d}S"
+    if isinstance(value, (int, float, str, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def to_dict(value):
+    """Convert an mgp value to a JSON-serializable Python object.
+
+    This is a convenience wrapper around ``_value_to_dict`` that also
+    accepts a ``Properties`` instance directly.
+
+    Args:
+        value: Any mgp value — a ``Properties`` object, a Python primitive,
+            a temporal type, a list, or a dict (possibly nested).
+
+    Returns:
+        A JSON-serializable Python object (``dict``, ``list``, ``str``,
+        ``int``, ``float``, ``bool``, or ``None``).
+
+    Examples:
+        ```mgp.to_dict(vertex.properties)```
+        ```mgp.to_dict(some_datetime_value)```
+    """
+    return _value_to_dict(value)
 
 
 class Vertices:
