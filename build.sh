@@ -142,10 +142,8 @@ fi
 
 # Initialize arrays for arguments
 INIT_ARGS=()
-CONAN_INSTALL_ARGS=(
-  .
-  --build=missing
-  -pr:h memgraph_template_profile
+HOST_PROFILES=("-pr:h" "memgraph_toolchain_v7")
+CONAN_COMMON_ARGS=(
   -pr:b memgraph_build_profile
   -s build_type="$BUILD_TYPE"
   -s os.distro="$DISTRO"
@@ -153,7 +151,7 @@ CONAN_INSTALL_ARGS=(
 
 if [[ "$offline" = true ]]; then
     INIT_ARGS+=("--offline")
-    CONAN_INSTALL_ARGS+=("--no-remote")
+    CONAN_COMMON_ARGS+=("--no-remote")
 fi
 
 # delete existing build directory
@@ -224,35 +222,25 @@ cmake_var_enabled() {
     return 1
 }
 
-# Build sanitizer list from CMAKE_ARGS
-MG_SANITIZERS=""
-declare -A sanitizer_map=(
-    ["ASAN"]="address"
-    ["UBSAN"]="undefined"
-    ["TSAN"]="thread"
-)
-
-for cmake_var in "${!sanitizer_map[@]}"; do
-    if cmake_var_enabled "$cmake_var" "$CMAKE_ARGS"; then
-        MG_SANITIZERS="${MG_SANITIZERS:+$MG_SANITIZERS,}${sanitizer_map[$cmake_var]}"
-    fi
-done
-
-if [[ -n "$MG_SANITIZERS" ]]; then
-    echo "Sanitizers enabled: $MG_SANITIZERS"
-    export MG_SANITIZERS="$MG_SANITIZERS"
-else
-    echo "No sanitizers enabled"
+# Add sanitizer profiles based on CMAKE_ARGS
+if cmake_var_enabled "ASAN" "$CMAKE_ARGS"; then
+    HOST_PROFILES+=("-pr:h" "add_asan")
+    echo "ASAN enabled"
+fi
+if cmake_var_enabled "UBSAN" "$CMAKE_ARGS"; then
+    HOST_PROFILES+=("-pr:h" "add_ubsan")
+    echo "UBSAN enabled"
+fi
+if cmake_var_enabled "TSAN" "$CMAKE_ARGS"; then
+    HOST_PROFILES+=("-pr:h" "add_tsan")
+    echo "TSAN enabled"
 fi
 
 # generate dependency graph and exit early
 if [[ "$graph_info" = true ]]; then
     echo "Generating dependency graph -> graph.html"
     MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan graph info . \
-      -pr:h memgraph_template_profile \
-      -pr:b memgraph_build_profile \
-      -s build_type="$BUILD_TYPE" \
-      -s os.distro="$DISTRO" \
+      "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
       --format=html > graph.html
     echo "Open graph.html in a browser to view the dependency graph"
     exit 0
@@ -261,17 +249,14 @@ fi
 # update lockfile if requested
 if [[ "$update_lockfile" = true ]]; then
     echo "Updating conan.lock"
-    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan lock create \
-      . \
-      -pr:h memgraph_template_profile \
-      -pr:b memgraph_build_profile \
-      -s build_type="$BUILD_TYPE" \
-      -s os.distro="$DISTRO" \
+    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan lock create . \
+      "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
       --lockfile-out=conan.lock
 fi
 
 # install conan dependencies
-MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install "${CONAN_INSTALL_ARGS[@]}"
+MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install . --build=missing \
+  "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}"
 
 source build/generators/conanbuild.sh
 

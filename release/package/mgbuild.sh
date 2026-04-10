@@ -609,45 +609,26 @@ build_memgraph () {
   echo "Installing Conan dependencies..."
   local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
 
-  # Determine profile template based on sanitizer flags
-  local DASAN_ENABLED=false
-  local DUBSAN_ENABLED=false
-
-  # Check if ASAN or UBSAN flags are set
+  # Build profile list from sanitizer flags
+  local SANITIZER_PROFILES=""
   if [[ "$asan_flag" == "-DASAN=ON" ]]; then
-    DASAN_ENABLED=true
+    SANITIZER_PROFILES="$SANITIZER_PROFILES -pr:h add_asan"
+    echo "ASAN enabled"
   fi
   if [[ "$ubsan_flag" == "-DUBSAN=ON" ]]; then
-    DUBSAN_ENABLED=true
+    SANITIZER_PROFILES="$SANITIZER_PROFILES -pr:h add_ubsan"
+    echo "UBSAN enabled"
   fi
 
-  MG_SANITIZERS=""
-  if [[ "$DASAN_ENABLED" == true ]]; then
-    MG_SANITIZERS="address"
-  fi
-  if [[ "$DUBSAN_ENABLED" == true ]]; then
-    if [[ -n "$MG_SANITIZERS" ]]; then
-      # If we already have address sanitizer, add undefined to the list
-      MG_SANITIZERS="address,undefined"
-    else
-      MG_SANITIZERS="undefined"
-    fi
-  fi
-
-  if [[ -n "$MG_SANITIZERS" ]]; then
-    echo "Sanitizers enabled: $MG_SANITIZERS"
-    CMD_START="$CMD_START && export MG_SANITIZERS=$MG_SANITIZERS"
-  else
-    echo "No sanitizers enabled"
-  fi
+  local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_v7 $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
 
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN"
   if [[ -n "$build_dependency" ]]; then
     echo "Installing build dependency: $build_dependency"
     if [[ "$build_dependency" == "all" ]]; then
-      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing $CONAN_PROFILE_ARGS"
     else
-      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install --requires $build_dependency --lockfile="" --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install --requires $build_dependency --lockfile="" --build=missing $CONAN_PROFILE_ARGS"
     fi
 
     if [[ -n "$conan_remote" && -n "$conan_username" && -n "$conan_password" ]]; then
@@ -657,7 +638,7 @@ build_memgraph () {
 
     exit 0
   else
-    docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing $CONAN_PROFILE_ARGS"
   fi
   CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
 
