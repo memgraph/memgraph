@@ -229,9 +229,9 @@ license](./licenses/BSL.txt).</br> Memgraph Enterprise is available under the
 
 ## :star: Special Thanks
 
-We're grateful to all internal and especially external contributors who have
-helped improve Memgraph through bug fixes, features, and documentation. Thank
-you for making Memgraph better!
+We're grateful to all contributors, especially external ones, who have helped
+improve Memgraph through bug fixes, features, and documentation. Thank you for
+making Memgraph better!
 
 <a href="https://github.com/memgraph/memgraph/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=memgraph/memgraph" />
