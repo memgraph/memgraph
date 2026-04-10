@@ -1,0 +1,25 @@
+diff --git a/recipes/protobuf/all/conandata.yml b/recipes/protobuf/all/conandata.yml
+index 7c9879f82..f664cb2cc 100644
+--- a/recipes/protobuf/all/conandata.yml
++++ b/recipes/protobuf/all/conandata.yml
+@@ -20,6 +20,10 @@ sources:
+   "3.20.3":
+     url: "https://github.com/protocolbuffers/protobuf/archive/v3.20.3.tar.gz"
+     sha256: "9c0fd39c7a08dff543c643f0f4baf081988129a411b977a07c46221793605638"
++  "3.12.4":
++    url: "https://github.com/protocolbuffers/protobuf/archive/v3.12.4.tar.gz"
++    sha256: "512e5a674bf31f8b7928a64d8adf73ee67b8fe88339ad29adaa3b84dbaa570d8"
++
+ patches:
+   "3.21.12":
+     - patch_file: "patches/protobuf-3.21.12-upstream-macos-macros.patch"
+diff --git a/recipes/protobuf/config.yml b/recipes/protobuf/config.yml
+index efb4278c9..bd4fde64c 100644
+--- a/recipes/protobuf/config.yml
++++ b/recipes/protobuf/config.yml
+@@ -13,3 +13,5 @@ versions:
+     folder: all
+   "3.20.3":
+     folder: all
++  "3.12.4"
++    folder: all

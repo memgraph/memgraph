@@ -1,0 +1,7 @@
+sources:
+  "3.7.1-memgraph":
+    url: "https://github.com/apache/pulsar-client-cpp/archive/refs/tags/v3.7.1.tar.gz"
+    sha256: "72be6d311b62464b758f2789689dd81469f1abce02b46bef4f0958312117cb71"
+  "4.0.0-memgraph":
+    url: "https://github.com/apache/pulsar-client-cpp/archive/refs/tags/v4.0.0.tar.gz"
+    sha256: "4bcb09558d1ced113a2c7e08c60b48ce3f0e9df1eaffac300697117bb1cadbe5"
