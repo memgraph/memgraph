@@ -39,7 +39,7 @@ template <class TDbAccessor>
 class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   EdgeIndexRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), order_by_helper_(db, prev_ops_) {}
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), order_by_eliminator_(db, prev_ops_) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -425,7 +425,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Produce &op) override {
     prev_ops_.push_back(&op);
-    order_by_helper_.OnPreVisitProduce(&op);
+    order_by_eliminator_.OnPreVisitProduce(&op);
     return true;
   }
 
@@ -556,13 +556,13 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
-    order_by_helper_.OnPreVisitOrderBy(op);
+    order_by_eliminator_.OnPreVisitOrderBy(op);
     return true;
   }
 
   bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
-    if (order_by_helper_.OnPostVisitOrderBy(op)) {
+    if (order_by_eliminator_.OnPostVisitOrderBy(op)) {
       SetOnParent(op.input());
     }
     return true;
@@ -728,7 +728,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
-  OrderByEliminator<TDbAccessor> order_by_helper_;
+  OrderByEliminator<TDbAccessor> order_by_eliminator_;
   std::unordered_set<Symbol> additional_bound_symbols_;
 
   /// Try to record a newly-created edge scan for ORDER BY elimination.
@@ -736,17 +736,16 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   /// may wrap the scan in a Filter (for edge-type checking on global property
   /// indexes), so we look through one level of Filter.
   void TryRecordEdgeScan(LogicalOperator *op) {
-    if (op->GetTypeInfo() == Filter::kType) {
-      op = op->input().get();
-    }
-    if (auto *etr = dynamic_cast<ScanAllByEdgeTypePropertyRange *>(op)) {
-      order_by_helper_.RecordEdgeScan(etr);
-    } else if (auto *epr = dynamic_cast<ScanAllByEdgePropertyRange *>(op)) {
-      order_by_helper_.RecordEdgeScan(epr);
-    } else if (auto *etv = dynamic_cast<ScanAllByEdgeTypePropertyValue *>(op)) {
-      order_by_helper_.RecordEdgeScan(etv);
-    } else if (auto *epv = dynamic_cast<ScanAllByEdgePropertyValue *>(op)) {
-      order_by_helper_.RecordEdgeScan(epv);
+    // look through one level of Filter wrapping (edge-type check on global property indexes)
+    auto *target = (op->GetTypeInfo() == Filter::kType) ? op->input().get() : op;
+    if (auto *etr = dynamic_cast<ScanAllByEdgeTypePropertyRange *>(target)) {
+      order_by_eliminator_.RecordEdgeScan(etr);
+    } else if (auto *epr = dynamic_cast<ScanAllByEdgePropertyRange *>(target)) {
+      order_by_eliminator_.RecordEdgeScan(epr);
+    } else if (auto *etv = dynamic_cast<ScanAllByEdgeTypePropertyValue *>(target)) {
+      order_by_eliminator_.RecordEdgeScan(etv);
+    } else if (auto *epv = dynamic_cast<ScanAllByEdgePropertyValue *>(target)) {
+      order_by_eliminator_.RecordEdgeScan(epv);
     }
   }
 

@@ -163,7 +163,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         db_(db),
         index_hints_(std::move(index_hints)),
         parameters_(parameters),
-        order_by_helper_(db, prev_ops_) {}
+        order_by_eliminator_(db, prev_ops_) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -353,7 +353,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (!has_in_filter) {
         auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get());
         if (scan_by_props) {
-          order_by_helper_.RecordVertexScan(scan_by_props);
+          order_by_eliminator_.RecordVertexScan(scan_by_props);
           recorded = true;
         }
       }
@@ -361,7 +361,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     if (!recorded) {
-      order_by_helper_.MarkFirstScanUnrecorded();
+      order_by_eliminator_.MarkFirstScanUnrecorded();
     }
     return true;
   }
@@ -589,7 +589,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Produce &op) override {
     prev_ops_.push_back(&op);
-    order_by_helper_.OnPreVisitProduce(&op);
+    order_by_eliminator_.OnPreVisitProduce(&op);
     return true;
   }
 
@@ -720,13 +720,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
-    order_by_helper_.OnPreVisitOrderBy(op);
+    order_by_eliminator_.OnPreVisitOrderBy(op);
     return true;
   }
 
   bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
-    if (order_by_helper_.OnPostVisitOrderBy(op)) {
+    if (order_by_eliminator_.OnPostVisitOrderBy(op)) {
       SetOnParent(op.input());
     }
     return true;
@@ -894,7 +894,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::vector<LogicalOperator *> prev_ops_;
   IndexHints index_hints_;
   const Parameters &parameters_;
-  OrderByEliminator<TDbAccessor> order_by_helper_;
+  OrderByEliminator<TDbAccessor> order_by_eliminator_;
 
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
@@ -1694,7 +1694,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       metadata.labels_to_erase.push_back(found_index->label);
 
-      bool has_in = std::ranges::any_of(found_index->filters, [](const FilterInfo &f) {
+      const bool has_in = std::ranges::any_of(found_index->filters, [](const FilterInfo &f) {
         return f.property_filter && f.property_filter->type_ == PropertyFilter::Type::IN;
       });
       auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;

@@ -110,7 +110,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kUnion{1.0};
     static constexpr double kSubquery{1.0};
     static constexpr double kOrderBy{1.0};
-    static constexpr double kOrderByMinCardinality{2.0};
+    static constexpr double kOrderByMinCardinality{
+        2.0};  // floor so log2 >= 1; prevents sort appearing free on empty tables
   };
 
   struct CardParam {
@@ -269,7 +270,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(OrderBy & /*op*/) override {
-    IncrementCost(CostParam::kOrderBy * std::log2(std::max(CostParam::kOrderByMinCardinality, cardinality_)));
+    // OrderBy doesn't change cardinality; cardinality_ here is the sort input size
+    IncrementOrderByCost();
     return true;
   }
 
@@ -289,7 +291,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(OrderByParallel & /*op*/) override {
-    IncrementCost(CostParam::kOrderBy * std::log2(std::max(CostParam::kOrderByMinCardinality, cardinality_)));
+    IncrementOrderByCost();
     return true;
   }
 
@@ -611,6 +613,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   void IncrementCost(double param) {
     const auto delta = std::max(CostParam::kMinimumCost, param * cardinality_);
     cost_ += delta / num_threads_;
+  }
+
+  void IncrementOrderByCost() {
+    IncrementCost(CostParam::kOrderBy * std::log2(std::max(CostParam::kOrderByMinCardinality, cardinality_)));
   }
 
   CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
