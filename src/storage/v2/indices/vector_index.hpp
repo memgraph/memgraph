@@ -181,11 +181,9 @@ class VectorIndex {
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
-  /// @param vertices Vertices accessor (used to iterate and decode properties).
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @return true if the index was dropped successfully, false otherwise.
-  bool DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,
-                 NameIdMapper *name_id_mapper);
+  bool DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
 
   /// @brief Drops all existing indexes.
   void Clear();

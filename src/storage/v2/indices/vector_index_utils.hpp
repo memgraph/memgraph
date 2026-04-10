@@ -19,8 +19,11 @@
 #include "query/exceptions.hpp"
 #include "range/v3/algorithm/remove.hpp"
 #include "storage/v2/indices/tracked_vector_allocator.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/memory_tracker.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -338,6 +341,31 @@ inline bool UnregisterIndexId(PropertyValue &property_value, uint64_t index_id) 
   auto &ids = property_value.ValueVectorIndexIds();
   ids.erase(ranges::remove(ids, index_id), ids.end());
   return ids.empty();
+}
+
+/// @brief Checks if dropping a vector index would exceed the total memory limit.
+/// When an index is dropped, indexed vectors are converted back to property values in the property store,
+/// which increases memory usage. This function estimates the cost and throws OutOfMemoryException
+/// if the limit would be exceeded.
+inline void CheckGraphMemoryForIndexDrop(std::string_view index_name, std::size_t num_vectors, std::size_t dimension) {
+  const auto total_limit = utils::total_memory_tracker.HardLimit();
+  if (total_limit <= 0) return;
+
+  const auto bytes_per_element = FLAGS_storage_floating_point_resolution_bits / 8;
+  const auto estimated_cost =
+      static_cast<int64_t>(num_vectors) * static_cast<int64_t>(dimension) * static_cast<int64_t>(bytes_per_element);
+  const auto current_usage = utils::total_memory_tracker.Amount();
+
+  if (current_usage + estimated_cost > total_limit) {
+    throw utils::OutOfMemoryException(
+        fmt::format("Dropping vector index '{}' would require approximately {} of additional memory, "
+                    "but only {} is available (current usage: {}, limit: {}).",
+                    index_name,
+                    utils::GetReadableSize(estimated_cost),
+                    utils::GetReadableSize(std::max(total_limit - current_usage, int64_t{0})),
+                    utils::GetReadableSize(current_usage),
+                    utils::GetReadableSize(total_limit)));
+  }
 }
 
 /// @brief Returns the maximum number of concurrent threads for vector index operations.

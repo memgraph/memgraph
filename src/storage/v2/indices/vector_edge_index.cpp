@@ -184,7 +184,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
     });
     return true;
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, vertices, name_id_mapper);
+    DropIndex(spec.index_name, name_id_mapper);
     throw;
   }
 }
@@ -237,13 +237,12 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
       PopulateVectorIndexSingleThreaded(vertices, process_vertex_for_recovery);
     }
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, vertices, name_id_mapper);
+    DropIndex(spec.index_name, name_id_mapper);
     throw;
   }
 }
 
-bool VectorEdgeIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,
-                                NameIdMapper *name_id_mapper) {
+bool VectorEdgeIndex::DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
     return false;
@@ -258,17 +257,22 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, utils::SkipList<Ver
   auto &spec = index_item.spec;
   std::vector<Edge *> dropped_edges;
   {
-    auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+    auto guard = std::lock_guard{mg_index.mutex};
 
     const auto dimension = mg_index.index.dimensions();
-    std::vector<double> vector(dimension);
-    for (auto &vertex : vertices) {
-      for (auto &edge_tuple : vertex.out_edges) {
-        if (std::get<kEdgeTypeIdPos>(edge_tuple) != spec.edge_type_id) continue;
+    CheckGraphMemoryForIndexDrop(index_name, mg_index.index.size(), dimension);
 
-        auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
-        if (!mg_index.index.contains(edge)) continue;
+    auto const index_size = mg_index.index.size();
+    dropped_edges.resize(index_size);
+    mg_index.index.export_keys(dropped_edges.data(), 0, index_size);
 
+    // Convert indexed vectors back to property values with OOM protection.
+    // Track processed vertices so we can rollback on OOM.
+    std::size_t processed = 0;
+    try {
+      const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+      std::vector<double> vector(dimension);
+      for (auto *edge : dropped_edges) {
         auto vector_property = edge->properties.GetProperty(spec.property);
         if (UnregisterIndexId(vector_property, index_id)) {
           mg_index.index.get(edge, vector.data());
@@ -276,12 +280,25 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name, utils::SkipList<Ver
         } else {
           edge->properties.SetProperty(spec.property, vector_property);
         }
+        ++processed;
       }
+    } catch (const utils::OutOfMemoryException &) {
+      const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+      // Rollback: restore already-processed edges to their indexed representation.
+      for (std::size_t i = 0; i < processed; ++i) {
+        auto *edge = dropped_edges[i];
+        auto property_value = edge->properties.GetProperty(spec.property);
+        if (property_value.IsVectorIndexId()) {
+          auto &ids = property_value.ValueVectorIndexIds();
+          ids.push_back(index_id);
+        } else {
+          property_value = PropertyValue(
+              PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id}, .vector = {}});
+        }
+        edge->properties.SetProperty(spec.property, property_value);
+      }
+      throw;
     }
-
-    auto const size = mg_index.index.size();
-    dropped_edges.resize(size);
-    mg_index.index.export_keys(dropped_edges.data(), 0, size);
   }
   pimpl->index_by_id_.erase(it);
   // Clean up endpoints for edges no longer in any index.

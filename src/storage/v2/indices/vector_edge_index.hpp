@@ -125,8 +125,7 @@ class VectorEdgeIndex {
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
-  bool DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,
-                 NameIdMapper *name_id_mapper);
+  bool DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
 
   /// @brief Drops all existing indexes.
   void Clear();

@@ -121,17 +121,21 @@ struct ReplicationClient {
     }
   };
 
-  void Shutdown();
+  // const because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires constness
+  // of functions being invoked
+  void Shutdown() const;
 
   std::string name_;
   communication::ClientContext rpc_context_;
-  rpc::Client rpc_client_;
+  // mutable because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires
+  // constness of functions being invoked
+  mutable rpc::Client rpc_client_;
   std::chrono::seconds replica_check_frequency_;
   // True only when we are migrating from V1 or V2 to V3 in replication durability
   // and we want to set replica to listen to main
   bool try_set_uuid{false};
 
-  enum class State {
+  enum class State : uint8_t {
     BEHIND,
     READY,
     RECOVERY,
@@ -153,7 +157,11 @@ struct ReplicationClient {
   //    and be sure of the execution order.
   //    Not having multiple possible threads in the same client allows us
   //    to ignore concurrency problems inside the client.
-  utils::ThreadPool thread_pool_{1};
-  utils::Scheduler replica_checker_;
+  //  - mutable because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires
+  //    constness of functions being invoked
+  mutable utils::ThreadPool thread_pool_{1};
+  // mutable because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires
+  // constness of functions being invoked
+  mutable utils::Scheduler replica_checker_;
 };
 }  // namespace memgraph::replication
