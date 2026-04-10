@@ -1296,6 +1296,9 @@ test_memgraph() {
         ;;
       esac
     done <<< "$monitoring_targets_output"
+
+    # EKS monitoring targets are public endpoints; no shared Docker network is needed.
+    export MONITORING_USE_HOST_NETWORK="true"
   }
 
   if [[ "$enable_monitoring" == "true" ]]; then
