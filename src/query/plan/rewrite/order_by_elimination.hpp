@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <ranges>
 #include <type_traits>
 #include <variant>
 #include <vector>
@@ -40,12 +42,19 @@ class OrderByEliminator {
   // ---------- types --------------------------------------------------------
 
   struct OrderByEntry {
-    storage::PropertyPath resolved;          // filled if PropertyLookup, or after alias resolution
+    storage::PropertyPath resolved;  // filled if PropertyLookup, or after alias resolution
+    // views into AST node name strings -- valid for the lifetime of the AstStorage
     std::string_view alias;                  // non-empty if bare Identifier (unresolved)
     std::string_view source_name;            // which scan symbol this entry references
-    Symbol::Position_t source_position{-1};  // symbol table position — disambiguates same-name symbols
+    Symbol::Position_t source_position{-1};  // symbol table position -- disambiguates same-name symbols
 
-    bool is_resolved() const { return alias.empty(); }
+    [[nodiscard]] bool is_resolved() const { return alias.empty(); }
+
+    // could this entry's property overlap with the given property?
+    // unresolved entries conservatively return true
+    [[nodiscard]] bool may_overlap(storage::PropertyId prop) const {
+      return !is_resolved() || (!resolved.empty() && resolved[0] == prop);
+    }
   };
 
   using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypePropertyRange *,
@@ -60,7 +69,7 @@ class OrderByEliminator {
     bool should_eliminate{false};
     bool order_preserving_path{true};  // set false if walk from first scan to OrderBy fails
 
-    bool has_unresolved() const {
+    [[nodiscard]] bool has_unresolved() const {
       return std::ranges::any_of(entries, [](const auto &e) { return !e.is_resolved(); });
     }
   };
@@ -77,24 +86,22 @@ class OrderByEliminator {
     DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in PostVisit");
     auto &ctx = order_by_stack_.back();
     CheckOrderByElimination(ctx);
-    bool eliminate = ctx.should_eliminate;
+    const bool eliminate = ctx.should_eliminate;
     order_by_stack_.pop_back();
     return eliminate;
   }
 
   void OnPreVisitProduce(Produce *produce) {
-    if (!order_by_stack_.empty() && order_by_stack_.back().valid) {
-      ResolveDownward(produce, order_by_stack_.back());
+    if (auto *ctx = ActiveContext()) {
+      ResolveDownward(produce, *ctx);
     }
   }
 
   void RecordVertexScan(ScanAllByLabelProperties *scan) {
-    if (order_by_stack_.empty() || !order_by_stack_.back().valid) return;
-    auto &ctx = order_by_stack_.back();
-    if (ctx.provided_scans.empty()) {
-      WalkAndCheckOrderPreserving(ctx);
+    if (auto *ctx = ActiveContext()) {
+      if (ctx->provided_scans.empty()) WalkAndCheckOrderPreserving(*ctx);
+      ctx->provided_scans.emplace_back(scan);
     }
-    ctx.provided_scans.emplace_back(scan);
   }
 
   template <typename EdgeScan>
@@ -104,17 +111,15 @@ class OrderByEliminator {
                       std::is_same_v<EdgeScan, ScanAllByEdgeTypePropertyValue> ||
                       std::is_same_v<EdgeScan, ScanAllByEdgePropertyValue>,
                   "Only range and exact-value scans provide ordered iteration");
-    if (order_by_stack_.empty() || !order_by_stack_.back().valid) return;
-    auto &ctx = order_by_stack_.back();
-    if (ctx.provided_scans.empty()) {
-      WalkAndCheckOrderPreserving(ctx);
+    if (auto *ctx = ActiveContext()) {
+      if (ctx->provided_scans.empty()) WalkAndCheckOrderPreserving(*ctx);
+      ctx->provided_scans.emplace_back(scan);
     }
-    ctx.provided_scans.emplace_back(scan);
   }
 
   void MarkFirstScanUnrecorded() {
-    if (!order_by_stack_.empty() && order_by_stack_.back().valid && order_by_stack_.back().provided_scans.empty()) {
-      order_by_stack_.back().order_preserving_path = false;
+    if (auto *ctx = ActiveContext()) {
+      if (ctx->provided_scans.empty()) ctx->order_preserving_path = false;
     }
   }
 
@@ -133,18 +138,14 @@ class OrderByEliminator {
   static bool IsMutationOrderPreserving(const LogicalOperator &op, const OrderByInfo &ctx) {
     // SetProperty/RemoveProperty have a statically-known PropertyId. The property name
     // comes from `propertyLookup : '.' propertyKeyName` where `propertyKeyName` is a
-    // `symbolicName` (literal identifier) — the atom before the dot could be a parameter
+    // `symbolicName` (literal identifier) -- the atom before the dot could be a parameter
     // (e.g. SET $param.prop = 1) but the property name itself cannot. SetProperties
     // (SET n = expr / SET n += expr) is not handled because the map expression is
     // opaque at plan time and may touch any property, so it falls through to false.
-    // TODO: SetProperties with a MapLiteral RHS could be handled — the map keys are
+    // TODO: SetProperties with a MapLiteral RHS could be handled -- the map keys are
     // literal PropertyIx values, so we could check overlap. Needs db_ access to resolve.
-    auto property_overlaps_order_by = [&ctx](storage::PropertyId prop) -> bool {
-      for (const auto &entry : ctx.entries) {
-        if (!entry.is_resolved()) return true;
-        if (!entry.resolved.empty() && entry.resolved[0] == prop) return true;
-      }
-      return false;
+    const auto property_overlaps_order_by = [&ctx](storage::PropertyId prop) {
+      return std::ranges::any_of(ctx.entries, [prop](const auto &entry) { return entry.may_overlap(prop); });
     };
 
     if (const auto *sp = dynamic_cast<const SetProperty *>(&op)) {
@@ -174,32 +175,39 @@ class OrderByEliminator {
 
   storage::PropertyId GetProperty(const PropertyIx &prop) const { return db_->NameToProperty(prop.name); }
 
+  // resolve a property path from AST PropertyIx nodes to storage PropertyIds
+  storage::PropertyPath ResolvePropertyPath(const auto &path) const {
+    auto to_id = [this](const auto &pix) -> storage::PropertyId { return GetProperty(pix); };
+    return storage::PropertyPath{std::ranges::to<std::vector<storage::PropertyId>>(std::views::transform(path, to_id))};
+  }
+
+  OrderByInfo *ActiveContext() {
+    if (order_by_stack_.empty() || !order_by_stack_.back().valid) return nullptr;
+    return &order_by_stack_.back();
+  }
+
   OrderByInfo ExtractOrderByInfo(OrderBy &op) const {
     OrderByInfo info;
-    info.op = &op;
+    info.op = &op;  // non-const: SetOnParent needs op.input() later
 
     const auto &orderings = op.compare_.orderings();
     const auto &order_by_exprs = op.order_by_;
 
     if (orderings.empty()) return info;
 
-    for (const auto &ord : orderings) {
-      if (ord.ordering() != Ordering::ASC) return info;
-    }
+    // TODO(ivan): support DESC -- SkipList indexes can be iterated in reverse
+    const bool all_asc =
+        std::ranges::all_of(orderings, [](const auto &ord) { return ord.ordering() == Ordering::ASC; });
+    if (!all_asc) return info;
 
-    for (auto *expr : order_by_exprs) {
-      if (auto *prop_lookup = dynamic_cast<PropertyLookup *>(expr)) {
-        auto *ident = dynamic_cast<Identifier *>(prop_lookup->expression_);
+    for (const auto *expr : order_by_exprs) {
+      if (const auto *prop_lookup = dynamic_cast<const PropertyLookup *>(expr)) {
+        const auto *ident = dynamic_cast<const Identifier *>(prop_lookup->expression_);
         if (!ident) return info;
 
-        std::vector<storage::PropertyId> prop_ids;
-        prop_ids.reserve(prop_lookup->property_path_.size());
-        for (const auto &pix : prop_lookup->property_path_) {
-          prop_ids.emplace_back(GetProperty(pix));
-        }
         info.entries.emplace_back(
-            storage::PropertyPath{std::move(prop_ids)}, std::string_view{}, ident->name_, ident->symbol_pos_);
-      } else if (auto *ident = dynamic_cast<Identifier *>(expr)) {
+            ResolvePropertyPath(prop_lookup->property_path_), std::string_view{}, ident->name_, ident->symbol_pos_);
+      } else if (const auto *ident = dynamic_cast<const Identifier *>(expr)) {
         info.entries.emplace_back(storage::PropertyPath{}, ident->name_, std::string_view{}, ident->symbol_pos_);
       } else {
         return info;
@@ -221,47 +229,39 @@ class OrderByEliminator {
   }
 
   void ResolveDownward(Produce *produce, OrderByInfo &info) const {
+    // step 1: track source_name through renames (e.g. Produce has `n AS m` -> source_name "m" becomes "n")
     for (auto &entry : info.entries) {
       if (entry.source_name.empty()) continue;
-      for (const auto *ne : produce->named_expressions_) {
-        if (ne->name_ != entry.source_name) continue;
-        auto *ident = dynamic_cast<Identifier *>(ne->expression_);
-        if (ident) {
+      const auto it = std::ranges::find_if(produce->named_expressions_,
+                                           [&](const auto *ne) { return ne->name_ == entry.source_name; });
+      if (it != produce->named_expressions_.end()) {
+        if (const auto *ident = dynamic_cast<const Identifier *>((*it)->expression_)) {
           entry.source_name = ident->name_;
           entry.source_position = ident->symbol_pos_;
         }
-        break;
       }
     }
 
+    // step 2: resolve unresolved aliases (e.g. n.prop AS a -> fill in resolved path)
     for (auto &entry : info.entries) {
       if (entry.is_resolved()) continue;
 
-      const NamedExpression *matched = nullptr;
-      for (const auto *ne : produce->named_expressions_) {
-        if (ne->name_ == entry.alias) {
-          matched = ne;
-          break;
-        }
-      }
-      if (!matched) continue;
+      const auto it =
+          std::ranges::find_if(produce->named_expressions_, [&](const auto *ne) { return ne->name_ == entry.alias; });
+      if (it == produce->named_expressions_.end()) continue;
+      const auto *matched = *it;
 
-      if (auto *prop = dynamic_cast<PropertyLookup *>(matched->expression_)) {
-        auto *inner = dynamic_cast<Identifier *>(prop->expression_);
+      if (const auto *prop = dynamic_cast<const PropertyLookup *>(matched->expression_)) {
+        const auto *inner = dynamic_cast<const Identifier *>(prop->expression_);
         if (!inner) {
           info.valid = false;
           return;
         }
         entry.source_name = inner->name_;
         entry.source_position = inner->symbol_pos_;
-        std::vector<storage::PropertyId> prop_ids;
-        prop_ids.reserve(prop->property_path_.size());
-        for (const auto &pix : prop->property_path_) {
-          prop_ids.emplace_back(GetProperty(pix));
-        }
-        entry.resolved = storage::PropertyPath{std::move(prop_ids)};
+        entry.resolved = ResolvePropertyPath(prop->property_path_);
         entry.alias = {};
-      } else if (auto *ident = dynamic_cast<Identifier *>(matched->expression_)) {
+      } else if (const auto *ident = dynamic_cast<const Identifier *>(matched->expression_)) {
         entry.alias = ident->name_;
         entry.source_position = ident->symbol_pos_;
       } else {
@@ -275,7 +275,7 @@ class OrderByEliminator {
                                     size_t group_start, size_t group_size) {
     return std::visit(
         [&](const auto *s) -> bool {
-          using T = std::decay_t<decltype(*s)>;
+          using T = std::remove_cvref_t<decltype(*s)>;
           if constexpr (std::is_same_v<T, ScanAllByLabelProperties>) {
             size_t ob_ptr = 0;
             for (size_t i = 0; i < s->properties_.size() && ob_ptr < group_size; ++i) {
@@ -290,6 +290,7 @@ class OrderByEliminator {
             }
             return ob_ptr == group_size;
           } else {
+            // edge scans have a single property -- ORDER BY must reference exactly that one
             return group_size == 1 && storage::PropertyPath{s->property_} == entries[group_start].resolved;
           }
         },
@@ -303,6 +304,7 @@ class OrderByEliminator {
     size_t scan_idx = 0;
     size_t entry_idx = 0;
 
+    // entries must form contiguous groups by source_position, matching provided scans in order
     while (entry_idx < ctx.entries.size() && scan_idx < ctx.provided_scans.size()) {
       const auto sym_pos =
           std::visit([](const auto *s) { return s->output_symbol_.position(); }, ctx.provided_scans[scan_idx]);

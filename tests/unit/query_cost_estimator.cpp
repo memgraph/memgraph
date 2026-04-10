@@ -454,14 +454,14 @@ TEST_F(QueryCostEstimator, OrderByHasNonZeroCost) {
   // This matters because index-scan rewriting can eliminate an OrderBy when the
   // scan already provides the required order; if OrderBy is free the cost
   // estimator cannot prefer the plan without the sort.
-  AddVertices(100, 30, 20);
+  AddVertices(100, 30, 20);  // ScanAll cardinality ~ 100
   MakeOp<ScanAll>(last_op_, NextSymbol());
-  auto cost_without_order_by = Cost();
+  const auto cost_without_order_by = Cost();
 
-  // Now add an OrderBy on top of the same ScanAll.
-  auto sym = NextSymbol();
+  // add an OrderBy on top of the same ScanAll
+  const auto sym = NextSymbol();
   MakeOp<OrderBy>(last_op_, std::vector<SortItem>{{Ordering::ASC, Literal(1)}}, std::vector<Symbol>{sym});
-  auto cost_with_order_by = Cost();
+  const auto cost_with_order_by = Cost();
 
   EXPECT_GT(cost_with_order_by, cost_without_order_by);
 }
