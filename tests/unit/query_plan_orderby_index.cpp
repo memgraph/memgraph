@@ -1501,4 +1501,25 @@ TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyRangeEliminated) {
       << "OrderBy should be eliminated — global edge property index provides order";
 }
 
+// MATCH ()-[e]->() WHERE e.since > 2020 RETURN e ORDER BY e.name — global edge index on different property, not
+// eliminated.
+TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyRangeDifferentPropNotEliminated) {
+  FakeDbAccessor dba;
+  const auto since_prop = PROPERTY_PAIR(dba, "since");
+  const auto name_prop = PROPERTY_PAIR(dba, "name");
+  dba.SetIndexCount(since_prop.second, 1);  // global edge property index on "since"
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT), NODE("anon2"))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "e", since_prop.second), LITERAL(2020))),
+                                   RETURN("e", ORDER_BY(PROPERTY_LOOKUP(dba, "e", name_prop.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgePropertyRange::kType))
+      << "Plan should use ScanAllByEdgePropertyRange";
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must NOT be eliminated — ORDER BY on different property than index";
+}
+
 }  // namespace

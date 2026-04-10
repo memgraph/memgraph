@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -65,7 +66,7 @@ class OrderByEliminator {
 
   // ---------- construction -------------------------------------------------
 
-  OrderByEliminator(TDbAccessor *db, std::vector<LogicalOperator *> &prev_ops) : db_(db), prev_ops_(prev_ops) {}
+  OrderByEliminator(TDbAccessor *db, const std::vector<LogicalOperator *> &prev_ops) : db_(db), prev_ops_(prev_ops) {}
 
   // ---------- hooks called by the rewriter ---------------------------------
 
@@ -97,6 +98,9 @@ class OrderByEliminator {
 
   template <typename EdgeScan>
   void RecordEdgeScan(EdgeScan *scan) {
+    static_assert(std::is_same_v<EdgeScan, ScanAllByEdgeTypePropertyRange> ||
+                      std::is_same_v<EdgeScan, ScanAllByEdgePropertyRange>,
+                  "Only range scans provide ordered iteration");
     if (order_by_stack_.empty() || !order_by_stack_.back().valid) return;
     auto &ctx = order_by_stack_.back();
     if (ctx.provided_scans.empty()) {
@@ -154,10 +158,10 @@ class OrderByEliminator {
 
  private:
   TDbAccessor *db_;
-  std::vector<LogicalOperator *> &prev_ops_;
+  const std::vector<LogicalOperator *> &prev_ops_;
   std::vector<OrderByInfo> order_by_stack_;
 
-  storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
+  storage::PropertyId GetProperty(const PropertyIx &prop) const { return db_->NameToProperty(prop.name); }
 
   OrderByInfo ExtractOrderByInfo(OrderBy &op) {
     OrderByInfo info;
@@ -182,9 +186,10 @@ class OrderByEliminator {
         for (const auto &pix : prop_lookup->property_path_) {
           prop_ids.emplace_back(GetProperty(pix));
         }
-        info.entries.push_back({storage::PropertyPath{std::move(prop_ids)}, {}, ident->name_, ident->symbol_pos_});
+        info.entries.emplace_back(
+            storage::PropertyPath{std::move(prop_ids)}, std::string_view{}, ident->name_, ident->symbol_pos_);
       } else if (auto *ident = dynamic_cast<Identifier *>(expr)) {
-        info.entries.push_back({storage::PropertyPath{}, ident->name_, {}, ident->symbol_pos_});
+        info.entries.emplace_back(storage::PropertyPath{}, ident->name_, std::string_view{}, ident->symbol_pos_);
       } else {
         return info;
       }
@@ -241,7 +246,7 @@ class OrderByEliminator {
         std::vector<storage::PropertyId> prop_ids;
         prop_ids.reserve(prop->property_path_.size());
         for (const auto &pix : prop->property_path_) {
-          prop_ids.push_back(GetProperty(pix));
+          prop_ids.emplace_back(GetProperty(pix));
         }
         entry.resolved = storage::PropertyPath{std::move(prop_ids)};
         entry.alias = {};
