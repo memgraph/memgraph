@@ -37,7 +37,7 @@ Memgraph is a high-performance, in-memory graph database that powers real-time
 AI context and graph analytics. Built in C/C++, it serves as the graph engine
 for GraphRAG pipelines, AI memory systems, and agentic workflows — delivering
 sub-millisecond multi-hop traversals for any system that needs structured,
-connected context alongside semantic search.
+connected context alongside semantic vector or text search.
 
 Vector search finds what’s similar. Graph reasoning finds what’s connected —
 following relationships, dependencies, and hierarchies that similarity alone
