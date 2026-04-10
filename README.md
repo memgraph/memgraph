@@ -234,7 +234,7 @@ improve Memgraph through bug fixes, features, and documentation. Thank you for
 making Memgraph better!
 
 <a href="https://github.com/memgraph/memgraph/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=memgraph/memgraph" />
+  <img src="https://contrib.rocks/image?repo=memgraph/memgraph" alt="Memgraph contributors" />
 </a>
 
 ## :busts_in_silhouette: Community
