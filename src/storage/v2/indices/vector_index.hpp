@@ -18,6 +18,7 @@
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -152,7 +153,7 @@ class VectorIndex {
 
   using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
 
-  VectorIndex();
+  explicit VectorIndex(utils::MemoryTracker *memory_tracker = nullptr);
   ~VectorIndex();
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
@@ -303,6 +304,7 @@ class VectorIndex {
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;
+  utils::MemoryTracker *memory_tracker_{nullptr};
 };
 
 }  // namespace memgraph::storage

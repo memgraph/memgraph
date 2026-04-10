@@ -25,14 +25,17 @@ default_storage_info_dict = {
     "peak_memory_res": "",  # machine dependent
     "unreleased_delta_objects": 0,
     "disk_usage": "",  # machine dependent
-    "memory_tracked": "",  # machine dependent
-    "allocation_limit": "",  # machine dependent
-    "graph_memory_tracked": "",  # machine dependent
-    "vector_index_memory_tracked": "",  # machine dependent
+    "global_memory_tracked": "",  # machine dependent
+    "global_runtime_allocation_limit": "",  # machine dependent
+    "global_license_allocation_limit": "",  # license dependent
     "global_isolation_level": "SNAPSHOT_ISOLATION",
     "session_isolation_level": "",
     "next_session_isolation_level": "",
     "storage_mode": "IN_MEMORY_TRANSACTIONAL",
+    "db_memory_tracked": "",  # machine dependent
+    "db_storage_memory_tracked": "",  # machine dependent
+    "db_embedding_memory_tracked": "",  # machine dependent
+    "db_query_memory_tracked": "",  # machine dependent
 }
 
 
@@ -63,10 +66,13 @@ def test_does_default_config_match():
         "memory_res",
         "peak_memory_res",
         "disk_usage",
-        "memory_tracked",
-        "allocation_limit",
-        "graph_memory_tracked",
-        "vector_index_memory_tracked",
+        "global_memory_tracked",
+        "global_runtime_allocation_limit",
+        "global_license_allocation_limit",
+        "db_memory_tracked",
+        "db_storage_memory_tracked",
+        "db_embedding_memory_tracked",
+        "db_query_memory_tracked",
         "vm_max_map_count",
     ]
     # Number of different data-points returned by SHOW STORAGE INFO
@@ -118,6 +124,51 @@ def test_info_change():
     expected_values = {"storage_mode": "IN_MEMORY_ANALYTICAL"}
 
     apply_queries_and_check_for_storage_info(cursor, setup_query_list, expected_values)
+
+
+def test_show_storage_info_on_database():
+    """SHOW STORAGE INFO ON DATABASE memgraph returns per-database fields.
+
+    NOTE: This test connects to the same instance as the other tests (port 7687).
+    If a Docker container is running on 7687, the e2e runner must stop it first.
+    """
+    connection = mgclient.connect(host="localhost", port=7687)
+    connection.autocommit = True
+    cursor = connection.cursor()
+
+    cursor.execute("SHOW STORAGE INFO ON DATABASE memgraph")
+    config = {row[0]: row[1] for row in cursor.fetchall()}
+
+    expected_fields = [
+        "name",
+        "database_uuid",
+        "storage_mode",
+        "vertex_count",
+        "edge_count",
+        "average_degree",
+        "unreleased_delta_objects",
+        "disk_usage",
+        "graph_memory_tracked",
+        "query_memory_tracked",
+        "vector_index_memory_tracked",
+        "tenant_memory_tracked",
+        "tenant_peak_memory_tracked",
+        "tenant_memory_limit",
+        "storage_isolation_level",
+    ]
+
+    missing = [f for f in expected_fields if f not in config]
+    assert not missing, f"Missing fields in SHOW STORAGE INFO ON DATABASE: {missing}"
+
+    # Session-level fields must NOT be present.
+    assert "session_isolation_level" not in config
+    assert "next_session_isolation_level" not in config
+    assert "global_memory_tracked" not in config
+
+    assert config["name"] == "memgraph"
+    # storage_mode may have been changed by a prior test (test_info_change sets ANALYTICAL).
+    assert config["storage_mode"] in ("IN_MEMORY_TRANSACTIONAL", "IN_MEMORY_ANALYTICAL")
+    assert config["tenant_memory_limit"] == "unlimited"
 
 
 if __name__ == "__main__":

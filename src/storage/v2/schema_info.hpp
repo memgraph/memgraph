@@ -46,25 +46,23 @@ struct SchemaTrackingInterface {
   virtual void Clear() = 0;
   virtual nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const = 0;
   virtual nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
-                                const std::function<bool(utils::small_vector<LabelId> const &)> &node_predicate,
+                                const std::function<bool(VertexKey const &)> &node_predicate,
                                 const std::function<bool(EdgeTypeId)> &edge_predicate) const = 0;
   virtual void RecoverVertex(Vertex *vertex) = 0;
   virtual void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) = 0;
   virtual void AddVertex(Vertex *vertex) = 0;
   virtual void DeleteVertex(Vertex *vertex) = 0;
-  virtual void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
-                            const utils::small_vector<LabelId> &new_labels) = 0;
-  virtual void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
-                            const utils::small_vector<LabelId> &new_labels, bool prop_on_edges) = 0;
+  virtual void UpdateLabels(Vertex *vertex, const VertexKey &old_labels, const VertexKey &new_labels) = 0;
+  virtual void UpdateLabels(Vertex *vertex, const VertexKey &old_labels, const VertexKey &new_labels,
+                            bool prop_on_edges) = 0;
   virtual void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) = 0;
   virtual void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) = 0;
   virtual void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
                            const ExtendedPropertyType &before) = 0;
   virtual void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
                            const ExtendedPropertyType &now, const ExtendedPropertyType &before, bool prop_on_edges) = 0;
-  virtual void SetProperty(EdgeTypeId type, const utils::small_vector<LabelId> &from,
-                           const utils::small_vector<LabelId> &to, PropertyId property, const ExtendedPropertyType &now,
-                           const ExtendedPropertyType &before, bool prop_on_edges) = 0;
+  virtual void SetProperty(EdgeTypeId type, const VertexKey &from, const VertexKey &to, PropertyId property,
+                           const ExtendedPropertyType &now, const ExtendedPropertyType &before, bool prop_on_edges) = 0;
 };
 
 template <template <class...> class TContainer = utils::ConcurrentUnorderedMap>
@@ -88,7 +86,7 @@ struct SchemaTracking final : public SchemaTrackingInterface {
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const override;
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
-                        const std::function<bool(utils::small_vector<LabelId> const &)> &node_predicate,
+                        const std::function<bool(VertexKey const &)> &node_predicate,
                         const std::function<bool(EdgeTypeId)> &edge_predicate) const override;
 
   void RecoverVertex(Vertex *vertex) override;
@@ -99,11 +97,10 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 
   void DeleteVertex(Vertex *vertex) override;
 
-  void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
-                    const utils::small_vector<LabelId> &new_labels) override;
+  void UpdateLabels(Vertex *vertex, const VertexKey &old_labels, const VertexKey &new_labels) override;
 
-  void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
-                    const utils::small_vector<LabelId> &new_labels, bool prop_on_edges) override;
+  void UpdateLabels(Vertex *vertex, const VertexKey &old_labels, const VertexKey &new_labels,
+                    bool prop_on_edges) override;
 
   void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) override;
   void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) override;
@@ -117,9 +114,8 @@ struct SchemaTracking final : public SchemaTrackingInterface {
   void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, const ExtendedPropertyType &now,
                    const ExtendedPropertyType &before, bool prop_on_edges, auto &&guard, auto &&other_guard);
 
-  void SetProperty(EdgeTypeId type, const utils::small_vector<LabelId> &from, const utils::small_vector<LabelId> &to,
-                   PropertyId property, const ExtendedPropertyType &now, const ExtendedPropertyType &before,
-                   bool prop_on_edges) override;
+  void SetProperty(EdgeTypeId type, const VertexKey &from, const VertexKey &to, PropertyId property,
+                   const ExtendedPropertyType &now, const ExtendedPropertyType &before, bool prop_on_edges) override;
 
   void UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
                        const VertexKey &new_to_labels, const VertexKey &old_from_labels, const VertexKey &old_to_labels,
@@ -155,7 +151,7 @@ struct SchemaInfo {
   }
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
-                        const std::function<bool(utils::small_vector<LabelId> const &)> &node_predicate,
+                        const std::function<bool(VertexKey const &)> &node_predicate,
                         const std::function<bool(EdgeTypeId)> &edge_predicate) const {
     auto lock = std::unique_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
     return tracking_.ToJson(name_id_mapper, enum_store, node_predicate, edge_predicate);
@@ -201,7 +197,7 @@ struct SchemaInfo {
     void RemoveLabel(Vertex *vertex, LabelId label, std::unique_lock<utils::RWSpinLock> v_lock);
 
    private:
-    void UpdateTransactionalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
+    void UpdateTransactionalEdges(Vertex *vertex, const VertexKey &old_labels,
                                   std::unique_lock<utils::RWSpinLock> v_lock);
 
     LocalSchemaTracking *tracking_{};
@@ -228,7 +224,7 @@ struct SchemaInfo {
     void RemoveLabel(Vertex *vertex, LabelId label);
 
    private:
-    void UpdateAnalyticalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels);
+    void UpdateAnalyticalEdges(Vertex *vertex, const VertexKey &old_labels);
 
     SharedSchemaTracking *tracking_{};
     std::unique_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock

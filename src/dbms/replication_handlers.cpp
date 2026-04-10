@@ -259,6 +259,100 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   return true;
 }
 
+void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_access,
+                          const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
+                          uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  storage::replication::TenantProfileReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  storage::replication::TenantProfileRes res(false);
+
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::error("Handling TenantProfile RPC without enterprise license.");
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (current_main_uuid != req.main_uuid) {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TenantProfileReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("TenantProfileHandler: bad expected timestamp");
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  auto *tp = dbms_handler.tenant_profiles();
+  if (!tp) {
+    spdlog::warn("TenantProfileHandler: tenant_profiles not initialized");
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  using Action = storage::replication::TenantProfileReq::Action;
+  try {
+    switch (req.action) {
+      case Action::CREATE:
+        tp->Create(req.profile_name, req.memory_limit);
+        break;
+      case Action::ALTER: {
+        auto dbs = tp->Alter(req.profile_name, req.memory_limit);
+        if (dbs) {
+          for (const auto &db_name : *dbs) {
+            try {
+              auto db_acc = dbms_handler.Get(db_name);
+              if (req.memory_limit > 0) {
+                db_acc.get()->SetTenantMemoryLimit(req.memory_limit);
+              } else {
+                db_acc.get()->ClearTenantMemoryLimit();
+              }
+            } catch (const UnknownDatabaseException &) {
+            }
+          }
+        }
+        break;
+      }
+      case Action::DROP:
+        tp->Drop(req.profile_name);
+        break;
+      case Action::SET_ON_DATABASE: {
+        auto limit = tp->AttachToDatabase(req.profile_name, req.db_name);
+        if (limit) {
+          try {
+            auto db_acc = dbms_handler.Get(req.db_name);
+            if (*limit > 0) {
+              db_acc.get()->SetTenantMemoryLimit(*limit);
+            } else {
+              db_acc.get()->ClearTenantMemoryLimit();
+            }
+          } catch (const UnknownDatabaseException &) {
+          }
+        }
+        break;
+      }
+      case Action::REMOVE_FROM_DATABASE:
+        tp->DetachFromDatabase(req.db_name);
+        try {
+          auto db_acc = dbms_handler.Get(req.db_name);
+          db_acc.get()->ClearTenantMemoryLimit();
+        } catch (const UnknownDatabaseException &) {
+        }
+        break;
+      default:
+        spdlog::warn("TenantProfileHandler: unknown action {}", static_cast<uint8_t>(req.action));
+        rpc::SendFinalResponse(res, request_version, res_builder);
+        return;
+    }
+    res = storage::replication::TenantProfileRes(true);
+  } catch (const std::exception &e) {
+    spdlog::warn("TenantProfileHandler failed: {}", e.what());
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
 void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,
               dbms::DbmsHandler &dbms_handler) {
   // NOTE: Register even without license as the user could add a license at run-time
@@ -285,6 +379,14 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
           auto *req_reader,
           auto *res_builder) mutable {
         RenameDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::TenantProfileRpc>(
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
+        TenantProfileHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
 }
 #endif

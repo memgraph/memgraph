@@ -92,6 +92,7 @@ class TransactionReplication {
   utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>::ReadLockedPtr
       locked_clients;
   bool run_two_phase_commit{false};
+  unsigned arena_idx_ = 0;
 };
 
 }  // namespace memgraph::storage

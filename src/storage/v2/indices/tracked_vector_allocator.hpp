@@ -22,6 +22,31 @@
 
 namespace memgraph::storage {
 
+inline thread_local utils::MemoryTracker *tls_tracked_vector_allocator_memory_tracker
+    [[gnu::tls_model("initial-exec")]] = nullptr;
+
+inline auto CurrentTrackedVectorAllocatorMemoryTracker() -> utils::MemoryTracker * {
+  return tls_tracked_vector_allocator_memory_tracker != nullptr ? tls_tracked_vector_allocator_memory_tracker
+                                                                : &utils::total_memory_tracker;
+}
+
+class TrackedVectorAllocatorMemoryTrackerScope {
+ public:
+  explicit TrackedVectorAllocatorMemoryTrackerScope(utils::MemoryTracker *tracker)
+      : previous_tracker_(tls_tracked_vector_allocator_memory_tracker) {
+    tls_tracked_vector_allocator_memory_tracker = tracker != nullptr ? tracker : &utils::total_memory_tracker;
+  }
+
+  TrackedVectorAllocatorMemoryTrackerScope(const TrackedVectorAllocatorMemoryTrackerScope &) = delete;
+  auto operator=(const TrackedVectorAllocatorMemoryTrackerScope &)
+      -> TrackedVectorAllocatorMemoryTrackerScope & = delete;
+
+  ~TrackedVectorAllocatorMemoryTrackerScope() { tls_tracked_vector_allocator_memory_tracker = previous_tracker_; }
+
+ private:
+  utils::MemoryTracker *previous_tracker_;
+};
+
 /// Wraps usearch's memory_mapping_allocator_gt and reports all mmap
 /// allocations/deallocations to the global memory tracker.
 ///
@@ -40,28 +65,32 @@ class TrackedVectorAllocator {
   using pointer = unum::usearch::byte_t *;
   using const_pointer = unum::usearch::byte_t const *;
 
-  TrackedVectorAllocator() = default;
+  TrackedVectorAllocator() : tracker_(CurrentTrackedVectorAllocatorMemoryTracker()) {}
 
   TrackedVectorAllocator(TrackedVectorAllocator &&other) noexcept
-      : inner_(std::move(other.inner_)), tracked_bytes_(other.tracked_bytes_.exchange(0, std::memory_order_relaxed)) {}
+      : inner_(std::move(other.inner_)),
+        tracked_bytes_(other.tracked_bytes_.exchange(0, std::memory_order_relaxed)),
+        tracker_(std::exchange(other.tracker_, &utils::total_memory_tracker)) {}
 
   TrackedVectorAllocator &operator=(TrackedVectorAllocator &&other) noexcept {
     if (this != &other) {
       reset();
       inner_ = std::move(other.inner_);
       tracked_bytes_.store(other.tracked_bytes_.exchange(0, std::memory_order_relaxed), std::memory_order_relaxed);
+      tracker_ = std::exchange(other.tracker_, &utils::total_memory_tracker);
     }
     return *this;
   }
 
   /// Matches memory_mapping_allocator_gt's own copy semantics. The copy starts
   /// as a fresh empty allocator; the original retains its arena and tracking.
-  TrackedVectorAllocator(TrackedVectorAllocator const &) noexcept {}
+  TrackedVectorAllocator(TrackedVectorAllocator const &other) noexcept : tracker_(other.tracker_) {}
 
   /// Releases any existing arena owned by *this, then becomes an empty allocator.
   /// Matches memory_mapping_allocator_gt's own copy-assignment semantics.
-  TrackedVectorAllocator &operator=(TrackedVectorAllocator const &) noexcept {
+  TrackedVectorAllocator &operator=(TrackedVectorAllocator const &other) noexcept {
     reset();
+    tracker_ = other.tracker_;
     return *this;
   }
 
@@ -69,7 +98,7 @@ class TrackedVectorAllocator {
 
   pointer allocate(size_type count_bytes) {
     const auto extended = unum::usearch::divide_round_up<alignment_ak>(count_bytes) * alignment_ak;
-    if (!utils::vector_index_memory_tracker.Alloc(static_cast<int64_t>(extended))) {
+    if (!tracker_->Alloc(static_cast<int64_t>(extended))) {
       auto msg = utils::MemoryErrorStatus().msg();
       DMG_ASSERT(msg, "MemoryErrorStatus should have a message when allocation fails");
       [[maybe_unused]] auto blocker = utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
@@ -78,7 +107,7 @@ class TrackedVectorAllocator {
 
     auto *result = inner_.allocate(count_bytes);
     if (!result) {
-      utils::vector_index_memory_tracker.Free(static_cast<int64_t>(extended));
+      tracker_->Free(static_cast<int64_t>(extended));
       return nullptr;  // Since this is a drop-in replacement for memory_mapping_allocator_gt, we return nullptr on
                        // allocation failure as usearch expects it
     }
@@ -94,7 +123,7 @@ class TrackedVectorAllocator {
     auto old = tracked_bytes_.exchange(0, std::memory_order_relaxed);
     inner_.reset();
     if (old > 0) {
-      utils::vector_index_memory_tracker.Free(static_cast<int64_t>(old));
+      tracker_->Free(static_cast<int64_t>(old));
     }
   }
 
@@ -107,6 +136,7 @@ class TrackedVectorAllocator {
  private:
   unum::usearch::memory_mapping_allocator_gt<alignment_ak> inner_;
   std::atomic<size_type> tracked_bytes_{0};
+  utils::MemoryTracker *tracker_{&utils::total_memory_tracker};
 };
 
 }  // namespace memgraph::storage

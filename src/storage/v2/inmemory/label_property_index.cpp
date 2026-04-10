@@ -424,7 +424,8 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
-    LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, PropertiesPaths const &properties,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(label, properties, updater);
@@ -448,7 +449,8 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
       return false;
     }
     auto helper = PropertiesPermutationHelper{properties};
-    auto [it3, _2] = properties_map.emplace(properties, std::make_shared<IndividualIndex>(std::move(helper)));
+    auto [it3, _2] =
+        properties_map.emplace(properties, std::make_shared<IndividualIndex>(std::move(helper), arena_idx_));
     all_indices_.WithLock([&](auto &all_indexes) {
       auto new_all_indexes = *all_indexes;
       new_all_indexes.emplace_back(it3->second, label, properties);
@@ -467,7 +469,8 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
 }
 
 auto InMemoryLabelPropertyIndex::PopulateIndex(
-    LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, PropertiesPaths const &properties,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info,
     Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
@@ -811,27 +814,23 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
     if (token.stop_requested()) return;
 
     auto const &permutationHelper = index->permutations_helper;
-    auto index_acc = index->skiplist.access();
-    auto it = index_acc.begin();
-    auto end_it = index_acc.end();
-    if (it == end_it) continue;
-    while (true) {
-      // Hot loop, don't check stop_requested every time
+    auto index_accessor = index->skiplist.access();
+    for (auto it = index_accessor.begin(); it != index_accessor.end();) {
       if (maybe_stop() && token.stop_requested()) return;
 
       auto next_it = it;
       ++next_it;
 
-      bool has_next = next_it != end_it;
-      if (it->timestamp < oldest_active_start_timestamp) {
-        bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
-        if (redundant_duplicate ||
-            !AnyVersionHasLabelProperties(
-                *it->vertex, label_id, property_paths, permutationHelper, it->values, oldest_active_start_timestamp)) {
-          index_acc.remove(*it);
-        }
+      if (it->timestamp >= oldest_active_start_timestamp) {
+        it = next_it;
+        continue;
       }
-      if (!has_next) break;
+
+      if ((next_it != index_accessor.end() && it->vertex == next_it->vertex && it->values == next_it->values) ||
+          !AnyVersionHasLabelProperties(
+              *it->vertex, label_id, property_paths, permutationHelper, it->values, oldest_active_start_timestamp)) {
+        index_accessor.remove(*it);
+      }
       it = next_it;
     }
   }
@@ -867,12 +866,11 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->permutation_helper_);
 }
 
-InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                               utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
-                                               PropertiesPaths const *properties,
-                                               PropertiesPermutationHelper const *permutation_helper,
-                                               std::span<PropertyValueRange const> ranges, View view, Storage *storage,
-                                               Transaction *transaction)
+InMemoryLabelPropertyIndex::Iterable::Iterable(
+    utils::SkipList<InMemoryLabelPropertyIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
+    PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
+    std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -888,10 +886,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Itera
   // If the bounds are set and don't have comparable types we don't yield any
   // items from the index.
   if (!bounds_valid_) return {this, index_accessor_.end()};
-  auto index_iterator = index_accessor_.begin();
-  if (const auto lower_bound = GenerateBounds(lower_bound_, kSmallestProperty); lower_bound) {
-    index_iterator = index_accessor_.find_equal_or_greater(*lower_bound);
-  }
+  auto index_iterator = index_accessor_.find_equal_or_greater(GenerateBounds(lower_bound_, kSmallestProperty));
   return {this, index_iterator};
 }
 
@@ -1072,7 +1067,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::Vertices(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_acc, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_container_->indices_.find(label);
   DMG_ASSERT(it != index_container_->indices_.end(),
@@ -1098,7 +1093,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
 
 InMemoryLabelPropertyIndex::ChunkedIterable InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_acc, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
   auto it = index_container_->indices_.find(label);
   DMG_ASSERT(it != index_container_->indices_.end(),
@@ -1188,28 +1183,28 @@ void InMemoryLabelPropertyIndex::CleanupAllIndices() {
 
 void InMemoryLabelPropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
   // TODO Make delta cache work
-  AdvanceUntilValid_(index_iterator_,
-                     utils::SkipList<Entry>::ChunkedIterator{},
-                     current_vertex_,
-                     current_vertex_accessor_,
-                     self_->storage_,
-                     self_->transaction_,
-                     self_->view_,
-                     self_->label_,
-                     self_->lower_bound_,
-                     self_->upper_bound_,
-                     skip_lower_bound_check_,
-                     self_->permutation_helper_,
-                     false);
+  AdvanceUntilValid_(
+      index_iterator_,
+      utils::SkipList<InMemoryLabelPropertyIndex::Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator{},
+      current_vertex_,
+      current_vertex_accessor_,
+      self_->storage_,
+      self_->transaction_,
+      self_->view_,
+      self_->label_,
+      self_->lower_bound_,
+      self_->upper_bound_,
+      skip_lower_bound_check_,
+      self_->permutation_helper_,
+      false);
 }
 
-InMemoryLabelPropertyIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                                             utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
-                                                             LabelId label, PropertiesPaths const *properties,
-                                                             PropertiesPermutationHelper const *permutation_helper,
-                                                             std::span<PropertyValueRange const> ranges, View view,
-                                                             Storage *storage, Transaction *transaction,
-                                                             size_t num_chunks)
+InMemoryLabelPropertyIndex::ChunkedIterable::ChunkedIterable(
+    utils::SkipList<InMemoryLabelPropertyIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
+    PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
+    std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction,
+    size_t num_chunks)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -1224,7 +1219,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Ent
   chunks_ = index_accessor_.create_chunks(
       num_chunks, GenerateBounds(lower_bound_, kSmallestProperty), GenerateBounds(upper_bound_, kLargestProperty));
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
-  RechunkIndex<utils::SkipList<Entry>>(
+  RechunkIndex<utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>>(
       chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex && a.values == b.values; });
 }
 

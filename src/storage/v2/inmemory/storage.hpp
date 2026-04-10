@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include "memory/db_arena.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -696,7 +697,8 @@ class InMemoryStorage final : public Storage {
     /// During commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
-    void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges, std::list<Gid> &current_deleted_vertices,
+    void GCRapidDeltaCleanup(std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_edges,
+                             std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
                              IndexPerformanceTracker &impact_tracker);
     SalientConfig::Items config_;
 
@@ -758,7 +760,10 @@ class InMemoryStorage final : public Storage {
     Storage::StopAllBackgroundTasks();
   }
 
-  std::unordered_map<LabelId, uint64_t> GetLabelCounts() const override { return *label_counts_.Lock(); }
+  std::unordered_map<LabelId, uint64_t> GetLabelCounts() const override {
+    auto locked = label_counts_.Lock();
+    return std::unordered_map<LabelId, uint64_t>(locked->begin(), locked->end());
+  }
 
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
@@ -788,10 +793,11 @@ class InMemoryStorage final : public Storage {
 
   EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
-  // Main object storage
-  utils::SkipList<Vertex> vertices_;
-  utils::SkipList<Edge> edges_;
-  utils::SkipList<EdgeMetadata> edges_metadata_;
+  // Main object storage — ArenaAwareAllocator routes node allocations to the
+  // owning DB arena without relying on TLS arena pinning.
+  utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>> vertices_;
+  utils::SkipList<Edge, memory::ArenaAwareAllocator<char>> edges_;
+  utils::SkipList<EdgeMetadata, memory::ArenaAwareAllocator<char>> edges_metadata_;
 
   // Durability
   durability::Recovery recovery_;
@@ -846,21 +852,22 @@ class InMemoryStorage final : public Storage {
     uint64_t transaction_id_{};                  //!< the transaction ID that created these deltas
   };
 
-  utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
+  utils::Synchronized<std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>, utils::SpinLock>
+      committed_transactions_{};
 
   // Non-sequential delta chains waiting for all contributors to commit
-  utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> waiting_gc_deltas_{};
+  utils::Synchronized<std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>, utils::SpinLock> waiting_gc_deltas_{};
 
   // Ownership of unlinked deltas is transferred to garbage_undo_buffers once transaction is committed/aborted
-  utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> garbage_undo_buffers_{};
+  utils::Synchronized<std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>, utils::SpinLock> garbage_undo_buffers_{};
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
-  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_vertices_;
+  utils::Synchronized<std::list<Gid, memory::DbAwareAllocator<Gid>>, utils::SpinLock> deleted_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
-  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
+  utils::Synchronized<std::list<Gid, memory::DbAwareAllocator<Gid>>, utils::SpinLock> deleted_edges_;
 
   std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
   std::atomic<bool> gc_index_cleanup_edge_performance_ = false;
@@ -889,7 +896,10 @@ class InMemoryStorage final : public Storage {
 
   AsyncIndexer async_indexer_;
 
-  mutable utils::Synchronized<std::unordered_map<LabelId, uint64_t>, utils::SpinLock> label_counts_;
+  mutable utils::Synchronized<std::unordered_map<LabelId, uint64_t, std::hash<LabelId>, std::equal_to<LabelId>,
+                                                 memory::DbAwareAllocator<std::pair<const LabelId, uint64_t>>>,
+                              utils::SpinLock>
+      label_counts_;
 
   struct SchemaUpdateData {
     LocalSchemaTracking schema_diff;
@@ -907,7 +917,9 @@ class InMemoryStorage final : public Storage {
           property_on_edges(prop_on_edges) {}
   };
 
-  std::map<uint64_t, SchemaUpdateData> pending_schema_updates_;
+  std::map<uint64_t, SchemaUpdateData, std::less<uint64_t>,
+           memory::DbAwareAllocator<std::pair<const uint64_t, SchemaUpdateData>>>
+      pending_schema_updates_;
   std::mutex schema_queue_mutex_;
   uint64_t last_processed_commit_ts_{0};
 

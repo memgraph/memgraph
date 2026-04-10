@@ -12,6 +12,7 @@
 #include "storage/v2/replication/replication_transaction.hpp"
 
 #include "storage/v2/commit_args.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
@@ -73,8 +74,8 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
       // RPC stream gets destroyed => RPC lock released.
       if (!should_run_2pc) {
         // NOLINTNEXTLINE
-        auto const res =
-            client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
+        auto const res = client->FinalizeTransactionReplication(
+            db_acc, std::move(replica_stream), durability_commit_timestamp, arena_idx_);
         // Even if fails, we don't care, it's ASYNC
         if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
           return {};
@@ -119,7 +120,9 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
       strict_sync_replicas_succ &= commit_res;
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       if (decision) {
-        client->FinalizeTransactionReplication(protector, std::move(replica_stream), durability_commit_timestamp);
+        // NOLINTNEXTLINE(bugprone-unused-return-value)
+        client->FinalizeTransactionReplication(
+            protector, std::move(replica_stream), durability_commit_timestamp, arena_idx_);
       } else if (replica_stream) {
         // Reconnect needed because we optimistically prepared PrepareCommitReq message already.
         // We should only do this if we own the RPC lock.
@@ -145,7 +148,7 @@ auto TransactionReplication::CollectStartTxnErrors() const -> std::vector<Replic
 
 TransactionReplication::TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage,
                                                CommitArgs const &commit_args, ReplicationStorageClientList &clients)
-    : locked_clients{clients.ReadLock()} {
+    : locked_clients{clients.ReadLock()}, arena_idx_{storage->config_.arena_idx} {
   if (!locked_clients->empty()) {
     streams.reserve(locked_clients->size());
     errors_.reserve(locked_clients->size());

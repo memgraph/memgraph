@@ -10315,7 +10315,8 @@ class ParallelBranchCursor : public Cursor {
                      frame_size = frame.elems().size(),
                      main_thread = std::this_thread::get_id(),
                      post_pull_func,
-                     mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
+                     mem_tracking = memgraph::memory::CrossThreadMemoryTracking(context.db_arena_idx)](
+                        utils::Priority /*unused*/) mutable {
         const OOMExceptionEnabler oom_exception;
         const utils::Timer timer;
         if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen

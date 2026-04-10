@@ -59,7 +59,51 @@ struct VectorEdgeIndex::Impl {
   mutable std::shared_mutex edge_endpoints_mutex_;
 };
 
-VectorEdgeIndex::VectorEdgeIndex() : pimpl(std::make_unique<Impl>()) {}
+namespace {
+
+using EdgeIndexEntry = VectorEdgeIndex::EdgeIndexEntry;
+
+/// @brief Attempts to add all matching edges from a vertex to the vector index.
+/// Handles resize if the index is full.
+/// @param mg_index The synchronized index wrapper.
+/// @param spec The index specification (may be modified if resize occurs).
+/// @param from_vertex The source vertex whose edges to process.
+/// @param snapshot_info Optional snapshot observer for progress tracking.
+/// @param thread_id Optional thread ID hint for usearch's internal optimizations.
+void TryAddEdgesToIndex(synchronized_mg_vector_edge_index_t &mg_index, VectorEdgeIndexSpec &spec, Vertex &from_vertex,
+                        std::optional<SnapshotObserverInfo> const &snapshot_info,
+                        std::optional<std::size_t> thread_id = std::nullopt) {
+  if (from_vertex.deleted()) {
+    return;
+  }
+  for (auto &edge_tuple : from_vertex.out_edges) {
+    if (std::get<kEdgeTypeIdPos>(edge_tuple) != spec.edge_type_id) {
+      continue;
+    }
+    auto *to_vertex = std::get<kVertexPos>(edge_tuple);
+    if (to_vertex->deleted()) {
+      continue;
+    }
+    auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
+    if (edge->deleted()) {
+      continue;
+    }
+    auto property = edge->properties.GetProperty(spec.property);
+    if (property.IsNull()) {
+      continue;
+    }
+    auto vector = ListToVector(property);
+    UpdateVectorIndex(mg_index, spec, edge, vector, thread_id);
+    if (snapshot_info) {
+      snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
+    }
+  }
+}
+
+}  // namespace
+
+VectorEdgeIndex::VectorEdgeIndex(utils::MemoryTracker *memory_tracker)
+    : pimpl(std::make_unique<Impl>()), memory_tracker_(memory_tracker) {}
 
 VectorEdgeIndex::~VectorEdgeIndex() = default;
 VectorEdgeIndex::VectorEdgeIndex(VectorEdgeIndex &&) noexcept = default;
@@ -79,7 +123,7 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
 
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
   const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
-
+  const TrackedVectorAllocatorMemoryTrackerScope tracker_scope{memory_tracker_};
   auto mg_edge_index = mg_vector_edge_index_t::make(metric);
   if (!mg_edge_index) {
     throw query::VectorSearchException(fmt::format(
@@ -423,22 +467,32 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
 
 bool VectorEdgeIndex::Empty() const { return pimpl->index_by_id_.empty(); }
 
-void VectorEdgeIndex::RemoveEdges(std::vector<Edge *> const &edges_to_remove) {
-  if (edges_to_remove.empty()) return;
+void VectorEdgeIndex::RemoveEdges(std::list<Gid, memory::DbAwareAllocator<Gid>> const &deleted_edge_gids) const {
+  if (deleted_edge_gids.empty()) return;
 
-  // Lock order: uSearch mutex → edge_endpoints_mutex_ (matches SearchEdges)
+  auto as_uint = deleted_edge_gids | std::views::transform([](auto const &g) { return g.AsUint(); });
+  std::unordered_set<uint64_t> const gids_to_remove(as_uint.begin(), as_uint.end());
+
+  std::vector<Edge *> removed_edges;
+
+  // Lock order: uSearch mutex → edge_endpoints_mutex_
   for (auto &[_, index_item] : pimpl->index_by_id_) {
     auto guard = std::lock_guard{index_item.mg_index.mutex};
-    for (auto *edge : edges_to_remove) {
-      if (index_item.mg_index.index.contains(edge)) {
+    auto const index_size = index_item.mg_index.index.size();
+    if (index_size == 0) continue;
+    std::vector<Edge *> all_keys(index_size);
+    index_item.mg_index.index.export_keys(all_keys.data(), 0, index_size);
+    for (auto *edge : all_keys) {
+      if (edge != nullptr && gids_to_remove.contains(edge->gid.AsUint())) {
         index_item.mg_index.index.remove(edge);
+        removed_edges.push_back(edge);
       }
     }
   }
 
-  {
+  if (!removed_edges.empty()) {
     auto lock = std::unique_lock{pimpl->edge_endpoints_mutex_};
-    for (auto *edge : edges_to_remove) {
+    for (auto *edge : removed_edges) {
       pimpl->edge_endpoints_.erase(edge);
     }
   }

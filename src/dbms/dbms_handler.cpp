@@ -202,6 +202,22 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
    */
   // Setup the default DB
   SetupDefault_();
+
+  tenant_profiles_ = std::make_unique<TenantProfiles>(*durability_);
+  for (const auto &profile : tenant_profiles_->GetAll()) {
+    for (const auto &db_name : profile.databases) {
+      try {
+        auto db_acc = Get_(db_name);
+        if (profile.memory_limit > 0) {
+          db_acc.get()->SetTenantMemoryLimit(profile.memory_limit);
+          spdlog::info(
+              "Applied tenant profile '{}' (limit={}) to database '{}'", profile.name, profile.memory_limit, db_name);
+        }
+      } catch (const UnknownDatabaseException &) {
+        spdlog::warn("Tenant profile '{}' references unknown database '{}' — skipping", profile.name, db_name);
+      }
+    }
+  }
 }
 
 struct DropDatabase : memgraph::system::ISystemAction {

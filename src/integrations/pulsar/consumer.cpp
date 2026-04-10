@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "integrations/pulsar/consumer.hpp"
+#if USE_JEMALLOC
+#include "memory/db_arena.hpp"
+#endif
 
 #include <fmt/format.h>
 #include <pulsar/Client.h>
@@ -24,6 +27,10 @@
 #include <spdlog/common.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
+
+#if USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
 #include <chrono>
 #include <compare>
 #include <concepts>
@@ -293,6 +300,13 @@ void Consumer::StartConsuming() {
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 
     utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));
+
+#if USE_JEMALLOC
+    if (info_.arena_idx != 0) {
+      je_mallctl("thread.arena", nullptr, nullptr, &info_.arena_idx, sizeof(unsigned));
+      memory::tls_db_arena_idx = info_.arena_idx;
+    }
+#endif
 
     while (is_running_) {
       auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);

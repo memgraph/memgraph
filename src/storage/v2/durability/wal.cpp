@@ -1236,7 +1236,7 @@ std::optional<RecoveryInfo> LoadWal(
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         if (r::contains(vertex->labels, label_id))
           throw RecoveryFailure("The vertex already has the label! Current ldt is: {}", ret->last_durable_timestamp);
-        std::optional<utils::small_vector<LabelId>> old_labels{};
+        std::optional<VertexKey> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
@@ -1251,7 +1251,7 @@ std::optional<RecoveryInfo> LoadWal(
         auto it = r::find(vertex->labels, label_id);
         if (it == vertex->labels.end())
           throw RecoveryFailure("The vertex doesn't have the label! Current ldt is: {}", ret->last_durable_timestamp);
-        std::optional<utils::small_vector<LabelId>> old_labels{};
+        std::optional<VertexKey> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         std::swap(*it, vertex->labels.back());
         vertex->labels.pop_back();

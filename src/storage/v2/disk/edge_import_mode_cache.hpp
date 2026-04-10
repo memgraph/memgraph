@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "memory/db_arena.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
@@ -52,17 +53,17 @@ class EdgeImportModeCache final {
 
   bool AllVerticesScanned() const;
 
-  utils::SkipList<Vertex>::Accessor AccessToVertices();
+  utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor AccessToVertices();
 
-  utils::SkipList<Edge>::Accessor AccessToEdges();
+  utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::Accessor AccessToEdges();
 
   void SetScannedAllVertices();
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> &GetCommittedTransactions();
 
  private:
-  utils::SkipList<Vertex> vertices_;
-  utils::SkipList<Edge> edges_;
+  utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>> vertices_;
+  utils::SkipList<Edge, memory::ArenaAwareAllocator<char>> edges_;
   Indices in_memory_indices_;
   bool scanned_all_vertices_{false};
   std::set<LabelId> scanned_labels_;

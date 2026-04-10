@@ -26,6 +26,8 @@
 
 #include "constants.hpp"
 #include "dbms/database.hpp"
+#include "dbms/rpc.hpp"
+#include "dbms/tenant_profiles.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
@@ -106,6 +108,41 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
 
   return res;
 }
+
+struct TenantProfileAction : memgraph::system::ISystemAction {
+  using Action = storage::replication::TenantProfileReq::Action;
+
+  TenantProfileAction(Action action, std::string profile_name, std::string db_name, int64_t memory_limit)
+      : action_{action},
+        profile_name_{std::move(profile_name)},
+        db_name_{std::move(db_name)},
+        memory_limit_{memory_limit} {}
+
+  void DoDurability() override {}
+
+  bool ShouldReplicateInCommunity() const override { return false; }
+
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     memgraph::system::Transaction const &txn) const override {
+    return client.StreamAndFinalizeDelta<storage::replication::TenantProfileRpc>(
+        [](const storage::replication::TenantProfileRes &response) { return response.success; },
+        main_uuid,
+        txn.last_committed_system_timestamp(),
+        txn.timestamp(),
+        action_,
+        profile_name_,
+        db_name_,
+        memory_limit_);
+  }
+
+  void PostReplication(replication::RoleMainData & /*mainData*/) const override {}
+
+ private:
+  Action action_;
+  std::string profile_name_;
+  std::string db_name_;
+  int64_t memory_limit_;
+};
 
 /**
  * @brief Multi-database session contexts handler.
@@ -475,6 +512,10 @@ class DbmsHandler {
 
   static void RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data);
 
+#ifdef MG_ENTERPRISE
+  TenantProfiles *tenant_profiles() { return tenant_profiles_.get(); }
+#endif
+
   auto default_config() const -> storage::Config const & {
 #ifdef MG_ENTERPRISE
     return default_config_;
@@ -661,7 +702,8 @@ class DbmsHandler {
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   // TODO: move to be common
-  std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
+  std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
+  std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
 #endif
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper

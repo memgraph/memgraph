@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <range/v3/view/transform.hpp>
 #include <unordered_map>
 #include <variant>
@@ -3103,10 +3104,12 @@ class SystemInfoQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::SystemInfoQuery::InfoType info_type_;
+  std::optional<std::string> database_;  // Target database for SHOW STORAGE INFO ON DATABASE
 
   SystemInfoQuery *Clone(AstStorage *storage) const override {
     SystemInfoQuery *object = storage->Create<SystemInfoQuery>();
     object->info_type_ = info_type_;
+    object->database_ = database_;
     return object;
   }
 };
@@ -4270,6 +4273,20 @@ class ReloadSSLQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   ReloadSSLQuery *Clone(AstStorage *storage) const override { return storage->Create<ReloadSSLQuery>(); }
+
+ private:
+  friend class AstStorage;
+};
+
+class ShowMemoryInfoQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowMemoryInfoQuery *Clone(AstStorage *storage) const override { return storage->Create<ShowMemoryInfoQuery>(); }
 
  private:
   friend class AstStorage;

@@ -53,6 +53,7 @@ struct ConsumerInfo {
   std::vector<std::string> topics;
   std::string consumer_name;
   std::string service_url;
+  unsigned arena_idx{0};  // jemalloc arena to pin on the consumer thread (0 = default)
 };
 
 class Consumer final {
@@ -75,6 +76,8 @@ class Consumer final {
              const ConsumerFunction &check_consumer_function) const;
 
   const ConsumerInfo &Info() const;
+
+  void SetArenaIdx(unsigned idx) noexcept { info_.arena_idx = idx; }
 
  private:
   void StartConsuming();

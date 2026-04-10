@@ -125,6 +125,8 @@
   M(DeletedEdges, TTL, "Number of edges deleted via TTL")                                                              \
                                                                                                                        \
   M(ShowSchema, SchemaInfo, "Number of times the user called \"SHOW SCHEMA INFO\" query")                              \
+  M(ShowStorageInfoOnDatabase, StorageInfo,                                                                             \
+    "Number of times the user called \"SHOW STORAGE INFO ON DATABASE\" query")                                          \
                                                                                                                        \
   M(SuccessfulFailovers, HighAvailability, "Number of successful failovers performed on the coordinator.")             \
   M(RaftFailedFailovers, HighAvailability, "Number of failed failovers because of Raft on the coordinator.")           \

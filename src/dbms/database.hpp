@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 
+#include "memory/db_arena.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
@@ -32,9 +33,24 @@ struct DatabaseInfo {
   storage::StorageInfo storage_info;
   uint64_t triggers;
   uint64_t streams;
+  int64_t db_memory_tracked{0};
+  int64_t db_peak_memory_tracked{0};
+  int64_t db_storage_memory_tracked{0};
+  int64_t db_embedding_memory_tracked{0};
+  int64_t db_query_memory_tracked{0};
 };
 
-static inline nlohmann::json ToJson(const DatabaseInfo &info) { return ToJson(info.storage_info); }
+static inline nlohmann::json ToJson(const DatabaseInfo &info) {
+  auto res = ToJson(info.storage_info);
+  res["triggers"] = info.triggers;
+  res["streams"] = info.streams;
+  res["db_memory_tracked"] = info.db_memory_tracked;
+  res["db_peak_memory_tracked"] = info.db_peak_memory_tracked;
+  res["db_storage_memory_tracked"] = info.db_storage_memory_tracked;
+  res["db_embedding_memory_tracked"] = info.db_embedding_memory_tracked;
+  res["db_query_memory_tracked"] = info.db_query_memory_tracked;
+  return res;
+}
 
 /**
  * @brief Class containing everything associated with a single Database
@@ -180,7 +196,45 @@ class Database {
    */
   void StopAllBackgroundTasks();
 
+  /**
+   * @brief jemalloc arena index owned by this database (0 if not using jemalloc).
+   *        Allocations on threads with tls_db_arena_idx == ArenaIdx() are attributed
+   *        to this database's memory tracker.
+   */
+  unsigned ArenaIdx() const noexcept {
+#if USE_JEMALLOC
+    return db_arena_.idx();
+#else
+    return 0;
+#endif
+  }
+
+  int64_t DbMemoryUsage() const noexcept { return db_total_memory_tracker_.Amount(); }
+
+  int64_t DbPeakMemoryUsage() const noexcept { return db_total_memory_tracker_.Peak(); }
+
+  int64_t DbStorageMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
+
+  int64_t DbEmbeddingMemoryUsage() const noexcept { return db_embedding_memory_tracker_.Amount(); }
+
+  int64_t DbQueryMemoryUsage() const noexcept { return db_query_memory_tracker_.Amount(); }
+
+  utils::MemoryTracker *DbQueryMemoryTracker() noexcept { return &db_query_memory_tracker_; }
+
+  void SetTenantMemoryLimit(int64_t bytes) { db_total_memory_tracker_.SetHardLimit(bytes); }
+
+  void ClearTenantMemoryLimit() { db_total_memory_tracker_.ResetLimit(); }
+
+  int64_t TenantMemoryLimit() const noexcept { return db_total_memory_tracker_.HardLimit(); }
+
  private:
+  utils::MemoryTracker db_total_memory_tracker_{&utils::total_memory_tracker};
+  utils::MemoryTracker db_memory_tracker_{&db_total_memory_tracker_};
+  utils::MemoryTracker db_embedding_memory_tracker_{&db_total_memory_tracker_};
+  utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
+#if USE_JEMALLOC
+  memory::DbArena db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
+#endif
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
