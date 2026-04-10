@@ -58,6 +58,10 @@ DEFINE_bool(strict_flag_check, true, "If true, error and exit when suspicious po
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint32(data_dir_lock_acquisition_timeout_sec, 30,
+              "Timeout before the failure of acquiring file lock on data directory is considered a failure.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(data_recovery_on_startup, true, "Controls whether the database recovers persisted data on startup.");
 
