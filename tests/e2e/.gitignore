@@ -1,2 +1,1 @@
 *.json
-!query_modules/callable_alias_mapping.json
