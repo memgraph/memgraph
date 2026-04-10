@@ -1005,7 +1005,7 @@ std::optional<py::ExceptionInfo> InsertField(PyObject *key, PyObject *val, mgp_r
   if (mgp_result_record_insert(record, field_name, field_val) != mgp_error::MGP_ERROR_NO_ERROR) {
     std::stringstream ss;
     ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '" << py::Object::FromBorrow(val)
-       << "'; did you set the correct field type?";
+       << "'; did you set the correct field type? Please check if the procedure signature matches the return values.";
     const auto &msg = ss.str();
     PyErr_SetString(PyExc_ValueError, msg.c_str());
     mgp_value_destroy(field_val);
@@ -1193,6 +1193,10 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
     if (!py_args) return py::FetchError();
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
+    if (py_res.Ptr() == Py_None) {
+      // Void procedure - no records to process.
+      return std::nullopt;
+    }
     if (PySequence_Check(py_res.Ptr())) {
       if (is_batched) {
         return AddMultipleBatchRecordsFromPython(result, py_res, graph, memory);

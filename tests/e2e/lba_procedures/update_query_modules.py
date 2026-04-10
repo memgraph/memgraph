@@ -14,8 +14,10 @@ import sys
 import pytest
 from common import *
 
-set_vertex_property_query = "MATCH (n:update_label) CALL update.set_property(n) YIELD * RETURN n.prop;"
-set_edge_property_query = "MATCH (n:update_label_1)-[r:update_edge_type]->(m:update_label_2) CALL update.set_property(r) YIELD * RETURN r.prop;"
+set_vertex_property_query = "MATCH (n:update_label) CALL update.set_property(n) RETURN n.prop;"
+set_edge_property_query = (
+    "MATCH (n:update_label_1)-[r:update_edge_type]->(m:update_label_2) CALL update.set_property(r) RETURN r.prop;"
+)
 
 
 @pytest.mark.parametrize("switch", [False, True])
