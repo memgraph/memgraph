@@ -379,6 +379,10 @@ wait_for_pods() {
     echo ""
     log_info "Pod status:"
     kubectl get pods -o wide | grep -E "^memgraph-|^NAME"
+
+    echo ""
+    log_info "Monitoring pod status (default/monitoring namespaces):"
+    kubectl get pods -A -o wide | grep -E "^NAMESPACE|^(default|monitoring)[[:space:]]+(memgraph-|mg-exporter|vmagent|vector|kube-prometheus-stack)" || true
 }
 
 wait_for_external_ips() {
