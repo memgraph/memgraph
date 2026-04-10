@@ -31,6 +31,8 @@ HELM_VALUES_FILE="${SCRIPT_DIR}/values.yaml"
 # Monitoring configuration
 ENABLE_MONITORING="${ENABLE_MONITORING:-true}"
 PROMETHEUS_NAMESPACE="monitoring"
+MONITORING_METRICS_PORT="${MONITORING_METRICS_PORT:-9091}"
+MONITORING_WS_PORT="${MONITORING_WS_PORT:-7444}"
 
 # Timeouts
 CLUSTER_CREATE_TIMEOUT="${CLUSTER_CREATE_TIMEOUT:-30m}"
@@ -379,6 +381,10 @@ wait_for_pods() {
     echo ""
     log_info "Pod status:"
     kubectl get pods -o wide | grep -E "^memgraph-|^NAME"
+
+    echo ""
+    log_info "Monitoring pod status (default/monitoring namespaces):"
+    kubectl get pods -A -o wide | grep -E "^NAMESPACE|^(default|monitoring)[[:space:]]+(memgraph-|mg-exporter|vmagent|vector|kube-prometheus-stack)" || true
 }
 
 wait_for_external_ips() {
@@ -409,6 +415,50 @@ wait_for_external_ips() {
         sleep 10
     done
     echo ""
+}
+
+ensure_monitoring_external_services() {
+    if [[ "${ENABLE_MONITORING}" != "true" ]]; then
+        return 0
+    fi
+
+    log_info "Creating external monitoring services (ports ${MONITORING_METRICS_PORT}/${MONITORING_WS_PORT})..."
+
+    local pods=(
+        "memgraph-coordinator-1-0"
+        "memgraph-coordinator-2-0"
+        "memgraph-coordinator-3-0"
+        "memgraph-data-0-0"
+        "memgraph-data-1-0"
+    )
+
+    local pod base_name svc_name
+    for pod in "${pods[@]}"; do
+        base_name="${pod%-0}"
+        svc_name="${base_name}-monitoring-external"
+
+        cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${svc_name}
+  labels:
+    app.kubernetes.io/name: memgraph-monitoring
+spec:
+  type: LoadBalancer
+  selector:
+    statefulset.kubernetes.io/pod-name: ${pod}
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: ${MONITORING_METRICS_PORT}
+      targetPort: ${MONITORING_METRICS_PORT}
+    - name: websocket
+      protocol: TCP
+      port: ${MONITORING_WS_PORT}
+      targetPort: ${MONITORING_WS_PORT}
+EOF
+    done
 }
 
 setup_ha() {
@@ -501,6 +551,7 @@ start_memgraph() {
 
     install_memgraph_ha
     wait_for_pods
+    ensure_monitoring_external_services
 
     local external_svc_count
     external_svc_count=$(kubectl get svc --no-headers 2>/dev/null | grep "^memgraph-" | grep -c "LoadBalancer") || external_svc_count=0
@@ -877,6 +928,28 @@ wait_service_ip() {
     done
 }
 
+print_monitoring_targets() {
+    local timeout="${1:-${EKS_MONITORING_TARGET_TIMEOUT:-600}}"
+    local metrics_port="${EKS_MONITORING_METRICS_PORT:-${MONITORING_METRICS_PORT}}"
+    local ws_port="${EKS_MONITORING_WS_PORT:-${MONITORING_WS_PORT}}"
+    local services=(coordinator-1 coordinator-2 coordinator-3 data-0 data-1)
+    local metrics_targets=""
+    local log_ws_targets=""
+
+    for svc in "${services[@]}"; do
+        local endpoint
+        endpoint="$(wait_service_ip "${svc}-monitoring" "$timeout")" || {
+            echo "Failed to resolve external endpoint for memgraph-${svc}-monitoring-external" >&2
+            return 1
+        }
+        metrics_targets+="${metrics_targets:+,}${endpoint}:${metrics_port}"
+        log_ws_targets+="${log_ws_targets:+,}${endpoint}:${ws_port}"
+    done
+
+    echo "MEMGRAPH_METRICS_TARGETS=${metrics_targets}"
+    echo "MEMGRAPH_LOG_WS_TARGETS=${log_ws_targets}"
+}
+
 restart_instance() {
     # Restart an instance by deleting the pod (StatefulSet will recreate it)
     # Accepts formats: data_0, data-0, data_1, data-1, coordinator_1, coordinator-1, etc.
@@ -1081,6 +1154,7 @@ print_usage() {
     echo "  export-metrics [f]  - Export Prometheus metrics to JSON file"
     echo "  get-ip <service>    - Get external IP for a LoadBalancer service"
     echo "  wait-ip <service>   - Wait for external IP and return it"
+    echo "  monitoring-targets  - Print monitoring targets as env assignments"
     echo "  logs <pod>          - Follow logs for a pod"
     echo "  exec <pod>          - Open shell in a pod"
     echo "  port-forward [svc]  - Port forward to a service (default: coordinator)"
@@ -1158,6 +1232,9 @@ case "$1" in
         ;;
     wait-ip)
         wait_service_ip "$2" "$3"
+        ;;
+    monitoring-targets)
+        print_monitoring_targets "$2"
         ;;
     collect-logs)
         collect_logs "$2"

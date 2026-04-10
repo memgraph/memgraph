@@ -2,7 +2,7 @@ image:
   repository: memgraph/memgraph
   # It is a bad practice to set the image tag name to latest as it can trigger automatic upgrade of the charts
   # With some of the pullPolicy values. Please consider fixing the tag to a specific Memgraph version
-  tag: {{VERSION_TAG}}
+  tag: "{{VERSION_TAG}}"
   pullPolicy: IfNotPresent
 
 env:
@@ -21,7 +21,7 @@ storage:
     logStorageClassName: csi-hostpath-delayed
     ## Create a Persistant Volume Claim for core dumps.
     createCoreDumpsClaim: false
-    coreDumpsStorageClassName: 
+    coreDumpsStorageClassName:
     coreDumpsStorageSize: 10Gi
     coreDumpsMountPath: /var/core/memgraph
   coordinators:
@@ -181,6 +181,8 @@ data:
   args:
   - "--management-port=10000"
   - "--bolt-port=7687"
+  - "--monitoring-port=7444"
+  - "--monitoring-address=0.0.0.0"
   - "--also-log-to-stderr"
   - "--log-level=TRACE"
   - "--log-file=/var/log/memgraph/memgraph.log"
@@ -192,6 +194,8 @@ data:
   args:
   - "--management-port=10000"
   - "--bolt-port=7687"
+  - "--monitoring-port=7444"
+  - "--monitoring-address=0.0.0.0"
   - "--also-log-to-stderr"
   - "--log-level=TRACE"
   - "--log-file=/var/log/memgraph/memgraph.log"
@@ -206,6 +210,8 @@ coordinators:
   - "--coordinator-port=12000"
   - "--management-port=10000"
   - "--bolt-port=7687"
+  - "--monitoring-port=7444"
+  - "--monitoring-address=0.0.0.0"
   - "--also-log-to-stderr"
   - "--log-level=TRACE"
   - "--coordinator-hostname=memgraph-coordinator-1.default.svc.cluster.local"
@@ -220,6 +226,8 @@ coordinators:
   - "--coordinator-port=12000"
   - "--management-port=10000"
   - "--bolt-port=7687"
+  - "--monitoring-port=7444"
+  - "--monitoring-address=0.0.0.0"
   - "--also-log-to-stderr"
   - "--log-level=TRACE"
   - "--coordinator-hostname=memgraph-coordinator-2.default.svc.cluster.local"
@@ -234,6 +242,8 @@ coordinators:
   - "--coordinator-port=12000"
   - "--management-port=10000"
   - "--bolt-port=7687"
+  - "--monitoring-port=7444"
+  - "--monitoring-address=0.0.0.0"
   - "--also-log-to-stderr"
   - "--log-level=TRACE"
   - "--coordinator-hostname=memgraph-coordinator-3.default.svc.cluster.local"
