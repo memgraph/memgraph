@@ -46,7 +46,7 @@ scattered across multiple systems.
 
 The same architecture drives real-time graph analytics for fraud detection,
 network analysis, infrastructure monitoring, and other operational workloads
-where milliseconds matter. Memgraph is fully compatible with Neo4j’s Cypher
+where performance matters. Memgraph is fully compatible with Neo4j’s Cypher
 query language, ACID-compliant, and highly available.
 
 ## :zap: Features
