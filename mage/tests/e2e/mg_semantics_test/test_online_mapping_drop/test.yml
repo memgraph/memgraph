@@ -1,0 +1,14 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    CALL mg_semantics.mapping_list() YIELD dbName
+    WITH collect(dbName) AS names
+    RETURN 'personName' IN names AS has_it;
+  output:
+    - has_it: false

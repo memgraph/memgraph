@@ -1,0 +1,8 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    MATCH (n:Person) RETURN mg_semantics.inference_has_label(n, 'Person') AS has_it;
+  output:
+    - has_it: true

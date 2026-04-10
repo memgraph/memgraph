@@ -1,0 +1,14 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    CALL mg_semantics.nsprefixes_list() YIELD prefix
+    WITH collect(prefix) AS prefixes
+    RETURN 'foaf' IN prefixes AND 'dc' IN prefixes AS has_both;
+  output:
+    - has_both: true

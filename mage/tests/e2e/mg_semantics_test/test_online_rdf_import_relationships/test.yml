@@ -1,0 +1,9 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    MATCH (a)-[r:schema__knows]->(b) RETURN a.uri AS from_uri, b.uri AS to_uri;
+  output:
+    - from_uri: "http://example.org/Alice"
+      to_uri: "http://example.org/Bob"

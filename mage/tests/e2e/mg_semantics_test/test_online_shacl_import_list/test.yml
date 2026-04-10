@@ -1,0 +1,9 @@
+- query: >-
+    RETURN 1 AS dummy;
+  output:
+    - dummy: 1
+- query: >-
+    CALL mg_semantics.shacl_list_shapes() YIELD shape
+    RETURN count(shape) AS cnt;
+  output:
+    - cnt: 1
