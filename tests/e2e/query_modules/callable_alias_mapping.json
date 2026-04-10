@@ -1,7 +1,11 @@
 {
-  "dbms.components": "mgps.components",
-  "apoc.util.validate": "mgps.validate",
+  "apoc.meta.nodeTypeProperties": "schema.node_type_properties",
+  "apoc.meta.relTypeProperties": "schema.rel_type_properties",
   "apoc.date.convertFormat": "date.convert_format",
+  "apoc.util.validate": "mgps.validate",
   "apoc.util.validatePredicate": "mgps.validate_predicate",
-  "apoc.version": "mgps.version"
+  "apoc.version": "mgps.version",
+  "dbms.components": "mgps.components",
+  "db.schema.nodeTypeProperties": "schema.node_type_properties",
+  "db.schema.relTypeProperties": "schema.rel_type_properties"
 }
