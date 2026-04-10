@@ -380,6 +380,7 @@ int main(int argc, char **argv) {
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
   CleanDataDir(data_directory);
+  memgraph::flags::CleanLogsDir();
 
   memgraph::utils::EnsureDirOrDie(data_directory);
   // Verify that the user that started the process is the same user that is
