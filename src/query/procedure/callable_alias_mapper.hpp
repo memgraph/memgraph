@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,6 +33,8 @@ class CallableAliasMapper final {
 
   void LoadMapping(const std::filesystem::path &);
   [[nodiscard]] std::optional<std::string_view> FindAlias(std::string_view name) const noexcept;
+
+  [[nodiscard]] const std::map<std::string, std::string, std::less<>> &GetMapping() const noexcept { return mapping_; }
 
  private:
   std::map<std::string, std::string, std::less<>> mapping_;
