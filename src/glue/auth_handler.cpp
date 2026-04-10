@@ -28,6 +28,7 @@
 #include "query/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/resource_monitoring.hpp"
+#include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace {
@@ -244,15 +245,8 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     auto const *entity_type = (permission_type == "LABEL") ? "NODES CONTAINING LABELS" : "EDGES OF TYPE";
     std::string entity_name = entity_type;
 
-    // @TODO yuck. We have join_with or Utils::join
-    bool first = true;
-    for (const auto &symbol : sorted_symbols) {
-      if (!first) {
-        entity_name += ",";
-      }
-      entity_name += fmt::format(" :{}", symbol);
-      first = false;
-    }
+    auto formatted = sorted_symbols | ranges::views::transform([](auto const &s) { return fmt::format(":{}", s); });
+    entity_name += " " + memgraph::utils::Join(formatted, ", ");
 
     if (permission_type == "LABEL") {
       auto const *matching_str = (rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";

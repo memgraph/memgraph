@@ -53,7 +53,6 @@ constexpr auto kSymbols = "symbols";
 constexpr auto kGranted = "granted";
 constexpr auto kDenied = "denied";
 constexpr auto kMatching = "matching";
-constexpr auto kPermissionsKey = "permissions";
 #endif
 
 // Constant list of all available permissions.
@@ -207,13 +206,8 @@ std::string FineGrainedPermissionToString(uint64_t const permission, bool const 
     permissions.emplace_back("READ");
   }
 
-  static constexpr uint64_t kUpdateLabelMask = static_cast<uint64_t>(FineGrainedPermission::SET_LABEL) |
-                                               static_cast<uint64_t>(FineGrainedPermission::REMOVE_LABEL) |
-                                               static_cast<uint64_t>(FineGrainedPermission::SET_PROPERTY) |
-                                               static_cast<uint64_t>(FineGrainedPermission::DELETE_EDGE) |
-                                               static_cast<uint64_t>(FineGrainedPermission::CREATE_EDGE);
-
-  if (is_label && (permission & kUpdateLabelMask) == kUpdateLabelMask) {
+  if (is_label && (permission & static_cast<uint64_t>(kVertexLabelUpdatePermissions)) ==
+                      static_cast<uint64_t>(kVertexLabelUpdatePermissions)) {
     permissions.emplace_back("UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE)");
   } else if (!is_label && (permission & FineGrainedPermission::SET_PROPERTY)) {
     permissions.emplace_back("UPDATE(SET PROPERTY)");
@@ -244,29 +238,14 @@ std::string FineGrainedPermissionToString(uint64_t const permission, bool const 
 
 FineGrainedAccessPermissions Merge(FineGrainedAccessPermissions const &first,
                                    FineGrainedAccessPermissions const &second) {
-  // Merge global grants: OR them together
-  std::optional<uint64_t> global_grants;
-  auto first_grants = first.GetGlobalGrants();
-  auto second_grants = second.GetGlobalGrants();
-  if (first_grants.has_value() && second_grants.has_value()) {
-    global_grants = first_grants.value() | second_grants.value();
-  } else if (first_grants.has_value()) {
-    global_grants = first_grants;
-  } else if (second_grants.has_value()) {
-    global_grants = second_grants;
-  }
+  auto merge_opt = [](std::optional<uint64_t> a, std::optional<uint64_t> b) -> std::optional<uint64_t> {
+    if (!a) return b;
+    if (!b) return a;
+    return *a | *b;
+  };
 
-  // Merge global denies: OR them together (deny from either source wins)
-  std::optional<uint64_t> global_denies;
-  auto first_denies = first.GetGlobalDenies();
-  auto second_denies = second.GetGlobalDenies();
-  if (first_denies.has_value() && second_denies.has_value()) {
-    global_denies = first_denies.value() | second_denies.value();
-  } else if (first_denies.has_value()) {
-    global_denies = first_denies;
-  } else if (second_denies.has_value()) {
-    global_denies = second_denies;
-  }
+  auto global_grants = merge_opt(first.GetGlobalGrants(), second.GetGlobalGrants());
+  auto global_denies = merge_opt(first.GetGlobalDenies(), second.GetGlobalDenies());
 
   // Merge rules
   auto merged_rules = first.GetRules();
@@ -586,7 +565,7 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
     rule_json[kMatching] = (rule.matching_mode == MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
     rules_json.push_back(rule_json);
   }
-  data[kPermissionsKey] = rules_json;
+  data[kPermissions] = rules_json;
 
   return data;
 }
@@ -614,7 +593,7 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
 
   std::vector<FineGrainedAccessRule> rules;
 
-  auto rules_json = data.find(kPermissionsKey);
+  auto rules_json = data.find(kPermissions);
   if (rules_json != data.end() && rules_json->is_array()) {
     for (const auto &rule_json : *rules_json) {
       if (!rule_json.is_object()) continue;
