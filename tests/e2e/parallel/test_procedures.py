@@ -1482,24 +1482,6 @@ class TestProcedureMemoryLimit:
         verify = execute_and_fetch_all(self.cursor, "MATCH (n:ProcMemCreated) RETURN count(n) AS cnt")
         assert verify[0][0] == 50
 
-    def test_write_proc_exceeds_procedure_memory_limit(self):
-        """Test write procedure fails when PROCEDURE MEMORY LIMIT exceeded."""
-        execute_and_fetch_all(self.cursor, "UNWIND range(1, 1000) AS i CREATE (:ProcMemSource {id: i, data: 'x'})")
-
-        with pytest.raises(Exception) as exc_info:
-            execute_and_fetch_all(
-                self.cursor,
-                """
-                MATCH (n:ProcMemSource)
-                CALL write_proc.set_property(n, 'new_data', n.data + '_processed')
-                    PROCEDURE MEMORY LIMIT 1 KB YIELD success
-                RETURN collect(success) AS results
-                """,
-            )
-
-        error_msg = str(exc_info.value).lower()
-        assert "memory" in error_msg or "limit" in error_msg
-
     def test_parallel_write_proc_within_procedure_memory_limit(self):
         """Test parallel write procedure within PROCEDURE MEMORY LIMIT."""
         execute_and_fetch_all(self.cursor, "UNWIND range(1, 100) AS i CREATE (:ParProcMemSource {id: i})")

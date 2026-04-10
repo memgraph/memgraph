@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -74,6 +75,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/fmt.hpp"
 #include "query/plan/hint_provider.hpp"
 #include "query/plan/parallel_checker.hpp"
@@ -127,6 +129,7 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
+#include "utils/worker_yield_signal.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "flags/experimental.hpp"
@@ -2884,6 +2887,19 @@ struct PullPlan {
                                                         const std::vector<Symbol> &output_symbols,
                                                         std::map<std::string, TypedValue> *summary);
 
+  ~PullPlan() {
+    // If the query was abandoned mid-yield the innermost cursor's coroutine
+    // frame is still suspended.  That frame is co-owned by the cursor's gen_
+    // member AND by suspended_handle_.  Calling Reset() on the cursor chain
+    // destroys every gen_ (including the suspended one) exactly once via
+    // ~PullAwaitable().  We then clear suspended_handle_ so the normal cursor
+    // destructor path finds gen_ already null and does nothing.
+    if (suspended_handle_) {
+      cursor_->Reset();
+      suspended_handle_ = {};
+    }
+  }
+
  private:
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
   plan::UniqueCursorPtr cursor_ = nullptr;
@@ -2907,6 +2923,11 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
+
+  // Scheduler-driven yield: keep the suspended coroutine handle alive so the task can return and be resumed later.
+  // gen_live_ tracks whether the cursor has a live generator (yielded but not yet finished/reset).
+  std::coroutine_handle<> suspended_handle_{};
+  bool gen_live_ = false;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
@@ -2976,6 +2997,18 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.worker_pool = worker_pool;
 }
 
+// Lifetime analysis for the coroutine chain on query cancellation:
+// When a query yields, suspended_handle_ points to the innermost (leaf) coroutine.
+// If ~PullPlan fires before the next Pull(), it calls cursor_->Reset().
+// cursor_->Reset() is virtual and cascades: each override calls Cursor::Reset() (destroys own gen_)
+// then input_cursor_->Reset() (recurses down the operator tree). This destroys every gen_
+// (PullAwaitable) in the chain including the one that owns the suspended leaf frame, so all
+// frames are cleaned up exactly once via ~PullAwaitable::handle_.destroy(). suspended_handle_
+// is cleared immediately after, before cursor_ itself is destroyed, so it is never accessed
+// as a dangling pointer.
+// Note: destroying a parent coroutine frame does NOT cascade to children in plain C++20, but
+// that mechanism is NOT used here — operator-tree RAII via cascading Reset() is what ensures
+// complete cleanup.
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
@@ -2992,6 +3025,13 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
 #endif
 
+  // TLS safety across yield/reschedule:
+  // Memory tracking TLS (StartTrackingCurrentThread / StartTrackingUserResource) is started here
+  // and stopped in the OnScopeExit below, so it is always started fresh on whatever thread calls
+  // Pull() — correct even if rescheduled on a different pool worker after a yield.
+  // yield_requested is refreshed from WorkerYieldRegistry::GetCurrentYieldSignal() on every
+  // Pull() call, so it always points to the current worker's signal.
+  // No other persistent TLS crosses a yield boundary.
   {  // Limiting scope of memory tracking
     auto reset_query_limit = utils::OnScopeExit{[]() {
       // Stopping tracking of transaction occurs in interpreter::pull
@@ -3005,8 +3045,27 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 #endif
     }};
 
-    // Returns true if a result was pulled.
-    const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
+    // Allow the cursor to store its suspended handle for scheduler-driven yield.
+    ctx_.suspended_task_handle_ptr = &suspended_handle_;
+    // Connect to current worker's yield signal when running in a pool (no-op if not set).
+    ctx_.stopping_context.yield_requested = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+
+    // Returns std::optional<bool>: true = has row, false = done, nullopt = yielded (caller should return and resume
+    // later).
+    const auto pull_result = [this, summary]() -> std::optional<bool> {
+      // cursor_->Pull() lazily creates the generator on first call and returns a ResumeAwaitable
+      // for the live generator. Subsequent calls return a new ResumeAwaitable for the same gen_.
+      auto resume_aw = cursor_->Pull(frame_, ctx_);
+      summary->insert_or_assign("yielded", TypedValue(false));
+      auto result = plan::RunPullToCompletion(resume_aw, ctx_);
+      if (result.status == plan::PullRunResult::Status::Yielded) {
+        gen_live_ = true;
+        summary->insert_or_assign("yielded", TypedValue(true));
+        return std::nullopt;  // Expose yield to scheduler; next Pull() will resume.
+      }
+      gen_live_ = false;
+      return result.status == plan::PullRunResult::Status::HasRow;
+    };
 
     auto values = std::vector<TypedValue>(output_symbols.size());
     const auto stream_values = [&] {
@@ -3020,27 +3079,42 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     utils::Timer timer;
 
     int i = 0;
-    if (has_unsent_results_ && !output_symbols.empty()) {
-      // stream unsent results from previous pull
-      stream_values();
-      ++i;
+    if (has_unsent_results_) {
+      // Consume the stored lookahead row before any further pull() calls so a
+      // scheduler-driven yield later in this function cannot replay it.
+      has_unsent_results_ = false;
+      if (!output_symbols.empty()) {
+        stream_values();
+        ++i;
+      }
     }
 
     for (; !n || i < n; ++i) {
-      if (!pull_result()) {
-        break;
+      auto pr = pull_result();
+      if (!pr.has_value()) {
+        break;  // Yielded: exit so scheduler can resume later.
       }
-
+      if (!*pr) break;  // has no more
       if (!output_symbols.empty()) {
         stream_values();
       }
     }
 
-    // If we finished because we streamed the requested n results,
-    // we try to pull the next result to see if there is more.
-    // If there is additional result, we leave the pulled result in the frame
-    // and set the flag to true.
-    has_unsent_results_ = i == n && pull_result();
+    // If we yielded, return without finishing so the task can end and be resumed later.
+    if (gen_live_) {
+      return std::nullopt;
+    }
+
+    // Only do lookahead when we streamed exactly n results; we need one more pull to set has_more.
+    // When we broke because the cursor returned false (no more rows), we must not pull again.
+    // Always reset first: if we broke early (cursor exhausted or no limit), there are no unsent results.
+    if (n && i == *n) {
+      auto pr = pull_result();
+      if (!pr.has_value()) {
+        return std::nullopt;  // Yielded during lookahead.
+      }
+      has_unsent_results_ = *pr;
+    }
 
     execution_time_ += timer.Elapsed();
   }
@@ -9373,6 +9447,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }
 }  // namespace
 
+// TODO: Think about YieldCheck in Commit and Abort
 void Interpreter::Commit() {
 #ifdef MG_ENTERPRISE
   if (user_resource_ && current_db_.db_transactional_accessor_) {
