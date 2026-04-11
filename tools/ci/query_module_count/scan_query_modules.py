@@ -596,10 +596,10 @@ def parse_cpp_external_file(path: Path, result: dict[str, Any]) -> None:
         )
 
     for _callee, args in iter_calls(clean, patterns["batch"]):
-        if len(args) < 4:
+        if len(args) < 5:
             continue
         name, name_expr = resolve_registered_name(args[3], constants, path)
-        proc_type = args[4].strip() if len(args) > 4 else ""
+        proc_type = args[4].strip()
         kind = "batch_write" if "Write" in proc_type else "batch_read"
         append_item(
             result,
