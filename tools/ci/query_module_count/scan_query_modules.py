@@ -86,6 +86,7 @@ def strip_comments_preserve_strings(text: str) -> str:
 
 
 def find_matching_paren(text: str, open_idx: int) -> int | None:
+    """Return the closing parenthesis index for `open_idx`, skipping strings."""
     depth = 0
     i = open_idx
     n = len(text)
@@ -117,6 +118,7 @@ def find_matching_paren(text: str, open_idx: int) -> int | None:
 
 
 def split_top_level_args(arg_text: str) -> list[str]:
+    """Split a call argument string on top-level commas only."""
     args: list[str] = []
     current: list[str] = []
     paren = bracket = brace = 0
@@ -172,6 +174,7 @@ def split_top_level_args(arg_text: str) -> list[str]:
 
 
 def iter_calls(text: str, pattern: str) -> list[tuple[str, list[str]]]:
+    """Find matching call sites and return the callee plus parsed arguments."""
     compiled = re.compile(pattern)
     calls: list[tuple[str, list[str]]] = []
     for match in compiled.finditer(text):
@@ -186,6 +189,7 @@ def iter_calls(text: str, pattern: str) -> list[tuple[str, list[str]]]:
 
 
 def extract_string_literal(expr: str) -> str | None:
+    """Extract and decode the first double-quoted string literal in `expr`."""
     match = re.search(r'"((?:\\.|[^"\\])*)"', expr, flags=re.DOTALL)
     if not match:
         return None
@@ -193,6 +197,7 @@ def extract_string_literal(expr: str) -> str | None:
 
 
 def simplify_name_expression(expr: str) -> str:
+    """Strip common wrapper syntax from name expressions before lookup."""
     expr = expr.strip()
     if expr.endswith(".c_str()"):
         expr = expr[: -len(".c_str()")].strip()
@@ -208,6 +213,7 @@ def simplify_name_expression(expr: str) -> str:
 
 
 def strip_hash_comments(text: str) -> str:
+    """Remove `#` comments from CMake-like text one line at a time."""
     lines = []
     for line in text.splitlines():
         comment_pos = line.find("#")
@@ -216,6 +222,7 @@ def strip_hash_comments(text: str) -> str:
 
 
 def build_local_string_constants(text: str) -> dict[str, str]:
+    """Collect simple local string constant definitions for later name resolution."""
     patterns = (
         (
             r"""\b(?:constexpr|const|static\s+constexpr|static\s+const)?\s*"""
@@ -235,10 +242,12 @@ def build_local_string_constants(text: str) -> dict[str, str]:
 
 
 def tokenize_cmake_args(text: str) -> list[str]:
+    """Split a CMake command body into tokens while preserving quoted strings."""
     return re.findall(r'"[^"]*"|[^\s()]+', text, flags=re.DOTALL)
 
 
 def resolve_cmake_sources(expr_tokens: list[str], source_vars: dict[str, list[str]], base_dir: Path) -> list[Path]:
+    """Resolve CMake source tokens and `${vars}` to concrete file paths."""
     resolved: list[Path] = []
     for token in expr_tokens:
         token = token.strip().strip('"')
@@ -253,6 +262,7 @@ def resolve_cmake_sources(expr_tokens: list[str], source_vars: dict[str, list[st
 
 
 def build_module_name_overrides() -> dict[str, str]:
+    """Build source-path to runtime-module-name overrides from CMake metadata."""
     overrides: dict[str, str] = {}
 
     for cmake_path in REPO_ROOT.rglob("CMakeLists.txt"):
@@ -304,6 +314,7 @@ def build_module_name_overrides() -> dict[str, str]:
 
 
 def module_name_overrides() -> dict[str, str]:
+    """Return the cached module-name override map, building it on first use."""
     global _MODULE_NAME_OVERRIDES
     if _MODULE_NAME_OVERRIDES is None:
         _MODULE_NAME_OVERRIDES = build_module_name_overrides()
@@ -311,6 +322,7 @@ def module_name_overrides() -> dict[str, str]:
 
 
 def search_nearby_string_constant(path: Path, identifier: str) -> str | None:
+    """Search nearby C/C++-like files for a uniquely defined string constant."""
     cache_key = (str(path.parent), identifier)
     if cache_key in _NEARBY_CONSTANT_CACHE:
         return _NEARBY_CONSTANT_CACHE[cache_key]
@@ -331,6 +343,7 @@ def search_nearby_string_constant(path: Path, identifier: str) -> str | None:
 
 
 def resolve_registered_name(expr: str, constants: dict[str, str], path: Path | None = None) -> tuple[str | None, str]:
+    """Resolve a registered name from a literal or constant-backed expression."""
     raw_expr = expr.strip()
     literal = extract_string_literal(raw_expr)
     if literal is not None:
@@ -353,10 +366,12 @@ def resolve_registered_name(expr: str, constants: dict[str, str], path: Path | N
 
 
 def relative_path(path: Path) -> str:
+    """Return a repository-relative POSIX path string."""
     return path.relative_to(REPO_ROOT).as_posix()
 
 
 def module_name_from_path(path: Path) -> str:
+    """Infer the runtime module name from overrides, metadata, or filename."""
     rel_path = relative_path(path)
     if rel_path in module_name_overrides():
         return module_name_overrides()[rel_path]
@@ -379,6 +394,7 @@ def module_name_from_path(path: Path) -> str:
 
 
 def full_attr_name(node: ast.AST) -> str | None:
+    """Return a dotted attribute path for simple AST name/attribute chains."""
     if isinstance(node, ast.Name):
         return node.id
     if isinstance(node, ast.Attribute):
@@ -389,10 +405,12 @@ def full_attr_name(node: ast.AST) -> str | None:
 
 
 def source_segment(text: str, node: ast.AST) -> str | None:
+    """Return the original source text that produced an AST node, if available."""
     return ast.get_source_segment(text, node)
 
 
 def new_result_block() -> dict[str, Any]:
+    """Create an empty result structure for procedures and functions by language."""
     return {
         "procedures": {language: [] for language in LANGUAGES},
         "functions": {language: [] for language in LANGUAGES},
@@ -400,10 +418,12 @@ def new_result_block() -> dict[str, Any]:
 
 
 def append_item(result: dict[str, Any], category: str, language: str, item: dict[str, Any]) -> None:
+    """Append one discovered item into the requested result bucket."""
     result[category][language].append(item)
 
 
 def parse_python_file(path: Path, result: dict[str, Any]) -> None:
+    """Parse Python decorators and batch registration calls into result entries."""
     text = path.read_text(encoding="utf-8")
     try:
         tree = ast.parse(text)
@@ -477,6 +497,7 @@ def parse_python_file(path: Path, result: dict[str, Any]) -> None:
 
 
 def parse_c_file(path: Path, result: dict[str, Any]) -> None:
+    """Parse C query module registration calls from `mgp_init_module` files."""
     text = path.read_text(encoding="utf-8")
     if "mgp_init_module" not in text:
         return
@@ -535,6 +556,7 @@ def parse_c_file(path: Path, result: dict[str, Any]) -> None:
 
 
 def parse_cpp_external_file(path: Path, result: dict[str, Any]) -> None:
+    """Parse external C++ module registrations from high- and low-level APIs."""
     text = path.read_text(encoding="utf-8")
     if "mgp_init_module" not in text:
         return
@@ -653,6 +675,7 @@ def parse_cpp_external_file(path: Path, result: dict[str, Any]) -> None:
 
 
 def parse_cpp_builtins(path: Path, result: dict[str, Any]) -> None:
+    """Parse built-in `mg.*` procedures registered in `module.cpp`."""
     text = path.read_text(encoding="utf-8")
     clean = strip_comments_preserve_strings(text)
     rel_path = relative_path(path)
@@ -677,6 +700,7 @@ def parse_cpp_builtins(path: Path, result: dict[str, Any]) -> None:
 
 
 def parse_cpp_mg_registered_procedures(path: Path, result: dict[str, Any]) -> None:
+    """Parse built-in `mg.*` procedures registered via `RegisterMgProcedure`."""
     if path.suffix not in {".cpp", ".cc", ".cxx"}:
         return
 
@@ -720,6 +744,7 @@ def parse_cpp_mg_registered_procedures(path: Path, result: dict[str, Any]) -> No
 
 
 def parse_rust_file(path: Path, result: dict[str, Any]) -> None:
+    """Parse Rust query module registrations declared inside `init_module!`."""
     text = path.read_text(encoding="utf-8")
     if "init_module!" not in text:
         return
@@ -752,6 +777,7 @@ def parse_rust_file(path: Path, result: dict[str, Any]) -> None:
 
 
 def sort_and_cleanup(result: dict[str, Any]) -> None:
+    """Deduplicate items, drop null fields, and sort output deterministically."""
     for category in ("procedures", "functions"):
         for language in LANGUAGES:
             deduped: list[dict[str, Any]] = []
@@ -776,6 +802,7 @@ def sort_and_cleanup(result: dict[str, Any]) -> None:
 
 
 def add_counts(result: dict[str, Any]) -> None:
+    """Add per-language and total counts to a scan result."""
     procedure_counts = {language: len(result["procedures"][language]) for language in LANGUAGES}
     function_counts = {language: len(result["functions"][language]) for language in LANGUAGES}
     result["counts"] = {
@@ -786,6 +813,7 @@ def add_counts(result: dict[str, Any]) -> None:
 
 
 def scan_paths(paths: list[Path]) -> dict[str, Any]:
+    """Scan the requested roots and aggregate all discovered registrations."""
     result = new_result_block()
 
     for base in paths:
@@ -812,6 +840,7 @@ def scan_paths(paths: list[Path]) -> dict[str, Any]:
 
 
 def build_output(target: str) -> dict[str, Any]:
+    """Build the final JSON payload for the selected scan target."""
     output: dict[str, Any] = {}
 
     if target in {"memgraph", "all"}:
@@ -829,7 +858,6 @@ def build_output(target: str) -> dict[str, Any]:
             REPO_ROOT / "mage/python",
             REPO_ROOT / "mage/cpp",
             REPO_ROOT / "mage/rust",
-            REPO_ROOT / "mgcxx",
         ]
         output["mage"] = {
             "roots": [relative_path(path) for path in mage_paths if path.exists()],
@@ -840,6 +868,7 @@ def build_output(target: str) -> dict[str, Any]:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the query module scanner."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--target",
@@ -856,6 +885,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run the scanner CLI and print the JSON result."""
     args = parse_args()
     output = build_output(args.target)
     if args.compact:
