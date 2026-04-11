@@ -1,13 +1,13 @@
 from conan import ConanFile
-from conan.tools.files import copy, get
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get
 from conan.tools.layout import basic_layout
 import os
 
 required_conan_version = ">=2.0"
 
 
-class USearchConanDepsConan(ConanFile):
-    name = "usearch-conan-deps"
+class USearchConan(ConanFile):
+    name = "usearch"
     description = "USearch packaged with Conan dependencies for selected vendored headers"
     license = "Apache-2.0"
     topics = ("search", "vector", "simd", "hnsw")
@@ -16,6 +16,9 @@ class USearchConanDepsConan(ConanFile):
     package_type = "header-library"
     settings = "os", "arch", "compiler", "build_type"
     no_copy_source = True
+
+    def export_sources(self):
+        export_conandata_patches(self)
 
     def layout(self):
         basic_layout(self, src_folder="src")
@@ -29,6 +32,7 @@ class USearchConanDepsConan(ConanFile):
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)
+        apply_conandata_patches(self)
 
         data = self.conan_data["submodules"][self.version]["simsimd"]
         get(
@@ -63,9 +67,9 @@ class USearchConanDepsConan(ConanFile):
     def package_info(self):
         self.cpp_info.bindirs = []
         self.cpp_info.libdirs = []
-        self.cpp_info.set_property("cmake_file_name", "usearch-conan-deps")
-        self.cpp_info.set_property("cmake_target_name", "usearch-conan-deps::usearch-conan-deps")
-        self.cpp_info.set_property("pkg_config_name", "usearch-conan-deps")
+        self.cpp_info.set_property("cmake_file_name", "usearch")
+        self.cpp_info.set_property("cmake_target_name", "usearch::usearch")
+        self.cpp_info.set_property("pkg_config_name", "usearch")
         self.cpp_info.requires = ["fp16::fp16", "stringzilla::stringzilla"]
         self.cpp_info.defines.extend([
             "USEARCH_USE_OPENMP=0",

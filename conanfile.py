@@ -104,6 +104,7 @@ class Memgraph(ConanFile):
         self.requires("simdjson/4.2.2")
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
+        self.requires("usearch/2.21.4")
         self.requires("zlib/1.3.1")
 
         # Version overrides — pin transitive dependency versions

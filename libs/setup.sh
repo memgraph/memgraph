@@ -149,7 +149,6 @@ declare -A primary_urls=(
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
-  ["usearch"]="http://$local_cache_host/git/usearch.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -162,7 +161,6 @@ declare -A secondary_urls=(
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
-  ["usearch"]="https://github.com/unum-cloud/usearch.git"
 )
 
 # Skip download if we are under the latest toolchains (>= 6).
@@ -207,19 +205,3 @@ if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
 else
   echo "Skipping pulsar download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
-
-# usearch (shallow clone to reduce flakiness)
-usearch_ref="v2.21.4" # (2025-12-16)
-if [[ "$use_cache" == true ]]; then
-  # This is a bit of a hack to allow us to fetch submodules form the cache
-  git -c url.http://${local_cache_host}/git/.insteadOf=https://github.com/ \
-  clone --recurse-submodules "${primary_urls[usearch]}" usearch || \
-  git clone --recurse-submodules "${secondary_urls[usearch]}" usearch
-else
-  git clone --recurse-submodules "${secondary_urls[usearch]}" usearch
-fi
-pushd usearch
-git checkout "$usearch_ref"
-git submodule update --init --recursive
-git apply ../usearch.patch
-popd
