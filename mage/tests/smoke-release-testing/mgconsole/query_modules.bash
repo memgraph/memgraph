@@ -3,13 +3,19 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../utils.bash"
 
 test_query_modules() {
+  QUERY_MODULE_JSON=$(python3 $SCRIPT_DIR/../../tools/ci/query_module_count/scan_query_modules.py --target all --compact)
+  MG_PROC_COUNT=$(echo $QUERY_MODULE_JSON | jq -r '.memgraph.counts.procedures.total')
+  MG_FUNC_COUNT=$(echo $QUERY_MODULE_JSON | jq -r '.memgraph.counts.functions.total')
+  MAGE_PROC_COUNT=$(echo $QUERY_MODULE_JSON | jq -r '.mage.counts.procedures.total')
+  MAGE_FUNC_COUNT=$(echo $QUERY_MODULE_JSON | jq -r '.mage.counts.functions.total')
+
   IMAGE_TYPE=${1:-"mage"}
   if [ "$IMAGE_TYPE" == "mage" ]; then
-    expected_procedure_count=326
-    expected_function_count=48
+    expected_procedure_count=$(($MAGE_PROC_COUNT + $MG_PROC_COUNT))
+    expected_function_count=$(($MAGE_FUNC_COUNT + $MG_FUNC_COUNT))
   elif [ "$IMAGE_TYPE" == "memgraph" ]; then
-    expected_procedure_count=138
-    expected_function_count=7
+    expected_procedure_count=$MG_PROC_COUNT
+    expected_function_count=$MG_FUNC_COUNT
   else
     echo "Invalid image type: $IMAGE_TYPE"
     exit 1
