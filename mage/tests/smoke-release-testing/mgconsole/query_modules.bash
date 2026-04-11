@@ -6,10 +6,10 @@ test_query_modules() {
   IMAGE_TYPE=${1:-"mage"}
   if [ "$IMAGE_TYPE" == "mage" ]; then
     expected_procedure_count=326
-    expected_function_count=47
+    expected_function_count=48
   elif [ "$IMAGE_TYPE" == "memgraph" ]; then
     expected_procedure_count=138
-    expected_function_count=6
+    expected_function_count=7
   else
     echo "Invalid image type: $IMAGE_TYPE"
     exit 1
