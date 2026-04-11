@@ -3,7 +3,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../utils.bash"
 
 test_query_modules() {
-  QUERY_MODULE_JSON=$(python3 $SCRIPT_DIR/../../../../tools/ci/query_module_count/scan_query_modules.py --target all --compact)
+  QUERY_MODULE_JSON=$(python3 $SCRIPT_DIR/../../../tools/ci/query_module_count/scan_query_modules.py --target all --compact)
   MG_PROC_COUNT=$(echo $QUERY_MODULE_JSON | jq -r '.memgraph.counts.procedures.total')
   MG_FUNC_COUNT=$(echo $QUERY_MODULE_JSON | jq -r '.memgraph.counts.functions.total')
   MAGE_PROC_COUNT=$(echo $QUERY_MODULE_JSON | jq -r '.mage.counts.procedures.total')
