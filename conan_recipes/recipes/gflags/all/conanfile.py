@@ -1,7 +1,7 @@
 from conan import ConanFile
 from conan.errors import ConanException
 from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
-from conan.tools.files import collect_libs, copy, get, rmdir
+from conan.tools.files import apply_conandata_patches, collect_libs, copy, export_conandata_patches, get, rmdir
 from conan.tools.scm import Version
 import os
 
@@ -28,7 +28,7 @@ class GflagsConan(ConanFile):
         "shared": False,
         "fPIC": True,
         "nothreads": True,
-        "namespace": "gflags",
+        "namespace": "google;gflags",
     }
 
     def config_options(self):
@@ -42,8 +42,12 @@ class GflagsConan(ConanFile):
     def layout(self):
         cmake_layout(self, src_folder="src")
 
+    def export_sources(self):
+        export_conandata_patches(self)
+
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)
+        apply_conandata_patches(self)
 
     def generate(self):
         tc = CMakeToolchain(self)
@@ -58,7 +62,7 @@ class GflagsConan(ConanFile):
         tc.variables["INSTALL_STATIC_LIBS"] = not self.options.shared
         tc.variables["REGISTER_BUILD_DIR"] = False
         tc.variables["REGISTER_INSTALL_PREFIX"] = False
-        tc.variables["GFLAGS_NAMESPACE"] = self.options.namespace
+        tc.variables["NAMESPACE"] = self.options.namespace
         tc.cache_variables["CMAKE_POLICY_VERSION_MINIMUM"] = "3.5" # CMake 4 support
         if Version(self.version) > "2.2.2": # pylint: disable=conan-unreachable-upper-version
             raise ConanException("CMAKE_POLICY_VERSION_MINIMUM hardcoded to 3.5, check if new version supports CMake 4")

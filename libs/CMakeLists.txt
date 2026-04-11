@@ -206,8 +206,6 @@ macro(mg_create_linkable_if_no_cmake lib_name lib_type lib_path include_path)
   endif()
 endmacro()
 
-mg_create_linkable_if_no_cmake(rocksdb STATIC "${MG_TOOLCHAIN_ROOT}/lib/librocksdb.a" "${MG_TOOLCHAIN_ROOT}/include")
-
 # Build mgconsole in isolation using the build script to avoid target conflicts
 # with memgraph's dependencies (e.g., gflags)
 # Default to v1.5.0 if not specified (used by install_mgconsole.cmake)

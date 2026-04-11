@@ -71,8 +71,6 @@ class Memgraph(ConanFile):
     }
 
     def requirements(self):
-        # self.requires("gflags/2.2.2") # we cannot use this gflags because we have a custom one!
-
         # Direct dependencies — packages we #include or link against directly
         self.requires("abseil/20250512.1")
         self.requires("antlr4-cppruntime/4.13.2")
@@ -87,6 +85,7 @@ class Memgraph(ConanFile):
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
         self.requires("fmt/11.2.0")
+        self.requires("gflags/2.2.0-memgraph", options={"nothreads": False, "namespace": "google;gflags"}, force=True)
         self.requires("jemalloc/5.2.1-memgraph")
         self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.6.1")
@@ -101,6 +100,7 @@ class Memgraph(ConanFile):
         # of other dependencies during the Conan build.
         self.requires("openssl/3.0.18", options={"shared": openssl_shared})
         self.requires("range-v3/0.12.0")
+        self.requires("rocksdb/8.1.1-memgraph", options={"with_gflags": True, "use_rtti": True})
         self.requires("simdjson/4.2.2")
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")

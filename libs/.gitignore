@@ -5,5 +5,4 @@
 !CMakeLists.txt
 !__main.cpp
 !pulsar.patch
-!rocksdb8.1.1.patch
 !nuraft.patch

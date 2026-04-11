@@ -70,7 +70,7 @@ class RocksDBConan(ConanFile):
 
     def requirements(self):
         if self.options.with_gflags:
-            self.requires("gflags-memgraph/2.2.0")
+            self.requires("gflags/2.2.0-memgraph")
         if self.options.with_snappy:
             self.requires("snappy/[>=1.1.10 <2]")
         if self.options.with_lz4:

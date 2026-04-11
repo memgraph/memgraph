@@ -6,3 +6,5 @@ patches:
   "8.1.1-memgraph":
     - patch_file: "patches/rocksdb-v8.1.1.patch"
       patch_description: "Fixes for Memgraph"
+    - patch_file: "patches/rocksdb-v8.1.1-gcc15.patch"
+      patch_description: "Fix unique_ptr incomplete-type build failure with newer libstdc++."

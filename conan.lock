@@ -11,6 +11,7 @@
         "snappy/1.2.1#a308ba649dfa7f2e86db38d8b781124a%1743607702.212",
         "simdjson/4.2.2#4cd3a478d2f19e70c78c8ef72b8e0c5d%1763286123.103",
         "s2n/1.5.27#d3f92c7e6873000d69ce09eefa5b7cdb%1763415423.713",
+        "rocksdb/8.1.1-memgraph#59fb7b1a434bd22e6f7c281ec73715b4%1775951091.226882",
         "rapidjson/cci.20230929#8dc0392af2b3aaea7312095f0ba53467%1705070242.903",
         "rapidcheck/cci.20231215#4d04e275bc3a07d2a20e9fdd8f05c021%1750175299.326",
         "range-v3/0.12.0#4c05d91d7b40e6b91b44b5345ac64408%1689218196.637",
@@ -26,6 +27,7 @@
         "libbcrypt/1.0-memgraph#274bb651d9486d6954019073532c8a1e%1775752931.981",
         "jemalloc/5.2.1-memgraph#59c2f343d980ad9658d4e0c3c2272f0d%1775752931.852",
         "gtest/1.17.0#5224b3b3ff3b4ce1133cbdd27d53ee7d%1755784855.585",
+        "gflags/2.2.0-memgraph#1b61accbd2b6e22a5431cff597bf5d64%1775951091.0044367",
         "fp16/cci.20210320#34dbac7f6fa3dee68830028b53de6c84%1700638970.182",
         "fmt/11.2.0#579bb2cdf4a7607621beea4eb4651e0f%1746298708.362",
         "cyrus-sasl/2.1.28#7454252270ecd9a8701db266fd9e26db%1767716835.731",
@@ -78,6 +80,10 @@
     ],
     "python_requires": [],
     "overrides": {
+        "gflags/2.2.0-memgraph": [
+            null,
+            "gflags/2.2.0-memgraph"
+        ],
         "boost/[>=1.85.0 <=1.88.0]": [
             "boost/1.88.0-memgraph"
         ],

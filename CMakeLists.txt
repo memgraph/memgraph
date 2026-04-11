@@ -215,6 +215,7 @@ find_package(absl REQUIRED)
 find_package(croncpp REQUIRED)
 find_package(range-v3 REQUIRED)
 find_package(asio REQUIRED)
+find_package(RocksDB REQUIRED CONFIG)
 find_package(usearch CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(RdKafka REQUIRED)
@@ -450,6 +451,9 @@ if (UBSAN)
 endif()
 
 # absl library is sensitive to sanitisers, 3rd party libs need building with sanitizer options
+add_library(rocksdb INTERFACE IMPORTED GLOBAL)
+set_property(TARGET rocksdb PROPERTY INTERFACE_LINK_LIBRARIES RocksDB::rocksdb)
+
 add_library(usearch INTERFACE IMPORTED GLOBAL)
 set_property(TARGET usearch PROPERTY INTERFACE_LINK_LIBRARIES usearch::usearch)
 # Suppress the guarded #warning in usearch/index_plugins.hpp.
