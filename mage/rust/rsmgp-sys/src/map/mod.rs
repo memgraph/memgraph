@@ -193,8 +193,8 @@ impl Map {
         }
     }
 
-    pub fn size(&self) -> u64 {
-        unsafe { invoke_mgp_func!(u64, ffi::mgp_map_size, self.ptr).unwrap() }
+    pub fn size(&self) -> usize {
+        unsafe { invoke_mgp_func!(usize, ffi::mgp_map_size, self.ptr).unwrap() }
     }
 
     pub fn at(&self, key: &CStr) -> Result<Value> {

@@ -10,16 +10,22 @@
 // licenses/APL.txt.
 
 #include "general.hpp"
-#include <spdlog/spdlog.h>
+
+#include <gflags/gflags.h>
+#include <algorithm>
+#include <cstdint>
+#include <iostream>
+#include <iterator>
+#include <limits>
+#include <ranges>
+#include <string>
+#include <thread>
 
 #include "storage/v2/config.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
-
-#include <iostream>
-#include <ranges>
-#include <thread>
+#include "utils/system_info.hpp"
 
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -47,6 +53,9 @@ DEFINE_string(init_file, "",
 DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creating data after server starts.");
 
 // General purpose flags.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(strict_flag_check, true, "If true, error and exit when suspicious positional arguments are detected.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
 
@@ -107,13 +116,13 @@ DEFINE_bool(storage_parallel_snapshot_creation, false,
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_snapshot_thread_count,
-              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+              std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
                        memgraph::storage::Config::Durability().snapshot_thread_count),
               "The number of threads used to create snapshots.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
-              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+              std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
                        memgraph::storage::Config::Durability().recovery_thread_count),
               "The number of threads used to recover persisted data from disk.");
 

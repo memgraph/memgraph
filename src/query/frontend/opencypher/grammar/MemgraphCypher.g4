@@ -21,6 +21,7 @@ import Cypher ;
 
 /* Also update src/query/frontend/stripped_lexer_constants.hpp */
 memgraphCypherKeyword : cypherKeyword
+                      | ABORTING
                       | ACTIVE
                       | ADD
                       | AFTER
@@ -35,6 +36,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
+                      | BOLT_SERVER
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
                       | BUILD
@@ -44,6 +46,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CLUSTER
                       | COMMIT
                       | COMMITTED
+                      | COMMITTING
                       | CONFIG
                       | CONFIGS
                       | CONSTRAINTS
@@ -61,6 +64,8 @@ memgraphCypherKeyword : cypherKeyword
                       | DELIMITER
                       | DEMOTE
                       | DENY
+                      | DESCRIPTION
+                      | DESCRIPTIONS
                       | DIRECTORY
                       | DISABLE
                       | DO
@@ -108,6 +113,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ISOLATION
                       | JSONL
                       | KAFKA
+                      | LABEL
                       | LABELS
                       | LAG
                       | LEADERSHIP
@@ -146,6 +152,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PERIODIC
                       | POINT
                       | PORT
+                      | PROPERTY
                       | PRIVILEGES
                       | PROFILE_RESTRICTION
                       | PROFILES
@@ -156,6 +163,7 @@ memgraphCypherKeyword : cypherKeyword
                       | READ_FILE
                       | RECOVER
                       | REGISTER
+                      | RELOAD
                       | RENAME
                       | REPLACE
                       | REPLICA
@@ -167,6 +175,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLE
                       | ROLES
                       | ROWS
+                      | RUNNING
                       | SCHEMA
                       | SECURITY
                       | SERVER
@@ -193,6 +202,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TERMINATE
                       | TEXT
                       | TIMEOUT
+                      | TLS
                       | TO
                       | TOPICS
                       | TRACE
@@ -281,6 +291,8 @@ query : cypherQuery
       | ttlQuery
       | setSessionTraceQuery
       | userProfileQuery
+      | descriptionQuery
+      | reloadSSLQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -416,7 +428,11 @@ transactionQueueQuery : showTransactions
                       | terminateTransactions
                       ;
 
-showTransactions : SHOW TRANSACTIONS ;
+showTransactions : SHOW transactionStatusList? TRANSACTIONS ;
+
+transactionStatusList : transactionStatus ( ',' transactionStatus )* ;
+
+transactionStatus : RUNNING | COMMITTING | ABORTING ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
@@ -586,7 +602,7 @@ socketAddress : literal ;
 registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC | STRICT_SYNC )
                 TO socketAddress ;
 
-configKeyValuePair : literal ':' literal ;
+configKeyValuePair : literal ':' ( literal | parameter ) ;
 
 configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
@@ -722,9 +738,9 @@ parameterName : symbolicName ;
 
 parameterValue : parameter | literal | configMap ;
 
-setParameter : SET GLOBAL PARAMETER parameterName '=' parameterValue ;
+setParameter : SET GLOBAL? PARAMETER parameterName '=' parameterValue ;
 
-unsetParameter : UNSET GLOBAL PARAMETER parameterName ;
+unsetParameter : UNSET GLOBAL? PARAMETER parameterName ;
 
 showParameters : SHOW PARAMETERS ;
 
@@ -824,6 +840,8 @@ ttlQuery: stopTtlQuery
         | startTtlQuery
         ;
 
+reloadSSLQuery: RELOAD BOLT_SERVER TLS ;
+
 typeConstraintType : BOOLEAN
              | STRING
              | INTEGER
@@ -868,3 +886,40 @@ userProfileQuery : createUserProfile
                  | clearUserProfile
                  | showResourceConsumption
                  ;
+
+descriptionQuery
+    : setDescription
+    | deleteDescription
+    | showDescriptions
+    ;
+
+setDescription
+    : SET DESCRIPTION ON descriptionTarget StringLiteral
+    ;
+
+deleteDescription
+    : DELETE DESCRIPTION ON descriptionTarget
+    ;
+
+showDescriptions
+    : SHOW DESCRIPTIONS
+    ;
+
+edgeTypePatternNode
+    : '(' ( ':' labelName )+ ')'
+    ;
+
+edgeTypePattern
+    : edgeTypePatternNode '-' '[' ':' labelName ']' '-' '>' edgeTypePatternNode
+    ;
+
+descriptionTarget
+    : LABEL ':' labelName ( ':' labelName )*
+    | EDGE TYPE PROPERTY edgeTypePattern '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE edgeTypePattern
+    | EDGE TYPE ':' labelName
+    | LABEL PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE PROPERTY ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | PROPERTY propertyKeyName
+    | DATABASE symbolicName
+    ;

@@ -45,8 +45,7 @@ def get_instances_description_ttl_ha(test_name: str):
                 "10011",
                 "--storage-snapshot-interval-sec",
                 "100000",
-                "--storage-snapshot-on-exit",
-                "false",
+                "--storage-snapshot-on-exit=false",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_1",
@@ -62,8 +61,7 @@ def get_instances_description_ttl_ha(test_name: str):
                 "10012",
                 "--storage-snapshot-interval-sec",
                 "100000",
-                "--storage-snapshot-on-exit",
-                "false",
+                "--storage-snapshot-on-exit=false",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_2",
@@ -221,7 +219,7 @@ def test_ttl_high_availability_failover(test_name):
 
     # Enable TTL
     execute_and_fetch_all(instance1_cursor, 'ENABLE TTL EVERY "1s";')
-    
+
     # Verify TTL index is present
     mg_sleep_and_assert(True, partial(check_index, instance1_cursor))
     mg_sleep_and_assert(True, partial(check_index, instance2_cursor))

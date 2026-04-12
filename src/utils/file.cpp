@@ -110,7 +110,9 @@ auto GetFilesFromDir(std::filesystem::path const &dir) -> std::vector<std::files
   }
   std::error_code error_code;
   return std::filesystem::directory_iterator(dir, error_code) |
-         std::views::transform([](auto const &dir_entry) { return dir_entry.path(); }) | std::ranges::to<std::vector>();
+         std::views::transform([](auto const &dir_entry) { return dir_entry.path(); }) |
+         std::views::filter([](std::filesystem::path const &path) { return path.filename() != ".old"; }) |
+         std::ranges::to<std::vector>();
 }
 
 bool DeleteFile(const std::filesystem::path &file) noexcept {

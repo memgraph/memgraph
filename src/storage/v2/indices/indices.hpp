@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "storage/v2/indices/active_indices.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
@@ -49,6 +50,14 @@ struct Indices {
 
   void DropGraphClearIndices();
 
+  /// Removes vertices from all vector indices. Must be called before
+  /// the vertex is removed from the skip list (while the pointer is still valid).
+  void RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &vertices_to_remove) const;
+
+  /// Removes edges from all vector edge indices. Must be called before
+  /// the edge is removed from the skip list (while the pointer is still valid).
+  void RemoveEdgesFromVectorEdgeIndices(std::vector<Edge *> const &edges_to_remove);
+
   struct AbortProcessor {
     LabelIndex::AbortProcessor label_;
     LabelPropertyIndex::AbortProcessor label_properties_;
@@ -58,7 +67,7 @@ struct Indices {
     // TODO: point? Nothing to abort, it gets built in Commit
     // TODO: text?
     VectorIndex::AbortProcessor vector_;
-    VectorEdgeIndex::IndexStats vector_edge_;
+    VectorEdgeIndex::AbortProcessor vector_edge_;
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
@@ -68,7 +77,7 @@ struct Indices {
                                  Edge *edge);
     bool IsInterestingEdgeProperty(PropertyId property);
 
-    void Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp,
+    void Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
                  NameIdMapper *name_id_mapper);
   };
 
@@ -103,6 +112,17 @@ struct Indices {
   std::unique_ptr<EdgeTypeIndex> edge_type_index_;
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   std::unique_ptr<EdgePropertyIndex> edge_property_index_;
+  /// Centralized snapshot of active indices, shared by transactions via shared_ptr.
+  /// Lock ordering:
+  ///   - engine_lock_ → active_indices_.WithReadLock (in CreateTransaction)
+  ///   - individual index lock (e.g. index_.WithLock) → active_indices_.WithLock (in RegisterIndex/DropIndex)
+  /// The ActiveIndicesUpdater is always called from within an individual index lock
+  /// (exception: DiskStorage CreateIndex, which is serialized via UNIQUE access mode).
+  ActiveIndicesStore active_indices_;
+
+  /// Factory method to create an updater bound to this Indices' active_indices_ store.
+  ActiveIndicesUpdater MakeUpdater() { return ActiveIndicesUpdater{active_indices_}; }
+
   TextIndex text_index_;
   TextEdgeIndex text_edge_index_;
   PointIndexStorage point_index_;

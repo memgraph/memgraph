@@ -1,0 +1,64 @@
+# Native HA Workload Registry
+# 'defaults' provides the deployment config merged into each workload YAML.
+# Set enabled: false to skip a workload.
+
+defaults:
+  memgraph:
+    deployment:
+      externally_managed: false
+    args: ["--log-level=TRACE", "--logger-type=async", "--query-modules-directory=../../build/query_modules"]
+    env: {}
+  cluster:
+    coordinators:
+      - {name: coord-1, host: "127.0.0.1", bolt_port: 7691}
+      - {name: coord-2, host: "127.0.0.1", bolt_port: 7692}
+      - {name: coord-3, host: "127.0.0.1", bolt_port: 7693}
+    data_instances:
+      - {name: data-1, host: "127.0.0.1", bolt_port: 7687}
+      - {name: data-2, host: "127.0.0.1", bolt_port: 7688}
+      - {name: data-3, host: "127.0.0.1", bolt_port: 7689}
+
+workloads:
+  - config: show_replicas_deadlock.yaml
+    enabled: true
+
+  - config: ../workloads/concurrent_edge_creation_on_supernode/workload.yaml
+    enabled: true
+
+  - config: ../workloads/concurrent_edge_write/workload.yaml
+    enabled: true
+
+  - config: ../workloads/concurrent_index_creation/workload.yaml
+    enabled: true
+
+  # Native deployment does not have Memgraph MAGE included so we will not run this one
+  - config: ../workloads/publications/workload.yaml
+    enabled: false
+
+  # TODO: re-enable once fixed
+  - config: ../workloads/vector_index_recovery/workload.yaml
+    enabled: false
+
+  # TODO: re-enable once fixed
+  - config: ../workloads/vector_edge_index_recovery/workload.yaml
+    enabled: false
+
+  - config: ../workloads/vector_index_concurrent_ops/workload.yaml
+    enabled: true
+
+  # Native deployment does not have Memgraph MAGE included so we will not run this one
+  - config: ../workloads/restarting_instances/workload.yaml
+    enabled: false
+
+  - config: ../workloads/rpc_timeout/workload.yaml
+    enabled: true
+
+  # Responsive reads currently disabled as the amount of work to make it responsive
+  # With respect to replication time and the engine lock taken at that time is substantial
+  # Users are advised to just wait for the replication to complete so auth / show indexes / show metrics
+  # queries can continue executing
+  - config: ../workloads/responsive_reads/workload.yaml
+    enabled: false
+
+  - config: ../workloads/concurrent_edge_supernode_mixed_commit_abort/workload.yaml
+    enabled: true

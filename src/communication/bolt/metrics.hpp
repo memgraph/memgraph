@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,20 +19,28 @@ namespace memgraph::communication::bolt {
 template <typename TSession>
 inline void RegisterNewSession(TSession &session, Value &metadata) {
   auto &data = metadata.ValueMap();
-  session.metrics_ = bolt_metrics.Add(data.contains("user_agent") ? data["user_agent"].ValueString() : "unknown",
+  auto user_agent_it = data.find("user_agent");
+  session.metrics_ = bolt_metrics.Add((user_agent_it != data.end() && user_agent_it->second.IsString())
+                                          ? user_agent_it->second.ValueString()
+                                          : "unknown",
                                       fmt::format("{}.{}", session.version_.major, session.version_.minor),
                                       session.client_supported_bolt_versions_);
   ++(*session.metrics_)->sessions;
-  auto conn_type = (!data.contains("scheme") || data["scheme"].ValueString() == "none")
-                       ? BoltMetrics::ConnectionType::kAnonymous
-                       : BoltMetrics::ConnectionType::kBasic;
+  auto scheme_it = data.find("scheme");
+  auto conn_type =
+      (scheme_it == data.end() || !scheme_it->second.IsString() || scheme_it->second.ValueString() == "none")
+          ? BoltMetrics::ConnectionType::kAnonymous
+          : BoltMetrics::ConnectionType::kBasic;
   ++(*session.metrics_)->connection_types[(int)conn_type];
 }
 
 template <typename TSession>
 inline void TouchNewSession(TSession &session, Value &metadata) {
   auto &data = metadata.ValueMap();
-  session.metrics_ = bolt_metrics.Add(data.contains("user_agent") ? data["user_agent"].ValueString() : "unknown");
+  auto user_agent_it = data.find("user_agent");
+  session.metrics_ = bolt_metrics.Add((user_agent_it != data.end() && user_agent_it->second.IsString())
+                                          ? user_agent_it->second.ValueString()
+                                          : "unknown");
 }
 
 template <typename TSession>
@@ -41,9 +49,11 @@ inline void UpdateNewSession(TSession &session, Value &metadata) {
   session.metrics_.value()->bolt_v = fmt::format("{}.{}", session.version_.major, session.version_.minor);
   session.metrics_.value()->supported_bolt_v = session.client_supported_bolt_versions_;
   ++session.metrics_.value()->sessions;
-  auto conn_type = (!data.contains("scheme") || data["scheme"].ValueString() == "none")
-                       ? BoltMetrics::ConnectionType::kAnonymous
-                       : BoltMetrics::ConnectionType::kBasic;
+  auto scheme_it = data.find("scheme");
+  auto conn_type =
+      (scheme_it == data.end() || !scheme_it->second.IsString() || scheme_it->second.ValueString() == "none")
+          ? BoltMetrics::ConnectionType::kAnonymous
+          : BoltMetrics::ConnectionType::kBasic;
   ++session.metrics_.value()->connection_types[(int)conn_type];
 }
 

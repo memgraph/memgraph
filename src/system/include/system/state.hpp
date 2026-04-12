@@ -13,6 +13,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <string_view>
 
 #include "kvstore/kvstore.hpp"
 

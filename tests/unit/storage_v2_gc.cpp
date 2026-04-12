@@ -825,7 +825,7 @@ TEST(StorageV2Gc, AbortsWithWithNoNonSequentialDeltas) {
     ASSERT_TRUE(tx1->CreateEdge(&*v1, &*v2, tx1->NameToEdgeType("EDGE1")).has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1, &*v2, tx1->NameToEdgeType("EDGE2")).has_value());
 
-    ASSERT_NE(v1->vertex_->delta, nullptr);
+    ASSERT_NE(v1->vertex_->delta(), nullptr);
     ASSERT_EQ(v1->vertex_->out_edges.size(), 2);
 
     tx1->Abort();
@@ -838,8 +838,8 @@ TEST(StorageV2Gc, AbortsWithWithNoNonSequentialDeltas) {
     ASSERT_TRUE(v1.has_value() && v2.has_value());
     EXPECT_EQ(v1->vertex_->out_edges.size(), 0);
     EXPECT_EQ(v2->vertex_->in_edges.size(), 0);
-    EXPECT_EQ(v1->vertex_->delta, nullptr);
-    EXPECT_EQ(v2->vertex_->delta, nullptr);
+    EXPECT_EQ(v1->vertex_->delta(), nullptr);
+    EXPECT_EQ(v2->vertex_->delta(), nullptr);
   }
 }
 
@@ -871,7 +871,7 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreNonSequential) {
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).has_value());
 
-    auto const *delta_v1_t1_head = v1_t1->vertex_->delta;
+    auto const *delta_v1_t1_head = v1_t1->vertex_->delta();
 
     auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
@@ -884,7 +884,7 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreNonSequential) {
 
     tx2->Abort();
 
-    ASSERT_EQ(v1_t1->vertex_->delta, delta_v1_t1_head);
+    ASSERT_EQ(v1_t1->vertex_->delta(), delta_v1_t1_head);
     ASSERT_EQ(v1_t1->vertex_->out_edges.size(), 1);
 
     ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -897,8 +897,8 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreNonSequential) {
     ASSERT_TRUE(v1.has_value() && v2.has_value());
     EXPECT_EQ(v1->vertex_->out_edges.size(), 1);
     EXPECT_EQ(v2->vertex_->in_edges.size(), 1);
-    EXPECT_NE(v1->vertex_->delta, nullptr);
-    EXPECT_NE(v2->vertex_->delta, nullptr);
+    EXPECT_NE(v1->vertex_->delta(), nullptr);
+    EXPECT_NE(v2->vertex_->delta(), nullptr);
   }
 }
 
@@ -932,13 +932,13 @@ TEST(StorageV2Gc, AbortsWithUpstreamNonSequentialDeltas) {
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
     ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
 
-    auto *delta_v1_t2 = v1_t2->vertex_->delta;
+    auto *delta_v1_t2 = v1_t2->vertex_->delta();
     ASSERT_NE(delta_v1_t2, nullptr);
     ASSERT_EQ(v1_t1->vertex_->out_edges.size(), 3);
 
     tx1->Abort();
 
-    EXPECT_EQ(v1_t2->vertex_->delta, delta_v1_t2);
+    EXPECT_EQ(v1_t2->vertex_->delta(), delta_v1_t2);
     EXPECT_EQ(v1_t2->vertex_->out_edges.size(), 1);
 
     ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -951,8 +951,8 @@ TEST(StorageV2Gc, AbortsWithUpstreamNonSequentialDeltas) {
     ASSERT_TRUE(v1.has_value() && v2.has_value());
     EXPECT_EQ(v1->vertex_->out_edges.size(), 1);
     EXPECT_EQ(v2->vertex_->in_edges.size(), 1);
-    EXPECT_EQ(v1->vertex_->delta, nullptr);
-    EXPECT_EQ(v2->vertex_->delta, nullptr);
+    EXPECT_EQ(v1->vertex_->delta(), nullptr);
+    EXPECT_EQ(v2->vertex_->delta(), nullptr);
   }
 }
 
@@ -992,13 +992,13 @@ TEST(StorageV2Gc, AbortsWithUpstreamAndDownstreamNonSequentialDeltas) {
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
     ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).has_value());
 
-    auto *delta_v1_t3 = v1_t3->vertex_->delta;
+    auto *delta_v1_t3 = v1_t3->vertex_->delta();
     ASSERT_NE(delta_v1_t3, nullptr);
     ASSERT_EQ(v1_t2->vertex_->out_edges.size(), 4);
 
     tx2->Abort();
 
-    EXPECT_EQ(v1_t3->vertex_->delta, delta_v1_t3);
+    EXPECT_EQ(v1_t3->vertex_->delta(), delta_v1_t3);
     EXPECT_EQ(v1_t3->vertex_->out_edges.size(), 2);
 
     ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1012,8 +1012,8 @@ TEST(StorageV2Gc, AbortsWithUpstreamAndDownstreamNonSequentialDeltas) {
     ASSERT_TRUE(v1.has_value() && v2.has_value());
     EXPECT_EQ(v1->vertex_->out_edges.size(), 2);
     EXPECT_EQ(v2->vertex_->in_edges.size(), 2);
-    EXPECT_NE(v1->vertex_->delta, nullptr);
-    EXPECT_NE(v2->vertex_->delta, nullptr);
+    EXPECT_NE(v1->vertex_->delta(), nullptr);
+    EXPECT_NE(v2->vertex_->delta(), nullptr);
   }
 }
 
@@ -1056,13 +1056,13 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
     ASSERT_TRUE(tx3->CreateEdge(&*v1_t3, &*v2_t3, tx3->NameToEdgeType("EDGE3")).has_value());
 
-    auto *delta_v1_t3 = v1_t3->vertex_->delta;
+    auto *delta_v1_t3 = v1_t3->vertex_->delta();
     ASSERT_NE(delta_v1_t3, nullptr);
     ASSERT_EQ(v1_t2->vertex_->out_edges.size(), 4);
 
     tx2->Abort();
 
-    EXPECT_EQ(v1_t3->vertex_->delta, delta_v1_t3);
+    EXPECT_EQ(v1_t3->vertex_->delta(), delta_v1_t3);
     EXPECT_EQ(v1_t3->vertex_->out_edges.size(), 2);
 
     ASSERT_TRUE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1075,8 +1075,8 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
     ASSERT_TRUE(v1.has_value() && v2.has_value());
     EXPECT_EQ(v1->vertex_->out_edges.size(), 2);
     EXPECT_EQ(v2->vertex_->in_edges.size(), 2);
-    EXPECT_EQ(v1->vertex_->delta, nullptr);
-    EXPECT_EQ(v2->vertex_->delta, nullptr);
+    EXPECT_EQ(v1->vertex_->delta(), nullptr);
+    EXPECT_EQ(v2->vertex_->delta(), nullptr);
   }
 }
 
@@ -1110,13 +1110,13 @@ TEST(StorageV2Gc, AbortsAtEndOfNonSequentialChain) {
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
     ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
 
-    auto *delta_v1_t2 = v1_t2->vertex_->delta;
+    auto *delta_v1_t2 = v1_t2->vertex_->delta();
     ASSERT_NE(delta_v1_t2, nullptr);
     ASSERT_EQ(v1_t1->vertex_->out_edges.size(), 3);
 
     tx1->Abort();
 
-    EXPECT_EQ(v1_t2->vertex_->delta, delta_v1_t2);
+    EXPECT_EQ(v1_t2->vertex_->delta(), delta_v1_t2);
     EXPECT_EQ(v1_t2->vertex_->out_edges.size(), 1);
 
     ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1129,8 +1129,8 @@ TEST(StorageV2Gc, AbortsAtEndOfNonSequentialChain) {
     ASSERT_TRUE(v1.has_value() && v2.has_value());
     EXPECT_EQ(v1->vertex_->out_edges.size(), 1);
     EXPECT_EQ(v2->vertex_->in_edges.size(), 1);
-    EXPECT_EQ(v1->vertex_->delta, nullptr);
-    EXPECT_EQ(v2->vertex_->delta, nullptr);
+    EXPECT_EQ(v1->vertex_->delta(), nullptr);
+    EXPECT_EQ(v2->vertex_->delta(), nullptr);
   }
 }
 
@@ -1187,8 +1187,8 @@ TEST(StorageV2Gc, AbortsWithMultipleTransactionsPrepending) {
     ASSERT_TRUE(v1.has_value() && v2.has_value());
     EXPECT_EQ(v1->vertex_->out_edges.size(), 2);
     EXPECT_EQ(v2->vertex_->in_edges.size(), 2);
-    EXPECT_NE(v1->vertex_->delta, nullptr);
-    EXPECT_NE(v2->vertex_->delta, nullptr);
+    EXPECT_NE(v1->vertex_->delta(), nullptr);
+    EXPECT_NE(v2->vertex_->delta(), nullptr);
   }
 }
 
@@ -1245,8 +1245,8 @@ TEST(StorageV2Gc, AbortsTwoTransactions) {
     ASSERT_TRUE(v1.has_value() && v2.has_value());
     EXPECT_EQ(v1->vertex_->out_edges.size(), 1);
     EXPECT_EQ(v2->vertex_->in_edges.size(), 1);
-    EXPECT_NE(v1->vertex_->delta, nullptr);
-    EXPECT_NE(v2->vertex_->delta, nullptr);
+    EXPECT_NE(v1->vertex_->delta(), nullptr);
+    EXPECT_NE(v2->vertex_->delta(), nullptr);
   }
 }
 
@@ -1279,14 +1279,14 @@ TEST(StorageV2Gc, HasNonSequentialDeltasFlagRemainsAfterAbort) {
 
     {
       auto const guard = std::shared_lock{v1_t2->vertex_->lock};
-      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_non_sequential_deltas);
+      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_non_sequential_deltas());
     }
 
     tx2->Abort();
 
     {
       auto const guard = std::shared_lock{v1_t2->vertex_->lock};
-      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_non_sequential_deltas);
+      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_non_sequential_deltas());
     }
 
     ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1297,7 +1297,7 @@ TEST(StorageV2Gc, HasNonSequentialDeltasFlagRemainsAfterAbort) {
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value());
     auto const guard = std::shared_lock{v1->vertex_->lock};
-    ASSERT_FALSE(v1->vertex_->has_uncommitted_non_sequential_deltas);
+    ASSERT_FALSE(v1->vertex_->has_uncommitted_non_sequential_deltas());
   }
 }
 
@@ -1336,14 +1336,14 @@ TEST(StorageV2Gc, HasNonSequentialDeltasFlagRemainsAfterPartialAbort) {
 
     {
       auto const guard = std::shared_lock{v1_t3->vertex_->lock};
-      ASSERT_TRUE(v1_t3->vertex_->has_uncommitted_non_sequential_deltas);
+      ASSERT_TRUE(v1_t3->vertex_->has_uncommitted_non_sequential_deltas());
     }
 
     tx2->Abort();
 
     {
       auto const guard = std::shared_lock{v1_t3->vertex_->lock};
-      ASSERT_TRUE(v1_t3->vertex_->has_uncommitted_non_sequential_deltas);
+      ASSERT_TRUE(v1_t3->vertex_->has_uncommitted_non_sequential_deltas());
     }
 
     ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1355,7 +1355,7 @@ TEST(StorageV2Gc, HasNonSequentialDeltasFlagRemainsAfterPartialAbort) {
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value());
     auto const guard = std::shared_lock{v1->vertex_->lock};
-    ASSERT_FALSE(v1->vertex_->has_uncommitted_non_sequential_deltas);
+    ASSERT_FALSE(v1->vertex_->has_uncommitted_non_sequential_deltas());
   }
 }
 
@@ -1388,7 +1388,7 @@ TEST(StorageV2Gc, HasNonSequentialDeltasFlagClearedWhenAllDeltasRemoved) {
 
     {
       auto const guard = std::shared_lock{v1_t2->vertex_->lock};
-      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_non_sequential_deltas);
+      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_non_sequential_deltas());
     }
 
     tx2->Abort();
@@ -1399,8 +1399,60 @@ TEST(StorageV2Gc, HasNonSequentialDeltasFlagClearedWhenAllDeltasRemoved) {
     auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value());
-    EXPECT_EQ(v1->vertex_->delta, nullptr);
+    EXPECT_EQ(v1->vertex_->delta(), nullptr);
     auto const guard = std::shared_lock{v1->vertex_->lock};
-    ASSERT_FALSE(v1->vertex_->has_uncommitted_non_sequential_deltas);
+    ASSERT_FALSE(v1->vertex_->has_uncommitted_non_sequential_deltas());
+  }
+}
+
+TEST(StorageV2Gc, ClearDrainsWaitingGcDeltas) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    v1_gid = acc->CreateVertex().Gid();
+    v2_gid = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    // Populate the garbage collector's waiting_gc_deltas_ by creating
+    // non-sequential deltas, whilst also prohibiting fast GC collection.
+    auto acc0 = storage->Access(ms::WRITE);
+    auto acc1 = storage->Access(ms::WRITE);
+    auto acc2 = storage->Access(ms::WRITE);
+
+    auto v1_t1 = acc1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t1 = acc1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).has_value());
+
+    auto v1_t2 = acc2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_t2 = acc2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).has_value());
+
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    acc2.reset();
+    acc1->Abort();
+    acc1.reset();
+  }
+
+  // Clear should discard entire storage state, including pending
+  // non-sequential deltas in the waiting_gc_deltas_ list.
+  {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->Clear();
+  }
+
+  // Subsequent commit triggers FastDiscardOfDeltas, which walks
+  // waiting_gc_deltas_. If any uncleared state lingers after Clear(), this
+  // will flag an error in ASAN.
+  {
+    auto acc = storage->Access(ms::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }

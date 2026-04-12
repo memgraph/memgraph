@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,10 +13,20 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <sys/types.h>
+#include <atomic>
+#include <cstdint>
+#include <libnuraft/basic_types.hxx>
+#include <libnuraft/log_store.hxx>
+#include <libnuraft/nuraft.hxx>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <utility>
+#include <vector>
+
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/logger_wrapper.hpp"
-
-#include <libnuraft/nuraft.hxx>
 #include "kvstore/kvstore.hpp"
 
 namespace memgraph::coordination {
@@ -28,13 +38,6 @@ using nuraft::log_entry;
 using nuraft::log_store;
 using nuraft::raft_server;
 
-/**
- * Current version v1 of CoordinatorLogStore is a simple in-memory log store + durability by default.
- * If durability is set, logs are persisted to disk and loaded on startup.
- * On first startup, version is set to 1 and start index and last log entry index are stored to disk - which are 1 and 0
- * respectfully. If some log is missing, we assert failure. Logs are stored in a map with key being the index of the log
- * entry. In current version logs are also cached in memory fully. For durability we use RocksDB instance.
- */
 class CoordinatorLogStore final : public log_store {
  public:
   CoordinatorLogStore(LoggerWrapper logger, LogStoreDurability log_store_durability);

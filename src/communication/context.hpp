@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,14 @@
 
 #pragma once
 
+#include <openssl/ssl.h>
+#include <openssl/types.h>
+#include <atomic>
+#include <boost/asio/ssl/context.hpp>
+#include <expected>
+#include <memory>
 #include <optional>
 #include <string>
-
-#include <openssl/ssl.h>
-#include <boost/asio/ssl/context.hpp>
 
 // Centos 7 OpenSSL includes libkrb5 which has brings in macros TRUE and FALSE. undef to prevent issues.
 #undef TRUE
@@ -60,11 +63,25 @@ class ClientContext final {
 
   SSL_CTX *context();
 
-  bool use_ssl();
+  auto use_ssl() const -> bool;
 
  private:
   bool use_ssl_;
   SSL_CTX *ctx_;
+};
+
+enum class SSL_CTX_ERR_TYPE : uint8_t {
+  FAIL_CERT_FILE,
+  FAIL_KEY_FILE,
+  FAIL_SET_OPTIONS,
+  FAIL_LOAD_CA,
+  FAIL_SET_SSL_VERIFICATION_MODE,
+  FLAGS_NOT_CONFIGURED
+};
+
+struct SSL_CTX_Error {
+  SSL_CTX_ERR_TYPE err_type;
+  std::string msg;
 };
 
 /**
@@ -85,17 +102,14 @@ class ServerContext final {
    * to check that the client certificate is valid, then you need to supply a
    * valid `ca_file` as well.
    */
-  ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file = "",
-                bool verify_peer = false);
+  ServerContext(std::string key_file, std::string cert_file, std::string ca_file = "", bool verify_peer = false);
 
   // This object can't be copied because the underlying SSL implementation is
   // messy and ownership can't be handled correctly.
   ServerContext(const ServerContext &) = delete;
   ServerContext &operator=(const ServerContext &) = delete;
-
-  // Move constructor/assignment that handle ownership change correctly.
-  ServerContext(ServerContext &&other) noexcept;
-  ServerContext &operator=(ServerContext &&other) noexcept;
+  ServerContext(ServerContext &&other) = delete;
+  ServerContext &operator=(ServerContext &&other) = delete;
 
   ~ServerContext();
 
@@ -104,8 +118,14 @@ class ServerContext final {
 
   bool use_ssl() const;
 
+  [[nodiscard]] auto reload() -> std::expected<void, SSL_CTX_Error>;
+
  private:
-  std::optional<boost::asio::ssl::context> ctx_;
+  std::string key_file_;
+  std::string cert_file_;
+  std::string ca_file_;
+  bool verify_peer_{false};
+  std::atomic<std::shared_ptr<boost::asio::ssl::context>> ctx_;
 };
 
 }  // namespace memgraph::communication

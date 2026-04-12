@@ -33,7 +33,7 @@ namespace {
 auto DoValidate(const Vertex &vertex, utils::SkipList<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
                 const LabelId &label, const std::set<PropertyId> &properties)
     -> std::expected<void, ConstraintViolation> {
-  if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
+  if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
     return {};
   }
   auto values = vertex.properties.ExtractPropertyValues(properties);
@@ -118,8 +118,8 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
   bool has_label;
   {
     auto guard = std::shared_lock{vertex.lock};
-    delta = vertex.delta;
-    deleted = vertex.deleted;
+    delta = vertex.delta();
+    deleted = vertex.deleted();
     has_label = std::ranges::contains(vertex.labels, label);
 
     for (const auto &[i, property] : std::views::enumerate(properties)) {
@@ -127,7 +127,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
     }
 
     // If vertex has non-sequential deltas, hold lock while applying them
-    if (!vertex.has_uncommitted_non_sequential_deltas) {
+    if (!vertex.has_uncommitted_non_sequential_deltas()) {
       guard.unlock();
     }
 
@@ -206,8 +206,8 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   {
     auto guard = std::shared_lock{vertex.lock};
     has_label = std::ranges::contains(vertex.labels, label);
-    deleted = vertex.deleted;
-    delta = vertex.delta;
+    deleted = vertex.deleted();
+    delta = vertex.delta();
 
     // Avoid IsPropertyEqual if already not possible
     if (delta == nullptr && (deleted || !has_label)) return false;
@@ -227,7 +227,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
     }
 
     // If vertex has non-sequential deltas, hold lock while applying them
-    if (!vertex.has_uncommitted_non_sequential_deltas) {
+    if (!vertex.has_uncommitted_non_sequential_deltas()) {
       guard.unlock();
     }
 
@@ -407,7 +407,7 @@ void InMemoryUniqueConstraints::ActiveConstraints::AbortEntries(
 bool InMemoryUniqueConstraints::ActiveConstraints::empty() const { return container_->empty(); }
 
 auto InMemoryUniqueConstraints::GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> {
-  return std::make_unique<ActiveConstraints>(container_.WithReadLock(std::identity{}));
+  return std::make_unique<ActiveConstraints>(container_.ReadCopy());
 }
 
 // --- InMemoryUniqueConstraints methods ---
@@ -578,9 +578,9 @@ auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<Pro
 
 auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *> &vertices, const Transaction &tx,
                                          uint64_t commit_timestamp) const -> std::expected<void, ConstraintViolation> {
-  auto container = container_.WithReadLock(std::identity{});
+  auto container = container_.ReadCopy();
   for (const auto *const vertex : vertices) {
-    if (vertex->deleted) {
+    if (vertex->deleted()) {
       continue;
     }
     for (const auto &label : vertex->labels) {
@@ -630,7 +630,7 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
 
 void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t const oldest_active_start_timestamp,
                                                       const std::stop_token &token) {
-  auto container = container_.WithReadLock(std::identity{});
+  auto container = container_.ReadCopy();
   auto maybe_stop = utils::ResettableCounter(2048);
 
   for (const auto &[label, map] : *container) {
@@ -671,7 +671,7 @@ void InMemoryUniqueConstraints::DropGraphClearConstraints() {
 }
 
 void InMemoryUniqueConstraints::RunGC() {
-  const auto container = container_.WithReadLock(std::identity{});
+  const auto container = container_.ReadCopy();
   for (const auto &map : *container | std::views::values) {
     for (const auto &individual_constraint : map | std::views::values) {
       individual_constraint->skiplist.run_gc();

@@ -133,7 +133,10 @@
                       (utils/process-service-unavailable-exc op (:node this)))
                     (catch Exception e
                       (if (or
-                           (utils/sync-replica-down? e)
+                           (utils/is-replica-down? e)
+                           (utils/cannot-get-shared-access? e)
+                           (utils/main-reached-rpc-timeout? e)
+                           (utils/asked-to-abort-shutdown? e)
                            (utils/conflicting-txns? e))
                         (assoc op :type :info :value (str e)); Exception due to down sync replica is accepted/expected
                         (assoc op :type :fail :value (str e)))))

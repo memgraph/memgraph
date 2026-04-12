@@ -1,0 +1,17 @@
+memgraph:
+  deployment:
+    externally_managed: false
+  args: []
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: sample-workload
+      script: "standalone/native/workloads/sample/workload.py"
+      timeout_min: 5

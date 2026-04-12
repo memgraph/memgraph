@@ -32,7 +32,6 @@
 #include "query/plan/rewrite/join.hpp"
 #include "query/plan/rewrite/parallel_rewrite.hpp"
 #include "query/plan/rewrite/periodic_delete.hpp"
-#include "query/plan/rewrite/plan_cachable.hpp"
 #include "query/plan/rewrite/plan_validator.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
@@ -122,7 +121,6 @@ auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAc
 struct MakeLogicalPlanResult {
   PostProcessor::ProcessedPlan plan;
   double cost;
-  bool is_cachable;
 };
 
 /// Generates the LogicalOperator tree and returns the resulting plan.
@@ -204,11 +202,9 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
     curr_plan.emplace(std::move(rewritten_plan));
   }
 
-  auto is_cachable = IsPlanCachable(**curr_plan);
   return MakeLogicalPlanResult{
       .plan = std::move(*curr_plan),
       .cost = total_cost,
-      .is_cachable = is_cachable,
   };
 }
 

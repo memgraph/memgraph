@@ -17,12 +17,14 @@
 
 #include "replication/epoch.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/snapshot_progress.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
@@ -49,6 +51,7 @@ struct SnapshotInfo {
   uint64_t offset_edge_batches{kInvalidOffset};
   uint64_t offset_vertex_batches{kInvalidOffset};
   uint64_t offset_ttl{kInvalidOffset};
+  uint64_t offset_descriptions{kInvalidOffset};
 
   std::string uuid;
   std::string epoch_id;
@@ -82,6 +85,7 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config,
                                memgraph::storage::EnumStore *enum_store,
                                memgraph::storage::SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
+                               memgraph::storage::DescriptionStore *description_store,
                                std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
@@ -97,13 +101,11 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
                                   utils::FileRetainer *file_retainer);
 
-std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
-                                                    const std::filesystem::path &snapshot_directory,
-                                                    const std::filesystem::path &wal_directory,
-                                                    utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                                    utils::UUID const &uuid, std::string_view epoch_id,
-                                                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
-                                                    utils::FileRetainer *file_retainer,
-                                                    std::atomic_bool *abort_snapshot = nullptr);
+std::optional<std::filesystem::path> CreateSnapshot(
+    Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
+    const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+    utils::UUID const &uuid, std::string_view epoch_id,
+    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
+    std::atomic_bool *abort_snapshot = nullptr, SnapshotProgress *progress = nullptr);
 
 }  // namespace memgraph::storage::durability

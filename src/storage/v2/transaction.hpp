@@ -14,6 +14,8 @@
 #include <atomic>
 #include <memory>
 #include <optional>
+#include <unordered_map>
+#include <vector>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -40,7 +42,9 @@
 #include "storage/v2/vertex_info_cache.hpp"
 #include "utils/pmr/list.hpp"
 
-#include <rocksdb/utilities/transaction.h>
+namespace rocksdb {
+class Transaction;
+}  // namespace rocksdb
 
 namespace memgraph::storage {
 
@@ -101,7 +105,7 @@ struct AsyncIndexHelper {
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
-              ActiveIndices active_indices, ActiveConstraints active_constraints,
+              ActiveIndicesPtr active_indices, ActiveConstraints active_constraints,
               AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
@@ -147,6 +151,21 @@ struct Transaction {
   }
 
   bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
+
+  struct EdgeSetPropertyInfo {
+    Gid in_vertex_gid = kInvalidGid;
+    EdgeTypeId edge_type_id = kInvalidEdgeTypeId;
+  };
+
+  void RecordEdgeSetPropertyInfo(Gid edge_gid, Gid in_vertex_gid, EdgeTypeId edge_type_id) {
+    edge_set_property_info_[edge_gid] = EdgeSetPropertyInfo{in_vertex_gid, edge_type_id};
+  }
+
+  EdgeSetPropertyInfo GetEdgeSetPropertyInfo(Gid edge_gid) const {
+    auto it = edge_set_property_info_.find(edge_gid);
+    if (it == edge_set_property_info_.end()) return {};
+    return it->second;
+  }
 
   void UpdateOnChangeLabel(LabelId label, Vertex *vertex) {
     point_index_change_collector_.UpdateOnChangeLabel(label, vertex);
@@ -195,6 +214,7 @@ struct Transaction {
   // Store modified edges GID mapped to changed Delta and serialized edge key
   // Only for disk storage
   ModifiedEdgesMap modified_edges_{};
+  std::unordered_map<Gid, EdgeSetPropertyInfo> edge_set_property_info_{};
   rocksdb::Transaction *disk_transaction_{};
   /// Main storage
   std::optional<utils::SkipList<Vertex>> vertices_{};
@@ -224,12 +244,15 @@ struct Transaction {
   /// Text edge index change tracking (batched apply on commit)
   TextEdgeIndexChangeCollector text_edge_index_change_collector_;
 
+  /// Pinned tantivy searcher cache for snapshot-consistent text index reads within this transaction
+  mutable std::unique_ptr<TextSearchSession> text_search_session_;
+
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;
 
   /// Concurrent safe indices that existed at the beginning of the transaction
   /// Used to insert new entries, and during planning to speed up scans
-  ActiveIndices active_indices_;
+  ActiveIndicesPtr active_indices_;
   /// Concurrent safe constraints that existed at the beginning of the transaction
   /// Used for constraint validation during commit
   ActiveConstraints active_constraints_;

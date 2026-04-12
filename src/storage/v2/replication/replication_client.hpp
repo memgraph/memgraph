@@ -11,9 +11,7 @@
 
 #pragma once
 
-#include "replication/config.hpp"
 #include "replication/replication_client.hpp"
-#include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/commit_ts_info.hpp"
@@ -22,10 +20,12 @@
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
 #include <concepts>
+#include <expected>
 #include <optional>
 #include <string>
 
@@ -52,7 +52,8 @@ class ReplicaStream {
   void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t final_commit_timestamp, Storage *storage);
 
   /// @throw rpc::RpcFailedException
-  void AppendDelta(const Delta &delta, Edge *edge, uint64_t final_commit_timestamp, Storage *storage);
+  void AppendDelta(const Delta &delta, Edge *edge, uint64_t final_commit_timestamp, Storage *storage, Gid in_vertex_gid,
+                   EdgeTypeId edge_type_id);
 
   /// @throw rpc::RpcFailedException
   void AppendTransactionStart(uint64_t final_commit_timestamp, bool commit, StorageAccessType access_type);
@@ -140,7 +141,8 @@ class ReplicationStorageClient {
    * @param durability_commit_timestamp LDT with which this txn should be committed
    */
   auto StartTransactionReplication(Storage *storage, DatabaseProtector const &protector,
-                                   uint64_t const durability_commit_timestamp) -> std::optional<ReplicaStream>;
+                                   uint64_t durability_commit_timestamp)
+      -> std::expected<ReplicaStream, StartTxnReplicationError>;
 
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
@@ -177,22 +179,16 @@ class ReplicationStorageClient {
     }
   }
 
-  /**
-   * @brief Return whether the transaction could be finalized on the replication client or not.
-   *
-   * @param replica_stream replica stream to finalize the transaction on
-   * @param durability_commit_timestamp
-   * @return true
-   * @return false
-   */
-  [[nodiscard]] bool FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
-                                                uint64_t durability_commit_timestamp) const;
+  [[nodiscard]] auto FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
+                                                uint64_t durability_commit_timestamp) const
+      -> std::expected<void, io::network::ClientCommunicationError>;
 
-  bool FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
-                                      uint64_t durability_commit_timestamp) const;
+  auto FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
+                                      uint64_t durability_commit_timestamp) const
+      -> std::expected<void, io::network::ClientCommunicationError>;
 
-  [[nodiscard]] bool SendFinalizeCommitRpc(bool const decision, utils::UUID const &storage_uuid,
-                                           uint64_t const durability_commit_timestamp,
+  [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,
+                                           uint64_t durability_commit_timestamp,
                                            std::optional<ReplicaStream> replica_stream) noexcept;
 
   /**

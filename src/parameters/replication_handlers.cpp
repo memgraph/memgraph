@@ -14,7 +14,7 @@
 #include <spdlog/spdlog.h>
 
 #include "parameters/parameters.hpp"
-#include "parameters/parameters_rpc.hpp"
+#include "parameters/rpc.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "rpc/utils.hpp"
 
@@ -45,7 +45,8 @@ void SetParameterHandler(system::ReplicaHandlerAccessToState &system_state_acces
     return;
   }
 
-  if (parameters.SetParameter(req.parameter.name, req.parameter.value, req.parameter.scope)) {
+  if (parameters.SetParameter(req.parameter.name, req.parameter.value, req.parameter.scope_context) ==
+      parameters::SetParameterResult::Success) {
     res = SetParameterRes(true);
   }
 
@@ -75,7 +76,7 @@ void UnsetParameterHandler(system::ReplicaHandlerAccessToState &system_state_acc
     return;
   }
 
-  if (parameters.UnsetParameter(req.name, req.scope)) {
+  if (parameters.UnsetParameter(req.name, req.scope_context)) {
     res = UnsetParameterRes(true);
   }
 

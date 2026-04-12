@@ -56,8 +56,7 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
                 "10011",
                 "--storage-snapshot-interval-sec",
                 f"{snapshot_interval_sec}",
-                "--storage-snapshot-on-exit",
-                "false",
+                "--storage-snapshot-on-exit=false",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_1",
@@ -73,8 +72,7 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
                 "10012",
                 "--storage-snapshot-interval-sec",
                 f"{snapshot_interval_sec}",
-                "--storage-snapshot-on-exit",
-                "false",
+                "--storage-snapshot-on-exit=false",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_2",
@@ -140,8 +138,7 @@ def get_instances_description_no_setup_wal_files_recovery(test_name: str, storag
                 "10011",
                 "--storage-snapshot-interval-sec",
                 "100000",
-                "--storage-snapshot-on-exit",
-                "false",
+                "--storage-snapshot-on-exit=false",
                 "--storage-wal-file-size-kib",
                 "1",
                 f"--storage-backup-dir-enabled={storage_backup_dir_enabled}",
@@ -160,8 +157,7 @@ def get_instances_description_no_setup_wal_files_recovery(test_name: str, storag
                 "10012",
                 "--storage-snapshot-interval-sec",
                 "100000",
-                "--storage-snapshot-on-exit",
-                "false",
+                "--storage-snapshot-on-exit=false",
                 "--storage-wal-file-size-kib",
                 "1",
                 f"--storage-backup-dir-enabled={storage_backup_dir_enabled}",
@@ -251,9 +247,9 @@ def test_snapshots_on_replica(test_name):
     data_dir_instance_2 = f"{build_dir}/{get_data_path(file, test_name)}/instance_2"
     snapshot_dir_instance_2 = f"{data_dir_instance_2}/snapshots"
 
-    # There won't be more than one snapshot created because snapshot digest will be used
+    # There can be more than one snapshot because SystemRecoveryRpc changes storage UUID
     def checker_func(num_snapshot_files):
-        return num_snapshot_files == 1
+        return num_snapshot_files >= 1
 
     mg_sleep_and_assert_eval_function(checker_func, partial(count_files, snapshot_dir_instance_2))
 

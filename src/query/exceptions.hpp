@@ -41,6 +41,16 @@ class QueryException : public utils::BasicException {
 };
 
 /**
+ * @brief Thrown when a USING PERIODIC COMMIT batch fails with a fatal error
+ * (e.g. constraint violation). The storage layer has already aborted the
+ * transaction internally, so the interpreter must NOT call Abort() again.
+ */
+class PeriodicCommitException : public QueryException {
+  using QueryException::QueryException;
+  SPECIALIZE_GET_EXCEPTION_NAME(PeriodicCommitException)
+};
+
+/**
  * @brief Base class of all query language related exceptions which can be retried.
  * All exceptions derived from this one will be interpreted as TransientError-s,
  * i.e. client will be encouraged to retry the queries.
@@ -542,6 +552,12 @@ class EnumModificationInMulticommandTxException : public MulticommandTxException
  public:
   EnumModificationInMulticommandTxException() : MulticommandTxException("Creating or modifying enums") {}
   SPECIALIZE_GET_EXCEPTION_NAME(EnumModificationInMulticommandTxException)
+};
+
+class ReloadSSLMulticommandTxException : public MulticommandTxException {
+ public:
+  ReloadSSLMulticommandTxException() : MulticommandTxException("Reloading SSL") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ReloadSSLMulticommandTxException)
 };
 
 class TtlInMulticommandTxException : public MulticommandTxException {

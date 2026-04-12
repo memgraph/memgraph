@@ -17,10 +17,17 @@
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "range/v3/algorithm/remove.hpp"
+#include "storage/v2/indices/tracked_vector_allocator.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/memory_tracker.hpp"
+#include "utils/readable_size.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+
+#include "usearch/index_dense.hpp"
 
 // Suppress usearch library warnings
 #if defined(__clang__)
@@ -35,6 +42,16 @@
 #endif
 
 namespace memgraph::storage {
+
+using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t, TrackedVectorAllocator<64>,
+                                                        TrackedVectorAllocator<8>>;
+
+struct synchronized_mg_vector_index_t {
+  mg_vector_index_t index;
+  utils::ResourceLock mutex{};
+
+  explicit synchronized_mg_vector_index_t(mg_vector_index_t &&idx) : index(std::move(idx)) {}
+};
 
 /// @enum VectorIndexType
 /// @brief Represents the type of vector index.
@@ -134,9 +151,9 @@ inline unum::usearch::metric_kind_t MetricFromName(std::string_view name) {
     return unum::usearch::metric_kind_t::sorensen_k;
   }
   throw query::VectorSearchException(
-      fmt::format("Unsupported metric name: {}. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, "
-                  "hamming, tanimoto, and sorensen.",
-                  name));
+      "Unsupported metric name: {}. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, "
+      "hamming, tanimoto, and sorensen.",
+      name);
 }
 
 /// @brief Converts a scalar kind to its string representation.
@@ -239,9 +256,9 @@ inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
   }
 
   throw query::VectorSearchException(
-      fmt::format("Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
-                  "u64, u32, u16, u8, i64, i32, i16, and i8.",
-                  name));
+      "Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
+      "u64, u32, u16, u8, i64, i32, i16, and i8.",
+      name);
 }
 
 /// @brief Converts a distance to a similarity score based on the metric kind.
@@ -266,46 +283,88 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
       return 1.0 / (1.0 + distance);
 
     default:
-      throw query::VectorSearchException(
-          fmt::format("Unsupported metric kind for similarity calculation: {}", NameFromMetric(metric)));
+      throw query::VectorSearchException("Unsupported metric kind for similarity calculation: {}",
+                                         NameFromMetric(metric));
   }
 }
 
-/// @brief Converts a PropertyValue list to a vector of floats.
-/// @param value The PropertyValue to convert. Must be a list of numeric values (floats or integers).
-/// @return A vector of float values.
-/// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
-inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
-  if (value.IsNull()) return {};
-  if (!value.IsAnyList())
-    throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+/// @brief Non-throwing conversion of a PropertyValue list to a vector of floats.
+/// @return The float vector, or nullopt if the value is not a numeric list.
+inline std::optional<utils::small_vector<float>> TryListToVector(const PropertyValue &value) {
+  if (value.IsNull()) return utils::small_vector<float>{};
+  if (!value.IsAnyList()) return std::nullopt;
 
   const auto list_size = value.ListSize();
   utils::small_vector<float> vector;
   vector.reserve(list_size);
   for (std::size_t i = 0; i < list_size; i++) {
     auto numeric_value = GetNumericValueAt(value, i);
-    if (!numeric_value) {
-      throw query::VectorSearchException(
-          "Vector index property must be a list of floats or integers; found non-numeric value at index.");
-    }
-    auto float_value = std::visit([](auto val) { return static_cast<float>(val); }, *numeric_value);
-    vector.push_back(float_value);
+    if (!numeric_value) return std::nullopt;
+    vector.push_back(std::visit([](auto val) { return static_cast<float>(val); }, *numeric_value));
   }
   return vector;
 }
 
-/// @brief Removes an index ID from a property's vector index ID list.
-/// @param property_value The property value to modify (must be a VectorIndexId).
-/// @param index_id The index ID to remove.
-/// @return true if the property should be restored (no more index IDs), false otherwise.
-inline bool ShouldUnregisterFromIndex(PropertyValue &property_value, uint64_t index_id) {
+/// @brief Converts a PropertyValue list to a vector of floats.
+/// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
+inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
+  auto result = TryListToVector(value);
+  if (!result) {
+    throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+  }
+  return *std::move(result);
+}
+
+/// @brief Registers an index ID in the property, converting a raw list to VectorIndexId if needed.
+/// @return The float vector to insert into uSearch.
+inline utils::small_vector<float> RegisterIndexId(PropertyValue &property, uint64_t index_id) {
+  if (property.IsVectorIndexId()) {
+    property.ValueVectorIndexIds().push_back(index_id);
+    return property.ValueVectorIndexList();
+  }
+  auto vector = ListToVector(property);
+  property =
+      PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id}, .vector = vector});
+  return vector;
+}
+
+/// @brief Removes an index ID from a property's VectorIndexId list.
+/// Mutates property_value by erasing index_id from its ID list.
+/// @pre Caller must verify the entity exists in the uSearch index before calling —
+///      the early-exit for non-VectorIndexId properties assumes the caller will restore from uSearch.
+/// @return true if no index IDs remain (caller should restore the raw vector), false otherwise.
+inline bool UnregisterIndexId(PropertyValue &property_value, uint64_t index_id) {
   if (!property_value.IsVectorIndexId()) {
-    return true;  // Not a vector index ID, should restore
+    return true;
   }
   auto &ids = property_value.ValueVectorIndexIds();
   ids.erase(ranges::remove(ids, index_id), ids.end());
-  return ids.empty();  // Return true if should restore (no more IDs)
+  return ids.empty();
+}
+
+/// @brief Checks if dropping a vector index would exceed the total memory limit.
+/// When an index is dropped, indexed vectors are converted back to property values in the property store,
+/// which increases memory usage. This function estimates the cost and throws OutOfMemoryException
+/// if the limit would be exceeded.
+inline void CheckGraphMemoryForIndexDrop(std::string_view index_name, std::size_t num_vectors, std::size_t dimension) {
+  const auto total_limit = utils::total_memory_tracker.HardLimit();
+  if (total_limit <= 0) return;
+
+  const auto bytes_per_element = FLAGS_storage_floating_point_resolution_bits / 8;
+  const auto estimated_cost =
+      static_cast<int64_t>(num_vectors) * static_cast<int64_t>(dimension) * static_cast<int64_t>(bytes_per_element);
+  const auto current_usage = utils::total_memory_tracker.Amount();
+
+  if (current_usage + estimated_cost > total_limit) {
+    throw utils::OutOfMemoryException(
+        fmt::format("Dropping vector index '{}' would require approximately {} of additional memory, "
+                    "but only {} is available (current usage: {}, limit: {}).",
+                    index_name,
+                    utils::GetReadableSize(estimated_cost),
+                    utils::GetReadableSize(std::max(total_limit - current_usage, int64_t{0})),
+                    utils::GetReadableSize(current_usage),
+                    utils::GetReadableSize(total_limit)));
+  }
 }
 
 /// @brief Returns the maximum number of concurrent threads for vector index operations.
@@ -317,7 +376,6 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @brief Updates an entry in the vector index: removes existing entry if present, then adds new vector.
 /// If vector is empty, only removes the entry (if it exists) and returns.
 /// Automatically resizes the index if full during add.
-/// @tparam Index The usearch index type (e.g., index_dense_gt<Key, ...>).
 /// @tparam Key The key type used in the index (e.g., Vertex*, EdgeIndexEntry).
 /// @tparam Spec The index specification type.
 /// @param mg_index The synchronized index wrapper.
@@ -326,42 +384,67 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @param vector The vector to insert into the index.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
 /// @throws query::VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
-template <typename Index, typename Key, typename Spec>
-void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
-                       const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
-  if (!vector.empty() && vector.size() != spec.dimension) {
+template <typename SyncIndex, typename Key, typename Spec>
+void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const utils::small_vector<float> &vector,
+                       std::optional<std::size_t> thread_id = std::nullopt) {
+  if (vector.empty()) {
+    // Setting empty vector on Abort
+    auto guard = std::lock_guard{mg_index.mutex};
+    if (mg_index.index.contains(key)) {  // check again freshly if index contains key
+      mg_index.index.remove(key);
+    }
+    return;
+  }
+
+  if (vector.size() != spec.dimension) {
     throw query::VectorSearchException(
         "Vector index property must have the same number of dimensions as specified in the index.");
   }
 
-  auto thread_id_for_adding = thread_id.value_or(Index::any_thread());
-  {
-    auto locked_index = mg_index.MutableSharedLock();
-    if (locked_index->contains(key)) {
-      locked_index->remove(key);
-    }
-    if (vector.empty()) return;
+  auto thread_id_for_adding = thread_id.value_or(std::remove_reference_t<decltype(mg_index.index)>::any_thread());
 
-    auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
-    if (!result.error) return;
-    if (locked_index->size() >= locked_index->capacity()) {
-      // Error is due to capacity, release the error because we will resize the index.
-      result.error.release();
-    }
-  }
+  // Happy path. Take WRITE lock to allow multiple concurrent writes
   {
-    // In order to resize the index, we need to acquire an exclusive lock.
-    auto exclusively_locked_index = mg_index.Lock();
-    if (exclusively_locked_index->size() >= exclusively_locked_index->capacity()) {
-      const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * exclusively_locked_index->capacity());
-      const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
-      if (!exclusively_locked_index->try_reserve(new_limits)) {
-        throw query::VectorSearchException("Failed to resize vector index.");
-      }
-      spec.capacity = exclusively_locked_index->capacity();
+    auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::WRITE);
+
+    auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
+    if (!result.error) {
+      return;
     }
-    auto result = exclusively_locked_index->add(key, vector.data(), thread_id_for_adding);
+    result.error.release();
   }
+
+  // Hard path
+  // We can come here either because index already contains key or because adding failed
+  // In either case, we need unique lock for removing and for resizing
+  auto guard = std::lock_guard{mg_index.mutex};
+  if (mg_index.index.contains(key)) {  // check again freshly if index contains key
+    mg_index.index.remove(key);
+  }
+
+  // Try to add without resizing (another thread may have already resized)
+  {
+    auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
+    if (!result.error) {
+      return;
+    }
+    result.error.release();
+  }
+
+  // Try to add with resizing
+  const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * mg_index.index.capacity());
+  const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
+  if (!mg_index.index.try_reserve(new_limits)) {
+    throw query::VectorSearchException("Failed to resize vector index.");
+  }
+  spec.capacity = mg_index.index.capacity();
+
+  auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
+  if (!result.error) {
+    return;
+  }
+  result.error.release();
+  throw query::VectorSearchException("Failed to add entry to vector index.");
 }
 
 /// @brief Populates a vector index by iterating over vertices on a single thread.

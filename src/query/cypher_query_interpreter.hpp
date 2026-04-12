@@ -61,7 +61,8 @@ class LogicalPlan {
 using UserParameters = storage::ExternalPropertyValue::map_t;
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
-                            parameters::Parameters const *global_parameters = nullptr) -> Parameters;
+                            parameters::Parameters const *server_parameters, std::string_view database_uuid)
+    -> Parameters;
 
 class PlanWrapper {
  public:
@@ -122,7 +123,7 @@ struct ParsedQuery {
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
-                       parameters::Parameters const *global_parameters = nullptr);
+                       std::string_view database_uuid, parameters::Parameters const *server_parameters);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:
@@ -150,10 +151,8 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
 using PlanCache_t = utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>>;
 using PlanCacheLRU = utils::Synchronized<PlanCache_t, utils::RWSpinLock>;
 
-// Return plan and if its cachable
 auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
-                     const std::vector<Identifier *> &predefined_identifiers)
-    -> std::pair<std::unique_ptr<LogicalPlan>, bool>;
+                     const std::vector<Identifier *> &predefined_identifiers) -> std::unique_ptr<LogicalPlan>;
 
 /**
  * Return the parsed *Cypher* query's AST cached logical plan, or create and

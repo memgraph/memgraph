@@ -141,7 +141,7 @@ inline const utils::small_vector<LabelId> *GetLabelsViewOld(const Vertex *v, uin
   if (v_cached != cache.end()) return &v_cached->second;
   // Apply deltas and cache values
   auto labels_copy = v->labels;
-  ApplyDeltasForRead(v->delta, start_timestamp, [&labels_copy](const Delta &delta) {
+  ApplyDeltasForRead(v->delta(), start_timestamp, [&labels_copy](const Delta &delta) {
     // clang-format off
     DeltaDispatch(delta, utils::ChainedOverloaded{
       Labels_ActionMethod(labels_copy)
@@ -155,7 +155,7 @@ inline const utils::small_vector<LabelId> *GetLabelsViewOld(const Vertex *v, uin
 // Keep v locked as we could return a reference to labels
 inline std::pair<const utils::small_vector<LabelId> *, bool> GetLabels(const Vertex *v, uint64_t start_timestamp,
                                                                        uint64_t commit_timestamp, auto &cache) {
-  const auto state = GetState(v->delta, start_timestamp, commit_timestamp);
+  const auto state = GetState(v->delta(), start_timestamp, commit_timestamp);
   const auto *labels = &v->labels;
   if (state == ANOTHER_TX) {
     labels = GetLabelsViewOld(v, start_timestamp, cache);
@@ -210,7 +210,7 @@ struct Properties {
 inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(const Edge *edge, uint64_t start_timestamp) {
   auto edge_props = edge->properties.ExtendedPropertyTypes();
   // Apply deltas
-  ApplyDeltasForRead(edge->delta, start_timestamp, [&edge_props](const Delta &delta) {
+  ApplyDeltasForRead(edge->delta(), start_timestamp, [&edge_props](const Delta &delta) {
     // clang-format off
     DeltaDispatch(delta, utils::ChainedOverloaded{
       PropertyTypes_ActionMethod(edge_props)
@@ -221,13 +221,13 @@ inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(const Edg
 }
 
 inline Properties GetProperties(const Edge *edge, uint64_t start_timestamp, uint64_t commit_timestamp) {
-  const auto state = GetState(edge->delta, start_timestamp, commit_timestamp);
+  const auto state = GetState(edge->delta(), start_timestamp, commit_timestamp);
   // TODO Should we cache this as well
   auto edge_props = edge->properties.ExtendedPropertyTypes();
 
   if (state == ANOTHER_TX) {
     // Apply deltas
-    ApplyDeltasForRead(edge->delta, start_timestamp, [&edge_props](const Delta &delta) {
+    ApplyDeltasForRead(edge->delta(), start_timestamp, [&edge_props](const Delta &delta) {
       // clang-format off
         DeltaDispatch(delta, utils::ChainedOverloaded{
           PropertyTypes_ActionMethod(edge_props)
@@ -301,14 +301,14 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
     // An edge can be added to post process by modifying the edge directly or one of the vertices
     // We need to check all 3 objects
-    const auto from_state = GetState(from->delta, start_ts, commit_ts, true);
-    const auto to_state = GetState(to->delta, start_ts, commit_ts, true);
+    const auto from_state = GetState(from->delta(), start_ts, commit_ts, true);
+    const auto to_state = GetState(to->delta(), start_ts, commit_ts, true);
 
     State edge_state{NO_CHANGE};
     std::shared_lock<decltype(edge_ref.ptr->lock)> edge_lock;
     if (property_on_edges) {
       edge_lock = std::shared_lock{edge_ref.ptr->lock};
-      edge_state = GetState(edge_ref.ptr->delta, start_ts, commit_ts, true);
+      edge_state = GetState(edge_ref.ptr->delta(), start_ts, commit_ts, true);
     }
 
     // Check if we need to process this edge
@@ -390,30 +390,27 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
 template <template <class...> class TContainer>
 nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
-  return ToJson(name_id_mapper, enum_store, [](auto /*value*/) { return true; }, [](auto /*value*/) { return true; });
+  return ToJson(
+      name_id_mapper, enum_store, [](auto const & /*value*/) { return true; }, [](auto /*value*/) { return true; });
 }
 
 template <template <class...> class TContainer>
-nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
-                                                  const std::function<bool(LabelId)> &node_predicate,
-                                                  const std::function<bool(EdgeTypeId)> &edge_predicate) const {
+nlohmann::json SchemaTracking<TContainer>::ToJson(
+    NameIdMapper &name_id_mapper, const EnumStore &enum_store,
+    const std::function<bool(utils::small_vector<LabelId> const &)> &node_predicate,
+    const std::function<bool(EdgeTypeId)> &edge_predicate) const {
   auto json = nlohmann::json::object();
 
   // Handle NODES
   const auto &[nodes_itr, _] = json.emplace("nodes", nlohmann::json::array());
   auto &nodes = nodes_itr.value();
   for (const auto &[labels, info] : vertex_state_) {
+    if (!node_predicate(labels)) continue;
     auto node = nlohmann::json::object();
     const auto &[labels_itr, _] = node.emplace("labels", nlohmann::json::array_t{});
-    bool has_access = true;
     for (const auto labelId : labels) {
-      if (!node_predicate(labelId)) {
-        has_access = false;
-        break;
-      }
       labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
     }
-    if (!has_access) continue;
     std::sort(labels_itr->begin(), labels_itr->end());
     node.update(info.ToJson(name_id_mapper, enum_store));
     nodes.emplace_back(std::move(node));
@@ -423,29 +420,20 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, 
   const auto &[edges_itr, dummy] = json.emplace("edges", nlohmann::json::array());
   auto &edges = edges_itr.value();
   for (const auto &[edge_type, info] : edge_state_) {
-    auto edge = nlohmann::json::object();
     if (!edge_predicate(edge_type.type)) continue;
+    if (!node_predicate(edge_type.from)) continue;
+    if (edge_type.from != edge_type.to && !node_predicate(edge_type.to)) continue;
+    auto edge = nlohmann::json::object();
     edge.emplace("type", name_id_mapper.IdToName(edge_type.type.AsUint()));
     const auto &[out_labels_itr, _] = edge.emplace("start_node_labels", nlohmann::json::array_t{});
-    bool has_access = true;
     for (const auto labelId : edge_type.from) {
-      if (!node_predicate(labelId)) {
-        has_access = false;
-        break;
-      }
       out_labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
     }
-    if (!has_access) continue;
     std::sort(out_labels_itr->begin(), out_labels_itr->end());
     const auto &[in_labels_itr, _b] = edge.emplace("end_node_labels", nlohmann::json::array_t{});
     for (const auto labelId : edge_type.to) {
-      if (!node_predicate(labelId)) {
-        has_access = false;
-        break;
-      }
       in_labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
     }
-    if (!has_access) continue;
     std::sort(in_labels_itr->begin(), in_labels_itr->end());
     edge.update(info.ToJson(name_id_mapper, enum_store));
     edges.emplace_back(std::move(edge));
@@ -887,8 +875,8 @@ void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, E
   tracking_->DeleteEdge(edge_type, edge_ref, from, to, properties_on_edges_);
 
   if (post_process_) {
-    if (GetState(from->delta, start_ts_, commit_ts_) == ANOTHER_TX ||
-        GetState(to->delta, start_ts_, commit_ts_) == ANOTHER_TX) {
+    if (GetState(from->delta(), start_ts_, commit_ts_) == ANOTHER_TX ||
+        GetState(to->delta(), start_ts_, commit_ts_) == ANOTHER_TX) {
       post_process_->edges.insert({edge_ref, edge_type, from, to});
     } else {
       post_process_->edges.erase({edge_ref, edge_type, from, to});

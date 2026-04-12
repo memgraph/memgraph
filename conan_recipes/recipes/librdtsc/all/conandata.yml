@@ -1,0 +1,9 @@
+sources:
+  "0.3-memgraph":
+    url: "https://github.com/gabrieleara/librdtsc/archive/refs/tags/v0.3.tar.gz"
+    sha256: "c64b1f4163f59b6715dd346d7eb2a04a84b5a7c83d5f0b784d2f8170fae225b1"
+patches:
+  "0.3-memgraph":
+    - patch_file: "patches/librdtsc.patch"
+      patch_description: "Build as static library, remove install prefix override, add missing include"
+      patch_type: "portability"

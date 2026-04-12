@@ -26,7 +26,7 @@ find_package(Boost REQUIRED CONFIG COMPONENTS filesystem)
 
 # Test integrations-kafka
 add_library(kafka-mock STATIC kafka_mock.cpp)
-target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads GTest::gtest)
+target_link_libraries(kafka-mock mg-utils RdKafka::rdkafka++ Threads::Threads GTest::gtest)
 
 # Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
 add_unit_test(integrations_kafka_consumer
@@ -403,6 +403,11 @@ add_unit_test(utils_on_scope_exit
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_pointer_pack
+    SOURCES utils_pointer_pack.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_rwlock
     SOURCES utils_rwlock.cpp
     LINK_TARGETS mg-utils
@@ -680,6 +685,11 @@ add_unit_test(storage_v2_replication
     LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue
 )
 
+add_unit_test(storage_v2_error
+    SOURCES storage_v2_error.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_isolation_level
     SOURCES storage_v2_isolation_level.cpp
     LINK_TARGETS mg::storage
@@ -827,6 +837,11 @@ add_unit_test(replication_rpc_progress
 add_unit_test(snapshot_rpc_progress
     SOURCES snapshot_rpc_progress.cpp
     LINK_TARGETS mg-rpc rpc_messages
+)
+
+add_unit_test(snapshot_progress
+    SOURCES snapshot_progress.cpp
+    LINK_TARGETS mg::storage
 )
 
 add_unit_test(rpc_versioning
@@ -1052,3 +1067,8 @@ if (MG_ENTERPRISE)
         ${CMAKE_SOURCE_DIR}/query_modules/mg_utility
     )
 endif ()
+
+add_unit_test(safe_hardware_concurrency
+    SOURCES safe_hardware_concurrency.cpp
+    LINK_TARGETS mg-utils
+)

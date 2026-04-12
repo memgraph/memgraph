@@ -17,13 +17,14 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
+#include "utils/pointer_pack.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta) : gid(gid), delta(delta) {
+  Vertex(Gid gid, Delta *delta) : gid(gid), delta_(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
                   delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
@@ -40,11 +41,24 @@ struct Vertex {
 
   PropertyStore properties;
   mutable utils::RWSpinLock lock;
-  bool deleted{false};
-  bool has_uncommitted_non_sequential_deltas{false};
-  // uint16_t PAD;
 
-  Delta *delta;
+  Delta *delta() const { return delta_.GetPtr(); }
+
+  void SetDelta(Delta *d) { delta_.SetPtr(d); }
+
+  bool deleted() const { return delta_.Get<kDeletedBit>() != 0; }
+
+  void SetDeleted(bool b) { delta_.Set<kDeletedBit>(b ? 1 : 0); }
+
+  bool has_uncommitted_non_sequential_deltas() const { return delta_.Get<kNonSeqDeltasBit>() != 0; }
+
+  void set_has_uncommitted_non_sequential_deltas(bool b) { delta_.Set<kNonSeqDeltasBit>(b ? 1 : 0); }
+
+ private:
+  static constexpr int kDeletedBit = 0;
+  static constexpr int kNonSeqDeltasBit = 1;
+
+  utils::PointerPack<Delta, 2> delta_;
 };
 
 static constexpr std::size_t kEdgeTypeIdPos = 0U;
@@ -52,7 +66,7 @@ static constexpr std::size_t kVertexPos = 1U;
 static constexpr std::size_t kEdgeRefPos = 2U;
 
 static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
-static_assert(sizeof(Vertex) == 88, "If this changes documentation needs changing");
+static_assert(sizeof(Vertex) == 80, "If this changes documentation needs changing");
 
 inline bool operator==(const Vertex &first, const Vertex &second) { return first.gid == second.gid; }
 

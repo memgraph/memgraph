@@ -68,8 +68,6 @@ startup_config_dict = {
     "management_port": ("0", "0", "Port on which coordinator servers will be started."),
     "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
     "coordinator_id": ("0", "0", "Unique ID of the raft server."),
-    "instance_down_timeout_sec": ("5", "5", "Time duration after which an instance is considered down."),
-    "instance_health_check_frequency_sec": ("1", "1", "The time duration between two health checks/pings."),
     "coordinator_hostname": ("", "", "Instance's hostname. Used as output of SHOW INSTANCES query."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
@@ -92,7 +90,13 @@ startup_config_dict = {
         "",
         "List of default Kafka brokers as a comma separated list of broker host or host:port.",
     ),
+    "logger_type": (
+        "sync",
+        "sync",
+        "Controls whether synchronous or asynchronous logger will be used. Options: sync, async",
+    ),
     "log_file": ("", "", "Path to where the log should be stored."),
+    "log_retention_days": ("35", "35", "Controls for how many days will daily log files be preserved."),
     "nuraft_log_file": ("", "", "Path to the file where NuRaft logs are saved."),
     "log_level": (
         "WARNING",
@@ -161,6 +165,11 @@ startup_config_dict = {
         "mid",
         "Compression level for storing properties. Allowed values: low, mid, high.",
     ),
+    "storage_floating_point_resolution_bits": (
+        "64",
+        "64",
+        "Max bits for floating-point property storage (16, 32, or 64). Smaller values save space but reduce precision (32=float, 16=half).",
+    ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
@@ -188,6 +197,7 @@ startup_config_dict = {
         "true",
         "Controls whether .old dir will be used to store latest snapshot and WAL files.",
     ),
+    "strict_flag_check": ("true", "true", "If true, error and exit when suspicious positional arguments are detected."),
     "storage_access_timeout_sec": ("1", "1", "Query's storage level access timeout in seconds."),
     "storage_gc_aggressive": ("false", "false", "Enable aggressive garbage collection."),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),

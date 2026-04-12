@@ -19,6 +19,7 @@
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
@@ -195,11 +196,15 @@ struct WalEdgeSetProperty {
   }
 
   using ctr_types =
-      std::tuple<Gid, std::string, ExternalPropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
+      std::tuple<Gid, std::string, ExternalPropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>,
+                 VersionDependant<kExtendedEdgeSetProperty, Gid>,
+                 VersionDependant<kExtendedEdgeSetProperty, std::string>>;
   Gid gid;
   std::string property;
   ExternalPropertyValue value;
   std::optional<Gid> from_gid;  //!< Used to simplify the edge search (from kEdgeSetDeltaWithVertexInfo)
+  std::optional<Gid> to_gid;    //!< In-vertex GID for faster replica resolution (from kExtendedEdgeSetProperty)
+  std::optional<std::string> edge_type;  //!< Edge type name for FindEdge (from kExtendedEdgeSetProperty)
 };
 
 struct WalEdgeCreate : EdgeOpInfo {};
@@ -369,6 +374,27 @@ struct WalVectorIndexDrop {
   std::string index_name;
 };
 
+struct WalDescriptionSet {
+  friend bool operator==(const WalDescriptionSet &, const WalDescriptionSet &) = default;
+  DescriptionTargetKind kind;
+  std::vector<std::string> labels;
+  std::string edge_type;
+  std::string property;
+  std::string description;
+  std::vector<std::string> from_labels;
+  std::vector<std::string> to_labels;
+};
+
+struct WalDescriptionDelete {
+  friend bool operator==(const WalDescriptionDelete &, const WalDescriptionDelete &) = default;
+  DescriptionTargetKind kind;
+  std::vector<std::string> labels;
+  std::string edge_type;
+  std::string property;
+  std::vector<std::string> from_labels;
+  std::vector<std::string> to_labels;
+};
+
 // Single TTL WAL structure that encompasses all TTL operations
 struct WalTtlOperation {
   friend bool operator==(const WalTtlOperation &, const WalTtlOperation &) = default;
@@ -403,7 +429,8 @@ struct WalDeltaData {
                WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
                WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
                WalTextIndexCreate, WalTextIndexDrop, WalTextEdgeIndexCreate, WalEnumCreate, WalEnumAlterAdd,
-               WalEnumAlterUpdate, WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation>
+               WalEnumAlterUpdate, WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation,
+               WalDescriptionSet, WalDescriptionDelete>
       data_ = WalTransactionEnd{};
 };
 
@@ -459,6 +486,8 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalVectorEdgeIndexCreate const &) { return true; },
                         [](WalVectorIndexDrop const &) { return true; },
                         [](WalTtlOperation const &) { return true; },
+                        [](WalDescriptionSet const &) { return true; },
+                        [](WalDescriptionDelete const &) { return true; },
                     },
                     delta.data_);
 }
@@ -498,7 +527,8 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
                  uint64_t timestamp);
 
 /// Function used to encode a `Delta` that originated from an `Edge`.
-void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp);
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp,
+                 Gid in_vertex_gid, EdgeTypeId edge_type_id);
 
 /// Function used to encode the transaction start
 /// Returns the position in the WAL where the flag 'commit' is about to be written
@@ -539,6 +569,14 @@ void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, c
 void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorEdgeIndexSpec &spec);
 void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name);
 
+void EncodeDescriptionSet(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
+                          std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
+                          std::string_view description, std::span<LabelId const> from_labels = {},
+                          std::span<LabelId const> to_labels = {});
+void EncodeDescriptionDelete(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
+                             std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
+                             std::span<LabelId const> from_labels = {}, std::span<LabelId const> to_labels = {});
+
 // TTL encoding function
 void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
                         const std::optional<std::chrono::microseconds> &period,
@@ -555,7 +593,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl);
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {
@@ -575,7 +613,8 @@ class WalFile {
   ~WalFile();
 
   void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp, Storage *storage);
-  void AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage);
+  void AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage, Gid in_vertex_gid,
+                   EdgeTypeId edge_type_id);
 
   // True means storage should use deltas associated with this txn, false means skip until
   // you find the next txn.

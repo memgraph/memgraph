@@ -1,3 +1,10 @@
 # False positive: crossbeam-channel uses lock-free channel operations that
 # TSAN doesn't recognise
 race:crossbeam_channel::flavors::array::Channel
+
+# False positive: RocksDB's MemTable uses a lock-free InlineSkipList with
+# memory fences that TSAN cannot reason about. All access goes through
+# the public thread-safe DB::Put / DB::Write API.
+race:rocksdb::MemTable::Add
+race:BytewiseComparatorImpl::Compare
+race:rocksdb::WritableFileWriter::Append

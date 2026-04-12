@@ -15,16 +15,16 @@ categories = ["database", "api-bindings"]
 [dependencies]
 c_str_macro = "1.0.2"
 snafu = "0.6.10"
-mockall_double = "0.2.0"
+mockall_double = "0.3"
 chrono = "0.4.19"
 
 [dev-dependencies]
-mockall = "0.9.1"
-serial_test = "0.5.1"
+mockall = "0.14"
+serial_test = "3"
 libc = "0.2.95"
 
 [build-dependencies]
-bindgen = "0.57.0"
+bindgen = "0.71.1"
 
 [dev-dependencies.cargo-husky]
 version = "1"

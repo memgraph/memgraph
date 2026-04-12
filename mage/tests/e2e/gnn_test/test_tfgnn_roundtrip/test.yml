@@ -1,0 +1,9 @@
+query: >
+  CALL gnn.tf_export(["score"], ["weight"]) YIELD json_data
+  WITH json_data
+  CALL gnn.tf_import(json_data, "TfNode", "TF_EDGE")
+  YIELD nodes_created, edges_created
+  RETURN nodes_created, edges_created;
+output:
+  - nodes_created: 3
+    edges_created: 2

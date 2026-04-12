@@ -12,8 +12,9 @@
 /// TODO: clear dependencies
 
 #include "storage/v2/disk/label_property_index.hpp"
+#include <range/v3/all.hpp>
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "utils/disk_utils.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/rocksdb_serialization.hpp"
@@ -89,7 +90,7 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
                                                                    uint64_t commit_timestamp) const {
   auto disk_transaction = CreateRocksDBTransaction();
 
-  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
     if (!disk_transaction->Delete(maybe_old_disk_key.value()).ok()) {
       return false;
     }
@@ -166,8 +167,12 @@ void DiskLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_
   }
 }
 
-bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties) {
-  return index_.erase({label, properties[0][0]}) > 0U;
+bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
+                                       ActiveIndicesUpdater const &updater) {
+  if (!index_.contains({label, properties[0][0]})) return false;
+  index_.erase({label, properties[0][0]});
+  updater(GetActiveIndices());
+  return true;
 }
 
 bool DiskLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label, std::span<PropertyPath const> properties) const {
@@ -219,8 +224,8 @@ RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvsto
 
 auto DiskLabelPropertyIndex::GetInfo() const -> std::set<DiskLabelPropertyIndex::LabelProperty> { return index_; }
 
-auto DiskLabelPropertyIndex::GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> {
-  return std::make_unique<DiskLabelPropertyIndex::ActiveIndices>(index_);
+auto DiskLabelPropertyIndex::GetActiveIndices() const -> std::shared_ptr<LabelPropertyIndex::ActiveIndices> {
+  return std::make_shared<DiskLabelPropertyIndex::ActiveIndices>(index_);
 }
 
 auto DiskLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(

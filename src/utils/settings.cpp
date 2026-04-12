@@ -9,10 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <fmt/format.h>
-
+#include <spdlog/spdlog.h>
+#include <mutex>
 #include <shared_mutex>
 
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/settings.hpp"
 
@@ -64,7 +65,7 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
     const auto val = validations_.find(setting_name);
     MG_ASSERT(val != validations_.end(), "Settings storage is out of sync");
     if (const auto msg = val->second(new_value); !msg.has_value()) {
-      throw utils::BasicException("'{}' not valid for '{}': {}", new_value, setting_name, msg.error());
+      throw utils::BasicException("Cannot update setting '{}': {}", setting_name, msg.error());
     }
 
     MG_ASSERT(storage_->Put(setting_name, new_value), "Failed to modify the setting");
@@ -80,6 +81,18 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
 
   (*settings_change_callback)();
   return true;
+}
+
+void Settings::SetValueForce(const std::string &setting_name, const std::string &new_value) {
+  const std::lock_guard settings_guard{settings_lock_};
+  if (!storage_) return;
+  if (!storage_->Get(setting_name).has_value()) {
+    spdlog::error("SetValueForce called for unregistered setting '{}'", setting_name);
+    return;
+  }
+  if (!storage_->Put(setting_name, new_value)) {
+    spdlog::error("Failed to force-set setting '{}'", setting_name);
+  }
 }
 
 std::vector<std::pair<std::string, std::string>> Settings::AllSettings() const {

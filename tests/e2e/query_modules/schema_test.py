@@ -618,5 +618,423 @@ def test_rel_type_properties_multiple_property_types():
     assert (result.__len__()) == 1
 
 
+def test_node_type_properties_zoned_datetime():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (n:Event {name: 'Meeting', scheduled: datetime('2024-01-15T10:30:00+01:00')})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 2
+    assert list(result[0]) == [":`Event`", ["Event"], "name", ["String"], True]
+    assert list(result[1]) == [":`Event`", ["Event"], "scheduled", ["ZonedDateTime"], True]
+
+
+def test_node_type_properties_point2d():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (n:Place {name: 'Zagreb', location: point({x: 15.9819, y: 45.8150, srid: 4326})})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 2
+    assert list(result[0]) == [":`Place`", ["Place"], "location", ["Point2d"], True]
+    assert list(result[1]) == [":`Place`", ["Place"], "name", ["String"], True]
+
+
+def test_node_type_properties_point3d():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (n:Place {name: 'Zagreb', location: point({x: 15.9819, y: 45.8150, z: 150.0, srid: 4979})})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 2
+    assert list(result[0]) == [":`Place`", ["Place"], "location", ["Point3d"], True]
+    assert list(result[1]) == [":`Place`", ["Place"], "name", ["String"], True]
+
+
+def test_node_type_properties_enum():
+    cursor = connect().cursor()
+    # No DROP ENUM cleanup needed — e2e runner starts a fresh memgraph instance
+    execute_and_fetch_all(cursor, "CREATE ENUM Status VALUES { Good, Okay, Bad };")
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (n:Item {name: 'Widget', status: Status::Good})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 2
+    assert list(result[0]) == [":`Item`", ["Item"], "name", ["String"], True]
+    assert list(result[1]) == [":`Item`", ["Item"], "status", ["Enum"], True]
+
+
+def test_rel_type_properties_point2d():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (a:Person {name: 'Alice'})-[r:VISITED {location: point({x: 15.9819, y: 45.8150, srid: 4326})}]->(b:Place {name: 'Zagreb'})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties() YIELD relType, propertyName, propertyTypes, mandatory "
+        "RETURN relType, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`VISITED`", "location", ["Point2d"], True]
+
+
+def test_node_type_properties_config_include_labels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog {name: 'Rex'})-[:LOVES]->(a:Activity {name: 'Running'})
+        CREATE (c:Cat {name: 'Whiskers'})
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties({includeLabels: ['Dog']}) "
+        "YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+
+
+def test_node_type_properties_config_exclude_labels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog {name: 'Rex'})-[:LOVES]->(a:Activity {name: 'Running'})
+        CREATE (c:Cat {name: 'Whiskers'})
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties({excludeLabels: ['Dog', 'Activity']}) "
+        "YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`Cat`", ["Cat"], "name", ["String"], True]
+
+
+def test_node_type_properties_config_sample():
+    cursor = connect().cursor()
+    # Create 3 Dog nodes, 2 with owner property, 1 without
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (:Dog {name: 'Rex', owner: 'Carl'})
+        CREATE (:Dog {name: 'Simba', owner: 'Lucy'})
+        CREATE (:Dog {name: 'Buddy'})
+        """,
+    )
+    # With sample=2, only first 2 nodes are sampled. Both have 'owner', so it appears mandatory.
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties({sample: 2}) "
+        "YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 2
+    mandatory = {list(r)[2]: list(r)[4] for r in result}
+    assert mandatory["name"] is True
+    assert mandatory["owner"] is True
+
+
+def test_node_type_properties_config_include_and_exclude_labels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (:Dog {name: 'Rex'})
+        CREATE (:Cat {name: 'Whiskers'})
+        CREATE (:Bird {name: 'Tweety'})
+        """,
+    )
+    # Include Dog and Cat, but exclude Cat -> only Dog
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties({includeLabels: ['Dog', 'Cat'], excludeLabels: ['Cat']}) "
+        "YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+
+
+def test_node_type_properties_config_empty_map():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (:Dog {name: 'Rex'})",
+    )
+    # Empty config map should behave same as no config
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties({}) "
+        "YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+
+
+def test_node_type_properties_config_include_rels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog {name: 'Rex'})-[:LOVES]->(a:Activity {name: 'Running'})
+        CREATE (c:Cat {name: 'Whiskers'})-[:HATES]->(b:Activity {name: 'Sleeping'})
+        """,
+    )
+    # Only include nodes that have an outgoing LOVES relationship
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties({includeRels: ['LOVES']}) "
+        "YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY nodeLabels[0], propertyName;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+
+
+def test_node_type_properties_config_exclude_rels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog {name: 'Rex'})-[:LOVES]->(a:Activity {name: 'Running'})
+        CREATE (c:Cat {name: 'Whiskers'})-[:HATES]->(b:Activity {name: 'Sleeping'})
+        """,
+    )
+    # Exclude nodes that have an outgoing HATES relationship
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties({excludeRels: ['HATES']}) "
+        "YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY nodeLabels[0], propertyName;",
+    )
+    # Dog and Activity nodes remain (Activity has no outgoing HATES)
+    assert len(result) == 2
+    assert list(result[0]) == [":`Activity`", ["Activity"], "name", ["String"], True]
+    assert list(result[1]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+
+
+def test_node_type_properties_config_include_and_exclude_rels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog {name: 'Rex'})-[:LOVES]->(a:Activity {name: 'Running'})
+        CREATE (d2:Dog {name: 'Simba'})-[:LOVES]->(b:Activity {name: 'Walking'})
+        CREATE (d2)-[:HATES]->(c:Activity {name: 'Bathing'})
+        """,
+    )
+    # Include nodes with LOVES, but exclude those that also have HATES
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.node_type_properties({includeRels: ['LOVES'], excludeRels: ['HATES']}) "
+        "YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory ORDER BY propertyName;",
+    )
+    # Only Rex (Dog) has LOVES without HATES
+    assert len(result) == 1
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+
+
+def test_rel_type_properties_config_include_rels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog {name: 'Rex'})-[:LOVES {duration: 30}]->(a:Activity {name: 'Running'})
+        CREATE (d2:Dog {name: 'Simba'})-[:HATES {reason: 'loud'}]->(b:Activity {name: 'Thunder'})
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties({includeRels: ['LOVES']}) "
+        "YIELD relType, propertyName, propertyTypes, mandatory "
+        "RETURN relType, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+
+
+def test_rel_type_properties_config_exclude_rels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog {name: 'Rex'})-[:LOVES {duration: 30}]->(a:Activity {name: 'Running'})
+        CREATE (d2:Dog {name: 'Simba'})-[:HATES {reason: 'loud'}]->(b:Activity {name: 'Thunder'})
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties({excludeRels: ['HATES']}) "
+        "YIELD relType, propertyName, propertyTypes, mandatory "
+        "RETURN relType, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+
+
+def test_rel_type_properties_config_include_labels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog {name: 'Rex'})-[:LOVES {duration: 30}]->(a:Activity {name: 'Running'})
+        CREATE (c:Cat {name: 'Whiskers'})-[:LOVES {duration: 10}]->(b:Activity {name: 'Sleeping'})
+        """,
+    )
+    # Only scan outgoing rels from Dog nodes
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties({includeLabels: ['Dog']}) "
+        "YIELD relType, propertyName, propertyTypes, mandatory "
+        "RETURN relType, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+
+
+def test_rel_type_properties_config_exclude_labels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog {name: 'Rex'})-[:LOVES {duration: 30}]->(a:Activity {name: 'Running'})
+        CREATE (c:Cat {name: 'Whiskers'})-[:HATES {reason: 'wet'}]->(b:Activity {name: 'Bathing'})
+        """,
+    )
+    # Exclude Cat source nodes -> only Dog's relationships
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties({excludeLabels: ['Cat']}) "
+        "YIELD relType, propertyName, propertyTypes, mandatory "
+        "RETURN relType, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+
+
+def test_rel_type_properties_config_empty_map():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (d:Dog {name: 'Rex'})-[:LOVES {duration: 30}]->(a:Activity {name: 'Running'})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties({}) "
+        "YIELD relType, propertyName, propertyTypes, mandatory "
+        "RETURN relType, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+
+
+def test_rel_type_properties_config_include_and_exclude_rels():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog)-[:LOVES]->(a:Activity)
+        CREATE (d2:Dog)-[:HATES]->(b:Activity)
+        CREATE (d3:Dog)-[:LIKES]->(c:Activity)
+        """,
+    )
+    # Include LOVES and LIKES, but exclude LIKES -> only LOVES
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL schema.rel_type_properties({includeRels: ['LOVES', 'LIKES'], excludeRels: ['LIKES']}) "
+        "YIELD relType, propertyName, propertyTypes, mandatory "
+        "RETURN relType, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`LOVES`", "", [], False]
+
+
+def test_node_type_properties_apoc_meta_mapping():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE (:Dog {name: 'Rex'})")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL apoc.meta.nodeTypeProperties() "
+        "YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+
+
+def test_node_type_properties_db_schema_mapping():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE (:Dog {name: 'Rex'})")
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL db.schema.nodeTypeProperties() "
+        "YIELD nodeType, nodeLabels, propertyName, propertyTypes, mandatory "
+        "RETURN nodeType, nodeLabels, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`Dog`", ["Dog"], "name", ["String"], True]
+
+
+def test_rel_type_properties_apoc_meta_mapping():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (:Dog {name: 'Rex'})-[:LOVES {duration: 30}]->(:Activity {name: 'Running'})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL apoc.meta.relTypeProperties() "
+        "YIELD relType, propertyName, propertyTypes, mandatory "
+        "RETURN relType, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+
+
+def test_rel_type_properties_db_schema_mapping():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (:Dog {name: 'Rex'})-[:LOVES {duration: 30}]->(:Activity {name: 'Running'})",
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        "CALL db.schema.relTypeProperties() "
+        "YIELD relType, propertyName, propertyTypes, mandatory "
+        "RETURN relType, propertyName, propertyTypes, mandatory;",
+    )
+    assert len(result) == 1
+    assert list(result[0]) == [":`LOVES`", "duration", ["Int"], True]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -8,3 +8,24 @@ add_executable(memgraph__e2e__server_ssl_connection server_ssl_connection.cpp)
 target_link_libraries(memgraph__e2e__server_ssl_connection mgclient::mgclient mg-utils gflags)
 
 copy_e2e_files(server workloads.yaml)
+
+
+function(copy_server_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(server ${FILE_NAME})
+endfunction()
+
+copy_server_e2e_python_files(common.py)
+copy_server_e2e_python_files(test_ssl_hot_reload.py)
+copy_server_e2e_python_files(test_ssl_reload_no_ssl.py)
+copy_server_e2e_python_files(test_ssl_hot_reload_coordinator.py)
+copy_e2e_files(server ssl_reload_test.crt)
+copy_e2e_files(server ssl_reload_test.key)
+copy_e2e_files(server ssl_coordinator_1.crt)
+copy_e2e_files(server ssl_coordinator_1.key)
+copy_e2e_files(server ssl_coordinator_2.crt)
+copy_e2e_files(server ssl_coordinator_2.key)
+copy_e2e_files(server ssl_coordinator_3.crt)
+copy_e2e_files(server ssl_coordinator_3.key)
+
+copy_e2e_python_files_from_parent_folder(server ".." interactive_mg_runner.py)
+copy_e2e_python_files_from_parent_folder(server ".." memgraph.py)

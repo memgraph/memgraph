@@ -6,7 +6,6 @@ queries_cluster: &queries_cluster
       setup_queries: []
       validation_queries: []
 
-
 workloads:
   - name: "Query planning cartesian"
     binary: "tests/e2e/pytest_runner.sh"

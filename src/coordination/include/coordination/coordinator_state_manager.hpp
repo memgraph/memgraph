@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,12 +13,29 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <algorithm>
+#include <cstdint>
+#include <exception>
+#include <functional>
+#include <iterator>
+#include <libnuraft/basic_types.hxx>
+#include <libnuraft/cluster_config.hxx>
+#include <libnuraft/state_mgr.hxx>
+#include <list>
+#include <memory>
+#include <nlohmann/json.hpp>
+#include <optional>
+#include <shared_mutex>
+#include <vector>
+
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_aux.hpp"
 #include "coordination/coordinator_log_store.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
+#include "utils/logging.hpp"
+#include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::coordination {
 using nuraft::cluster_config;
@@ -39,7 +56,33 @@ class CoordinatorStateManager final : public state_mgr {
   ~CoordinatorStateManager() override = default;
 
   // Goes over all connected servers and returns aux field parsed as `CoordinatorInstanceAux`.
-  auto GetCoordinatorInstancesAux() const -> std::vector<CoordinatorInstanceAux>;
+  template <bool LockNeeded = true>
+  auto GetCoordinatorInstancesAux() const -> std::vector<CoordinatorInstanceAux> {
+    auto const &cluster_config_servers = std::invoke([this]() -> std::list<std::shared_ptr<srv_config>> {
+      if constexpr (LockNeeded) {
+        auto lock = std::shared_lock{config_mutex_};
+        return cluster_config_->get_servers();
+      } else {
+        return cluster_config_->get_servers();
+      }
+    });
+
+    std::vector<CoordinatorInstanceAux> coord_instances_aux;
+    coord_instances_aux.reserve(cluster_config_servers.size());
+
+    try {
+      std::ranges::transform(cluster_config_servers,
+                             std::back_inserter(coord_instances_aux),
+                             [](auto const &server) -> CoordinatorInstanceAux {
+                               auto j = nlohmann::json::parse(server->get_aux());
+                               return j.template get<CoordinatorInstanceAux>();
+                             });
+    } catch (std::exception const &e) {
+      LOG_FATAL("Error occurred while parsing aux field {}", e.what());
+    }
+
+    return coord_instances_aux;
+  }
 
   auto load_config() -> std::shared_ptr<cluster_config> override;
 
@@ -64,6 +107,7 @@ class CoordinatorStateManager final : public state_mgr {
 
   void TryUpdateClusterConfigFromDisk();
 
+  mutable utils::RWSpinLock config_mutex_;
   int32_t my_id_;
   std::shared_ptr<CoordinatorLogStore> cur_log_store_;
   LoggerWrapper logger_;

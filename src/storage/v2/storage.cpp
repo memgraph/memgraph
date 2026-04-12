@@ -400,8 +400,9 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     storage_->indices_.text_index_.RemoveNode(node, transaction_);
   }
   if (FLAGS_storage_properties_on_edges) {
-    for (auto *edge : edges) {
-      storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, transaction_);
+    for (const auto &edge : deleted_edges) {
+      storage_->indices_.text_edge_index_.RemoveEdge(
+          edge.edge_.ptr, edge.from_vertex_, edge.to_vertex_, edge.edge_type_, transaction_);
     }
   }
 
@@ -424,7 +425,7 @@ Result<std::optional<std::unordered_set<Vertex *>>> Storage::Accessor::PrepareDe
 
       if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-      if (vertex_ptr->deleted) {
+      if (vertex_ptr->deleted()) {
         continue;
       }
     }
@@ -479,7 +480,7 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
 
   // also add edges which we want to delete from the query
   for (const auto &edge_accessor : edges) {
-    if (edge_accessor->from_vertex_->deleted || edge_accessor->to_vertex_->deleted) {
+    if (edge_accessor->from_vertex_->deleted() || edge_accessor->to_vertex_->deleted()) {
       continue;
     }
     partial_src_vertices.insert(edge_accessor->from_vertex_);
@@ -525,7 +526,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
       }
 
       if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
-      MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
+      MG_ASSERT(!vertex_ptr->deleted(), "Invalid database state!");
 
       // MarkEdgeAsDeleted allocates additional memory
       // and CreateAndLinkDelta needs memory
@@ -603,7 +604,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
-    MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
+    MG_ASSERT(!vertex_ptr->deleted(), "Invalid database state!");
 
     auto mid = std::partition(
         edges_attached_to_vertex->begin(), edges_attached_to_vertex->end(), [this, &set_for_erasure](auto &edge) {
@@ -692,7 +693,7 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-    MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
+    MG_ASSERT(!vertex_ptr->deleted(), "Invalid database state!");
 
     if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) {
       return std::unexpected{Error::VERTEX_HAS_EDGES};
@@ -705,7 +706,7 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(
                  *schema_acc);
     }
 
-    vertex_ptr->deleted = true;
+    vertex_ptr->SetDeleted(true);
     transaction_.UpdateOnVertexDelete(vertex_ptr);
 
     deleted_vertices.emplace_back(vertex_ptr, storage_, &transaction_, true);
@@ -715,10 +716,10 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(
 }
 
 void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
-  if (!edge->deleted) {
+  if (!edge->deleted()) {
     // NOTE Schema handles this via vertex deltas; add schema info collector here if that evert changes
     CreateAndLinkDelta(&transaction_, edge, Delta::RecreateObjectTag());
-    edge->deleted = true;
+    edge->SetDeleted(true);
     storage_->edge_count_.fetch_sub(1, std::memory_order_acq_rel);
   }
 }

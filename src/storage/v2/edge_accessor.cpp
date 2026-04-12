@@ -10,13 +10,17 @@
 // licenses/APL.txt.
 
 #include "storage/v2/edge_accessor.hpp"
+#include <range/v3/all.hpp>
 
 #include <ranges>
 #include <tuple>
 
+#include "flags/general.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indexed_property_decoder.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
@@ -32,6 +36,33 @@ namespace r = ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
+
+namespace {
+
+std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storage, EdgeTypeId edge_type,
+                                                                 PropertyId property, const PropertyValue &value) {
+  if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
+  if (storage->indices_.vector_edge_index_.Empty()) return std::nullopt;
+  auto index_id = storage->indices_.vector_edge_index_.GetIndexIdForEdgeTypeProperty(edge_type, property);
+  if (!index_id) return std::nullopt;
+  return PropertyValue(
+      PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{*index_id}, .vector = ListToVector(value)});
+}
+
+void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, const Config &config, Edge *edge,
+                                          Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type_id,
+                                          PropertyId property, const PropertyValue &old_value) {
+  CreateAndLinkDelta(transaction, edge, Delta::SetPropertyTag(), from_vertex, property, old_value);
+  // No need to record the edge set property info if the edge was created in this transaction
+  // The edge set property info is only used to speed up the edge search, during recovery/replication.
+  if (config.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL &&
+      transaction->commit_info &&
+      !EdgeWasCreatedThisTransaction(edge, transaction->commit_info->timestamp.load(std::memory_order_acquire))) {
+    transaction->RecordEdgeSetPropertyInfo(edge->gid, to_vertex->gid, edge_type_id);
+  }
+}
+}  // namespace
+
 std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
                                                  Vertex *to_vertex, Storage *storage, Transaction *transaction,
                                                  View view, bool for_deleted) {
@@ -46,7 +77,7 @@ bool EdgeAccessor::IsDeleted() const {
   if (!storage_->config_.salient.items.properties_on_edges) {
     return false;
   }
-  return edge_.ptr->deleted;
+  return edge_.ptr->deleted();
 }
 
 bool EdgeAccessor::IsVisible(const View view) const {
@@ -60,10 +91,10 @@ bool EdgeAccessor::IsVisible(const View view) const {
       // Initialize deleted by checking if out edges contain edge_
       attached = std::ranges::any_of(from_vertex_->out_edges,
                                      [&](const auto &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; });
-      delta = from_vertex_->delta;
+      delta = from_vertex_->delta();
 
       // If vertex has non-sequential deltas, hold lock while applying them
-      if (!from_vertex_->has_uncommitted_non_sequential_deltas) {
+      if (!from_vertex_->has_uncommitted_non_sequential_deltas()) {
         guard.unlock();
       }
 
@@ -100,8 +131,8 @@ bool EdgeAccessor::IsVisible(const View view) const {
     Delta *delta = nullptr;
     {
       auto guard = std::shared_lock{edge_.ptr->lock};
-      deleted = edge_.ptr->deleted;
-      delta = edge_.ptr->delta;
+      deleted = edge_.ptr->deleted();
+      delta = edge_.ptr->delta();
     }
     ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
       switch (delta.action) {
@@ -142,11 +173,11 @@ VertexAccessor EdgeAccessor::FromVertex() const { return VertexAccessor{from_ver
 VertexAccessor EdgeAccessor::ToVertex() const { return VertexAccessor{to_vertex_, storage_, transaction_}; }
 
 VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
-  return VertexAccessor{from_vertex_, storage_, transaction_, for_deleted_ && from_vertex_->deleted};
+  return VertexAccessor{from_vertex_, storage_, transaction_, for_deleted_ && from_vertex_->deleted()};
 }
 
 VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
-  return VertexAccessor{to_vertex_, storage_, transaction_, for_deleted_ && to_vertex_->deleted};
+  return VertexAccessor{to_vertex_, storage_, transaction_, for_deleted_ && to_vertex_->deleted()};
 }
 
 Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
@@ -163,12 +194,15 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
   using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
   std::optional<ReturnType> current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   utils::AtomicMemoryBlock([this, &current_value, &property, &value, skip_duplicate_write, &schema_acc]() {
-    current_value.emplace(edge_.ptr->properties.GetProperty(property));
+    current_value.emplace(edge_.ptr->properties.GetProperty(
+        property,
+        IndexedPropertyDecoder<Edge>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
     if (skip_duplicate_write && *current_value == value) {
       return;
     }
@@ -179,10 +213,13 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     // "modify in-place". Additionally, the created delta will make other
     // transactions get a SERIALIZATION_ERROR.
     DMG_ASSERT(from_vertex_, "Missing from vertex!");
-    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, *current_value);
-    edge_.ptr->properties.SetProperty(property, value);
+    CreateAndLinkDeltaForEdgeSetProperty(
+        transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, *current_value);
+    auto maybe_vector_index_value = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property, value);
+    const auto &value_to_store = maybe_vector_index_value.has_value() ? *maybe_vector_index_value : value;
+    edge_.ptr->properties.SetProperty(property, value_to_store);
     storage_->indices_.UpdateOnSetProperty(
-        edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
+        edge_type_, property, value_to_store, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
     if (schema_acc) {
       std::visit(
           utils::Overloaded{
@@ -206,6 +243,14 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
 
+  if (!storage_->indices_.vector_edge_index_.Empty()) {
+    for (auto &[property_id, property_value] : properties) {
+      if (auto converted = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property_id, property_value)) {
+        property_value = std::move(*converted);
+      }
+    }
+  }
+
   // This needs to happen before locking the object
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
 
@@ -216,24 +261,29 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
   if (!edge_.ptr->properties.InitProperties(properties)) return false;
   utils::AtomicMemoryBlock([this, &properties, &schema_acc]() {
     for (const auto &[property, value] : properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, PropertyValue());
+      CreateAndLinkDeltaForEdgeSetProperty(
+          transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, PropertyValue());
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
-        std::visit(
-            utils::Overloaded{
-                [this, property, new_type = ExtendedPropertyType{value}](SchemaInfo::VertexModifyingAccessor &acc) {
-                  acc.SetProperty(
-                      edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, ExtendedPropertyType{});
-                },
-                [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-            *schema_acc);
+        std::visit(utils::Overloaded{[this, property, new_type = ExtendedPropertyType{value}](
+                                         SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(edge_,
+                                                       edge_type_,
+                                                       from_vertex_,
+                                                       to_vertex_,
+                                                       property,  // NOLINT(clang-analyzer-core.CallAndMessage)
+                                                       new_type,
+                                                       ExtendedPropertyType{});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
       }
     }
     // TODO If the current implementation is too slow there is an InitProperties option
@@ -247,6 +297,14 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
 
+  if (!storage_->indices_.vector_edge_index_.Empty()) {
+    for (auto &[property_id, property_value] : properties) {
+      if (auto converted = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property_id, property_value)) {
+        property_value = std::move(*converted);
+      }
+    }
+  }
+
   // This needs to happen before locking the object
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
 
@@ -257,7 +315,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(properties));
@@ -267,7 +325,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
     for (auto const &[property, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_write && old_value == new_value) continue;
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, old_value);
+      CreateAndLinkDeltaForEdgeSetProperty(
+          transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, old_value);
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
@@ -301,7 +360,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
   using ReturnType = decltype(edge_.ptr->properties.Properties());
   std::optional<ReturnType> properties;
@@ -309,8 +368,14 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
     properties.emplace(edge_.ptr->properties.Properties());
     for (const auto &property : *properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
-      CreateAndLinkDelta(
-          transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property.first, property.second);
+      CreateAndLinkDeltaForEdgeSetProperty(transaction_,
+                                           storage_->config_,
+                                           edge_.ptr,
+                                           from_vertex_,
+                                           to_vertex_,
+                                           edge_type_,
+                                           property.first,
+                                           property.second);
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
@@ -341,9 +406,12 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
-    deleted = edge_.ptr->deleted;
-    value.emplace(edge_.ptr->properties.GetProperty(property));
-    delta = edge_.ptr->delta;
+    deleted = edge_.ptr->deleted();
+    value.emplace(edge_.ptr->properties.GetProperty(
+        property,
+        IndexedPropertyDecoder<Edge>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
+    delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
@@ -380,7 +448,7 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
   if (!storage_->config_.salient.items.properties_on_edges) return 0;
 
   auto guard = std::shared_lock{edge_.ptr->lock};
-  Delta *delta = edge_.ptr->delta;
+  Delta *delta = edge_.ptr->delta();
   if (!delta) {
     return edge_.ptr->properties.PropertySize(property);
   }
@@ -405,9 +473,10 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
-    deleted = edge_.ptr->deleted;
-    properties = edge_.ptr->properties.Properties();
-    delta = edge_.ptr->delta;
+    deleted = edge_.ptr->deleted();
+    properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
+    delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
     switch (delta.action) {
@@ -458,12 +527,12 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
-    deleted = edge_.ptr->deleted;
+    deleted = edge_.ptr->deleted();
     auto property_paths = properties |
                           rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
                           r::to<std::vector<storage::PropertyPath>>();
     property_values = edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(property_paths);
-    delta = edge_.ptr->delta;
+    delta = edge_.ptr->delta();
   }
   auto properties_map =
       rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {

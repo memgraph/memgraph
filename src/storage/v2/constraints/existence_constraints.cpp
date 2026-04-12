@@ -23,7 +23,7 @@ namespace {
 [[nodiscard]] std::expected<void, ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
                                                                                   const LabelId &label,
                                                                                   const PropertyId &property) {
-  if (!vertex.deleted && std::ranges::contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+  if (!vertex.deleted() && std::ranges::contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
     return std::unexpected{ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set{property}}};
   }
   return {};
@@ -55,13 +55,13 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ActiveConstrai
 bool ExistenceConstraints::ActiveConstraints::empty() const { return container_->empty(); }
 
 auto ExistenceConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveConstraints> {
-  return std::make_unique<ActiveConstraints>(constraints_.WithReadLock(std::identity{}));
+  return std::make_unique<ActiveConstraints>(constraints_.ReadCopy());
 }
 
 // --- ExistenceConstraints methods ---
 
 bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) const {
-  auto constraints = constraints_.WithReadLock(std::identity{});
+  auto constraints = constraints_.ReadCopy();
   return constraints->contains({label, property});
 }
 
@@ -115,7 +115,7 @@ bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
 
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::Validate(
     const std::unordered_set<Vertex const *> &vertices_to_check) const {
-  auto constraints = constraints_.WithReadLock(std::identity{});
+  auto constraints = constraints_.ReadCopy();
   auto validate = [&](const Vertex &vertex) -> std::expected<void, ConstraintViolation> {
     for (const auto &[key, constraint] : *constraints) {
       DMG_ASSERT(constraint->status.IsReady(), "For a WRITE query, all constraints MUST already be ready");
@@ -139,7 +139,7 @@ bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
 
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::PerVertexValidate(
     Vertex const &vertex) const {
-  auto constraints = constraints_.WithReadLock(std::identity{});
+  auto constraints = constraints_.ReadCopy();
   for (const auto &[key, constraint] : *constraints) {
     // Only validate against ready (committed) constraints - with copy-on-write, dropped constraints are erased
     if (!constraint->status.IsReady()) {

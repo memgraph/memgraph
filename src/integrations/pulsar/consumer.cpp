@@ -11,12 +11,27 @@
 
 #include "integrations/pulsar/consumer.hpp"
 
+#include <fmt/format.h>
+#include <pulsar/Client.h>
+#include <pulsar/ClientConfiguration.h>
+#include <pulsar/ConsumerConfiguration.h>
+#include <pulsar/ConsumerType.h>
+#include <pulsar/InitialPosition.h>
+#include <pulsar/Logger.h>
+#include <pulsar/Reader.h>
+#include <pulsar/ReaderConfiguration.h>
+#include <pulsar/Result.h>
+#include <spdlog/common.h>
+#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <chrono>
+#include <compare>
+#include <concepts>
+#include <exception>
+#include <expected>
 #include <thread>
-
-#include <pulsar/Client.h>
-#include <pulsar/InitialPosition.h>
+#include <type_traits>
+#include <utility>
 
 #include "integrations/constants.hpp"
 #include "integrations/pulsar/exceptions.hpp"

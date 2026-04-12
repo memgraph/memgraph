@@ -15,13 +15,25 @@
 
 #pragma once
 
-#include <iostream>
-
 #include <pthread.h>
+#include <array>
 #include <atomic>
+#include <climits>
+#include <cstddef>
+#include <cstdint>
 #include <forward_list>
+#include <iostream>
+#include <limits>
 #include <memory>
+#include <mutex>
+#include <new>
+#include <optional>
+#include <string>
 #include <tuple>
+#include <utility>
+#include <vector>
+#include <version>
+
 #include "flags/bolt.hpp"
 
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
@@ -33,12 +45,11 @@
 #include <memory_resource>
 #endif
 
+#include "boost/container/detail/pair.hpp"
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/rw_spin_lock.hpp"
-
-#include "boost/container/detail/pair.hpp"
 
 namespace memgraph::utils {
 

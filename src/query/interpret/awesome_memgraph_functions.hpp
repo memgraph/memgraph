@@ -39,8 +39,8 @@ struct FunctionContext {
   std::unordered_map<std::string, int64_t> *counters;
   storage::View view;
   int64_t hops_counter{0};
-  std::shared_ptr<QueryUserOrRole> user_or_role{nullptr};
-  std::shared_ptr<QueryUserOrRole> triggering_user{nullptr};
+  const QueryUserOrRole *user_or_role{nullptr};
+  const QueryUserOrRole *triggering_user{nullptr};
 };
 
 using func_impl =

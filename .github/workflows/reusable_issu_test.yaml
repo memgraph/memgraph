@@ -21,6 +21,11 @@ on:
         required: false
         type: string
         default: ''
+      run_id:
+        description: 'Run ID'
+        required: false
+        type: string
+        default: ''
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -28,11 +33,11 @@ env:
 
 jobs:
   test:
-    name: ISSU Test
+    name: ${{ inputs.run_id != '' && format('ISSU Test - {0}', inputs.run_id) || 'ISSU Test' }}
     runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "ARM64", "Kubernetes"]') || fromJSON('["self-hosted", "X64", "Kubernetes"]') }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
@@ -108,6 +113,15 @@ jobs:
         run: |
           cd tests/issu
           ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing=false --debug=false
+
+      - name: Upload ISSU logs
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: ${{ inputs.run_id != '' && format('issu-logs-{0}', inputs.run_id) || 'issu-logs' }}-${{ inputs.arch }}
+          path: tests/issu/artifacts/**
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Clean up Docker
         if: always()

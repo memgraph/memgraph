@@ -1,0 +1,5 @@
+customWorkloads:
+  tests:
+    - name: vector-edge-index-recovery
+      script: "ha/workloads/vector_edge_index_recovery/workload.py"
+      timeout_min: 120
