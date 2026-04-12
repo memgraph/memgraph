@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <variant>
+
 #include "storage/v2/all_vertices_chunked_iterable.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
@@ -18,70 +20,64 @@
 namespace memgraph::storage {
 
 class VerticesChunkedIterable final {
-  enum class Type {
-    ALL_CHUNKED,
-    BY_LABEL_IN_MEMORY_CHUNKED,
-    BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED,
-    BY_LABEL_PROPERTY_DESC_IN_MEMORY_CHUNKED,
-  };
+  using AscChunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>;
+  using DescChunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>;
 
-  Type type_;
+  using Data = std::variant<AllVerticesChunkedIterable, InMemoryLabelIndex::ChunkedIterable, AscChunked, DescChunked>;
 
-  union {
-    AllVerticesChunkedIterable all_chunked_vertices_;
-    InMemoryLabelIndex::ChunkedIterable in_memory_chunked_vertices_by_label_;
-    InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>
-        in_memory_chunked_vertices_by_label_property_;
-    InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>
-        in_memory_chunked_vertices_by_label_property_desc_;
-  };
+  Data data_;
 
  public:
-  explicit VerticesChunkedIterable(AllVerticesChunkedIterable);
-  explicit VerticesChunkedIterable(InMemoryLabelIndex::ChunkedIterable);
-  explicit VerticesChunkedIterable(InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>);
-  explicit VerticesChunkedIterable(InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>);
+  explicit VerticesChunkedIterable(AllVerticesChunkedIterable v) : data_(std::move(v)) {}
+
+  explicit VerticesChunkedIterable(InMemoryLabelIndex::ChunkedIterable v) : data_(std::move(v)) {}
+
+  explicit VerticesChunkedIterable(AscChunked v) : data_(std::move(v)) {}
+
+  explicit VerticesChunkedIterable(DescChunked v) : data_(std::move(v)) {}
 
   VerticesChunkedIterable(const VerticesChunkedIterable &) = delete;
   VerticesChunkedIterable &operator=(const VerticesChunkedIterable &) = delete;
 
-  VerticesChunkedIterable(VerticesChunkedIterable &&) noexcept;
-  VerticesChunkedIterable &operator=(VerticesChunkedIterable &&) noexcept;
+  VerticesChunkedIterable(VerticesChunkedIterable &&) noexcept = default;
+  VerticesChunkedIterable &operator=(VerticesChunkedIterable &&) noexcept = default;
 
-  ~VerticesChunkedIterable();
+  ~VerticesChunkedIterable() = default;
 
   class Iterator final {
-    Type type_;
+    using Data = std::variant<AllVerticesChunkedIterable::Iterator, InMemoryLabelIndex::ChunkedIterable::Iterator,
+                              AscChunked::Iterator, DescChunked::Iterator>;
 
-    union {
-      AllVerticesChunkedIterable::Iterator all_chunked_it_;
-      InMemoryLabelIndex::ChunkedIterable::Iterator in_memory_chunked_by_label_it_;
-      InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>::Iterator
-          in_memory_chunked_by_label_property_it_;
-      InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>::Iterator
-          in_memory_chunked_by_label_property_desc_it_;
-    };
-
-    void Destroy() noexcept;
+    Data data_;
 
    public:
-    explicit Iterator(AllVerticesChunkedIterable::Iterator);
-    explicit Iterator(InMemoryLabelIndex::ChunkedIterable::Iterator);
-    explicit Iterator(InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>::Iterator);
-    explicit Iterator(InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>::Iterator);
+    explicit Iterator(AllVerticesChunkedIterable::Iterator it) : data_(std::move(it)) {}
 
-    Iterator(const Iterator &);
-    Iterator &operator=(const Iterator &);
+    explicit Iterator(InMemoryLabelIndex::ChunkedIterable::Iterator it) : data_(std::move(it)) {}
 
-    Iterator(Iterator &&) noexcept;
-    Iterator &operator=(Iterator &&) noexcept;
+    explicit Iterator(AscChunked::Iterator it) : data_(std::move(it)) {}
 
-    ~Iterator();
+    explicit Iterator(DescChunked::Iterator it) : data_(std::move(it)) {}
 
-    VertexAccessor const &operator*() const;
-    Iterator &operator++();
-    bool operator==(const Iterator &other) const;
-    bool operator!=(const Iterator &other) const;
+    Iterator(const Iterator &) = default;
+    Iterator &operator=(const Iterator &) = default;
+
+    Iterator(Iterator &&) noexcept = default;
+    Iterator &operator=(Iterator &&) noexcept = default;
+
+    ~Iterator() = default;
+
+    VertexAccessor const &operator*() const {
+      return std::visit([](auto const &it) -> VertexAccessor const & { return *it; }, data_);
+    }
+
+    Iterator &operator++() {
+      std::visit([](auto &it) { ++it; }, data_);
+      return *this;
+    }
+
+    bool operator==(const Iterator &other) const = default;
+    bool operator!=(const Iterator &other) const = default;
   };
 
   class Chunk {
@@ -96,8 +92,13 @@ class VerticesChunkedIterable final {
     Iterator end() { return end_; }
   };
 
-  Chunk get_chunk(size_t id);
-  size_t size() const;
+  Chunk get_chunk(size_t id) {
+    return std::visit([&](auto &v) -> Chunk { return Chunk(v.get_chunk(id)); }, data_);
+  }
+
+  size_t size() const {
+    return std::visit([](auto const &v) -> size_t { return v.size(); }, data_);
+  }
 };
 
 }  // namespace memgraph::storage

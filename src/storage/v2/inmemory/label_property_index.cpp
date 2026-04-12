@@ -332,33 +332,24 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 
 }  // namespace
 
-bool InMemoryLabelPropertyIndex::Entry::operator<(std::vector<PropertyValue> const &rhs) const {
-  return std::ranges::lexicographical_compare(
-      std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
+template <bool Reverse>
+bool InMemoryLabelPropertyIndex::BasicEntry<Reverse>::operator<(std::vector<PropertyValue> const &rhs) const {
+  auto span = std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())};
+  // In DESC, "less than" in skip-list terms means "greater than" in value terms.
+  if constexpr (Reverse) {
+    return std::ranges::lexicographical_compare(rhs, span);
+  } else {
+    return std::ranges::lexicographical_compare(span, rhs);
+  }
 }
 
-bool InMemoryLabelPropertyIndex::Entry::operator==(std::vector<PropertyValue> const &rhs) const {
+template <bool Reverse>
+bool InMemoryLabelPropertyIndex::BasicEntry<Reverse>::operator==(std::vector<PropertyValue> const &rhs) const {
   return std::ranges::equal(std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
 }
 
-bool InMemoryLabelPropertyIndex::Entry::operator<=(std::vector<PropertyValue> const &rhs) const {
-  return *this < rhs || *this == rhs;
-}
-
-// DescEntry: reversed comparisons against raw property values.
-// In a DESC skip list, values are stored in descending order, so "less than"
-// in skip list terms means "greater than" in value terms.
-bool InMemoryLabelPropertyIndex::DescEntry::operator<(std::vector<PropertyValue> const &rhs) const {
-  // Reversed: entry < rhs in DESC means rhs < entry in ASC
-  return std::ranges::lexicographical_compare(
-      rhs, std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())});
-}
-
-bool InMemoryLabelPropertyIndex::DescEntry::operator==(std::vector<PropertyValue> const &rhs) const {
-  return std::ranges::equal(std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
-}
-
-bool InMemoryLabelPropertyIndex::DescEntry::operator<=(std::vector<PropertyValue> const &rhs) const {
+template <bool Reverse>
+bool InMemoryLabelPropertyIndex::BasicEntry<Reverse>::operator<=(std::vector<PropertyValue> const &rhs) const {
   return *this < rhs || *this == rhs;
 }
 
@@ -1339,6 +1330,8 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
 }
 
 // Explicit template instantiations
+template struct InMemoryLabelPropertyIndex::BasicEntry<false>;
+template struct InMemoryLabelPropertyIndex::BasicEntry<true>;
 template struct InMemoryLabelPropertyIndex::IndividualIndex<InMemoryLabelPropertyIndex::Entry>;
 template struct InMemoryLabelPropertyIndex::IndividualIndex<InMemoryLabelPropertyIndex::DescEntry>;
 template class InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry>;

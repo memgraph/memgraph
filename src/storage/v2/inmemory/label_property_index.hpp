@@ -30,41 +30,34 @@ namespace memgraph::storage {
 
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
-  struct Entry {
+  /// Index entry stored in the SkipList. Parameterized on sort direction:
+  /// Reverse=false gives ASC ordering, Reverse=true gives DESC (reversed values comparison).
+  template <bool Reverse = false>
+  struct BasicEntry {
     IndexOrderedPropertyValues values;
     Vertex *vertex;
     uint64_t timestamp;
 
-    friend auto operator<=>(Entry const &, Entry const &) = default;
-    friend bool operator==(Entry const &, Entry const &) = default;
-
-    bool operator<(std::vector<PropertyValue> const &rhs) const;
-    bool operator==(std::vector<PropertyValue> const &rhs) const;
-    bool operator<=(std::vector<PropertyValue> const &rhs) const;
-  };
-
-  // TODO: A cleaner approach would be to add a comparator template parameter to SkipList
-  // (e.g. SkipList<TObj, Compare = std::compare_three_way>) instead of duplicating Entry.
-  // This would allow using the same Entry type with a reverse comparator for DESC ordering.
-  // We avoid modifying SkipList (a core concurrent data structure) for now.
-  struct DescEntry {
-    IndexOrderedPropertyValues values;
-    Vertex *vertex;
-    uint64_t timestamp;
-
-    friend std::weak_ordering operator<=>(DescEntry const &lhs, DescEntry const &rhs) {
+    friend std::weak_ordering operator<=>(BasicEntry const &lhs, BasicEntry const &rhs) {
       // Reverse ONLY the values comparison; vertex+timestamp stay same for MVCC correctness
-      if (auto cmp = (rhs.values <=> lhs.values); cmp != 0) return cmp;
+      if constexpr (Reverse) {
+        if (auto cmp = (rhs.values <=> lhs.values); cmp != 0) return cmp;
+      } else {
+        if (auto cmp = (lhs.values <=> rhs.values); cmp != 0) return cmp;
+      }
       if (auto cmp = std::compare_three_way{}(lhs.vertex, rhs.vertex); cmp != 0) return cmp;
       return lhs.timestamp <=> rhs.timestamp;
     }
 
-    friend bool operator==(DescEntry const &, DescEntry const &) = default;
+    friend bool operator==(BasicEntry const &, BasicEntry const &) = default;
 
     bool operator<(std::vector<PropertyValue> const &rhs) const;
     bool operator==(std::vector<PropertyValue> const &rhs) const;
     bool operator<=(std::vector<PropertyValue> const &rhs) const;
   };
+
+  using Entry = BasicEntry<false>;
+  using DescEntry = BasicEntry<true>;
 
   template <typename EntryT = Entry>
   struct IndividualIndex {
