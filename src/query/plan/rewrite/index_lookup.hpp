@@ -1324,10 +1324,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
 
       // Tie-breaker: prefer the index whose order matches the pending ORDER BY direction.
-      if (!order_by_stack_.empty() && order_by_stack_.back().valid && vertex_count == found->vertex_count &&
-          candidate.filters_.size() == found->filters.size()) {
-        auto desired_order = order_by_stack_.back().ordering_direction == Ordering::DESC ? storage::IndexOrder::DESC
-                                                                                         : storage::IndexOrder::ASC;
+      if (auto pending_dir = order_by_eliminator_.PendingOrderDirection();
+          pending_dir && vertex_count == found->vertex_count && candidate.filters_.size() == found->filters.size()) {
+        auto desired_order = *pending_dir == Ordering::DESC ? storage::IndexOrder::DESC : storage::IndexOrder::ASC;
         if (candidate.info_.order_ == desired_order && found->order != desired_order) {
           found = make_label_property_index();
         }
