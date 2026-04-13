@@ -845,14 +845,19 @@ int main(int argc, char **argv) {
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry.emplace(telemetry_server,
-                      data_directory / "telemetry",
-                      memgraph::glue::run_id_,
-                      machine_id,
-                      service_name == "BoltS",
-                      FLAGS_data_directory,
-                      std::chrono::hours(8),
-                      1);
+    try {
+      telemetry.emplace(telemetry_server,
+                        data_directory / "telemetry",
+                        memgraph::glue::run_id_,
+                        machine_id,
+                        service_name == "BoltS",
+                        FLAGS_data_directory,
+                        std::chrono::hours(8),
+                        1);
+    } catch (std::exception const &e) {
+      spdlog::error("Failed to initialize telemetry. Error: {}", e.what());
+      return EXIT_FAILURE;
+    }
     telemetry->AddStorageCollector(dbms_handler, *auth_, *parameters);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);
