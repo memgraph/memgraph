@@ -173,6 +173,8 @@ target_link_libraries(mg-storage-v2
     usearch
     rollbear::strong_type
     atomic
+    PRIVATE
+    ctre::ctre
 )
 
 add_subdirectory(fuzz EXCLUDE_FROM_ALL)

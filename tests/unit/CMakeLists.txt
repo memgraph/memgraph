@@ -284,7 +284,7 @@ add_unit_test(bolt_encoder
 
 add_unit_test(bolt_session
     SOURCES bolt_session.cpp
-    LINK_TARGETS mg-communication mg-utils
+    LINK_TARGETS mg-communication mg-utils mg-storage-v2
 )
 
 add_unit_test(communication_buffer
@@ -824,7 +824,7 @@ endif ()
 # Test rpc-in-progress
 add_unit_test(rpc_in_progress
     SOURCES rpc_in_progress.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
 # Test replication-rpc-progress
@@ -853,7 +853,7 @@ add_unit_test(rpc_versioning
 
 add_unit_test(monitoring
     SOURCES monitoring.cpp
-    LINK_TARGETS mg-communication Boost::headers
+    LINK_TARGETS mg-communication mg-auth Boost::headers
 )
 
 # Test multi-database

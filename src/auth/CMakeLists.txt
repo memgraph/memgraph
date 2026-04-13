@@ -13,13 +13,11 @@ find_package(Seccomp REQUIRED)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 
-target_link_libraries(mg-auth nlohmann_json::nlohmann_json libbcrypt::libbcrypt gflags fmt::fmt)
-target_link_libraries(mg-auth mg-utils mg-kvstore mg-license mg::system mg-replication)
-
-target_link_libraries(mg-auth ${Seccomp_LIBRARIES})
+target_link_libraries(mg-auth
+    PUBLIC mg-kvstore mg-license mg::system mg-replication
+    PRIVATE nlohmann_json::nlohmann_json libbcrypt::libbcrypt gflags fmt::fmt
+    mg-utils ${Seccomp_LIBRARIES} openssl::openssl)
 target_include_directories(mg-auth SYSTEM PRIVATE ${Seccomp_INCLUDE_DIRS})
-
-target_link_libraries(mg-auth openssl::openssl)
 
 # Install reference auth modules and their configuration files.
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/common.py

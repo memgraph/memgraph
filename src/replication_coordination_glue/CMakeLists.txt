@@ -16,4 +16,4 @@ target_sources(mg-repl_coord_glue
 )
 
 find_package(range-v3 REQUIRED)
-target_link_libraries(mg-repl_coord_glue mg-rpc mg-slk range-v3::range-v3)
+target_link_libraries(mg-repl_coord_glue PRIVATE mg-rpc mg-slk range-v3::range-v3)
