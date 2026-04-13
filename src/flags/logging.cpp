@@ -173,7 +173,7 @@ void TurnOnStdErr() {
 // Deletes old log files that should've been rotated by spdlog but aren't. Spdlog saves next rotation time in the memory
 // so if the instance restarts before the scheduled rotations the rotation event will never trigger. Therefore, we are
 // trying to fix this behavior by running manually rotation on the Memgraph startup
-// Assumes there are only log files in the drectory.
+// Assumes there are only log files in the directory.
 // Deletes all files whose last_write_time is older than --log-retention-days
 void CleanLogsDir() {
   if (FLAGS_log_file.empty()) return;
@@ -182,6 +182,7 @@ void CleanLogsDir() {
   auto const log_directory = log_path.parent_path();
   auto const cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::days(FLAGS_log_retention_days);
 
+  // Logs error only at the end, doesn't log for each file
   std::error_code ec;
   for (auto const &entry : std::filesystem::directory_iterator(log_directory, ec)) {
     if (!entry.is_regular_file(ec)) continue;
