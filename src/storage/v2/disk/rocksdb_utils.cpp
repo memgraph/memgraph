@@ -9,11 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "kvstore/rocksdb_utils.hpp"
+#include "storage/v2/disk/rocksdb_utils.hpp"
 
 #include <rocksdb/env.h>
 #include <rocksdb/options.h>
-#include <string>
+#include <string_view>
 
 #include "spdlog/spdlog.h"
 
@@ -21,7 +21,7 @@ namespace memgraph::utils {
 
 namespace {
 
-rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(const std::string &level) {
+rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(std::string_view level) {
   if (level == "DEBUG_LEVEL") return rocksdb::InfoLogLevel::DEBUG_LEVEL;
   if (level == "INFO_LEVEL") return rocksdb::InfoLogLevel::INFO_LEVEL;
   if (level == "WARN_LEVEL") return rocksdb::InfoLogLevel::WARN_LEVEL;
@@ -34,7 +34,7 @@ rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(const std::string &level) {
 
 }  // namespace
 
-void ApplyRocksDBConfig(rocksdb::Options &options, const std::string &info_log_level, bool enable_thread_tracking) {
+void ApplyRocksDBConfig(rocksdb::Options &options, std::string_view info_log_level, bool enable_thread_tracking) {
   options.info_log_level = ParseRocksDBInfoLogLevel(info_log_level);
   options.enable_thread_tracking = enable_thread_tracking;
 }

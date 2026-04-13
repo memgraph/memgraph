@@ -23,6 +23,7 @@ target_sources(mg-storage-v2
         disk/label_index.cpp
         disk/label_property_index.cpp
         disk/rocksdb_storage.cpp
+        disk/rocksdb_utils.cpp
         disk/storage.cpp
         disk/unique_constraints.cpp
         durability/durability.cpp

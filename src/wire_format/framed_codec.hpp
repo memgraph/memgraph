@@ -35,7 +35,7 @@
 #include <string>
 #include <string_view>
 
-#include "storage/v2/durability/marker.hpp"
+#include "wire_format/marker.hpp"
 
 namespace memgraph::slk {
 class Reader;

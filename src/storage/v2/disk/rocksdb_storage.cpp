@@ -14,7 +14,7 @@
 #include <string_view>
 
 #include "flags/general.hpp"
-#include "kvstore/rocksdb_utils.hpp"
+#include "storage/v2/disk/rocksdb_utils.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {

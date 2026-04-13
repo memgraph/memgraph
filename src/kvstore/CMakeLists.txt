@@ -6,14 +6,12 @@ add_library(mg::kvstore ALIAS mg-kvstore)
 target_sources(mg-kvstore
     PRIVATE
     kvstore.cpp
-    rocksdb_utils.cpp
 
     PUBLIC
     FILE_SET HEADERS
     BASE_DIRS ../
     FILES
     kvstore.hpp
-    rocksdb_utils.hpp
 )
 
 target_link_libraries(mg-kvstore PUBLIC stdc++fs mg-utils BZip2::BZip2 ZLIB::ZLIB gflags)
