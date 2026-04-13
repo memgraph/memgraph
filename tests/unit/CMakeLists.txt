@@ -1070,8 +1070,8 @@ endif ()
 
 add_unit_test(safe_hardware_concurrency
     SOURCES safe_hardware_concurrency.cpp
-    LINK_TARGETS mg-utils
-    
+    LINK_TARGETS mg-utils)
+
 # Test log retention cleanup
 add_unit_test(logging
     SOURCES logging.cpp
