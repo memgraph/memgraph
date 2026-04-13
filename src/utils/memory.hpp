@@ -34,7 +34,7 @@
 #include <vector>
 #include <version>
 
-#include "flags/bolt.hpp"
+#include "utils/concurrency_hint.hpp"
 
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
@@ -228,7 +228,7 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
     if (pthread_key_create(&thread_local_block_key_, nullptr) != 0) {
       throw BadAlloc("Failed to create pthread key for thread-local storage");
     }
-    states_.reserve(FLAGS_bolt_num_workers);
+    states_.reserve(utils::GetNumWorkers());
   }
 
   explicit ThreadSafeMonotonicBufferResource(size_t initial_size = 1024, MemoryResource *memory = NewDeleteResource())
@@ -237,7 +237,7 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
     if (pthread_key_create(&thread_local_block_key_, nullptr) != 0) {
       throw BadAlloc("Failed to create pthread key for thread-local storage");
     }
-    states_.reserve(FLAGS_bolt_num_workers);
+    states_.reserve(utils::GetNumWorkers());
   }
 
   /// Destructor - releases all allocated memory

@@ -1,6 +1,10 @@
-cmake_minimum_required(VERSION 3.23)
-cmake_policy(SET CMP0076 NEW)
-cmake_policy(SET CMP0135 NEW)
+cmake_minimum_required(VERSION 3.28)
+
+# Opt in to transitive LINK_LIBRARIES evaluation (CMake 4.1+).
+# Our CXX_MODULES targets are already structured to avoid cycles.
+if(POLICY CMP0189)
+  cmake_policy(SET CMP0189 NEW)
+endif()
 
 # !! IMPORTANT !! run ./project_root/init.sh before cmake command
 # to download dependencies
@@ -282,7 +286,6 @@ add_link_options(LINKER:--build-id)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 
 # After linker is set, check we can use link-time optimization
-cmake_policy(SET CMP0138 NEW)
 include(CheckIPOSupported)
 message(STATUS "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: ${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
 check_ipo_supported(RESULT ipo_supported OUTPUT output) # fatal error if IPO is not supported
@@ -297,8 +300,6 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
-
-SET(CMAKE_CXX_LINK_FLAGS "${CMAKE_CXX_LINK_FLAGS} -pthread")
 
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING

@@ -251,6 +251,7 @@ if [[ "$update_lockfile" = true ]]; then
     echo "Updating conan.lock"
     MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan lock create . \
       "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
+      --lockfile="" \
       --lockfile-out=conan.lock
 fi
 

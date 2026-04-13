@@ -1,12 +1,22 @@
+# C++20 module interfaces split into separate targets to avoid CMake 4.x
+# CMP0189 cycle errors — the synthetic INTERFACE_LIBRARY that CMake
+# creates for FILE_SET CXX_MODULES cannot participate in the
+# static-library dependency cycle around mg-utils.
+#
+# mg-fnv: self-contained, no internal deps — sits below mg-utils
+# mg-aws: depends on mg-utils + AWS SDK — sits above mg-utils
+add_library(mg-fnv STATIC)
+add_library(mg::fnv ALIAS mg-fnv)
+target_sources(mg-fnv
+    PUBLIC
+    FILE_SET CXX_MODULES FILES
+    fnv.cppm
+)
+
 add_library(mg-utils STATIC)
 add_library(mg::utils ALIAS mg-utils)
 
 target_sources(mg-utils
-    PUBLIC
-    FILE_SET CXX_MODULES FILES
-    aws.cppm
-    fnv.cppm
-
     PRIVATE
     async_timer.cpp
     base64.cpp
@@ -69,20 +79,29 @@ find_package(Threads REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(croncpp REQUIRED)
 
-target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp rollbear::strong_type gflags)
-target_link_libraries(mg-utils PRIVATE AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer librdtsc::librdtsc stdc++fs Threads::Threads uuid rt mg-flags range-v3::range-v3)
+target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp rollbear::strong_type gflags mg-fnv)
+target_link_libraries(mg-utils PRIVATE AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer librdtsc::librdtsc stdc++fs Threads::Threads uuid rt range-v3::range-v3 mg-slk)
 if (ENABLE_JEMALLOC)
   target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=1)
 else()
   target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=0)
 endif()
 
+add_library(mg-aws STATIC)
+add_library(mg::aws ALIAS mg-aws)
+target_sources(mg-aws
+    PUBLIC
+    FILE_SET CXX_MODULES FILES
+    aws.cppm
+)
+target_link_libraries(mg-aws PUBLIC mg-utils AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer)
+
 add_library(mg-settings STATIC)
 target_sources(mg-settings
     PRIVATE
     settings.cpp
 )
-target_link_libraries(mg-settings mg-kvstore mg-slk mg-utils)
+target_link_libraries(mg-settings PUBLIC mg-kvstore mg-utils PRIVATE mg-slk)
 
 add_library(mg-events STATIC)
 target_sources(mg-events

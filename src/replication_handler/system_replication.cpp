@@ -16,7 +16,8 @@
 #include "auth/replication_handlers.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_handlers.hpp"
-#include "parameters/replication_handlers.hpp"
+#include "parameters/parameters.hpp"
+#include "parameters/rpc.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "system/rpc.hpp"
@@ -26,6 +27,128 @@ class FileReplicationHandler;
 }  // namespace memgraph::rpc
 
 namespace memgraph::replication {
+
+namespace {
+
+void SetParameterHandler(system::ReplicaHandlerAccessToState &system_state_access,
+                         const std::optional<utils::UUID> &current_main_uuid, parameters::Parameters &parameters,
+                         uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using storage::replication::SetParameterRes;
+  SetParameterRes res(false);
+
+  storage::replication::SetParameterReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SetParameterReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("SetParameterHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (parameters.SetParameter(req.parameter.name, req.parameter.value, req.parameter.scope_context) ==
+      parameters::SetParameterResult::Success) {
+    res = SetParameterRes(true);
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+void UnsetParameterHandler(system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, parameters::Parameters &parameters,
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using storage::replication::UnsetParameterRes;
+  UnsetParameterRes res(false);
+
+  storage::replication::UnsetParameterReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::UnsetParameterReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("UnsetParameterHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (parameters.UnsetParameter(req.name, req.scope_context)) {
+    res = UnsetParameterRes(true);
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+void DeleteAllParametersHandler(system::ReplicaHandlerAccessToState &system_state_access,
+                                const std::optional<utils::UUID> &current_main_uuid, parameters::Parameters &parameters,
+                                uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using storage::replication::DeleteAllParametersRes;
+  DeleteAllParametersRes res(false);
+
+  storage::replication::DeleteAllParametersReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::DeleteAllParametersReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("DeleteAllParametersHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (parameters.DeleteAllParameters()) {
+    res = DeleteAllParametersRes(true);
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+void RegisterParameterHandlers(replication::RoleReplicaData const &data,
+                               system::ReplicaHandlerAccessToState system_state_access,
+                               parameters::Parameters &parameters) {
+  data.server->rpc_server_.Register<storage::replication::SetParameterRpc>(
+      [&data, system_state_access, &parameters](std::optional<rpc::FileReplicationHandler> const &,
+                                                uint64_t const request_version,
+                                                auto *req_reader,
+                                                auto *res_builder) mutable {
+        SetParameterHandler(system_state_access, data.uuid_, parameters, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::UnsetParameterRpc>(
+      [&data, system_state_access, &parameters](std::optional<rpc::FileReplicationHandler> const &,
+                                                uint64_t const request_version,
+                                                auto *req_reader,
+                                                auto *res_builder) mutable {
+        UnsetParameterHandler(system_state_access, data.uuid_, parameters, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::DeleteAllParametersRpc>(
+      [&data, system_state_access, &parameters](std::optional<rpc::FileReplicationHandler> const &,
+                                                uint64_t const request_version,
+                                                auto *req_reader,
+                                                auto *res_builder) mutable {
+        DeleteAllParametersHandler(
+            system_state_access, data.uuid_, parameters, request_version, req_reader, res_builder);
+      });
+}
+
+}  // namespace
 
 #ifdef MG_ENTERPRISE
 void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
@@ -53,7 +176,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   if (!dbms::SystemRecoveryHandler(dbms_handler, req.database_configs)) return;
   if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles, req.profiles)) return;
 #endif
-  if (!parameters::SystemRecoveryHandler(parameters, req.parameters)) return;
+  if (!parameters.ApplyRecovery(req.parameters)) return;
 
   system_state_access.SetLastCommitedTS(req.forced_group_timestamp);
   spdlog::debug("SystemRecoveryHandler: SUCCESS updated LCTS to {}", req.forced_group_timestamp);
@@ -137,7 +260,7 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
   dbms::Register(data, system_state_access, dbms_handler);
   auth::Register(data, system_state_access, auth);
 #endif
-  parameters::Register(data, system_state_access, parameters);
+  RegisterParameterHandlers(data, system_state_access, parameters);
 }
 
 #ifdef MG_ENTERPRISE
