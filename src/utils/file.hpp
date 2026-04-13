@@ -240,6 +240,12 @@ class OutputFile {
   /// program.
   bool AcquireLock();
 
+  /// Does exactly the same as AcquireLock() function but addditionally waits for maximum of
+  /// FLAGS_data_dir_lock_acquisition_timeout_sec before returning false. Used when it's possible
+  /// that some other process cannot immediately release the lock but will do in a brief time window so it
+  /// pays off for us to wait
+  auto AcquireLockWithTimeout(uint16_t sleep_time_ms = 250) -> bool;
+
   /// Syncs currently pending data to the currently opened file. On failure
   /// and misuse it crashes the program.
   void Sync();

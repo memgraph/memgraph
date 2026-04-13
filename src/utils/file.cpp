@@ -22,6 +22,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "flags/general.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
@@ -486,6 +487,8 @@ size_t OutputFile::SetPosition(Position position, ssize_t offset) {
   return SeekFile(position, offset);
 }
 
+// logical constness
+// NOLINTNEXTLINE(readability-make-member-function-const)
 bool OutputFile::AcquireLock() {
   MG_ASSERT(IsOpen(), "Trying to acquire a write lock on an unopened file!");
   int ret = -1;
@@ -501,6 +504,20 @@ bool OutputFile::AcquireLock() {
     }
   }
   return ret != -1;
+}
+
+auto OutputFile::AcquireLockWithTimeout(uint16_t const sleep_time_ms) -> bool {
+  auto const start_time = std::chrono::steady_clock::now();
+  auto const lock_file_timeout = std::chrono::seconds{FLAGS_data_dir_lock_acquisition_timeout_sec};
+  while (true) {
+    if (AcquireLock()) return true;
+    if (std::chrono::steady_clock::now() - start_time > lock_file_timeout) {
+      return false;
+    }
+    spdlog::trace("Failed to acquire lock on {}, retrying in {}ms...", path_, sleep_time_ms);
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time_ms));
+  }
+  std::unreachable();
 }
 
 void OutputFile::Sync() {
@@ -749,6 +766,7 @@ size_t NonConcurrentOutputFile::SetPosition(Position position, ssize_t offset) {
   return SeekFile(position, offset);
 }
 
+// NOLINTNEXTLINE(readability-make-member-function-const)
 bool NonConcurrentOutputFile::AcquireLock() {
   MG_ASSERT(IsOpen(), "Trying to acquire a write lock on an unopened file!");
   int ret = -1;

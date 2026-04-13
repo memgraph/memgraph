@@ -390,23 +390,13 @@ int main(int argc, char **argv) {
   // holding the file opened after timeout occurs
   memgraph::utils::OutputFile lock_file_handle;
   lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
-  auto const start_time = std::chrono::steady_clock::now();
-  auto const lock_file_timeout = std::chrono::seconds{FLAGS_data_dir_lock_acquisition_timeout_sec};
-  constexpr uint16_t sleep_time_ms = 250;
-  while (true) {
-    if (lock_file_handle.AcquireLock()) break;
-    if (std::chrono::steady_clock::now() - start_time > lock_file_timeout) {
-      LOG_FATAL(
-          "Couldn't acquire lock on the storage directory {} within {}s"
-          "!\nAnother Memgraph process is currently running with the same "
-          "storage directory, please stop it first before starting this "
-          "process!",
-          data_directory,
-          lock_file_timeout.count());
-    }
-    spdlog::trace("Failed to acquire lock on data directory, retrying in {}ms...", sleep_time_ms);
-    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time_ms));
-  }
+  MG_ASSERT(lock_file_handle.AcquireLockWithTimeout(),
+            "Couldn't acquire lock on the storage directory {} within {}s"
+            "!\nAnother Memgraph process is currently running with the same "
+            "storage directory, please stop it first before starting this "
+            "process!",
+            data_directory,
+            FLAGS_data_dir_lock_acquisition_timeout_sec);
 
   spdlog::trace("Successfully acquired lock on data directory");
 
