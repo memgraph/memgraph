@@ -87,6 +87,3 @@ if [[ "$ci" == "false" ]]; then
   pip install pre-commit black==23.1.* isort==5.12.*
   python3 -m pre_commit install
 fi
-
-# Link `include/mgp.py` with `release/mgp/mgp.py`
-ln -v -f include/mgp.py release/mgp/mgp.py
