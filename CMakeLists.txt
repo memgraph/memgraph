@@ -224,6 +224,8 @@ find_package(libbcrypt REQUIRED)
 find_package(librdtsc REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(nuraft REQUIRED CONFIG)
+find_package(pulsar-client-cpp REQUIRED CONFIG)
+find_package(protobuf REQUIRED CONFIG)
 find_package(Snappy REQUIRED)
 find_package(Arrow REQUIRED)
 find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
@@ -462,6 +464,12 @@ target_compile_options(usearch INTERFACE [[-Wno-#warnings]])
 
 add_library(nuraft INTERFACE IMPORTED GLOBAL)
 set_property(TARGET nuraft PROPERTY INTERFACE_LINK_LIBRARIES nuraft::nuraft)
+
+add_library(protobuf INTERFACE IMPORTED GLOBAL)
+set_property(TARGET protobuf PROPERTY INTERFACE_LINK_LIBRARIES protobuf::libprotobuf)
+
+add_library(pulsar INTERFACE IMPORTED GLOBAL)
+set_property(TARGET pulsar PROPERTY INTERFACE_LINK_LIBRARIES pulsar-client-cpp::pulsar-client-cpp)
 
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)

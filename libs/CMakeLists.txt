@@ -221,44 +221,6 @@ add_custom_target(mgconsole)
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
 
-macro(build_protobuf)
-    set(PROTOBUF_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/protobuf/lib)
-    import_external_library(protobuf STATIC
-      ${PROTOBUF_ROOT}/lib/libprotobuf.a
-      ${PROTOBUF_ROOT}/include
-      BUILD_IN_SOURCE 1
-      CONFIGURE_COMMAND true)
-endmacro()
-#mg_build_if_needed(build_protobuf "protobuf")
-mg_create_linkable_if_no_cmake(protobuf STATIC "${MG_TOOLCHAIN_ROOT}/lib/libprotobuf.a" "${MG_TOOLCHAIN_ROOT}/include")
-
-macro(build_pulsar)
-    import_external_library(pulsar STATIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsar.a
-      ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install/include
-      BUILD_IN_SOURCE 1
-      CONFIGURE_COMMAND cmake pulsar-client-cpp
-      -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install
-      -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-      -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-      -DBUILD_DYNAMIC_LIB=OFF
-      -DBUILD_STATIC_LIB=ON
-      -DBUILD_TESTS=OFF
-      -DLINK_STATIC=ON
-      -DPROTOC_PATH=${PROTOBUF_ROOT}/bin/protoc
-      -DBOOST_ROOT=${BOOST_ROOT}
-      "-DCMAKE_PREFIX_PATH=$<$<BOOL:${MG_TOOLCHAIN_ROOT}>:${MG_TOOLCHAIN_ROOT}${LIST_SEP}>${PROTOBUF_ROOT}"
-      -DProtobuf_INCLUDE_DIRS=${PROTOBUF_ROOT}/include
-      -DBUILD_PYTHON_WRAPPER=OFF
-      -DBUILD_PERF_TOOLS=OFF
-      -DUSE_LOG4CXX=OFF
-      BUILD_COMMAND $(MAKE))
-    add_dependencies(pulsar-proj protobuf)
-endmacro()
-
-# mg_build_if_needed(build_pulsar "pulsar")
-mg_create_linkable_if_no_cmake(pulsar STATIC "${MG_TOOLCHAIN_ROOT}/lib/libpulsar.a" "${MG_TOOLCHAIN_ROOT}/include")
-
 set(ABSL_PROPAGATE_CXX_STD ON)
 
 message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
