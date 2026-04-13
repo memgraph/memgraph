@@ -334,7 +334,7 @@ add_unit_test(utils_algorithm
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
-    LINK_TARGETS mg-utils
+    LINK_TARGETS mg-utils mg-aws
 )
 
 add_unit_test(utils_barrier
