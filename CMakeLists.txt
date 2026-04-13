@@ -223,6 +223,7 @@ find_package(jemalloc REQUIRED)
 find_package(libbcrypt REQUIRED)
 find_package(librdtsc REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(nuraft REQUIRED CONFIG)
 find_package(Snappy REQUIRED)
 find_package(Arrow REQUIRED)
 find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
@@ -458,6 +459,9 @@ add_library(usearch INTERFACE IMPORTED GLOBAL)
 set_property(TARGET usearch PROPERTY INTERFACE_LINK_LIBRARIES usearch::usearch)
 # Suppress the guarded #warning in usearch/index_plugins.hpp.
 target_compile_options(usearch INTERFACE [[-Wno-#warnings]])
+
+add_library(nuraft INTERFACE IMPORTED GLOBAL)
+set_property(TARGET nuraft PROPERTY INTERFACE_LINK_LIBRARIES nuraft::nuraft)
 
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)

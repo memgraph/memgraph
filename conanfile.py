@@ -92,6 +92,7 @@ class Memgraph(ConanFile):
         self.requires("librdtsc/0.3-memgraph")
         self.requires("mgclient/1.4.3")
         self.requires("nlohmann_json/3.11.3-memgraph")
+        self.requires("nuraft/2.1.0-memgraph", options={"asio": "standalone"})
         has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
         openssl_shared = not has_sanitizers
         # Production builds dynamically link OpenSSL so the binary can use any system-provided

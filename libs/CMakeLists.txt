@@ -263,15 +263,6 @@ set(ABSL_PROPAGATE_CXX_STD ON)
 
 message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
 
-macro(build_nuraft)
-  import_external_library(nuraft STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
-endmacro()
-mg_build_if_needed(build_nuraft "nuraft")
-mg_create_linkable_if_no_cmake(nuraft STATIC "${MG_TOOLCHAIN_ROOT}/lib/libnuraft.a" "${MG_TOOLCHAIN_ROOT}/include")
-target_link_libraries(nuraft INTERFACE openssl::openssl)
-
 # include mgcxx
 set(ENABLE_TESTS OFF CACHE BOOL "Enable tests" FORCE)
 add_subdirectory(${CMAKE_SOURCE_DIR}/mgcxx ${CMAKE_BINARY_DIR}/mgcxx EXCLUDE_FROM_ALL)

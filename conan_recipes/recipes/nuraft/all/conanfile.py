@@ -27,11 +27,17 @@ class NuRaftConan(ConanFile):
     default_options = {
         "shared": False,
         "fPIC": True,
-        "asio": "boost",
+        "asio": "standalone",
     }
 
     def export_sources(self):
         export_conandata_patches(self)
+        copy(
+            self,
+            "patches/1002-standalone-asio-2.1.patch",
+            src=self.recipe_folder,
+            dst=self.export_sources_folder,
+        )
 
     def configure(self):
         if self.options.shared:
@@ -49,8 +55,8 @@ class NuRaftConan(ConanFile):
             self.requires("openssl/[>=1.1 <4]")
         if self.options.asio == "boost":
             self.requires("boost/1.81.0")
-        else:
-            self.requires("asio/1.27.0")
+        elif Version(self.version) >= 3:
+            self.requires("asio/1.36.0")
 
     def validate(self):
         if self.settings.os == "Windows":
@@ -67,42 +73,52 @@ class NuRaftConan(ConanFile):
             self._patch_sources()
 
     def _patch_sources(self):
-        replace_in_file(
-            self,
-            os.path.join(self.source_folder, "CMakeLists.txt"),
-            "    find_package(OpenSSL)\n\n    if(OPENSSL_FOUND)\n"
-            "        set(LIBSSL OpenSSL::SSL)\n"
-            "        set(LIBCRYPTO OpenSSL::Crypto)\n"
-            "    else()\n"
-            "        add_compile_definitions(SSL_LIBRARY_NOT_FOUND=1)\n"
-            "    endif()\n",
-            "    if(DISABLE_SSL)\n"
-            "        add_compile_definitions(SSL_LIBRARY_NOT_FOUND=1)\n"
-            "    else()\n"
-            "        find_package(OpenSSL)\n\n"
-            "        if(OPENSSL_FOUND)\n"
-            "            set(LIBSSL OpenSSL::SSL)\n"
-            "            set(LIBCRYPTO OpenSSL::Crypto)\n"
-            "        else()\n"
-            "            add_compile_definitions(SSL_LIBRARY_NOT_FOUND=1)\n"
-            "        endif()\n"
-            "    endif()\n",
-        )
+        cmakelists = os.path.join(self.source_folder, "CMakeLists.txt")
+        if Version(self.version) >= 3:
+            replace_in_file(
+                self,
+                cmakelists,
+                "    find_package(OpenSSL)\n\n    if(OPENSSL_FOUND)\n"
+                "        set(LIBSSL OpenSSL::SSL)\n"
+                "        set(LIBCRYPTO OpenSSL::Crypto)\n"
+                "    else()\n"
+                "        add_compile_definitions(SSL_LIBRARY_NOT_FOUND=1)\n"
+                "    endif()\n",
+                "    if(DISABLE_SSL)\n"
+                "        add_compile_definitions(SSL_LIBRARY_NOT_FOUND=1)\n"
+                "    else()\n"
+                "        find_package(OpenSSL)\n\n"
+                "        if(OPENSSL_FOUND)\n"
+                "            set(LIBSSL OpenSSL::SSL)\n"
+                "            set(LIBCRYPTO OpenSSL::Crypto)\n"
+                "        else()\n"
+                "            add_compile_definitions(SSL_LIBRARY_NOT_FOUND=1)\n"
+                "        endif()\n"
+                "    endif()\n",
+            )
 
     def generate(self):
         tc = CMakeToolchain(self)
+        tc.cache_variables["DISABLE_SSL"] = 1
         if Version(self.version) >= 3:
             tc.cache_variables["WITH_CONAN"] = True
             tc.cache_variables["BOOST_ASIO"] = self.options.asio == "boost"
             tc.cache_variables["BUILD_EXAMPLES"] = False
             tc.cache_variables["BUILD_TESTING"] = False
-            tc.cache_variables["DISABLE_SSL"] = 1
         tc.generate()
         deps = CMakeDeps(self)
         deps.generate()
 
     def build(self):
         apply_conandata_patches(self)
+        if Version(self.version) < 3:
+            if self.options.asio == "standalone":
+                self.run("bash prepare.sh", cwd=self.source_folder)
+                self.run(
+                    "patch -p1 < "
+                    f"\"{os.path.join(self.export_sources_folder, 'patches', '1002-standalone-asio-2.1.patch')}\"",
+                    cwd=self.source_folder,
+                )
         cmake = CMake(self)
         cmake.configure()
         cmake.build()

@@ -1,0 +1,54 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 55d29a8..2d55f6b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -29,19 +29,11 @@ endif()
+ # === Find ASIO ===
+ find_package(OpenSSL CONFIG REQUIRED)
+-find_package(Boost CONFIG)
+-if (Boost_FOUND)
+-    # If Boost path (both include and library) is given,
+-    # use Boost's ASIO.
+-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_BOOST_ASIO")
+-    set(ASIO_DEP boost::boost)
+-else ()
+-    # If not, ASIO standalone mode.
+-    find_package(Asio CONFIG REQUIRED)
+-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DASIO_STANDALONE")
+-    set(ASIO_DEP asio::asio)
+-endif ()
++set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DASIO_STANDALONE")
++set(ASIO_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/asio/asio/include)
++set(ASIO_DEP)
+ 
+ 
+ # === Includes ===
+ include_directories(BEFORE ./)
++include_directories(BEFORE ${ASIO_INCLUDE_DIR})
+ include_directories(BEFORE ${PROJECT_SOURCE_DIR}/include)
+ include_directories(BEFORE ${PROJECT_SOURCE_DIR}/include/libnuraft)
+diff --git a/include/libnuraft/callback.hxx b/include/libnuraft/callback.hxx
+index 1f1a0a6..7734d15 100644
+--- a/include/libnuraft/callback.hxx
++++ b/include/libnuraft/callback.hxx
+@@ -18,7 +18,8 @@
+ #ifndef _CALLBACK_H_
+ #define _CALLBACK_H_
+ 
++#include <cstdint>
+ #include <functional>
+ #include <string>
+ 
+ namespace nuraft {
+diff --git a/include/libnuraft/asio_service_options.hxx b/include/libnuraft/asio_service_options.hxx
+index 0a9678b..9765fd4 100644
+--- a/include/libnuraft/asio_service_options.hxx
++++ b/include/libnuraft/asio_service_options.hxx
+@@ -18,7 +18,8 @@
+ #pragma once
+ 
++#include <cstdint>
+ #include <functional>
+ #include <string>
+ #include <system_error>
+ 
