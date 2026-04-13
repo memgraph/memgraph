@@ -11,50 +11,62 @@
 
 #pragma once
 
-/// Marker-framed codec for basic types over SLK streams.
+/// Inline read/write helpers for marker-framed SLK streams.
 ///
-/// The wire format is: one Marker byte identifying the type, followed
-/// by the SLK-encoded payload. This is the same framing used by the
-/// replication layer's Encoder/Decoder for file transfer headers.
+/// Wire format: one Marker byte identifying the type, followed by
+/// the SLK-encoded payload. This is the same framing used by
+/// durability (snapshot/WAL) and replication (RPC file transfer).
 ///
-/// This library provides read/write helpers for primitive types so
-/// that code outside mg-storage-v2 can participate in the framed
-/// protocol without depending on the full storage serialisation
-/// hierarchy.
-///
-/// The Marker enum is defined in wire_format/marker.hpp alongside
-/// this codec.
-///
-/// Error model: Read functions throw slk::SlkReaderException on
-/// truncated input. They return std::nullopt only when the marker
-/// byte is present but indicates a different type than expected.
+/// Error model: functions throw slk::SlkReaderException on truncated
+/// input. Read functions return std::nullopt when the marker byte
+/// is present but indicates a different type than expected (the
+/// marker byte is consumed either way).
 
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 
+#include "slk/serialization.hpp"
+#include "slk/streams.hpp"
 #include "wire_format/marker.hpp"
-
-namespace memgraph::slk {
-class Reader;
-class Builder;
-}  // namespace memgraph::slk
 
 namespace memgraph::wire_format {
 
 // ---- Writing (marker + slk payload) ----
 
-void WriteMarker(Marker marker, slk::Builder *builder);
-void WriteUint(uint64_t value, slk::Builder *builder);
-void WriteString(std::string_view value, slk::Builder *builder);
+inline void WriteMarker(Marker marker, slk::Builder *builder) { slk::Save(marker, builder); }
+
+inline void WriteUint(uint64_t value, slk::Builder *builder) {
+  WriteMarker(Marker::TYPE_INT, builder);
+  slk::Save(value, builder);
+}
+
+inline void WriteString(std::string_view value, slk::Builder *builder) {
+  WriteMarker(Marker::TYPE_STRING, builder);
+  slk::Save(value, builder);
+}
 
 // ---- Reading (marker + slk payload) ----
-// Throws slk::SlkReaderException on truncated input.
-// Returns std::nullopt if the marker byte does not match the expected type.
 
-Marker ReadMarker(slk::Reader *reader);
-std::optional<uint64_t> ReadUint(slk::Reader *reader);
-std::optional<std::string> ReadString(slk::Reader *reader);
+inline Marker ReadMarker(slk::Reader *reader) {
+  Marker marker;
+  slk::Load(&marker, reader);
+  return marker;
+}
+
+inline std::optional<uint64_t> ReadUint(slk::Reader *reader) {
+  if (ReadMarker(reader) != Marker::TYPE_INT) return std::nullopt;
+  uint64_t value;
+  slk::Load(&value, reader);
+  return value;
+}
+
+inline std::optional<std::string> ReadString(slk::Reader *reader) {
+  if (ReadMarker(reader) != Marker::TYPE_STRING) return std::nullopt;
+  std::string value;
+  slk::Load(&value, reader);
+  return value;
+}
 
 }  // namespace memgraph::wire_format

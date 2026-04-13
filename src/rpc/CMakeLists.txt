@@ -12,4 +12,4 @@ add_library(mg-rpc STATIC ${rpc_src_files})
 add_library(mg::rpc ALIAS mg-rpc)
 target_link_libraries(mg-rpc
     PUBLIC mg-communication mg-utils mg-io mg-slk
-    PRIVATE Threads::Threads fmt::fmt gflags mg-wire-format)
+    PRIVATE Threads::Threads fmt::fmt gflags)
