@@ -2,6 +2,9 @@ add_library(mg-flags STATIC)
 add_library(mg::flags ALIAS mg-flags)
 target_sources(mg-flags
         PUBLIC
+        FILE_SET HEADERS
+        BASE_DIRS ..
+        FILES
         all.hpp
         audit.hpp
         auth.hpp
@@ -34,7 +37,6 @@ target_sources(mg-flags
         storage_mode.cpp
         scheduler.cpp
 )
-target_include_directories(mg-flags PUBLIC include)
 
 find_package(spdlog REQUIRED)
 find_package(croncpp REQUIRED)
