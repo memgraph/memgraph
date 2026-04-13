@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.28)
 
 # Opt in to transitive LINK_LIBRARIES evaluation (CMake 4.1+).
 # Our CXX_MODULES targets are already structured to avoid cycles.
-cmake_policy(SET CMP0189 NEW)
+if(POLICY CMP0189)
+  cmake_policy(SET CMP0189 NEW)
+endif()
 
 # !! IMPORTANT !! run ./project_root/init.sh before cmake command
 # to download dependencies
