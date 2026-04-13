@@ -727,12 +727,12 @@ add_unit_test(replication_persistence_helper
 
 add_unit_test(auth_checker
     SOURCES auth_checker.cpp
-    LINK_TARGETS mg-glue mg-auth
+    LINK_TARGETS mg-glue mg-auth mg-query
 )
 
 add_unit_test(auth_handler
     SOURCES auth_handler.cpp
-    LINK_TARGETS mg-glue mg-auth
+    LINK_TARGETS mg-glue mg-auth mg-query
 )
 
 if (MG_ENTERPRISE)

@@ -107,4 +107,4 @@ target_sources(mg-events
     event_trigger.cpp
     event_map.cpp
 )
-target_link_libraries(mg-events mg-utils nlohmann_json::nlohmann_json)
+target_link_libraries(mg-events PRIVATE mg-utils nlohmann_json::nlohmann_json)

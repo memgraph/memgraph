@@ -3,7 +3,7 @@ find_package(gflags REQUIRED)
 find_package(Boost REQUIRED CONFIG)
 
 add_library(mg-communication-metrics STATIC metrics.cpp)
-target_link_libraries(mg-communication-metrics nlohmann_json::nlohmann_json)
+target_link_libraries(mg-communication-metrics PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(mg-communication STATIC)
 target_sources(mg-communication

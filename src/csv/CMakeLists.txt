@@ -13,8 +13,6 @@ target_sources(mg-csv
         PRIVATE
         parsing.cpp
         )
-target_include_directories(mg-csv PUBLIC include)
-
 find_package(Boost REQUIRED CONFIG COMPONENTS iostreams)
 find_package(ctre)
 target_link_libraries(mg-csv
