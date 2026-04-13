@@ -69,8 +69,13 @@ find_package(Threads REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(croncpp REQUIRED)
 
-target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp rollbear::strong_type gflags mg-jemalloc-defs)
-target_link_libraries(mg-utils PRIVATE AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer librdtsc stdc++fs Threads::Threads uuid rt mg-flags range-v3::range-v3)
+target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp rollbear::strong_type gflags)
+target_link_libraries(mg-utils PRIVATE AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer librdtsc::librdtsc stdc++fs Threads::Threads uuid rt mg-flags range-v3::range-v3)
+if (ENABLE_JEMALLOC)
+  target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=1)
+else()
+  target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=0)
+endif()
 
 add_library(mg-settings STATIC)
 target_sources(mg-settings
