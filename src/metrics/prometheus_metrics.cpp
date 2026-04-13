@@ -17,6 +17,7 @@
 
 #include <ranges>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "utils/logging.hpp"
@@ -684,7 +685,27 @@ PrometheusMetrics::PrometheusMetrics()
       gc_skiplist_cleanup_latency_family_{prometheus::BuildHistogram()
                                               .Name("memgraph_gc_skiplist_cleanup_latency_seconds")
                                               .Help("GC skiplist cleanup latency in seconds")
-                                              .Register(registry_)} {
+                                              .Register(registry_)}
+#ifdef MG_ENTERPRISE
+      ,
+      instance_up_family_{prometheus::BuildGauge()
+                              .Name("memgraph_instance_up")
+                              .Help("1 if the instance is up, 0 if down")
+                              .Register(registry_)},
+      instance_is_leader_family_{prometheus::BuildGauge()
+                                     .Name("memgraph_instance_is_leader")
+                                     .Help("1 if the instance is the coordinator leader, 0 otherwise")
+                                     .Register(registry_)},
+      instance_is_main_family_{prometheus::BuildGauge()
+                                   .Name("memgraph_instance_is_main")
+                                   .Help("1 if the instance is the replication main, 0 otherwise")
+                                   .Register(registry_)},
+      instance_last_response_ms_family_{prometheus::BuildGauge()
+                                            .Name("memgraph_instance_last_response_ms")
+                                            .Help("Milliseconds since the last successful response from the instance")
+                                            .Register(registry_)}
+#endif
+{
   // Populate GlobalMetricHandles — only session, memory, and HA metrics
   prometheus::Labels const no_labels{};
 
@@ -765,6 +786,13 @@ void PrometheusMetrics::SetStorageSnapshotResolver(StorageSnapshotResolver resol
   std::lock_guard const lock{snapshot_resolver_mutex_};
   storage_snapshot_resolver_ = std::move(resolver);
 }
+
+#ifdef MG_ENTERPRISE
+void PrometheusMetrics::SetInstanceStatusResolver(InstanceStatusResolver resolver) {
+  std::lock_guard const lock{instance_resolver_mutex_};
+  instance_status_resolver_ = std::move(resolver);
+}
+#endif
 
 StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(std::string_view db_name) const {
   StorageSnapshotResolver resolver;
@@ -1007,16 +1035,59 @@ void PrometheusMetrics::UpdateGauges() {
   auto const snaps = names | rv::transform([&](auto const &name) { return ResolveStorageSnapshot(name); }) |
                      r::to<std::vector<StorageSnapshot>>();
 
-  std::shared_lock const lock{databases_mutex_};
-  for (size_t i = 0; i < names.size(); ++i) {
-    auto it = std::ranges::find_if(databases_, [&](auto const &e) { return e.db_name == names[i]; });
-    if (it == databases_.end()) continue;
-    auto const &snapshot = snaps[i];
-    it->handles.vertex_count->Set(static_cast<double>(snapshot.vertex_count));
-    it->handles.edge_count->Set(static_cast<double>(snapshot.edge_count));
-    it->handles.disk_usage_bytes->Set(static_cast<double>(snapshot.disk_usage));
-    it->handles.memory_res_bytes->Set(static_cast<double>(snapshot.memory_res));
+  {
+    std::shared_lock const lock{databases_mutex_};
+    for (size_t i = 0; i < names.size(); ++i) {
+      auto it = std::ranges::find_if(databases_, [&](auto const &e) { return e.db_name == names[i]; });
+      if (it == databases_.end()) continue;
+      auto const &snapshot = snaps[i];
+      it->handles.vertex_count->Set(static_cast<double>(snapshot.vertex_count));
+      it->handles.edge_count->Set(static_cast<double>(snapshot.edge_count));
+      it->handles.disk_usage_bytes->Set(static_cast<double>(snapshot.disk_usage));
+      it->handles.memory_res_bytes->Set(static_cast<double>(snapshot.memory_res));
+    }
   }
+
+#ifdef MG_ENTERPRISE
+  std::vector<coordination::InstanceStatus> instances;
+  {
+    std::lock_guard const lock{instance_resolver_mutex_};
+    if (instance_status_resolver_) instances = instance_status_resolver_();
+  }
+
+  // Remove gauges for instances no longer present
+  auto const active_names = instances | rv::transform(&coordination::InstanceStatus::instance_name) |
+                            r::to<std::unordered_set<std::string>>();
+  for (auto it = instance_up_gauges_.begin(); it != instance_up_gauges_.end();) {
+    if (!active_names.contains(it->first)) {
+      instance_up_family_.Remove(it->second);
+      instance_is_leader_family_.Remove(instance_is_leader_gauges_.at(it->first));
+      instance_is_main_family_.Remove(instance_is_main_gauges_.at(it->first));
+      instance_last_response_ms_family_.Remove(instance_last_response_ms_gauges_.at(it->first));
+      instance_is_leader_gauges_.erase(it->first);
+      instance_is_main_gauges_.erase(it->first);
+      instance_last_response_ms_gauges_.erase(it->first);
+      it = instance_up_gauges_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  // Add or update gauges for current instances
+  for (auto const &inst : instances) {
+    prometheus::Labels const labels{{"instance", inst.instance_name}};
+    if (!instance_up_gauges_.contains(inst.instance_name)) {
+      instance_up_gauges_.emplace(inst.instance_name, &instance_up_family_.Add(labels));
+      instance_is_leader_gauges_.emplace(inst.instance_name, &instance_is_leader_family_.Add(labels));
+      instance_is_main_gauges_.emplace(inst.instance_name, &instance_is_main_family_.Add(labels));
+      instance_last_response_ms_gauges_.emplace(inst.instance_name, &instance_last_response_ms_family_.Add(labels));
+    }
+    instance_up_gauges_.at(inst.instance_name)->Set(inst.health == "up" ? 1.0 : 0.0);
+    instance_is_leader_gauges_.at(inst.instance_name)->Set(inst.cluster_role == "leader" ? 1.0 : 0.0);
+    instance_is_main_gauges_.at(inst.instance_name)->Set(inst.cluster_role == "main" ? 1.0 : 0.0);
+    instance_last_response_ms_gauges_.at(inst.instance_name)->Set(static_cast<double>(inst.last_succ_resp_ms));
+  }
+#endif
 }
 
 namespace {

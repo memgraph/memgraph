@@ -20,6 +20,7 @@
 #include <shared_mutex>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -27,6 +28,8 @@
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
 #include <prometheus/registry.h>
+
+#include "coordination/include/coordination/instance_status.hpp"
 
 namespace memgraph::metrics {
 
@@ -47,6 +50,10 @@ struct StorageSnapshot {
 /// Retrieves `StorageSnapshot` for the given `db_name`, or `std::nullopt` if
 /// there is no such database.
 using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(std::string_view db_name)>;
+
+#ifdef MG_ENTERPRISE
+using InstanceStatusResolver = std::function<std::vector<coordination::InstanceStatus>()>;
+#endif
 
 struct DatabaseMetricHandles {
   // Storage
@@ -254,6 +261,9 @@ class PrometheusMetrics {
   void UpdateGauges();
 
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
+#ifdef MG_ENTERPRISE
+  void SetInstanceStatusResolver(InstanceStatusResolver resolver);
+#endif
 
   std::expected<std::vector<MetricInfo>, std::string> GetDbMetricsInfo(std::string_view db_name) const;
   std::vector<MetricInfo> GetGlobalMetricsInfo() const;
@@ -278,6 +288,10 @@ class PrometheusMetrics {
   mutable std::shared_mutex databases_mutex_;
   mutable std::mutex snapshot_resolver_mutex_;
   StorageSnapshotResolver storage_snapshot_resolver_;
+#ifdef MG_ENTERPRISE
+  mutable std::mutex instance_resolver_mutex_;
+  InstanceStatusResolver instance_status_resolver_;
+#endif
   std::list<DatabaseEntry> databases_;
 
   // Per-database metric families — storage
@@ -470,6 +484,19 @@ class PrometheusMetrics {
   // Per-database metric families — GC histograms
   prometheus::Family<prometheus::Histogram> &gc_latency_family_;
   prometheus::Family<prometheus::Histogram> &gc_skiplist_cleanup_latency_family_;
+
+#ifdef MG_ENTERPRISE
+  // Global metric families — HA instance status
+  prometheus::Family<prometheus::Gauge> &instance_up_family_;
+  prometheus::Family<prometheus::Gauge> &instance_is_leader_family_;
+  prometheus::Family<prometheus::Gauge> &instance_is_main_family_;
+  prometheus::Family<prometheus::Gauge> &instance_last_response_ms_family_;
+  // Tracks currently registered instance gauges by instance_name for lifecycle management
+  std::unordered_map<std::string, prometheus::Gauge *> instance_up_gauges_;
+  std::unordered_map<std::string, prometheus::Gauge *> instance_is_leader_gauges_;
+  std::unordered_map<std::string, prometheus::Gauge *> instance_is_main_gauges_;
+  std::unordered_map<std::string, prometheus::Gauge *> instance_last_response_ms_gauges_;
+#endif
 };
 
 PrometheusMetrics &Metrics();
