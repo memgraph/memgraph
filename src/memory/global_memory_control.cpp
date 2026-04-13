@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 #include "global_memory_control.hpp"
@@ -251,7 +252,7 @@ void EnableBackgroundThreads() {
   bool enable = true;
   int err = je_mallctl("background_thread", nullptr, nullptr, &enable, sizeof(enable));
   if (err) {
-    LOG_FATAL("Failed to enable jemalloc background threads: error code {}", err);
+    LOG_FATAL("Failed to enable jemalloc background threads: {} ({})", strerror(err), err);
   }
 #endif
 }
