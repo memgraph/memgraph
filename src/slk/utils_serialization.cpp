@@ -15,20 +15,23 @@
 
 namespace memgraph::slk {
 
-void Save(const memgraph::utils::UUID &self, memgraph::slk::Builder *builder) {
+void Save(const utils::UUID &self, Builder *builder) {
   const auto &arr = static_cast<utils::UUID::arr_t>(self);
-  memgraph::slk::Save(arr, builder);
+  // Fully qualify to dispatch to the array overload, not back to this function
+  ::memgraph::slk::Save(arr, builder);
 }
 
-void Load(memgraph::utils::UUID *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->uuid, reader); }
+void Load(utils::UUID *self, Reader *reader) { Load(&self->uuid, reader); }
 
-void Save(const memgraph::utils::SafeString &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(*self.str_view(), builder);
+void Save(const utils::SafeString &self, Builder *builder) {
+  // str_view() returns a lock-holding RAII wrapper; operator* gives the protected string
+  auto locked = self.str_view();
+  Save(*locked, builder);
 }
 
-void Load(memgraph::utils::SafeString *self, memgraph::slk::Reader *reader) {
+void Load(utils::SafeString *self, Reader *reader) {
   std::string str;
-  memgraph::slk::Load(&str, reader);
+  Load(&str, reader);
   *self = std::move(str);
 }
 

@@ -15,12 +15,20 @@
 ///
 /// The wire format is: one Marker byte identifying the type, followed
 /// by the SLK-encoded payload. This is the same framing used by the
-/// durability (snapshot/WAL) and replication layers.
+/// replication layer's Encoder/Decoder for file transfer headers.
 ///
-/// This library provides read/write helpers for primitive types
-/// (bool, uint64, double, string) so that code outside mg-storage-v2
-/// can participate in the framed protocol without depending on the
-/// full storage serialisation hierarchy.
+/// This library provides read/write helpers for primitive types so
+/// that code outside mg-storage-v2 can participate in the framed
+/// protocol without depending on the full storage serialisation
+/// hierarchy.
+///
+/// NOTE: The Marker enum is defined in storage/v2/durability/marker.hpp.
+/// This is a header-only dependency (no link to mg-storage-v2 needed)
+/// and reuses the same byte values as durability/replication.
+///
+/// Error model: Read functions throw slk::SlkReaderException on
+/// truncated input. They return std::nullopt only when the marker
+/// byte is present but indicates a different type than expected.
 
 #include <cstdint>
 #include <optional>
@@ -41,17 +49,15 @@ using Marker = storage::durability::Marker;
 // ---- Writing (marker + slk payload) ----
 
 void WriteMarker(Marker marker, slk::Builder *builder);
-void WriteBool(bool value, slk::Builder *builder);
 void WriteUint(uint64_t value, slk::Builder *builder);
-void WriteDouble(double value, slk::Builder *builder);
 void WriteString(std::string_view value, slk::Builder *builder);
 
 // ---- Reading (marker + slk payload) ----
+// Throws slk::SlkReaderException on truncated input.
+// Returns std::nullopt if the marker byte does not match the expected type.
 
-std::optional<Marker> ReadMarker(slk::Reader *reader);
-std::optional<bool> ReadBool(slk::Reader *reader);
+Marker ReadMarker(slk::Reader *reader);
 std::optional<uint64_t> ReadUint(slk::Reader *reader);
-std::optional<double> ReadDouble(slk::Reader *reader);
 std::optional<std::string> ReadString(slk::Reader *reader);
 
 }  // namespace memgraph::wire_format

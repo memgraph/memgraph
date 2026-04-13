@@ -20,18 +20,8 @@ namespace memgraph::wire_format {
 
 void WriteMarker(Marker marker, slk::Builder *builder) { slk::Save(marker, builder); }
 
-void WriteBool(bool value, slk::Builder *builder) {
-  WriteMarker(Marker::TYPE_BOOL, builder);
-  slk::Save(value, builder);
-}
-
 void WriteUint(uint64_t value, slk::Builder *builder) {
   WriteMarker(Marker::TYPE_INT, builder);
-  slk::Save(value, builder);
-}
-
-void WriteDouble(double value, slk::Builder *builder) {
-  WriteMarker(Marker::TYPE_DOUBLE, builder);
   slk::Save(value, builder);
 }
 
@@ -42,38 +32,24 @@ void WriteString(std::string_view value, slk::Builder *builder) {
 
 // ---- Reading ----
 
-std::optional<Marker> ReadMarker(slk::Reader *reader) {
+Marker ReadMarker(slk::Reader *reader) {
   Marker marker;
   slk::Load(&marker, reader);
   return marker;
 }
 
-std::optional<bool> ReadBool(slk::Reader *reader) {
-  if (auto marker = ReadMarker(reader); !marker || *marker != Marker::TYPE_BOOL) return std::nullopt;
-  bool value;
-  slk::Load(&value, reader);
-  return value;
-}
-
 std::optional<uint64_t> ReadUint(slk::Reader *reader) {
-  if (auto marker = ReadMarker(reader); !marker || *marker != Marker::TYPE_INT) return std::nullopt;
+  if (ReadMarker(reader) != Marker::TYPE_INT) return std::nullopt;
   uint64_t value;
   slk::Load(&value, reader);
   return value;
 }
 
-std::optional<double> ReadDouble(slk::Reader *reader) {
-  if (auto marker = ReadMarker(reader); !marker || *marker != Marker::TYPE_DOUBLE) return std::nullopt;
-  double value;
-  slk::Load(&value, reader);
-  return value;
-}
-
 std::optional<std::string> ReadString(slk::Reader *reader) {
-  if (auto marker = ReadMarker(reader); !marker || *marker != Marker::TYPE_STRING) return std::nullopt;
+  if (ReadMarker(reader) != Marker::TYPE_STRING) return std::nullopt;
   std::string value;
   slk::Load(&value, reader);
-  return std::move(value);
+  return value;
 }
 
 }  // namespace memgraph::wire_format
