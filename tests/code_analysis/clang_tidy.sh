@@ -96,7 +96,12 @@ if ! command -v clang-tidy &> /dev/null; then
   echo "Please ensure the toolchain is installed at $MG_TOOLCHAIN_ROOT"
   exit 1
 fi
+# Build module-related artifacts needed for clang-tidy:
+# - .cppm.o and .modmap files are listed as inputs in the ninja graph
+# - .bmi (Binary Module Interface) files are build targets that clang-tidy
+#   needs to resolve `import` statements in non-module translation units
 ninja -C build -t inputs | grep -E '\.cppm\.o$|\.o\.modmap$' | xargs -r ninja -C build
+ninja -C build -t targets all | grep -oP '^[^:]*\.bmi(?=:)' | xargs -r ninja -C build
 
 # Merge mage's compile_commands.json into the main one if it exists
 if [[ -f "mage/cpp/build/compile_commands.json" ]]; then

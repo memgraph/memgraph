@@ -62,6 +62,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/concurrency_hint.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -259,6 +260,9 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   CheckSuspiciousPositionalArgs(argc, argv);
   WarnDeprecatedFlags();
+
+  // Publish worker count early so allocators can pre-size thread-local structures
+  memgraph::utils::SetNumWorkers(FLAGS_bolt_num_workers);
 
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
