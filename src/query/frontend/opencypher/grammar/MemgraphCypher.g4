@@ -931,8 +931,6 @@ showDescriptions
     : SHOW DESCRIPTIONS
     ;
 
-// Override Cypher.g4's systemInfoQuery so that the storageInfo branch can
-// accept an optional ON DATABASE clause (needs the DATABASE token from MemgraphCypherLexer).
 systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
 storageInfo : STORAGE INFO ( ON DATABASE db=symbolicName )? ;
 

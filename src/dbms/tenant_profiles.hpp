@@ -13,7 +13,6 @@
 
 #include <cstdint>
 #include <optional>
-#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -39,9 +38,11 @@ class TenantProfiles {
 
   explicit TenantProfiles(kvstore::KVStore &durability);
 
+  enum class DropResult : uint8_t { SUCCESS, NOT_FOUND, HAS_ATTACHED_DATABASES };
+
   bool Create(std::string_view name, int64_t memory_limit);
   std::optional<std::unordered_set<std::string>> Alter(std::string_view name, int64_t memory_limit);
-  bool Drop(std::string_view name);
+  DropResult Drop(std::string_view name);
 
   std::optional<Profile> Get(std::string_view name) const;
   std::vector<Profile> GetAll() const;
@@ -51,12 +52,8 @@ class TenantProfiles {
   std::optional<std::string> GetProfileForDatabase(std::string_view db_name) const;
 
  private:
-  void Save(const Profile &profile);
-  void SaveDbMapping(std::string_view db_name, std::string_view profile_name);
-  void DeleteDbMapping(std::string_view db_name);
-  void DeleteProfile(std::string_view name);
+  static std::string ProfileToJson(const Profile &profile);
 
-  mutable std::shared_mutex mtx_;
   kvstore::KVStore *durability_;
   std::unordered_map<std::string, Profile> profiles_;
   std::unordered_map<std::string, std::string> db_to_profile_;  // db_name → profile_name

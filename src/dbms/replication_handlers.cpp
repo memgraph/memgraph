@@ -299,17 +299,13 @@ void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_acce
         break;
       case Action::ALTER: {
         auto dbs = tp->Alter(req.profile_name, req.memory_limit);
-        if (dbs) {
-          for (const auto &db_name : *dbs) {
-            try {
-              auto db_acc = dbms_handler.Get(db_name);
-              if (req.memory_limit > 0) {
-                db_acc.get()->SetTenantMemoryLimit(req.memory_limit);
-              } else {
-                db_acc.get()->ClearTenantMemoryLimit();
-              }
-            } catch (const UnknownDatabaseException &) {
-            }
+        MG_ASSERT(dbs, "Replicated ALTER for non-existent tenant profile '{}'", req.profile_name);
+        for (const auto &db_name : *dbs) {
+          auto db_acc = dbms_handler.Get(db_name);
+          if (req.memory_limit > 0) {
+            db_acc.get()->SetTenantMemoryLimit(req.memory_limit);
+          } else {
+            db_acc.get()->ClearTenantMemoryLimit();
           }
         }
         break;
@@ -319,27 +315,21 @@ void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_acce
         break;
       case Action::SET_ON_DATABASE: {
         auto limit = tp->AttachToDatabase(req.profile_name, req.db_name);
-        if (limit) {
-          try {
-            auto db_acc = dbms_handler.Get(req.db_name);
-            if (*limit > 0) {
-              db_acc.get()->SetTenantMemoryLimit(*limit);
-            } else {
-              db_acc.get()->ClearTenantMemoryLimit();
-            }
-          } catch (const UnknownDatabaseException &) {
-          }
+        MG_ASSERT(limit, "Replicated SET_ON_DATABASE for non-existent tenant profile '{}'", req.profile_name);
+        auto db_acc = dbms_handler.Get(req.db_name);
+        if (*limit > 0) {
+          db_acc.get()->SetTenantMemoryLimit(*limit);
+        } else {
+          db_acc.get()->ClearTenantMemoryLimit();
         }
         break;
       }
-      case Action::REMOVE_FROM_DATABASE:
+      case Action::REMOVE_FROM_DATABASE: {
         tp->DetachFromDatabase(req.db_name);
-        try {
-          auto db_acc = dbms_handler.Get(req.db_name);
-          db_acc.get()->ClearTenantMemoryLimit();
-        } catch (const UnknownDatabaseException &) {
-        }
+        auto db_acc = dbms_handler.Get(req.db_name);
+        db_acc.get()->ClearTenantMemoryLimit();
         break;
+      }
       default:
         spdlog::warn("TenantProfileHandler: unknown action {}", static_cast<uint8_t>(req.action));
         rpc::SendFinalResponse(res, request_version, res_builder);

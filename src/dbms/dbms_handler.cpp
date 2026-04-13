@@ -19,6 +19,7 @@
 #include "dbms/rpc.hpp"
 #include "license/license.hpp"
 #include "query/db_accessor.hpp"
+#include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -203,21 +204,11 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
   // Setup the default DB
   SetupDefault_();
 
+  /*
+   * TENANT PROFILES
+   */
   tenant_profiles_ = std::make_unique<TenantProfiles>(*durability_);
-  for (const auto &profile : tenant_profiles_->GetAll()) {
-    for (const auto &db_name : profile.databases) {
-      try {
-        auto db_acc = Get_(db_name);
-        if (profile.memory_limit > 0) {
-          db_acc.get()->SetTenantMemoryLimit(profile.memory_limit);
-          spdlog::info(
-              "Applied tenant profile '{}' (limit={}) to database '{}'", profile.name, profile.memory_limit, db_name);
-        }
-      } catch (const UnknownDatabaseException &) {
-        spdlog::warn("Tenant profile '{}' references unknown database '{}' — skipping", profile.name, db_name);
-      }
-    }
-  }
+  RestoreTenantProfiles_();
 }
 
 struct DropDatabase : memgraph::system::ISystemAction {
@@ -430,6 +421,109 @@ struct CreateDatabase : memgraph::system::ISystemAction {
   storage::SalientConfig config_;
   DatabaseAccess db_acc;
 };
+
+struct TenantProfileAction : memgraph::system::ISystemAction {
+  using Action = storage::replication::TenantProfileReq::Action;
+
+  TenantProfileAction(Action action, std::string_view profile_name, std::string_view db_name, int64_t memory_limit)
+      : action_{action}, profile_name_{profile_name}, db_name_{db_name}, memory_limit_{memory_limit} {}
+
+  void DoDurability() override {}
+
+  bool ShouldReplicateInCommunity() const override { return false; }
+
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     memgraph::system::Transaction const &txn) const override {
+    return client.StreamAndFinalizeDelta<storage::replication::TenantProfileRpc>(
+        [](const storage::replication::TenantProfileRes &response) { return response.success; },
+        main_uuid,
+        txn.last_committed_system_timestamp(),
+        txn.timestamp(),
+        action_,
+        profile_name_,
+        db_name_,
+        memory_limit_);
+  }
+
+  void PostReplication(replication::RoleMainData & /*mainData*/) const override {}
+
+ private:
+  Action action_;
+  std::string profile_name_;
+  std::string db_name_;
+  int64_t memory_limit_;
+};
+
+void DbmsHandler::CreateTenantProfile(std::string_view name, int64_t memory_limit, system::Transaction *sys_txn) {
+  if (!tenant_profiles_->Create(name, memory_limit)) {
+    throw query::QueryRuntimeException("Tenant profile '{}' already exists.", name);
+  }
+  if (sys_txn) {
+    sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::CREATE, name, "", memory_limit);
+  }
+}
+
+void DbmsHandler::AlterTenantProfile(std::string_view name, int64_t memory_limit, system::Transaction *sys_txn) {
+  auto attached_dbs = tenant_profiles_->Alter(name, memory_limit);
+  if (!attached_dbs) {
+    throw query::QueryRuntimeException("Tenant profile '{}' not found.", name);
+  }
+  for (const auto &db_name : *attached_dbs) {
+    auto db_acc = Get(db_name);
+    if (memory_limit > 0) {
+      db_acc.get()->SetTenantMemoryLimit(memory_limit);
+    } else {
+      db_acc.get()->ClearTenantMemoryLimit();
+    }
+  }
+  if (sys_txn) {
+    sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::ALTER, name, "", memory_limit);
+  }
+}
+
+void DbmsHandler::DropTenantProfile(std::string_view name, system::Transaction *sys_txn) {
+  switch (tenant_profiles_->Drop(name)) {
+    case TenantProfiles::DropResult::SUCCESS:
+      break;
+    case TenantProfiles::DropResult::NOT_FOUND:
+      throw query::QueryRuntimeException("Tenant profile '{}' not found.", name);
+    case TenantProfiles::DropResult::HAS_ATTACHED_DATABASES:
+      throw query::QueryRuntimeException("Tenant profile '{}' has databases attached. Detach all databases first.",
+                                         name);
+  }
+  if (sys_txn) {
+    sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::DROP, name, "", 0);
+  }
+}
+
+void DbmsHandler::SetTenantProfileOnDatabase(std::string_view profile_name, std::string_view db_name,
+                                             system::Transaction *sys_txn) {
+  auto db_acc = Get(db_name);
+  auto memory_limit = tenant_profiles_->AttachToDatabase(profile_name, db_name);
+  if (!memory_limit) {
+    throw query::QueryRuntimeException("Tenant profile '{}' not found.", profile_name);
+  }
+  if (*memory_limit > 0) {
+    db_acc.get()->SetTenantMemoryLimit(*memory_limit);
+  } else {
+    db_acc.get()->ClearTenantMemoryLimit();
+  }
+  if (sys_txn) {
+    sys_txn->AddAction<TenantProfileAction>(
+        TenantProfileAction::Action::SET_ON_DATABASE, profile_name, db_name, *memory_limit);
+  }
+}
+
+void DbmsHandler::RemoveTenantProfileFromDatabase(std::string_view db_name, system::Transaction *sys_txn) {
+  if (!tenant_profiles_->DetachFromDatabase(db_name)) {
+    throw query::QueryRuntimeException("No tenant profile attached to database '{}'.", db_name);
+  }
+  auto db_acc = Get(db_name);
+  db_acc.get()->ClearTenantMemoryLimit();
+  if (sys_txn) {
+    sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::REMOVE_FROM_DATABASE, "", db_name, 0);
+  }
+}
 
 DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system::Transaction *txn) {
   auto new_db = db_handler_.New(storage_config);

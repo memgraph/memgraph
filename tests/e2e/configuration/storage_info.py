@@ -127,11 +127,6 @@ def test_info_change():
 
 
 def test_show_storage_info_on_database():
-    """SHOW STORAGE INFO ON DATABASE memgraph returns per-database fields.
-
-    NOTE: This test connects to the same instance as the other tests (port 7687).
-    If a Docker container is running on 7687, the e2e runner must stop it first.
-    """
     connection = mgclient.connect(host="localhost", port=7687)
     connection.autocommit = True
     cursor = connection.cursor()
@@ -166,7 +161,6 @@ def test_show_storage_info_on_database():
     assert "global_memory_tracked" not in config
 
     assert config["name"] == "memgraph"
-    # storage_mode may have been changed by a prior test (test_info_change sets ANALYTICAL).
     assert config["storage_mode"] in ("IN_MEMORY_TRANSACTIONAL", "IN_MEMORY_ANALYTICAL")
     assert config["tenant_memory_limit"] == "unlimited"
 

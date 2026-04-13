@@ -1,6 +1,6 @@
 Feature: Tenant profiles
 
-    Scenario: Create and show tenant profile
+    Scenario: Create, show, and drop tenant profile
         Given an empty graph
         When executing query:
             """
@@ -17,6 +17,11 @@ Feature: Tenant profiles
         When executing query:
             """
             DROP TENANT PROFILE test_prof
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            SHOW TENANT PROFILES
             """
         Then the result should be empty
 
@@ -101,24 +106,6 @@ Feature: Tenant profiles
             SHOW TENANT PROFILE ghost
             """
         Then an error should be raised
-
-    Scenario: Drop profile with no databases succeeds
-        Given an empty graph
-        When executing query:
-            """
-            CREATE TENANT PROFILE drop_me LIMIT memory_limit 100 MB
-            """
-        Then the result should be empty
-        When executing query:
-            """
-            DROP TENANT PROFILE drop_me
-            """
-        Then the result should be empty
-        When executing query:
-            """
-            SHOW TENANT PROFILES
-            """
-        Then the result should be empty
 
     Scenario: Set and remove tenant profile on default database
         Given an empty graph

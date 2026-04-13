@@ -480,6 +480,10 @@ class Interpreter final {
 
   std::optional<memgraph::system::Transaction> system_transaction_{};
 
+  memgraph::system::Transaction *system_transaction_ptr() {
+    return system_transaction_ ? &*system_transaction_ : nullptr;
+  }
+
   std::optional<QueryLogger> query_logger_{};
 
   bool IsQueryLoggingActive() const;

@@ -109,41 +109,6 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
   return res;
 }
 
-struct TenantProfileAction : memgraph::system::ISystemAction {
-  using Action = storage::replication::TenantProfileReq::Action;
-
-  TenantProfileAction(Action action, std::string profile_name, std::string db_name, int64_t memory_limit)
-      : action_{action},
-        profile_name_{std::move(profile_name)},
-        db_name_{std::move(db_name)},
-        memory_limit_{memory_limit} {}
-
-  void DoDurability() override {}
-
-  bool ShouldReplicateInCommunity() const override { return false; }
-
-  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                     memgraph::system::Transaction const &txn) const override {
-    return client.StreamAndFinalizeDelta<storage::replication::TenantProfileRpc>(
-        [](const storage::replication::TenantProfileRes &response) { return response.success; },
-        main_uuid,
-        txn.last_committed_system_timestamp(),
-        txn.timestamp(),
-        action_,
-        profile_name_,
-        db_name_,
-        memory_limit_);
-  }
-
-  void PostReplication(replication::RoleMainData & /*mainData*/) const override {}
-
- private:
-  Action action_;
-  std::string profile_name_;
-  std::string db_name_;
-  int64_t memory_limit_;
-};
-
 /**
  * @brief Multi-database session contexts handler.
  */
@@ -514,6 +479,13 @@ class DbmsHandler {
 
 #ifdef MG_ENTERPRISE
   TenantProfiles *tenant_profiles() { return tenant_profiles_.get(); }
+
+  void CreateTenantProfile(std::string_view name, int64_t memory_limit, system::Transaction *sys_txn);
+  void AlterTenantProfile(std::string_view name, int64_t memory_limit, system::Transaction *sys_txn);
+  void DropTenantProfile(std::string_view name, system::Transaction *sys_txn);
+  void SetTenantProfileOnDatabase(std::string_view profile_name, std::string_view db_name,
+                                  system::Transaction *sys_txn);
+  void RemoveTenantProfileFromDatabase(std::string_view db_name, system::Transaction *sys_txn);
 #endif
 
   auto default_config() const -> storage::Config const & {
@@ -663,13 +635,23 @@ class DbmsHandler {
     }
   }
 
-  /**
-   * @brief Get the DatabaseAccess for the database associated with the "name"
-   *
-   * @param name
-   * @return DatabaseAccess
-   * @throw UnknownDatabaseException if trying to get unknown database
-   */
+  void RestoreTenantProfiles_() {
+    for (const auto &profile : tenant_profiles_->GetAll()) {
+      for (const auto &db_name : profile.databases) {
+        try {
+          auto db_acc = Get_(db_name);
+          if (profile.memory_limit > 0) {
+            db_acc.get()->SetTenantMemoryLimit(profile.memory_limit);
+            spdlog::info(
+                "Applied tenant profile '{}' (limit={}) to database '{}'", profile.name, profile.memory_limit, db_name);
+          }
+        } catch (const UnknownDatabaseException &) {
+          spdlog::warn("Tenant profile '{}' references unknown database '{}' — skipping", profile.name, db_name);
+        }
+      }
+    }
+  }
+
   DatabaseAccess Get_(std::string_view name) {
     auto db = db_handler_.Get(name);
     if (db) {

@@ -84,63 +84,48 @@ def _show_tenant_profiles(cursor):
     return execute_and_fetch_all(cursor, "SHOW TENANT PROFILES")
 
 
-def test_create_tenant_profile_replication(connection, test_name):
+def test_tenant_profile_mutations_replicate(connection, test_name):
+    """All mutation kinds (CREATE/ALTER/SET/REMOVE/DROP) propagate to replica.
+
+    They all go through the same StreamAndFinalizeDelta path, so exercising
+    the full lifecycle in a single test covers every action kind and verifies
+    the replica state converges after each step.
+    """
     interactive_mg_runner.start_all(_instances(test_name), keep_directories=False)
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    execute_and_fetch_all(main_cursor, "CREATE TENANT PROFILE repl_prof LIMIT memory_limit 200 MB")
-    # 1 REGISTER + 1 CREATE TENANT PROFILE → ts 2
-    mg_sleep_and_assert_collection(_expected_replicas(2), show_replicas_func(main_cursor))
-
     repl_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+
+    # CREATE replicates
+    execute_and_fetch_all(main_cursor, "CREATE TENANT PROFILE repl_prof LIMIT memory_limit 200 MB")
+    mg_sleep_and_assert_collection(_expected_replicas(2), show_replicas_func(main_cursor))
     rows = _show_tenant_profiles(repl_cursor)
     assert len(rows) == 1
     assert rows[0][0] == "repl_prof"
     assert "200" in rows[0][1]
 
-
-def test_alter_tenant_profile_replication(connection, test_name):
-    interactive_mg_runner.start_all(_instances(test_name), keep_directories=False)
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    execute_and_fetch_all(main_cursor, "CREATE TENANT PROFILE alter_prof LIMIT memory_limit 100 MB")
-    execute_and_fetch_all(main_cursor, "ALTER TENANT PROFILE alter_prof SET memory_limit 500 MB")
-    # 1 REGISTER + 1 CREATE + 1 ALTER → ts 3
+    # ALTER replicates
+    execute_and_fetch_all(main_cursor, "ALTER TENANT PROFILE repl_prof SET memory_limit 500 MB")
     mg_sleep_and_assert_collection(_expected_replicas(3), show_replicas_func(main_cursor))
-
-    repl_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     rows = _show_tenant_profiles(repl_cursor)
-    assert len(rows) == 1
     assert "500" in rows[0][1]
 
+    # SET ON DATABASE replicates
+    execute_and_fetch_all(main_cursor, "SET TENANT PROFILE ON DATABASE memgraph TO repl_prof")
+    mg_sleep_and_assert_collection(_expected_replicas(4), show_replicas_func(main_cursor))
+    rows = _show_tenant_profiles(repl_cursor)
+    assert "memgraph" in rows[0][2]
 
-def test_drop_tenant_profile_replication(connection, test_name):
-    interactive_mg_runner.start_all(_instances(test_name), keep_directories=False)
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    # REMOVE FROM DATABASE replicates
+    execute_and_fetch_all(main_cursor, "REMOVE TENANT PROFILE FROM DATABASE memgraph")
+    mg_sleep_and_assert_collection(_expected_replicas(5), show_replicas_func(main_cursor))
+    rows = _show_tenant_profiles(repl_cursor)
+    assert "memgraph" not in rows[0][2]
 
-    execute_and_fetch_all(main_cursor, "CREATE TENANT PROFILE drop_prof LIMIT memory_limit 100 MB")
-    execute_and_fetch_all(main_cursor, "DROP TENANT PROFILE drop_prof")
-    # 1 REGISTER + 1 CREATE + 1 DROP → ts 3
-    mg_sleep_and_assert_collection(_expected_replicas(3), show_replicas_func(main_cursor))
-
-    repl_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    # DROP replicates
+    execute_and_fetch_all(main_cursor, "DROP TENANT PROFILE repl_prof")
+    mg_sleep_and_assert_collection(_expected_replicas(6), show_replicas_func(main_cursor))
     rows = _show_tenant_profiles(repl_cursor)
     assert len(rows) == 0
-
-
-def test_set_tenant_profile_on_database_replication(connection, test_name):
-    interactive_mg_runner.start_all(_instances(test_name), keep_directories=False)
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    execute_and_fetch_all(main_cursor, "CREATE TENANT PROFILE db_prof LIMIT memory_limit 300 MB")
-    execute_and_fetch_all(main_cursor, "SET TENANT PROFILE ON DATABASE memgraph TO db_prof")
-    # 1 REGISTER + 1 CREATE + 1 SET → ts 3
-    mg_sleep_and_assert_collection(_expected_replicas(3), show_replicas_func(main_cursor))
-
-    repl_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
-    rows = _show_tenant_profiles(repl_cursor)
-    assert len(rows) == 1
-    assert "memgraph" in rows[0][2]  # databases column
 
 
 def test_mutation_forbidden_on_replica(connection, test_name):

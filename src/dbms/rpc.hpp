@@ -151,13 +151,13 @@ struct TenantProfileReq {
   TenantProfileReq() = default;
 
   TenantProfileReq(const utils::UUID &main_uuid, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
-                   Action action, std::string profile_name, std::string db_name, int64_t memory_limit)
+                   Action action, std::string_view profile_name, std::string_view db_name, int64_t memory_limit)
       : main_uuid(main_uuid),
         expected_group_timestamp{expected_group_timestamp},
         new_group_timestamp(new_group_timestamp),
         action(action),
-        profile_name(std::move(profile_name)),
-        db_name(std::move(db_name)),
+        profile_name(profile_name),
+        db_name(db_name),
         memory_limit(memory_limit) {}
 
   utils::UUID main_uuid;

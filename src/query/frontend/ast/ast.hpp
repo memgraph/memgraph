@@ -12,7 +12,6 @@
 #pragma once
 
 #include <memory>
-#include <optional>
 #include <range/v3/view/transform.hpp>
 #include <unordered_map>
 #include <variant>
@@ -3104,7 +3103,7 @@ class SystemInfoQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::SystemInfoQuery::InfoType info_type_;
-  std::optional<std::string> database_;  // Target database for SHOW STORAGE INFO ON DATABASE
+  std::optional<std::string> database_;
 
   SystemInfoQuery *Clone(AstStorage *storage) const override {
     SystemInfoQuery *object = storage->Create<SystemInfoQuery>();

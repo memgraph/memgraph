@@ -8257,17 +8257,11 @@ PreparedQuery PrepareTenantProfileQuery(ParsedQuery parsed_query, InterpreterCon
     case TenantProfileQuery::Action::CREATE: {
       if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
       auto memory_limit = extract_memory_limit(query->limits_);
-      callback.fn = [tp = db_handler->tenant_profiles(),
+      callback.fn = [db_handler,
                      name = std::move(query->profile_name_),
                      memory_limit,
                      interpreter]() -> std::vector<std::vector<TypedValue>> {
-        if (!tp->Create(name, memory_limit)) {
-          throw QueryRuntimeException("Tenant profile '{}' already exists.", name);
-        }
-        if (interpreter->system_transaction_) {
-          interpreter->system_transaction_->AddAction<dbms::TenantProfileAction>(
-              dbms::TenantProfileAction::Action::CREATE, name, "", memory_limit);
-        }
+        db_handler->CreateTenantProfile(name, memory_limit, interpreter->system_transaction_ptr());
         return {};
       };
     } break;
@@ -8275,47 +8269,20 @@ PreparedQuery PrepareTenantProfileQuery(ParsedQuery parsed_query, InterpreterCon
     case TenantProfileQuery::Action::ALTER: {
       if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
       auto memory_limit = extract_memory_limit(query->limits_);
-      callback.fn = [tp = db_handler->tenant_profiles(),
+      callback.fn = [db_handler,
                      name = std::move(query->profile_name_),
                      memory_limit,
-                     db_handler,
                      interpreter]() -> std::vector<std::vector<TypedValue>> {
-        auto attached_dbs = tp->Alter(name, memory_limit);
-        if (!attached_dbs) {
-          throw QueryRuntimeException("Tenant profile '{}' not found.", name);
-        }
-        for (const auto &db_name : *attached_dbs) {
-          try {
-            auto db_acc = db_handler->Get(db_name);
-            if (memory_limit > 0) {
-              db_acc.get()->SetTenantMemoryLimit(memory_limit);
-            } else {
-              db_acc.get()->ClearTenantMemoryLimit();
-            }
-          } catch (const dbms::UnknownDatabaseException &) {
-          }
-        }
-        if (interpreter->system_transaction_) {
-          interpreter->system_transaction_->AddAction<dbms::TenantProfileAction>(
-              dbms::TenantProfileAction::Action::ALTER, name, "", memory_limit);
-        }
+        db_handler->AlterTenantProfile(name, memory_limit, interpreter->system_transaction_ptr());
         return {};
       };
     } break;
 
     case TenantProfileQuery::Action::DROP: {
       if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
-      callback.fn = [tp = db_handler->tenant_profiles(),
-                     name = std::move(query->profile_name_),
-                     interpreter]() -> std::vector<std::vector<TypedValue>> {
-        if (!tp->Drop(name)) {
-          throw QueryRuntimeException(
-              "Tenant profile '{}' not found or has databases attached. Detach all databases first.", name);
-        }
-        if (interpreter->system_transaction_) {
-          interpreter->system_transaction_->AddAction<dbms::TenantProfileAction>(
-              dbms::TenantProfileAction::Action::DROP, name, "", 0);
-        }
+      callback.fn =
+          [db_handler, name = std::move(query->profile_name_), interpreter]() -> std::vector<std::vector<TypedValue>> {
+        db_handler->DropTenantProfile(name, interpreter->system_transaction_ptr());
         return {};
       };
     } break;
@@ -8323,13 +8290,14 @@ PreparedQuery PrepareTenantProfileQuery(ParsedQuery parsed_query, InterpreterCon
     case TenantProfileQuery::Action::SHOW_ALL: {
       callback.header = {"profile", "memory_limit", "databases"};
       callback.fn = [tp = db_handler->tenant_profiles(), join_strings]() -> std::vector<std::vector<TypedValue>> {
-        std::vector<std::vector<TypedValue>> res;
-        for (const auto &p : tp->GetAll()) {
-          auto limit_str = p.memory_limit > 0 ? utils::GetReadableSize(static_cast<double>(p.memory_limit))
-                                              : std::string("unlimited");
-          res.push_back({TypedValue(p.name), TypedValue(limit_str), TypedValue(join_strings(p.databases))});
+        std::vector<std::vector<TypedValue>> results;
+        for (const auto &profile : tp->GetAll()) {
+          auto limit_str = profile.memory_limit > 0 ? utils::GetReadableSize(static_cast<double>(profile.memory_limit))
+                                                    : std::string("unlimited");
+          results.push_back(
+              {TypedValue(profile.name), TypedValue(limit_str), TypedValue(join_strings(profile.databases))});
         }
-        return res;
+        return results;
       };
     } break;
 
@@ -8338,57 +8306,30 @@ PreparedQuery PrepareTenantProfileQuery(ParsedQuery parsed_query, InterpreterCon
       callback.fn = [tp = db_handler->tenant_profiles(),
                      name = std::move(query->profile_name_),
                      join_strings]() -> std::vector<std::vector<TypedValue>> {
-        auto p = tp->Get(name);
-        if (!p) throw QueryRuntimeException("Tenant profile '{}' not found.", name);
-        auto limit_str = p->memory_limit > 0 ? utils::GetReadableSize(static_cast<double>(p->memory_limit))
-                                             : std::string("unlimited");
-        return {{TypedValue(p->name), TypedValue(limit_str), TypedValue(join_strings(p->databases))}};
+        auto profile = tp->Get(name);
+        if (!profile) throw QueryRuntimeException("Tenant profile '{}' not found.", name);
+        auto limit_str = profile->memory_limit > 0 ? utils::GetReadableSize(static_cast<double>(profile->memory_limit))
+                                                   : std::string("unlimited");
+        return {{TypedValue(profile->name), TypedValue(limit_str), TypedValue(join_strings(profile->databases))}};
       };
     } break;
 
     case TenantProfileQuery::Action::SET_ON_DATABASE: {
       if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
-      callback.fn = [tp = db_handler->tenant_profiles(),
-                     db_handler,
+      callback.fn = [db_handler,
                      profile_name = std::move(query->profile_name_),
                      db_name = std::move(query->db_name_),
                      interpreter]() -> std::vector<std::vector<TypedValue>> {
-        auto db_acc = db_handler->Get(db_name);
-        auto memory_limit = tp->AttachToDatabase(profile_name, db_name);
-        if (!memory_limit) {
-          throw QueryRuntimeException("Tenant profile '{}' not found.", profile_name);
-        }
-        if (*memory_limit > 0) {
-          db_acc.get()->SetTenantMemoryLimit(*memory_limit);
-        } else {
-          db_acc.get()->ClearTenantMemoryLimit();
-        }
-        if (interpreter->system_transaction_) {
-          interpreter->system_transaction_->AddAction<dbms::TenantProfileAction>(
-              dbms::TenantProfileAction::Action::SET_ON_DATABASE, profile_name, db_name, *memory_limit);
-        }
+        db_handler->SetTenantProfileOnDatabase(profile_name, db_name, interpreter->system_transaction_ptr());
         return {};
       };
     } break;
 
     case TenantProfileQuery::Action::REMOVE_FROM_DATABASE: {
       if (is_replica) throw QueryRuntimeException("Query forbidden on the replica!");
-      callback.fn = [tp = db_handler->tenant_profiles(),
-                     db_handler,
-                     db_name = std::move(query->db_name_),
-                     interpreter]() -> std::vector<std::vector<TypedValue>> {
-        if (!tp->DetachFromDatabase(db_name)) {
-          throw QueryRuntimeException("No tenant profile attached to database '{}'.", db_name);
-        }
-        try {
-          auto db_acc = db_handler->Get(db_name);
-          db_acc.get()->ClearTenantMemoryLimit();
-        } catch (const dbms::UnknownDatabaseException &) {
-        }
-        if (interpreter->system_transaction_) {
-          interpreter->system_transaction_->AddAction<dbms::TenantProfileAction>(
-              dbms::TenantProfileAction::Action::REMOVE_FROM_DATABASE, "", db_name, 0);
-        }
+      callback.fn =
+          [db_handler, db_name = std::move(query->db_name_), interpreter]() -> std::vector<std::vector<TypedValue>> {
+        db_handler->RemoveTenantProfileFromDatabase(db_name, interpreter->system_transaction_ptr());
         return {};
       };
     } break;
