@@ -18,6 +18,7 @@
 #include <rocksdb/status.h>
 #include <rocksdb/utilities/transaction_db.h>
 
+#include "flags/general.hpp"
 #include "kvstore/rocksdb_utils.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -33,7 +34,10 @@ namespace memgraph::storage {
 /// Wraps RocksDB objects inside a struct. Vertex_chandle and edge_chandle are column family handles that may be
 /// nullptr. In that case client should take care about them.
 struct RocksDBStorage {
-  explicit RocksDBStorage() { utils::ApplyRocksDBConfigFlags(options_); }
+  explicit RocksDBStorage() {
+    utils::ApplyRocksDBConfig(
+        options_, FLAGS_storage_rocksdb_info_log_level, FLAGS_storage_rocksdb_enable_thread_tracking);
+  }
 
   RocksDBStorage(const RocksDBStorage &) = delete;
   RocksDBStorage &operator=(const RocksDBStorage &) = delete;

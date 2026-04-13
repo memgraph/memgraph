@@ -15,7 +15,6 @@
 #include <rocksdb/options.h>
 #include <string>
 
-#include "flags/general.hpp"
 #include "spdlog/spdlog.h"
 
 namespace memgraph::utils {
@@ -35,9 +34,9 @@ rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(const std::string &level) {
 
 }  // namespace
 
-void ApplyRocksDBConfigFlags(rocksdb::Options &options) {
-  options.info_log_level = ParseRocksDBInfoLogLevel(FLAGS_storage_rocksdb_info_log_level);
-  options.enable_thread_tracking = FLAGS_storage_rocksdb_enable_thread_tracking;
+void ApplyRocksDBConfig(rocksdb::Options &options, const std::string &info_log_level, bool enable_thread_tracking) {
+  options.info_log_level = ParseRocksDBInfoLogLevel(info_log_level);
+  options.enable_thread_tracking = enable_thread_tracking;
 }
 
 }  // namespace memgraph::utils

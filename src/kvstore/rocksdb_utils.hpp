@@ -12,10 +12,11 @@
 #pragma once
 
 #include <rocksdb/options.h>
+#include <string>
 
 namespace memgraph::utils {
 
-/// Apply RocksDB tuning flags to options.
-void ApplyRocksDBConfigFlags(rocksdb::Options &options);
+/// Apply RocksDB tuning parameters to options.
+void ApplyRocksDBConfig(rocksdb::Options &options, const std::string &info_log_level, bool enable_thread_tracking);
 
 }  // namespace memgraph::utils
