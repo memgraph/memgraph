@@ -390,10 +390,10 @@ int main(int argc, char **argv) {
   // holding the file opened after timeout occurs
   memgraph::utils::OutputFile lock_file_handle;
   lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
-  MG_ASSERT(lock_file_handle.AcquireLockWithTimeout(),
-            "Couldn't acquire lock on the storage directory {} within {}s"
-            "!\nAnother Memgraph process is currently running with the same "
-            "storage directory, please stop it first before starting this "
+  MG_ASSERT(lock_file_handle.AcquireLockWithTimeout(FLAGS_data_dir_lock_acquisition_timeout_sec),
+            "Couldn't acquire lock on the storage directory {} within {}s!"
+            "Another Memgraph process is currently running with the same "
+            "storage directory, please stop it first before restarting this "
             "process!",
             data_directory,
             FLAGS_data_dir_lock_acquisition_timeout_sec);

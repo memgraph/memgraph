@@ -14,15 +14,16 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <mutex>
 #include <ranges>
+#include <thread>
 #include <type_traits>
 #include <vector>
 
-#include "flags/general.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
@@ -488,7 +489,7 @@ size_t OutputFile::SetPosition(Position position, ssize_t offset) {
 }
 
 // logical constness
-// NOLINTNEXTLINE(readability-make-member-function-const)
+// NOLINTNEXTLINE (readability-make-member-function-const)
 bool OutputFile::AcquireLock() {
   MG_ASSERT(IsOpen(), "Trying to acquire a write lock on an unopened file!");
   int ret = -1;
@@ -506,9 +507,11 @@ bool OutputFile::AcquireLock() {
   return ret != -1;
 }
 
-auto OutputFile::AcquireLockWithTimeout(uint16_t const sleep_time_ms) -> bool {
+auto OutputFile::AcquireLockWithTimeout(uint32_t data_dir_lock_acquisition_timeout_sec, uint16_t const sleep_time_ms)
+    -> bool {
+  if (data_dir_lock_acquisition_timeout_sec == 0) return AcquireLock();
   auto const start_time = std::chrono::steady_clock::now();
-  auto const lock_file_timeout = std::chrono::seconds{FLAGS_data_dir_lock_acquisition_timeout_sec};
+  auto const lock_file_timeout = std::chrono::seconds{data_dir_lock_acquisition_timeout_sec};
   while (true) {
     if (AcquireLock()) return true;
     if (std::chrono::steady_clock::now() - start_time > lock_file_timeout) {
@@ -766,7 +769,7 @@ size_t NonConcurrentOutputFile::SetPosition(Position position, ssize_t offset) {
   return SeekFile(position, offset);
 }
 
-// NOLINTNEXTLINE(readability-make-member-function-const)
+// NOLINTNEXTLINE (readability-make-member-function-const)
 bool NonConcurrentOutputFile::AcquireLock() {
   MG_ASSERT(IsOpen(), "Trying to acquire a write lock on an unopened file!");
   int ret = -1;
