@@ -70,6 +70,11 @@ startup_config_dict = {
     "coordinator_id": ("0", "0", "Unique ID of the raft server."),
     "coordinator_hostname": ("", "", "Instance's hostname. Used as output of SHOW INSTANCES query."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
+    "data_dir_lock_acquisition_timeout_sec": (
+        "30",
+        "30",
+        "Timeout before the failure of acquiring file lock on data directory is considered a failure.",
+    ),
     "data_recovery_on_startup": (
         "true",
         "true",
