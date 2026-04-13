@@ -128,17 +128,23 @@ Log::Log(std::filesystem::path storage_directory, int32_t buffer_size, int32_t b
       buffer_flush_interval_millis_(buffer_flush_interval_millis),
       started_(false) {}
 
-void Log::Start() {
+bool Log::Start() {
   MG_ASSERT(!started_.load(std::memory_order_acquire), "Trying to start an already started audit log!");
 
   utils::EnsureDirOrDie(storage_directory_);
 
   buffer_.emplace(buffer_size_);
-  started_.store(true, std::memory_order_release);
 
-  ReopenLog();
+  {
+    auto guard = std::lock_guard{lock_};
+    if (!log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING)) {
+      return false;
+    }
+  }
+  started_.store(true, std::memory_order_release);
   scheduler_.SetInterval(std::chrono::milliseconds(buffer_flush_interval_millis_));
   scheduler_.Run("Audit", [&] { Flush(); });
+  return true;
 }
 
 Log::~Log() {
@@ -157,14 +163,15 @@ void Log::Record(const std::string &address, const std::string &username, const 
   auto timestamp =
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
-  buffer_->emplace(Item{timestamp, address, username, query, params, db});
+  buffer_->emplace(Item{
+      .timestamp = timestamp, .address = address, .username = username, .query = query, .params = params, .db = db});
 }
 
-void Log::ReopenLog() {
-  if (!started_.load(std::memory_order_relaxed)) return;
+bool Log::ReopenLog() {
+  if (!started_.load(std::memory_order_relaxed)) return false;
   auto guard = std::lock_guard{lock_};
   if (log_.IsOpen()) log_.Close();
-  log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  return log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING);
 }
 
 void Log::Flush() {

@@ -199,12 +199,14 @@ using task_results_t = std::vector<std::pair<SnapshotPartialRes, std::promise<bo
 
 namespace {
 
-void WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_encoder, uint64_t &element_count,
+bool WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_encoder, uint64_t &element_count,
                     std::vector<BatchInfo> &batch_infos, std::unordered_set<uint64_t> &used_ids,
                     auto &&snapshot_aborted) {
+  bool all_ok = true;
   // NOTE: They have to be combined in order
   for (auto &[res, promise] : partial_results) {
-    promise.get_future().wait();  // Wait for incoming result
+    auto const task_ok = promise.get_future().get();  // Wait for incoming result
+    if (!task_ok) all_ok = false;
 
     spdlog::trace("Handling snapshot part {}, size {}, count {}...", res.snapshot_path, res.snapshot_size, res.count);
     utils::OnScopeExit cleanup{[path = res.snapshot_path] {
@@ -213,7 +215,7 @@ void WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_e
       if (ec) spdlog::warn("Couldn't remove temporary snapshot part {}: {}", path, ec.message());
     }};
 
-    if (snapshot_aborted()) {
+    if (!task_ok || snapshot_aborted()) {
       continue;  // Run through and clean up
     }
 
@@ -251,6 +253,7 @@ void WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_e
       }
     }
   }
+  return all_ok;
 }
 
 // Return at least one batch (at least 2 elements: start and end gid)
@@ -279,7 +282,7 @@ auto Batch(auto &&acc, const uint64_t items_per_batch) {
   return batches;
 }
 
-void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex> *vertices, auto &&partial_edge_handler,
+bool MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex> *vertices, auto &&partial_edge_handler,
                            auto &&partial_vertex_handler, const uint64_t items_per_batch, uint64_t &offset_edges,
                            uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder, uint64_t &edges_count,
                            uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
@@ -304,7 +307,14 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
         {
           SnapshotEncoder edges_snapshot;
           const auto snapshot_path = fmt::format("{}_edge_part_{}", path, id);
-          edges_snapshot.Initialize(snapshot_path);
+          if (!edges_snapshot.Initialize(snapshot_path)) {
+            spdlog::warn(
+                "Failed to open snapshot file {} in MultiThreadedWorkflow. Snapshot creation will be retried on the "
+                "next scheduled interval",
+                snapshot_path);
+            edge_res[id].second.set_value(false);
+            return;
+          }
           // Fill snapshot with edges
           edge_res[id].first = partial_edge_handler(start_gid, end_gid, edges_snapshot);
           edges_snapshot.Finalize();
@@ -329,8 +339,15 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
       {
         SnapshotEncoder vertex_snapshot;
         const auto snapshot_path = fmt::format("{}_vertex_part_{}", path, id);
-        vertex_snapshot.Initialize(snapshot_path);
-        // Fill snapshot with edges
+        if (!vertex_snapshot.Initialize(snapshot_path)) {
+          spdlog::warn(
+              "Failed to open snapshot file {} in MultiThreadedWorkflow. Snapshot creation will be retried on the "
+              "next scheduled interval",
+              snapshot_path);
+          vertex_res[id].second.set_value(false);
+          return;
+        }
+        // Fill snapshot with vertices
         vertex_res[id].first = partial_vertex_handler(start_gid, end_gid, vertex_snapshot);
         vertex_snapshot.Finalize();
       }
@@ -353,15 +370,21 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
     });
   }
 
+  bool all_ok = true;
   // Wait for tasks to finish and combine results as they come in
   if (!edge_res.empty()) {
     if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
     offset_edges = snapshot_encoder.GetPosition();  // 0 -> edges without properties
-    WaitAndCombine(edge_res, snapshot_encoder, edges_count, edge_batch_infos, used_ids, snapshot_aborted);
+    if (!WaitAndCombine(edge_res, snapshot_encoder, edges_count, edge_batch_infos, used_ids, snapshot_aborted)) {
+      all_ok = false;
+    }
   }
   if (progress) progress->SetPhase(SnapshotProgress::Phase::VERTICES, vertices->size());
   offset_vertices = snapshot_encoder.GetPosition();
-  WaitAndCombine(vertex_res, snapshot_encoder, vertices_count, vertex_batch_infos, used_ids, snapshot_aborted);
+  if (!WaitAndCombine(vertex_res, snapshot_encoder, vertices_count, vertex_batch_infos, used_ids, snapshot_aborted)) {
+    all_ok = false;
+  }
+  return all_ok;
 };
 
 // Function used to read information about the snapshot file.
@@ -655,16 +678,19 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   return info;
 }
 
-void OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const &uuid) {
+bool OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const &uuid) {
   auto info = ReadSnapshotInfo(path);
-  if (info.uuid == uuid) return;  // No need to overwrite if the UUID is already correct.
+  if (info.uuid == uuid) return true;  // No need to overwrite if the UUID is already correct.
   SnapshotEncoder snapshot;
-  snapshot.Initialize(path);
+  if (!snapshot.Initialize(path)) {
+    return false;
+  }
   snapshot.SetPosition(info.offset_metadata);
   // Write the new UUID.
   snapshot.WriteMarker(Marker::SECTION_METADATA);
   snapshot.WriteString(std::string{uuid});
   snapshot.Sync();
+  return true;
 }
 
 namespace {
@@ -11169,7 +11195,13 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
   spdlog::info("Starting snapshot creation to {}", path);
   SnapshotEncoder snapshot;
-  snapshot.Initialize(path, kSnapshotMagic, kVersion);
+  if (!snapshot.Initialize(path, kSnapshotMagic, kVersion)) {
+    spdlog::warn(
+        "Failed to open snapshot file {}. Not a fatal failure, snapshot creation will be retried on the next scheduled "
+        "interval.",
+        path);
+    return std::nullopt;
+  }
 
   // Write placeholder offsets.
   uint64_t offset_offsets = 0;
@@ -11455,22 +11487,31 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
   if (storage->config_.durability.allow_parallel_snapshot_creation) {
     auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
-    MultiThreadedWorkflow(edge_ptr,
-                          vertices,
-                          partial_edge_handler,
-                          partial_vertex_handler,
-                          storage->config_.durability.items_per_batch,
-                          offset_edges,
-                          offset_vertices,
-                          snapshot,
-                          edges_count,
-                          vertices_count,
-                          edge_batch_infos,
-                          vertex_batch_infos,
-                          used_ids,
-                          storage->config_.durability.snapshot_thread_count,
-                          snapshot_aborted,
-                          progress);
+    if (!MultiThreadedWorkflow(edge_ptr,
+                               vertices,
+                               partial_edge_handler,
+                               partial_vertex_handler,
+                               storage->config_.durability.items_per_batch,
+                               offset_edges,
+                               offset_vertices,
+                               snapshot,
+                               edges_count,
+                               vertices_count,
+                               edge_batch_infos,
+                               vertex_batch_infos,
+                               used_ids,
+                               storage->config_.durability.snapshot_thread_count,
+                               snapshot_aborted,
+                               progress)) {
+      spdlog::warn(
+          "Failed to execute some tasks when doing a multi-threaded snapshot, snapshot will be aborted and snapshot "
+          "creation will be retried on the next scheduled interval");
+      snapshot.Close();
+      // Clean up the partial main snapshot file
+      std::error_code ec;
+      std::filesystem::remove(path, ec);
+      return std::nullopt;
+    }
   } else {
     if (storage->config_.salient.items.properties_on_edges) {
       if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());

@@ -5809,6 +5809,9 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
             case S3MissingAwsSecretKey: {
               throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_SECRET_KEY));
             }
+            case FailedOverwritingUUID: {
+              throw utils::BasicException("Failed to overwrite snapshot with a new storage UUID");
+            }
             default: {
               std::unreachable();
             }

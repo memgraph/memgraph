@@ -394,7 +394,9 @@ int main(int argc, char **argv) {
   // database if it can't open the file for writing or if any other process is
   // holding the file opened after timeout occurs
   memgraph::utils::OutputFile lock_file_handle;
-  lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  MG_ASSERT(lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING),
+            "Failed to open {}/.lock file",
+            data_directory);
   MG_ASSERT(lock_file_handle.AcquireLockWithTimeout(FLAGS_data_dir_lock_acquisition_timeout_sec),
             "Couldn't acquire lock on the storage directory {} within {}s!"
             "Another Memgraph process is currently running with the same "
@@ -444,12 +446,18 @@ int main(int argc, char **argv) {
       data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
   // Start the log if enabled.
   if (FLAGS_audit_enabled) {
-    audit_log.Start();
+    MG_ASSERT(audit_log.Start(), "Failed to open audit file {}", data_directory / "audit");
   }
   // Setup SIGUSR2 to be used for reopening audit log files, when e.g. logrotate
   // rotates our audit logs.
   MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::User2,
-                                                            [&audit_log]() { audit_log.ReopenLog(); }),
+                                                            [&audit_log]() {
+                                                              if (audit_log.ReopenLog()) {
+                                                                spdlog::info("Succesfully reopened audit log");
+                                                              } else {
+                                                                spdlog::warn("Failed to reopen audit log");
+                                                              }
+                                                            }),
             "Unable to register SIGUSR2 handler!");
 
   // End enterprise features initialization
