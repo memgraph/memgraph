@@ -57,7 +57,7 @@ class LibbcryptConan(ConanFile):
             os.path.join(self.package_folder, "lib", "bcrypt.a"),
             os.path.join(self.package_folder, "lib", "libbcrypt.a"),
         )
-        copy(self, "bcrypt.h", src=self.source_folder, dst=os.path.join(self.package_folder, "include"))
+        copy(self, "bcrypt.h", src=self.source_folder, dst=os.path.join(self.package_folder, "include", "libbcrypt"))
 
     def package_info(self):
         self.cpp_info.libs = ["bcrypt"]
