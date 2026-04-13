@@ -11,9 +11,12 @@
 
 #include "rpc/file_replication_handler.hpp"
 
+#include <ranges>
+
 #include "flags/general.hpp"
 #include "slk/streams.hpp"
-#include "storage/v2/replication/serialization.hpp"
+#include "utils/logging.hpp"
+#include "wire_format/framed_codec.hpp"
 
 namespace memgraph::rpc {
 
@@ -39,9 +42,8 @@ FileReplicationHandler::~FileReplicationHandler() {
 // big growth in message size/
 std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) {
   slk::Reader req_reader(data, size, size);
-  storage::replication::Decoder decoder(&req_reader);
 
-  auto const maybe_rel_path_str = decoder.ReadString();
+  auto const maybe_rel_path_str = wire_format::ReadString(&req_reader);
   if (!ValidateFilename(maybe_rel_path_str)) return std::nullopt;
 
   auto const rel_path = std::filesystem::path{*maybe_rel_path_str};
@@ -57,7 +59,7 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
     return std::nullopt;
   }
 
-  const auto maybe_file_size = decoder.ReadUint();
+  const auto maybe_file_size = wire_format::ReadUint(&req_reader);
   if (!ValidateFileSize(maybe_file_size)) return std::nullopt;
 
   file_size_ = *maybe_file_size;

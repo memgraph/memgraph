@@ -540,7 +540,7 @@ add_unit_test(utils_compressor
 
 add_unit_test(file_replication_handler
     SOURCES file_replication_handler.cpp
-    LINK_TARGETS mg-rpc mg-slk
+    LINK_TARGETS mg-rpc mg-slk mg-storage-v2
 )
 
 add_unit_test(utils_observer
@@ -830,13 +830,13 @@ add_unit_test(rpc_in_progress
 # Test replication-rpc-progress
 add_unit_test(replication_rpc_progress
     SOURCES replication_rpc_progress.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
 # Test snapshot-rpc-progress
 add_unit_test(snapshot_rpc_progress
     SOURCES snapshot_rpc_progress.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
 add_unit_test(snapshot_progress
