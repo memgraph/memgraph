@@ -334,7 +334,7 @@ add_unit_test(utils_algorithm
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
-    LINK_TARGETS mg-utils
+    LINK_TARGETS mg-utils mg-aws
 )
 
 add_unit_test(utils_barrier
@@ -415,7 +415,7 @@ add_unit_test(utils_rwlock
 
 add_unit_test(utils_scheduler
     SOURCES utils_scheduler.cpp
-    LINK_TARGETS mg-utils
+    LINK_TARGETS mg-utils mg-flags mg-settings
 )
 
 add_unit_test(utils_signals
@@ -485,7 +485,7 @@ add_unit_test(utils_async_timer
 
 add_unit_test(license
     SOURCES license.cpp
-    LINK_TARGETS mg-utils mg-license
+    LINK_TARGETS mg-utils mg-license mg-flags
 )
 
 add_unit_test(utils_settings

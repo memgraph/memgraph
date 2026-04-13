@@ -62,6 +62,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/concurrency_hint.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -260,6 +261,9 @@ int main(int argc, char **argv) {
   CheckSuspiciousPositionalArgs(argc, argv);
   WarnDeprecatedFlags();
 
+  // Publish worker count early so allocators can pre-size thread-local structures
+  memgraph::utils::SetNumWorkers(FLAGS_bolt_num_workers);
+
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
     return EXIT_FAILURE;
@@ -387,15 +391,18 @@ int main(int argc, char **argv) {
   memgraph::storage::durability::VerifyStorageDirectoryOwnerAndProcessUserOrDie(data_directory);
   // Create the lock file and open a handle to it. This will crash the
   // database if it can't open the file for writing or if any other process is
-  // holding the file opened.
+  // holding the file opened after timeout occurs
   memgraph::utils::OutputFile lock_file_handle;
   lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
-  MG_ASSERT(lock_file_handle.AcquireLock(),
-            "Couldn't acquire lock on the storage directory {}"
-            "!\nAnother Memgraph process is currently running with the same "
-            "storage directory, please stop it first before starting this "
+  MG_ASSERT(lock_file_handle.AcquireLockWithTimeout(FLAGS_data_dir_lock_acquisition_timeout_sec),
+            "Couldn't acquire lock on the storage directory {} within {}s!"
+            "Another Memgraph process is currently running with the same "
+            "storage directory, please stop it first before restarting this "
             "process!",
-            data_directory);
+            data_directory,
+            FLAGS_data_dir_lock_acquisition_timeout_sec);
+
+  spdlog::trace("Successfully acquired lock on data directory");
 
   const auto memory_limit = memgraph::flags::GetMemoryLimit();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)

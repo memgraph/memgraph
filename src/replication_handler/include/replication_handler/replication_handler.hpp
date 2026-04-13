@@ -18,7 +18,7 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
-#include "parameters/replication_handlers.hpp"
+#include "parameters/parameters.hpp"
 #include "replication/include/replication/state.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/handler.hpp"
