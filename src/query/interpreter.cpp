@@ -1665,7 +1665,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                 const query::InterpreterConfig &config, std::vector<Notification> *notifications
 #ifdef MG_ENTERPRISE
                                 ,
-                                std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
+                                coordination::CoordinatorState *coordinator_state
 #endif
 ) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1676,7 +1676,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
   auto const is_managed_by_coordinator = [&]() {
 #ifdef MG_ENTERPRISE
-    return coordinator_state.has_value() && coordinator_state->get().IsDataInstance();
+    return coordinator_state && coordinator_state->IsDataInstance();
 #else
     return false;
 #endif
@@ -4961,12 +4961,13 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
                        .db = target_db};
 }
 
-PreparedQuery PrepareReplicationQuery(
-    ParsedQuery parsed_query, bool in_explicit_transaction, std::vector<Notification> *notifications,
-    ReplicationQueryHandler &replication_query_handler, CurrentDB & /*current_db*/, const InterpreterConfig &config
+PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                      std::vector<Notification> *notifications,
+                                      ReplicationQueryHandler &replication_query_handler, CurrentDB & /*current_db*/,
+                                      const InterpreterConfig &config
 #ifdef MG_ENTERPRISE
-    ,
-    std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
+                                      ,
+                                      coordination::CoordinatorState *coordinator_state
 #endif
 ) {
   if (in_explicit_transaction) {
@@ -8356,8 +8357,7 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::
   if (!interpreter_context_->coordinator_state_) {
     throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
   }
-  if (interpreter_context_->coordinator_state_.has_value() &&
-      interpreter_context_->coordinator_state_->get().IsDataInstance()) {
+  if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsDataInstance()) {
     auto const &address = routing.find("address");
     if (address == routing.end()) {
       throw QueryException("Routing table must contain address field.");
@@ -8373,7 +8373,7 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::
   }
 
   auto const db_name = db.has_value() ? *db : dbms::kDefaultDB;
-  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable(db_name)};
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable(db_name)};
 }
 #endif
 
@@ -8780,7 +8780,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
 #ifdef MG_ENTERPRISE
     // TODO(antoniofilipovic) extend to cover Lab queries
-    if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->get().IsCoordinator() &&
+    if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
         !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query) &&
         !utils::Downcast<ReloadSSLQuery>(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");

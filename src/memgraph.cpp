@@ -26,6 +26,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "coordination/coordinator_state.hpp"
 #include "coordination/data_instance_management_server_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
@@ -769,8 +770,7 @@ int main(int argc, char **argv) {
       system,
       &bolt_server_context,
 #ifdef MG_ENTERPRISE
-      coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
-                        : std::nullopt,
+      coordinator_state.get(),
       &resource_monitoring,
 #endif
       auth_handler.get(),
