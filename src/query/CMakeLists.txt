@@ -170,6 +170,7 @@ target_link_libraries(mg-query
     mg::system
     mg-flags
     mg-dbms
+    mg-coordination
     mg-events
     mg-parameters
     mg::planner
