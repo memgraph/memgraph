@@ -5,7 +5,6 @@ target_sources(mg-auth PRIVATE
     models.cpp
     module.cpp
     rpc.cpp
-    replication_handlers.cpp
     profiles/user_profiles.cpp
 )
 
@@ -14,9 +13,9 @@ find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 
 target_link_libraries(mg-auth
-    PUBLIC mg-kvstore mg-license mg::system mg-replication
+    PUBLIC mg-kvstore mg-license
     PRIVATE nlohmann_json::nlohmann_json libbcrypt::libbcrypt gflags fmt::fmt
-    mg-utils ${Seccomp_LIBRARIES} openssl::openssl)
+    mg-utils mg::system mg-slk ${Seccomp_LIBRARIES} openssl::openssl)
 target_include_directories(mg-auth SYSTEM PRIVATE ${Seccomp_INCLUDE_DIRS})
 
 # Install reference auth modules and their configuration files.

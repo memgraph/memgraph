@@ -8,11 +8,13 @@ target_sources(mg-replication_handler
         include/replication_handler/replication_handler.hpp
         include/replication_handler/system_replication.hpp
         include/replication_handler/system_rpc.hpp
+        include/replication_handler/auth_replication_handlers.hpp
 
         PRIVATE
         system_replication.cpp
         replication_handler.cpp
         system_rpc.cpp
+        auth_replication_handlers.cpp
 )
 
 target_link_libraries(mg-replication_handler

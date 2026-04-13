@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "auth/replication_handlers.hpp"
+#include "replication_handler/auth_replication_handlers.hpp"
 #include <spdlog/spdlog.h>
 
 #include "auth/auth.hpp"

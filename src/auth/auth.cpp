@@ -20,6 +20,7 @@
 #include "auth/rpc.hpp"
 #include "flags/auth.hpp"
 #include "license/license.hpp"
+#include "system/action.hpp"
 #include "system/transaction.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/message.hpp"
