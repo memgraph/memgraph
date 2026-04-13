@@ -169,6 +169,12 @@ else
     echo "Skipping OS dependency checks"
 fi
 
+DEV_SETUP_ARGS=()
+if [[ -n "${CI:-}" ]]; then
+    DEV_SETUP_ARGS+=("--ci")
+fi
+bash ./init-dev "${DEV_SETUP_ARGS[@]}"
+
 if [[ -f "$VENV_DIR/bin/activate" ]]; then
     echo "Using existing virtual environment at $VENV_DIR"
     source "$VENV_DIR/bin/activate"
