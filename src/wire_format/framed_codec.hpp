@@ -22,9 +22,8 @@
 /// protocol without depending on the full storage serialisation
 /// hierarchy.
 ///
-/// NOTE: The Marker enum is defined in storage/v2/durability/marker.hpp.
-/// This is a header-only dependency (no link to mg-storage-v2 needed)
-/// and reuses the same byte values as durability/replication.
+/// The Marker enum is defined in wire_format/marker.hpp alongside
+/// this codec.
 ///
 /// Error model: Read functions throw slk::SlkReaderException on
 /// truncated input. They return std::nullopt only when the marker
@@ -43,8 +42,6 @@ class Builder;
 }  // namespace memgraph::slk
 
 namespace memgraph::wire_format {
-
-using Marker = storage::durability::Marker;
 
 // ---- Writing (marker + slk payload) ----
 

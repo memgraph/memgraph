@@ -14,9 +14,10 @@
 #include <array>
 #include <cstdint>
 
-namespace memgraph::storage::durability {
+namespace memgraph::wire_format {
 
-/// Markers that are used to indicate crucial parts of the snapshot/WAL.
+/// Markers for the framed serialisation protocol shared by durability
+/// (snapshot/WAL) and replication (RPC file transfer).
 /// IMPORTANT: Don't forget to update the list of all markers `kMarkersAll` when
 /// you add a new Marker.
 enum class Marker : uint8_t {
@@ -178,4 +179,4 @@ static constexpr std::array kMarkersAll = {
     Marker::VALUE_TRUE,
 };
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::wire_format

@@ -11,7 +11,11 @@
 
 #pragma once
 
-// Marker enum is shared between wire_format (RPC framing) and
-// durability (snapshot/WAL). Canonical definition lives in
-// wire_format/marker.hpp; this header exists for backward compatibility.
+// Canonical definition is in wire_format/marker.hpp.
+// Re-exported here for backward compatibility.
 #include "wire_format/marker.hpp"
+
+namespace memgraph::storage::durability {
+using wire_format::kMarkersAll;
+using wire_format::Marker;
+}  // namespace memgraph::storage::durability
