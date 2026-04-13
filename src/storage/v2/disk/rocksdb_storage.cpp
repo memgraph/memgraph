@@ -20,8 +20,7 @@
 namespace memgraph::storage {
 
 RocksDBStorage::RocksDBStorage() {
-  utils::ApplyRocksDBConfig(
-      options_, FLAGS_storage_rocksdb_info_log_level, FLAGS_storage_rocksdb_enable_thread_tracking);
+  ApplyRocksDBConfig(options_, FLAGS_storage_rocksdb_info_log_level, FLAGS_storage_rocksdb_enable_thread_tracking);
 }
 
 namespace {

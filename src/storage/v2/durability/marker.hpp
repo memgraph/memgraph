@@ -13,6 +13,8 @@
 
 // Canonical Marker definition is in wire_format/marker.hpp.
 // Re-exported here for backward compatibility with durability code.
+#include <array>
+
 #include "wire_format/marker.hpp"
 
 namespace memgraph::storage::durability {

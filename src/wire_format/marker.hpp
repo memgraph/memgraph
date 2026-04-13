@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <array>
 #include <cstdint>
 
 namespace memgraph::wire_format {

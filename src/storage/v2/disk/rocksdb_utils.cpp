@@ -17,7 +17,7 @@
 
 #include "spdlog/spdlog.h"
 
-namespace memgraph::utils {
+namespace memgraph::storage {
 
 namespace {
 
@@ -39,4 +39,4 @@ void ApplyRocksDBConfig(rocksdb::Options &options, std::string_view info_log_lev
   options.enable_thread_tracking = enable_thread_tracking;
 }
 
-}  // namespace memgraph::utils
+}  // namespace memgraph::storage

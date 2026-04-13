@@ -14,9 +14,9 @@
 #include <rocksdb/options.h>
 #include <string_view>
 
-namespace memgraph::utils {
+namespace memgraph::storage {
 
 /// Apply RocksDB tuning parameters to options.
 void ApplyRocksDBConfig(rocksdb::Options &options, std::string_view info_log_level, bool enable_thread_tracking);
 
-}  // namespace memgraph::utils
+}  // namespace memgraph::storage
