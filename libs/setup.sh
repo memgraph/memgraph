@@ -144,11 +144,7 @@ repo_clone_try_double () {
 # Download from primary_urls might fail because the cache is not installed.
 
 declare -A primary_urls=(
-  ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
   ["neo4j"]="http://$local_cache_host/neo4j-community-5.6.0-unix.tar.gz"
-  ["protobuf"]="http://$local_cache_host/git/protobuf.git"
-  ["pulsar"]="http://$local_cache_host/git/pulsar.git"
-  ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -156,11 +152,7 @@ declare -A primary_urls=(
 # at all, should never fail. In other words, if it fails, the whole build
 # should fail.
 declare -A secondary_urls=(
-  ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
   ["neo4j"]="https://dist.neo4j.org/neo4j-community-5.6.0-unix.tar.gz"
-  ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
-  ["pulsar"]="https://github.com/apache/pulsar.git"
-  ["nuraft"]="https://github.com/eBay/NuRaft.git"
 )
 
 # Skip download if we are under the latest toolchains (>= 6).
@@ -181,27 +173,3 @@ file_get_try_double "${primary_urls[neo4j]}" "${secondary_urls[neo4j]}"
 tar -xzf neo4j-community-5.6.0-unix.tar.gz
 mv neo4j-community-5.6.0 neo4j
 rm neo4j-community-5.6.0-unix.tar.gz
-
-# mgconsole
-mgconsole_tag="v1.4.0" # (2023-05-21)
-skip_if_under_toolchain "mgconsole" repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
-
-if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
-  protobuf_tag="v3.12.4"
-  repo_clone_try_double "${primary_urls[protobuf]}" "${secondary_urls[protobuf]}" "protobuf" "$protobuf_tag" true
-  pushd protobuf
-  ./autogen.sh && ./configure CC=clang CXX=clang++ --prefix=$(pwd)/lib
-  popd
-else
-  echo "Skipping protobuf download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
-
-if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
-  pulsar_tag="v2.8.1"
-  repo_clone_try_double "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}" "pulsar" "$pulsar_tag" true
-  pushd pulsar
-  git apply ../pulsar.patch
-  popd
-else
-  echo "Skipping pulsar download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
