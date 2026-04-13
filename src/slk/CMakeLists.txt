@@ -1,5 +1,6 @@
 set(slk_src_files
-    streams.cpp)
+    streams.cpp
+    utils_serialization.cpp)
 
 find_package(gflags REQUIRED)
 
