@@ -11,14 +11,12 @@ function print_help () {
     echo -e "Check for missing packages and setup the project.\n"
     echo "Optional arguments:"
     echo -e "  -h\tdisplay this help and exit"
-    echo -e "  --without-libs-setup\tskip the step for setting up libs"
     echo -e "  --ci\tscript is being run inside ci"
     echo -e "  --offline\tscript is being run offline"
     echo -e "  \t\t(NOTE: this will still try to install dependencies from the internet if the dependency cache is not present)"
 }
 
 
-setup_libs=true
 ci=false
 check_system_packages=true
 if [[ $# -eq 1 && "$1" == "-h" ]]; then
@@ -27,10 +25,6 @@ if [[ $# -eq 1 && "$1" == "-h" ]]; then
 else
     while(($#)); do
         case "$1" in
-          --without-libs-setup)
-              shift
-              setup_libs=false
-          ;;
           --ci)
               shift
               ci=true
@@ -69,16 +63,6 @@ fi
 
 # create a default build directory
 mkdir -p ./build
-
-
-if [[ "$setup_libs" == "true" ]]; then
-  # Setup libs (download).
-  cd libs
-  ./cleanup.sh
-  ./setup.sh
-  cd ..
-fi
-
 
 
 echo "Done installing dependencies for Memgraph"
