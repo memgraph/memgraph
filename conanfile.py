@@ -65,7 +65,7 @@ class Memgraph(ConanFile):
         "jemalloc/*:enable_fill": False,
         "jemalloc/*:lg_page": "12",
         "jemalloc/*:lg_hugepage": "21",
-        "jemalloc/*:malloc_conf": "background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
+        "jemalloc/*:malloc_conf": "retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
         "rapidcheck/*:enable_gtest": True,
         "rapidcheck/*:enable_gmock": True,
     }
@@ -111,7 +111,7 @@ class Memgraph(ConanFile):
         self.requires("snappy/1.2.1", override=True)
 
     def build_requirements(self):
-        self.tool_requires("cmake/[>=4 <5]")
+        self.tool_requires("cmake/4.1.2")
         self.tool_requires("ninja/[>=1.13 <2]")
         self.tool_requires("ccache/[>=4.12 <5]")
         self.tool_requires("antlr4/4.13.1")

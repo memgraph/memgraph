@@ -246,6 +246,16 @@ void PurgeUnusedMemory() {
 #endif
 }
 
+void EnableBackgroundThreads() {
+#if USE_JEMALLOC
+  bool enable = true;
+  int err = je_mallctl("background_thread", nullptr, nullptr, &enable, sizeof(enable));
+  if (err) {
+    LOG_FATAL("Failed to enable jemalloc background threads: error code {}", err);
+  }
+#endif
+}
+
 #undef STRINGIFY
 #undef STRINGIFY_HELPER
 

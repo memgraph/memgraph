@@ -251,6 +251,7 @@ void CleanDataDir(std::filesystem::path const &data_directory) {
 
 int main(int argc, char **argv) {
   memgraph::memory::SetHooks();
+  memgraph::memory::EnableBackgroundThreads();
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
 
@@ -508,10 +509,6 @@ int main(int argc, char **argv) {
   spdlog::info("config recover on startup {}, flags {}",
                db_config.durability.recover_on_startup,
                FLAGS_data_recovery_on_startup);
-  memgraph::utils::Scheduler jemalloc_purge_scheduler;
-  jemalloc_purge_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_gc_cycle_sec));
-  jemalloc_purge_scheduler.Run("Jemalloc purge", [] { memgraph::memory::PurgeUnusedMemory(); });
-
   using namespace std::chrono_literals;
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
