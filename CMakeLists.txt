@@ -205,6 +205,7 @@ find_package(GTest REQUIRED)
 find_package(rapidcheck REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(fmt REQUIRED)
+find_package(gflags REQUIRED)
 find_package(strong_type REQUIRED)
 find_package(Boost REQUIRED)
 find_package(BZip2 REQUIRED)
@@ -471,8 +472,25 @@ set_property(TARGET protobuf PROPERTY INTERFACE_LINK_LIBRARIES protobuf::libprot
 add_library(pulsar INTERFACE IMPORTED GLOBAL)
 set_property(TARGET pulsar PROPERTY INTERFACE_LINK_LIBRARIES pulsar-client-cpp::pulsar-client-cpp)
 
-set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
-add_subdirectory(libs EXCLUDE_FROM_ALL)
+# Build mgconsole in isolation using the install script to avoid target
+# conflicts with Memgraph's dependencies (e.g., gflags). Keep these placeholder
+# targets available during the normal build graph.
+if(NOT DEFINED MGCONSOLE_GIT_TAG)
+  # Default used by release/install_mgconsole.cmake.
+  set(MGCONSOLE_GIT_TAG "v1.5.0")
+endif()
+add_custom_target(mgconsole-proj)
+add_custom_target(mgconsole)
+
+set(SPDLOG_FMT_EXTERNAL ON)
+set(ABSL_PROPAGATE_CXX_STD ON)
+message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
+
+# Include mgcxx text search bridge as part of the main build.
+set(ENABLE_TESTS OFF CACHE BOOL "Enable tests" FORCE)
+add_subdirectory(${CMAKE_SOURCE_DIR}/mgcxx ${CMAKE_BINARY_DIR}/mgcxx EXCLUDE_FROM_ALL)
+target_link_libraries(mgcxx_text_search ${CMAKE_DL_LIBS})
+add_library(tantivy_text_search ALIAS mgcxx_text_search)
 
 set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by the query modules")
 set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")
