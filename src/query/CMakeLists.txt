@@ -96,10 +96,6 @@ target_sources(mg-query
     vertex_accessor.cpp
 
     PUBLIC
-    FILE_SET CXX_MODULES
-    FILES
-    arrow_parquet/reader.cppm
-    jsonl/reader.cppm
     FILE_SET HEADERS
     FILES
     plan/rewrite/enum.hpp
@@ -143,6 +139,18 @@ target_sources(mg-query
     plan_v2/private_symbol.hpp
 )
 
+# CXX_MODULES split into a separate target to avoid CMake 4.x CMP0189
+# cycle errors (see src/utils/CMakeLists.txt for details).
+add_library(mg-query-cppm STATIC)
+add_library(mg::query-cppm ALIAS mg-query-cppm)
+target_sources(mg-query-cppm
+    PUBLIC
+    FILE_SET CXX_MODULES FILES
+    arrow_parquet/reader.cppm
+    jsonl/reader.cppm
+)
+target_link_libraries(mg-query-cppm PUBLIC mg-aws mg::storage)
+
 target_link_libraries(mg-query
     PUBLIC
     dl
@@ -154,6 +162,8 @@ target_link_libraries(mg-query
     mg::storage
     mg-license
     mg-utils
+    mg-aws
+    mg-query-cppm
     mg-kvstore
     mg-memory-utils
     mg::csv

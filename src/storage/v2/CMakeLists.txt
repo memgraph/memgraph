@@ -158,6 +158,7 @@ target_link_libraries(mg-storage-v2
     mg::replication
     Threads::Threads
     mg-utils
+    mg-aws
     mg-flags
     gflags
     abseil::abseil
