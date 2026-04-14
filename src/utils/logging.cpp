@@ -28,6 +28,12 @@ std::string memgraph::logging::MaskSensitiveInformation(std::string_view const i
   return std::regex_replace(str, re_all, std::string{kRegexFmt});
 }
 
+// It is possible if using asynchronous logger that this log line won't be seen because there is no way force flush
+// messages when using asynchronous queue except calling spdlog::shutdown. Calling spdlog::shutdown() is not necessary
+// for synchronous logger but it is the only way to flush messages when using async logger. The reason why we don't use
+// spdlog::shudown is because there is then a time window between the invocation of spdlog::shutdown and std::abort
+// which means that the program could segfault at any logging place in the codebase. In the core dump, it would
+// therefore be hard to see the proper reason of the core dump
 void memgraph::logging::AssertFailed(std::source_location const loc, char const *expr, std::string const &message) {
   spdlog::critical(
       "\nAssertion failed in file {} at line {}."
