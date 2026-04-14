@@ -9,18 +9,29 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import re
 import sys
 import urllib.request
 
 import pytest
 
+_VALID_LINE_PATTERNS = [
+    re.compile(r"^$"),  # empty line
+    re.compile(r"^# HELP \w+ .*$"),  # HELP comment
+    re.compile(r"^# TYPE \w+ \w+$"),  # TYPE comment
+    re.compile(r"^[a-zA-Z_]\S*.* [-+]?[\d.]+(?:e[-+]?\d+)?$"),  # metric line
+]
 
-def test_metrics_http_endpoint_returns_non_empty_response():
-    """Smoke test, just checks that the prometheus endpoint is responding with
-    some response and an OK status."""
+
+def test_metrics_openmetrics_format_returns_valid_openmetrics():
+    # Doesn't validate in any depth, but just check that each line
+    # matches what we'd expect from an OpenMetrics endpoint.
     with urllib.request.urlopen("http://localhost:9091/metrics") as response:
         assert response.status == 200
-        assert len(response.read()) > 0
+        body = response.read().decode("utf-8")
+        assert len(body) > 0
+        for line in body.splitlines():
+            assert any(p.match(line) for p in _VALID_LINE_PATTERNS), f"Unexpected line: {line}"
 
 
 if __name__ == "__main__":
