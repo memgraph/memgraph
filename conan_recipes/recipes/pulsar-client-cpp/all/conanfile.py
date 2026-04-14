@@ -95,6 +95,48 @@ class PulsarClientCppConan(ConanFile):
         )
         replace_in_file(
             self,
+            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
+            "set(CURL_NO_CURL_CMAKE ON)\n",
+            "",
+        )
+        replace_in_file(
+            self,
+            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
+            "find_package(curl QUIET)\n",
+            "find_package(CURL REQUIRED)\n"
+            "if (TARGET CURL::libcurl)\n"
+            "    set(CURL_FOUND TRUE)\n"
+            "    set(CURL_LIBRARIES CURL::libcurl)\n"
+            "    get_target_property(CURL_INCLUDE_DIRS CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)\n"
+            "endif ()\n",
+        )
+        replace_in_file(
+            self,
+            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
+            "if (NOT CURL_FOUND)\n"
+            "    find_path(CURL_INCLUDE_DIRS NAMES curl/curl.h)\n"
+            "    find_library(CURL_LIBRARIES NAMES curl curllib libcurl_imp curllib_static libcurl)\n"
+            "endif ()\n",
+            "",
+        )
+        replace_in_file(
+            self,
+            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
+            "find_package(zlib QUIET)\n",
+            "if (TARGET ZLIB::ZLIB)\n"
+            "    set(ZLIB_FOUND TRUE)\n"
+            "    set(ZLIB_LIBRARIES ZLIB::ZLIB)\n"
+            "    get_target_property(ZLIB_INCLUDE_DIRS ZLIB::ZLIB INTERFACE_INCLUDE_DIRECTORIES)\n"
+            "else ()\n"
+            "    find_package(ZLIB REQUIRED)\n"
+            "    if (TARGET ZLIB::ZLIB)\n"
+            "        set(ZLIB_LIBRARIES ZLIB::ZLIB)\n"
+            "        get_target_property(ZLIB_INCLUDE_DIRS ZLIB::ZLIB INTERFACE_INCLUDE_DIRECTORIES)\n"
+            "    endif ()\n"
+            "endif ()\n",
+        )
+        replace_in_file(
+            self,
             os.path.join(self.source_folder, "lib", "CMakeLists.txt"),
             "add_library(PULSAR_OBJECT_LIB OBJECT ${PULSAR_SOURCES})\n"
             "set_property(TARGET PULSAR_OBJECT_LIB PROPERTY POSITION_INDEPENDENT_CODE 1)\n"
@@ -137,6 +179,8 @@ class PulsarClientCppConan(ConanFile):
 
     def generate(self):
         tc = CMakeToolchain(self)
+        tc.cache_variables["CMAKE_FIND_PACKAGE_PREFER_CONFIG"] = True
+        tc.cache_variables["CURL_DIR"] = self.generators_folder
         tc.variables["CMAKE_CXX_STANDARD"] = "20"
         tc.variables["CMAKE_CXX_STANDARD_REQUIRED"] = True
         tc.variables["CMAKE_CXX_EXTENSIONS"] = False
