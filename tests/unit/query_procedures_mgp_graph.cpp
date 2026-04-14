@@ -99,31 +99,11 @@ size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable, TIterableAccessor fu
 ;
 
 auto VisitInEdges(const MgpVertexPtr &v) {
-  return std::visit(
-      memgraph::utils::Overloaded{
-          [](const memgraph::query::VertexAccessor &impl) { return impl.InEdges(memgraph::storage::View::NEW); },
-          [](const memgraph::query::SubgraphVertexAccessor &impl) {
-            return impl.InEdges(memgraph::storage::View::NEW);
-          },
-          [](const memgraph::query::VirtualNode &)
-              -> memgraph::storage::Result<memgraph::query::EdgeVertexAccessorResult> {
-            LOG_FATAL("VirtualNode has no InEdges");
-          }},
-      v->impl);
+  return v->VisitReal([](const auto &impl) { return impl.InEdges(memgraph::storage::View::NEW); });
 }
 
 auto VisitOutEdges(const MgpVertexPtr &v) {
-  return std::visit(
-      memgraph::utils::Overloaded{
-          [](const memgraph::query::VertexAccessor &impl) { return impl.OutEdges(memgraph::storage::View::NEW); },
-          [](const memgraph::query::SubgraphVertexAccessor &impl) {
-            return impl.OutEdges(memgraph::storage::View::NEW);
-          },
-          [](const memgraph::query::VirtualNode &)
-              -> memgraph::storage::Result<memgraph::query::EdgeVertexAccessorResult> {
-            LOG_FATAL("VirtualNode has no OutEdges");
-          }},
-      v->impl);
+  return v->VisitReal([](const auto &impl) { return impl.OutEdges(memgraph::storage::View::NEW); });
 }
 
 void CheckEdgeCountBetween(const MgpVertexPtr &from, const MgpVertexPtr &to, const size_t number_of_edges_between) {

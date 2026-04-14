@@ -15,17 +15,30 @@ namespace memgraph::query {
 
 const VirtualNode &VirtualNodeStore::InsertOrGet(VirtualNode node) {
   const auto original_gid = node.OriginalGid();
+  const auto synthetic_gid = node.Gid();
   auto [it, inserted] = nodes_.try_emplace(original_gid, std::move(node));
+  if (inserted) {
+    synthetic_to_original_[synthetic_gid] = original_gid;
+  }
   return it->second;
 }
 
 void VirtualNodeStore::InsertOrUpdate(VirtualNode node) {
   const auto original_gid = node.OriginalGid();
+  const auto synthetic_gid = node.Gid();
   nodes_.insert_or_assign(original_gid, std::move(node));
+  synthetic_to_original_[synthetic_gid] = original_gid;
 }
 
 const VirtualNode *VirtualNodeStore::Find(storage::Gid original_gid) const {
   if (auto it = nodes_.find(original_gid); it != nodes_.end()) return &it->second;
+  return nullptr;
+}
+
+const VirtualNode *VirtualNodeStore::FindBySyntheticGid(storage::Gid synthetic_gid) const {
+  if (auto it = synthetic_to_original_.find(synthetic_gid); it != synthetic_to_original_.end()) {
+    return Find(it->second);
+  }
   return nullptr;
 }
 

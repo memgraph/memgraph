@@ -652,16 +652,15 @@ struct mgp_map_items_iterator {
 };
 
 struct mgp_vertex {
-  /// Allocator type so that STL containers are aware that we need one.
-  /// We don't actually need this, but it simplifies the C API, because we store
-  /// the allocator which was used to allocate `this`.
   using allocator_type = memgraph::utils::Allocator<mgp_vertex>;
+  using RealVertexImpl = std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor>;
+  using VertexImpl = std::variant<RealVertexImpl, memgraph::query::VirtualNode>;
 
   mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, allocator_type alloc)
-      : alloc(alloc), impl(v), graph(graph) {}
+      : alloc(alloc), impl(RealVertexImpl(v)), graph(graph) {}
 
   mgp_vertex(memgraph::query::SubgraphVertexAccessor v, mgp_graph *graph, allocator_type alloc)
-      : alloc(alloc), impl(v), graph(graph) {}
+      : alloc(alloc), impl(RealVertexImpl(v)), graph(graph) {}
 
   mgp_vertex(memgraph::query::VirtualNode v, mgp_graph *graph, allocator_type alloc)
       : alloc(alloc), impl(std::move(v)), graph(graph) {}
@@ -674,13 +673,11 @@ struct mgp_vertex {
   mgp_vertex(mgp_vertex &&other) : alloc(other.alloc), impl(other.impl), graph(other.graph) {}
 
   memgraph::query::VertexAccessor getImpl() const {
+    const auto &real = std::get<RealVertexImpl>(impl);
     return std::visit(
-        memgraph::utils::Overloaded{[](const memgraph::query::VertexAccessor &impl) { return impl; },
-                                    [](const memgraph::query::SubgraphVertexAccessor &impl) { return impl.impl_; },
-                                    [](const memgraph::query::VirtualNode &) -> memgraph::query::VertexAccessor {
-                                      throw std::logic_error{"getImpl() is not available for VirtualNode"};
-                                    }},
-        this->impl);
+        memgraph::utils::Overloaded{[](const memgraph::query::VertexAccessor &va) { return va; },
+                                    [](const memgraph::query::SubgraphVertexAccessor &sva) { return sva.impl_; }},
+        real);
   }
 
   bool IsVirtualNode() const noexcept { return std::holds_alternative<memgraph::query::VirtualNode>(impl); }
@@ -688,6 +685,17 @@ struct mgp_vertex {
   const memgraph::query::VirtualNode &GetVirtualNode() const { return std::get<memgraph::query::VirtualNode>(impl); }
 
   memgraph::query::VirtualNode &GetVirtualNode() { return std::get<memgraph::query::VirtualNode>(impl); }
+
+  // visit only the two real-vertex alternatives; caller must guard IsVirtualNode() first
+  template <typename F>
+  auto VisitReal(F &&fn) const {
+    return std::visit(std::forward<F>(fn), std::get<RealVertexImpl>(impl));
+  }
+
+  template <typename F>
+  auto VisitReal(F &&fn) {
+    return std::visit(std::forward<F>(fn), std::get<RealVertexImpl>(impl));
+  }
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_vertex(const mgp_vertex &) = delete;
@@ -710,8 +718,7 @@ struct mgp_vertex {
   memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
 
   allocator_type alloc;
-  std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor, memgraph::query::VirtualNode>
-      impl;
+  VertexImpl impl;
   mgp_graph *graph;
 };
 

@@ -42,6 +42,7 @@ class VirtualNodeStore {
   void InsertOrUpdate(VirtualNode node);
 
   const VirtualNode *Find(storage::Gid original_gid) const;
+  const VirtualNode *FindBySyntheticGid(storage::Gid synthetic_gid) const;
   bool Contains(storage::Gid original_gid) const;
 
   auto &nodes() const { return nodes_; }
@@ -55,6 +56,8 @@ class VirtualNodeStore {
  private:
   // keyed by original Gid for dedup
   utils::pmr::unordered_map<storage::Gid, VirtualNode> nodes_;
+  // secondary index: synthetic Gid → original Gid (for O(1) lookup by synthetic id)
+  std::unordered_map<storage::Gid, storage::Gid> synthetic_to_original_;
 };
 
 }  // namespace memgraph::query
