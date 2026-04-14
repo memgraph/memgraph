@@ -1,9 +1,8 @@
 from conan import ConanFile
 from conan.tools.cmake import CMakeToolchain, CMake, cmake_layout, CMakeDeps
-from conan.tools.env import VirtualBuildEnv, Environment
+from conan.tools.env import Environment
 from conan.tools.build import check_min_cppstd, check_max_cppstd
-from conan.tools.files import get, copy, replace_in_file
-from conan.tools.files.symlinks import absolute_to_relative_symlinks
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get
 import os
 
 """
@@ -39,123 +38,12 @@ class PulsarClientCppConan(ConanFile):
     # Build-time tools: e.g. cmake, ninja, protoc, clang-format, doxy
     tool_requires = ["protobuf/3.21.12"]
 
+    def export_sources(self):
+        export_conandata_patches(self)
+
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)
-        self._patch_sources()
-
-    def _patch_sources(self):
-        # On Linux with Conan CMakeDeps, Protobuf is typically consumed via
-        # config targets (protobuf::libprotobuf). The legacy "module" variables
-        # can be empty, which leads to missing protobuf at link/compile time.
-        #
-        # Pulsar's legacy CMake logic also tends to fall back to the toolchain
-        # Boost package, which pulls in `/opt/toolchain-v7/include` ahead of
-        # Conan's protobuf headers. That produces a protoc/header version
-        # mismatch, so we normalize both the Boost and Protobuf lookup paths.
-        replace_in_file(
-            self,
-            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
-            "if (APPLE AND NOT LINK_STATIC)",
-            "if (NOT LINK_STATIC)",
-        )
-        replace_in_file(
-            self,
-            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
-            "set(Boost_NO_BOOST_CMAKE ON)",
-            "set(Boost_NO_BOOST_CMAKE OFF)",
-        )
-        replace_in_file(
-            self,
-            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
-            "find_package(Boost REQUIRED)",
-            "find_package(Boost REQUIRED CONFIG)",
-        )
-        replace_in_file(
-            self,
-            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
-            "find_package(Boost REQUIRED COMPONENTS ${BOOST_COMPONENTS})",
-            "find_package(Boost REQUIRED CONFIG COMPONENTS ${BOOST_COMPONENTS})",
-        )
-        replace_in_file(
-            self,
-            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
-            "message(\"Protobuf_INCLUDE_DIRS: \" ${Protobuf_INCLUDE_DIRS})\n"
-            "message(\"Protobuf_LIBRARIES: \" ${Protobuf_LIBRARIES})\n",
-            "if (NOT Protobuf_INCLUDE_DIRS AND protobuf_INCLUDE_DIRS)\n"
-            "    set(Protobuf_INCLUDE_DIRS ${protobuf_INCLUDE_DIRS})\n"
-            "endif ()\n"
-            "if (NOT Protobuf_LIBRARIES AND TARGET protobuf::libprotobuf)\n"
-            "    set(Protobuf_LIBRARIES protobuf::libprotobuf)\n"
-            "endif ()\n"
-            "if (Protobuf_INCLUDE_DIRS)\n"
-            "    include_directories(BEFORE ${Protobuf_INCLUDE_DIRS})\n"
-            "endif ()\n"
-            "message(\"Protobuf_INCLUDE_DIRS: \" ${Protobuf_INCLUDE_DIRS})\n"
-            "message(\"Protobuf_LIBRARIES: \" ${Protobuf_LIBRARIES})\n",
-        )
-        replace_in_file(
-            self,
-            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
-            "set(CURL_NO_CURL_CMAKE ON)\n",
-            "",
-        )
-        replace_in_file(
-            self,
-            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
-            "find_package(curl QUIET)\n",
-            "find_package(CURL REQUIRED)\n"
-            "if (TARGET CURL::libcurl)\n"
-            "    set(CURL_FOUND TRUE)\n"
-            "    set(CURL_LIBRARIES CURL::libcurl)\n"
-            "    get_target_property(CURL_INCLUDE_DIRS CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)\n"
-            "endif ()\n",
-        )
-        replace_in_file(
-            self,
-            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
-            "if (NOT CURL_FOUND)\n"
-            "    find_path(CURL_INCLUDE_DIRS NAMES curl/curl.h)\n"
-            "    find_library(CURL_LIBRARIES NAMES curl curllib libcurl_imp curllib_static libcurl)\n"
-            "endif ()\n",
-            "",
-        )
-        replace_in_file(
-            self,
-            os.path.join(self.source_folder, "LegacyFindPackages.cmake"),
-            "find_package(zlib QUIET)\n",
-            "if (TARGET ZLIB::ZLIB)\n"
-            "    set(ZLIB_FOUND TRUE)\n"
-            "    set(ZLIB_LIBRARIES ZLIB::ZLIB)\n"
-            "    get_target_property(ZLIB_INCLUDE_DIRS ZLIB::ZLIB INTERFACE_INCLUDE_DIRECTORIES)\n"
-            "else ()\n"
-            "    find_package(ZLIB REQUIRED)\n"
-            "    if (TARGET ZLIB::ZLIB)\n"
-            "        set(ZLIB_LIBRARIES ZLIB::ZLIB)\n"
-            "        get_target_property(ZLIB_INCLUDE_DIRS ZLIB::ZLIB INTERFACE_INCLUDE_DIRECTORIES)\n"
-            "    endif ()\n"
-            "endif ()\n",
-        )
-        replace_in_file(
-            self,
-            os.path.join(self.source_folder, "lib", "CMakeLists.txt"),
-            "add_library(PULSAR_OBJECT_LIB OBJECT ${PULSAR_SOURCES})\n"
-            "set_property(TARGET PULSAR_OBJECT_LIB PROPERTY POSITION_INDEPENDENT_CODE 1)\n"
-            "if (INTEGRATE_VCPKG)\n"
-            "    target_link_libraries(PULSAR_OBJECT_LIB PROTO_OBJECTS)\n"
-            "endif ()\n",
-            "add_library(PULSAR_OBJECT_LIB OBJECT ${PULSAR_SOURCES})\n"
-            "set_property(TARGET PULSAR_OBJECT_LIB PROPERTY POSITION_INDEPENDENT_CODE 1)\n"
-            "if (INTEGRATE_VCPKG)\n"
-            "    target_link_libraries(PULSAR_OBJECT_LIB PROTO_OBJECTS)\n"
-            "elseif (TARGET protobuf::libprotobuf)\n"
-            "    target_link_libraries(PULSAR_OBJECT_LIB PRIVATE protobuf::libprotobuf)\n"
-            "endif ()\n"
-            "if (Protobuf_INCLUDE_DIRS)\n"
-            "    target_include_directories(PULSAR_OBJECT_LIB BEFORE PRIVATE ${Protobuf_INCLUDE_DIRS})\n"
-            "elseif (protobuf_INCLUDE_DIRS)\n"
-            "    target_include_directories(PULSAR_OBJECT_LIB BEFORE PRIVATE ${protobuf_INCLUDE_DIRS})\n"
-            "endif ()\n",
-        )
+        apply_conandata_patches(self)
 
 
 

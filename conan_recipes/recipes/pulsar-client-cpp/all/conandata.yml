@@ -5,3 +5,8 @@ sources:
   "4.0.0-memgraph":
     url: "https://github.com/apache/pulsar-client-cpp/archive/refs/tags/v4.0.0.tar.gz"
     sha256: "4bcb09558d1ced113a2c7e08c60b48ce3f0e9df1eaffac300697117bb1cadbe5"
+patches:
+  "4.0.0-memgraph":
+    - patch_file: "patches/0001-conan-dependency-resolution.patch"
+      patch_description: "Prefer Conan config targets for Boost/CURL/ZLIB/Protobuf and fix protobuf linkage."
+      patch_type: "conan"
