@@ -128,6 +128,9 @@ LicenseChecker::~LicenseChecker() { Finalize(); }
 void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   spdlog::trace("License revalidation started");
 
+  // Passing 0 to SetHardLimit restores the limit to maximum_hard_limit_ (the --memory-limit flag value).
+  constexpr int64_t kUseDefaultMemoryLimit = 0;
+
   struct PreviousMemoryState {
     int64_t limit{0};
     std::optional<LicenseType> type{};
@@ -142,7 +145,7 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
 
     if (license_type == LicenseType::AI_PLATFORM && memory_limit > 0) {
       // AI_PLATFORM: limit graph memory only; total falls back to --memory-limit
-      utils::total_memory_tracker.SetHardLimit(0);
+      utils::total_memory_tracker.SetHardLimit(kUseDefaultMemoryLimit);
       utils::graph_memory_tracker.SetHardLimit(memory_limit);
     } else {
       // ENTERPRISE / no license: limit total memory, clear graph limit

@@ -6770,7 +6770,9 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
             {TypedValue("allocation_limit"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.HardLimit() > 0
+                                                                       ? utils::graph_memory_tracker.HardLimit()
+                                                                       : utils::total_memory_tracker.HardLimit())))},
             {TypedValue("graph_memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
             {TypedValue("vector_index_memory_tracked"),
