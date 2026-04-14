@@ -25,7 +25,7 @@ class TestVirtualEdgesWithProcedures:
             cursor,
             """
             MATCH p=(:N {id: 1})-[*]->(:N {id: 3})
-            WITH project_virtual(p, {virtualEdgeType: 'DERIVED'}) AS graph
+            WITH derive(p, {virtualEdgeType: 'DERIVED'}) AS graph
             MATCH (n:N {id: 1})
             CALL read.subgraph_edge_info(graph, n) YIELD edge_type, weight
             RETURN edge_type, weight
@@ -45,7 +45,7 @@ class TestVirtualEdgesWithProcedures:
             cursor,
             """
             MATCH p=(:N {id: 1})-[*]->(:N {id: 3})
-            WITH project_virtual(p, {virtualEdgeType: 'DERIVED', relationshipProperties: {weight: 99}}) AS graph
+            WITH derive(p, {virtualEdgeType: 'DERIVED', relationshipProperties: {weight: 99}}) AS graph
             MATCH (n:N {id: 1})
             CALL read.subgraph_edge_info(graph, n) YIELD edge_type, weight
             RETURN edge_type, weight
@@ -56,8 +56,8 @@ class TestVirtualEdgesWithProcedures:
         assert results[0][0] == "DERIVED"
         assert results[0][1] == 99
 
-    def test_procedure_sees_node_override_labels_and_properties(self, connection):
-        """Node overrides (labels and properties) should be visible to procedures."""
+    def test_procedure_sees_virtual_node_labels_and_properties(self, connection):
+        """Virtual node labels and properties should be visible to procedures."""
         cursor = connection.cursor()
         execute_and_fetch_all(cursor, "CREATE (:N {id: 1})-[:R]->(:N {id: 2});")
 
@@ -65,7 +65,7 @@ class TestVirtualEdgesWithProcedures:
             cursor,
             """
             MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
-            WITH project_virtual(p, {
+            WITH derive(p, {
                 virtualEdgeType: 'V',
                 sourceNodeLabels: ['Expert'],
                 sourceNodeProperties: {score: 42}

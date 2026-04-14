@@ -14,34 +14,35 @@
 #include <atomic>
 #include <map>
 #include <string>
+#include <vector>
 
-#include "query/virtual_node.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 
 namespace memgraph::query {
 
-// Synthetic Gids count down from UINT64_MAX to avoid collision with real Gids (which count up from 0).
-inline storage::Gid NextVirtualEdgeGid() {
+// synthetic gids count down from UINT64_MAX to avoid collision with real gids (which count up from 0)
+inline storage::Gid NextVirtualNodeGid() {
   static std::atomic<uint64_t> counter{std::numeric_limits<uint64_t>::max()};
   return storage::Gid::FromUint(counter.fetch_sub(1, std::memory_order_relaxed));
 }
 
-class VirtualEdge final {
+class VirtualNode final {
  public:
-  VirtualEdge(VirtualNode from, VirtualNode to, std::string edge_type_name)
-      : from_(std::move(from)),
-        to_(std::move(to)),
-        edge_type_name_(std::move(edge_type_name)),
-        gid_(NextVirtualEdgeGid()) {}
-
-  auto From() const -> const VirtualNode & { return from_; }
-
-  auto To() const -> const VirtualNode & { return to_; }
-
-  auto EdgeTypeName() const -> const std::string & { return edge_type_name_; }
+  VirtualNode(storage::Gid original_gid, std::vector<std::string> labels,
+              std::map<storage::PropertyId, storage::PropertyValue> properties)
+      : gid_(NextVirtualNodeGid()),
+        original_gid_(original_gid),
+        labels_(std::move(labels)),
+        properties_(std::move(properties)) {}
 
   auto Gid() const noexcept -> storage::Gid { return gid_; }
+
+  auto OriginalGid() const noexcept -> storage::Gid { return original_gid_; }
+
+  auto CypherId() const noexcept -> int64_t { return gid_.AsInt(); }
+
+  auto Labels() const -> const std::vector<std::string> & { return labels_; }
 
   auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
     if (auto it = properties_.find(key); it != properties_.end()) {
@@ -54,13 +55,12 @@ class VirtualEdge final {
 
   auto Properties() const -> const std::map<storage::PropertyId, storage::PropertyValue> & { return properties_; }
 
-  bool operator==(const VirtualEdge &other) const noexcept { return gid_ == other.gid_; }
+  bool operator==(const VirtualNode &other) const noexcept { return gid_ == other.gid_; }
 
  private:
-  VirtualNode from_;
-  VirtualNode to_;
-  std::string edge_type_name_;
   storage::Gid gid_;
+  storage::Gid original_gid_;
+  std::vector<std::string> labels_;
   std::map<storage::PropertyId, storage::PropertyValue> properties_;
 };
 
@@ -68,9 +68,9 @@ class VirtualEdge final {
 
 namespace std {
 template <>
-struct hash<memgraph::query::VirtualEdge> {
-  size_t operator()(const memgraph::query::VirtualEdge &e) const {
-    return std::hash<memgraph::storage::Gid>{}(e.Gid());
+struct hash<memgraph::query::VirtualNode> {
+  size_t operator()(const memgraph::query::VirtualNode &n) const {
+    return std::hash<memgraph::storage::Gid>{}(n.Gid());
   }
 };
 }  // namespace std

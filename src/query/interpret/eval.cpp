@@ -237,12 +237,23 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
                      TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory));
       return {result, ctx_->memory};
     }
+    case TypedValue::Type::VirtualNode: {
+      const auto &vn = expression_result.ValueVirtualNode();
+      for (const auto &[prop_id, prop_value] : vn.Properties()) {
+        result.emplace(TypedValue::TString(dba_->PropertyToName(prop_id), ctx_->memory),
+                       TypedValue(prop_value, GetNameIdMapper(), ctx_->memory));
+      }
+      return {result, ctx_->memory};
+    }
     case TypedValue::Type::Graph: {
       const auto &graph = expression_result.ValueGraph();
       utils::pmr::vector<TypedValue> vertices(ctx_->memory);
-      vertices.reserve(graph.vertices().size());
+      vertices.reserve(graph.vertices().size() + graph.virtual_node_store().size());
       for (const auto &v : graph.vertices()) {
         vertices.emplace_back(v);
+      }
+      for (const auto &[gid, vn] : graph.virtual_node_store().nodes()) {
+        vertices.emplace_back(vn);
       }
       result.emplace(TypedValue::TString("nodes", ctx_->memory), TypedValue(std::move(vertices), ctx_->memory));
       result.emplace(TypedValue::TString("edges", ctx_->memory), GraphEdgesToTypedValue(graph, ctx_->memory));
@@ -408,9 +419,12 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
   auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
     if (prop_name == "nodes") {
       utils::pmr::vector<TypedValue> vertices(ctx_->memory);
-      vertices.reserve(graph.vertices().size());
+      vertices.reserve(graph.vertices().size() + graph.virtual_node_store().size());
       for (const auto &v : graph.vertices()) {
         vertices.emplace_back(TypedValue(v, ctx_->memory));
+      }
+      for (const auto &[gid, vn] : graph.virtual_node_store().nodes()) {
+        vertices.emplace_back(TypedValue(vn, ctx_->memory));
       }
       return TypedValue(vertices, ctx_->memory);
     }
@@ -460,6 +474,13 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       const auto &ve = expression_result_ptr->ValueVirtualEdge();
       auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
       auto prop_value = ve.GetProperty(prop_id);
+      if (prop_value.IsNull()) return TypedValue(ctx_->memory);
+      return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
+    }
+    case TypedValue::Type::VirtualNode: {
+      const auto &vn = expression_result_ptr->ValueVirtualNode();
+      auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
+      auto prop_value = vn.GetProperty(prop_id);
       if (prop_value.IsNull()) return TypedValue(ctx_->memory);
       return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
     }

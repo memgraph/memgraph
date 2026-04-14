@@ -22,6 +22,7 @@
 
 #include "query/path.hpp"
 #include "query/virtual_edge.hpp"
+#include "query/virtual_node.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/flat_map.hpp"
@@ -107,7 +108,8 @@ class TypedValue {
     Enum,
     Point2d,
     Point3d,
-    VirtualEdge
+    VirtualEdge,
+    VirtualNode
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -287,6 +289,9 @@ class TypedValue {
   explicit TypedValue(const VirtualEdge &ve, allocator_type alloc = {})
       : alloc_{alloc}, virtual_edge_v{ve}, type_(Type::VirtualEdge) {}
 
+  explicit TypedValue(const VirtualNode &vn, allocator_type alloc = {})
+      : alloc_{alloc}, virtual_node_v{vn}, type_(Type::VirtualNode) {}
+
   explicit TypedValue(const Path &path, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Path) {
     auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(path);
     alloc_trait::construct(alloc_, &path_v, path_ptr);
@@ -384,6 +389,9 @@ class TypedValue {
   explicit TypedValue(VirtualEdge &&ve, allocator_type alloc)
       : alloc_{alloc}, virtual_edge_v{std::move(ve)}, type_(Type::VirtualEdge) {}
 
+  explicit TypedValue(VirtualNode &&vn, allocator_type alloc)
+      : alloc_{alloc}, virtual_node_v{std::move(vn)}, type_(Type::VirtualNode) {}
+
   /**
    * Construct with the value of path.
    * allocator_type is obtained from path. After the move, path will be
@@ -455,6 +463,7 @@ class TypedValue {
   TypedValue &operator=(const VertexAccessor &);
   TypedValue &operator=(const EdgeAccessor &);
   TypedValue &operator=(const VirtualEdge &);
+  TypedValue &operator=(const VirtualNode &);
   TypedValue &operator=(const Path &);
   TypedValue &operator=(const utils::Date &);
   TypedValue &operator=(const utils::LocalTime &);
@@ -512,6 +521,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, virtual_edge_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, virtual_node_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
@@ -780,6 +790,7 @@ class TypedValue {
     std::unique_ptr<Graph> graph_v;
     std::function<void(TypedValue *)> function_v;
     VirtualEdge virtual_edge_v;
+    VirtualNode virtual_node_v;
   };
 
   /**

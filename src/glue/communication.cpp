@@ -117,6 +117,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
 
 namespace {
 communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db);
+communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db);
 }  // namespace
 
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
@@ -218,6 +219,11 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return storage::Result<Value>{std::in_place, ToBoltEdge(value.ValueVirtualEdge(), *db)};
     }
 
+    case query::TypedValue::Type::VirtualNode: {
+      check_db();
+      return storage::Result<Value>{std::in_place, ToBoltVertex(value.ValueVirtualNode(), *db)};
+    }
+
     // Unsupported conversions
     case query::TypedValue::Type::Function: {
       throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
@@ -285,32 +291,17 @@ storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, c
   return communication::bolt::Path(vertices, edges);
 }
 
-static communication::bolt::Vertex ToBoltVertex(const query::VertexAccessor &vertex,
-                                                const query::NodeOverride &node_override, const storage::Storage &db) {
-  auto id = communication::bolt::Id::FromUint(vertex.Gid().AsUint());
-  bolt_map_t properties;
-  for (const auto &[prop_id, prop_value] : node_override.properties) {
-    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
-  }
-  return {.id = id,
-          .labels = node_override.labels,
-          .properties = std::move(properties),
-          .element_id = std::to_string(id.AsInt())};
-}
-
 storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db, storage::View view) {
   bolt_map_t map;
   std::vector<Value> vertices;
-  vertices.reserve(graph.vertices().size());
-  const auto &overrides = graph.node_override_store();
+  vertices.reserve(graph.vertices().size() + graph.virtual_node_store().size());
   for (const auto &v : graph.vertices()) {
-    if (const auto *node_override = overrides.Find(v.Gid())) {
-      vertices.emplace_back(ToBoltVertex(v, *node_override, db));
-    } else {
-      auto maybe_vertex = ToBoltVertex(v, db, view);
-      if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
-      vertices.emplace_back(std::move(*maybe_vertex));
-    }
+    auto maybe_vertex = ToBoltVertex(v, db, view);
+    if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
+    vertices.emplace_back(std::move(*maybe_vertex));
+  }
+  for (const auto &[gid, vn] : graph.virtual_node_store().nodes()) {
+    vertices.emplace_back(ToBoltVertex(vn, db));
   }
   map.emplace("nodes", Value(vertices));
 
@@ -514,6 +505,16 @@ communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage
           .element_id = edge_id.ToString(),
           .from_element_id = from_id.ToString(),
           .to_element_id = to_id.ToString()};
+}
+
+communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db) {
+  auto id = communication::bolt::Id::FromUint(node.Gid().AsUint());
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : node.Properties()) {
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  return {
+      .id = id, .labels = node.Labels(), .properties = std::move(properties), .element_id = std::to_string(id.AsInt())};
 }
 }  // namespace
 

@@ -684,7 +684,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH derive(p, {virtualEdgeType: 'CONNECTED'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
             """
         Then the result should be:
             | n | e |
@@ -698,7 +698,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED', relationshipProperties: {score: 10}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.score AS s
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH derive(p, {virtualEdgeType: 'CONNECTED', relationshipProperties: {score: 10}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.score AS s
             """
         Then the result should be:
             | s  |
@@ -712,7 +712,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN type(e) AS t
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH derive(p, {virtualEdgeType: 'CONNECTED'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN type(e) AS t
             """
         Then the result should be:
             | t             |
@@ -726,7 +726,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'LINKED'}) AS graph RETURN size(graph.edges) AS e
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH derive(p, {virtualEdgeType: 'LINKED'}) AS graph RETURN size(graph.edges) AS e
             """
         Then the result should be:
             | e |
@@ -740,7 +740,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH derive(p, {virtualEdgeType: 'V'}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
             """
         Then the result should be:
             | n | e |
@@ -754,7 +754,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {}) AS graph RETURN graph
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH derive(p, {}) AS graph RETURN graph
             """
         Then an error should be raised
 
@@ -766,7 +766,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH (n:N {x:1}) WITH project_virtual(n, {virtualEdgeType: 'X'}) AS graph RETURN graph
+            MATCH (n:N {x:1}) WITH derive(n, {virtualEdgeType: 'X'}) AS graph RETURN graph
             """
         Then an error should be raised
 
@@ -778,7 +778,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'CONNECTED', relationshipProperties: {weight: 42}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.weight AS w
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH derive(p, {virtualEdgeType: 'CONNECTED', relationshipProperties: {weight: 42}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN e.weight AS w
             """
         Then the result should be:
             | w  |
@@ -792,7 +792,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN startNode(e).x AS s, endNode(e).x AS t
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH derive(p, {virtualEdgeType: 'V', sourceNodeProperties: {x: 1}, targetNodeProperties: {x: 3}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN startNode(e).x AS s, endNode(e).x AS t
             """
         Then the result should be:
             | s | t |
@@ -806,7 +806,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN id(e) IS NOT NULL AS has_id
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH derive(p, {virtualEdgeType: 'V'}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN id(e) IS NOT NULL AS has_id
             """
         Then the result should be:
             | has_id |
@@ -820,7 +820,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH project_virtual(p, {virtualEdgeType: 'V', relationshipProperties: {w: 5}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN properties(e) AS props, keys(e) AS k
+            MATCH p=(:N {x:1})-[*]->(:N {x:3}) WITH derive(p, {virtualEdgeType: 'V', relationshipProperties: {w: 5}}) AS graph WITH graph.edges AS edges UNWIND edges AS e RETURN properties(e) AS props, keys(e) AS k
             """
         Then the result should be:
             | props  | k    |
@@ -834,13 +834,13 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH project_virtual(p, {virtualEdgeType: 'V'}) AS graph WITH graph AS g RETURN size(g.edges) AS e, size(g.nodes) AS n
+            MATCH p=(:N {x:1})-[:R]->(:N {x:2}) WITH derive(p, {virtualEdgeType: 'V'}) AS graph WITH graph AS g RETURN size(g.edges) AS e, size(g.nodes) AS n
             """
         Then the result should be:
             | e | n |
             | 1 | 2 |
 
-    Scenario: Virtual node overrides do not affect vertex count
+    Scenario: Virtual node labels and properties via derive
         Given an empty graph
         And having executed
             """
@@ -848,7 +848,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH project_virtual(p, {virtualEdgeType: 'V', sourceNodeLabels: ['Expert'], sourceNodeProperties: {score: 99}}) AS graph RETURN size(graph.nodes) AS n
+            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH derive(p, {virtualEdgeType: 'V', sourceNodeLabels: ['Expert'], sourceNodeProperties: {score: 99}}) AS graph RETURN size(graph.nodes) AS n
             """
         Then the result should be:
             | n |
@@ -862,7 +862,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH project_virtual(p, {virtualEdgeType: 'V', targetNodeLabels: ['Target'], targetNodeProperties: {rank: 7}}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            MATCH p=(:N {x: 1})-[:R]->(:N {x: 2}) WITH derive(p, {virtualEdgeType: 'V', targetNodeLabels: ['Target'], targetNodeProperties: {rank: 7}}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
             """
         Then the result should be:
             | n | e |
@@ -876,7 +876,7 @@ Feature: Aggregations
             """
         When executing query:
             """
-            MATCH p=(:N {x: 1})-[*]->(:N {x: 3}) WITH project_virtual(p, {virtualEdgeType: 'V', relationshipProperties: {w: 10}, sourceNodeProperties: {score: 5}, targetNodeProperties: {score: 8}}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
+            MATCH p=(:N {x: 1})-[*]->(:N {x: 3}) WITH derive(p, {virtualEdgeType: 'V', relationshipProperties: {w: 10}, sourceNodeProperties: {score: 5}, targetNodeProperties: {score: 8}}) AS graph RETURN size(graph.nodes) AS n, size(graph.edges) AS e
             """
         Then the result should be:
             | n | e |

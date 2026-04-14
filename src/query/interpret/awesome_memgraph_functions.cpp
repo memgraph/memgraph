@@ -165,7 +165,7 @@ bool ArgIsType(const TypedValue &arg) {
   } else if constexpr (std::is_same_v<ArgType, Map>) {
     return arg.IsMap();
   } else if constexpr (std::is_same_v<ArgType, Vertex>) {
-    return arg.IsVertex();
+    return arg.IsVertex() || arg.IsVirtualNode();
   } else if constexpr (std::is_same_v<ArgType, Edge>) {
     return arg.IsEdge() || arg.IsVirtualEdge();
   } else if constexpr (std::is_same_v<ArgType, Path>) {
@@ -469,6 +469,13 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
+  } else if (value.IsVirtualNode()) {
+    TypedValue::TMap properties(ctx.memory);
+    for (const auto &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
+      properties.emplace(TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory),
+                         TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+    }
+    return TypedValue(std::move(properties));
   } else if (value.IsVertex()) {
     return get_properties(value.ValueVertex());
   } else if (value.IsVirtualEdge()) {
@@ -748,6 +755,8 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("RELATIONSHIP", ctx.memory);
     case TypedValue::Type::VirtualEdge:
       return TypedValue("VIRTUAL_RELATIONSHIP", ctx.memory);
+    case TypedValue::Type::VirtualNode:
+      return TypedValue("VIRTUAL_NODE", ctx.memory);
     case TypedValue::Type::Path:
       return TypedValue("PATH", ctx.memory);
     case TypedValue::Type::Date:
@@ -813,6 +822,13 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
     }
     return TypedValue(std::move(keys));
   }
+  if (value.IsVirtualNode()) {
+    TypedValue::TVector keys(ctx.memory);
+    for (const auto &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
+      keys.emplace_back(dba->PropertyToName(prop_id));
+    }
+    return TypedValue(std::move(keys));
+  }
 
   // map
   TypedValue::TVector keys(ctx.memory);
@@ -865,6 +881,14 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     }
     return TypedValue(std::move(values));
   }
+  if (value.IsVirtualNode()) {
+    TypedValue::TVector values(ctx.memory);
+    for (const auto &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
+      auto typed_value = TypedValue(prop_value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+      values.emplace_back(std::move(typed_value));
+    }
+    return TypedValue(std::move(values));
+  }
 
   // map
   TypedValue::TVector values(ctx.memory);
@@ -879,6 +903,13 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
   FType<Or<Null, Vertex>>("labels", args, nargs);
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualNode()) {
+    TypedValue::TVector labels(ctx.memory);
+    for (const auto &label : args[0].ValueVirtualNode().Labels()) {
+      labels.emplace_back(label);
+    }
+    return TypedValue(std::move(labels));
+  }
   TypedValue::TVector labels(ctx.memory);
   auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
   if (!maybe_labels) {
@@ -1151,6 +1182,8 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
   const auto &arg = args[0];
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
+  } else if (arg.IsVirtualNode()) {
+    return TypedValue(arg.ValueVirtualNode().CypherId(), ctx.memory);
   } else if (arg.IsVertex()) {
     return TypedValue(arg.ValueVertex().CypherId(), ctx.memory);
   } else if (arg.IsVirtualEdge()) {
@@ -1219,6 +1252,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     case Vertex:
     case Edge:
     case VirtualEdge:
+    case VirtualNode:
     case Path:
     case Graph:
     case Function:
@@ -1286,6 +1320,7 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
     case Vertex:
     case Edge:
     case VirtualEdge:
+    case VirtualNode:
     case Path:
     case Graph:
     case Function:

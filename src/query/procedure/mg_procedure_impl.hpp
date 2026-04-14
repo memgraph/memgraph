@@ -663,6 +663,9 @@ struct mgp_vertex {
   mgp_vertex(memgraph::query::SubgraphVertexAccessor v, mgp_graph *graph, allocator_type alloc)
       : alloc(alloc), impl(v), graph(graph) {}
 
+  mgp_vertex(memgraph::query::VirtualNode v, mgp_graph *graph, allocator_type alloc)
+      : alloc(alloc), impl(std::move(v)), graph(graph) {}
+
   mgp_vertex(const mgp_vertex &other, allocator_type alloc) : alloc(alloc), impl(other.impl), graph(other.graph) {}
 
   mgp_vertex(mgp_vertex &&other, allocator_type alloc) : alloc(alloc), impl(other.impl), graph(other.graph) {}
@@ -673,9 +676,18 @@ struct mgp_vertex {
   memgraph::query::VertexAccessor getImpl() const {
     return std::visit(
         memgraph::utils::Overloaded{[](const memgraph::query::VertexAccessor &impl) { return impl; },
-                                    [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
+                                    [](const memgraph::query::SubgraphVertexAccessor &impl) { return impl.impl_; },
+                                    [](const memgraph::query::VirtualNode &) -> memgraph::query::VertexAccessor {
+                                      throw std::logic_error{"getImpl() is not available for VirtualNode"};
+                                    }},
         this->impl);
   }
+
+  bool IsVirtualNode() const noexcept { return std::holds_alternative<memgraph::query::VirtualNode>(impl); }
+
+  const memgraph::query::VirtualNode &GetVirtualNode() const { return std::get<memgraph::query::VirtualNode>(impl); }
+
+  memgraph::query::VirtualNode &GetVirtualNode() { return std::get<memgraph::query::VirtualNode>(impl); }
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_vertex(const mgp_vertex &) = delete;
@@ -683,7 +695,13 @@ struct mgp_vertex {
   mgp_vertex &operator=(const mgp_vertex &) = delete;
   mgp_vertex &operator=(mgp_vertex &&) = delete;
 
-  bool operator==(const mgp_vertex &other) const noexcept { return other.getImpl() == this->getImpl(); }
+  bool operator==(const mgp_vertex &other) const noexcept {
+    if (IsVirtualNode() && other.IsVirtualNode()) {
+      return GetVirtualNode().Gid() == other.GetVirtualNode().Gid();
+    }
+    if (IsVirtualNode() || other.IsVirtualNode()) return false;
+    return other.getImpl() == this->getImpl();
+  }
 
   bool operator!=(const mgp_vertex &other) const noexcept { return !(*this == other); };
 
@@ -692,7 +710,8 @@ struct mgp_vertex {
   memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
 
   allocator_type alloc;
-  std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor> impl;
+  std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor, memgraph::query::VirtualNode>
+      impl;
   mgp_graph *graph;
 };
 
@@ -954,6 +973,7 @@ struct mgp_edges_iterator {
 
 struct mgp_vertices_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_vertices_iterator>;
+  using virtual_node_map_t = memgraph::utils::pmr::unordered_map<memgraph::storage::Gid, memgraph::query::VirtualNode>;
 
   /// @throw anything VerticesIterable may throw
   mgp_vertices_iterator(mgp_graph *graph, allocator_type alloc);
@@ -965,6 +985,11 @@ struct mgp_vertices_iterator {
   memgraph::query::VerticesIterable vertices;
   decltype(vertices.begin()) current_it;
   std::optional<mgp_vertex> current_v;
+
+  // Virtual node iteration (populated for subgraph context with virtual nodes)
+  bool has_virtual_nodes_{false};
+  virtual_node_map_t::const_iterator virtual_node_it_;
+  virtual_node_map_t::const_iterator virtual_node_end_;
 };
 
 struct mgp_type {

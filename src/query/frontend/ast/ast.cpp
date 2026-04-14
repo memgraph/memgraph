@@ -527,8 +527,8 @@ Aggregation::Aggregation(Expression *expression1, Expression *expression2, Aggre
   // COUNT without expression denotes COUNT(*) in cypher.
   DMG_ASSERT(expression1 || op == Aggregation::Op::COUNT, "All aggregations, except COUNT require expression1");
   DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::PROJECT_LISTS || op == Aggregation::Op::COLLECT_MAP ||
-                                         op == Aggregation::Op::PROJECT_PATH_OPTIONS),
-             "expression2 is obligatory in COLLECT_MAP, PROJECT_LISTS and PROJECT_PATH_OPTIONS, and invalid otherwise");
+                                         op == Aggregation::Op::DERIVE),
+             "expression2 is obligatory in COLLECT_MAP, PROJECT_LISTS and DERIVE, and invalid otherwise");
 }
 
 auto PropertyIxPath::Clone(AstStorage *storage) const -> PropertyIxPath {
