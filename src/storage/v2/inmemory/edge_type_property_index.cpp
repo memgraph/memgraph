@@ -224,7 +224,7 @@ bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId p
     if (it == index_container->end()) [[unlikely]] {
       return false;
     }
-    it->second->gauge_.release();
+    it->second->gauge_ = {};
 
     auto new_container = std::make_shared<IndexContainer>(*index_container);
     new_container->erase({edge_type, property});

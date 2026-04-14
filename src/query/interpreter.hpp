@@ -31,6 +31,7 @@
 #include "coordination/instance_status.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "coordination/utils.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "utils/resource_monitoring.hpp"
 #endif
 
@@ -258,6 +259,7 @@ struct CurrentDB {
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_db_{false};
+  metrics::ScopedGauge transaction_gauge_;
 };
 
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;

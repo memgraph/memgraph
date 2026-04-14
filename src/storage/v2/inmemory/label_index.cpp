@@ -228,7 +228,7 @@ bool InMemoryLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &up
     if (it == index->end()) [[unlikely]] {
       return false;
     }
-    it->second->gauge_.release();
+    it->second->gauge_ = {};
     auto new_index = std::make_shared<IndexContainer>(*index);
     new_index->erase(label);
     index = std::move(new_index);

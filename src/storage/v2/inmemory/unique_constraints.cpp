@@ -560,7 +560,7 @@ auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<Pro
     if (label_it == container->end()) return false;
     auto props_it = label_it->second.find(properties);
     if (props_it == label_it->second.end()) return false;
-    props_it->second->gauge_.release();
+    props_it->second->gauge_ = {};
 
     auto new_container = std::make_shared<Container>(*container);
     auto new_label_it = new_container->find(label);
