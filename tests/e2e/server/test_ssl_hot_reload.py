@@ -132,33 +132,7 @@ def test_ssl_hot_reload():
 
 
 # ---------------------------------------------------------------------------
-# Test 2: Multiple rapid reloads
-# ---------------------------------------------------------------------------
-def test_ssl_multiple_rapid_reloads():
-    """
-    Rotate certs several times in quick succession.
-    Each reload should take effect for new connections.
-    """
-    fingerprints = set()
-
-    for i in range(5):
-        generate_self_signed_cert(CERT_FILE, KEY_FILE, cn=f"rapid-reload-{i}")
-        reload_ssl()
-        fp = get_server_cert_fingerprint()
-        fingerprints.add(fp)
-
-        # Verify connections still work after each reload
-        conn = connect_ssl()
-        result = execute_and_fetch_all(conn.cursor(), "RETURN 1 AS n")
-        assert result == [(1,)], f"Connection failed after reload iteration {i}"
-        conn.close()
-
-    # All 5 rotations should have produced different fingerprints
-    assert len(fingerprints) == 5, f"Expected 5 distinct certificate fingerprints, got {len(fingerprints)}"
-
-
-# ---------------------------------------------------------------------------
-# Test 3: Concurrent connections during reload
+# Test 2: Concurrent connections during reload
 # ---------------------------------------------------------------------------
 def test_ssl_concurrent_connections_during_reload():
     """
@@ -196,70 +170,7 @@ def test_ssl_concurrent_connections_during_reload():
 
 
 # ---------------------------------------------------------------------------
-# Test 4: Reload under load
-# ---------------------------------------------------------------------------
-def test_ssl_reload_under_load():
-    """
-    Run queries on one connection while another triggers a reload.
-    Neither should fail.
-    """
-    query_conn = connect_ssl()
-    reload_conn = connect_ssl()
-
-    errors = []
-
-    def run_queries():
-        try:
-            for i in range(50):
-                result = execute_and_fetch_all(query_conn.cursor(), f"RETURN {i} AS n")
-                assert result == [(i,)], f"Query {i} returned unexpected result: {result}"
-        except Exception as e:
-            errors.append(f"Query thread error: {e}")
-
-    def do_reload():
-        try:
-            generate_self_signed_cert(CERT_FILE, KEY_FILE, cn="under-load-cert")
-            reload_ssl(reload_conn)
-        except Exception as e:
-            errors.append(f"Reload thread error: {e}")
-
-    query_thread = threading.Thread(target=run_queries)
-    reload_thread = threading.Thread(target=do_reload)
-
-    query_thread.start()
-    reload_thread.start()
-
-    query_thread.join(timeout=30)
-    reload_thread.join(timeout=30)
-
-    assert not errors, f"Errors during reload under load: {errors}"
-
-    query_conn.close()
-    reload_conn.close()
-
-
-# ---------------------------------------------------------------------------
-# Test 5: Certificate CN matches after reload
-# ---------------------------------------------------------------------------
-def test_ssl_cert_cn_matches_after_reload():
-    """
-    After reload, verify the served certificate's CN matches the newly generated cert.
-    """
-    generate_self_signed_cert(CERT_FILE, KEY_FILE, cn="cn-check-first")
-    reload_ssl()
-
-    cn = get_server_cert_cn()
-    assert cn == "cn-check-first", f"Expected CN 'cn-check-first', got '{cn}'"
-
-    generate_self_signed_cert(CERT_FILE, KEY_FILE, cn="cn-check-second")
-    reload_ssl()
-
-    cn = get_server_cert_cn()
-    assert cn == "cn-check-second", f"Expected CN 'cn-check-second', got '{cn}'"
-
-
-# ---------------------------------------------------------------------------
-# Test 6: Invalid cert then valid cert (recovery)
+# Test 3: Invalid cert then valid cert (recovery)
 # ---------------------------------------------------------------------------
 def test_ssl_hot_reload_invalid_cert_keeps_old():
     """

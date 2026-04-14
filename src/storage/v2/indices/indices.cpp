@@ -46,8 +46,8 @@ void Indices::RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &verti
   vector_index_.RemoveVertices(vertices_to_remove);
 }
 
-void Indices::RemoveEdgesFromVectorEdgeIndices(std::list<Gid> const &deleted_edge_gids) const {
-  vector_edge_index_.RemoveEdges(deleted_edge_gids);
+void Indices::RemoveEdgesFromVectorEdgeIndices(std::vector<Edge *> const &edges_to_remove) {
+  vector_edge_index_.RemoveEdges(edges_to_remove);
 }
 
 void Indices::DropGraphClearIndices() {
@@ -144,7 +144,7 @@ Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_i
                         .edge_type_property_ = active_indices.edge_type_properties_->GetAbortProcessor(),
                         .edge_property_ = active_indices.edge_property_->GetAbortProcessor(),
                         .vector_ = vector_index_.GetAbortProcessor(),
-                        .vector_edge_ = vector_edge_index_.Analysis()};
+                        .vector_edge_ = vector_edge_index_.GetAbortProcessor()};
 }
 
 void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
@@ -187,7 +187,8 @@ void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, Prop
 }
 
 bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) {
-  return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property);
+  return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property) ||
+         vector_edge_.IsInteresting(property);
 }
 
 void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
@@ -198,5 +199,6 @@ void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices const &act
   active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, start_timestamp);
   active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, start_timestamp);
   indices.vector_index_.AbortEntries(&indices, name_id_mapper, vector_.cleanup_collection);
+  indices.vector_edge_index_.AbortEntries(vector_edge_.cleanup_collection);
 }
 }  // namespace memgraph::storage

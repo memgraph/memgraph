@@ -23,7 +23,11 @@
 
 namespace memgraph::io::network {
 
-enum class ClientCommunicationError : uint8_t { TIMEOUT_ERROR, GENERIC_ERROR };
+enum class ClientCommunicationError : uint8_t {
+  SOCKET_FAILED_TO_CONNECT,  // failed to establish socket connection
+  TIMEOUT_ERROR,
+  GENERIC_ERROR
+};
 
 /**
  * This class creates a network socket.

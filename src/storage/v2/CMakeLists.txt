@@ -70,6 +70,7 @@ target_sources(mg-storage-v2
         schema_info.cpp
         snapshot_progress.cpp
         storage.cpp
+        storage_error.cpp
         storage_mode.cpp
         temporal.cpp
         transaction.cpp
@@ -157,6 +158,7 @@ target_link_libraries(mg-storage-v2
     mg::replication
     Threads::Threads
     mg-utils
+    mg-aws
     mg-flags
     gflags
     abseil::abseil

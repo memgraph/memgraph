@@ -1988,6 +1988,10 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     }
   }
 
+  if (yield_ctx->where()) {
+    call_proc->where_ = std::any_cast<Where *>(yield_ctx->where()->accept(this));
+  }
+
   return call_proc;
 }
 

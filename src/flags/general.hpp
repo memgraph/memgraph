@@ -38,7 +38,13 @@ DECLARE_string(init_data_file);
 
 // General purpose flags.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(strict_flag_check);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(data_directory);
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint32(data_dir_lock_acquisition_timeout_sec);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(data_recovery_on_startup);

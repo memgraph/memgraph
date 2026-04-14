@@ -131,6 +131,10 @@ modifications:
     value: "/var/log/memgraph/session_trace"
     override: true
 
+  - name: "strict_flag_check"
+    value: "false"
+    override: false
+
 undocumented:
   - "flag_file"
   - "also_log_to_stderr"

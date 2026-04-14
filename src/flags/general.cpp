@@ -25,6 +25,7 @@
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
+#include "utils/system_info.hpp"
 
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -53,7 +54,14 @@ DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creatin
 
 // General purpose flags.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(strict_flag_check, true, "If true, error and exit when suspicious positional arguments are detected.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint32(data_dir_lock_acquisition_timeout_sec, 30,
+              "Timeout before the failure of acquiring file lock on data directory is considered a failure.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(data_recovery_on_startup, true, "Controls whether the database recovers persisted data on startup.");
@@ -112,13 +120,13 @@ DEFINE_bool(storage_parallel_snapshot_creation, false,
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_snapshot_thread_count,
-              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+              std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
                        memgraph::storage::Config::Durability().snapshot_thread_count),
               "The number of threads used to create snapshots.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
-              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+              std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
                        memgraph::storage::Config::Durability().recovery_thread_count),
               "The number of threads used to recover persisted data from disk.");
 

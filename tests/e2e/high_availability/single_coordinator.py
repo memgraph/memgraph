@@ -25,11 +25,7 @@ from common import (
     show_replication_role,
     wait_until_main_writeable_assert_replica_down,
 )
-from mg_utils import (
-    mg_sleep_and_assert,
-    mg_sleep_and_assert_collection,
-    mg_sleep_and_assert_until_role_change,
-)
+from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection, mg_sleep_and_assert_until_role_change
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -126,8 +122,7 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
                 "TRACE",
                 "--management-port",
                 "10011",
-                "--replication-restore-state-on-startup",
-                "true",
+                "--replication-restore-state-on-startup=true",
                 f"--data-recovery-on-startup={data_recovery_on_startup}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
@@ -142,8 +137,7 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
                 "TRACE",
                 "--management-port",
                 "10012",
-                "--replication-restore-state-on-startup",
-                "true",
+                "--replication-restore-state-on-startup=true",
                 f"--data-recovery-on-startup={data_recovery_on_startup}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
@@ -158,10 +152,8 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
                 "TRACE",
                 "--management-port",
                 "10013",
-                "--replication-restore-state-on-startup",
-                "true",
-                "--data-recovery-on-startup",
-                f"{data_recovery_on_startup}",
+                "--replication-restore-state-on-startup=true",
+                f"--data-recovery-on-startup={data_recovery_on_startup}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_3",
@@ -175,10 +167,8 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
                 "TRACE",
                 "--management-port",
                 "10014",
-                "--replication-restore-state-on-startup",
-                "true",
-                "--data-recovery-on-startup",
-                f"{data_recovery_on_startup}",
+                "--replication-restore-state-on-startup=true",
+                f"--data-recovery-on-startup={data_recovery_on_startup}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_4.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_4",
@@ -290,7 +280,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:2});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    assert "Failed to replicate to SYNC replica" in str(e.value)
 
     assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
 
@@ -449,7 +439,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:1});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    assert "Failed to replicate to SYNC replica" in str(e.value)
 
     assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
     assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
@@ -714,7 +704,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch3Vertex {prop:1});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    assert "Failed to replicate to SYNC replica" in str(e.value)
 
     # 14
 
@@ -1057,7 +1047,7 @@ def test_replication_works_on_replica_instance_restart(test_name):
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE ();")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    assert "Failed to replicate to SYNC replica" in str(e.value)
 
     res_instance_1 = execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
     assert res_instance_1 == 1
