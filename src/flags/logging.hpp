@@ -42,4 +42,6 @@ void AddLoggerSink(spdlog::sink_ptr new_sink);
 void TurnOffStdErr();
 // Sets logging level to the global logging level
 void TurnOnStdErr();
+void CleanLogsDir();
+
 }  // namespace memgraph::flags

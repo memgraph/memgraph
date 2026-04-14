@@ -1,0 +1,13 @@
+{% set current_dir = os.getcwd() %}
+{% set ubsan_ignore_path = os.path.join(current_dir, 'tools', 'ubsan.ignore') %}
+{% set ubsan_ignore_hash = os.popen("md5sum " + ubsan_ignore_path + " | cut -c1-8").read().strip() %}
+
+[settings]
+compiler.ubsan=True
+compiler.ubsan_ignorelist_hash={{ ubsan_ignore_hash }}
+
+[conf]
+tools.build:cflags+=["-fsanitize=undefined", "-fno-omit-frame-pointer", "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ ubsan_ignore_path }}"]
+tools.build:cxxflags+=["-fsanitize=undefined", "-fno-omit-frame-pointer", "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ ubsan_ignore_path }}"]
+tools.build:exelinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr,function"]
+tools.build:sharedlinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr,function"]

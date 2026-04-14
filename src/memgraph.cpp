@@ -62,6 +62,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/concurrency_hint.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -250,6 +251,7 @@ void CleanDataDir(std::filesystem::path const &data_directory) {
 
 int main(int argc, char **argv) {
   memgraph::memory::SetHooks();
+  memgraph::memory::EnableBackgroundThreads();
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
 
@@ -259,6 +261,9 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   CheckSuspiciousPositionalArgs(argc, argv);
   WarnDeprecatedFlags();
+
+  // Publish worker count early so allocators can pre-size thread-local structures
+  memgraph::utils::SetNumWorkers(FLAGS_bolt_num_workers);
 
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
@@ -380,6 +385,7 @@ int main(int argc, char **argv) {
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
   CleanDataDir(data_directory);
+  memgraph::flags::CleanLogsDir();
 
   memgraph::utils::EnsureDirOrDie(data_directory);
   // Verify that the user that started the process is the same user that is
@@ -387,15 +393,20 @@ int main(int argc, char **argv) {
   memgraph::storage::durability::VerifyStorageDirectoryOwnerAndProcessUserOrDie(data_directory);
   // Create the lock file and open a handle to it. This will crash the
   // database if it can't open the file for writing or if any other process is
-  // holding the file opened.
+  // holding the file opened after timeout occurs
   memgraph::utils::OutputFile lock_file_handle;
-  lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
-  MG_ASSERT(lock_file_handle.AcquireLock(),
-            "Couldn't acquire lock on the storage directory {}"
-            "!\nAnother Memgraph process is currently running with the same "
-            "storage directory, please stop it first before starting this "
-            "process!",
+  MG_ASSERT(lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING),
+            "Failed to open {}/.lock file",
             data_directory);
+  MG_ASSERT(lock_file_handle.AcquireLockWithTimeout(FLAGS_data_dir_lock_acquisition_timeout_sec),
+            "Couldn't acquire lock on the storage directory {} within {}s!"
+            "Another Memgraph process is currently running with the same "
+            "storage directory, please stop it first before restarting this "
+            "process!",
+            data_directory,
+            FLAGS_data_dir_lock_acquisition_timeout_sec);
+
+  spdlog::trace("Successfully acquired lock on data directory");
 
   const auto memory_limit = memgraph::flags::GetMemoryLimit();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
@@ -436,12 +447,16 @@ int main(int argc, char **argv) {
       data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
   // Start the log if enabled.
   if (FLAGS_audit_enabled) {
-    audit_log.Start();
+    MG_ASSERT(audit_log.Start(), "Failed to open audit file {}", data_directory / "audit");
   }
   // Setup SIGUSR2 to be used for reopening audit log files, when e.g. logrotate
   // rotates our audit logs.
   MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::User2,
-                                                            [&audit_log]() { audit_log.ReopenLog(); }),
+                                                            [&audit_log]() {
+                                                              if (audit_log.ReopenLog()) {
+                                                                spdlog::info("Successfully reopened audit log");
+                                                              }
+                                                            }),
             "Unable to register SIGUSR2 handler!");
 
   // End enterprise features initialization
@@ -500,10 +515,6 @@ int main(int argc, char **argv) {
   spdlog::info("config recover on startup {}, flags {}",
                db_config.durability.recover_on_startup,
                FLAGS_data_recovery_on_startup);
-  memgraph::utils::Scheduler jemalloc_purge_scheduler;
-  jemalloc_purge_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_gc_cycle_sec));
-  jemalloc_purge_scheduler.Run("Jemalloc purge", [] { memgraph::memory::PurgeUnusedMemory(); });
-
   using namespace std::chrono_literals;
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
@@ -845,14 +856,19 @@ int main(int argc, char **argv) {
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry.emplace(telemetry_server,
-                      data_directory / "telemetry",
-                      memgraph::glue::run_id_,
-                      machine_id,
-                      service_name == "BoltS",
-                      FLAGS_data_directory,
-                      std::chrono::hours(8),
-                      1);
+    try {
+      telemetry.emplace(telemetry_server,
+                        data_directory / "telemetry",
+                        memgraph::glue::run_id_,
+                        machine_id,
+                        service_name == "BoltS",
+                        FLAGS_data_directory,
+                        std::chrono::hours(8),
+                        1);
+    } catch (std::exception const &e) {
+      spdlog::error("Failed to initialize telemetry. Error: {}", e.what());
+      return EXIT_FAILURE;
+    }
     telemetry->AddStorageCollector(dbms_handler, *auth_, *parameters);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);

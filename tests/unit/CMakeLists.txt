@@ -26,7 +26,7 @@ find_package(Boost REQUIRED CONFIG COMPONENTS filesystem)
 
 # Test integrations-kafka
 add_library(kafka-mock STATIC kafka_mock.cpp)
-target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads GTest::gtest)
+target_link_libraries(kafka-mock mg-utils RdKafka::rdkafka++ Threads::Threads GTest::gtest)
 
 # Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
 add_unit_test(integrations_kafka_consumer
@@ -334,7 +334,7 @@ add_unit_test(utils_algorithm
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
-    LINK_TARGETS mg-utils
+    LINK_TARGETS mg-utils mg-aws
 )
 
 add_unit_test(utils_barrier
@@ -415,7 +415,7 @@ add_unit_test(utils_rwlock
 
 add_unit_test(utils_scheduler
     SOURCES utils_scheduler.cpp
-    LINK_TARGETS mg-utils
+    LINK_TARGETS mg-utils mg-flags mg-settings
 )
 
 add_unit_test(utils_signals
@@ -485,7 +485,7 @@ add_unit_test(utils_async_timer
 
 add_unit_test(license
     SOURCES license.cpp
-    LINK_TARGETS mg-utils mg-license
+    LINK_TARGETS mg-utils mg-license mg-flags
 )
 
 add_unit_test(utils_settings
@@ -1067,3 +1067,13 @@ if (MG_ENTERPRISE)
         ${CMAKE_SOURCE_DIR}/query_modules/mg_utility
     )
 endif ()
+
+add_unit_test(safe_hardware_concurrency
+    SOURCES safe_hardware_concurrency.cpp
+    LINK_TARGETS mg-utils)
+
+# Test log retention cleanup
+add_unit_test(logging
+    SOURCES logging.cpp
+    LINK_TARGETS gflags mg-flags
+)

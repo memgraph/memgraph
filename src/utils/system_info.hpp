@@ -55,6 +55,17 @@ std::string ExtractArmCPUVariant(const std::vector<std::string> &cpu_data);
 RuntimeEnv DetectRuntimeEnv();
 
 /**
+ * Returns the number of hardware threads available, with a guaranteed
+ * non-zero result. Tries std::thread::hardware_concurrency() first,
+ * falls back to parsing /proc/cpuinfo, and finally uses the numeric
+ * fallback if neither source succeeds.
+ *
+ * @param fallback Value to use as a last resort (default: 2).
+ * @return Number of hardware threads, always > 0.
+ */
+unsigned GetSafeHardwareConcurrency(unsigned fallback = 2);
+
+/**
  * This function return a dictionary containing some basic system information
  * (eg. operating system name, cpu information, memory information, etc.).
  */

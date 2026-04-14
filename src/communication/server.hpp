@@ -26,6 +26,7 @@
 #include "io/network/socket.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
+#include "utils/system_info.hpp"
 #include "utils/thread.hpp"
 
 namespace memgraph::communication {
@@ -61,7 +62,7 @@ class Server final {
    */
   Server(io::network::Endpoint endpoint, TSessionContext *session_context, ServerContext *context,
          int inactivity_timeout_sec, const std::string &service_name,
-         size_t workers_count = std::thread::hardware_concurrency())
+         size_t workers_count = memgraph::utils::GetSafeHardwareConcurrency())
       : alive_(false),
         endpoint_(std::move(endpoint)),
         listener_(session_context, context, inactivity_timeout_sec, service_name, workers_count),
