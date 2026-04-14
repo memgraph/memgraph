@@ -6771,9 +6771,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
             {TypedValue("global_runtime_allocation_limit"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.MaximumHardLimit())))},
-            {TypedValue("global_license_allocation_limit"),
-             TypedValue(utils::GetReadableSize(
-                 static_cast<double>(license::global_license_checker.GetDetailedLicenseInfo().memory_limit)))},
+            {TypedValue("global_license_allocation_limit"), TypedValue([&] {
+               const auto lic_limit = license::global_license_checker.GetDetailedLicenseInfo().memory_limit;
+               return lic_limit != 0 ? utils::GetReadableSize(static_cast<double>(lic_limit)) : "unlimited";
+             }())},
             {TypedValue("graph_memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
             {TypedValue("vector_index_memory_tracked"),

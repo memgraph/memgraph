@@ -128,7 +128,8 @@ LicenseChecker::~LicenseChecker() { Finalize(); }
 void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   spdlog::trace("License revalidation started");
 
-  // Passing 0 to SetHardLimit restores the limit to maximum_hard_limit_ (the --memory-limit flag value).
+  // Passing 0 to SetHardLimit restores the limit to maximum_hard_limit_ (the --memory-limit flag value)
+  // if --memory-limit was configured. If it was not (maximum_hard_limit_ == 0), this is a no-op.
   constexpr int64_t kUseDefaultMemoryLimit = 0;
 
   struct PreviousMemoryState {
@@ -247,12 +248,22 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
 void LicenseChecker::EnableTesting(const LicenseType license_type) {
   enterprise_enabled_ = true;
   license_type_ = license_type;
+  {
+    auto locked = previous_license_info_.Lock();
+    locked->emplace("test-key", "test-org");
+    (*locked)->is_valid = true;
+    (*locked)->license.type = license_type;
+  }
   is_valid_.store(true, std::memory_order_release);
   spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
 }
 
 void LicenseChecker::DisableTesting() {
   enterprise_enabled_ = false;
+  {
+    auto locked = previous_license_info_.Lock();
+    locked->reset();
+  }
   is_valid_.store(false, std::memory_order_relaxed);
   spdlog::info("The license is disabled for testing.");
 }
