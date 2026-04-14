@@ -287,7 +287,10 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
       for (auto level = skip_lower_bound_check ? 1 : 0; level < lower_bound.size(); ++level) {
         switch (value_within_bounds(lower_bound[level], upper_bound[level], index_iterator->values.values_[level])) {
           case InBoundResult::UNDER: {
-            return out_of_range_below;
+            // At level 0, out_of_range_below is direction-dependent: ASC→Skip, DESC→NoMoreValidEntries.
+            // At level >= 1, a secondary property below range doesn't mean all remaining entries are invalid
+            // (the next entry may have a different primary value), so always Skip.
+            return level == 0 ? out_of_range_below : Result::Skip;
           }
           case InBoundResult::IN_BOUNDS: {
             break;

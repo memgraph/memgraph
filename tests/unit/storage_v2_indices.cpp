@@ -20,6 +20,7 @@
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
@@ -2104,6 +2105,84 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
            EXPECT_TRUE(values[1].ValueDouble() >= 1 && values[1].ValueDouble() <= 3);
          }
        });
+}
+
+// Regression test: composite DESC index with range bounds on non-leading property.
+// Before the fix, AdvanceUntilValid_ returned NoMoreValidEntries when a secondary
+// property fell below its lower bound during DESC iteration, prematurely terminating
+// the scan and missing valid entries with different primary property values.
+TYPED_TEST(IndexTest, LabelPropertyDescCompositeIndexRangeBounds) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support DESC indices";
+  }
+
+  // Create DESC composite index on (prop_a, prop_b)
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(
+        !acc->CreateIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}}, IndexOrder::DESC)
+             .has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Insert vertices with (a, b) pairs. DESC skip list order will be:
+  // (3,5), (3,3), (3,0), (2,7), (2,3), (1,5), (1,3)
+  //
+  // Query: 1 <= a <= 3 AND 1 <= b <= 5
+  // Expected valid: (3,5), (3,3), (2,3), (1,5), (1,3)
+  //
+  // Bug: at (3,0), level 0 a=3 IN_BOUNDS, level 1 b=0 UNDER → NoMoreValidEntries.
+  // This prematurely stops iteration, missing (2,3), (1,5), (1,3).
+  struct VertexData {
+    int a;
+    int b;
+    int64_t id;
+  };
+
+  std::vector<VertexData> vertices_data = {
+      {3, 5, -1},
+      {3, 3, -1},
+      {3, 0, -1},
+      {2, 7, -1},
+      {2, 3, -1},
+      {1, 5, -1},
+      {1, 3, -1},
+  };
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (auto &vd : vertices_data) {
+      auto vertex = this->CreateVertex(acc.get());
+      vd.id = vertex.GetProperty(this->prop_id, View::NEW)->ValueInt();
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue(vd.a)));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue(vd.b)));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto bounded = [](int lower, int upper) {
+    return pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(lower)),
+                      memgraph::utils::MakeBoundInclusive(PropertyValue(upper)));
+  };
+
+  // Query: 1 <= a <= 3 AND 1 <= b <= 5
+  auto result_ids = this->GetIds(acc->Vertices(this->label1,
+                                               std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}},
+                                               std::array{bounded(1, 3), bounded(1, 5)},
+                                               View::OLD,
+                                               IndexOrder::DESC),
+                                 View::OLD);
+
+  // Expected: vertices with (3,5), (3,3), (2,3), (1,5), (1,3)
+  std::vector<int64_t> expected_ids;
+  for (auto const &vd : vertices_data) {
+    if (vd.a >= 1 && vd.a <= 3 && vd.b >= 1 && vd.b <= 5) {
+      expected_ids.push_back(vd.id);
+    }
+  }
+  EXPECT_THAT(result_ids, ::testing::UnorderedElementsAreArray(expected_ids));
 }
 
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
