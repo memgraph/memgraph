@@ -194,10 +194,6 @@ std::string PermissionLevelToString(PermissionLevel level) {
 
 #ifdef MG_ENTERPRISE
 std::string FineGrainedPermissionToString(uint64_t const permission, bool const is_label) {
-  if (permission == 0) {
-    return "";
-  }
-
   std::vector<std::string> permissions;
   if (permission & FineGrainedPermission::CREATE) {
     permissions.emplace_back("CREATE");
@@ -625,6 +621,7 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
         }
       }
 
+      if (grants == FineGrainedPermission::NONE && denies == FineGrainedPermission::NONE) continue;
       rules.push_back({symbols, grants, denies, matching_mode});
     }
   }
@@ -637,10 +634,6 @@ std::optional<uint64_t> const &FineGrainedAccessPermissions::GetGlobalGrants() c
 std::optional<uint64_t> const &FineGrainedAccessPermissions::GetGlobalDenies() const { return global_denies_; }
 
 std::vector<FineGrainedAccessRule> const &FineGrainedAccessPermissions::GetRules() const { return rules_; }
-
-bool FineGrainedAccessPermissions::HasAnyRuleDenies() const {
-  return std::ranges::any_of(rules_, [](auto const &rule) { return rule.denies != FineGrainedPermission::NONE; });
-}
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
   return first.GetGlobalGrants() == second.GetGlobalGrants() && first.GetGlobalDenies() == second.GetGlobalDenies() &&
