@@ -9,6 +9,11 @@ def components(
 
 
 @mgp.function
+def version() -> str:
+    return "5.9.0"
+
+
+@mgp.function
 def validate_predicate(predicate: bool, message: str, params: list):
     if predicate:
         raise Exception(message % tuple(params))

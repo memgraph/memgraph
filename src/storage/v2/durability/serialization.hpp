@@ -44,10 +44,10 @@ class BaseEncoder {
 template <typename FileType>
 class Encoder final : public BaseEncoder {
  public:
-  void Initialize(const std::filesystem::path &path);
-  void Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
+  bool Initialize(const std::filesystem::path &path);
+  bool Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
 
-  void OpenExisting(const std::filesystem::path &path);
+  bool OpenExisting(const std::filesystem::path &path);
 
   void Close();
   // Main write function, the only one that is allowed to write to the `file_`

@@ -337,7 +337,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Create the lock file and open a handle to it. This will crash the
     // database if it can't open the file for writing or if any other process is
     // holding the file opened.
-    lock_file_handle_->Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    MG_ASSERT(lock_file_handle_->Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING),
+              "Failed to open {}",
+              lock_file_path_);
     MG_ASSERT(lock_file_handle_->AcquireLock(),
               "Couldn't acquire lock on the storage directory {}"
               "!\nAnother Memgraph process is currently running with the same "
@@ -2077,10 +2079,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
-  auto vertices_acc = in_memory->vertices_.access();
-  if (vector_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
+  if (vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
-  } else if (vector_edge_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
+  } else if (vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   } else {
     return std::unexpected{IndexDefinitionError{}};
@@ -4012,7 +4013,9 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
     if (uuid() != loaded_snapshot_uuid) {
       // Rewrite the UUID in the snapshot file
-      durability::OverwriteSnapshotUUID(local_path, uuid());
+      if (!durability::OverwriteSnapshotUUID(local_path, uuid())) {
+        return std::unexpected{InMemoryStorage::RecoverSnapshotError::FailedOverwritingUUID};
+      }
     }
     // Generate new name for the snapshot file
     // Must be after moving to .old, otherwise you will move the file itself

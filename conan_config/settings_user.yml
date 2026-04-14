@@ -9,4 +9,5 @@ compiler:
   clang:
     asan: [null, True]
     ubsan: [null, True]
+    ubsan_ignorelist_hash: [null, ANY]
     tsan: [null, True]
