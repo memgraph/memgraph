@@ -170,6 +170,7 @@ target_link_libraries(mg-query
     mg::system
     mg-flags
     mg-dbms
+    mg-coordination
     mg-events
     mg-parameters
     mg::planner
@@ -177,6 +178,7 @@ target_link_libraries(mg-query
     arrow::arrow
     mg-module-support
     mg-cpp-api
+    ctre::ctre
     simdjson::simdjson
 )
 
@@ -208,8 +210,6 @@ set(antlr_opencypher_generated_include
     ${opencypher_generated}/MemgraphCypherBaseVisitor.h
     ${opencypher_generated}/MemgraphCypherVisitor.h
 )
-include_directories(${antlr4-runtime_INCLUDE_DIR})
-
 add_custom_command(
     OUTPUT ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
@@ -226,6 +226,7 @@ add_custom_target(generate_opencypher_parser
 
 add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src})
 add_dependencies(antlr_opencypher_parser_lib generate_opencypher_parser)
-target_link_libraries(antlr_opencypher_parser_lib antlr4_static)
+target_include_directories(antlr_opencypher_parser_lib PUBLIC ${antlr4-runtime_INCLUDE_DIR})
+target_link_libraries(antlr_opencypher_parser_lib PRIVATE antlr4_static)
 
 target_link_libraries(mg-query PUBLIC antlr_opencypher_parser_lib)

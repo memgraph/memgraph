@@ -52,7 +52,7 @@ add_dependencies(memgraph mgconsole)
 
 # Link memgraph with custom libstdc++
 message(STATUS "Linking memgraph with custom libstdc++")
-target_link_libraries(memgraph "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>" Threads::Threads
+target_link_libraries(memgraph PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>" Threads::Threads
         mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-utils mg-license mg-settings mg-parameters mg-glue mg-flags mg::system mg::replication_handler
         libstdc++_custom)
 target_link_options(memgraph PRIVATE -nostdlib++)
@@ -62,7 +62,7 @@ target_link_options(memgraph PRIVATE -nostdlib++)
 # symbols in custom procedure module libraries.
 # The better approach might be to use visibility to define what to export. This is a simple way to have targeted
 # exporting of symbols without having to deal with all the libraries and their visibility.
-target_link_libraries(memgraph "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
+target_link_options(memgraph PRIVATE "LINKER:--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
 # Set RPATH for custom libstdc++
 set_target_properties(memgraph PROPERTIES
     OUTPUT_NAME "memgraph"
