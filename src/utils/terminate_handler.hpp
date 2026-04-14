@@ -22,7 +22,7 @@
 namespace memgraph::utils {
 
 /**
- * Dump stacktrace to the stream and abort the probram. For more details
+ * Dump stacktrace to the stream and abort the program. For more details
  * about the abort please take a look at
  * http://en.cppreference.com/w/cpp/utility/program/abort.
  */
