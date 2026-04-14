@@ -37,6 +37,20 @@ def _load_config_from_env():
     config["ldap_uri"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_URI", "")
     config["ldap_base_dn"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_BASE_DN", "")
     config["ldap_search_base"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_SEARCH_BASE", "")
+    # LDAP auth: "gssapi" (default, uses keytab) or "simple" (bind DN + password)
+    config["ldap_auth"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_AUTH", "gssapi")
+    config["ldap_bind_dn"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_BIND_DN", "")
+    config["ldap_bind_password"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_BIND_PASSWORD", "")
+    # LDAP attribute that matches the Kerberos principal name (default: sAMAccountName for AD)
+    config["ldap_user_attribute"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_USER_ATTRIBUTE", "sAMAccountName")
+    config["ldap_user_object_class"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_USER_OBJECT_CLASS", "user")
+    # Custom LDAP user search filter (optional). Use {username} as placeholder.
+    # If not set, defaults to: (&(objectClass={object_class})({user_attribute}={username}))
+    config["ldap_user_search_filter"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_USER_SEARCH_FILTER", "")
+    # LDAP attribute containing group memberships (default: memberOf)
+    config["ldap_group_membership_attribute"] = os.environ.get(
+        "MEMGRAPH_SSO_KERBEROS_LDAP_GROUP_MEMBERSHIP_ATTRIBUTE", "memberOf"
+    )
     return config
 
 
@@ -70,18 +84,30 @@ def _resolve_roles_ldap(client_principal: str, role_mapping: dict, config: dict)
 
     try:
         server = ldap3.Server(ldap_uri, get_info=ldap3.ALL)
-        conn = ldap3.Connection(server, authentication=ldap3.SASL, sasl_mechanism=ldap3.KERBEROS)
+        if config["ldap_auth"] == "simple":
+            conn = ldap3.Connection(server, user=config["ldap_bind_dn"], password=config["ldap_bind_password"])
+        else:
+            conn = ldap3.Connection(server, authentication=ldap3.SASL, sasl_mechanism=ldap3.KERBEROS)
         if not conn.bind():
             return {"error": f"LDAP bind failed: {conn.result}"}
 
-        # Search for the user by sAMAccountName and read their memberOf attribute
-        search_filter = f"(&(objectClass=user)(sAMAccountName={ldap3.utils.conv.escape_filter_chars(principal_name)}))"
-        conn.search(search_base, search_filter, attributes=["memberOf"])
+        custom_filter = config["ldap_user_search_filter"]
+        if custom_filter:
+            search_filter = custom_filter.replace("{username}", ldap3.utils.conv.escape_filter_chars(principal_name))
+        else:
+            user_attr = config["ldap_user_attribute"]
+            user_obj_class = config["ldap_user_object_class"]
+            search_filter = (
+                f"(&(objectClass={user_obj_class})({user_attr}={ldap3.utils.conv.escape_filter_chars(principal_name)}))"
+            )
+        group_attr = config["ldap_group_membership_attribute"]
+        conn.search(search_base, search_filter, attributes=[group_attr])
 
         if not conn.entries:
             return {"error": f"User {principal_name} not found in LDAP under {search_base}"}
 
-        member_of = conn.entries[0].memberOf.values if conn.entries[0].memberOf else []
+        group_entry = conn.entries[0][group_attr] if group_attr in conn.entries[0] else None
+        member_of = group_entry.values if group_entry else []
         conn.unbind()
     except Exception as e:
         return {"error": f"LDAP query failed: {str(e)}"}

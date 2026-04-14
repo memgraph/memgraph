@@ -41,6 +41,7 @@ def _setup_env(monkeypatch, overrides=None):
         "MEMGRAPH_SSO_KERBEROS_REALM": "EXAMPLE.COM",
         "MEMGRAPH_SSO_KERBEROS_USERNAME_FIELD": "name",
         "MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING": "*:analyst",
+        "MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING_MODE": "principal",
     }
     if overrides:
         defaults.update(overrides)
