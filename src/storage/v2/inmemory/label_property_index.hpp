@@ -392,11 +392,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
-  bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
-                 ActiveIndicesUpdater const &updater) override;
-
-  bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties, ActiveIndicesUpdater const &updater,
-                 IndexOrder order);
+  DropResult DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
+                       ActiveIndicesUpdater const &updater) override;
 
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ClearIndexStats();
 
@@ -413,6 +410,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void DropGraphClearIndices() override;
 
  private:
+  void DropSingleOrder(LabelId label, std::vector<PropertyPath> const &properties, ActiveIndicesUpdater const &updater,
+                       IndexOrder order);
   void CleanupAllIndices();
   void CleanupStatsForDrop(IndexContainer const &new_index, LabelId label, std::vector<PropertyPath> const &properties);
 

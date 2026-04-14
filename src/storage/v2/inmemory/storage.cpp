@@ -1949,25 +1949,22 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
 
-  // Drop both ASC and DESC separately so we can emit the correct WAL deltas
-  bool dropped_asc = false;
-  bool dropped_desc = false;
+  LabelPropertyIndex::DropResult drop_result;
   storage_->invalidator_->invalidate_now([&] {
-    dropped_asc = mem_label_property_index->DropIndex(label, properties, updater, IndexOrder::ASC);
-    dropped_desc = mem_label_property_index->DropIndex(label, properties, updater, IndexOrder::DESC);
-    return dropped_asc || dropped_desc;
+    drop_result = mem_label_property_index->DropIndex(label, properties, updater);
+    return static_cast<bool>(drop_result);
   });
-  if (!dropped_asc && !dropped_desc) {
+  if (!drop_result) {
     return std::unexpected{IndexDefinitionError{}};
   }
 
-  if (dropped_asc) {
+  if (drop_result.dropped_asc) {
     transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop,
                                         label,
                                         std::vector<storage::PropertyPath>(properties),
                                         IndexOrder::ASC);
   }
-  if (dropped_desc) {
+  if (drop_result.dropped_desc) {
     transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop,
                                         label,
                                         std::vector<storage::PropertyPath>(properties),

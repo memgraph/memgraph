@@ -191,8 +191,15 @@ class LabelPropertyIndex {
 
   virtual ~LabelPropertyIndex() = default;
 
-  virtual bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
-                         ActiveIndicesUpdater const &updater) = 0;
+  struct DropResult {
+    bool dropped_asc = false;
+    bool dropped_desc = false;
+
+    explicit operator bool() const { return dropped_asc || dropped_desc; }
+  };
+
+  virtual DropResult DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
+                               ActiveIndicesUpdater const &updater) = 0;
   virtual void DropGraphClearIndices() = 0;
   virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
 };

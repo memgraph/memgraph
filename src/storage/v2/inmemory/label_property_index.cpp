@@ -523,10 +523,10 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
     (order == IndexOrder::ASC) ? populate(GetIndividualIndex<Entry>(label, properties))
                                : populate(GetIndividualIndex<DescEntry>(label, properties));
   } catch (const PopulateCancel &) {
-    DropIndex(label, properties, updater, order);
+    DropSingleOrder(label, properties, updater, order);
     return std::unexpected{IndexPopulateError::Cancellation};
   } catch (const utils::OutOfMemoryException &) {
-    DropIndex(label, properties, updater, order);
+    DropSingleOrder(label, properties, updater, order);
     throw;
   }
 
@@ -722,41 +722,38 @@ void InMemoryLabelPropertyIndex::CleanupStatsForDrop(IndexContainer const &new_i
   }
 }
 
-bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
-                                           ActiveIndicesUpdater const &updater) {
+LabelPropertyIndex::DropResult InMemoryLabelPropertyIndex::DropIndex(LabelId label,
+                                                                     std::vector<PropertyPath> const &properties,
+                                                                     ActiveIndicesUpdater const &updater) {
   // Single lock+copy: drop from both ASC and DESC in one atomic update
-  auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
+  auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> DropResult {
     auto new_index = std::make_shared<IndexContainer>(*index);
     bool dropped_asc = DropFromOrder(new_index->asc_indices_, new_index->asc_reverse_lookup_, label, properties);
     bool dropped_desc = DropFromOrder(new_index->desc_indices_, new_index->desc_reverse_lookup_, label, properties);
-    if (!dropped_asc && !dropped_desc) return false;
+    if (!dropped_asc && !dropped_desc) return {};
 
     CleanupStatsForDrop(*new_index, label, properties);
     index = std::move(new_index);
     updater(std::make_shared<ActiveIndices>(index));
-    return true;
+    return {dropped_asc, dropped_desc};
   });
   CleanupAllIndices();
   return result;
 }
 
-bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
-                                           ActiveIndicesUpdater const &updater, IndexOrder order) {
-  auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
+void InMemoryLabelPropertyIndex::DropSingleOrder(LabelId label, std::vector<PropertyPath> const &properties,
+                                                 ActiveIndicesUpdater const &updater, IndexOrder order) {
+  index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
     auto new_index = std::make_shared<IndexContainer>(*index);
-
     bool dropped = (order == IndexOrder::ASC)
                        ? DropFromOrder(new_index->asc_indices_, new_index->asc_reverse_lookup_, label, properties)
                        : DropFromOrder(new_index->desc_indices_, new_index->desc_reverse_lookup_, label, properties);
-    if (!dropped) return false;
-
+    if (!dropped) return;
     CleanupStatsForDrop(*new_index, label, properties);
     index = std::move(new_index);
     updater(std::make_shared<ActiveIndices>(index));
-    return true;
   });
   CleanupAllIndices();
-  return result;
 }
 
 bool InMemoryLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label,
