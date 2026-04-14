@@ -24,6 +24,7 @@
 #include "query/graph.hpp"
 #include "query/plan/operator.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "query/virtual_graph.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -731,20 +732,24 @@ TYPED_TEST(MgpGraphTest, VirtualEdgesInIterator) {
   auto real_edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("REAL"));
   ASSERT_TRUE(real_edge.has_value());
 
-  // Build a projected graph with the real edge + a virtual edge
+  // Build a projected graph with the real edge
   memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
   proj_graph.InsertVertex(memgraph::query::VertexAccessor(v1));
   proj_graph.InsertVertex(memgraph::query::VertexAccessor(v2));
   proj_graph.InsertVertex(memgraph::query::VertexAccessor(v3));
   proj_graph.InsertEdge(memgraph::query::EdgeAccessor(*real_edge));
-  const auto &ve_from = proj_graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(v1.Gid(), {}, {}));
-  const auto &ve_to = proj_graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(v3.Gid(), {}, {}));
-  proj_graph.virtual_edge_store().Insert(memgraph::query::VirtualEdge(ve_from, ve_to, "VIRTUAL"));
+
+  // virtual edges live on a separate VirtualGraph
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  const auto &ve_from = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(v1.Gid(), {}, {}));
+  const auto &ve_to = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(v3.Gid(), {}, {}));
+  vg.edge_store().Insert(memgraph::query::VirtualEdge(ve_from, ve_to, "VIRTUAL"));
 
   // Create SubgraphDbAccessor and mgp_graph
   memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
   auto graph = mgp_graph{
       &sub_dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+  graph.virtual_graph = &vg;
 
   // Get v1 as mgp_vertex
   MgpVertexPtr mgp_v1{EXPECT_MGP_NO_ERROR(
@@ -782,13 +787,16 @@ TYPED_TEST(MgpGraphTest, VirtualEdgeApiOperations) {
   memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
   proj_graph.InsertVertex(memgraph::query::VertexAccessor(v1));
   proj_graph.InsertVertex(memgraph::query::VertexAccessor(v2));
-  const auto &vn1 = proj_graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(v1.Gid(), {}, {}));
-  const auto &vn2 = proj_graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(v2.Gid(), {}, {}));
-  proj_graph.virtual_edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn2, "VE"));
+
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  const auto &vn1 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(v1.Gid(), {}, {}));
+  const auto &vn2 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(v2.Gid(), {}, {}));
+  vg.edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn2, "VE"));
 
   memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
   auto graph = mgp_graph{
       &sub_dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+  graph.virtual_graph = &vg;
 
   MgpVertexPtr mgp_v1{EXPECT_MGP_NO_ERROR(
       mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{v1.Gid().AsInt()}, &this->memory)};
@@ -834,23 +842,23 @@ TYPED_TEST(MgpGraphTest, VirtualNodeStoreIntegration) {
   memgraph::query::VirtualNode vn1(v1.Gid(), {"Expert", "Analyst"}, {{score_id, memgraph::storage::PropertyValue(99)}});
   memgraph::query::VirtualNode vn2(v2.Gid(), {"Novice"}, {});
 
-  memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
-  proj_graph.virtual_node_store().InsertOrUpdate(vn1);
-  proj_graph.virtual_node_store().InsertOrUpdate(vn2);
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  vg.node_store().InsertOrUpdate(vn1);
+  vg.node_store().InsertOrUpdate(vn2);
 
   // Verify store operations
-  EXPECT_EQ(proj_graph.virtual_node_store().size(), 2);
-  EXPECT_TRUE(proj_graph.virtual_node_store().Contains(v1.Gid()));
-  EXPECT_TRUE(proj_graph.virtual_node_store().Contains(v2.Gid()));
+  EXPECT_EQ(vg.node_store().size(), 2);
+  EXPECT_TRUE(vg.node_store().Contains(v1.Gid()));
+  EXPECT_TRUE(vg.node_store().Contains(v2.Gid()));
 
-  const auto *found = proj_graph.virtual_node_store().Find(v1.Gid());
+  const auto *found = vg.node_store().Find(v1.Gid());
   ASSERT_NE(found, nullptr);
   EXPECT_EQ(found->Labels().size(), 2);
   EXPECT_EQ(found->Labels()[0], "Expert");
   EXPECT_EQ(found->Labels()[1], "Analyst");
   EXPECT_EQ(found->GetProperty(score_id), memgraph::storage::PropertyValue(99));
 
-  const auto *found2 = proj_graph.virtual_node_store().Find(v2.Gid());
+  const auto *found2 = vg.node_store().Find(v2.Gid());
   ASSERT_NE(found2, nullptr);
   EXPECT_EQ(found2->Labels().size(), 1);
   EXPECT_TRUE(found2->GetProperty(score_id).IsNull());
@@ -861,15 +869,17 @@ TYPED_TEST(MgpGraphTest, VertexIteratorYieldsVirtualNodes) {
 
   // empty graph with only virtual nodes — no real vertices
   memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto score_id = dba.NameToProperty("score");
-  proj_graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(
+  vg.node_store().InsertOrGet(memgraph::query::VirtualNode(
       memgraph::storage::Gid::FromUint(1), {"A"}, {{score_id, memgraph::storage::PropertyValue(10)}}));
-  proj_graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(
+  vg.node_store().InsertOrGet(memgraph::query::VirtualNode(
       memgraph::storage::Gid::FromUint(2), {"B"}, {{score_id, memgraph::storage::PropertyValue(20)}}));
 
   memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
   auto graph = mgp_graph{
       &sub_dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+  graph.virtual_graph = &vg;
 
   // iterate all vertices — should yield the 2 virtual nodes
   auto *it = EXPECT_MGP_NO_ERROR(mgp_vertices_iterator *, mgp_graph_iter_vertices, &graph, &this->memory);
@@ -895,12 +905,14 @@ TYPED_TEST(MgpGraphTest, VertexIteratorYieldsRealThenVirtual) {
 
   memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
   proj_graph.InsertVertex(memgraph::query::VertexAccessor(v1));
-  proj_graph.virtual_node_store().InsertOrGet(
-      memgraph::query::VirtualNode(memgraph::storage::Gid::FromUint(999), {"Virtual"}, {}));
+
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  vg.node_store().InsertOrGet(memgraph::query::VirtualNode(memgraph::storage::Gid::FromUint(999), {"Virtual"}, {}));
 
   memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
   auto graph = mgp_graph{
       &sub_dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+  graph.virtual_graph = &vg;
 
   auto *it = EXPECT_MGP_NO_ERROR(mgp_vertices_iterator *, mgp_graph_iter_vertices, &graph, &this->memory);
   ASSERT_NE(it, nullptr);

@@ -776,6 +776,8 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("ZONED_DATE_TIME", ctx.memory);
     case TypedValue::Type::Graph:
       return TypedValue("GRAPH", ctx.memory);
+    case TypedValue::Type::VirtualGraph:
+      return TypedValue("VIRTUAL_GRAPH", ctx.memory);
     case TypedValue::Type::Function:
       throw QueryRuntimeException("Unknown value type! Please report an issue!");
   }
@@ -1255,6 +1257,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     case VirtualNode:
     case Path:
     case Graph:
+    case VirtualGraph:
     case Function:
     case Point2d:
     case Point3d: {
@@ -1323,6 +1326,7 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
     case VirtualNode:
     case Path:
     case Graph:
+    case VirtualGraph:
     case Function:
     case Point2d:
     case Point3d: {

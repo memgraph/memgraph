@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,6 +57,8 @@ storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, c
 /// @throw std::bad_alloc
 storage::Result<communication::bolt::map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db,
                                                         storage::View view);
+
+communication::bolt::map_t ToBoltVirtualGraph(const query::VirtualGraph &vg, const storage::Storage &db);
 
 /// @param query::TypedValue for converting to communication::bolt::Value.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.

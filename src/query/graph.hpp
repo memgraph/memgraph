@@ -17,8 +17,6 @@
 #include "query/edge_accessor.hpp"
 #include "query/typed_value.hpp"
 #include "query/vertex_accessor.hpp"
-#include "query/virtual_edge_store.hpp"
-#include "query/virtual_node_store.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_set.hpp"
@@ -100,14 +98,6 @@ class Graph final {
   /** Return the out edges of the given vertex. */
   std::vector<EdgeAccessor> OutEdges(VertexAccessor vertex_accessor);
 
-  VirtualEdgeStore &virtual_edge_store() { return virtual_edge_store_; }
-
-  const VirtualEdgeStore &virtual_edge_store() const { return virtual_edge_store_; }
-
-  VirtualNodeStore &virtual_node_store() { return virtual_node_store_; }
-
-  const VirtualNodeStore &virtual_node_store() const { return virtual_node_store_; }
-
   /** Copy assign other, utils::MemoryResource of `this` is used */
   Graph &operator=(const Graph &) = default;
 
@@ -128,8 +118,6 @@ class Graph final {
   utils::pmr::unordered_set<VertexAccessor> vertices_;
   // Contains all the edges in the Graph
   utils::pmr::unordered_set<EdgeAccessor> edges_;
-  VirtualEdgeStore virtual_edge_store_;
-  VirtualNodeStore virtual_node_store_;
 };
 
 }  // namespace memgraph::query

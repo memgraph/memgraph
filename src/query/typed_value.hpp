@@ -22,6 +22,7 @@
 
 #include "query/path.hpp"
 #include "query/virtual_edge.hpp"
+#include "query/virtual_graph.hpp"
 #include "query/virtual_node.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
@@ -34,7 +35,8 @@
 
 namespace memgraph::query {
 
-class Graph;  // fwd declare
+class Graph;         // fwd declare
+class VirtualGraph;  // fwd declare
 
 namespace {
 template <typename T>
@@ -104,6 +106,7 @@ class TypedValue {
     ZonedDateTime,
     Duration,
     Graph,
+    VirtualGraph,
     Function,
     Enum,
     Point2d,
@@ -420,6 +423,9 @@ class TypedValue {
    */
   TypedValue(Graph &&graph, allocator_type alloc);
 
+  explicit TypedValue(VirtualGraph &&graph);
+  TypedValue(VirtualGraph &&graph, allocator_type alloc);
+
   explicit TypedValue(std::function<void(TypedValue *)> &&other)
       : function_v(std::move(other)), type_(Type::Function) {}
 
@@ -533,6 +539,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(storage::Point2d, Point2d, point_2d_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
@@ -788,6 +795,7 @@ class TypedValue {
     storage::Point3d point_3d_v;
     // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
     std::unique_ptr<Graph> graph_v;
+    std::unique_ptr<VirtualGraph> virtual_graph_v;
     std::function<void(TypedValue *)> function_v;
     VirtualEdge virtual_edge_v;
     VirtualNode virtual_node_v;

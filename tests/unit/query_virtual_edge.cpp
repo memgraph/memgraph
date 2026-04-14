@@ -18,6 +18,7 @@
 #include "query/db_accessor.hpp"
 #include "query/graph.hpp"
 #include "query/virtual_edge.hpp"
+#include "query/virtual_graph.hpp"
 #include "query/virtual_node.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -64,63 +65,57 @@ TEST_F(VirtualEdgeTest, GraphStoresVirtualEdgesSeparately) {
   auto acc = db->Access(memgraph::storage::WRITE);
   auto sv1 = acc->CreateVertex();
   auto sv2 = acc->CreateVertex();
-  auto edge_type = acc->NameToEdgeType("KNOWS");
+  const auto edge_type = acc->NameToEdgeType("KNOWS");
   auto se = acc->CreateEdge(&sv1, &sv2, edge_type);
   acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
 
-  auto v1 = memgraph::query::VertexAccessor(sv1);
-  auto v2 = memgraph::query::VertexAccessor(sv2);
+  const auto v1 = memgraph::query::VertexAccessor(sv1);
+  const auto v2 = memgraph::query::VertexAccessor(sv2);
 
+  // real edges live on Graph
   memgraph::query::Graph graph(memgraph::utils::NewDeleteResource());
   graph.InsertVertex(v1);
   graph.InsertVertex(v2);
   graph.InsertEdge(memgraph::query::EdgeAccessor(*se));
 
-  const auto &vn1 = graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
-  const auto &vn2 = graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(sv2.Gid(), {}, {}));
+  // virtual edges live on VirtualGraph
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  const auto &vn1 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
+  const auto &vn2 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv2.Gid(), {}, {}));
   memgraph::query::VirtualEdge ve(vn1, vn2, "VIRTUAL");
-  graph.virtual_edge_store().Insert(ve);
-  graph.virtual_edge_store().Insert(ve);  // duplicate is a no-op
+  vg.edge_store().Insert(ve);
+  vg.edge_store().Insert(ve);  // duplicate is a no-op
 
   EXPECT_EQ(graph.edges().size(), 1);
-  EXPECT_EQ(graph.virtual_edge_store().size(), 1);
-  EXPECT_TRUE(graph.virtual_edge_store().Contains(ve));
+  EXPECT_EQ(vg.edge_store().size(), 1);
+  EXPECT_TRUE(vg.edge_store().Contains(ve));
 }
 
-TEST_F(VirtualEdgeTest, SubgraphVertexAccessorFiltersVirtualEdges) {
+TEST_F(VirtualEdgeTest, VirtualGraphFiltersEdgesByVertex) {
   auto acc = db->Access(memgraph::storage::WRITE);
   auto sv1 = acc->CreateVertex();
   auto sv2 = acc->CreateVertex();
   auto sv3 = acc->CreateVertex();
   acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
 
-  auto v1 = memgraph::query::VertexAccessor(sv1);
-  auto v2 = memgraph::query::VertexAccessor(sv2);
-  auto v3 = memgraph::query::VertexAccessor(sv3);
-
-  memgraph::query::Graph graph(memgraph::utils::NewDeleteResource());
-  graph.InsertVertex(v1);
-  graph.InsertVertex(v2);
-  graph.InsertVertex(v3);
-
-  const auto &vn1 = graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
-  const auto &vn2 = graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(sv2.Gid(), {}, {}));
-  const auto &vn3 = graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(sv3.Gid(), {}, {}));
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  const auto &vn1 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
+  const auto &vn2 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv2.Gid(), {}, {}));
+  const auto &vn3 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv3.Gid(), {}, {}));
 
   // v1->v2, v1->v3, v2->v3
-  graph.virtual_edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn2, "A"));
-  graph.virtual_edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn3, "B"));
-  graph.virtual_edge_store().Insert(memgraph::query::VirtualEdge(vn2, vn3, "C"));
+  vg.edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn2, "A"));
+  vg.edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn3, "B"));
+  vg.edge_store().Insert(memgraph::query::VirtualEdge(vn2, vn3, "C"));
 
-  // v1 has 2 out, 0 in
-  memgraph::query::SubgraphVertexAccessor sva1(v1, &graph);
-  EXPECT_EQ(sva1.VirtualOutEdges().size(), 2);
-  EXPECT_EQ(sva1.VirtualInEdges().size(), 0);
+  // edge store is indexed by synthetic VirtualNode Gid
+  // vn1 has 2 out, 0 in
+  EXPECT_EQ(vg.edge_store().OutEdges(vn1.Gid()).size(), 2);
+  EXPECT_EQ(vg.edge_store().InEdges(vn1.Gid()).size(), 0);
 
-  // v3 has 0 out, 2 in
-  memgraph::query::SubgraphVertexAccessor sva3(v3, &graph);
-  EXPECT_EQ(sva3.VirtualOutEdges().size(), 0);
-  EXPECT_EQ(sva3.VirtualInEdges().size(), 2);
+  // vn3 has 0 out, 2 in
+  EXPECT_EQ(vg.edge_store().OutEdges(vn3.Gid()).size(), 0);
+  EXPECT_EQ(vg.edge_store().InEdges(vn3.Gid()).size(), 2);
 }
 
 TEST_F(VirtualEdgeTest, SelfLoopAppearsInBothDirections) {
@@ -128,14 +123,11 @@ TEST_F(VirtualEdgeTest, SelfLoopAppearsInBothDirections) {
   auto sv1 = acc->CreateVertex();
   acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
 
-  auto v1 = memgraph::query::VertexAccessor(sv1);
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  const auto &vn1 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
+  vg.edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn1, "SELF"));
 
-  memgraph::query::Graph graph(memgraph::utils::NewDeleteResource());
-  graph.InsertVertex(v1);
-  const auto &vn1 = graph.virtual_node_store().InsertOrGet(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
-  graph.virtual_edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn1, "SELF"));
-
-  memgraph::query::SubgraphVertexAccessor sva(v1, &graph);
-  EXPECT_EQ(sva.VirtualOutEdges().size(), 1);
-  EXPECT_EQ(sva.VirtualInEdges().size(), 1);
+  // edge store is indexed by synthetic VirtualNode Gid
+  EXPECT_EQ(vg.edge_store().OutEdges(vn1.Gid()).size(), 1);
+  EXPECT_EQ(vg.edge_store().InEdges(vn1.Gid()).size(), 1);
 }

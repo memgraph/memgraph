@@ -810,6 +810,7 @@ struct mgp_graph {
   // `ctx` field is out of place here.
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
+  memgraph::query::VirtualGraph *virtual_graph{nullptr};
 
   memgraph::query::DbAccessor *getImpl() const {
     return std::visit(

@@ -19,14 +19,10 @@ namespace memgraph::query {
 namespace r = std::ranges;
 namespace rv = r::views;
 
-Graph::Graph(allocator_type alloc)
-    : vertices_(alloc), edges_(alloc), virtual_edge_store_(alloc), virtual_node_store_(alloc) {}
+Graph::Graph(allocator_type alloc) : vertices_(alloc), edges_(alloc) {}
 
 Graph::Graph(const Graph &other, allocator_type alloc)
-    : vertices_(other.vertices_, alloc),
-      edges_(other.edges_, alloc),
-      virtual_edge_store_(other.virtual_edge_store_, alloc),
-      virtual_node_store_(other.virtual_node_store_, alloc) {}
+    : vertices_(other.vertices_, alloc), edges_(other.edges_, alloc) {}
 
 Graph::Graph(Graph &&other) noexcept : Graph(std::move(other), other.get_allocator()) {}
 
@@ -34,10 +30,7 @@ Graph::Graph(const Graph &other)
     : Graph(other, alloc_traits::select_on_container_copy_construction(other.get_allocator())) {}
 
 Graph::Graph(Graph &&other, allocator_type alloc)
-    : vertices_(std::move(other.vertices_), alloc),
-      edges_(std::move(other.edges_), alloc),
-      virtual_edge_store_(std::move(other.virtual_edge_store_), alloc),
-      virtual_node_store_(std::move(other.virtual_node_store_), alloc) {}
+    : vertices_(std::move(other.vertices_), alloc), edges_(std::move(other.edges_), alloc) {}
 
 void Graph::Expand(const Path &path) {
   const auto &path_vertices_ = path.vertices();

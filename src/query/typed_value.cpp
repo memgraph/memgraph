@@ -22,6 +22,7 @@
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
+#include "query/virtual_graph.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
@@ -63,6 +64,13 @@ TypedValue::TypedValue(Graph &&graph) : TypedValue(std::move(graph), graph.get_a
 TypedValue::TypedValue(Graph &&graph, allocator_type alloc) : alloc_{alloc}, type_(Type::Graph) {
   auto *graph_ptr = utils::Allocator<Graph>(alloc_).new_object<Graph>(std::move(graph));
   alloc_trait::construct(alloc_, &graph_v, graph_ptr);
+}
+
+TypedValue::TypedValue(VirtualGraph &&graph) : TypedValue(std::move(graph), graph.get_allocator()) {}
+
+TypedValue::TypedValue(VirtualGraph &&graph, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualGraph) {
+  auto *graph_ptr = utils::Allocator<VirtualGraph>(alloc_).new_object<VirtualGraph>(std::move(graph));
+  alloc_trait::construct(alloc_, &virtual_graph_v, graph_ptr);
 }
 
 TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper)
@@ -667,6 +675,7 @@ TypedValue::operator storage::ExternalPropertyValue() const {
     case Type::VirtualNode:
     case Type::Path:
     case Type::Graph:
+    case Type::VirtualGraph:
     case Type::Function:
       throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
   }
@@ -739,10 +748,16 @@ TypedValue::TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{a
     case Type::Function:
       alloc_trait::construct(alloc_, &function_v, other.function_v);
       return;
-    case Type::Graph:
+    case Type::Graph: {
       auto *graph_ptr = utils::Allocator<Graph>(alloc_).new_object<Graph>(*other.graph_v);
       alloc_trait::construct(alloc_, &graph_v, graph_ptr);
       return;
+    }
+    case Type::VirtualGraph: {
+      auto *graph_ptr = utils::Allocator<VirtualGraph>(alloc_).new_object<VirtualGraph>(*other.virtual_graph_v);
+      alloc_trait::construct(alloc_, &virtual_graph_v, graph_ptr);
+      return;
+    }
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -827,6 +842,16 @@ TypedValue::TypedValue(TypedValue &&other, allocator_type alloc) : alloc_{alloc}
         auto *graph_ptr = utils::Allocator<Graph>(alloc_).new_object<Graph>(std::move(*other.graph_v));
         alloc_trait::construct(alloc_, &graph_v, graph_ptr);
       }
+      break;
+    case Type::VirtualGraph:
+      if (other.alloc_ == alloc_) {
+        alloc_trait::construct(alloc_, &virtual_graph_v, std::move(other.virtual_graph_v));
+      } else {
+        auto *graph_ptr =
+            utils::Allocator<VirtualGraph>(alloc_).new_object<VirtualGraph>(std::move(*other.virtual_graph_v));
+        alloc_trait::construct(alloc_, &virtual_graph_v, graph_ptr);
+      }
+      break;
   }
 }
 
@@ -904,6 +929,7 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
     case Type::VirtualNode:
     case Type::Path:
     case Type::Graph:
+    case Type::VirtualGraph:
     case Type::Function:
       throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
   }
@@ -957,6 +983,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS(storage::Point2d, Point2d, point_2d_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
 #undef DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE
@@ -995,6 +1022,7 @@ bool TypedValue::ContainsDeleted() const {
                                  [](auto &vertex_acc) { return vertex_acc.impl_.vertex_->deleted(); }) ||
              std::ranges::any_of(path_v->edges(), [](auto &edge_acc) { return edge_acc.IsDeleted(); });
     case Type::Graph:
+    case Type::VirtualGraph:
     case Type::Function:
       throw TypedValueException("Value of unknown type");
   }
@@ -1027,6 +1055,7 @@ bool TypedValue::IsPropertyValue() const {
     case Type::VirtualNode:
     case Type::Path:
     case Type::Graph:
+    case Type::VirtualGraph:
     case Type::Function:
       return false;
   }
@@ -1075,6 +1104,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "point";
     case TypedValue::Type::Graph:
       return os << "graph";
+    case TypedValue::Type::VirtualGraph:
+      return os << "virtual_graph";
     case TypedValue::Type::Function:
       return os << "function";
   }
@@ -1297,6 +1328,17 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
           }
           break;
         }
+        case Type::VirtualGraph: {
+          auto *graph = virtual_graph_v.release();
+          if (graph) {
+            utils::Allocator<VirtualGraph>(alloc_).delete_object(graph);
+          }
+          if (other.virtual_graph_v) {
+            auto *graph_ptr = utils::Allocator<VirtualGraph>(alloc_).new_object<VirtualGraph>(*other.virtual_graph_v);
+            virtual_graph_v = std::unique_ptr<VirtualGraph>(graph_ptr);
+          }
+          break;
+        }
         case Type::Function:
           function_v = other.function_v;
           break;
@@ -1393,6 +1435,14 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
           graph_v = std::move(other.graph_v);
           break;
         }
+        case Type::VirtualGraph: {
+          auto *graph = virtual_graph_v.release();
+          if (graph) {
+            utils::Allocator<VirtualGraph>(alloc_).delete_object(graph);
+          }
+          virtual_graph_v = std::move(other.virtual_graph_v);
+          break;
+        }
         case Type::Function:
           function_v = std::move(other.function_v);
           break;
@@ -1480,6 +1530,14 @@ TypedValue::~TypedValue() {
       }
       break;
     }
+    case Type::VirtualGraph: {
+      auto *graph = virtual_graph_v.release();
+      std::destroy_at(&virtual_graph_v);
+      if (graph) {
+        utils::Allocator<VirtualGraph>(alloc_).delete_object(graph);
+      }
+      break;
+    }
   }
 }
 
@@ -1537,6 +1595,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
       case TypedValue::Type::VirtualNode:
       case TypedValue::Type::Path:
       case TypedValue::Type::Graph:
+      case TypedValue::Type::VirtualGraph:
       case TypedValue::Type::Function:
       case TypedValue::Type::Enum:
       case TypedValue::Type::Point2d:
@@ -1672,6 +1731,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Point3d:
       return TypedValue(a.ValuePoint3d() == b.ValuePoint3d(), a.alloc_);
     case TypedValue::Type::Graph:
+    case TypedValue::Type::VirtualGraph:
       throw TypedValueException("Unsupported comparison operator");
     case TypedValue::Type::Function:
     case TypedValue::Type::Null:
@@ -2023,6 +2083,8 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       throw TypedValueException("Unsupported hash function for Function");
     case TypedValue::Type::Graph:
       throw TypedValueException("Unsupported hash function for Graph");
+    case TypedValue::Type::VirtualGraph:
+      throw TypedValueException("Unsupported hash function for VirtualGraph");
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }

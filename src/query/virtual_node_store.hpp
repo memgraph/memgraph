@@ -50,6 +50,8 @@ class VirtualNodeStore {
 
   auto empty() const { return nodes_.empty(); }
 
+  auto get_allocator() const -> allocator_type { return nodes_.get_allocator(); }
+
  private:
   // keyed by original Gid for dedup
   utils::pmr::unordered_map<storage::Gid, VirtualNode> nodes_;

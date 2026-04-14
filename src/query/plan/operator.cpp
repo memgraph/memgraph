@@ -6136,8 +6136,9 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
       return TypedValue(TypedValue::TMap(memory));
     case Aggregation::Op::PROJECT_PATH:
     case Aggregation::Op::PROJECT_LISTS:
-    case Aggregation::Op::DERIVE:
       return TypedValue(query::Graph(memory));
+    case Aggregation::Op::DERIVE:
+      return TypedValue(query::VirtualGraph(memory));
   }
 }
 
@@ -6520,7 +6521,7 @@ class AggregateCursor : public Cursor {
           }
           case Aggregation::Op::DERIVE: {
             ProjectPathWithOptions(
-                input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
+                input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueVirtualGraph());
             break;
           }
           case Aggregation::Op::COLLECT_MAP:
@@ -6584,7 +6585,8 @@ class AggregateCursor : public Cursor {
           break;
         }
         case Aggregation::Op::DERIVE: {
-          ProjectPathWithOptions(input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
+          ProjectPathWithOptions(
+              input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueVirtualGraph());
           break;
         }
         case Aggregation::Op::COLLECT_MAP:
@@ -6614,7 +6616,8 @@ class AggregateCursor : public Cursor {
     projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
   }
 
-  void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value, Graph &projected_graph) {
+  void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value,
+                              VirtualGraph &projected_graph) {
     if (path_value.type() != TypedValue::Type::Path) {
       throw QueryRuntimeException("derive() requires a path as argument 1.");
     }
@@ -6657,15 +6660,15 @@ class AggregateCursor : public Cursor {
     };
 
     const auto &from = path_vertices.front();
-    const auto &stored_from = projected_graph.virtual_node_store().InsertOrGet(
-        create_virtual_node(from, "sourceNodeLabels", "sourceNodeProperties"));
+    const auto &stored_from =
+        projected_graph.node_store().InsertOrGet(create_virtual_node(from, "sourceNodeLabels", "sourceNodeProperties"));
 
     // single-vertex path — no edge to create
     if (path_vertices.size() < 2) return;
 
     const auto &to = path_vertices.back();
-    const auto &stored_to = projected_graph.virtual_node_store().InsertOrGet(
-        create_virtual_node(to, "targetNodeLabels", "targetNodeProperties"));
+    const auto &stored_to =
+        projected_graph.node_store().InsertOrGet(create_virtual_node(to, "targetNodeLabels", "targetNodeProperties"));
 
     VirtualEdge ve(stored_from, stored_to, std::move(edge_type_name));
 
@@ -6677,7 +6680,7 @@ class AggregateCursor : public Cursor {
       }
     }
 
-    projected_graph.virtual_edge_store().InsertIfNew(std::move(ve));
+    projected_graph.edge_store().InsertIfNew(std::move(ve));
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
@@ -7791,6 +7794,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   }
   std::optional<query::Graph> subgraph;
   std::optional<query::SubgraphDbAccessor> db_acc;
+  std::optional<query::VirtualGraph> virtual_graph;
 
   if (!args_list.empty() && args_list.front().type() == TypedValue::Type::Graph) {
     auto subgraph_value = args_list.front().ValueGraph();
@@ -7799,6 +7803,12 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 
     db_acc = query::SubgraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), &*subgraph);
     graph.impl = &*db_acc;
+  } else if (!args_list.empty() && args_list.front().type() == TypedValue::Type::VirtualGraph) {
+    auto vg_value = args_list.front().ValueVirtualGraph();
+    virtual_graph = query::VirtualGraph(std::move(vg_value), vg_value.get_allocator());
+    args_list.erase(args_list.begin());
+
+    graph.virtual_graph = &*virtual_graph;
   }
 
   procedure::ValidateArguments(args_list, proc, fully_qualified_procedure_name);
@@ -10704,8 +10714,7 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             break;
           }
           case Aggregation::Op::PROJECT_PATH:
-          case Aggregation::Op::PROJECT_LISTS:
-          case Aggregation::Op::DERIVE: {
+          case Aggregation::Op::PROJECT_LISTS: {
             auto &main_graph = main_value.ValueGraph();
             auto &other_graph = other_value.ValueGraph();
             for (auto &vertex : other_graph.vertices()) {
@@ -10714,11 +10723,16 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             for (auto &edge : other_graph.edges()) {
               main_graph.InsertEdge(std::move(edge));
             }
-            for (auto &ve : other_graph.virtual_edge_store().edges()) {
-              main_graph.virtual_edge_store().Insert(std::move(ve));
+            break;
+          }
+          case Aggregation::Op::DERIVE: {
+            auto &main_vg = main_value.ValueVirtualGraph();
+            auto &other_vg = other_value.ValueVirtualGraph();
+            for (auto &ve : other_vg.edge_store().edges()) {
+              main_vg.edge_store().Insert(std::move(ve));
             }
-            for (const auto &[gid, node] : other_graph.virtual_node_store().nodes()) {
-              main_graph.virtual_node_store().InsertOrUpdate(node);
+            for (const auto &[gid, node] : other_vg.node_store().nodes()) {
+              main_vg.node_store().InsertOrUpdate(node);
             }
             break;
           }
@@ -10793,8 +10807,7 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::PROJECT_PATH:
-        case Aggregation::Op::PROJECT_LISTS:
-        case Aggregation::Op::DERIVE: {
+        case Aggregation::Op::PROJECT_LISTS: {
           auto &main_graph = main_value.ValueGraph();
           auto &other_graph = other_value.ValueGraph();
           for (auto &vertex : other_graph.vertices()) {
@@ -10803,11 +10816,16 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           for (auto &edge : other_graph.edges()) {
             main_graph.InsertEdge(std::move(edge));
           }
-          for (auto &ve : other_graph.virtual_edge_store().edges()) {
-            main_graph.virtual_edge_store().Insert(std::move(ve));
+          break;
+        }
+        case Aggregation::Op::DERIVE: {
+          auto &main_vg = main_value.ValueVirtualGraph();
+          auto &other_vg = other_value.ValueVirtualGraph();
+          for (auto &ve : other_vg.edge_store().edges()) {
+            main_vg.edge_store().Insert(std::move(ve));
           }
-          for (const auto &[gid, node] : other_graph.virtual_node_store().nodes()) {
-            main_graph.virtual_node_store().InsertOrUpdate(node);
+          for (const auto &[gid, node] : other_vg.node_store().nodes()) {
+            main_vg.node_store().InsertOrUpdate(node);
           }
           break;
         }

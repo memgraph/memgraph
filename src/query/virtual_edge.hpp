@@ -39,6 +39,10 @@ class VirtualEdge final {
 
   auto To() const -> const VirtualNode & { return to_; }
 
+  auto FromGid() const noexcept -> storage::Gid { return from_.Gid(); }
+
+  auto ToGid() const noexcept -> storage::Gid { return to_.Gid(); }
+
   auto EdgeTypeName() const -> const std::string & { return edge_type_name_; }
 
   auto Gid() const noexcept -> storage::Gid { return gid_; }

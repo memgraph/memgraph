@@ -14,8 +14,8 @@
 namespace memgraph::query {
 
 void VirtualEdgeStore::IndexEdge(const VirtualEdge &edge) {
-  out_index_[edge.From().Gid()].push_back(edge);
-  in_index_[edge.To().Gid()].push_back(edge);
+  out_index_[edge.FromGid()].push_back(edge);
+  in_index_[edge.ToGid()].push_back(edge);
 }
 
 void VirtualEdgeStore::RebuildIndexes() {
@@ -23,7 +23,7 @@ void VirtualEdgeStore::RebuildIndexes() {
   out_index_.clear();
   in_index_.clear();
   for (const auto &edge : edges_) {
-    dedup_.insert(DedupKey{.from = edge.From().Gid(), .to = edge.To().Gid(), .type = edge.EdgeTypeName()});
+    dedup_.insert(DedupKey{.from = edge.FromGid(), .to = edge.ToGid(), .type = edge.EdgeTypeName()});
     IndexEdge(edge);
   }
 }
@@ -35,7 +35,7 @@ void VirtualEdgeStore::Insert(const VirtualEdge &edge) {
 
 bool VirtualEdgeStore::InsertIfNew(VirtualEdge edge) {
   auto inserted =
-      dedup_.insert(DedupKey{.from = edge.From().Gid(), .to = edge.To().Gid(), .type = edge.EdgeTypeName()}).second;
+      dedup_.insert(DedupKey{.from = edge.FromGid(), .to = edge.ToGid(), .type = edge.EdgeTypeName()}).second;
   if (!inserted) return false;
   IndexEdge(edge);
   edges_.insert(std::move(edge));

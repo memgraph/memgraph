@@ -132,20 +132,9 @@ storage::Result<storage::PropertyValue> SubgraphVertexAccessor::GetProperty(stor
   return impl_.GetProperty(view, key);
 }
 
-std::span<const VirtualEdge> SubgraphVertexAccessor::VirtualOutEdges() const {
-  // virtual edges are indexed by the VirtualNode's synthetic Gid
-  if (const auto *vn = graph_->virtual_node_store().Find(impl_.Gid())) {
-    return graph_->virtual_edge_store().OutEdges(vn->Gid());
-  }
-  return graph_->virtual_edge_store().OutEdges(impl_.Gid());
-}
+std::span<const VirtualEdge> SubgraphVertexAccessor::VirtualOutEdges() const { return {}; }
 
-std::span<const VirtualEdge> SubgraphVertexAccessor::VirtualInEdges() const {
-  if (const auto *vn = graph_->virtual_node_store().Find(impl_.Gid())) {
-    return graph_->virtual_edge_store().InEdges(vn->Gid());
-  }
-  return graph_->virtual_edge_store().InEdges(impl_.Gid());
-}
+std::span<const VirtualEdge> SubgraphVertexAccessor::VirtualInEdges() const { return {}; }
 
 storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.OutEdges(view, {});

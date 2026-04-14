@@ -363,6 +363,8 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       throw std::logic_error{"mgp_value for TypedValue::Type::Function doesn't exist."};
     case memgraph::query::TypedValue::Type::Graph:
       throw std::logic_error{"mgp_value for TypedValue::Type::Graph doesn't exist."};
+    case memgraph::query::TypedValue::Type::VirtualGraph:
+      throw std::logic_error{"mgp_value for TypedValue::Type::VirtualGraph doesn't exist."};
   }
 }
 
@@ -2323,8 +2325,7 @@ mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         if (v->IsVirtualNode()) {
-          auto *sub = std::get_if<memgraph::query::SubgraphDbAccessor *>(&v->graph->impl);
-          if (sub) return (*sub)->getGraph()->virtual_edge_store().InEdges(v->GetVirtualNode().Gid()).size();
+          if (auto *vg = v->graph->virtual_graph) return vg->edge_store().InEdges(v->GetVirtualNode().Gid()).size();
           return 0;
         }
         auto maybe_in_degree =
@@ -2350,8 +2351,7 @@ mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         if (v->IsVirtualNode()) {
-          auto *sub = std::get_if<memgraph::query::SubgraphDbAccessor *>(&v->graph->impl);
-          if (sub) return (*sub)->getGraph()->virtual_edge_store().OutEdges(v->GetVirtualNode().Gid()).size();
+          if (auto *vg = v->graph->virtual_graph) return vg->edge_store().OutEdges(v->GetVirtualNode().Gid()).size();
           return 0;
         }
         auto maybe_out_degree =
@@ -3004,9 +3004,9 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
 
         // virtual nodes have no real edges — only virtual in-edges from the subgraph
         if (v->IsVirtualNode()) {
-          auto *sub = std::get_if<memgraph::query::SubgraphDbAccessor *>(&v->graph->impl);
-          MG_ASSERT(sub, "Virtual nodes should only exist in subgraph context");
-          it->virtual_in_ = (*sub)->getGraph()->virtual_edge_store().InEdges(v->GetVirtualNode().Gid());
+          auto *vg = v->graph->virtual_graph;
+          MG_ASSERT(vg, "Virtual nodes should only exist in virtual graph context");
+          it->virtual_in_ = vg->edge_store().InEdges(v->GetVirtualNode().Gid());
           it->virtual_in_it_ = it->virtual_in_.begin();
           if (!it->virtual_in_.empty()) {
             const auto &ve = *it->virtual_in_it_;
@@ -3038,10 +3038,27 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
         }
 #endif
 
-        // Populate virtual in-edges for subgraph vertices
-        if (auto *sva = std::get_if<memgraph::query::SubgraphVertexAccessor>(&v->impl)) {
-          it->virtual_in_ = sva->VirtualInEdges();
-          it->virtual_in_it_ = it->virtual_in_.begin();
+        // populate virtual in-edges from the virtual graph (if present)
+        if (auto *vg = v->graph->virtual_graph) {
+          // edge store is indexed by synthetic VirtualNode Gid; resolve real gids through the node store
+          const auto lookup_gid = std::visit(
+              memgraph::utils::Overloaded{
+                  [&vg](const memgraph::query::VertexAccessor &va) -> std::optional<memgraph::storage::Gid> {
+                    if (const auto *vn = vg->node_store().Find(va.Gid())) return vn->Gid();
+                    return std::nullopt;
+                  },
+                  [&vg](const memgraph::query::SubgraphVertexAccessor &sva) -> std::optional<memgraph::storage::Gid> {
+                    if (const auto *vn = vg->node_store().Find(sva.Gid())) return vn->Gid();
+                    return std::nullopt;
+                  },
+                  [](const memgraph::query::VirtualNode &vn) -> std::optional<memgraph::storage::Gid> {
+                    return vn.Gid();
+                  }},
+              v->impl);
+          if (lookup_gid) {
+            it->virtual_in_ = vg->edge_store().InEdges(*lookup_gid);
+            it->virtual_in_it_ = it->virtual_in_.begin();
+          }
         }
 
         // Position current_e at the first edge: prefer real edges, fall back to virtual
@@ -3078,9 +3095,9 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         MG_ASSERT(it != nullptr);
         // virtual nodes have no real edges — only virtual out-edges from the subgraph
         if (v->IsVirtualNode()) {
-          auto *sub = std::get_if<memgraph::query::SubgraphDbAccessor *>(&v->graph->impl);
-          MG_ASSERT(sub, "Virtual nodes should only exist in subgraph context");
-          it->virtual_out_ = (*sub)->getGraph()->virtual_edge_store().OutEdges(v->GetVirtualNode().Gid());
+          auto *vg = v->graph->virtual_graph;
+          MG_ASSERT(vg, "Virtual nodes should only exist in virtual graph context");
+          it->virtual_out_ = vg->edge_store().OutEdges(v->GetVirtualNode().Gid());
           it->virtual_out_it_ = it->virtual_out_.begin();
           if (!it->virtual_out_.empty()) {
             const auto &ve = *it->virtual_out_it_;
@@ -3115,10 +3132,27 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         }
 #endif
 
-        // Populate virtual out-edges for subgraph vertices
-        if (auto *sva = std::get_if<memgraph::query::SubgraphVertexAccessor>(&v->impl)) {
-          it->virtual_out_ = sva->VirtualOutEdges();
-          it->virtual_out_it_ = it->virtual_out_.begin();
+        // populate virtual out-edges from the virtual graph (if present)
+        if (auto *vg = v->graph->virtual_graph) {
+          // edge store is indexed by synthetic VirtualNode Gid; resolve real gids through the node store
+          const auto lookup_gid = std::visit(
+              memgraph::utils::Overloaded{
+                  [&vg](const memgraph::query::VertexAccessor &va) -> std::optional<memgraph::storage::Gid> {
+                    if (const auto *vn = vg->node_store().Find(va.Gid())) return vn->Gid();
+                    return std::nullopt;
+                  },
+                  [&vg](const memgraph::query::SubgraphVertexAccessor &sva) -> std::optional<memgraph::storage::Gid> {
+                    if (const auto *vn = vg->node_store().Find(sva.Gid())) return vn->Gid();
+                    return std::nullopt;
+                  },
+                  [](const memgraph::query::VirtualNode &vn) -> std::optional<memgraph::storage::Gid> {
+                    return vn.Gid();
+                  }},
+              v->impl);
+          if (lookup_gid) {
+            it->virtual_out_ = vg->edge_store().OutEdges(*lookup_gid);
+            it->virtual_out_it_ = it->virtual_out_.begin();
+          }
         }
 
         // Position current_e at the first edge: prefer real edges, fall back to virtual
@@ -4887,9 +4921,9 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
   }
 #endif
 
-  // populate virtual node iteration if in subgraph context
-  if (auto *sub = std::get_if<memgraph::query::SubgraphDbAccessor *>(&graph->impl)) {
-    const auto &vn_store = (*sub)->getGraph()->virtual_node_store();
+  // populate virtual node iteration if virtual graph is present
+  if (auto *vg = graph->virtual_graph) {
+    const auto &vn_store = vg->node_store();
     if (!vn_store.empty()) {
       has_virtual_nodes_ = true;
       virtual_node_it_ = vn_store.nodes().begin();
@@ -5355,6 +5389,7 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
     case TypedValue::Type::VirtualNode:
     case TypedValue::Type::Path:
     case TypedValue::Type::Graph:
+    case TypedValue::Type::VirtualGraph:
     case TypedValue::Type::Function:
       LOG_FATAL("value must not be a graph|function element");
   }

@@ -1,0 +1,49 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include "query/virtual_edge_store.hpp"
+#include "query/virtual_node_store.hpp"
+#include "utils/memory.hpp"
+
+namespace memgraph::query {
+
+class VirtualGraph final {
+ public:
+  using allocator_type = utils::Allocator<VirtualGraph>;
+
+  explicit VirtualGraph(allocator_type alloc);
+  VirtualGraph(const VirtualGraph &other, allocator_type alloc);
+  VirtualGraph(const VirtualGraph &other);
+  VirtualGraph(VirtualGraph &&other) noexcept;
+  VirtualGraph(VirtualGraph &&other, allocator_type alloc);
+
+  VirtualGraph &operator=(const VirtualGraph &) = default;
+  VirtualGraph &operator=(VirtualGraph &&) noexcept = default;
+  ~VirtualGraph() = default;
+
+  VirtualNodeStore &node_store() { return node_store_; }
+
+  const VirtualNodeStore &node_store() const { return node_store_; }
+
+  VirtualEdgeStore &edge_store() { return edge_store_; }
+
+  const VirtualEdgeStore &edge_store() const { return edge_store_; }
+
+  auto get_allocator() const -> allocator_type { return node_store_.get_allocator(); }
+
+ private:
+  VirtualNodeStore node_store_;
+  VirtualEdgeStore edge_store_;
+};
+
+}  // namespace memgraph::query

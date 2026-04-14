@@ -20,12 +20,9 @@ namespace memgraph::query {
 namespace {
 TypedValue GraphEdgesToTypedValue(const Graph &graph, utils::MemoryResource *memory) {
   utils::pmr::vector<TypedValue> edges(memory);
-  edges.reserve(graph.edges().size() + graph.virtual_edge_store().size());
+  edges.reserve(graph.edges().size());
   for (const auto &e : graph.edges()) {
     edges.emplace_back(e);
-  }
-  for (const auto &ve : graph.virtual_edge_store().edges()) {
-    edges.emplace_back(ve);
   }
   return {std::move(edges), memory};
 }
@@ -248,15 +245,30 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     case TypedValue::Type::Graph: {
       const auto &graph = expression_result.ValueGraph();
       utils::pmr::vector<TypedValue> vertices(ctx_->memory);
-      vertices.reserve(graph.vertices().size() + graph.virtual_node_store().size());
+      vertices.reserve(graph.vertices().size());
       for (const auto &v : graph.vertices()) {
         vertices.emplace_back(v);
       }
-      for (const auto &[gid, vn] : graph.virtual_node_store().nodes()) {
-        vertices.emplace_back(vn);
-      }
       result.emplace(TypedValue::TString("nodes", ctx_->memory), TypedValue(std::move(vertices), ctx_->memory));
       result.emplace(TypedValue::TString("edges", ctx_->memory), GraphEdgesToTypedValue(graph, ctx_->memory));
+
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::VirtualGraph: {
+      const auto &vg = expression_result.ValueVirtualGraph();
+      utils::pmr::vector<TypedValue> nodes(ctx_->memory);
+      nodes.reserve(vg.node_store().size());
+      for (const auto &[gid, vn] : vg.node_store().nodes()) {
+        nodes.emplace_back(vn);
+      }
+      result.emplace(TypedValue::TString("nodes", ctx_->memory), TypedValue(std::move(nodes), ctx_->memory));
+
+      utils::pmr::vector<TypedValue> edges(ctx_->memory);
+      edges.reserve(vg.edge_store().size());
+      for (const auto &ve : vg.edge_store().edges()) {
+        edges.emplace_back(ve);
+      }
+      result.emplace(TypedValue::TString("edges", ctx_->memory), TypedValue(std::move(edges), ctx_->memory));
 
       return {result, ctx_->memory};
     }
@@ -419,17 +431,33 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
   auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
     if (prop_name == "nodes") {
       utils::pmr::vector<TypedValue> vertices(ctx_->memory);
-      vertices.reserve(graph.vertices().size() + graph.virtual_node_store().size());
+      vertices.reserve(graph.vertices().size());
       for (const auto &v : graph.vertices()) {
         vertices.emplace_back(TypedValue(v, ctx_->memory));
-      }
-      for (const auto &[gid, vn] : graph.virtual_node_store().nodes()) {
-        vertices.emplace_back(TypedValue(vn, ctx_->memory));
       }
       return TypedValue(vertices, ctx_->memory);
     }
     if (prop_name == "edges") {
       return GraphEdgesToTypedValue(graph, ctx_->memory);
+    }
+    return std::nullopt;
+  };
+  auto maybe_virtual_graph = [this](const auto &vg, const auto &prop_name) -> std::optional<TypedValue> {
+    if (prop_name == "nodes") {
+      utils::pmr::vector<TypedValue> nodes(ctx_->memory);
+      nodes.reserve(vg.node_store().size());
+      for (const auto &[gid, vn] : vg.node_store().nodes()) {
+        nodes.emplace_back(TypedValue(vn, ctx_->memory));
+      }
+      return TypedValue(nodes, ctx_->memory);
+    }
+    if (prop_name == "edges") {
+      utils::pmr::vector<TypedValue> edges(ctx_->memory);
+      edges.reserve(vg.edge_store().size());
+      for (const auto &ve : vg.edge_store().edges()) {
+        edges.emplace_back(TypedValue(ve, ctx_->memory));
+      }
+      return TypedValue(edges, ctx_->memory);
     }
     return std::nullopt;
   };
@@ -556,6 +584,14 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
         return {*graph_field, ctx_->memory};
       }
       throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
+    }
+    case TypedValue::Type::VirtualGraph: {
+      const auto &prop_name = property_lookup.property_.name;
+      const auto &vg = expression_result_ptr->ValueVirtualGraph();
+      if (auto vg_field = maybe_virtual_graph(vg, prop_name); vg_field) {
+        return {*vg_field, ctx_->memory};
+      }
+      throw QueryRuntimeException("Invalid property name {} for VirtualGraph", prop_name);
     }
     default:
       throw QueryRuntimeException(
