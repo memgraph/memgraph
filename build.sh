@@ -242,8 +242,11 @@ fi
 if [[ "$update_lockfile" = true ]]; then
     echo "Updating conan.lock"
     rm -f conan.lock
+    # Resolve recipe revisions from remotes (including local-recipes-index),
+    # not from any stale local cache export, so lockfiles stay portable.
     MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan lock create . \
       "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
+      --update \
       --lockfile="" \
       --lockfile-out=conan.lock
 fi
