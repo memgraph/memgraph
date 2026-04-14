@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,11 +32,21 @@ class Epoll {
  public:
   using Event = struct epoll_event;
 
-  explicit Epoll(bool set_cloexec = false) : epoll_fd_(epoll_create1(set_cloexec ? EPOLL_CLOEXEC : 0)) {
+  // Prevent FD from leaking to child processes by using EPOLL_CLOEXEC
+  Epoll() : epoll_fd_(epoll_create1(EPOLL_CLOEXEC)) {
     // epoll_create1 returns an error if there is a logical error in our code
     // (for example invalid flags) or if there is irrecoverable error. In both
     // cases it is best to terminate.
-    MG_ASSERT(epoll_fd_ != -1, "Error on epoll create: ({}) {}", errno, strerror(errno));
+    if (epoll_fd_ == -1) {
+      // The exception should be caught wherever the listener is being created
+      throw utils::BasicException("Error on epoll create: ({}) {}", errno, strerror(errno));
+    }
+  }
+
+  ~Epoll() {
+    if (epoll_fd_ != -1) {
+      close(epoll_fd_);
+    }
   }
 
   /**

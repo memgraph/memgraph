@@ -53,6 +53,7 @@ struct RoleMainData {
   bool writing_enabled_{false};
 };
 
+// Implicit move constructor is noexcept because all fields have also noexcept move constructor
 struct RoleReplicaData {
   ReplicationServerConfig config;
   std::unique_ptr<ReplicationServer> server;
@@ -81,10 +82,7 @@ struct ReplicationState {
   ReplicationState &operator=(ReplicationState const &) = delete;
   ReplicationState &operator=(ReplicationState &&) = delete;
 
-  enum class FetchReplicationError : uint8_t {
-    NOTHING_FETCHED,
-    PARSE_ERROR,
-  };
+  enum class FetchReplicationError : uint8_t { NOTHING_FETCHED, PARSE_ERROR, REPL_SERVER_FAILURE };
 
   using FetchReplicationResult_t = std::expected<ReplicationData_t, FetchReplicationError>;
   using FetchVariantResult_t = std::expected<std::variant<RoleMainData, RoleReplicaData>, FetchReplicationError>;
