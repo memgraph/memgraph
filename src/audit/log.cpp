@@ -168,10 +168,17 @@ void Log::Record(const std::string &address, const std::string &username, const 
 }
 
 bool Log::ReopenLog() {
-  if (!started_.load(std::memory_order_relaxed)) return false;
+  if (!started_.load(std::memory_order_relaxed)) {
+    spdlog::warn("Failed to reopen audit log file since audit log isn't started.");
+    return false;
+  }
   auto guard = std::lock_guard{lock_};
   if (log_.IsOpen()) log_.Close();
-  return log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  auto const res = log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  if (!res) {
+    spdlog::warn("Failed to reopen audit log file. Audit log file couldn't be opened.");
+  }
+  return res;
 }
 
 void Log::Flush() {

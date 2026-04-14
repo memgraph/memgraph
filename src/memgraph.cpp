@@ -453,9 +453,7 @@ int main(int argc, char **argv) {
   MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::User2,
                                                             [&audit_log]() {
                                                               if (audit_log.ReopenLog()) {
-                                                                spdlog::info("Succesfully reopened audit log");
-                                                              } else {
-                                                                spdlog::warn("Failed to reopen audit log");
+                                                                spdlog::info("Successfully reopened audit log");
                                                               }
                                                             }),
             "Unable to register SIGUSR2 handler!");
