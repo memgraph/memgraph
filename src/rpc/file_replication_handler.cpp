@@ -16,7 +16,7 @@
 #include "flags/general.hpp"
 #include "slk/streams.hpp"
 #include "utils/logging.hpp"
-#include "wire_format/framed_codec.hpp"
+#include "wire_format/serialization.hpp"
 
 namespace memgraph::rpc {
 
