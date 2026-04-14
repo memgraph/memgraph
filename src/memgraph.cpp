@@ -560,6 +560,16 @@ int main(int argc, char **argv) {
                                              !coordination_setup.coordinator_hostname.empty();
 
   if (is_valid_coordinator_instance) {
+    if (!FLAGS_init_file.empty()) {
+      LOG_FATAL(
+          "Coordinator instances don't support --init-file flag. Please restart the instance by removing this flag.");
+    }
+    if (!FLAGS_init_data_file.empty()) {
+      LOG_FATAL(
+          "Coordinator instances don't support --init-data_file flag. Please restart the instance by removing this "
+          "flag.");
+    }
+
     // No snapshots and no WAL files are allowed on coordinators
     db_config.durability.snapshot_wal_mode = DISABLED;
   }
