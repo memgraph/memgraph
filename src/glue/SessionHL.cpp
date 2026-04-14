@@ -562,7 +562,7 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
 #endif
       auth_(context.auth),
       endpoint_(std::move(context.endpoint)) {
-  metrics::Metrics().global.active_bolt_sessions->Increment();
+  bolt_session_gauge_ = metrics::ScopedGauge{metrics::Metrics().global.active_bolt_sessions};
 #ifdef MG_ENTERPRISE
   interpreter_.OnChangeCB([&](std::string_view db_name) {
     auto &user_or_role = interpreter_.user_or_role_;
@@ -573,7 +573,6 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
 }
 
 SessionHL::~SessionHL() {
-  metrics::Metrics().global.active_bolt_sessions->Decrement();
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
 #ifdef MG_ENTERPRISE
   // User-related resource monitoring

@@ -103,7 +103,7 @@ bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
   return constraints_.WithLock([&](ContainerPtr &constraints) -> bool {
     auto it = constraints->find({label, property});
     if (it == constraints->end()) return false;
-    it->second->gauge_.release();
+    it->second->gauge_ = {};
 
     auto new_constraints = std::make_shared<Container>(*constraints);
     new_constraints->erase({label, property});

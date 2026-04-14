@@ -210,7 +210,7 @@ bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeCon
     if (it->second->type != type) {
       return false;
     }
-    it->second->gauge_.release();
+    it->second->gauge_ = {};
 
     // Copy-on-write: create new container without this constraint
     auto new_container = std::make_shared<Container>(*container);

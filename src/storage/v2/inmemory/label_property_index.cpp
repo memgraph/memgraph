@@ -679,7 +679,7 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
     });
 
     // new erase the index
-    it2->second->gauge_.release();
+    it2->second->gauge_ = {};
     properties_map.erase(it2);
     if (properties_map.empty()) {
       new_index->indices_.erase(it1);

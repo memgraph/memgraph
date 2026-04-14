@@ -11,38 +11,34 @@
 
 #pragma once
 
-#include <utility>
-
 #include <prometheus/gauge.h>
 
 namespace memgraph::metrics {
 
 class ScopedGauge {
  public:
+  ScopedGauge() = default;
+
   explicit ScopedGauge(prometheus::Gauge *gauge) : gauge_(gauge) {
     if (gauge_) gauge_->Increment();
   }
 
-  ScopedGauge() = default;
-
-  ~ScopedGauge() { release(); }
-
-  ScopedGauge(ScopedGauge &&other) noexcept : gauge_(std::exchange(other.gauge_, nullptr)) {}
-
-  ScopedGauge &operator=(ScopedGauge &&other) noexcept {
-    release();
-    gauge_ = std::exchange(other.gauge_, nullptr);
-    return *this;
+  ~ScopedGauge() {
+    if (gauge_) gauge_->Decrement();
   }
 
   ScopedGauge(ScopedGauge const &) = delete;
   ScopedGauge &operator=(ScopedGauge const &) = delete;
 
-  void release() {
-    if (gauge_) {
-      gauge_->Decrement();
-      gauge_ = nullptr;
+  ScopedGauge(ScopedGauge &&other) noexcept : gauge_(other.gauge_) { other.gauge_ = nullptr; }
+
+  ScopedGauge &operator=(ScopedGauge &&other) noexcept {
+    if (this != &other) {
+      if (gauge_) gauge_->Decrement();
+      gauge_ = other.gauge_;
+      other.gauge_ = nullptr;
     }
+    return *this;
   }
 
  private:
