@@ -15,13 +15,7 @@ from functools import partial
 
 import interactive_mg_runner
 import pytest
-from common import (
-    connect,
-    execute_and_fetch_all,
-    get_data_path,
-    get_logs_path,
-    show_instances,
-)
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -124,6 +118,16 @@ def cleanup_after_test():
     yield
     # Clean after running
     interactive_mg_runner.kill_all(keep_directories=False)
+
+
+def test_enable_show_license_info_queries(test_name):
+    cursor = setup_test(test_name=test_name)
+    execute_and_fetch_all(cursor, "SHOW LICENSE INFO")
+
+
+def test_enable_show_config_queries(test_name):
+    cursor = setup_test(test_name=test_name)
+    execute_and_fetch_all(cursor, "SHOW CONFIG")
 
 
 def test_disable_cypher_queries(test_name):

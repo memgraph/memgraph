@@ -64,7 +64,8 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
           "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please "
           "consider "
           "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-          "without write-ahead logs this instance is not replicating any data.");
+          "without write-ahead logs this instance is not replicating any data. Ignore this warning if this is "
+          "coordinator instance.");
     }
 
     return true;
@@ -100,7 +101,8 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
           "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please "
           "consider "
           "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-          "without write-ahead logs this instance is not replicating any data.");
+          "without write-ahead logs this instance is not replicating any data. Ignore this warning if this is "
+          "coordinator instance.");
     }
 
     return true;

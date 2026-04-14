@@ -88,6 +88,8 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
                 "--management-port=10121",
                 "--coordinator-hostname",
                 "localhost",
+                "--storage-snapshot-interval-sec",
+                f"{snapshot_interval_sec}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/coordinator_1.log",
             "data_directory": f"{get_data_path(file, test_name)}/coordinator_1",
@@ -103,6 +105,8 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
                 "--management-port=10122",
                 "--coordinator-hostname",
                 "localhost",
+                "--storage-snapshot-interval-sec",
+                f"{snapshot_interval_sec}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/coordinator_2.log",
             "data_directory": f"{get_data_path(file, test_name)}/coordinator_2",
@@ -118,6 +122,8 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
                 "--management-port=10123",
                 "--coordinator-hostname",
                 "localhost",
+                "--storage-snapshot-interval-sec",
+                f"{snapshot_interval_sec}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/coordinator_3.log",
             "data_directory": f"{get_data_path(file, test_name)}/coordinator_3",
@@ -220,6 +226,20 @@ def cleanup_after_test():
     yield
     # Stop + delete directories after running the test
     interactive_mg_runner.kill_all(keep_directories=True)
+
+
+def test_snapshots_on_coords(test_name):
+    # Set that snapshots are getting created every 3s
+    instances_description = get_instances_description_no_setup_snapshot_recovery(
+        test_name=test_name, snapshot_interval_sec="1"
+    )
+    interactive_mg_runner.start_all(instances_description, keep_directories=False)
+
+    build_dir = os.path.join(interactive_mg_runner.PROJECT_DIR, "build", "e2e", "data")
+    data_dir_coord_1 = f"{build_dir}/{get_data_path(file, test_name)}/coordinator_1"
+    snapshot_dir_coord_1 = f"{data_dir_coord_1}/snapshots"
+
+    assert count_files(snapshot_dir_coord_1) == 0
 
 
 def test_snapshots_on_replica(test_name):
