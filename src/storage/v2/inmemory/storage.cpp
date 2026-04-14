@@ -2314,6 +2314,20 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
       label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
 }
 
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
+    LabelId label, std::span<storage::PropertyPath const> properties,
+    std::span<storage::PropertyValueRange const> property_ranges, View view, size_t num_chunks, IndexOrder order) {
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
+  if (order == IndexOrder::DESC) {
+    return VerticesChunkedIterable(active_indices->ChunkedVertices<InMemoryLabelPropertyIndex::DescEntry>(
+        label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
+  }
+  return VerticesChunkedIterable(active_indices->ChunkedVertices<InMemoryLabelPropertyIndex::Entry>(
+      label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
+}
+
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
   auto *active_indices =
       static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_->edge_type_.get());

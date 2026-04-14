@@ -1178,13 +1178,14 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(
           transaction};
 }
 
-InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>
-InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(
+template <typename EntryT>
+InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
-  auto it = index_container_->asc_indices_.find(label);
-  DMG_ASSERT(it != index_container_->asc_indices_.end(),
+  auto const &indices_map = IndicesMap<EntryT>();
+  auto it = indices_map.find(label);
+  DMG_ASSERT(it != indices_map.end(),
              "Index for label {} and properties {} doesn't exist",
              label.AsUint(),
              JoinPropertiesAsString(properties));
@@ -1361,5 +1362,13 @@ template auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices<InMemoryLabelP
     LabelId, std::span<PropertyPath const>, std::span<PropertyValueRange const>,
     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *)
     -> Iterable<DescEntry>;
+template InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>
+InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices<InMemoryLabelPropertyIndex::Entry>(
+    LabelId, std::span<PropertyPath const>, std::span<PropertyValueRange const>,
+    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *, size_t);
+template InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>
+InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices<InMemoryLabelPropertyIndex::DescEntry>(
+    LabelId, std::span<PropertyPath const>, std::span<PropertyValueRange const>,
+    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor, View, Storage *, Transaction *, size_t);
 
 }  // namespace memgraph::storage

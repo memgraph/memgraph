@@ -219,6 +219,9 @@ class InMemoryStorage final : public Storage {
     VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                             std::span<storage::PropertyValueRange const> property_ranges, View view,
                                             size_t num_chunks) override;
+    VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<storage::PropertyPath const> properties,
+                                            std::span<storage::PropertyValueRange const> property_ranges, View view,
+                                            size_t num_chunks, IndexOrder order) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 

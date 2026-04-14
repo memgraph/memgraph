@@ -2185,6 +2185,46 @@ TYPED_TEST(IndexTest, LabelPropertyDescCompositeIndexRangeBounds) {
   EXPECT_THAT(result_ids, ::testing::UnorderedElementsAreArray(expected_ids));
 }
 
+// Test that ChunkedVertices works with DESC indices.
+// Before the fix, ChunkedVertices was hardcoded to ASC — a DESC-only index
+// would trigger a DMG_ASSERT crash.
+TYPED_TEST(IndexTest, LabelPropertyDescIndexChunkedVertices) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support DESC indices or ChunkedVertices";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}, IndexOrder::DESC).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < 20; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  std::vector<PropertyValueRange> ranges = {pvr::IsNotNull()};
+  auto chunks = acc->ChunkedVertices(
+      this->label1, std::array{PropertyPath{this->prop_val}}, ranges, View::OLD, 4, IndexOrder::DESC);
+  ASSERT_GT(chunks.size(), 0);
+
+  size_t total = 0;
+  for (size_t i = 0; i < chunks.size(); ++i) {
+    auto chunk = chunks.get_chunk(i);
+    for (auto it = chunk.begin(); it != chunk.end(); ++it) {
+      ++total;
+    }
+  }
+  EXPECT_EQ(total, 20);
+}
+
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {

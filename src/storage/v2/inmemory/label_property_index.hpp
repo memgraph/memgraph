@@ -352,7 +352,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                   memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
                   Storage *storage, Transaction *transaction) -> Iterable<EntryT>;
 
-    ChunkedIterable<Entry> ChunkedVertices(
+    template <typename EntryT = Entry>
+    ChunkedIterable<EntryT> ChunkedVertices(
         LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
         memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
         Transaction *transaction, size_t num_chunks);

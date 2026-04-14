@@ -98,6 +98,12 @@ class DiskStorage final : public Storage {
       throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
     }
 
+    VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
+                                            std::span<storage::PropertyValueRange const> property_ranges, View view,
+                                            size_t num_chunks, IndexOrder /*order*/) override {
+      throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
+    }
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
