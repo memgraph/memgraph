@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <optional>
 #include <ranges>
 #include <type_traits>
 #include <variant>
@@ -33,9 +34,9 @@ namespace memgraph::query::plan {
 ///
 /// @tparam TDbAccessor  The database accessor type (provides NameToProperty).
 ///
-/// Usage: the rewriter owns an instance and calls the On* hooks from the
-/// appropriate Pre/PostVisit methods.  The helper reads (but does not own)
-/// the rewriter's `prev_ops_` stack.
+/// Usage: the rewriter owns an instance and calls PushOrderBy / TryEliminate /
+/// ResolveAliases / NotifyScan from the appropriate visitor methods.  The helper
+/// reads (but does not own) the rewriter's `prev_ops_` stack.
 template <class TDbAccessor>
 class OrderByEliminator {
  public:
@@ -74,59 +75,34 @@ class OrderByEliminator {
 
   // ---------- hooks called by the rewriter ---------------------------------
 
-  void OnPreVisitOrderBy(OrderBy &op) { order_by_stack_.emplace_back(ExtractOrderByInfo(op)); }
+  void PushOrderBy(OrderBy &op) { order_by_stack_.emplace_back(ExtractOrderByInfo(op)); }
 
-  bool OnPostVisitOrderBy(OrderBy & /*op*/) {
-    DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in PostVisit");
+  bool TryEliminate() {
+    DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in TryEliminate");
     const auto &ctx = order_by_stack_.back();
     const bool eliminate = CanEliminate(ctx);
     order_by_stack_.pop_back();
     return eliminate;
   }
 
-  void OnPreVisitProduce(Produce *produce) {
+  void ResolveAliases(Produce *produce) {
     if (auto *ctx = ActiveContext()) {
       ResolveDownward(produce, *ctx);
     }
   }
 
-  void RecordVertexScan(const ScanAllByLabelProperties *scan) {
+  /// Notify the eliminator that a scan was encountered.
+  /// Pass a ProvidedScan if the scan provides ordered iteration, std::nullopt otherwise.
+  /// On the first notification, walks from the scan to the OrderBy to check that all
+  /// intermediate operators preserve order.
+  void NotifyScan(std::optional<ProvidedScan> scan) {
     if (auto *ctx = ActiveContext()) {
       if (ctx->provided_scans.empty()) WalkAndCheckOrderPreserving(*ctx);
-      ctx->provided_scans.emplace_back(scan);
-    }
-  }
-
-  template <typename EdgeScan>
-  void RecordEdgeScan(const EdgeScan *scan) {
-    static_assert(std::is_same_v<EdgeScan, ScanAllByEdgeTypePropertyRange> ||
-                      std::is_same_v<EdgeScan, ScanAllByEdgePropertyRange> ||
-                      std::is_same_v<EdgeScan, ScanAllByEdgeTypePropertyValue> ||
-                      std::is_same_v<EdgeScan, ScanAllByEdgePropertyValue>,
-                  "Only range and exact-value scans provide ordered iteration");
-    if (auto *ctx = ActiveContext()) {
-      if (ctx->provided_scans.empty()) WalkAndCheckOrderPreserving(*ctx);
-      ctx->provided_scans.emplace_back(scan);
-    }
-  }
-
-  /// Try to record an edge scan for ORDER BY elimination.
-  /// Dispatches to RecordEdgeScan for scan types that provide ordered iteration.
-  void TryRecordEdgeScan(const LogicalOperator *op) {
-    if (const auto *etr = dynamic_cast<const ScanAllByEdgeTypePropertyRange *>(op)) {
-      RecordEdgeScan(etr);
-    } else if (const auto *epr = dynamic_cast<const ScanAllByEdgePropertyRange *>(op)) {
-      RecordEdgeScan(epr);
-    } else if (const auto *etv = dynamic_cast<const ScanAllByEdgeTypePropertyValue *>(op)) {
-      RecordEdgeScan(etv);
-    } else if (const auto *epv = dynamic_cast<const ScanAllByEdgePropertyValue *>(op)) {
-      RecordEdgeScan(epv);
-    }
-  }
-
-  void MarkFirstScanUnrecorded() {
-    if (auto *ctx = ActiveContext()) {
-      if (ctx->provided_scans.empty()) ctx->order_preserving_path = false;
+      if (scan) {
+        ctx->provided_scans.emplace_back(*scan);
+      } else {
+        ctx->order_preserving_path = false;
+      }
     }
   }
 

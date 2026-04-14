@@ -425,7 +425,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Produce &op) override {
     prev_ops_.push_back(&op);
-    order_by_eliminator_.OnPreVisitProduce(&op);
+    order_by_eliminator_.ResolveAliases(&op);
     return true;
   }
 
@@ -556,13 +556,13 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
-    order_by_eliminator_.OnPreVisitOrderBy(op);
+    order_by_eliminator_.PushOrderBy(op);
     return true;
   }
 
   bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
-    if (order_by_eliminator_.OnPostVisitOrderBy(op)) {
+    if (order_by_eliminator_.TryEliminate()) {
       SetOnParent(op.input());
     }
     return true;
@@ -734,9 +734,23 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   /// Try to record a newly-created edge scan for ORDER BY elimination.
   /// GenScanByEdgeIndex may wrap the scan in a Filter (for edge-type checking
   /// on global property indexes), so we look through one level of Filter.
+  /// Dispatches to NotifyScan with the concrete scan type, or std::nullopt if
+  /// the operator is not an ordered edge scan.
   void TryRecordEdgeScan(LogicalOperator *op) {
+    using ProvidedScan = typename OrderByEliminator<TDbAccessor>::ProvidedScan;
     const auto *target = (op->GetTypeInfo() == Filter::kType) ? op->input().get() : op;
-    order_by_eliminator_.TryRecordEdgeScan(target);
+
+    std::optional<ProvidedScan> scan;
+    if (const auto *etr = dynamic_cast<const ScanAllByEdgeTypePropertyRange *>(target)) {
+      scan = etr;
+    } else if (const auto *epr = dynamic_cast<const ScanAllByEdgePropertyRange *>(target)) {
+      scan = epr;
+    } else if (const auto *etv = dynamic_cast<const ScanAllByEdgeTypePropertyValue *>(target)) {
+      scan = etv;
+    } else if (const auto *epv = dynamic_cast<const ScanAllByEdgePropertyValue *>(target)) {
+      scan = epv;
+    }
+    order_by_eliminator_.NotifyScan(scan);
   }
 
   struct EdgeTypePropertyIndexInfo {

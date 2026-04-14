@@ -348,20 +348,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanAll &scan) override {
     prev_ops_.pop_back();
     auto [indexed_scan, has_in_filter] = GenScanByIndex(scan);
-    bool recorded = false;
-    if (indexed_scan) {
-      if (!has_in_filter) {
-        auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get());
-        if (scan_by_props) {
-          order_by_eliminator_.RecordVertexScan(scan_by_props);
-          recorded = true;
-        }
-      }
-      SetOnParent(std::move(indexed_scan));
-    }
 
-    if (!recorded) {
-      order_by_eliminator_.MarkFirstScanUnrecorded();
+    using ProvidedScan = OrderByEliminator<TDbAccessor>::ProvidedScan;
+    std::optional<ProvidedScan> provided;
+    if (indexed_scan && !has_in_filter) {
+      if (auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get())) {
+        provided = scan_by_props;
+      }
+    }
+    order_by_eliminator_.NotifyScan(provided);
+
+    if (indexed_scan) {
+      SetOnParent(std::move(indexed_scan));
     }
     return true;
   }
@@ -589,7 +587,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Produce &op) override {
     prev_ops_.push_back(&op);
-    order_by_eliminator_.OnPreVisitProduce(&op);
+    order_by_eliminator_.ResolveAliases(&op);
     return true;
   }
 
@@ -720,13 +718,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
-    order_by_eliminator_.OnPreVisitOrderBy(op);
+    order_by_eliminator_.PushOrderBy(op);
     return true;
   }
 
   bool PostVisit(OrderBy &op) override {
     prev_ops_.pop_back();
-    if (order_by_eliminator_.OnPostVisitOrderBy(op)) {
+    if (order_by_eliminator_.TryEliminate()) {
       SetOnParent(op.input());
     }
     return true;
