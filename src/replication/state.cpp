@@ -58,7 +58,8 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
         return;
       }
       case REPL_SERVER_FAILURE: {
-        LOG_FATAL("Couldn't initalize replication server");
+        LOG_FATAL("Couldn't initialize replication server");
+        return;
       }
       default: {
         std::unreachable();
@@ -338,7 +339,6 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
     return false;
   }
 
-  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   if (!TryPersistRoleReplica(config, main_uuid)) {
     return false;
   }

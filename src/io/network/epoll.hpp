@@ -34,19 +34,21 @@ class Epoll {
 
   // Prevent FD from leaking to child processes by using EPOLL_CLOEXEC
   Epoll() : epoll_fd_(epoll_create1(EPOLL_CLOEXEC)) {
-    // epoll_create1 returns an error if there is a logical error in our code
-    // (for example invalid flags) or if there is irrecoverable error. In both
-    // cases it is best to terminate.
     if (epoll_fd_ == -1) {
-      // The exception should be caught wherever the listener is being created
+      // Exception is currently propagated: Epoll -> Listener -> communication::Server -> RpcServer
       throw utils::BasicException("Error on epoll create: ({}) {}", errno, strerror(errno));
     }
   }
 
+  // This is important to be delete because otherwise we could get into a double-close bug for the same file descriptor
+  Epoll(const Epoll &other) = delete;
+  Epoll &operator=(const Epoll &other) = delete;
+  Epoll(Epoll &&other) = delete;
+  Epoll &operator=(Epoll &&other) = delete;
+
   ~Epoll() {
-    if (epoll_fd_ != -1) {
-      close(epoll_fd_);
-    }
+    // epoll_fd_ can never be -1 because if it ever was, the exception would be thrown in the constructor
+    close(epoll_fd_);
   }
 
   /**
