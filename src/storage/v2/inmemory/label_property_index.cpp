@@ -1251,7 +1251,7 @@ auto InMemoryLabelPropertyIndex::GetActiveIndices() const -> std::shared_ptr<Lab
 void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {
   // AbortableInfo is keyed by label+properties and spans both index orders.
   // An entry to abort may only exist in ASC, DESC, or both — soft lookup is intentional.
-  auto const abort_from = [&](auto &indices_map) {
+  auto const abort_from = [&]<bool Move>(auto &indices_map, std::bool_constant<Move>) {
     using EntryT = typename std::decay_t<decltype(indices_map)>::mapped_type::mapped_type::element_type::EntryType;
     for (auto const &[label, by_properties] : info) {
       auto it = indices_map.find(label);
@@ -1261,12 +1261,17 @@ void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const
         if (it2 == it->second.end()) continue;
         auto acc = it2->second->skiplist.access();
         for (auto &[values, vertex] : to_remove) {
-          acc.remove(EntryT{values, vertex, start_timestamp});
+          if constexpr (Move) {
+            acc.remove(EntryT{std::move(values), vertex, start_timestamp});
+          } else {
+            acc.remove(EntryT{values, vertex, start_timestamp});
+          }
         }
       }
     }
   };
-  index_container_->ForEachIndicesMap(abort_from);
+  abort_from(index_container_->asc_indices_, std::false_type{});
+  abort_from(index_container_->desc_indices_, std::true_type{});
 }
 
 void InMemoryLabelPropertyIndex::CleanupAllIndices() {
