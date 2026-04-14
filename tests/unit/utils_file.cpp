@@ -883,7 +883,7 @@ TEST_F(UtilsFileTest, OutputFileExisting) {
     for (const auto &file : kFilesAll) {
       memgraph::utils::OutputFile handle;
       if (memgraph::utils::EndsWith(dir, "000") || memgraph::utils::EndsWith(file, "000")) {
-        ASSERT_DEATH(handle.Open(storage / dir / file, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
+        ASSERT_FALSE(handle.Open(storage / dir / file, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING));
       } else {
         handle.Open(storage / dir / file, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
         ASSERT_TRUE(handle.IsOpen());
@@ -901,7 +901,7 @@ TEST_F(UtilsFileTest, OutputFileNew) {
     memgraph::utils::OutputFile handle;
     auto path = storage / dir / "test";
     if (memgraph::utils::EndsWith(dir, "000")) {
-      ASSERT_DEATH(handle.Open(path, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
+      ASSERT_FALSE(handle.Open(path, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING));
     } else {
       handle.Open(path, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
       ASSERT_TRUE(handle.IsOpen());

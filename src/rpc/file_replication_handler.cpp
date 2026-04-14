@@ -64,8 +64,12 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
   auto const path = save_dir / filename;
   paths_.emplace_back(path);
 
-  spdlog::info("Replica will be using file {} with size {}", path, file_size_);
-  file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  spdlog::trace("Replica will be using file {} with size {}", path, file_size_);
+  if (!file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING)) {
+    spdlog::error("Failed to open file {}. This is not a fatal failure, main will retry the sending of the file.",
+                  path);
+    return std::nullopt;
+  }
 
   // First N bytes are file_name and file_size, therefore we don't read full size
   size_t const processed_bytes = req_reader.GetPos();

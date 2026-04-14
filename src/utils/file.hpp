@@ -206,9 +206,8 @@ class OutputFile {
   /// This method opens a new file used for writing. If the file doesn't exist
   /// it is created. The `mode` flags controls whether data is appended to the
   /// file or the file is wiped on first write. Files are created with a
-  /// restrictive permission mask (0640). On failure and misuse it crashes the
-  /// program.
-  void Open(const std::filesystem::path &path, Mode mode);
+  /// restrictive permission mask (0640). On failure and misuse it returns false.
+  bool Open(const std::filesystem::path &path, Mode mode);
 
   /// Returns a boolean indicating whether a file is opened.
   bool IsOpen() const;
@@ -322,7 +321,7 @@ class NonConcurrentOutputFile {
   /// file or the file is wiped on first write. Files are created with a
   /// restrictive permission mask (0640). On failure and misuse it crashes the
   /// program.
-  void Open(const std::filesystem::path &path, Mode mode);
+  bool Open(const std::filesystem::path &path, Mode mode);
 
   /// Returns a boolean indicating whether a file is opened.
   bool IsOpen() const;
