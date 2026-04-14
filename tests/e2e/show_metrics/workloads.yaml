@@ -14,11 +14,19 @@ show_metrics_snapshot_cluster: &show_metrics_snapshot_cluster
       setup_queries: []
       validation_queries: []
 
-show_metrics_http_cluster: &show_metrics_http_cluster
+show_metrics_json_format_cluster: &show_metrics_json_format_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--metrics-port=9091"]
-      log_file: "show_metrics_http.log"
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--metrics-port=9091", "--metrics-format=JSON"]
+      log_file: "show_metrics_json_format.log"
+      setup_queries: []
+      validation_queries: []
+
+show_metrics_openmetrics_format_cluster: &show_metrics_openmetrics_format_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--metrics-port=9091", "--metrics-format=OpenMetrics"]
+      log_file: "show_metrics_openmetrics_format.log"
       setup_queries: []
       validation_queries: []
 
@@ -34,11 +42,16 @@ workloads:
     args: ["show_metrics/show_metrics_snapshot.py"]
     <<: *show_metrics_snapshot_cluster
 
-  - name: "Show metrics info HTTP endpoint"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["show_metrics/show_metrics_http.py"]
-    <<: *show_metrics_http_cluster
-
   - name: "Show metrics info recovery"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["show_metrics/show_metrics_recovery.py"]
+
+  - name: "Show metrics JSON format"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_metrics/show_metrics_json_format.py"]
+    <<: *show_metrics_json_format_cluster
+
+  - name: "Show metrics OpenMetrics format"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_metrics/show_metrics_openmetrics_format.py"]
+    <<: *show_metrics_openmetrics_format_cluster
