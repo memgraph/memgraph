@@ -22,6 +22,7 @@
 
 namespace memgraph::storage {
 
+struct ActiveIndicesUpdater;
 struct Indices;
 class NameIdMapper;
 
@@ -204,7 +205,7 @@ class VectorIndex {
   /// @param name_id_mapper Name id mapper (for property decoding).
   /// @param snapshot_info The snapshot information to use.
   void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
-                    Indices *indices, NameIdMapper *name_id_mapper,
+                    Indices *indices, NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.

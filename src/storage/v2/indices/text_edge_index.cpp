@@ -35,16 +35,21 @@ void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const Text
     mappings["properties"]["from_vertex_gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
     mappings["properties"]["to_vertex_gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
 
+    if (index_->contains(index_info.index_name)) {
+      throw query::TextSearchException(
+          "Text edge index {} already exists at path: {}.", index_info.index_name, index_path);
+    }
+
+    // If index already exists on disk, it will be loaded and reused.
     auto data = std::make_shared<TextEdgeIndexData>(
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
         index_info.edge_type,
         index_info.properties);
 
-    auto [_, success] = index_->try_emplace(index_info.index_name, std::move(data));
-    if (!success) {
-      throw query::TextSearchException(
-          "Text edge index {} already exists at path: {}.", index_info.index_name, index_path);
-    }
+    // Copy-on-write: create a new map so existing ActiveIndices snapshots are not affected.
+    auto new_map = std::make_shared<IndexContainer>(*index_);
+    new_map->emplace(index_info.index_name, std::move(data));
+    index_ = std::move(new_map);
   } catch (const std::exception &e) {
     spdlog::error(
         "Failed to create text edge index {} at path: {}. Error: {}", index_info.index_name, index_path, e.what());
@@ -86,6 +91,7 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
   for (const auto &vertex : vertices) {
     const auto edges_accessor = vertex.OutEdges(View::NEW, {index_info.edge_type}).value();
     for (const auto &edge : edges_accessor.edges) {
+      // If properties are specified, we serialize only those properties; otherwise, all properties of the edge.
       auto edge_properties = index_info.properties.empty()
                                  ? edge.Properties(View::NEW).value()
                                  : edge.PropertiesByPropertyIds(index_info.properties, View::NEW).value();
@@ -107,7 +113,7 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
 }
 
 void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
-                                 NameIdMapper *name_id_mapper,
+                                 NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
   auto needs_rebuild = !std::filesystem::exists(index_path);
@@ -115,6 +121,8 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
     CreateTantivyIndex(index_path, index_info);
   } catch (const query::TextSearchException &) {
     if (needs_rebuild) throw;
+    // It's possible that index on disk has incompatible schema if, for example, new required properties were added to
+    // the index spec in new versions
     spdlog::warn("Text edge index {} has incompatible schema on disk, rebuilding.", index_info.index_name);
     std::error_code ec;
     std::filesystem::remove_all(index_path, ec);
@@ -156,22 +164,26 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::TEXT_IDX);
   }
+
+  PublishActiveIndices(updater);
 }
 
 void TextEdgeIndex::DropIndex(const std::string &index_name, ActiveIndicesUpdater const &updater) {
-  auto node = index_->extract(index_name);
-  if (node.empty()) {
+  auto it = index_->find(index_name);
+  if (it == index_->end()) {
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   }
 
-  auto &entry = *node.mapped();
-  try {
-    mgcxx::text_search::drop_index(std::move(entry.context));
-  } catch (const std::exception &e) {
-    index_->insert(std::move(node));
-    throw query::TextSearchException("Text index error on drop: {}", e.what());
-  }
+  // Mark for deferred drop: the tantivy context stays valid for existing
+  // snapshots. When the last shared_ptr<TextEdgeIndexData> reference is released,
+  // the destructor will call drop_index.
+  it->second->deferred_drop = true;
 
+  // Copy-on-write: work on a new map so existing ActiveIndices snapshots are not affected.
+  auto new_map = std::make_shared<IndexContainer>(*index_);
+  new_map->erase(index_name);
+
+  index_ = std::move(new_map);
   PublishActiveIndices(updater);
 }
 
@@ -187,30 +199,20 @@ std::vector<TextEdgeIndexSpec> TextEdgeIndex::ListIndices() const {
 }
 
 void TextEdgeIndex::Clear() {
-  // Collect all index specs before modifying the map — we need them for recovery if a drop fails.
-  std::vector<TextEdgeIndexSpec> all_index_specs;
-  all_index_specs.reserve(index_->size());
-  for (const auto &[index_name, data_ptr] : *index_) {
-    all_index_specs.emplace_back(index_name, data_ptr->scope, data_ptr->properties);
-  }
-
-  std::vector<TextEdgeIndexSpec> successfully_dropped;
-  successfully_dropped.reserve(all_index_specs.size());
-  for (const auto &index_spec : all_index_specs) {
-    auto node = index_->extract(index_spec.index_name);
+  // Clear() only runs under exclusive access (DROP GRAPH in analytical mode,
+  // or InMemoryStorage::Clear during recovery), so no concurrent readers exist.
+  // Unlike DropIndex (which uses copy-on-write for snapshot isolation), we can
+  // just clean up in place and swap in an empty map at the end.
+  for (auto &[index_name, data_ptr] : *index_) {
     try {
-      mgcxx::text_search::drop_index(std::move(node.mapped()->context));
-      successfully_dropped.push_back(index_spec);
+      // Tantivy contexts require explicit drop_index() — the Rust opaque type
+      // has a deleted C++ destructor and cannot be cleaned up via RAII alone.
+      mgcxx::text_search::drop_index(std::move(data_ptr->context));
     } catch (const std::exception &e) {
-      // Re-insert the failed one
-      index_->insert(std::move(node));
-      // Recover indices that were successfully dropped before this failure
-      for (const auto &dropped_spec : successfully_dropped) {
-        CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, dropped_spec.index_name), dropped_spec);
-      }
-      throw;
+      spdlog::error("Failed to drop text edge index {} during clear: {}", index_name, e.what());
     }
   }
+  index_ = std::make_shared<IndexContainer>();
 }
 
 // ---- TextEdgeIndex::ActiveIndices (snapshot) methods ----
@@ -335,6 +337,8 @@ std::string TextEdgeIndex::ActiveIndices::Aggregate(const std::string &index_nam
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
+  // The CXX .data() method (https://cxx.rs/binding/string.html) may overestimate string length, causing JSON parsing
+  // errors downstream. We prevent this by resizing the converted string with the correctly-working .length() method.
   std::string result_string(aggregation_result.data.data(), aggregation_result.data.length());
   return result_string;
 }

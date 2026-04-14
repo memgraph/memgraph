@@ -17,6 +17,7 @@
 
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -530,6 +531,7 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
   memgraph::utils::SkipList<Edge> edges_;
   VectorEdgeIndex vector_edge_index_;
   NameIdMapper name_id_mapper_;
+  ActiveIndicesStore active_indices_store_;
 };
 
 TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
@@ -540,7 +542,8 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
   auto spec = CreateSpec();
   VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
 
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, &name_id_mapper_));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(
+      recovery_info, vertices_acc, &name_id_mapper_, ActiveIndicesUpdater{active_indices_store_}));
 
   // Verify all edges are in the index
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
@@ -582,7 +585,8 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexParallelTest) {
   auto spec = CreateSpec();
   VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
 
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, &name_id_mapper_));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(
+      recovery_info, vertices_acc, &name_id_mapper_, ActiveIndicesUpdater{active_indices_store_}));
 
   // Verify all edges are in the index
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
@@ -631,7 +635,8 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
                                   .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
   VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
 
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, &name_id_mapper_));
+  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(
+      recovery_info, vertices_acc, &name_id_mapper_, ActiveIndicesUpdater{active_indices_store_}));
 
   const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);

@@ -1084,14 +1084,13 @@ class Storage {
 
   auto GetActiveConstraints() const -> ActiveConstraintsPtr { return constraints_.active_constraints_.ReadCopy(); }
 
-  /// Check if async indexer is idle (no pending work)
-  /// @return true if async indexer is idle, false if actively processing or has pending work
-  /// @note For storage types without async indexing, this always returns true
-  virtual bool IsAsyncIndexerIdle() const = 0;
-
   /// Live approximate counts from the underlying vector indices (not from snapshot).
   /// Vector index counts change on every data mutation but the ActiveIndices snapshot
   /// is only refreshed on Create/Drop, so we read directly from the live index.
+  // TODO: This bypasses snapshot isolation — a concurrent DROP can remove the index between
+  // the snapshot listing and this live read (value_or(0) prevents crashes). Fix by refactoring
+  // VectorIndex to use shared_ptr + COW like TextIndex, so ActiveIndices holds a reference to
+  // the live index data and counts are both live and snapshot-safe.
   std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const {
     return indices_.vector_index_.ApproximateNodesVectorCount(label, property);
   }
@@ -1099,6 +1098,11 @@ class Storage {
   std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const {
     return indices_.vector_edge_index_.ApproximateEdgesVectorCount(edge_type, property);
   }
+
+  /// Check if async indexer is idle (no pending work)
+  /// @return true if async indexer is idle, false if actively processing or has pending work
+  /// @note For storage types without async indexing, this always returns true
+  virtual bool IsAsyncIndexerIdle() const = 0;
 
   /// Check if async indexer thread has stopped
   /// @return true if async indexer thread has stopped (due to null protector or shutdown), false otherwise

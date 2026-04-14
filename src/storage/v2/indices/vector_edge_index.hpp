@@ -20,6 +20,7 @@
 
 namespace memgraph::storage {
 
+struct ActiveIndicesUpdater;
 struct Indices;
 class NameIdMapper;
 
@@ -149,7 +150,7 @@ class VectorEdgeIndex {
 
   /// @brief Recovers a vector edge index based on recovery info.
   void RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
-                    NameIdMapper *name_id_mapper,
+                    NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.

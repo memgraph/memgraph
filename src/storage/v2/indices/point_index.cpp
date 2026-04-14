@@ -127,10 +127,8 @@ void PointIndexStorage::PublishActiveIndices(ActiveIndicesUpdater const &updater
 bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
                                          ActiveIndicesUpdater const &updater,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  // indexes_ protected by unique storage access
-  auto &indexes = *indexes_;
   auto key = LabelPropKey{label, property};
-  if (indexes.contains(key)) return false;
+  if (indexes_->contains(key)) return false;
 
   auto points_2d_WGS = std::vector<Entry<IndexPointWGS2d>>{};
   auto points_2d_Crt = std::vector<Entry<IndexPointCartesian2d>>{};
@@ -174,17 +172,24 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, uti
     }
   }
   auto new_index = std::make_shared<PointIndex>(points_2d_WGS, points_2d_Crt, points_3d_WGS, points_3d_Crt);
-  auto [_, inserted] = indexes.try_emplace(key, std::move(new_index));
-  if (inserted) PublishActiveIndices(updater);
+  // Copy-on-write: create a new map so existing ActiveIndices snapshots are not affected.
+  auto new_indexes = std::make_shared<index_container_t>(*indexes_);
+  auto [_, inserted] = new_indexes->try_emplace(key, std::move(new_index));
+  if (inserted) {
+    indexes_ = std::move(new_indexes);
+    PublishActiveIndices(updater);
+  }
   return inserted;
 }
 
 bool PointIndexStorage::DropPointIndex(LabelId label, PropertyId property, ActiveIndicesUpdater const &updater) {
-  // indexes_ protected by unique storage access
-  auto &indexes = *indexes_;
-  auto it = indexes.find(LabelPropKey{label, property});
-  if (it == indexes.end()) return false;
-  indexes.erase(it);
+  auto key = LabelPropKey{label, property};
+  if (!indexes_->contains(key)) return false;
+
+  // Copy-on-write: create a new map so existing ActiveIndices snapshots are not affected.
+  auto new_indexes = std::make_shared<index_container_t>(*indexes_);
+  new_indexes->erase(key);
+  indexes_ = std::move(new_indexes);
   PublishActiveIndices(updater);
   return true;
 }
@@ -215,7 +220,7 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
   PublishActiveIndices(updater);
 }
 
-void PointIndexStorage::Clear() { indexes_->clear(); }
+void PointIndexStorage::Clear() { indexes_ = std::make_shared<index_container_t>(); }
 
 std::vector<std::pair<LabelId, PropertyId>> PointIndexStorage::ListIndices() {
   auto indexes = indexes_;  // local copy of shared_ptr, for safety

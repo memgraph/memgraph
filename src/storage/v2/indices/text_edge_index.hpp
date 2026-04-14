@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
 #include <mutex>
 #include <nlohmann/json_fwd.hpp>
 
@@ -36,8 +37,28 @@ struct TextEdgeIndexData {
   std::mutex write_mutex;  // Only used for exclusive locking during writes. IndexReader and IndexWriter are
                            // independent, so no lock is required when reading.
 
+  /// When true, the destructor will call drop_index to clean up the tantivy index.
+  /// Set by DropIndex so the context stays valid for existing snapshots until
+  /// the last reference is released.
+  bool deferred_drop{false};
+
   TextEdgeIndexData(mgcxx::text_search::Context context, EdgeTypeId scope, std::vector<PropertyId> properties)
       : context(std::move(context)), scope(scope), properties(std::move(properties)) {}
+
+  ~TextEdgeIndexData() {
+    if (deferred_drop) {
+      try {
+        mgcxx::text_search::drop_index(std::move(context));
+      } catch (...) {
+        spdlog::error("Failed to drop text edge index during deferred cleanup");
+      }
+    }
+  }
+
+  TextEdgeIndexData(const TextEdgeIndexData &) = delete;
+  TextEdgeIndexData &operator=(const TextEdgeIndexData &) = delete;
+  TextEdgeIndexData(TextEdgeIndexData &&) = delete;
+  TextEdgeIndexData &operator=(TextEdgeIndexData &&) = delete;
 };
 
 struct TextEdgeSearchResult {
@@ -124,7 +145,7 @@ class TextEdgeIndex {
                    ActiveIndicesUpdater const &updater);
 
   void RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
-                    NameIdMapper *name_id_mapper,
+                    NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   void DropIndex(const std::string &index_name, ActiveIndicesUpdater const &updater);

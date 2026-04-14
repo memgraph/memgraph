@@ -376,7 +376,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     for (const auto &index_info : index_metadata) {
       try {
         // TODO: parallel execution
-        text_index.RecoverIndex(index_info, vertices->access(), name_id_mapper, snapshot_info);
+        text_index.RecoverIndex(index_info, vertices->access(), name_id_mapper, updater, snapshot_info);
       } catch (...) {
         throw RecoveryFailure(fmt::format("The {} must be created here!", index_type).c_str());
       }
@@ -397,10 +397,6 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
                        "Text edge indices",
                        [](const auto &info) { return info.edge_type; });
 
-  // Publish recovered text indices to active_indices_
-  updater(indices->text_index_.GetActiveIndices());
-  updater(indices->text_edge_index_.GetActiveIndices());
-
   // Point idx
   {
     spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());
@@ -420,7 +416,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
     for (auto &recovery_info : indices_metadata.vector_indices) {
-      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, indices, name_id_mapper, snapshot_info);
+      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, indices, name_id_mapper, updater, snapshot_info);
       spdlog::info("Vector index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(recovery_info.spec.label_id.AsUint()),
                    name_id_mapper->IdToName(recovery_info.spec.property.AsUint()));
@@ -432,18 +428,13 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
     auto vertices_acc = vertices->access();
     for (auto &recovery_info : indices_metadata.vector_edge_indices) {
-      indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, snapshot_info);
+      indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, updater, snapshot_info);
       spdlog::info("Vector edge index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(recovery_info.spec.edge_type_id.AsUint()),
                    name_id_mapper->IdToName(recovery_info.spec.property.AsUint()));
     }
     spdlog::info("Vector edge indices are recreated.");
   }
-
-  // Publish recovered vector indices to active_indices_
-
-  updater(indices->vector_index_.GetActiveIndices());
-  updater(indices->vector_edge_index_.GetActiveIndices());
 
   spdlog::info("Indices are recreated.");
 }

@@ -19,6 +19,7 @@
 #include "query/exceptions.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/tracked_vector_allocator.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
@@ -147,6 +148,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
 
 void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
                                    utils::SkipList<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
+                                   ActiveIndicesUpdater const &updater,
                                    std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &spec = recovery_info.spec;
   try {
@@ -196,6 +198,8 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
     DropIndex(spec.index_name, name_id_mapper);
     throw;
   }
+
+  updater(GetActiveIndices());
 }
 
 bool VectorEdgeIndex::DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper) {

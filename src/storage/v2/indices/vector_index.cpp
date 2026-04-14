@@ -15,6 +15,7 @@
 #include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
@@ -104,7 +105,7 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
 }
 
 void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
-                               Indices *indices, NameIdMapper *name_id_mapper,
+                               Indices *indices, NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &spec = recovery_info.spec;
   try {
@@ -145,6 +146,8 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
     DropIndex(spec.index_name, name_id_mapper);
     throw;
   }
+
+  updater(GetActiveIndices());
 }
 
 void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
