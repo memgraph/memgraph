@@ -175,7 +175,6 @@ target_link_libraries(mg-query
     mg-parameters
     mg::planner
     PRIVATE
-    mg-coordination
     arrow::arrow
     mg-module-support
     mg-cpp-api
