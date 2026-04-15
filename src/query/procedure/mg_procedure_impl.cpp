@@ -226,7 +226,9 @@ template <typename TFunc, typename... Args>
 
 // Graph mutations
 bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
-  return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr;
+  // a virtual-only scope (derive() arg) is read-only: the virtual store is query-scoped
+  // and there is no sanctioned path to write into the underlying real DB.
+  return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr && !graph.virtual_only;
 }
 
 bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }

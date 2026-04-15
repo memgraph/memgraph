@@ -723,7 +723,7 @@ TYPED_TEST(MgpGraphTest, VirtualEdgesInIterator) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &ve_from = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(v1.Gid(), {}, {}));
   const auto &ve_to = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(v3.Gid(), {}, {}));
-  vg.edge_store().Insert(memgraph::query::VirtualEdge(ve_from, ve_to, "VIRTUAL"));
+  vg.edge_store().InsertIfNew(memgraph::query::VirtualEdge(ve_from, ve_to, "VIRTUAL"));
 
   // Create SubgraphDbAccessor and mgp_graph
   memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
@@ -771,7 +771,7 @@ TYPED_TEST(MgpGraphTest, VirtualEdgeApiOperations) {
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &vn1 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(v1.Gid(), {}, {}));
   const auto &vn2 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(v2.Gid(), {}, {}));
-  vg.edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn2, "VE"));
+  vg.edge_store().InsertIfNew(memgraph::query::VirtualEdge(vn1, vn2, "VE"));
 
   memgraph::query::SubgraphDbAccessor sub_dba(dba, &proj_graph);
   auto graph = mgp_graph{
@@ -966,4 +966,15 @@ TYPED_TEST(MgpGraphTest, VirtualNodeRejectsPropertyWrites) {
 
   MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 42, &this->memory)};
   EXPECT_EQ(mgp_vertex_set_property(v.get(), "x", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+}
+
+TYPED_TEST(MgpGraphTest, VirtualOnlyScopeRejectsMutations) {
+  mgp_graph graph = this->CreateGraph();
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  graph.virtual_graph = &vg;
+  graph.virtual_only = true;
+
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_graph_is_mutable, &graph), 0);
+  mgp_vertex *raw_vertex{};
+  EXPECT_EQ(mgp_graph_create_vertex(&graph, &this->memory, &raw_vertex), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 }

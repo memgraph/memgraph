@@ -83,8 +83,8 @@ TEST_F(VirtualEdgeTest, GraphStoresVirtualEdgesSeparately) {
   const auto &vn1 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
   const auto &vn2 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv2.Gid(), {}, {}));
   memgraph::query::VirtualEdge ve(vn1, vn2, "VIRTUAL");
-  vg.edge_store().Insert(ve);
-  vg.edge_store().Insert(ve);  // duplicate is a no-op
+  EXPECT_TRUE(vg.edge_store().InsertIfNew(ve));
+  EXPECT_FALSE(vg.edge_store().InsertIfNew(ve));
 
   EXPECT_EQ(graph.edges().size(), 1);
   EXPECT_EQ(vg.edge_store().size(), 1);
@@ -104,9 +104,9 @@ TEST_F(VirtualEdgeTest, VirtualGraphFiltersEdgesByVertex) {
   const auto &vn3 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv3.Gid(), {}, {}));
 
   // v1->v2, v1->v3, v2->v3
-  vg.edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn2, "A"));
-  vg.edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn3, "B"));
-  vg.edge_store().Insert(memgraph::query::VirtualEdge(vn2, vn3, "C"));
+  vg.edge_store().InsertIfNew(memgraph::query::VirtualEdge(vn1, vn2, "A"));
+  vg.edge_store().InsertIfNew(memgraph::query::VirtualEdge(vn1, vn3, "B"));
+  vg.edge_store().InsertIfNew(memgraph::query::VirtualEdge(vn2, vn3, "C"));
 
   // edge store is indexed by synthetic VirtualNode Gid
   // vn1 has 2 out, 0 in
@@ -125,7 +125,7 @@ TEST_F(VirtualEdgeTest, SelfLoopAppearsInBothDirections) {
 
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto &vn1 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
-  vg.edge_store().Insert(memgraph::query::VirtualEdge(vn1, vn1, "SELF"));
+  vg.edge_store().InsertIfNew(memgraph::query::VirtualEdge(vn1, vn1, "SELF"));
 
   // edge store is indexed by synthetic VirtualNode Gid
   EXPECT_EQ(vg.edge_store().OutEdges(vn1.Gid()).size(), 1);

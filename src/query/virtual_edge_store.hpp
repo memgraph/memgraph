@@ -47,7 +47,7 @@ class VirtualEdgeStore {
   VirtualEdgeStore &operator=(VirtualEdgeStore &&) noexcept = default;
   ~VirtualEdgeStore() = default;
 
-  void Insert(const VirtualEdge &edge);
+  // Returns true iff the (from, to, type) triple was not already present.
   bool InsertIfNew(VirtualEdge edge);
   bool Contains(const VirtualEdge &edge) const;
 

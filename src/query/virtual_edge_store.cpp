@@ -28,11 +28,6 @@ void VirtualEdgeStore::RebuildIndexes() {
   }
 }
 
-void VirtualEdgeStore::Insert(const VirtualEdge &edge) {
-  edges_.insert(edge);
-  IndexEdge(edge);
-}
-
 bool VirtualEdgeStore::InsertIfNew(VirtualEdge edge) {
   auto inserted =
       dedup_.insert(DedupKey{.from = edge.FromGid(), .to = edge.ToGid(), .type = edge.EdgeTypeName()}).second;
