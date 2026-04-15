@@ -298,8 +298,6 @@ class FuzzerState {
   ProcessingContext<FuzzSymbol> ctx;
   std::vector<EClassId> created_ids;
   size_t operation_count = 0;
-
-  static constexpr size_t MAX_OPERATIONS = 1000;
 };
 
 }  // anonymous namespace

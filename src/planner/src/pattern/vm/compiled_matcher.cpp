@@ -9,11 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "planner/pattern/vm/compiled_rule.hpp"
+#include "planner/pattern/vm/compiled_matcher.hpp"
 
 namespace memgraph::planner::core::pattern::vm {
 
-CompiledPatternBase::CompiledPatternBase(std::vector<Instruction> code, std::size_t num_eclass_regs,
+CompiledMatcherBase::CompiledMatcherBase(std::vector<Instruction> code, std::size_t num_eclass_regs,
                                          std::size_t num_enode_regs, std::vector<SlotIdx> binding_order,
                                          VarSlotMap var_slots)
     : code_(std::move(code)),
@@ -30,7 +30,7 @@ CompiledPatternBase::CompiledPatternBase(std::vector<Instruction> code, std::siz
   }
 }
 
-auto CompiledPatternBase::state_config() const -> VMStateConfig {
+auto CompiledMatcherBase::state_config() const -> VMStateConfig {
   return {.num_eclass_regs = num_eclass_regs_,
           .num_enode_regs = num_enode_regs_,
           .binding_order = binding_order_,

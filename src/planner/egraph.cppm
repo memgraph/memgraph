@@ -182,6 +182,9 @@ struct BaseProcessingContext {
   UnionFindContext union_find_context;
   std::vector<strong::underlying_type_t<EClassId>> canonical_eclass_ids;
   boost::container::flat_set<EClassId> canonicalized_chunk;
+
+  /// Deferred duplicate removals for repair_hashcons_eclass.
+  std::vector<ENodeId> pending_duplicate_removals;
 };
 
 /**
@@ -375,13 +378,18 @@ struct EGraph : private detail::EGraphBase {
   auto repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id, BaseProcessingContext &ctx)
       -> EClassId;
 
+  struct RepairResult {
+    std::optional<EClassId> merge_target;
+    std::optional<ENodeId> duplicate_enode;
+  };
+
   /**
    * @brief Repair hashcons entry for a single e-node
-   * @return A canonical e-class ID to merge with if a duplicate was found in a
-   *         different e-class; nullopt if no merge is needed. The returned ID
-   *         is already canonical (no need to call find() on it).
+   *
+   * Canonicalizes the enode and updates hashcons. If the canonical form already
+   * exists, returns the duplicate enode ID. Caller handles removal.
    */
-  auto repair_hashcons_enode(ENodeId enode_id, EClassId eclass_id) -> std::optional<EClassId>;
+  auto repair_hashcons_enode(ENodeId enode_id, EClassId eclass_id) -> RepairResult;
 
   void process_parents(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx);
 
@@ -564,16 +572,24 @@ void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id,
                                                       BaseProcessingContext &ctx) -> EClassId {
-  // Collect canonical IDs to merge. We must iterate fully before merging to
-  // avoid iterator invalidation - merge() can modify/move the eclass.
   auto &canonical_ids = ctx.canonical_eclass_ids;
   canonical_ids.clear();
 
+  auto &pending_removals = ctx.pending_duplicate_removals;
+  pending_removals.clear();
+
   for (auto const &enode_id : eclass.nodes()) {
-    if (auto merge_target = repair_hashcons_enode(enode_id, eclass_id)) {
-      // repair_hashcons_enode returns canonical e-class IDs
-      canonical_ids.push_back(merge_target->value_of());
+    auto result = repair_hashcons_enode(enode_id, eclass_id);
+    if (result.duplicate_enode) {
+      pending_removals.push_back(*result.duplicate_enode);
     }
+    if (result.merge_target) {
+      canonical_ids.push_back(result.merge_target->value_of());
+    }
+  }
+
+  for (auto dup_enode_id : pending_removals) {
+    remove_duplicate_enode(get_enode(dup_enode_id), dup_enode_id, eclass_id);
   }
 
   if (canonical_ids.empty()) {
@@ -590,7 +606,7 @@ auto EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &ec
 }
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::repair_hashcons_enode(ENodeId enode_id, EClassId eclass_id) -> std::optional<EClassId> {
+auto EGraph<Symbol, Analysis>::repair_hashcons_enode(ENodeId enode_id, EClassId eclass_id) -> RepairResult {
   auto &enode = get_enode(enode_id);
   auto old_it = hashcons_.find(ENodeRef{enode});
   assert(old_it != hashcons_.end() && "canonical e-node must exist in hashcons");
@@ -609,10 +625,8 @@ auto EGraph<Symbol, Analysis>::repair_hashcons_enode(ENodeId enode_id, EClassId 
       // The duplicate's e-class should be merged with the existing e-node's e-class.
       auto existing_eclass = canonical_eclass(union_find_, existing_it->second.current_eclassid);
 
-      // Remove this enode, the existing hashcons entry is prefered.
-      remove_duplicate_enode(enode, enode_id, eclass_id);
-      // Return the e-class that needs to be merged
-      return (existing_eclass != eclass_id) ? std::optional{existing_eclass} : std::nullopt;
+      auto merge_target = (existing_eclass != eclass_id) ? std::optional{existing_eclass} : std::nullopt;
+      return {.merge_target = merge_target, .duplicate_enode = enode_id};
     }
 
     hashcons_[ENodeRef{enode}] = ENodeInfo{.current_eclassid = eclass_id, .enode_id = enode_id};
@@ -621,7 +635,7 @@ auto EGraph<Symbol, Analysis>::repair_hashcons_enode(ENodeId enode_id, EClassId 
     old_it->second.current_eclassid = eclass_id;
   }
 
-  return std::nullopt;
+  return {};
 }
 
 template <typename Symbol, typename Analysis>
@@ -657,9 +671,12 @@ void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, P
       // repair_hashcons_enode returns a merge target if it finds a duplicate in a different e-class.
       auto current_eclass = EClassId{canonical_eclass_ids[0]};
       for (auto enode_id : enode_ids) {
-        auto merge_target = repair_hashcons_enode(enode_id, current_eclass);
-        if (merge_target) {
-          current_eclass = merge(current_eclass, *merge_target).eclass_id;
+        auto result = repair_hashcons_enode(enode_id, current_eclass);
+        if (result.duplicate_enode) {
+          remove_duplicate_enode(get_enode(*result.duplicate_enode), *result.duplicate_enode, current_eclass);
+        }
+        if (result.merge_target) {
+          current_eclass = merge(current_eclass, *result.merge_target).eclass_id;
         }
       }
     }

@@ -43,7 +43,7 @@ namespace memgraph::planner::core::pattern {
  *   vm::VMExecutor<Symbol, Analysis> vm_executor(egraph);
  *   EMatchContext ctx;
  *   std::vector<PatternMatch> matches;
- *   vm_executor.execute(compiled_pattern, index, ctx, matches);
+ *   vm_executor.execute(compiled_matcher, index, ctx, matches);
  *
  *   // After adding new e-classes, update index incrementally
  *   index.rebuild_index(new_eclasses);

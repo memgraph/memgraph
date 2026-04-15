@@ -25,7 +25,7 @@ target_sources(mg-planner
 
     # pattern/vm/ - VM-based pattern matching
     include/planner/pattern/vm/bytecode_validator.hpp
-    include/planner/pattern/vm/compiled_rule.hpp
+    include/planner/pattern/vm/compiled_matcher.hpp
     include/planner/pattern/vm/compiler.hpp
     include/planner/pattern/vm/executor.hpp
     include/planner/pattern/vm/instruction.hpp
@@ -54,7 +54,7 @@ target_sources(mg-planner
     src/pattern/pattern.cpp
     src/pattern/types.cpp
     # pattern/vm/
-    src/pattern/vm/compiled_rule.cpp
+    src/pattern/vm/compiled_matcher.cpp
     src/pattern/vm/compiler.cpp
     src/pattern/vm/executor.cpp
     src/pattern/vm/instruction.cpp

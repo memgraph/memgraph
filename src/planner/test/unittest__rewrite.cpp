@@ -561,7 +561,7 @@ TEST_F(Rewrite, VM_SinglePatternRule_ProducesSameResults) {
   expect_rewrites(1);
 }
 
-TEST_F(Rewrite, VM_CompiledPatternsAreAvailable) {
+TEST_F(Rewrite, VM_CompiledMatchersAreAvailable) {
   // Verify that patterns are compiled at rule construction time
   // Pattern: ?root = Neg(Neg(?x))
   auto rule = make_double_neg_rule();

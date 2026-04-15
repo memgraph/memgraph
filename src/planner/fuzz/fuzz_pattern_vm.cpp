@@ -69,7 +69,7 @@ import memgraph.planner.core.egraph;
 namespace memgraph::planner::core {
 
 using namespace pattern;      // Pattern types (MatcherIndex, Match, etc.)
-using namespace pattern::vm;  // VM types (VMExecutor, PatternCompiler, etc.)
+using namespace pattern::vm;  // VM types (VMExecutor, PatternsCompiler, etc.)
 using namespace rewrite;      // Rewrite types (RewriteRule, RuleContext, etc.)
 
 // Import fuzz types into this namespace
@@ -484,7 +484,7 @@ class FuzzerState {
 
     // Run VM-based matching via RewriteRule::apply_vm
     // Store compiled pattern for diagnostics
-    std::optional<vm::CompiledPattern<FuzzSymbol>> compiled_pattern_copy;
+    std::optional<vm::CompiledMatcher<FuzzSymbol>> compiled_matcher_copy;
     bool vm_compilation_succeeded = false;
     {
       MatcherIndex matcher(egraph_);
@@ -516,7 +516,7 @@ class FuzzerState {
                 });
 
         vm_compilation_succeeded = true;
-        compiled_pattern_copy = vm_rule.compiled();  // Copy for diagnostics
+        compiled_matcher_copy = vm_rule.compiled();  // Copy for diagnostics
         RuleContext rule_ctx(egraph_, new_eclasses);
         vm_rule.match(matcher, vm_executor, matcher_ctx);
         vm_rule.apply(rule_ctx, matcher_ctx);
@@ -639,9 +639,9 @@ class FuzzerState {
       dump_egraph(egraph_, std::cerr);
 
       // Print VM bytecode for debugging
-      if (vm_compilation_succeeded && compiled_pattern_copy) {
+      if (vm_compilation_succeeded && compiled_matcher_copy) {
         std::cerr << "\nVM Bytecode:\n"
-                  << vm::disassemble<FuzzSymbol>(compiled_pattern_copy->code(), compiled_pattern_copy->symbols())
+                  << vm::disassemble<FuzzSymbol>(compiled_matcher_copy->code(), compiled_matcher_copy->symbols())
                   << "\n";
       }
 

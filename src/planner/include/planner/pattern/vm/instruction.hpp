@@ -27,20 +27,20 @@ namespace memgraph::planner::core::pattern::vm {
 //
 // ## Component Relationships
 //
-//   Pattern<Symbol>  ──compile──>  CompiledPattern  ──execute──>  Matches
+//   Pattern<Symbol>  ──compile──>  CompiledMatcher  ──execute──>  Matches
 //        │                              │                            │
 //        │                              │                            │
-//   PatternCompiler              VMExecutor::execute          PatternMatch[]
+//   PatternsCompiler              VMExecutor::execute          PatternMatch[]
 //   (compiler.hpp)                (executor.hpp)              (in MatchArena)
 //
-// ## Producer: PatternCompiler (compiler.hpp)
+// ## Producer: PatternsCompiler (compiler.hpp)
 //
-// PatternCompiler emits Instructions with these guarantees:
+// PatternsCompiler emits Instructions with these guarantees:
 //
 //   1. Register Allocation:
 //      - eclass_regs[0..N] are allocated via alloc_eclass_reg()
 //      - enode_regs[0..M] are allocated via alloc_enode_reg()
-//      - CompiledPattern reports num_eclass_regs and num_enode_regs
+//      - CompiledMatcher reports num_eclass_regs and num_enode_regs
 //
 //   2. Jump Targets:
 //      - All targets are valid instruction indices < code.size()
@@ -48,11 +48,11 @@ namespace memgraph::planner::core::pattern::vm {
 //      - Backtrack targets point to NextX instructions (loop continuation)
 //
 //   3. Symbol Table:
-//      - CheckSymbol.arg indexes into CompiledPattern::symbols()
+//      - CheckSymbol.arg indexes into CompiledMatcher::symbols()
 //      - Symbols are deduplicated by get_symbol_index()
 //
 //   4. Slot Binding:
-//      - slots[i] correspond to pattern variables (see CompiledPattern::var_slots())
+//      - slots[i] correspond to pattern variables (see CompiledMatcher::var_slots())
 //      - binding_order tracks the order slots are bound during execution
 //      - slot_to_order[i] gives position of slot i in binding order (for clearing)
 //
@@ -114,9 +114,9 @@ namespace memgraph::planner::core::pattern::vm {
 
 /// VM opcodes for pattern matching.
 ///
-/// @see PatternCompiler for bytecode generation
+/// @see PatternsCompiler for bytecode generation
 /// @see VMExecutor for bytecode interpretation
-/// @see CompiledPattern for the compiled bytecode container
+/// @see CompiledMatcher for the compiled bytecode container
 enum class VMOp : uint8_t {
   // ===== Navigation =====
   /// Load child e-class from current e-node: dst = enode[src].children[arg]
@@ -126,7 +126,7 @@ enum class VMOp : uint8_t {
 
   // ===== E-Node Iteration =====
   /// Begin iterating e-nodes in e-class[src], store first in dst
-  /// Pushes iteration state. If empty, jumps to target.
+  /// Pushes iteration state.
   IterENodes,
   /// Advance to next e-node in current iteration, store in dst
   /// If exhausted, pops state and jumps to target.
@@ -215,7 +215,7 @@ enum class VMOp : uint8_t {
 /// @invariant target < code.size() after compilation (except during compilation)
 ///
 /// @see VMOp for opcode semantics
-/// @see PatternCompiler::emit_* for instruction generation
+/// @see PatternsCompiler::emit_* for instruction generation
 /// @see VMExecutor::exec_* for instruction execution
 struct Instruction {
   VMOp op;

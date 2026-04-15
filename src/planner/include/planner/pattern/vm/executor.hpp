@@ -18,7 +18,7 @@
 
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/match_storage.hpp"
-#include "planner/pattern/vm/compiled_pattern.hpp"
+#include "planner/pattern/vm/compiled_matcher.hpp"
 #include "planner/pattern/vm/tracer.hpp"
 
 import memgraph.planner.core.egraph;
@@ -29,10 +29,10 @@ namespace memgraph::planner::core::pattern::vm {
 // VMExecutor Contract Documentation
 // =============================================================================
 //
-// VMExecutor interprets CompiledPattern bytecode against an e-graph.
-// It is the CONSUMER in the VM contract; PatternCompiler is the PRODUCER.
+// VMExecutor interprets CompiledMatcher bytecode against an e-graph.
+// It is the CONSUMER in the VM contract; PatternsCompiler is the PRODUCER.
 //
-// ## Contractual Expectations (what VMExecutor requires from PatternCompiler)
+// ## Contractual Expectations (what VMExecutor requires from PatternsCompiler)
 //
 // ### 1. Well-Formed Bytecode
 //
@@ -82,7 +82,7 @@ namespace memgraph::planner::core::pattern::vm {
 ///
 /// ## Contract Expectations
 ///
-/// VMExecutor expects CompiledPattern to satisfy:
+/// VMExecutor expects CompiledMatcher to satisfy:
 ///
 /// 1. **Valid Bytecode**: All instructions are well-formed per VMOp semantics
 /// 2. **Valid Targets**: Jump targets are in [0, code.size())
@@ -101,7 +101,7 @@ namespace memgraph::planner::core::pattern::vm {
 /// ## Usage
 ///
 /// ```cpp
-/// PatternCompiler<Op> compiler;
+/// PatternsCompiler<Op> compiler;
 /// auto compiled = compiler.compile(pattern);
 /// if (!compiled) { /* pattern too complex */ }
 ///
@@ -115,8 +115,8 @@ namespace memgraph::planner::core::pattern::vm {
 /// @tparam Analysis The e-graph analysis type
 /// @tparam DevMode Enable stats collection and tracing (for debugging/profiling)
 ///
-/// @see PatternCompiler for bytecode generation
-/// @see CompiledPattern for the bytecode container
+/// @see PatternsCompiler for bytecode generation
+/// @see CompiledMatcher for the bytecode container
 /// @see VMOp for opcode definitions
 /// @see Instruction for bytecode format
 template <typename Symbol, typename Analysis, bool DevMode = false>
@@ -140,7 +140,7 @@ class VMExecutor {
   ///
   /// ## Contract
   ///
-  /// @pre pattern was produced by PatternCompiler (satisfies all bytecode contracts)
+  /// @pre pattern was produced by PatternsCompiler (satisfies all bytecode contracts)
   /// @pre matcher's index is up-to-date with the e-graph
   /// @pre arena is valid for storing match bindings
   ///
@@ -151,7 +151,7 @@ class VMExecutor {
   /// @param index MatcherIndex with symbol index for candidate lookup
   /// @param arena MatchArena for storing match bindings
   /// @param results Output vector for matches (appended, not cleared)
-  void execute(CompiledPattern<Symbol> const &pattern, MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
+  void execute(CompiledMatcher<Symbol> const &pattern, MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
                std::vector<PatternMatch> &results);
 
   /// Get execution stats (only available when DevMode=true)
@@ -241,7 +241,7 @@ class VMExecutor {
 };
 
 template <typename Symbol, typename Analysis, bool DevMode>
-void VMExecutor<Symbol, Analysis, DevMode>::execute(CompiledPattern<Symbol> const &pattern,
+void VMExecutor<Symbol, Analysis, DevMode>::execute(CompiledMatcher<Symbol> const &pattern,
                                                     MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
                                                     std::vector<PatternMatch> &results) {
   // Pattern with no slots has nothing to bind - skip execution
@@ -296,24 +296,25 @@ void VMExecutor<Symbol, Analysis, DevMode>::run_until_halt(MatchArena &arena, st
   Instruction instr;
 
   // clang-format off
-#define DISPATCH()                                                      \
-  do {                                                                  \
-    if (state_.pc >= code_.size()) return; /*DMG_ASSERT*/               \
-    instr = code_[state_.pc];                                           \
-    if constexpr (DevMode) {                                            \
-      collector_.on_instruction(state_.pc, instr);                      \
-    }                                                                   \
-    goto *dispatch_table[static_cast<uint8_t>(instr.op)];               \
+#define DISPATCH()                                                        \
+  do {                                                                    \
+    assert(state_.pc < code_.size() && "PC out of bounds: bytecode bug"); \
+    if (state_.pc >= code_.size()) return;                                \
+    instr = code_[state_.pc];                                             \
+    if constexpr (DevMode) {                                              \
+      collector_.on_instruction(state_.pc, instr);                        \
+    }                                                                     \
+    goto *dispatch_table[static_cast<uint8_t>(instr.op)];                 \
   } while (0)
 
 #define NEXT() do { ++state_.pc; DISPATCH(); } while (0)
 #define JUMP(target) do { state_.pc = (target); DISPATCH(); } while (0)
-#define NEXT_OR_JUMP(condition)                                          \
-  do {                                                                    \
-    if (condition) { NEXT(); } else {                                     \
+#define NEXT_OR_JUMP(condition)                                                    \
+  do {                                                                             \
+    if (condition) { NEXT(); } else {                                              \
       if constexpr (DevMode) { collector_.on_backtrack(state_.pc, instr.target); } \
-      JUMP(instr.target);                                                 \
-    }                                                                     \
+      JUMP(instr.target);                                                          \
+    }                                                                              \
   } while (0)
   // clang-format on
 
@@ -423,7 +424,7 @@ auto VMExecutor<Symbol, Analysis, DevMode>::advance_span_iter(Iter &iter, IdType
 
 template <typename Symbol, typename Analysis, bool DevMode>
 auto VMExecutor<Symbol, Analysis, DevMode>::exec_iter_all_eclasses(Instruction instr) -> bool {
-  // E-graph maintains canonical e-class list - set in execute_impl()
+  // E-graph maintains canonical e-class list - set in execute()
   if constexpr (DevMode) {
     collector_.on_iter_all_eclasses_start(state_.pc, all_eclasses_.size());
   }
@@ -478,7 +479,7 @@ auto VMExecutor<Symbol, Analysis, DevMode>::exec_iter_symbol_eclasses(Instructio
   auto const *set = matcher_index_->eclasses_set_for_symbol(symbols_[instr.arg]);
 
   if constexpr (DevMode) {
-    collector_.on_iter_all_eclasses_start(state_.pc, set ? set->size() : 0);
+    collector_.on_iter_symbol_eclasses_start(state_.pc, set ? set->size() : 0);
   }
 
   if (!set || set->empty()) [[unlikely]] {

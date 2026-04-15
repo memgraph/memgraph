@@ -82,7 +82,7 @@ class RewriteRule {
     /// @pre At least one pattern must have been added
     template <typename F>
     auto apply(F &&fn) && -> RewriteRule {
-      vm::PatternCompiler<Symbol> compiler;
+      vm::PatternsCompiler<Symbol> compiler;
       auto compiled = compiler.compile(patterns_);
       return RewriteRule{std::move(patterns_),
                          std::move(pattern_names_),
@@ -102,7 +102,7 @@ class RewriteRule {
   [[nodiscard]] auto patterns() const -> std::span<Pattern<Symbol> const> { return patterns_; }
 
   /// Access the compiled bytecode for VM execution
-  [[nodiscard]] auto compiled() const -> vm::CompiledPattern<Symbol> const & { return compiled_; }
+  [[nodiscard]] auto compiled() const -> vm::CompiledMatcher<Symbol> const & { return compiled_; }
 
   /// Get the root symbol of the first pattern (for index-based candidate lookup)
   [[nodiscard]] auto first_pattern_root_symbol() const -> std::optional<Symbol> {
@@ -132,7 +132,7 @@ class RewriteRule {
 
  private:
   RewriteRule(std::vector<Pattern<Symbol>> patterns, std::vector<std::string> pattern_names, ApplyFn apply_fn,
-              std::string name, vm::CompiledPattern<Symbol> compiled)
+              std::string name, vm::CompiledMatcher<Symbol> compiled)
       : patterns_(std::move(patterns)),
         pattern_names_(std::move(pattern_names)),
         apply_fn_(std::move(apply_fn)),
@@ -143,7 +143,7 @@ class RewriteRule {
   std::vector<std::string> pattern_names_;
   ApplyFn apply_fn_;
   std::string name_;
-  vm::CompiledPattern<Symbol> compiled_;
+  vm::CompiledMatcher<Symbol> compiled_;
 };
 
 }  // namespace memgraph::planner::core::rewrite

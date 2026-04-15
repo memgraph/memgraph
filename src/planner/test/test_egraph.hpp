@@ -29,8 +29,8 @@ using TestMatcherIndex = pattern::MatcherIndex<Op, NoAnalysis>;
 using TestMatches = std::vector<pattern::PatternMatch>;
 using TestVMExecutor = pattern::vm::VMExecutor<Op, NoAnalysis>;
 using TestDevVMExecutor = pattern::vm::VMExecutor<Op, NoAnalysis, true>;
-using TestPatternCompiler = pattern::vm::PatternCompiler<Op>;
-using TestCompiledPattern = pattern::vm::CompiledPattern<Op>;
+using TestPatternsCompiler = pattern::vm::PatternsCompiler<Op>;
+using TestCompiledMatcher = pattern::vm::CompiledMatcher<Op>;
 using TestProcessingContext = ProcessingContext<Op>;
 using TestPattern = pattern::Pattern<Op>;
 
@@ -44,11 +44,11 @@ using TestPattern = pattern::Pattern<Op>;
 
 extern template struct memgraph::planner::core::EGraph<memgraph::planner::core::test::Op,
                                                        memgraph::planner::core::test::NoAnalysis>;
-extern template class memgraph::planner::core::pattern::vm::PatternCompiler<memgraph::planner::core::test::Op>;
+extern template class memgraph::planner::core::pattern::vm::PatternsCompiler<memgraph::planner::core::test::Op>;
 extern template class memgraph::planner::core::pattern::vm::VMExecutor<memgraph::planner::core::test::Op,
                                                                        memgraph::planner::core::test::NoAnalysis>;
 extern template class memgraph::planner::core::pattern::vm::VMExecutor<memgraph::planner::core::test::Op,
                                                                        memgraph::planner::core::test::NoAnalysis, true>;
-extern template class memgraph::planner::core::pattern::vm::CompiledPattern<memgraph::planner::core::test::Op>;
+extern template class memgraph::planner::core::pattern::vm::CompiledMatcher<memgraph::planner::core::test::Op>;
 extern template class memgraph::planner::core::pattern::MatcherIndex<memgraph::planner::core::test::Op,
                                                                      memgraph::planner::core::test::NoAnalysis>;

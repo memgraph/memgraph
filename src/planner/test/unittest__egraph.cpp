@@ -281,6 +281,70 @@ TEST(EGraph_DuplicateRemoval, ClearResetsDuplicateCount) {
   EXPECT_EQ(egraph.num_dead_nodes(), 0);
 }
 
+TEST(EGraph_DuplicateRemoval, ManyDuplicatesInSameEclass) {
+  // Multiple e-nodes in one eclass that all canonicalize to the same form.
+  // Duplicate removal is deferred until after iteration of eclass.nodes()
+  // completes, so all duplicates are found regardless of removal order.
+  EGraph<Op, NoAnalysis> egraph;
+  TestProcessingContext ctx;
+
+  auto a0 = egraph.emplace(Op::A, 0).eclass_id;
+  auto a1 = egraph.emplace(Op::A, 1).eclass_id;
+  auto a2 = egraph.emplace(Op::A, 2).eclass_id;
+  auto a3 = egraph.emplace(Op::A, 3).eclass_id;
+
+  auto f0 = egraph.emplace(Op::F, {a0}).eclass_id;
+  auto f1 = egraph.emplace(Op::F, {a1}).eclass_id;
+  auto f2 = egraph.emplace(Op::F, {a2}).eclass_id;
+  auto f3 = egraph.emplace(Op::F, {a3}).eclass_id;
+
+  egraph.merge(f0, f1);
+  egraph.merge(f1, f2);
+  egraph.merge(f2, f3);
+
+  egraph.merge(a0, a1);
+  egraph.merge(a1, a2);
+  egraph.merge(a2, a3);
+
+  egraph.rebuild(ctx);
+
+  EXPECT_EQ(egraph.num_dead_nodes(), 3);
+  EXPECT_EQ(egraph.num_classes(), 2);
+  EXPECT_EQ(egraph.eclass(egraph.find(f0)).size(), 1);
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
+TEST(EGraph_DuplicateRemoval, ManyDuplicatesExceedingSBO) {
+  // 8 nodes exceeds small_vector SBO capacity (4).
+  EGraph<Op, NoAnalysis> egraph;
+  TestProcessingContext ctx;
+
+  constexpr int N = 8;
+  std::vector<EClassId> leaves;
+  std::vector<EClassId> fnodes;
+
+  for (int i = 0; i < N; ++i) {
+    leaves.push_back(egraph.emplace(Op::A, static_cast<uint64_t>(i)).eclass_id);
+  }
+  for (int i = 0; i < N; ++i) {
+    fnodes.push_back(egraph.emplace(Op::F, {leaves[static_cast<size_t>(i)]}).eclass_id);
+  }
+
+  for (int i = 1; i < N; ++i) {
+    egraph.merge(fnodes[0], fnodes[static_cast<size_t>(i)]);
+  }
+  for (int i = 1; i < N; ++i) {
+    egraph.merge(leaves[0], leaves[static_cast<size_t>(i)]);
+  }
+
+  egraph.rebuild(ctx);
+
+  EXPECT_EQ(egraph.num_dead_nodes(), N - 1);
+  EXPECT_EQ(egraph.num_classes(), 2);
+  EXPECT_EQ(egraph.eclass(egraph.find(fnodes[0])).size(), 1);
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
 TEST(EGraph_SelfReference, ChainCollapseWithDeferredNodes) {
   // Self-referential chain F(F(F(a))) where nodes are created between merge and rebuild.
   //
@@ -792,6 +856,55 @@ TEST(EGraph_Congruence, DeepRebuildSingleParentChain) {
   // Verify the deep merge worked
   EXPECT_EQ(egraph.find(a), egraph.find(b));
   EXPECT_EQ(egraph.num_classes(), 4);
+}
+
+TEST(EGraph_Congruence, SwappedChildrenBecomeCongruent) {
+  // F2(a,b) and F2(b,a) in the same eclass. After merge(a,b), both
+  // canonicalize to F2(E_ab, E_ab) and the duplicate is removed.
+  EGraph<Op, NoAnalysis> egraph;
+  TestProcessingContext ctx;
+
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+
+  auto g = egraph.emplace(Op::F2, {a, b}).eclass_id;
+  auto h = egraph.emplace(Op::F2, {b, a}).eclass_id;
+
+  egraph.merge(g, h);
+  egraph.rebuild(ctx);
+  ASSERT_EQ(egraph.num_classes(), 3);
+
+  egraph.merge(a, b);
+  egraph.rebuild(ctx);
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+  EXPECT_EQ(egraph.num_classes(), 2);
+}
+
+TEST(EGraph_Congruence, ThreeWayChildMergeWithSharedParents) {
+  // Three parents with different child pairs from {a,b,c}, all in the same
+  // eclass. After merging all leaves, all canonicalize to the same form.
+  EGraph<Op, NoAnalysis> egraph;
+  TestProcessingContext ctx;
+
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+  auto c = egraph.emplace(Op::A, 2).eclass_id;
+
+  auto p1 = egraph.emplace(Op::F2, {a, b}).eclass_id;
+  auto p2 = egraph.emplace(Op::F2, {b, c}).eclass_id;
+  auto p3 = egraph.emplace(Op::F2, {c, a}).eclass_id;
+
+  egraph.merge(p1, p2);
+  egraph.merge(p2, p3);
+  egraph.rebuild(ctx);
+
+  egraph.merge(a, b);
+  egraph.merge(b, c);
+  egraph.rebuild(ctx);
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+  EXPECT_EQ(egraph.num_classes(), 2);
 }
 
 TEST(EGraph_EdgeCases, NeedsRebuildAndWorklistSize) {

@@ -149,7 +149,7 @@ class GTestReporter {
 
 /// Run all structural invariant checks on a compiled pattern.
 template <typename Symbol>
-void ExpectValidBytecode(CompiledPattern<Symbol> const &compiled) {
+void ExpectValidBytecode(CompiledMatcher<Symbol> const &compiled) {
   GTestReporter r;
   ValidateBytecodeInvariants(r, compiled);
 }

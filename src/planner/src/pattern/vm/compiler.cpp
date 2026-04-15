@@ -19,7 +19,7 @@
 
 namespace memgraph::planner::core::pattern::vm {
 
-void PatternCompilerBase::reset() {
+void PatternsCompilerBase::reset() {
   code_.clear();
   seen_vars_.clear();
   var_to_reg_.clear();
@@ -29,20 +29,20 @@ void PatternCompilerBase::reset() {
   next_enode_reg_ = 0;
 }
 
-auto PatternCompilerBase::emit(Instruction instr) -> InstrAddr {
+auto PatternsCompilerBase::emit(Instruction instr) -> InstrAddr {
   auto const addr = current_addr();
   code_.push_back(instr);
   return addr;
 }
 
-auto PatternCompilerBase::current_addr() const -> InstrAddr { return InstrAddr{static_cast<uint16_t>(code_.size())}; }
+auto PatternsCompilerBase::current_addr() const -> InstrAddr { return InstrAddr{static_cast<uint16_t>(code_.size())}; }
 
-void PatternCompilerBase::patch_target(InstrAddr addr, InstrAddr target) {
+void PatternsCompilerBase::patch_target(InstrAddr addr, InstrAddr target) {
   code_[value_of(addr)].target = value_of(target);
 }
 
-auto PatternCompilerBase::emit_iter_loop(Instruction iter_instr, Instruction next_instr,
-                                         std::optional<SlotIdx> mark_slot) -> IterLoopAddrs {
+auto PatternsCompilerBase::emit_iter_loop(Instruction iter_instr, Instruction next_instr,
+                                          std::optional<SlotIdx> mark_slot) -> IterLoopAddrs {
   emit(iter_instr);
   auto const jump_addr = emit(Instruction::jmp(InstrAddr{0}));                                 // placeholder
   auto const mark_addr = mark_slot ? emit(Instruction::mark_seen(*mark_slot)) : InstrAddr{0};  // filled below
@@ -51,23 +51,23 @@ auto PatternCompilerBase::emit_iter_loop(Instruction iter_instr, Instruction nex
   return {.exhaust = mark_slot ? mark_addr : loop_addr, .loop = loop_addr};
 }
 
-auto PatternCompilerBase::alloc_eclass_reg() -> EClassReg {
+auto PatternsCompilerBase::alloc_eclass_reg() -> EClassReg {
   if (next_eclass_reg_ == std::numeric_limits<strong::underlying_type_t<EClassReg>>::max()) {
     throw std::overflow_error("Pattern too complex: e-class register limit exceeded");
   }
   return EClassReg{std::exchange(next_eclass_reg_, static_cast<uint8_t>(next_eclass_reg_ + 1))};
 }
 
-auto PatternCompilerBase::alloc_enode_reg() -> ENodeReg {
+auto PatternsCompilerBase::alloc_enode_reg() -> ENodeReg {
   if (next_enode_reg_ == std::numeric_limits<strong::underlying_type_t<ENodeReg>>::max()) {
     throw std::overflow_error("Pattern too complex: e-node register limit exceeded");
   }
   return ENodeReg{std::exchange(next_enode_reg_, static_cast<uint8_t>(next_enode_reg_ + 1))};
 }
 
-auto PatternCompilerBase::get_slot(PatternVar var) const -> SlotIdx { return slot_map_.at(var); }
+auto PatternsCompilerBase::get_slot(PatternVar var) const -> SlotIdx { return slot_map_.at(var); }
 
-auto PatternCompilerBase::emit_var_binding(PatternVar var, EClassReg eclass_reg, InstrAddr backtrack) -> InstrAddr {
+auto PatternsCompilerBase::emit_var_binding(PatternVar var, EClassReg eclass_reg, InstrAddr backtrack) -> InstrAddr {
   auto const slot = get_slot(var);
   if (seen_vars_.contains(var)) {
     emit(Instruction::check_slot(slot, eclass_reg, backtrack));
@@ -80,7 +80,7 @@ auto PatternCompilerBase::emit_var_binding(PatternVar var, EClassReg eclass_reg,
   return backtrack;
 }
 
-auto PatternCompilerBase::emit_var_eclass_iter(PatternVar var, InstrAddr backtrack) -> EClassSetup {
+auto PatternsCompilerBase::emit_var_eclass_iter(PatternVar var, InstrAddr backtrack) -> EClassSetup {
   auto eclass_reg = alloc_eclass_reg();
   auto mark = last_unbound_slot(var);
   auto [exhaust, loop] = emit_iter_loop(
@@ -89,7 +89,7 @@ auto PatternCompilerBase::emit_var_eclass_iter(PatternVar var, InstrAddr backtra
   return {.eclass_reg = eclass_reg, .exhaust = exhaust};
 }
 
-auto PatternCompilerBase::compute_join_plan(std::span<boost::unordered_flat_set<PatternVar> const> pat_vars)
+auto PatternsCompilerBase::compute_join_plan(std::span<boost::unordered_flat_set<PatternVar> const> pat_vars)
     -> JoinPlan {
   auto const n = pat_vars.size();
   if (n == 1) return {{0}};
@@ -124,7 +124,7 @@ auto PatternCompilerBase::compute_join_plan(std::span<boost::unordered_flat_set<
   return {std::move(order)};
 }
 
-void PatternCompilerBase::schedule_fragments(EmitPlan &plan, std::span<FragmentInfo const> info) {
+void PatternsCompilerBase::schedule_fragments(EmitPlan &plan, std::span<FragmentInfo const> info) {
   auto const n = plan.entries.size();
   assert(info.size() == n);
 

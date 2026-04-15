@@ -45,8 +45,8 @@ using TestPattern = pattern::Pattern<Op>;
 using TestMatcherIndex = pattern::MatcherIndex<Op, NoAnalysis>;
 using TestMatches = std::vector<pattern::PatternMatch>;
 using TestVMExecutor = vm::VMExecutor<Op, NoAnalysis>;
-using TestPatternCompiler = vm::PatternCompiler<Op>;
-using TestCompiledPattern = vm::CompiledPattern<Op>;
+using TestPatternsCompiler = vm::PatternsCompiler<Op>;
+using TestCompiledMatcher = vm::CompiledMatcher<Op>;
 
 // ============================================================================
 // Pattern Variables
@@ -501,7 +501,7 @@ class VMFixtureBase : public benchmark::Fixture {
   std::unique_ptr<TestMatcherIndex> matcher_;
   EMatchContext match_context_;
   TestMatches matches_;
-  TestPatternCompiler compiler_;
+  TestPatternsCompiler compiler_;
 
   void ResetEGraph() {
     egraph_ = TestEGraph{};
@@ -527,11 +527,11 @@ class VMFixtureBase : public benchmark::Fixture {
 
 extern template struct memgraph::planner::core::EGraph<memgraph::planner::bench::Op,
                                                        memgraph::planner::bench::NoAnalysis>;
-extern template class memgraph::planner::core::pattern::vm::PatternCompiler<memgraph::planner::bench::Op>;
+extern template class memgraph::planner::core::pattern::vm::PatternsCompiler<memgraph::planner::bench::Op>;
 extern template class memgraph::planner::core::pattern::vm::VMExecutor<memgraph::planner::bench::Op,
                                                                        memgraph::planner::bench::NoAnalysis>;
 extern template class memgraph::planner::core::pattern::vm::VMExecutor<memgraph::planner::bench::Op,
                                                                        memgraph::planner::bench::NoAnalysis, true>;
-extern template class memgraph::planner::core::pattern::vm::CompiledPattern<memgraph::planner::bench::Op>;
+extern template class memgraph::planner::core::pattern::vm::CompiledMatcher<memgraph::planner::bench::Op>;
 extern template class memgraph::planner::core::pattern::MatcherIndex<memgraph::planner::bench::Op,
                                                                      memgraph::planner::bench::NoAnalysis>;

@@ -21,8 +21,8 @@ using memgraph::planner::bench::Op;
 }  // namespace
 
 template struct memgraph::planner::core::EGraph<Op, NoAnalysis>;
-template class memgraph::planner::core::pattern::vm::PatternCompiler<Op>;
+template class memgraph::planner::core::pattern::vm::PatternsCompiler<Op>;
 template class memgraph::planner::core::pattern::vm::VMExecutor<Op, NoAnalysis>;
 template class memgraph::planner::core::pattern::vm::VMExecutor<Op, NoAnalysis, true>;
-template class memgraph::planner::core::pattern::vm::CompiledPattern<Op>;
+template class memgraph::planner::core::pattern::vm::CompiledMatcher<Op>;
 template class memgraph::planner::core::pattern::MatcherIndex<Op, NoAnalysis>;

@@ -23,23 +23,23 @@
 #include <boost/unordered/unordered_flat_set.hpp>
 
 #include "planner/pattern/pattern.hpp"
-#include "planner/pattern/vm/compiled_pattern.hpp"
+#include "planner/pattern/vm/compiled_matcher.hpp"
 #include "planner/pattern/vm/instruction.hpp"
 #include "planner/pattern/vm/types.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::planner::core::pattern::vm {
 
-/// Non-templated base class for PatternCompiler.
+/// Non-templated base class for PatternsCompiler.
 ///
 /// Contains Symbol-independent state and helper methods for bytecode generation.
 /// This reduces template instantiation overhead by moving common logic to a
 /// single compilation unit.
 ///
-/// @see PatternCompiler for the full templated interface
-class PatternCompilerBase {
+/// @see PatternsCompiler for the full templated interface
+class PatternsCompilerBase {
  protected:
-  PatternCompilerBase() = default;
+  PatternsCompilerBase() = default;
 
   /// Reset all compiler state for a fresh compilation
   void reset();
@@ -185,21 +185,21 @@ class PatternCompilerBase {
 };
 
 // =============================================================================
-// PatternCompiler Contract Documentation
+// PatternsCompiler Contract Documentation
 // =============================================================================
 //
-// PatternCompiler transforms high-level Pattern<Symbol> into executable bytecode.
+// PatternsCompiler transforms high-level Pattern<Symbol> into executable bytecode.
 // It is the PRODUCER in the VM contract; VMExecutor is the CONSUMER.
 //
-// ## Contractual Guarantees (what PatternCompiler promises to VMExecutor)
+// ## Contractual Guarantees (what PatternsCompiler promises to VMExecutor)
 //
 // ### 1. Register Allocation Contract
 //
 //   - eclass_regs[0..num_eclass_regs-1] are allocated sequentially
 //   - enode_regs[0..num_enode_regs-1] are allocated sequentially
 //   - No register index exceeds 255 (uint8_t limit)
-//   - CompiledPattern::num_eclass_regs() returns exact count needed
-//   - CompiledPattern::num_enode_regs() returns exact count needed
+//   - CompiledMatcher::num_eclass_regs() returns exact count needed
+//   - CompiledMatcher::num_enode_regs() returns exact count needed
 //
 // ### 2. Jump Target Contract
 //
@@ -210,14 +210,14 @@ class PatternCompilerBase {
 //
 // ### 3. Symbol Table Contract
 //
-//   - CheckSymbol.arg is an index into CompiledPattern::symbols()
+//   - CheckSymbol.arg is an index into CompiledMatcher::symbols()
 //   - Symbol indices are in [0, symbols.size())
 //   - Symbols are deduplicated (same symbol -> same index)
 //   - symbols() returns the exact symbol table used by all CheckSymbol ops
 //
 // ### 4. Slot Binding Contract
 //
-//   - slots[i] maps to pattern variables per CompiledPattern::var_slots()
+//   - slots[i] maps to pattern variables per CompiledMatcher::var_slots()
 //   - num_slots() equals the number of distinct variables across all patterns
 //   - binding_order() returns the order slots are bound during execution
 //   - slot_to_order() maps slot index to its position in binding_order (for clearing)
@@ -260,7 +260,7 @@ class PatternCompilerBase {
 ///
 /// ## Contract
 ///
-/// PatternCompiler guarantees that the produced CompiledPattern satisfies all
+/// PatternsCompiler guarantees that the produced CompiledMatcher satisfies all
 /// contracts expected by VMExecutor. See instruction.hpp for the full contract
 /// specification.
 ///
@@ -287,14 +287,14 @@ class PatternCompilerBase {
 /// @see VMOp for opcode definitions
 /// @see Instruction for bytecode format
 /// @see VMExecutor for bytecode execution
-/// @see CompiledPattern for the compiled bytecode container
+/// @see CompiledMatcher for the compiled bytecode container
 template <typename Symbol>
-class PatternCompiler : protected PatternCompilerBase {
+class PatternsCompiler : protected PatternsCompilerBase {
  public:
   /// Compile multiple patterns into fused bytecode with automatic join order.
   /// Analyzes shared variables to determine optimal anchor and join order.
   /// Empty pattern set returns empty pattern (matches nothing).
-  auto compile(std::span<Pattern<Symbol> const> patterns) -> CompiledPattern<Symbol> {
+  auto compile(std::span<Pattern<Symbol> const> patterns) -> CompiledMatcher<Symbol> {
     return compile_patterns(patterns);
   }
 
@@ -310,7 +310,7 @@ class PatternCompiler : protected PatternCompilerBase {
   // Compilation
   // ============================================================================
 
-  auto compile_patterns(std::span<Pattern<Symbol> const> patterns) -> CompiledPattern<Symbol>;
+  auto compile_patterns(std::span<Pattern<Symbol> const> patterns) -> CompiledMatcher<Symbol>;
   void reset();
   void build_slot_map(std::span<Pattern<Symbol> const> patterns);
 
@@ -376,9 +376,9 @@ class PatternCompiler : protected PatternCompilerBase {
 };
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> patterns) -> CompiledPattern<Symbol> {
+auto PatternsCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> patterns) -> CompiledMatcher<Symbol> {
   if (patterns.empty()) {
-    return CompiledPattern<Symbol>{};
+    return CompiledMatcher<Symbol>{};
   }
 
   // Filter out patterns that contribute no bindings or checks (e.g., pure wildcards,
@@ -388,7 +388,7 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
   std::ranges::copy_if(
       patterns, std::back_inserter(effective), [](auto const &pat) { return !pat.var_slots().empty(); });
   if (effective.empty()) {
-    return CompiledPattern<Symbol>{};
+    return CompiledMatcher<Symbol>{};
   }
 
   reset();
@@ -411,7 +411,7 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
     if (instr.target == value_of(kHaltPlaceholder)) instr.target = value_of(halt_pos);
   }
 
-  return CompiledPattern<Symbol>(std::move(code_),
+  return CompiledMatcher<Symbol>(std::move(code_),
                                  next_eclass_reg_,
                                  next_enode_reg_,
                                  std::move(symbols_),
@@ -420,13 +420,13 @@ auto PatternCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const> 
 }
 
 template <typename Symbol>
-void PatternCompiler<Symbol>::reset() {
-  PatternCompilerBase::reset();
+void PatternsCompiler<Symbol>::reset() {
+  PatternsCompilerBase::reset();
   symbols_.clear();
 }
 
 template <typename Symbol>
-void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> patterns) {
+void PatternsCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> patterns) {
   // For single patterns, use the pattern's existing slot assignments directly
   // to ensure consistency with MatcherIndex's variable ordering.
   // For multi-pattern joins, we need to merge slot maps carefully.
@@ -472,8 +472,8 @@ void PatternCompiler<Symbol>::build_slot_map(std::span<Pattern<Symbol> const> pa
 // ----------------------------------------------------------------------------
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::compute_entry(Pattern<Symbol> const &pat,
-                                            boost::unordered_flat_set<PatternVar> const &bound) -> EntryDecision {
+auto PatternsCompiler<Symbol>::compute_entry(Pattern<Symbol> const &pat,
+                                             boost::unordered_flat_set<PatternVar> const &bound) -> EntryDecision {
   struct Candidate {
     std::size_t depth;
     PatternNodeId node;
@@ -541,7 +541,7 @@ auto PatternCompiler<Symbol>::compute_entry(Pattern<Symbol> const &pat,
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::compute_emit_plan(std::span<Pattern<Symbol> const> patterns) -> EmitPlan {
+auto PatternsCompiler<Symbol>::compute_emit_plan(std::span<Pattern<Symbol> const> patterns) -> EmitPlan {
   std::vector<boost::unordered_flat_set<PatternVar>> pat_vars(patterns.size());
   for (std::size_t i = 0; i < patterns.size(); ++i) {
     auto keys = patterns[i].var_slots() | std::views::keys;
@@ -593,7 +593,7 @@ auto PatternCompiler<Symbol>::compute_emit_plan(std::span<Pattern<Symbol> const>
 // ============================================================================
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_patterns(std::span<Pattern<Symbol> const> patterns, EmitPlan const &plan)
+auto PatternsCompiler<Symbol>::emit_patterns(std::span<Pattern<Symbol> const> patterns, EmitPlan const &plan)
     -> InstrAddr {
   InstrAddr innermost = kHaltPlaceholder;
 
@@ -621,8 +621,8 @@ auto PatternCompiler<Symbol>::emit_patterns(std::span<Pattern<Symbol> const> pat
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_eclass_iter_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision,
-                                                        InstrAddr backtrack, PatternState &ps) -> InstrAddr {
+auto PatternsCompiler<Symbol>::emit_eclass_iter_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision,
+                                                         InstrAddr backtrack, PatternState &ps) -> InstrAddr {
   // JoinVar: reuse existing register, no new iteration loop.
   if (auto const *jv = std::get_if<JoinVar>(&decision.binding)) {
     auto it = var_to_reg_.find(jv->var);
@@ -656,9 +656,9 @@ auto PatternCompiler<Symbol>::emit_eclass_iter_fragment(Pattern<Symbol> const &p
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision,
-                                                        InstrAddr innermost, EClassReg eclass_reg,
-                                                        InstrAddr eclass_exhaust) -> InstrAddr {
+auto PatternsCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision,
+                                                         InstrAddr innermost, EClassReg eclass_reg,
+                                                         InstrAddr eclass_exhaust) -> InstrAddr {
   auto const bindings_before = seen_vars_.size();
   EClassReg current_eclass_reg = eclass_reg;
   std::optional<EClassReg> verify_child_reg;
@@ -726,8 +726,8 @@ auto PatternCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &p
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_enode_verify_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision,
-                                                         InstrAddr innermost, EClassReg eclass_reg) -> InstrAddr {
+auto PatternsCompiler<Symbol>::emit_enode_verify_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision,
+                                                          InstrAddr innermost, EClassReg eclass_reg) -> InstrAddr {
   return std::visit(utils::Overloaded{
                         [&](SymbolWithChildren<Symbol> const &sym) {
                           auto const bindings_before = seen_vars_.size();
@@ -753,8 +753,8 @@ auto PatternCompiler<Symbol>::emit_enode_verify_fragment(Pattern<Symbol> const &
 // ============================================================================
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_node(Pattern<Symbol> const &pattern, PatternNodeId node_id, EClassReg eclass_reg,
-                                        InstrAddr backtrack) -> InstrAddr {
+auto PatternsCompiler<Symbol>::emit_node(Pattern<Symbol> const &pattern, PatternNodeId node_id, EClassReg eclass_reg,
+                                         InstrAddr backtrack) -> InstrAddr {
   return std::visit(utils::Overloaded{
                         [&](Wildcard) { return backtrack; },
                         [&](PatternVar const &var) { return emit_var_binding(var, eclass_reg, backtrack); },
@@ -766,9 +766,9 @@ auto PatternCompiler<Symbol>::emit_node(Pattern<Symbol> const &pattern, PatternN
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, PatternNodeId node_id,
-                                               SymbolWithChildren<Symbol> const &sym, EClassReg eclass_reg,
-                                               InstrAddr backtrack, std::optional<InstrAddr> bind_backtrack)
+auto PatternsCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, PatternNodeId node_id,
+                                                SymbolWithChildren<Symbol> const &sym, EClassReg eclass_reg,
+                                                InstrAddr backtrack, std::optional<InstrAddr> bind_backtrack)
     -> InstrAddr {
   // Bind this node BEFORE iteration if it has a binding.
   // The e-class is the same for all e-nodes in the iteration, so we bind once.
@@ -782,8 +782,8 @@ auto PatternCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, P
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_symbol_eclass_iter(SymbolWithChildren<Symbol> const &sym,
-                                                      std::optional<PatternVar> binding, InstrAddr backtrack)
+auto PatternsCompiler<Symbol>::emit_symbol_eclass_iter(SymbolWithChildren<Symbol> const &sym,
+                                                       std::optional<PatternVar> binding, InstrAddr backtrack)
     -> EClassSetup {
   auto sym_idx = get_symbol_index(sym.sym);
   auto eclass_reg = alloc_eclass_reg();
@@ -800,9 +800,9 @@ auto PatternCompiler<Symbol>::emit_symbol_eclass_iter(SymbolWithChildren<Symbol>
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_symbol_structure(Pattern<Symbol> const &pattern,
-                                                    SymbolWithChildren<Symbol> const &sym, EClassReg eclass_reg,
-                                                    InstrAddr backtrack) -> SymbolStructure {
+auto PatternsCompiler<Symbol>::emit_symbol_structure(Pattern<Symbol> const &pattern,
+                                                     SymbolWithChildren<Symbol> const &sym, EClassReg eclass_reg,
+                                                     InstrAddr backtrack) -> SymbolStructure {
   auto sym_idx = get_symbol_index(sym.sym);
   auto enode_reg = alloc_enode_reg();
 
@@ -825,9 +825,9 @@ auto PatternCompiler<Symbol>::emit_symbol_structure(Pattern<Symbol> const &patte
 }
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::emit_children(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym,
-                                            ENodeReg enode_reg, InstrAddr backtrack,
-                                            std::optional<std::size_t> skip_child_idx) -> InstrAddr {
+auto PatternsCompiler<Symbol>::emit_children(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym,
+                                             ENodeReg enode_reg, InstrAddr backtrack,
+                                             std::optional<std::size_t> skip_child_idx) -> InstrAddr {
   // Phase 1: LoadChild for all non-wildcard children. Non-nesting nodes
   // (PatternVar) are processed immediately via emit_node. Symbol children
   // are deferred to phase 2 so their IterENodes loops don't swallow siblings.
@@ -872,7 +872,7 @@ auto PatternCompiler<Symbol>::emit_children(Pattern<Symbol> const &pattern, Symb
 // ============================================================================
 
 template <typename Symbol>
-auto PatternCompiler<Symbol>::get_symbol_index(Symbol const &sym) -> uint8_t {
+auto PatternsCompiler<Symbol>::get_symbol_index(Symbol const &sym) -> uint8_t {
   // TODO: maybe a strong type (so we know uint8_t is in relation to symbols_)
   //       better name than `get_symbol_index`
   //       Not a linear search
@@ -880,6 +880,9 @@ auto PatternCompiler<Symbol>::get_symbol_index(Symbol const &sym) -> uint8_t {
     if (symbols_[i] == sym) return static_cast<uint8_t>(i);
   }
   symbols_.push_back(sym);
+  if (symbols_.size() > std::numeric_limits<uint8_t>::max()) [[unlikely]] {
+    throw std::overflow_error("Pattern too complex: symbol table limit exceeded");
+  }
   return static_cast<uint8_t>(symbols_.size() - 1);
 }
 

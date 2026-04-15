@@ -326,12 +326,12 @@ static auto const kCompilerCases = std::vector<CompilerTestCase>{
 
 class PatternVM_Compiler : public EGraphTestBase {
  protected:
-  TestPatternCompiler compiler;
+  TestPatternsCompiler compiler;
 };
 
 class Compile : public EGraphTestBase, public testing::WithParamInterface<CompilerTestCase> {
  protected:
-  TestPatternCompiler compiler;
+  TestPatternsCompiler compiler;
 };
 
 TEST_P(Compile, Verify) {
@@ -353,7 +353,7 @@ INSTANTIATE_TEST_SUITE_P(PatternVM, Compile, testing::ValuesIn(kCompilerCases),
 
 template <std::size_t N>
 void ExpectStableAcrossPermutations(std::array<TestPattern, N> const &patterns) {
-  TestPatternCompiler canonical_compiler;
+  TestPatternsCompiler canonical_compiler;
   auto canonical_compiled = canonical_compiler.compile(patterns);
   auto canonical_size = canonical_compiled.code().size();
   ExpectValidBytecode(canonical_compiled);
@@ -370,7 +370,7 @@ void ExpectStableAcrossPermutations(std::array<TestPattern, N> const &patterns) 
       return std::array<TestPattern, N>{patterns[perm[I]]...};
     }(std::make_index_sequence<N>{});
 
-    TestPatternCompiler perm_compiler;
+    TestPatternsCompiler perm_compiler;
     auto compiled = perm_compiler.compile(permuted);
     auto code = compiled.code();
     auto bytecode = disassemble(code, compiled.symbols());

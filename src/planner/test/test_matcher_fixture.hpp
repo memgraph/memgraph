@@ -42,7 +42,7 @@ class PatternVM_Matching : public EGraphTestBase {
   TestMatcherIndex index{egraph};
   EMatchContext ctx;
   TestMatches matches;
-  std::optional<TestCompiledPattern> compiled_;
+  std::optional<TestCompiledMatcher> compiled_;
 
   // ---------------------------------------------------------------------------
   // Pattern Setup
@@ -52,13 +52,13 @@ class PatternVM_Matching : public EGraphTestBase {
   void use_patterns(Patterns &&...ps) {
     patterns_.clear();
     (patterns_.push_back(std::forward<Patterns>(ps)), ...);
-    TestPatternCompiler compiler;
+    TestPatternsCompiler compiler;
     compiled_.emplace(compiler.compile(patterns_));
   }
 
   void use_patterns(std::vector<TestPattern> pats) {
     patterns_ = std::move(pats);
-    TestPatternCompiler compiler;
+    TestPatternsCompiler compiler;
     compiled_.emplace(compiler.compile(patterns_));
   }
 

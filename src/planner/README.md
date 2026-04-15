@@ -49,7 +49,7 @@ Core e-graph types as C++20 modules:
 #### VM Executor (`pattern/vm/`)
 Bytecode-based pattern matching for performance:
 - `compiler.hpp` - Compiles patterns to bytecode
-- `compiled_pattern.hpp` - Compiled pattern representation
+- `compiled_matcher.hpp` - Compiled pattern representation
 - `executor.hpp` - Executes bytecode against e-graph
 - `instruction.hpp` - VM instruction set
 - `state.hpp` - VM execution state with deduplication and parent iteration

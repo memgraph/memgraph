@@ -30,17 +30,18 @@ struct VMStats {
   std::size_t instructions_executed{0};
   std::size_t iter_enode_calls{0};
   std::size_t iter_parent_calls{0};
-  std::size_t parent_symbol_hits{0};    // Parents that matched symbol filter
-  std::size_t parent_symbol_misses{0};  // Parents that failed symbol filter
-  std::size_t check_slot_hits{0};       // CheckSlot that passed
-  std::size_t check_slot_misses{0};     // CheckSlot that failed
+  std::size_t iter_eclass_calls{0};
+  std::size_t symbol_check_hits{0};
+  std::size_t symbol_check_misses{0};
+  std::size_t check_slot_hits{0};    // CheckSlot that passed
+  std::size_t check_slot_misses{0};  // CheckSlot that failed
   std::size_t yields{0};
 
   void reset() { *this = VMStats{}; }
 
-  [[nodiscard]] auto parent_filter_rate() const -> double {
-    auto total = parent_symbol_hits + parent_symbol_misses;
-    return total > 0 ? static_cast<double>(parent_symbol_misses) / static_cast<double>(total) : 0.0;
+  [[nodiscard]] auto symbol_filter_rate() const -> double {
+    auto total = symbol_check_hits + symbol_check_misses;
+    return total > 0 ? static_cast<double>(symbol_check_misses) / static_cast<double>(total) : 0.0;
   }
 };
 
@@ -320,6 +321,12 @@ struct VMCollector {
   }
 
   void on_iter_all_eclasses_start(std::size_t pc, std::size_t count) {
+    ++stats.iter_eclass_calls;
+    if (tracer) tracer->on_iter_start(pc, count);
+  }
+
+  void on_iter_symbol_eclasses_start(std::size_t pc, std::size_t count) {
+    ++stats.iter_eclass_calls;
     if (tracer) tracer->on_iter_start(pc, count);
   }
 
@@ -328,12 +335,12 @@ struct VMCollector {
   }
 
   void on_check_symbol_hit(std::size_t pc, ENodeId enode, std::size_t sym_idx) {
-    ++stats.parent_symbol_hits;
+    ++stats.symbol_check_hits;
     if (tracer) tracer->on_check_symbol_pass(pc, enode, sym_idx);
   }
 
   void on_check_symbol_miss(std::size_t pc, ENodeId enode, std::size_t expected_sym_idx) {
-    ++stats.parent_symbol_misses;
+    ++stats.symbol_check_misses;
     if (tracer) tracer->on_check_symbol_fail(pc, enode, expected_sym_idx);
   }
 

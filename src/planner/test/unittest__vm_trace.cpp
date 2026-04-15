@@ -55,13 +55,13 @@ class PatternVM_Trace : public EGraphTestBase {
   TestMatches matches;
 
   std::vector<TestPattern> patterns_;
-  std::optional<TestCompiledPattern> compiled_;
+  std::optional<TestCompiledMatcher> compiled_;
 
   template <typename... Patterns>
   void use_patterns(Patterns &&...ps) {
     patterns_.clear();
     (patterns_.push_back(std::forward<Patterns>(ps)), ...);
-    TestPatternCompiler compiler;
+    TestPatternsCompiler compiler;
     compiled_.emplace(compiler.compile(patterns_));
   }
 
@@ -273,7 +273,7 @@ TEST_F(PatternVM_Trace, MultiPatternJoin_NoMatch_TracesCheckSlotMiss) {
   EXPECT_EQ(stats().yields, 0u);
 
   // The parent traversal from sym1 won't find Ident as parent (Ident uses sym2).
-  // This manifests as zero parent_symbol_hits for the Ident pattern, or
+  // This manifests as zero symbol_check_hits for the Ident pattern, or
   // exhausted parent iteration.
   EXPECT_EQ(yields().size(), 0u);
 }
@@ -504,7 +504,7 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_ThreePatternJoinWithMerge) {
   EXPECT_EQ(stats().instructions_executed, 30u);
   EXPECT_EQ(stats().yields, 1u);
   EXPECT_EQ(stats().iter_parent_calls, 2u);
-  EXPECT_EQ(stats().parent_symbol_misses, 1u);  // F(a,b) fails G check; H found H(b) first
+  EXPECT_EQ(stats().symbol_check_misses, 1u);  // F(a,b) fails G check; H found H(b) first
 }
 
 TEST_F(PatternVM_Trace, FullFeatureExercise_WithMergeAndDedup) {
@@ -547,7 +547,7 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_WithMergeAndDedup) {
 }
 
 TEST_F(PatternVM_Trace, Stats_ParentFilterRate) {
-  // Verify parent_filter_rate reflects actual symbol filtering during parent traversal.
+  // Verify symbol_filter_rate reflects actual symbol filtering during parent traversal.
   //
   //   E-graph:
   //     a is child of F(a, b), G(a, c), H(a)
@@ -570,10 +570,10 @@ TEST_F(PatternVM_Trace, Stats_ParentFilterRate) {
   ASSERT_EQ(matches.size(), 1u) << trace_dump();
 
   auto const &s = stats();
-  EXPECT_GT(s.parent_symbol_hits, 0u) << "Expected at least one parent symbol hit\n" << trace_dump();
+  EXPECT_GT(s.symbol_check_hits, 0u) << "Expected at least one parent symbol hit\n" << trace_dump();
   // H(a) and F(a,b) are parents of a but don't match G — should be misses
-  EXPECT_GT(s.parent_symbol_misses, 0u) << "Expected parent symbol miss for H/F\n" << trace_dump();
-  EXPECT_GT(s.parent_filter_rate(), 0.0) << "Filter rate should be non-zero\n" << trace_dump();
+  EXPECT_GT(s.symbol_check_misses, 0u) << "Expected parent symbol miss for H/F\n" << trace_dump();
+  EXPECT_GT(s.symbol_filter_rate(), 0.0) << "Filter rate should be non-zero\n" << trace_dump();
 }
 
 TEST_F(PatternVM_Trace, Stats_CheckSlotHitsAndMisses) {

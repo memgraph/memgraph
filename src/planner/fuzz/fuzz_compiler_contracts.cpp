@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 // ============================================================================
-// Contract Verification Fuzzer for PatternCompiler
+// Contract Verification Fuzzer for PatternsCompiler
 // ============================================================================
 //
 // KEY INSIGHT: This fuzzer checks STRUCTURAL correctness of compiled bytecode,
@@ -208,7 +208,7 @@ class ContractFuzzer {
     }
 
     // Compile
-    PatternCompiler<FuzzSymbol> compiler;
+    PatternsCompiler<FuzzSymbol> compiler;
     auto compiled = compiler.compile(std::span(patterns));
 
     // Skip patterns that would overflow uint8_t register indices.

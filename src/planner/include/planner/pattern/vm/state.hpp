@@ -118,11 +118,11 @@ struct VMState {
   // The compiler statically determines which type each register uses
   // When an iteration exhausts, its state is naturally inert; fresh iterations overwrite
   std::vector<ENodesIter> enodes_iters;                   // E-node iterations (span-based)
-  std::vector<ParentsIter> parents_iters;                 // Parent iterations (index-based)
+  std::vector<ParentsIter> parents_iters;                 // Parent iterations (set-based)
   std::vector<AllEClassesIter> eclasses_iters;            // All e-classes iterations (span-based)
   std::vector<SymbolEClassesIter> symbol_eclasses_iters;  // Symbol-filtered e-class iterations (set-based)
 
-  // Binding order information (set during reset, from CompiledPattern)
+  // Binding order information (set during reset, from CompiledMatcher)
   // binding_order_[i] = slot at position i in binding order
   // slot_to_order_[slot] = position of slot in binding order
   std::span<SlotIdx const> binding_order_;

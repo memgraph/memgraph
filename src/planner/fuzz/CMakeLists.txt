@@ -16,7 +16,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_link_options(fuzz_pattern_vm PRIVATE -fsanitize=fuzzer,address)
     target_compile_definitions(fuzz_pattern_vm PUBLIC ASSERT_FUZZ)
 
-    # Fuzzer for PatternCompiler contract verification (structural invariants)
+    # Fuzzer for PatternsCompiler contract verification (structural invariants)
     add_executable(fuzz_compiler_contracts fuzz_compiler_contracts.cpp)
     target_link_libraries(fuzz_compiler_contracts PRIVATE mg::planner fmt::fmt)
     target_compile_options(fuzz_compiler_contracts PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)

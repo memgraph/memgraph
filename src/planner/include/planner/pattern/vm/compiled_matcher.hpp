@@ -23,18 +23,18 @@
 
 namespace memgraph::planner::core::pattern::vm {
 
-/// Non-templated base class for CompiledPattern.
+/// Non-templated base class for CompiledMatcher.
 ///
 /// Contains all Symbol-independent state and accessors. This reduces template
 /// instantiation overhead and allows code that only needs bytecode/register
 /// metadata to work with a non-templated interface.
 ///
-/// @see CompiledPattern for the full templated interface
-class CompiledPatternBase {
+/// @see CompiledMatcher for the full templated interface
+class CompiledMatcherBase {
  public:
-  CompiledPatternBase() = default;
+  CompiledMatcherBase() = default;
 
-  CompiledPatternBase(std::vector<Instruction> code, std::size_t num_eclass_regs, std::size_t num_enode_regs,
+  CompiledMatcherBase(std::vector<Instruction> code, std::size_t num_eclass_regs, std::size_t num_enode_regs,
                       std::vector<SlotIdx> binding_order, VarSlotMap var_slots);
 
   [[nodiscard]] auto code() const -> std::span<Instruction const> { return code_; }
@@ -74,11 +74,11 @@ class CompiledPatternBase {
 /// Compiled pattern ready for VM execution.
 ///
 /// Contains the bytecode, symbol table, and metadata needed by VMExecutor.
-/// Produced by PatternCompiler, consumed by VMExecutor.
+/// Produced by PatternsCompiler, consumed by VMExecutor.
 ///
 /// ## Contract
 ///
-/// CompiledPattern encapsulates the contract between PatternCompiler and VMExecutor:
+/// CompiledMatcher encapsulates the contract between PatternsCompiler and VMExecutor:
 ///
 /// - code(): The bytecode sequence; all jump targets are valid
 /// - num_slots(): Number of result slots (variables)
@@ -88,18 +88,18 @@ class CompiledPatternBase {
 /// - binding_order(): Order slots are bound (for deduplication)
 /// - slot_to_order(): Inverse mapping for efficient clearing
 ///
-/// @tparam Symbol The symbol type (must match PatternCompiler and VMExecutor)
+/// @tparam Symbol The symbol type (must match PatternsCompiler and VMExecutor)
 ///
-/// @see PatternCompiler for bytecode generation
+/// @see PatternsCompiler for bytecode generation
 /// @see VMExecutor for bytecode execution
 /// @see Instruction for bytecode format
 template <typename Symbol>
-class CompiledPattern : public CompiledPatternBase {
+class CompiledMatcher : public CompiledMatcherBase {
  public:
   /// Default constructor creates a no-op pattern that produces no matches.
-  CompiledPattern() = default;
+  CompiledMatcher() = default;
 
-  CompiledPattern(std::vector<Instruction> code, std::size_t num_eclass_regs, std::size_t num_enode_regs,
+  CompiledMatcher(std::vector<Instruction> code, std::size_t num_eclass_regs, std::size_t num_enode_regs,
                   std::vector<Symbol> symbols, std::vector<SlotIdx> binding_order, VarSlotMap var_slots);
 
   [[nodiscard]] auto symbols() const -> std::span<Symbol const> { return symbols_; }
@@ -109,10 +109,10 @@ class CompiledPattern : public CompiledPatternBase {
 };
 
 template <typename Symbol>
-CompiledPattern<Symbol>::CompiledPattern(std::vector<Instruction> code, std::size_t num_eclass_regs,
+CompiledMatcher<Symbol>::CompiledMatcher(std::vector<Instruction> code, std::size_t num_eclass_regs,
                                          std::size_t num_enode_regs, std::vector<Symbol> symbols,
                                          std::vector<SlotIdx> binding_order, VarSlotMap var_slots)
-    : CompiledPatternBase(std::move(code), num_eclass_regs, num_enode_regs, std::move(binding_order),
+    : CompiledMatcherBase(std::move(code), num_eclass_regs, num_enode_regs, std::move(binding_order),
                           std::move(var_slots)),
       symbols_(std::move(symbols)) {}
 

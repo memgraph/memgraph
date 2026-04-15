@@ -39,7 +39,7 @@
 
 #include <fmt/format.h>
 
-#include "planner/pattern/vm/compiled_rule.hpp"
+#include "planner/pattern/vm/compiled_matcher.hpp"
 #include "planner/pattern/vm/instruction.hpp"
 #include "planner/pattern/vm/tracer.hpp"
 
@@ -175,10 +175,10 @@ inline auto collect_register_usage(std::span<Instruction const> code) -> RegUsag
 }
 
 // ============================================================================
-// CompiledPatternInfo — lightweight metadata for validators
+// CompiledMatcherInfo — lightweight metadata for validators
 // ============================================================================
 
-struct CompiledPatternInfo {
+struct CompiledMatcherInfo {
   std::size_t num_symbols = 0;
   std::size_t num_slots = 0;
   std::size_t num_eclass_regs = 0;
@@ -224,7 +224,7 @@ void ValidateJumpTargetsInBounds(Reporter &r, std::span<Instruction const> code,
 
 /// Symbol table, slot, and register index bounds.
 template <typename Reporter>
-void ValidateIndexBounds(Reporter &r, std::span<Instruction const> code, CompiledPatternInfo const &info,
+void ValidateIndexBounds(Reporter &r, std::span<Instruction const> code, CompiledMatcherInfo const &info,
                          std::string_view bc) {
   for (std::size_t i = 0; i < code.size(); ++i) {
     auto const &instr = code[i];
@@ -800,7 +800,7 @@ void ValidateEclassJoinsBeforeEnodeLoop(Reporter &r, std::span<Instruction const
 
 /// binding_order: valid indices, no duplicates, slot_to_order is inverse, matches BindSlot emission order.
 template <typename Reporter>
-void ValidateBindingOrder(Reporter &r, std::span<Instruction const> code, CompiledPatternInfo const &info,
+void ValidateBindingOrder(Reporter &r, std::span<Instruction const> code, CompiledMatcherInfo const &info,
                           std::string_view bc) {
   auto const &binding_order = info.binding_order;
   auto const &slot_to_order = info.slot_to_order;
@@ -926,10 +926,10 @@ void ValidateYieldJumpCoversBindSlots(Reporter &r, std::span<Instruction const> 
 ///   7. Code layout invariants (sibling loads, eclass joins)
 ///   8. Metadata consistency (binding_order)
 template <typename Reporter, typename Symbol>
-void ValidateBytecodeInvariants(Reporter &r, CompiledPattern<Symbol> const &compiled) {
+void ValidateBytecodeInvariants(Reporter &r, CompiledMatcher<Symbol> const &compiled) {
   auto code = compiled.code();
   auto bc = disassemble(code, compiled.symbols());
-  auto info = CompiledPatternInfo{.num_symbols = compiled.symbols().size(),
+  auto info = CompiledMatcherInfo{.num_symbols = compiled.symbols().size(),
                                   .num_slots = compiled.num_slots(),
                                   .num_eclass_regs = compiled.num_eclass_regs(),
                                   .num_enode_regs = compiled.num_enode_regs(),
