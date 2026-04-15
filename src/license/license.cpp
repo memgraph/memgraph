@@ -147,7 +147,7 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   static utils::Synchronized<std::optional<PreviousMemoryState>, utils::SpinLock> previous_memory_limit;
   const auto set_memory_limit = [](int64_t memory_limit, std::optional<LicenseType> license_type = std::nullopt) {
     auto locked = previous_memory_limit.Lock();
-    PreviousMemoryState current{.limit = memory_limit, .type = license_type};
+    const PreviousMemoryState current{.limit = memory_limit, .type = license_type};
     if (*locked && **locked == current) return;
 
     if (license_type == LicenseType::AI_PLATFORM && memory_limit > 0) {
