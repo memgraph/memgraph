@@ -38,6 +38,18 @@
 
 namespace memgraph::logging {
 
+// Single non-format-string argument: wrap with "{}" so fmt::format can handle formattable types (e.g. ExceptionInfo).
+template <typename T>
+std::string FormatForStderr(T &&val) {
+  return fmt::format("{}", std::forward<T>(val));
+}
+
+// Format string + arguments: forward directly to fmt::format.
+template <typename T, typename Arg, typename... Args>
+std::string FormatForStderr(T &&fmt_str, Arg &&arg, Args &&...args) {
+  return fmt::format(fmt::runtime(std::forward<T>(fmt_str)), std::forward<Arg>(arg), std::forward<Args>(args)...);
+}
+
 [[noreturn]] void AssertFailed(std::source_location loc, const char *expr, const std::string &message);
 
 #define GET_MESSAGE(...) \
@@ -64,7 +76,7 @@ namespace memgraph::logging {
   do {                                                                               \
     spdlog::critical(__VA_ARGS__);                                                   \
     if (std::dynamic_pointer_cast<spdlog::async_logger>(spdlog::default_logger())) { \
-      std::cerr << fmt::format(__VA_ARGS__) << '\n';                                 \
+      std::cerr << ::memgraph::logging::FormatForStderr(__VA_ARGS__) << '\n';        \
     }                                                                                \
     std::terminate();                                                                \
   } while (0)

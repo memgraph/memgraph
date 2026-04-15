@@ -968,11 +968,11 @@ void PyCollectGarbage() {
 
   py::Object gc(PyImport_ImportModule("gc"));
   if (!gc) {
-    LOG_FATAL("{}", py::FetchError().value());
+    LOG_FATAL(py::FetchError().value());
   }
 
   if (!gc.CallMethod("collect")) {
-    LOG_FATAL("{}", py::FetchError().value());
+    LOG_FATAL(py::FetchError().value());
   }
 }
 
@@ -1170,7 +1170,7 @@ std::function<void()> PyObjectCleanup(py::Object &py_object) {
       return;
     }
     if (!py_object.CallMethod("invalidate")) {
-      LOG_FATAL("{}", py::FetchError().value());
+      LOG_FATAL(py::FetchError().value());
     }
   };
 }

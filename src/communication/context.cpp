@@ -89,7 +89,7 @@ ServerContext::ServerContext(std::string key_file, std::string cert_file, std::s
       ca_file_(std::move(ca_file)),
       verify_peer_(verify_peer) {
   if (auto const res = reload(); !res.has_value()) {
-    LOG_FATAL("{}", res.error().msg);
+    LOG_FATAL(res.error().msg);
   }
 }
 
