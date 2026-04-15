@@ -41,8 +41,14 @@ class VirtualNodeStore {
   // Inserts if original Gid is new; returns reference to the stored node (stable synthetic Gid).
   const VirtualNode &InsertOrGet(VirtualNode node);
 
-  // Unconditional insert-or-replace by original Gid.
+  // Unconditional insert-or-replace by original Gid. The synthetic-gid mapping of the
+  // replaced node (if any) is dropped so FindBySyntheticGid can't hand out a stale reference.
   void InsertOrUpdate(VirtualNode node);
+
+  // Merges another store's contents: for each original Gid, keeps this store's canonical
+  // node (if present) and copies other's synthetic-gid aliases so edges built against
+  // other's synthetic gids can still be resolved through FindBySyntheticGid.
+  void MergeFrom(const VirtualNodeStore &other);
 
   const VirtualNode *Find(storage::Gid original_gid) const;
   const VirtualNode *FindBySyntheticGid(storage::Gid synthetic_gid) const;

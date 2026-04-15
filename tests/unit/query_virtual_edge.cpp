@@ -131,3 +131,63 @@ TEST_F(VirtualEdgeTest, SelfLoopAppearsInBothDirections) {
   EXPECT_EQ(vg.edge_store().OutEdges(vn1.Gid()).size(), 1);
   EXPECT_EQ(vg.edge_store().InEdges(vn1.Gid()).size(), 1);
 }
+
+TEST_F(VirtualEdgeTest, InsertOrUpdateDropsStaleSyntheticGid) {
+  auto acc = db->Access(memgraph::storage::WRITE);
+  const auto real_gid = acc->CreateVertex().Gid();
+  acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+
+  memgraph::query::VirtualNodeStore store(memgraph::utils::NewDeleteResource());
+  const auto stale_synth = store.InsertOrGet(memgraph::query::VirtualNode(real_gid, {"A"}, {})).Gid();
+
+  memgraph::query::VirtualNode replacement(real_gid, {"B"}, {});
+  const auto fresh_synth = replacement.Gid();
+  store.InsertOrUpdate(std::move(replacement));
+
+  EXPECT_EQ(store.FindBySyntheticGid(stale_synth), nullptr);
+  ASSERT_NE(store.FindBySyntheticGid(fresh_synth), nullptr);
+  EXPECT_EQ(store.FindBySyntheticGid(fresh_synth)->Labels(), std::vector<std::string>{"B"});
+}
+
+TEST_F(VirtualEdgeTest, MergeFromPreservesCanonicalAndAliasesOtherSynth) {
+  auto acc = db->Access(memgraph::storage::WRITE);
+  const auto shared_gid = acc->CreateVertex().Gid();
+  const auto other_only_gid = acc->CreateVertex().Gid();
+  acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+
+  memgraph::query::VirtualNodeStore main_store(memgraph::utils::NewDeleteResource());
+  memgraph::query::VirtualNodeStore other_store(memgraph::utils::NewDeleteResource());
+
+  const auto main_synth = main_store.InsertOrGet(memgraph::query::VirtualNode(shared_gid, {"main"}, {})).Gid();
+  const auto other_synth = other_store.InsertOrGet(memgraph::query::VirtualNode(shared_gid, {"other"}, {})).Gid();
+  const auto other_only_synth = other_store.InsertOrGet(memgraph::query::VirtualNode(other_only_gid, {}, {})).Gid();
+
+  main_store.MergeFrom(other_store);
+
+  const auto *canonical = main_store.Find(shared_gid);
+  ASSERT_NE(canonical, nullptr);
+  EXPECT_EQ(canonical->Gid(), main_synth);
+  EXPECT_EQ(canonical->Labels(), std::vector<std::string>{"main"});
+  EXPECT_EQ(main_store.FindBySyntheticGid(main_synth), canonical);
+  EXPECT_EQ(main_store.FindBySyntheticGid(other_synth), canonical);
+  ASSERT_NE(main_store.FindBySyntheticGid(other_only_synth), nullptr);
+  EXPECT_EQ(main_store.size(), 2);
+}
+
+TEST_F(VirtualEdgeTest, InsertIfNewDedupsDistinctEdgeGidsByTriple) {
+  auto acc = db->Access(memgraph::storage::WRITE);
+  auto sv1 = acc->CreateVertex();
+  auto sv2 = acc->CreateVertex();
+  acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  const auto &vn1 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv1.Gid(), {}, {}));
+  const auto &vn2 = vg.node_store().InsertOrGet(memgraph::query::VirtualNode(sv2.Gid(), {}, {}));
+
+  EXPECT_TRUE(vg.edge_store().InsertIfNew(memgraph::query::VirtualEdge(vn1, vn2, "X")));
+  EXPECT_FALSE(vg.edge_store().InsertIfNew(memgraph::query::VirtualEdge(vn1, vn2, "X")));
+  EXPECT_TRUE(vg.edge_store().InsertIfNew(memgraph::query::VirtualEdge(vn1, vn2, "Y")));
+
+  EXPECT_EQ(vg.edge_store().size(), 2);
+  EXPECT_EQ(vg.edge_store().OutEdges(vn1.Gid()).size(), 2);
+}

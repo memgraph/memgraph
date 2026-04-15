@@ -10728,11 +10728,9 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           case Aggregation::Op::DERIVE: {
             auto &main_vg = main_value.ValueVirtualGraph();
             auto &other_vg = other_value.ValueVirtualGraph();
+            main_vg.node_store().MergeFrom(other_vg.node_store());
             for (auto &ve : other_vg.edge_store().edges()) {
-              main_vg.edge_store().Insert(std::move(ve));
-            }
-            for (const auto &[gid, node] : other_vg.node_store().nodes()) {
-              main_vg.node_store().InsertOrUpdate(node);
+              main_vg.edge_store().InsertIfNew(std::move(ve));
             }
             break;
           }
@@ -10821,11 +10819,9 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
         case Aggregation::Op::DERIVE: {
           auto &main_vg = main_value.ValueVirtualGraph();
           auto &other_vg = other_value.ValueVirtualGraph();
+          main_vg.node_store().MergeFrom(other_vg.node_store());
           for (auto &ve : other_vg.edge_store().edges()) {
-            main_vg.edge_store().Insert(std::move(ve));
-          }
-          for (const auto &[gid, node] : other_vg.node_store().nodes()) {
-            main_vg.node_store().InsertOrUpdate(node);
+            main_vg.edge_store().InsertIfNew(std::move(ve));
           }
           break;
         }
