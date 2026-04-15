@@ -43,6 +43,12 @@ namespace memgraph::license {
 namespace {
 inline constexpr std::string_view license_key_prefix = "mglk-";
 
+inline constexpr int64_t kExpirationGraceSeconds = std::chrono::hours{24} / std::chrono::seconds{1};
+
+bool IsLicenseExpired(int64_t valid_until, int64_t now_seconds) {
+  return valid_until != 0 && now_seconds - kExpirationGraceSeconds > valid_until;
+}
+
 std::optional<License> GetLicense(std::string_view license_key) {
   if (license_key.empty()) {
     return std::nullopt;
@@ -72,7 +78,7 @@ LicenseCheckResult IsValidLicenseInternal(const License &license, std::string_vi
   const auto now =
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-  if (license.valid_until != 0 && now > license.valid_until) {
+  if (IsLicenseExpired(license.valid_until, now)) {
     return std::unexpected{LicenseCheckError::EXPIRED_LICENSE};
   }
 
@@ -105,7 +111,7 @@ void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &s
     }
     const auto now =
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    if (maybe_license->valid_until != 0 && now > maybe_license->valid_until) {
+    if (IsLicenseExpired(maybe_license->valid_until, now)) {
       return std::unexpected<std::string>{"Invalid license key: the license has already expired."};
     }
     return {};

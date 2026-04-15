@@ -88,22 +88,29 @@ TEST_F(LicenseTest, LicenseOrganizationName) {
 
 TEST_F(LicenseTest, Expiration) {
   const std::string organization_name{"Memgraph"};
+  const auto now_sec =
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  constexpr int64_t kGraceSeconds = 24 * 60 * 60;
 
   {
-    const auto now =
-        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch());
-    const auto delta = std::chrono::seconds(1);
-    const auto valid_until = now + delta;
+    SCOPED_TRACE("valid_until in the future => valid");
     memgraph::license::License license{
-        organization_name, valid_until.count(), 0, memgraph::license::LicenseType::ENTERPRISE};
-
-    settings->SetValue("enterprise.license", memgraph::license::Encode(license));
-    settings->SetValue("organization.name", organization_name);
-    CheckLicenseValidity(true);
-
-    std::this_thread::sleep_for(delta + std::chrono::seconds(1));
-    ASSERT_FALSE(license_checker->IsEnterpriseValid(*settings).has_value());
-    // We can't check fast checker because it has unknown refresh rate
+        organization_name, now_sec + 3600, 0, memgraph::license::LicenseType::ENTERPRISE};
+    const auto key = memgraph::license::Encode(license);
+    ASSERT_TRUE(license_checker->IsEnterpriseValid(key, organization_name).has_value());
+  }
+  {
+    SCOPED_TRACE("valid_until just passed but within the 24h grace => still valid");
+    memgraph::license::License license{organization_name, now_sec - 60, 0, memgraph::license::LicenseType::ENTERPRISE};
+    const auto key = memgraph::license::Encode(license);
+    ASSERT_TRUE(license_checker->IsEnterpriseValid(key, organization_name).has_value());
+  }
+  {
+    SCOPED_TRACE("valid_until past the 24h grace => expired");
+    memgraph::license::License license{
+        organization_name, now_sec - kGraceSeconds - 60, 0, memgraph::license::LicenseType::ENTERPRISE};
+    const auto key = memgraph::license::Encode(license);
+    ASSERT_FALSE(license_checker->IsEnterpriseValid(key, organization_name).has_value());
   }
   {
     SCOPED_TRACE("License with valid_until = 0 is always valid");
