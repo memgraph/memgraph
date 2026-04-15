@@ -407,17 +407,25 @@ void MigrateVersions(kvstore::KVStore &store) {
     //   same bit so no migration needed.
     // - NOTHING becomes a DENY ALL
 
-    using enum FineGrainedPermission;
-    constexpr auto to_uint = [](FineGrainedPermission const p) { return std::to_underlying(p); };
-
-    constexpr uint64_t kUpdate = 2;  // Old UPDATE bit, no longer exists in enum
+    // Local copies of FineGrainedPermission values (defined under MG_ENTERPRISE
+    // in models.hpp). Duplicated here so that this migration runs even in
+    // community builds, which is necessary to correctly migrate data if an
+    // installation downgrades from enterprise to community then upgrades again.
+    // Admittedly unlikely, but easily handled!
+    constexpr uint64_t kUpdate = 2;                   // Old UPDATE bit, no longer exists in enum
+    constexpr uint64_t kSetLabel = 32;                // FineGrainedPermission::SET_LABEL
+    constexpr uint64_t kRemoveLabel = 64;             // FineGrainedPermission::REMOVE_LABEL
+    constexpr uint64_t kSetProperty = 2;              // FineGrainedPermission::SET_PROPERTY
+    constexpr uint64_t kDeleteEdge = 128;             // FineGrainedPermission::DELETE_EDGE
+    constexpr uint64_t kCreateEdge = 256;             // FineGrainedPermission::CREATE_EDGE
+    constexpr uint64_t kAllLabelPermissions = 507;    // kAllLabelPermissions
+    constexpr uint64_t kAllEdgeTypePermissions = 27;  // kAllEdgeTypePermissions
 
     // For labels: UPDATE -> SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE | CREATE_EDGE
     auto const migrate_label_permissions = [&](uint64_t const v3_perm) -> uint64_t {
       uint64_t result = v3_perm;
       if (result & kUpdate) {
-        result = (result & ~kUpdate) | to_uint(SET_LABEL) | to_uint(REMOVE_LABEL) | to_uint(SET_PROPERTY) |
-                 to_uint(DELETE_EDGE) | to_uint(CREATE_EDGE);
+        result = (result & ~kUpdate) | kSetLabel | kRemoveLabel | kSetProperty | kDeleteEdge | kCreateEdge;
       }
       return result;
     };
@@ -443,8 +451,7 @@ void MigrateVersions(kvstore::KVStore &store) {
                   if (old_perm == 0) {
                     // NOTHING -> deny all
                     perm_data["global_grants"] = -1;
-                    perm_data["global_denies"] =
-                        to_uint(is_label ? auth::kAllLabelPermissions : auth::kAllEdgeTypePermissions);
+                    perm_data["global_denies"] = (is_label ? kAllLabelPermissions : kAllEdgeTypePermissions);
                   } else if (old_perm == -1) {
                     // No global permission set
                     perm_data["global_grants"] = -1;
@@ -471,8 +478,7 @@ void MigrateVersions(kvstore::KVStore &store) {
                     if (granted == 0) {
                       // granted=0 (NOTHING) -> deny all
                       new_rule["granted"] = 0;
-                      new_rule["denied"] =
-                          to_uint(is_label ? auth::kAllLabelPermissions : auth::kAllEdgeTypePermissions);
+                      new_rule["denied"] = (is_label ? kAllLabelPermissions : kAllEdgeTypePermissions);
                     } else {
                       auto new_granted = static_cast<uint64_t>(granted);
                       if (is_label) new_granted = migrate_label_permissions(new_granted);
