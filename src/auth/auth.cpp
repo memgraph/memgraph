@@ -966,10 +966,8 @@ void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
     user.permissions().Grant(permission);
   }
   if (license::global_license_checker.IsEnterpriseValidFast()) {
-    constexpr auto kFullFineGrained = FineGrainedPermission::READ | FineGrainedPermission::UPDATE |
-                                      FineGrainedPermission::CREATE | FineGrainedPermission::DELETE;
-    user.fine_grained_access_handler().label_permissions().GrantGlobal(kFullFineGrained);
-    user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(kFullFineGrained);
+    user.fine_grained_access_handler().label_permissions().GrantGlobal(kAllLabelPermissions);
+    user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(kAllEdgeTypePermissions);
     user.db_access().GrantAll();
   }
   SaveUser(user, system_tx);
@@ -1253,10 +1251,6 @@ bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
     SaveRole(role, system_tx);
   };
 
-  constexpr auto kFullFineGrained = static_cast<FineGrainedPermission>(
-      std::to_underlying(FineGrainedPermission::READ) | std::to_underlying(FineGrainedPermission::UPDATE) |
-      std::to_underlying(FineGrainedPermission::CREATE) | std::to_underlying(FineGrainedPermission::DELETE));
-
   auto const grant_privileges =
       [](Role &role, FineGrainedPermission labelPermissions, FineGrainedPermission edgePermissions) {
         role.fine_grained_access_handler().label_permissions().GrantGlobal(labelPermissions);
@@ -1267,7 +1261,7 @@ bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
     for (auto permission : kPermissionsAll) {
       role.permissions().Grant(permission);
     }
-    grant_privileges(role, kFullFineGrained, kFullFineGrained);
+    grant_privileges(role, kAllLabelPermissions, kAllEdgeTypePermissions);
     role.db_access().GrantAll();
   });
 
@@ -1281,7 +1275,7 @@ bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
                             Permission::MATCH}) {
       role.permissions().Grant(permission);
     }
-    grant_privileges(role, kFullFineGrained, kFullFineGrained);
+    grant_privileges(role, kAllLabelPermissions, kAllEdgeTypePermissions);
   });
 
   make_role("readonly", [&](Role &role) {
