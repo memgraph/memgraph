@@ -794,10 +794,10 @@ TypedValue::TypedValue(TypedValue &&other, allocator_type alloc) : alloc_{alloc}
       alloc_trait::construct(alloc_, &edge_v, other.edge_v);
       break;
     case Type::VirtualEdge:
-      alloc_trait::construct(alloc_, &virtual_edge_v, other.virtual_edge_v);
+      alloc_trait::construct(alloc_, &virtual_edge_v, std::move(other.virtual_edge_v));
       break;
     case Type::VirtualNode:
-      alloc_trait::construct(alloc_, &virtual_node_v, other.virtual_node_v);
+      alloc_trait::construct(alloc_, &virtual_node_v, std::move(other.virtual_node_v));
       break;
     case Type::Path: {
       if (other.alloc_ == alloc_) {
@@ -1399,10 +1399,10 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
           edge_v = other.edge_v;
           break;
         case Type::VirtualEdge:
-          virtual_edge_v = other.virtual_edge_v;
+          virtual_edge_v = std::move(other.virtual_edge_v);
           break;
         case Type::VirtualNode:
-          virtual_node_v = other.virtual_node_v;
+          virtual_node_v = std::move(other.virtual_node_v);
           break;
         case Type::Path: {
           auto *path = path_v.release();
