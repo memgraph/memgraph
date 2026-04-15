@@ -40,7 +40,7 @@ class Epoll {
     }
   }
 
-  // This is important to be delete because otherwise we could get into a double-close bug for the same file descriptor
+  // "Copy/move deleted: epoll_fd_ is const, and ownership of the FD is non-transferable."
   Epoll(const Epoll &other) = delete;
   Epoll &operator=(const Epoll &other) = delete;
   Epoll(Epoll &&other) = delete;

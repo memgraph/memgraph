@@ -149,8 +149,8 @@ struct ReplicationState {
   std::expected<ReplicationClient *, RegisterReplicaStatus> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain(const utils::UUID &main_uuid);
-  bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                 std::optional<utils::UUID> const &maybe_main_uuid);
+  [[nodiscard]] bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                               std::optional<utils::UUID> const &maybe_main_uuid);
 
   std::optional<nlohmann::json> GetTelemetryJson() const;
 

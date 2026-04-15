@@ -49,7 +49,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
     switch (fetched_replication_data.error()) {
       using enum ReplicationState::FetchReplicationError;
       case NOTHING_FETCHED: {
-        spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
+        spdlog::warn("Cannot find data needed for restore replication role in persisted metadata.");
         replication_data_.data_ = RoleMainData{};
         return;
       }
@@ -58,7 +58,14 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
         return;
       }
       case REPL_SERVER_FAILURE: {
-        LOG_FATAL("Couldn't initialize replication server");
+        if (part_of_ha_cluster) {
+          spdlog::warn(
+              "Couldn't initialize replication server on replica. Defaulting role to non-writeable main. Coordinators "
+              "will automatically demote the instance to become replica.");
+          replication_data_.data_ = RoleMainData{};
+        } else {
+          LOG_FATAL("Couldn't initialize replication server on replica.");
+        }
         return;
       }
       default: {
@@ -343,6 +350,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
     return false;
   }
 
+  // This should never throw an exception
   replication_data_.data_ = RoleReplicaData{.config = config, .server = std::move(new_repl_server), .uuid_ = main_uuid};
 
   // DeltasBatchProgressSize stay untouched
