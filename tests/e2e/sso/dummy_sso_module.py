@@ -50,6 +50,9 @@ def authenticate(scheme: str, response: str):
     if response == "admin_user":
         return_dict = {"authenticated": True, "username": "admin_user", "roles": ["admin"]}
 
+    if response == "architect_user":
+        return_dict = {"authenticated": True, "username": "architect_user", "roles": ["architect"]}
+
     # New multi-role interface - roles is just a list of role names
     if response == "multi_role_admin":
         return_dict = {"authenticated": True, "username": "admin_user", "roles": ["admin", "architect", "user"]}

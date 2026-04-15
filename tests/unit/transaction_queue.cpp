@@ -71,7 +71,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
                                                           nullptr
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt,
+                                                          nullptr,
                                                           nullptr
 #endif
   };

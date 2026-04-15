@@ -16,6 +16,7 @@
 #include <string>
 
 #include "nlohmann/json.hpp"
+#include "slk/serialization.hpp"
 #include "spdlog/spdlog.h"
 
 #include "auth/rpc.hpp"

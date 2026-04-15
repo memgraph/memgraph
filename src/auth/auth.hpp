@@ -20,10 +20,14 @@
 #include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
-#include "system/action.hpp"
 #include "utils/join_vector.hpp"
+#include "utils/message.hpp"
 #include "utils/settings.hpp"
 #include "utils/synchronized.hpp"
+
+namespace memgraph::system {
+struct Transaction;
+}  // namespace memgraph::system
 
 namespace memgraph::auth {
 
