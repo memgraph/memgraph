@@ -3175,17 +3175,17 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
       [it] {
         // virtual-only iteration (source vertex is VirtualNode): no real in/out populated
         if (!it->in && !it->out) {
-          const bool for_in = it->source_vertex.IsVirtualNode() && !it->virtual_in_.empty();
+          const bool for_in = !it->virtual_in_.empty();
           auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
           auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
           if (virt.empty() || virt_it == virt.end()) {
             it->current_e = std::nullopt;
-            return (mgp_edge *)nullptr;
+            return static_cast<mgp_edge *>(nullptr);
           }
           ++virt_it;
           if (virt_it == virt.end()) {
             it->current_e = std::nullopt;
-            return (mgp_edge *)nullptr;
+            return static_cast<mgp_edge *>(nullptr);
           }
           const auto &ve = *virt_it;
           it->current_e.emplace(ve, it->source_vertex.graph, it->GetMemoryResource());

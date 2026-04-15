@@ -154,7 +154,7 @@ class MapType : public CypherType {
   bool SatisfiesType(const mgp_value &value) const override;
 
   bool SatisfiesType(const query::TypedValue &value) const override {
-    return value.IsMap() || value.IsVertex() || value.IsEdge();
+    return value.IsMap() || value.IsVertex() || value.IsEdge() || value.IsVirtualNode() || value.IsVirtualEdge();
   }
 };
 
