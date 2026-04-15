@@ -46,12 +46,12 @@ void VirtualNodeStore::MergeFrom(const VirtualNodeStore &other) {
 }
 
 const VirtualNode *VirtualNodeStore::Find(storage::Gid original_gid) const {
-  if (auto it = nodes_.find(original_gid); it != nodes_.end()) return &it->second;
+  if (const auto it = nodes_.find(original_gid); it != nodes_.end()) return &it->second;
   return nullptr;
 }
 
 const VirtualNode *VirtualNodeStore::FindBySyntheticGid(storage::Gid synthetic_gid) const {
-  if (auto it = synthetic_to_original_.find(synthetic_gid); it != synthetic_to_original_.end()) {
+  if (const auto it = synthetic_to_original_.find(synthetic_gid); it != synthetic_to_original_.end()) {
     return Find(it->second);
   }
   return nullptr;

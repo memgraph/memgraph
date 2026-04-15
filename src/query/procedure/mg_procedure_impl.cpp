@@ -3154,8 +3154,8 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
   return WrapExceptions(
       [it] {
         auto emit_virtual = [it](bool for_in) -> mgp_edge * {
-          auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
-          auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
+          const auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
+          const auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
           if (virt.empty() || virt_it == virt.end()) {
             it->current_e = std::nullopt;
             return nullptr;
@@ -3165,7 +3165,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
         };
 
         auto next_virtual = [it, &emit_virtual](bool for_in) -> mgp_edge * {
-          auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
+          const auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
           auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
           if (virt.empty() || virt_it == virt.end()) {
             it->current_e = std::nullopt;
@@ -3201,12 +3201,12 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
           }
           std::visit(memgraph::utils::Overloaded{
                          [&](memgraph::query::DbAccessor *) {
-                           auto edgeAcc = **impl_it;
+                           const auto edgeAcc = **impl_it;
                            it->current_e.emplace(
                                edgeAcc, edgeAcc.From(), edgeAcc.To(), it->source_vertex.graph, it->GetMemoryResource());
                          },
                          [&](memgraph::query::SubgraphDbAccessor *impl) {
-                           auto edgeAcc = **impl_it;
+                           const auto edgeAcc = **impl_it;
                            it->current_e.emplace(
                                edgeAcc,
                                memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
@@ -3491,7 +3491,7 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
           }
           return nullptr;
         }
-        auto maybe_vertex =
+        const auto maybe_vertex =
             std::visit([graph, gid](auto *impl) { return impl->FindVertex(gid, graph->view); }, graph->impl);
         if (maybe_vertex) {
           return std::visit(
