@@ -92,21 +92,21 @@ TEST_F(LicenseTest, Expiration) {
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
   constexpr int64_t kGraceSeconds = 24 * 60 * 60;
 
+  // valid_until in the future => valid
   {
-    SCOPED_TRACE("valid_until in the future => valid");
     memgraph::license::License license{
         organization_name, now_sec + 3600, 0, memgraph::license::LicenseType::ENTERPRISE};
     const auto key = memgraph::license::Encode(license);
     ASSERT_TRUE(license_checker->IsEnterpriseValid(key, organization_name).has_value());
   }
+  // valid_until just passed but within the 24h grace => still valid
   {
-    SCOPED_TRACE("valid_until just passed but within the 24h grace => still valid");
     memgraph::license::License license{organization_name, now_sec - 60, 0, memgraph::license::LicenseType::ENTERPRISE};
     const auto key = memgraph::license::Encode(license);
     ASSERT_TRUE(license_checker->IsEnterpriseValid(key, organization_name).has_value());
   }
+  // valid_until past the 24h grace => expired
   {
-    SCOPED_TRACE("valid_until past the 24h grace => expired");
     memgraph::license::License license{
         organization_name, now_sec - kGraceSeconds - 60, 0, memgraph::license::LicenseType::ENTERPRISE};
     const auto key = memgraph::license::Encode(license);
