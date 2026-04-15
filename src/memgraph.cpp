@@ -1038,8 +1038,11 @@ int main(int argc, char **argv) {
   }
   python_gc_scheduler.Stop();
   Py_END_ALLOW_THREADS;
-  // Shutdown Python
-  Py_Finalize();
+  // NOTE: We intentionally skip Py_Finalize(). Third-party extensions (DGL,
+  // PyTorch, numpy) may have spawned background threads that race with
+  // CPython's TSS teardown, causing "gilstate_tss_set: failed to set current
+  // tstate" fatal errors (bpo-42969). Since the process is about to exit, the
+  // OS reclaims all resources. This is standard practice for embedded Python.
   PyMem_RawFree(program_name);
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();
