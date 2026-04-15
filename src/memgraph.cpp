@@ -1052,8 +1052,17 @@ int main(int argc, char **argv) {
   spdlog::trace("Web socket server started.");
 
 #ifdef MG_ENTERPRISE
-  std::visit([](auto &s) { s.Start(); }, metrics_server);
-  spdlog::trace("Metrics server started");
+  std::visit(
+      [](auto &s) {
+        s.Start();
+        if (s.IsRunning()) {
+          spdlog::trace("Metrics server started");
+        } else {
+          spdlog::warn("Metrics server failed to start on port {}. The port may already be in use.",
+                       FLAGS_metrics_port);
+        }
+      },
+      metrics_server);
 #endif
 
   if (!FLAGS_init_data_file.empty() && dbms_handler.has_value()) {
