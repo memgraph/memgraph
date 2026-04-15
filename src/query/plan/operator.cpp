@@ -7809,6 +7809,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     args_list.erase(args_list.begin());
 
     graph.virtual_graph = &*virtual_graph;
+    graph.virtual_only = true;
   }
 
   procedure::ValidateArguments(args_list, proc, fully_qualified_procedure_name);

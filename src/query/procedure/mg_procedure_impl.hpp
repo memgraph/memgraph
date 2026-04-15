@@ -823,6 +823,10 @@ struct mgp_graph {
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
   memgraph::query::VirtualGraph *virtual_graph{nullptr};
+  // set when a Type::VirtualGraph was the procedure's first argument — read-side APIs
+  // (vertices iterator, count, get_vertex_by_id) must expose only the virtual graph,
+  // never the underlying DbAccessor's real vertices/edges.
+  bool virtual_only{false};
 
   memgraph::query::DbAccessor *getImpl() const {
     return std::visit(

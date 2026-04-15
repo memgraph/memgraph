@@ -2534,17 +2534,11 @@ memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_value
 
 mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name, mgp_value *property_value) {
   return WrapExceptions([=] {
+    if (v->IsVirtualNode()) {
+      throw ImmutableObjectException{"Cannot set a property on a virtual vertex!"};
+    }
     const auto prop_key =
         std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, v->graph->impl);
-
-    // virtual nodes are not backed by storage — set directly and skip trigger registration
-    if (v->IsVirtualNode()) {
-      v->GetVirtualNode().SetProperty(prop_key, ToPropertyValue(*property_value, GetNameIdMapper(v->graph)));
-      if (auto *ctx = v->graph->ctx) {
-        ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
-      }
-      return;
-    }
 
     auto *ctx = v->graph->ctx;
 
@@ -2598,25 +2592,9 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
 
 mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *properties) {
   return WrapExceptions([=] {
-    // virtual nodes — set properties directly, no storage transaction
     if (v->IsVirtualNode()) {
-      auto &vn = v->GetVirtualNode();
-      std::visit(
-          [&vn, v](const auto &items) {
-            for (const auto &item : items) {
-              const auto prop_key =
-                  std::visit([&item](auto *impl) { return impl->NameToProperty(item.first); }, v->graph->impl);
-              vn.SetProperty(prop_key, ToPropertyValue(item.second, GetNameIdMapper(v->graph)));
-            }
-          },
-          properties->items);
-      if (auto *ctx = v->graph->ctx) {
-        ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] +=
-            static_cast<int64_t>(std::visit([](const auto &items) { return items.size(); }, properties->items));
-      }
-      return;
+      throw ImmutableObjectException{"Cannot set properties on a virtual vertex!"};
     }
-
     auto *ctx = v->graph->ctx;
 
 #ifdef MG_ENTERPRISE
@@ -3361,15 +3339,11 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
 
 mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, mgp_value *property_value) {
   return WrapExceptions([=] {
+    if (e->IsVirtual()) {
+      throw ImmutableObjectException{"Cannot set a property on a virtual edge!"};
+    }
     const auto prop_key =
         std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, e->from.graph->impl);
-
-    if (e->IsVirtual()) {
-      auto &ve = std::get<memgraph::query::VirtualEdge>(e->impl);
-      ve.SetProperty(prop_key, ToPropertyValue(*property_value, GetNameIdMapper(e->from.graph)));
-      return;
-    }
-
     auto &ea = std::get<memgraph::query::EdgeAccessor>(e->impl);
     auto *ctx = e->from.graph->ctx;
 
@@ -3419,6 +3393,9 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
 
 mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties) {
   return WrapExceptions([=] {
+    if (e->IsVirtual()) {
+      throw ImmutableObjectException{"Cannot set properties on a virtual edge!"};
+    }
     std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
     std::visit(
         [&props, &e](const auto &items) {
@@ -3432,14 +3409,6 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
           }
         },
         properties->items);
-
-    if (e->IsVirtual()) {
-      auto &ve = std::get<memgraph::query::VirtualEdge>(e->impl);
-      for (const auto &[key, value] : props) {
-        ve.SetProperty(key, value);
-      }
-      return;
-    }
 
     auto &ea = std::get<memgraph::query::EdgeAccessor>(e->impl);
     auto *ctx = e->from.graph->ctx;
@@ -3531,11 +3500,15 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
 mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
-        auto maybe_vertex = std::visit(
-            [graph, id](auto *impl) {
-              return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
-            },
-            graph->impl);
+        const auto gid = memgraph::storage::Gid::FromInt(id.as_int);
+        if (graph->virtual_only) {
+          if (const auto *vn = graph->virtual_graph->node_store().FindBySyntheticGid(gid)) {
+            return NewRawMgpObject<mgp_vertex>(memory, *vn, graph);
+          }
+          return nullptr;
+        }
+        auto maybe_vertex =
+            std::visit([graph, gid](auto *impl) { return impl->FindVertex(gid, graph->view); }, graph->impl);
         if (maybe_vertex) {
           return std::visit(
               memgraph::utils::Overloaded{
@@ -3548,9 +3521,9 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
                   }},
               graph->impl);
         }
-        // fallback: search virtual node store by synthetic Gid
+        // fallback: a real-mode procedure may still want to address virtual-overlay nodes by synthetic Gid
         if (auto *vg = graph->virtual_graph) {
-          if (const auto *vn = vg->node_store().FindBySyntheticGid(memgraph::storage::Gid::FromInt(id.as_int))) {
+          if (const auto *vn = vg->node_store().FindBySyntheticGid(gid)) {
             return NewRawMgpObject<mgp_vertex>(memory, *vn, graph);
           }
         }
@@ -4916,14 +4889,13 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
     : alloc(alloc),
       graph(graph),
       vertices(std::visit([graph](auto *impl) { return impl->Vertices(graph->view); }, graph->impl)),
-      current_it(vertices.begin()) {
+      current_it(graph->virtual_only ? vertices.end() : vertices.begin()) {
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+  if (!graph->virtual_only && memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     NextPermitted(*this);
   }
 #endif
 
-  // populate virtual node iteration if virtual graph is present
   if (auto *vg = graph->virtual_graph) {
     const auto &vn_store = vg->node_store();
     if (!vn_store.empty()) {
@@ -4942,7 +4914,6 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
             }},
         graph->impl);
   } else if (has_virtual_nodes_ && virtual_node_it_ != virtual_node_end_) {
-    // no real vertices — start with first virtual node
     current_v.emplace(virtual_node_it_->second, graph, alloc);
   }
 }
@@ -4955,6 +4926,10 @@ mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vert
 
 mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
+    if (graph->virtual_only) {
+      *result = graph->virtual_graph->node_store().size();
+      return;
+    }
     *result = graph->getImpl()->VerticesCount();
     if (auto *vg = graph->virtual_graph) *result += vg->node_store().size();
   });
@@ -4962,6 +4937,10 @@ mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
 
 mgp_error mgp_graph_approximate_edge_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
+    if (graph->virtual_only) {
+      *result = graph->virtual_graph->edge_store().size();
+      return;
+    }
     *result = graph->getImpl()->EdgesCount();
     if (auto *vg = graph->virtual_graph) *result += vg->edge_store().size();
   });
