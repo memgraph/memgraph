@@ -228,15 +228,7 @@ def authenticate(response: str, scheme: str):
     roles = resolved["roles"]
 
     if not roles:
-        diagnostic = f"Cannot map principal {client_principal} to any Memgraph role."
-        if "user_groups" in resolved:
-            diagnostic += (
-                f" User's LDAP groups: {resolved['user_groups']}."
-                f" Configured role mapping keys: {sorted(role_mapping.keys())}."
-            )
-        else:
-            diagnostic += f" Configured role mapping keys: {sorted(role_mapping.keys())}."
-        return {"authenticated": False, "errors": diagnostic}
+        return {"authenticated": False, "errors": "principal cannot be mapped"}
 
     return {
         "authenticated": True,

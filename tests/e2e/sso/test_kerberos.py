@@ -155,7 +155,7 @@ def test_role_mapping(monkeypatch, role_mapping, principal, expected_roles, shou
     if should_pass:
         assert sorted(result["roles"]) == sorted(expected_roles)
     else:
-        assert "Cannot map principal" in result["errors"]
+        assert "cannot be mapped" in result["errors"]
 
 
 if __name__ == "__main__":
