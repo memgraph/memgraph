@@ -52,18 +52,18 @@ class VirtualEdgeStore {
 
   // Returns true iff the (from, to, type) triple was not already present.
   bool InsertIfNew(VirtualEdge edge);
-  bool Contains(const VirtualEdge &edge) const;
+  [[nodiscard]] bool Contains(const VirtualEdge &edge) const;
 
-  std::span<const VirtualEdge> OutEdges(storage::Gid vertex_gid) const;
-  std::span<const VirtualEdge> InEdges(storage::Gid vertex_gid) const;
+  [[nodiscard]] std::span<const VirtualEdge> OutEdges(storage::Gid vertex_gid) const;
+  [[nodiscard]] std::span<const VirtualEdge> InEdges(storage::Gid vertex_gid) const;
 
-  auto &edges() { return edges_; }
+  [[nodiscard]] auto &edges() { return edges_; }
 
-  auto &edges() const { return edges_; }
+  [[nodiscard]] auto &edges() const { return edges_; }
 
-  auto size() const { return edges_.size(); }
+  [[nodiscard]] auto size() const { return edges_.size(); }
 
-  auto empty() const { return edges_.empty(); }
+  [[nodiscard]] auto empty() const { return edges_.empty(); }
 
  private:
   utils::pmr::unordered_set<VirtualEdge> edges_;

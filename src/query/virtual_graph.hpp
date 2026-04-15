@@ -31,15 +31,15 @@ class VirtualGraph final {
   VirtualGraph &operator=(VirtualGraph &&) noexcept = default;
   ~VirtualGraph() = default;
 
-  VirtualNodeStore &node_store() { return node_store_; }
+  [[nodiscard]] VirtualNodeStore &node_store() { return node_store_; }
 
-  const VirtualNodeStore &node_store() const { return node_store_; }
+  [[nodiscard]] const VirtualNodeStore &node_store() const { return node_store_; }
 
-  VirtualEdgeStore &edge_store() { return edge_store_; }
+  [[nodiscard]] VirtualEdgeStore &edge_store() { return edge_store_; }
 
-  const VirtualEdgeStore &edge_store() const { return edge_store_; }
+  [[nodiscard]] const VirtualEdgeStore &edge_store() const { return edge_store_; }
 
-  auto get_allocator() const -> allocator_type { return node_store_.get_allocator(); }
+  [[nodiscard]] auto get_allocator() const -> allocator_type { return node_store_.get_allocator(); }
 
  private:
   VirtualNodeStore node_store_;

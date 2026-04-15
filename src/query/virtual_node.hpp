@@ -60,22 +60,22 @@ class VirtualNode final {
   VirtualNode &operator=(VirtualNode &&) noexcept = default;
   ~VirtualNode() = default;
 
-  auto Gid() const noexcept -> storage::Gid { return gid_; }
+  [[nodiscard]] auto Gid() const noexcept -> storage::Gid { return gid_; }
 
-  auto OriginalGid() const noexcept -> storage::Gid { return original_gid_; }
+  [[nodiscard]] auto OriginalGid() const noexcept -> storage::Gid { return original_gid_; }
 
-  auto CypherId() const noexcept -> int64_t { return gid_.AsInt(); }
+  [[nodiscard]] auto CypherId() const noexcept -> int64_t { return gid_.AsInt(); }
 
-  auto Labels() const noexcept -> const label_list & { return labels_; }
+  [[nodiscard]] auto Labels() const noexcept -> const label_list & { return labels_; }
 
-  auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
+  [[nodiscard]] auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
     if (const auto it = properties_.find(key); it != properties_.end()) return it->second;
     return storage::PropertyValue{};
   }
 
   void SetProperty(storage::PropertyId key, const storage::PropertyValue &value) { properties_[key] = value; }
 
-  auto Properties() const noexcept -> const property_map & { return properties_; }
+  [[nodiscard]] auto Properties() const noexcept -> const property_map & { return properties_; }
 
   bool operator==(const VirtualNode &other) const noexcept { return gid_ == other.gid_; }
 

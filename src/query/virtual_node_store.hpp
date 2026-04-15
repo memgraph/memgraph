@@ -50,17 +50,17 @@ class VirtualNodeStore {
   // other's synthetic gids can still be resolved through FindBySyntheticGid.
   void MergeFrom(const VirtualNodeStore &other);
 
-  const VirtualNode *Find(storage::Gid original_gid) const;
-  const VirtualNode *FindBySyntheticGid(storage::Gid synthetic_gid) const;
-  bool Contains(storage::Gid original_gid) const;
+  [[nodiscard]] const VirtualNode *Find(storage::Gid original_gid) const;
+  [[nodiscard]] const VirtualNode *FindBySyntheticGid(storage::Gid synthetic_gid) const;
+  [[nodiscard]] bool Contains(storage::Gid original_gid) const;
 
-  auto &nodes() const { return nodes_; }
+  [[nodiscard]] auto &nodes() const { return nodes_; }
 
-  auto size() const { return nodes_.size(); }
+  [[nodiscard]] auto size() const { return nodes_.size(); }
 
-  auto empty() const { return nodes_.empty(); }
+  [[nodiscard]] auto empty() const { return nodes_.empty(); }
 
-  auto get_allocator() const -> allocator_type { return nodes_.get_allocator(); }
+  [[nodiscard]] auto get_allocator() const -> allocator_type { return nodes_.get_allocator(); }
 
  private:
   // keyed by original Gid for dedup

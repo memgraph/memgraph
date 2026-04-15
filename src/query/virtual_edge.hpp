@@ -62,26 +62,26 @@ class VirtualEdge final {
   VirtualEdge &operator=(VirtualEdge &&) noexcept = default;
   ~VirtualEdge() = default;
 
-  auto From() const noexcept -> const VirtualNode & { return from_; }
+  [[nodiscard]] auto From() const noexcept -> const VirtualNode & { return from_; }
 
-  auto To() const noexcept -> const VirtualNode & { return to_; }
+  [[nodiscard]] auto To() const noexcept -> const VirtualNode & { return to_; }
 
-  auto FromGid() const noexcept -> storage::Gid { return from_.Gid(); }
+  [[nodiscard]] auto FromGid() const noexcept -> storage::Gid { return from_.Gid(); }
 
-  auto ToGid() const noexcept -> storage::Gid { return to_.Gid(); }
+  [[nodiscard]] auto ToGid() const noexcept -> storage::Gid { return to_.Gid(); }
 
-  auto EdgeTypeName() const noexcept -> const utils::pmr::string & { return edge_type_name_; }
+  [[nodiscard]] auto EdgeTypeName() const noexcept -> const utils::pmr::string & { return edge_type_name_; }
 
-  auto Gid() const noexcept -> storage::Gid { return gid_; }
+  [[nodiscard]] auto Gid() const noexcept -> storage::Gid { return gid_; }
 
-  auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
+  [[nodiscard]] auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
     if (const auto it = properties_.find(key); it != properties_.end()) return it->second;
     return storage::PropertyValue{};
   }
 
   void SetProperty(storage::PropertyId key, const storage::PropertyValue &value) { properties_[key] = value; }
 
-  auto Properties() const noexcept -> const property_map & { return properties_; }
+  [[nodiscard]] auto Properties() const noexcept -> const property_map & { return properties_; }
 
   bool operator==(const VirtualEdge &other) const noexcept { return gid_ == other.gid_; }
 
