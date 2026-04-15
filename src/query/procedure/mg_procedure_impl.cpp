@@ -643,6 +643,10 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, al
     }
     case MGP_VALUE_TYPE_VERTEX: {
       memgraph::utils::Allocator<mgp_vertex> allocator(alloc);
+      if (tv.type() == memgraph::query::TypedValue::Type::VirtualNode) {
+        vertex_v = allocator.new_object<mgp_vertex>(tv.ValueVirtualNode(), graph);
+        break;
+      }
       vertex_v = std::visit(
           memgraph::utils::Overloaded{
               [&](memgraph::query::DbAccessor *) { return allocator.new_object<mgp_vertex>(tv.ValueVertex(), graph); },
@@ -657,6 +661,10 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, al
     case MGP_VALUE_TYPE_EDGE: {
       memgraph::utils::Allocator<mgp_edge> allocator(alloc);
 
+      if (tv.type() == memgraph::query::TypedValue::Type::VirtualEdge) {
+        edge_v = allocator.new_object<mgp_edge>(tv.ValueVirtualEdge(), graph);
+        break;
+      }
       edge_v = std::visit(
           memgraph::utils::Overloaded{[&tv, graph, &allocator](memgraph::query::DbAccessor *) {
                                         return allocator.new_object<mgp_edge>(tv.ValueEdge(),
@@ -2926,9 +2934,11 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
   return WrapExceptions(
       [v, memory] {
         if (v->IsVirtualNode()) {
-          std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props(
-              v->GetVirtualNode().Properties());
-          return NewRawMgpObject<mgp_properties_iterator>(memory, v->graph, std::move(props));
+          return NewRawMgpObject<mgp_properties_iterator>(
+              memory,
+              v->graph,
+              std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>(
+                  v->GetVirtualNode().Properties()));
         }
         auto maybe_props = v->VisitReal([v](const auto &impl) { return impl.Properties(v->graph->view); });
         if (!maybe_props) {
@@ -3163,6 +3173,25 @@ mgp_error mgp_edges_iterator_get(mgp_edges_iterator *it, mgp_edge **result) {
 mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
   return WrapExceptions(
       [it] {
+        // virtual-only iteration (source vertex is VirtualNode): no real in/out populated
+        if (!it->in && !it->out) {
+          const bool for_in = it->source_vertex.IsVirtualNode() && !it->virtual_in_.empty();
+          auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
+          auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
+          if (virt.empty() || virt_it == virt.end()) {
+            it->current_e = std::nullopt;
+            return (mgp_edge *)nullptr;
+          }
+          ++virt_it;
+          if (virt_it == virt.end()) {
+            it->current_e = std::nullopt;
+            return (mgp_edge *)nullptr;
+          }
+          const auto &ve = *virt_it;
+          it->current_e.emplace(ve, it->source_vertex.graph, it->GetMemoryResource());
+          return &*it->current_e;
+        }
+
         MG_ASSERT(it->in || it->out);
 
         // Emit the current virtual edge pointed to by virt_it

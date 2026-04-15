@@ -17,7 +17,7 @@ from common import execute_and_fetch_all
 
 class TestVirtualEdgesWithProcedures:
     def test_procedure_sees_virtual_edges(self, connection):
-        """A procedure iterating vertex.out_edges should see virtual edges."""
+        """A procedure iterating a virtual node's out_edges should see virtual edges."""
         cursor = connection.cursor()
         execute_and_fetch_all(cursor, "CREATE (:N {id: 1})-[:R]->(:N {id: 2})-[:R]->(:N {id: 3});")
 
@@ -26,7 +26,7 @@ class TestVirtualEdgesWithProcedures:
             """
             MATCH p=(:N {id: 1})-[*]->(:N {id: 3})
             WITH derive(p, {virtualEdgeType: 'DERIVED'}) AS graph
-            MATCH (n:N {id: 1})
+            UNWIND graph.nodes AS n
             CALL read.subgraph_edge_info(graph, n) YIELD edge_type, weight
             RETURN edge_type, weight
             """,
@@ -46,7 +46,7 @@ class TestVirtualEdgesWithProcedures:
             """
             MATCH p=(:N {id: 1})-[*]->(:N {id: 3})
             WITH derive(p, {virtualEdgeType: 'DERIVED', relationshipProperties: {weight: 99}}) AS graph
-            MATCH (n:N {id: 1})
+            UNWIND graph.nodes AS n
             CALL read.subgraph_edge_info(graph, n) YIELD edge_type, weight
             RETURN edge_type, weight
             """,
@@ -70,7 +70,8 @@ class TestVirtualEdgesWithProcedures:
                 sourceNodeLabels: ['Expert'],
                 sourceNodeProperties: {score: 42}
             }) AS graph
-            MATCH (n:N {id: 1})
+            UNWIND graph.nodes AS n
+            WITH graph, n WHERE 'Expert' IN labels(n)
             CALL read.subgraph_vertex_info(graph, n) YIELD labels, score
             RETURN labels, score
             """,

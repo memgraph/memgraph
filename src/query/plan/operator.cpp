@@ -6656,7 +6656,7 @@ class AggregateCursor : public Cursor {
           properties[prop_id] = val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper());
         }
       }
-      return VirtualNode(vertex.Gid(), std::move(labels), std::move(properties));
+      return {vertex.Gid(), std::move(labels), std::move(properties)};
     };
 
     const auto &from = path_vertices.front();

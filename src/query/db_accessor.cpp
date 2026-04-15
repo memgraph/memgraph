@@ -132,10 +132,6 @@ storage::Result<storage::PropertyValue> SubgraphVertexAccessor::GetProperty(stor
   return impl_.GetProperty(view, key);
 }
 
-std::span<const VirtualEdge> SubgraphVertexAccessor::VirtualOutEdges() const { return {}; }
-
-std::span<const VirtualEdge> SubgraphVertexAccessor::VirtualInEdges() const { return {}; }
-
 storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.OutEdges(view, {});
   if (!maybe_edges) return std::unexpected{maybe_edges.error()};

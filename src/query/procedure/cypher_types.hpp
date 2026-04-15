@@ -119,7 +119,9 @@ class NodeType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override;
 
-  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsVertex(); }
+  bool SatisfiesType(const query::TypedValue &value) const override {
+    return value.IsVertex() || value.IsVirtualNode();
+  }
 };
 
 class RelationshipType : public CypherType {
@@ -128,7 +130,7 @@ class RelationshipType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override;
 
-  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsEdge(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsEdge() || value.IsVirtualEdge(); }
 };
 
 class PathType : public CypherType {
