@@ -61,6 +61,7 @@ class OrderByEliminator {
     OrderBy *op{nullptr};
     std::vector<OrderByEntry> entries;
     std::vector<ProvidedScan> provided_scans;  // accumulated bottom-up (outermost first)
+    Ordering ordering{Ordering::ASC};          // shared direction of all ORDER BY columns
     bool well_formed{false};
     bool order_preserving_path{true};  // set false if walk from first scan to OrderBy fails
 
@@ -93,6 +94,12 @@ class OrderByEliminator {
     const bool eliminate = CanEliminate(ctx);
     order_by_stack_.pop_back();
     return eliminate;
+  }
+
+  /// Returns the ordering direction of the pending (topmost) ORDER BY, if any.
+  [[nodiscard]] std::optional<Ordering> PendingOrderDirection() const {
+    if (order_by_stack_.empty() || !order_by_stack_.back().well_formed) return std::nullopt;
+    return order_by_stack_.back().ordering;
   }
 
   void ResolveAliases(Produce *produce) {
@@ -144,10 +151,12 @@ class OrderByEliminator {
 
     if (orderings.empty()) return info;
 
-    // TODO(ivan): support DESC -- SkipList indexes can be iterated in reverse
-    const bool all_asc =
-        std::ranges::all_of(orderings, [](const auto &ord) { return ord.ordering() == Ordering::ASC; });
-    if (!all_asc) return info;
+    // All ORDER BY columns must share the same direction (all ASC or all DESC).
+    const auto first_dir = orderings.front().ordering();
+    const bool all_same =
+        std::ranges::all_of(orderings, [first_dir](const auto &ord) { return ord.ordering() == first_dir; });
+    if (!all_same) return info;
+    info.ordering = first_dir;
 
     for (const auto *expr : order_by_exprs) {
       if (const auto *prop_lookup = dynamic_cast<const PropertyLookup *>(expr)) {
@@ -295,6 +304,22 @@ class OrderByEliminator {
         scan);
   }
 
+  /// Does the scan's iteration order match the ORDER BY direction?
+  static bool ScanOrderMatches(const ProvidedScan &scan, Ordering ordering) {
+    return std::visit(
+        [ordering](const auto *s) -> bool {
+          using T = std::remove_cvref_t<decltype(*s)>;
+          if constexpr (std::is_same_v<T, ScanAllByLabelProperties>) {
+            auto desired = ordering == Ordering::DESC ? storage::IndexOrder::DESC : storage::IndexOrder::ASC;
+            return s->index_order_ == desired;
+          } else {
+            // Edge scans currently only support ASC iteration.
+            return ordering == Ordering::ASC;
+          }
+        },
+        scan);
+  }
+
   /// Can the provided scans satisfy all ORDER BY entries without an explicit sort?
   [[nodiscard]] static bool CanEliminate(const OrderByInfo &ctx) {
     if (!ctx.well_formed || !ctx.order_preserving_path || ctx.has_pending_entries()) return false;
@@ -305,6 +330,8 @@ class OrderByEliminator {
 
     // entries must form contiguous groups by source_position, matching provided scans in order
     while (entry_idx < ctx.entries.size() && scan_idx < ctx.provided_scans.size()) {
+      if (!ScanOrderMatches(ctx.provided_scans[scan_idx], ctx.ordering)) return false;
+
       const auto sym_pos =
           std::visit([](const auto *s) { return s->output_symbol_.position(); }, ctx.provided_scans[scan_idx]);
 
