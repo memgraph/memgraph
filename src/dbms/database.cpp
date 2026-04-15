@@ -15,6 +15,8 @@
 
 #include "dbms/database_info.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
+#include "flags/coord_flag_env_handler.hpp"
+#include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
@@ -73,7 +75,11 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
   }
 
-  metrics_.reset(metrics::Metrics().AddDatabase(storage_->name()));
+  auto const should_register_database_metrics =
+      !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
+  if (should_register_database_metrics) {
+    metrics_.reset(metrics::Metrics().AddDatabase(storage_->name()));
+  }
   storage_->SetMetricHandles(metrics_.get());
 }
 
