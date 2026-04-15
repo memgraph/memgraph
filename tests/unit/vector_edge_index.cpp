@@ -487,6 +487,21 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
   static constexpr std::size_t kNumEdges = 100;
 
   void SetUp() override {
+    // Initialize the active indices store with a valid ActiveIndices object
+    // so that ActiveIndicesUpdater assertions pass during recovery.
+    active_indices_store_.WithLock([&](ActiveIndicesPtr &ai) {
+      ai = std::make_shared<ActiveIndices>(nullptr,
+                                           nullptr,
+                                           nullptr,
+                                           nullptr,
+                                           nullptr,
+                                           nullptr,
+                                           nullptr,
+                                           nullptr,
+                                           nullptr,
+                                           vector_edge_index_.GetActiveIndices());
+    });
+
     auto vertices_acc = vertices_.access();
     auto edges_acc = edges_.access();
 
