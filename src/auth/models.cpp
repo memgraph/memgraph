@@ -56,40 +56,6 @@ constexpr auto kDenied = "denied";
 constexpr auto kMatching = "matching";
 #endif
 
-// Constant list of all available permissions.
-const std::vector<Permission> kPermissionsAll = {
-    Permission::MATCH,
-    Permission::CREATE,
-    Permission::MERGE,
-    Permission::DELETE,
-    Permission::SET,
-    Permission::REMOVE,
-    Permission::INDEX,
-    Permission::STATS,
-    Permission::CONSTRAINT,
-    Permission::DUMP,
-    Permission::AUTH,
-    Permission::REPLICATION,
-    Permission::DURABILITY,
-    Permission::READ_FILE,
-    Permission::FREE_MEMORY,
-    Permission::TRIGGER,
-    Permission::CONFIG,
-    Permission::STREAM,
-    Permission::MODULE_READ,
-    Permission::MODULE_WRITE,
-    Permission::WEBSOCKET,
-    Permission::TRANSACTION_MANAGEMENT,
-    Permission::STORAGE_MODE,
-    Permission::MULTI_DATABASE_EDIT,
-    Permission::MULTI_DATABASE_USE,
-    Permission::COORDINATOR,
-    Permission::IMPERSONATE_USER,
-    Permission::PROFILE_RESTRICTION,
-    Permission::PARALLEL_EXECUTION,
-    Permission::SERVER_SIDE_PARAMETERS,
-    Permission::SERVER_SIDE_DESCRIPTIONS,
-};
 #ifdef MG_ENTERPRISE
 const FineGrainedAccessPermissions empty_permissions{};
 #endif

@@ -3005,8 +3005,13 @@ TEST_F(AuthQueryHandlerFixture, DenyPrivilegeOnBuiltinRoleClearsBuiltinFlag) {
   builtin_role.SetBuiltIn(true);
   auth.value()->SaveRole(builtin_role);
 
-  auth_handler.DenyPrivilege(
-      "builtin_role", {memgraph::query::AuthQuery::Privilege::MATCH}, memgraph::auth::UserOrRoleType::ROLE, nullptr);
+  auth_handler.DenyPrivilege("builtin_role",
+                             {memgraph::query::AuthQuery::Privilege::MATCH},
+                             {},
+                             {},
+                             {},
+                             memgraph::auth::UserOrRoleType::ROLE,
+                             nullptr);
 
   EXPECT_FALSE(auth->ReadLock()->GetRole("builtin_role")->IsBuiltIn());
 }
