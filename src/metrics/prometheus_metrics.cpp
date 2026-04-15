@@ -1075,7 +1075,7 @@ void PrometheusMetrics::UpdateGauges() {
 
   // Add or update gauges for current instances
   for (auto const &inst : instances) {
-    prometheus::Labels const labels{{"instance", inst.instance_name}};
+    prometheus::Labels const labels{{"mg_instance", inst.instance_name}};
     if (!instance_up_gauges_.contains(inst.instance_name)) {
       instance_up_gauges_.emplace(inst.instance_name, &instance_up_family_.Add(labels));
       instance_is_leader_gauges_.emplace(inst.instance_name, &instance_is_leader_family_.Add(labels));
