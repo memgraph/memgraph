@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import os
+import re
 
 
 def _load_role_mappings(raw_role_mappings: str) -> dict:
@@ -133,13 +134,18 @@ def _resolve_roles_ldap(client_principal: str, role_mapping: dict, config: dict)
 
     # If nested groups path didn't already populate user_groups, parse from memberOf DNs
     if user_groups is None:
-        # Extract CN from group DNs: "CN=mg-admins,OU=Groups,DC=corp,DC=com" → "mg-admins"
+        # Extract CN from group DNs using ldap3's parser (handles escaped chars correctly)
+        from ldap3.utils.dn import parse_dn
+
         user_groups = set()
         for group_dn in member_of:
-            for rdn in group_dn.split(","):
-                if rdn.strip().upper().startswith("CN="):
-                    user_groups.add(rdn.strip()[3:])
-                    break
+            parsed = parse_dn(group_dn)
+            if parsed and parsed[0][0].upper() == "CN":
+                # parse_dn returns the value with LDAP escapes still present (e.g. "Engineering\, EMEA").
+                # Unescape so it matches what the admin puts in MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING.
+                escaped_value = parsed[0][1]
+                unescaped = re.sub(r"\\(.)", r"\1", escaped_value)
+                user_groups.add(unescaped)
 
     # Match groups against role mapping
     roles = []
