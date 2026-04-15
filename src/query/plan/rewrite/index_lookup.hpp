@@ -157,13 +157,13 @@ template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints,
-                      const Parameters &parameters)
+                      const Parameters &parameters, bool parallel_execution = false)
       : symbol_table_(symbol_table),
         ast_storage_(ast_storage),
         db_(db),
         index_hints_(std::move(index_hints)),
         parameters_(parameters),
-        order_by_eliminator_(db, prev_ops_) {}
+        order_by_eliminator_(db, prev_ops_, parallel_execution) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -1847,8 +1847,9 @@ template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
                                                         TDbAccessor *db, IndexHints index_hints,
-                                                        const Parameters &parameters) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints, parameters);
+                                                        const Parameters &parameters, bool parallel_execution = false) {
+  impl::IndexLookupRewriter<TDbAccessor> rewriter(
+      symbol_table, ast_storage, db, index_hints, parameters, parallel_execution);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
     // The root operator was removed (e.g., OrderBy elimination or Filter removal).

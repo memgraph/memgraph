@@ -38,8 +38,12 @@ namespace impl {
 template <class TDbAccessor>
 class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  EdgeIndexRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), order_by_eliminator_(db, prev_ops_) {}
+  EdgeIndexRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
+                    bool parallel_execution = false)
+      : symbol_table_(symbol_table),
+        ast_storage_(ast_storage),
+        db_(db),
+        order_by_eliminator_(db, prev_ops_, parallel_execution) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -1237,8 +1241,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithEdgeIndexRewriter(std::unique_ptr<LogicalOperator> root_op,
                                                               SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                              TDbAccessor *db) {
-  impl::EdgeIndexRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
+                                                              TDbAccessor *db, bool parallel_execution = false) {
+  impl::EdgeIndexRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, parallel_execution);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
     return rewriter.new_root_->Clone(ast_storage);

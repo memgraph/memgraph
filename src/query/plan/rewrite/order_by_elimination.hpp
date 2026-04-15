@@ -71,11 +71,21 @@ class OrderByEliminator {
 
   // ---------- construction -------------------------------------------------
 
-  OrderByEliminator(TDbAccessor *db, const std::vector<LogicalOperator *> &prev_ops) : db_(db), prev_ops_(prev_ops) {}
+  OrderByEliminator(TDbAccessor *db, const std::vector<LogicalOperator *> &prev_ops, bool parallel_execution = false)
+      : db_(db), prev_ops_(prev_ops), parallel_execution_(parallel_execution) {}
 
   // ---------- hooks called by the rewriter ---------------------------------
 
-  void PushOrderBy(OrderBy &op) { order_by_stack_.emplace_back(ExtractOrderByInfo(op)); }
+  /// Record a new ORDER BY operator.  Under parallel execution we push a
+  /// bare (not well_formed) sentinel so that TryEliminate can still pop it,
+  /// but we skip the analysis work since elimination is impossible.
+  void PushOrderBy(OrderBy &op) {
+    if (parallel_execution_) {
+      order_by_stack_.emplace_back();  // bare sentinel, well_formed == false
+    } else {
+      order_by_stack_.emplace_back(ExtractOrderByInfo(op));
+    }
+  }
 
   bool TryEliminate() {
     DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in TryEliminate");
@@ -109,6 +119,7 @@ class OrderByEliminator {
  private:
   TDbAccessor *db_;
   const std::vector<LogicalOperator *> &prev_ops_;
+  bool parallel_execution_;
   std::vector<OrderByInfo> order_by_stack_;
 
   storage::PropertyId GetProperty(const PropertyIx &prop) const { return db_->NameToProperty(prop.name); }

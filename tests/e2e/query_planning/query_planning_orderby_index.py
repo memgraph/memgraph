@@ -450,5 +450,30 @@ def test_correctness_variable_start_elimination(memgraph):
     assert values == [1, 2, 3]
 
 
+# ---------------------------------------------------------------------------
+# Parallel execution -- ORDER BY must not be eliminated
+# ---------------------------------------------------------------------------
+
+
+def test_plan_parallel_execution_no_elimination(memgraph):
+    """ORDER BY not eliminated under USING PARALLEL EXECUTION -- index order not preserved."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+
+    plan = get_plan(memgraph, "USING PARALLEL EXECUTION MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop")
+    assert any("OrderBy" in step for step in plan), "OrderBy should NOT be eliminated under parallel execution"
+
+
+def test_correctness_parallel_execution_ordering(memgraph):
+    """Results correctly ordered under parallel execution despite no elimination."""
+    memgraph.execute("CREATE INDEX ON :L(prop);")
+    memgraph.execute("UNWIND [30, 10, 50, 20, 40] AS v CREATE (:L {prop: v})")
+
+    results = list(
+        memgraph.execute_and_fetch("USING PARALLEL EXECUTION MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop")
+    )
+    values = [r["n"]._properties["prop"] for r in results]
+    assert values == [10, 20, 30, 40, 50]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
