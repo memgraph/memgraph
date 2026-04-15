@@ -12,7 +12,6 @@
 #include "utils/logging.hpp"
 
 #include <fmt/format.h>
-#include <spdlog/async_logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <iostream>
@@ -32,9 +31,9 @@ std::string memgraph::logging::MaskSensitiveInformation(std::string_view const i
 }
 
 // It is possible if using asynchronous logger that this log line won't be seen because there is no way force flush
-// messages when using asynchronous queue except calling spdlog::shutdown. That's why we also log err msg on std::cout.
+// messages when using asynchronous queue except calling spdlog::shutdown. That's why we also log err msg on std::cerr.
 // Calling spdlog::shutdown() is not necessary for synchronous logger but it is the only way to flush messages when
-// using async logger. The reason why we don't use spdlog::shudown is because there is then a time window between the
+// using async logger. The reason why we don't use spdlog::shutdown is because there is then a time window between the
 // invocation of spdlog::shutdown and std::abort which means that the program could segfault at any logging place in the
 // codebase. In the core dump, it would therefore be hard to see the proper reason of the core dump
 void memgraph::logging::AssertFailed(std::source_location const loc, char const *expr, std::string const &message) {
@@ -46,9 +45,9 @@ void memgraph::logging::AssertFailed(std::source_location const loc, char const 
       loc.line(),
       expr,
       !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
-  spdlog::critical(msg);
+  spdlog::critical("{}", msg);
   if (std::dynamic_pointer_cast<spdlog::async_logger>(spdlog::default_logger())) {
-    std::cout << msg << '\n';
+    std::cerr << msg << '\n';
   }
   std::terminate();
 }

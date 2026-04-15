@@ -12,7 +12,6 @@
 #pragma once
 
 #include <execinfo.h>
-#include <spdlog/async_logger.h>
 #include <spdlog/spdlog.h>
 #include <iosfwd>
 #include <iostream>
@@ -39,6 +38,6 @@ inline void TerminateHandler(std::ostream &stream) noexcept {
   std::abort();
 }
 
-inline void TerminateHandler() noexcept { TerminateHandler(std::cout); }
+inline void TerminateHandler() noexcept { TerminateHandler(std::cerr); }
 
 }  // namespace memgraph::utils

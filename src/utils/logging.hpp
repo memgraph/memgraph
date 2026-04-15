@@ -19,12 +19,9 @@
 #endif
 #include <fmt/base.h>
 #include <fmt/format.h>
+#include <spdlog/async_logger.h>
 #include <spdlog/common.h>
-#include <array>
-#include <cstdint>
-#include <exception>
-#include <filesystem>
-#include <optional>
+#include <iostream>
 #include <source_location>
 #include <string>
 #include <string_view>
@@ -63,16 +60,13 @@ namespace memgraph::logging {
   } while (false)
 #endif
 
-template <typename... Args>
-void Fatal(const char *msg, const Args &...msg_args) {
-  spdlog::critical(msg, msg_args...);
-  std::terminate();
-}
-
-#define LOG_FATAL(...)             \
-  do {                             \
-    spdlog::critical(__VA_ARGS__); \
-    std::terminate();              \
+#define LOG_FATAL(...)                                                               \
+  do {                                                                               \
+    spdlog::critical(__VA_ARGS__);                                                   \
+    if (std::dynamic_pointer_cast<spdlog::async_logger>(spdlog::default_logger())) { \
+      std::cerr << fmt::format(__VA_ARGS__) << '\n';                                 \
+    }                                                                                \
+    std::terminate();                                                                \
   } while (0)
 
 #ifndef NDEBUG
@@ -88,12 +82,5 @@ void RedirectToStderr();
 // /// Use it for operations that must successfully finish.
 inline void AssertRocksDBStatus(const auto &status) { MG_ASSERT(status.ok(), "rocksdb: {}", status.ToString()); }
 
-inline bool CheckRocksDBStatus(const auto &status) {
-  if (!status.ok()) [[unlikely]] {
-    spdlog::error("rocksdb: {}", status.ToString());
-  }
-  return status.ok();
-}
-
-std::string MaskSensitiveInformation(std::string_view const input);
+std::string MaskSensitiveInformation(std::string_view input);
 }  // namespace memgraph::logging
