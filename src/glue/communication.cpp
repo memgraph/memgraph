@@ -508,17 +508,18 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
 
 namespace {
 communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db) {
-  auto from_id = ve.FromGid();
-  auto to_id = ve.ToGid();
-  auto edge_id = ve.Gid();
+  const auto from_id = ve.FromGid();
+  const auto to_id = ve.ToGid();
+  const auto edge_id = ve.Gid();
   bolt_map_t properties;
   for (const auto &[prop_id, prop_value] : ve.Properties()) {
     properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
   }
+  const auto &type_pmr = ve.EdgeTypeName();
   return {.id = communication::bolt::Id::FromUint(edge_id.AsUint()),
           .from = communication::bolt::Id::FromUint(from_id.AsUint()),
           .to = communication::bolt::Id::FromUint(to_id.AsUint()),
-          .type = ve.EdgeTypeName(),
+          .type = std::string(type_pmr.data(), type_pmr.size()),
           .properties = std::move(properties),
           .element_id = edge_id.ToString(),
           .from_element_id = from_id.ToString(),
@@ -526,13 +527,18 @@ communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage
 }
 
 communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db) {
-  auto id = communication::bolt::Id::FromUint(node.Gid().AsUint());
+  const auto id = communication::bolt::Id::FromUint(node.Gid().AsUint());
   bolt_map_t properties;
   for (const auto &[prop_id, prop_value] : node.Properties()) {
     properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
   }
-  return {
-      .id = id, .labels = node.Labels(), .properties = std::move(properties), .element_id = std::to_string(id.AsInt())};
+  std::vector<std::string> labels;
+  labels.reserve(node.Labels().size());
+  for (const auto &l : node.Labels()) labels.emplace_back(l.data(), l.size());
+  return {.id = id,
+          .labels = std::move(labels),
+          .properties = std::move(properties),
+          .element_id = std::to_string(id.AsInt())};
 }
 }  // namespace
 

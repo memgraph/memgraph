@@ -2914,11 +2914,11 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
   return WrapExceptions(
       [v, memory] {
         if (v->IsVirtualNode()) {
+          const auto &src = v->GetVirtualNode().Properties();
           return NewRawMgpObject<mgp_properties_iterator>(
               memory,
               v->graph,
-              std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>(
-                  v->GetVirtualNode().Properties()));
+              std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>(src.begin(), src.end()));
         }
         auto maybe_props = v->VisitReal([v](const auto &impl) { return impl.Properties(v->graph->view); });
         if (!maybe_props) {
@@ -3469,8 +3469,12 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
                   return NewRawMgpObject<mgp_properties_iterator>(memory, e->from.graph, std::move(*maybe_props));
                 },
                 [&](const memgraph::query::VirtualEdge &ve) {
-                  auto props = ve.Properties();
-                  return NewRawMgpObject<mgp_properties_iterator>(memory, e->from.graph, std::move(props));
+                  const auto &src = ve.Properties();
+                  return NewRawMgpObject<mgp_properties_iterator>(
+                      memory,
+                      e->from.graph,
+                      std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>(src.begin(),
+                                                                                                src.end()));
                 }},
             e->impl);
       },

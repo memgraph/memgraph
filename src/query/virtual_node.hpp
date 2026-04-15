@@ -12,12 +12,13 @@
 #pragma once
 
 #include <atomic>
-#include <map>
-#include <string>
-#include <vector>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/memory.hpp"
+#include "utils/pmr/map.hpp"
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
 
 namespace memgraph::query {
 
@@ -29,12 +30,35 @@ inline storage::Gid NextVirtualNodeGid() {
 
 class VirtualNode final {
  public:
-  VirtualNode(storage::Gid original_gid, std::vector<std::string> labels,
-              std::map<storage::PropertyId, storage::PropertyValue> properties)
+  using allocator_type = utils::Allocator<VirtualNode>;
+  using label_list = utils::pmr::vector<utils::pmr::string>;
+  using property_map = utils::pmr::map<storage::PropertyId, storage::PropertyValue>;
+
+  VirtualNode(storage::Gid original_gid, label_list labels, property_map properties, allocator_type alloc = {})
       : gid_(NextVirtualNodeGid()),
         original_gid_(original_gid),
-        labels_(std::move(labels)),
-        properties_(std::move(properties)) {}
+        labels_(std::move(labels), alloc),
+        properties_(std::move(properties), alloc) {}
+
+  VirtualNode(const VirtualNode &other, allocator_type alloc)
+      : gid_(other.gid_),
+        original_gid_(other.original_gid_),
+        labels_(other.labels_, alloc),
+        properties_(other.properties_, alloc) {}
+
+  VirtualNode(VirtualNode &&other, allocator_type alloc)
+      : gid_(other.gid_),
+        original_gid_(other.original_gid_),
+        labels_(std::move(other.labels_), alloc),
+        properties_(std::move(other.properties_), alloc) {}
+
+  VirtualNode(const VirtualNode &other) : VirtualNode(other, other.labels_.get_allocator()) {}
+
+  VirtualNode(VirtualNode &&) noexcept = default;
+
+  VirtualNode &operator=(const VirtualNode &) = default;
+  VirtualNode &operator=(VirtualNode &&) noexcept = default;
+  ~VirtualNode() = default;
 
   auto Gid() const noexcept -> storage::Gid { return gid_; }
 
@@ -42,26 +66,24 @@ class VirtualNode final {
 
   auto CypherId() const noexcept -> int64_t { return gid_.AsInt(); }
 
-  auto Labels() const -> const std::vector<std::string> & { return labels_; }
+  auto Labels() const noexcept -> const label_list & { return labels_; }
 
   auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
-    if (auto it = properties_.find(key); it != properties_.end()) {
-      return it->second;
-    }
+    if (const auto it = properties_.find(key); it != properties_.end()) return it->second;
     return storage::PropertyValue{};
   }
 
   void SetProperty(storage::PropertyId key, const storage::PropertyValue &value) { properties_[key] = value; }
 
-  auto Properties() const -> const std::map<storage::PropertyId, storage::PropertyValue> & { return properties_; }
+  auto Properties() const noexcept -> const property_map & { return properties_; }
 
   bool operator==(const VirtualNode &other) const noexcept { return gid_ == other.gid_; }
 
  private:
   storage::Gid gid_;
   storage::Gid original_gid_;
-  std::vector<std::string> labels_;
-  std::map<storage::PropertyId, storage::PropertyValue> properties_;
+  label_list labels_;
+  property_map properties_;
 };
 
 }  // namespace memgraph::query
@@ -69,7 +91,7 @@ class VirtualNode final {
 namespace std {
 template <>
 struct hash<memgraph::query::VirtualNode> {
-  size_t operator()(const memgraph::query::VirtualNode &n) const {
+  size_t operator()(const memgraph::query::VirtualNode &n) const noexcept {
     return std::hash<memgraph::storage::Gid>{}(n.Gid());
   }
 };

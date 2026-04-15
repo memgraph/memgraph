@@ -6626,11 +6626,12 @@ class AggregateCursor : public Cursor {
     }
 
     const auto &options = options_value.ValueMap();
-    auto it = options.find("virtualEdgeType");
+    const auto it = options.find("virtualEdgeType");
     if (it == options.end() || it->second.type() != TypedValue::Type::String) {
       throw QueryRuntimeException("derive() options map must contain a 'virtualEdgeType' string key.");
     }
-    std::string edge_type_name{it->second.ValueString()};
+    const auto graph_alloc = projected_graph.get_allocator();
+    utils::pmr::string edge_type_name{it->second.ValueString(), graph_alloc};
 
     const auto &path = path_value.ValuePath();
     const auto &path_vertices = path.vertices();
@@ -6638,10 +6639,10 @@ class AggregateCursor : public Cursor {
 
     auto create_virtual_node =
         [&](const VertexAccessor &vertex, const char *labels_key, const char *props_key) -> VirtualNode {
-      std::vector<std::string> labels;
-      std::map<storage::PropertyId, storage::PropertyValue> properties;
+      VirtualNode::label_list labels{graph_alloc};
+      VirtualNode::property_map properties{graph_alloc};
 
-      if (auto labels_it = options.find(labels_key);
+      if (const auto labels_it = options.find(labels_key);
           labels_it != options.end() && labels_it->second.type() == TypedValue::Type::List) {
         for (const auto &label : labels_it->second.ValueList()) {
           if (label.type() == TypedValue::Type::String) {
@@ -6649,14 +6650,14 @@ class AggregateCursor : public Cursor {
           }
         }
       }
-      if (auto node_props_it = options.find(props_key);
+      if (const auto node_props_it = options.find(props_key);
           node_props_it != options.end() && node_props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
         for (const auto &[key, val] : node_props_it->second.ValueMap()) {
           const auto prop_id = db_accessor_->NameToProperty(key);
           properties[prop_id] = val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper());
         }
       }
-      return {vertex.Gid(), std::move(labels), std::move(properties)};
+      return {vertex.Gid(), std::move(labels), std::move(properties), graph_alloc};
     };
 
     const auto &from = path_vertices.front();
@@ -6670,9 +6671,9 @@ class AggregateCursor : public Cursor {
     const auto &stored_to =
         projected_graph.node_store().InsertOrGet(create_virtual_node(to, "targetNodeLabels", "targetNodeProperties"));
 
-    VirtualEdge ve(stored_from, stored_to, std::move(edge_type_name));
+    VirtualEdge ve(stored_from, stored_to, std::move(edge_type_name), graph_alloc);
 
-    auto props_it = options.find("relationshipProperties");
+    const auto props_it = options.find("relationshipProperties");
     if (props_it != options.end() && props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
       for (const auto &[key, val] : props_it->second.ValueMap()) {
         const auto prop_id = db_accessor_->NameToProperty(key);

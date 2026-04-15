@@ -12,12 +12,13 @@
 #pragma once
 
 #include <atomic>
-#include <map>
-#include <string>
 
 #include "query/virtual_node.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/memory.hpp"
+#include "utils/pmr/map.hpp"
+#include "utils/pmr/string.hpp"
 
 namespace memgraph::query {
 
@@ -29,43 +30,67 @@ inline storage::Gid NextVirtualEdgeGid() {
 
 class VirtualEdge final {
  public:
-  VirtualEdge(VirtualNode from, VirtualNode to, std::string edge_type_name)
-      : from_(std::move(from)),
-        to_(std::move(to)),
-        edge_type_name_(std::move(edge_type_name)),
-        gid_(NextVirtualEdgeGid()) {}
+  using allocator_type = utils::Allocator<VirtualEdge>;
+  using property_map = utils::pmr::map<storage::PropertyId, storage::PropertyValue>;
 
-  auto From() const -> const VirtualNode & { return from_; }
+  VirtualEdge(VirtualNode from, VirtualNode to, utils::pmr::string edge_type_name, allocator_type alloc = {})
+      : from_(std::move(from), alloc),
+        to_(std::move(to), alloc),
+        edge_type_name_(std::move(edge_type_name), alloc),
+        gid_(NextVirtualEdgeGid()),
+        properties_(alloc) {}
 
-  auto To() const -> const VirtualNode & { return to_; }
+  VirtualEdge(const VirtualEdge &other, allocator_type alloc)
+      : from_(other.from_, alloc),
+        to_(other.to_, alloc),
+        edge_type_name_(other.edge_type_name_, alloc),
+        gid_(other.gid_),
+        properties_(other.properties_, alloc) {}
+
+  VirtualEdge(VirtualEdge &&other, allocator_type alloc)
+      : from_(std::move(other.from_), alloc),
+        to_(std::move(other.to_), alloc),
+        edge_type_name_(std::move(other.edge_type_name_), alloc),
+        gid_(other.gid_),
+        properties_(std::move(other.properties_), alloc) {}
+
+  VirtualEdge(const VirtualEdge &other) : VirtualEdge(other, other.edge_type_name_.get_allocator()) {}
+
+  VirtualEdge(VirtualEdge &&) noexcept = default;
+
+  VirtualEdge &operator=(const VirtualEdge &) = default;
+  VirtualEdge &operator=(VirtualEdge &&) noexcept = default;
+  ~VirtualEdge() = default;
+
+  auto From() const noexcept -> const VirtualNode & { return from_; }
+
+  auto To() const noexcept -> const VirtualNode & { return to_; }
 
   auto FromGid() const noexcept -> storage::Gid { return from_.Gid(); }
 
   auto ToGid() const noexcept -> storage::Gid { return to_.Gid(); }
 
-  auto EdgeTypeName() const -> const std::string & { return edge_type_name_; }
+  auto EdgeTypeName() const noexcept -> const utils::pmr::string & { return edge_type_name_; }
 
   auto Gid() const noexcept -> storage::Gid { return gid_; }
 
   auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
-    if (auto it = properties_.find(key); it != properties_.end()) {
-      return it->second;
-    }
+    if (const auto it = properties_.find(key); it != properties_.end()) return it->second;
     return storage::PropertyValue{};
   }
 
   void SetProperty(storage::PropertyId key, const storage::PropertyValue &value) { properties_[key] = value; }
 
-  auto Properties() const -> const std::map<storage::PropertyId, storage::PropertyValue> & { return properties_; }
+  auto Properties() const noexcept -> const property_map & { return properties_; }
 
   bool operator==(const VirtualEdge &other) const noexcept { return gid_ == other.gid_; }
 
  private:
   VirtualNode from_;
   VirtualNode to_;
-  std::string edge_type_name_;
+  utils::pmr::string edge_type_name_;
   storage::Gid gid_;
-  std::map<storage::PropertyId, storage::PropertyValue> properties_;
+  property_map properties_;
 };
 
 }  // namespace memgraph::query
@@ -73,7 +98,7 @@ class VirtualEdge final {
 namespace std {
 template <>
 struct hash<memgraph::query::VirtualEdge> {
-  size_t operator()(const memgraph::query::VirtualEdge &e) const {
+  size_t operator()(const memgraph::query::VirtualEdge &e) const noexcept {
     return std::hash<memgraph::storage::Gid>{}(e.Gid());
   }
 };

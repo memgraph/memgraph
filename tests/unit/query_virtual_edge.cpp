@@ -146,7 +146,8 @@ TEST_F(VirtualEdgeTest, InsertOrUpdateDropsStaleSyntheticGid) {
 
   EXPECT_EQ(store.FindBySyntheticGid(stale_synth), nullptr);
   ASSERT_NE(store.FindBySyntheticGid(fresh_synth), nullptr);
-  EXPECT_EQ(store.FindBySyntheticGid(fresh_synth)->Labels(), std::vector<std::string>{"B"});
+  ASSERT_EQ(store.FindBySyntheticGid(fresh_synth)->Labels().size(), 1);
+  EXPECT_EQ(store.FindBySyntheticGid(fresh_synth)->Labels()[0], "B");
 }
 
 TEST_F(VirtualEdgeTest, MergeFromPreservesCanonicalAndAliasesOtherSynth) {
@@ -167,7 +168,8 @@ TEST_F(VirtualEdgeTest, MergeFromPreservesCanonicalAndAliasesOtherSynth) {
   const auto *canonical = main_store.Find(shared_gid);
   ASSERT_NE(canonical, nullptr);
   EXPECT_EQ(canonical->Gid(), main_synth);
-  EXPECT_EQ(canonical->Labels(), std::vector<std::string>{"main"});
+  ASSERT_EQ(canonical->Labels().size(), 1);
+  EXPECT_EQ(canonical->Labels()[0], "main");
   EXPECT_EQ(main_store.FindBySyntheticGid(main_synth), canonical);
   EXPECT_EQ(main_store.FindBySyntheticGid(other_synth), canonical);
   ASSERT_NE(main_store.FindBySyntheticGid(other_only_synth), nullptr);
