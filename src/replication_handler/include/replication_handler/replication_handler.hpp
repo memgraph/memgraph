@@ -148,7 +148,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   explicit ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
                               memgraph::dbms::DbmsHandler &dbms_handler, memgraph::system::System &system,
                               memgraph::auth::SynchedAuth &auth, memgraph::parameters::Parameters &parameters,
-                              bool suppress_durability_warning);
+                              bool suppress_durability_warning = false);
 #else
   explicit ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
                               memgraph::dbms::DbmsHandler &dbms_handler, memgraph::system::System &system,

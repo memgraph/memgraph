@@ -187,8 +187,7 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
 #ifdef MG_ENTERPRISE
 ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
                                        dbms::DbmsHandler &dbms_handler, system::System &system, auth::SynchedAuth &auth,
-                                       parameters::Parameters &parameters,
-                                       bool const suppress_durability_warning = false)
+                                       parameters::Parameters &parameters, bool const suppress_durability_warning)
     : repl_state_{repl_state}, dbms_handler_{dbms_handler}, system_{system}, auth_{auth}, parameters_{parameters} {
 #else
 ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
