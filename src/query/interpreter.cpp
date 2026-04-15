@@ -1312,12 +1312,31 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::DENY_PRIVILEGE:
       forbid_on_replica();
-      callback.fn = [auth, user_or_role, privileges, interpreter = &interpreter] {
+      callback.fn = [auth,
+                     user_or_role,
+                     privileges,
+                     interpreter = &interpreter
+#ifdef MG_ENTERPRISE
+                     ,
+                     label_privileges,
+                     label_matching_modes,
+                     edge_type_privileges
+#endif
+      ] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 
-        auth->DenyPrivilege(user_or_role, privileges, &*interpreter->system_transaction_);
+        auth->DenyPrivilege(user_or_role,
+                            privileges
+#ifdef MG_ENTERPRISE
+                            ,
+                            label_privileges,
+                            label_matching_modes,
+                            edge_type_privileges
+#endif
+                            ,
+                            &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -2959,9 +2978,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
     // Create only if an explicit user is defined
     auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
     DMG_ASSERT(auth_checker, "Auth checker should not be null");
-    // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
+    // if the user has unrestricted access to all labels and edge types, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control
-    if (!auth_checker->HasAllGlobalPrivilegesOnVertices() || !auth_checker->HasAllGlobalPrivilegesOnEdges()) {
+    if (!auth_checker->HasUnrestrictedAccessToVertices() || !auth_checker->HasUnrestrictedAccessToEdges()) {
       ctx_.auth_checker = std::move(auth_checker);
     }
   }
@@ -7744,8 +7763,8 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           interpreter_context->auth_checker && has_user_or_role && db_acc) {
         auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, &*db_acc);
         DMG_ASSERT(auth_checker, "Auth checker should not be null");
-        // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
-        if (auth_checker->HasAllGlobalPrivilegesOnVertices() && auth_checker->HasAllGlobalPrivilegesOnEdges()) {
+        // if the user has unrestricted access to all labels and edge types, we don't need to perform authorization
+        if (auth_checker->HasUnrestrictedAccessToVertices() && auth_checker->HasUnrestrictedAccessToEdges()) {
           auth_checker = nullptr;
         }
       }
