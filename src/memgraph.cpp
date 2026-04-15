@@ -566,10 +566,10 @@ int main(int argc, char **argv) {
     }
     if (!FLAGS_init_data_file.empty()) {
       LOG_FATAL(
-          "Coordinator instances don't support --init-data_file flag. Please restart the instance by removing this "
+          "Coordinator instances don't support --init-data-file flag. Please restart the instance by removing this "
           "flag.");
     }
-
+    spdlog::trace("Disbling snapshot wal mode");
     // No snapshots and no WAL files are allowed on coordinators
     db_config.durability.snapshot_wal_mode = DISABLED;
   }
@@ -733,16 +733,15 @@ int main(int argc, char **argv) {
     });
   });
 
-  // Note: Now that all system's subsystems are initialised (dbms & auth)
-  //       We can now initialise the recovery of replication (which will include those subsystems)
-  //       ReplicationHandler will handle the recovery
-  auto replication_handler = memgraph::replication::ReplicationHandler{repl_state,
-                                                                       dbms_handler,
-                                                                       system,
+// Note: Now that all system's subsystems are initialised (dbms & auth)
+//       We can now initialise the recovery of replication (which will include those subsystems)
+//       ReplicationHandler will handle the recovery
 #ifdef MG_ENTERPRISE
-                                                                       *auth_,
+  auto replication_handler = memgraph::replication::ReplicationHandler{
+      repl_state, dbms_handler, system, *auth_, *parameters, is_valid_coordinator_instance};
+#else
+  auto replication_handler = memgraph::replication::ReplicationHandler{repl_state, dbms_handler, system, *parameters};
 #endif
-                                                                       *parameters};
 
   auto db_acc = dbms_handler.Get();
 

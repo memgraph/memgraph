@@ -11,6 +11,7 @@
 
 import os
 import sys
+import time
 from functools import partial
 
 import interactive_mg_runner
@@ -229,7 +230,7 @@ def cleanup_after_test():
 
 
 def test_snapshots_on_coords(test_name):
-    # Set that snapshots are getting created every 3s
+    # Set that snapshots are getting created every second
     instances_description = get_instances_description_no_setup_snapshot_recovery(
         test_name=test_name, snapshot_interval_sec="1"
     )
@@ -238,6 +239,8 @@ def test_snapshots_on_coords(test_name):
     build_dir = os.path.join(interactive_mg_runner.PROJECT_DIR, "build", "e2e", "data")
     data_dir_coord_1 = f"{build_dir}/{get_data_path(file, test_name)}/coordinator_1"
     snapshot_dir_coord_1 = f"{data_dir_coord_1}/snapshots"
+
+    time.sleep(3)
 
     assert count_files(snapshot_dir_coord_1) == 0
 

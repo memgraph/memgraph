@@ -74,7 +74,7 @@ struct Config {
   } gc;  // SYSTEM FLAG
 
   struct Durability {
-    enum class SnapshotWalMode { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
+    enum class SnapshotWalMode : uint8_t { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
 
     std::filesystem::path storage_directory{"storage"};    // PER INSTANCE SYSTEM FLAG-> root folder...ish
     std::filesystem::path root_data_directory{"storage"};  // ROOT DATA DIR for instance not for DB
