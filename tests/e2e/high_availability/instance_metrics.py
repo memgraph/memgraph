@@ -140,10 +140,10 @@ def test_instance_metrics_present(test_name):
 
     metrics = scrape_metrics()
     for instance in INSTANCES:
-        assert f'memgraph_instance_up{{instance="{instance}"}}' in metrics
-        assert f'memgraph_instance_is_main{{instance="{instance}"}}' in metrics
-        assert f'memgraph_instance_is_leader{{instance="{instance}"}}' in metrics
-        assert f'memgraph_instance_last_response_ms{{instance="{instance}"}}' in metrics
+        assert f'memgraph_instance_up{{mg_instance="{instance}"}}' in metrics
+        assert f'memgraph_instance_is_main{{mg_instance="{instance}"}}' in metrics
+        assert f'memgraph_instance_is_leader{{mg_instance="{instance}"}}' in metrics
+        assert f'memgraph_instance_last_response_ms{{mg_instance="{instance}"}}' in metrics
 
 
 if __name__ == "__main__":
