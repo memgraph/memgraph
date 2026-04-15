@@ -65,6 +65,9 @@
   MATCH (n)-[e]->(m) RETURN count(e) as c;
   ")
 
+(dbclient/defquery get-replication-lag
+  "SHOW REPLICATION LAG;")
+
 (dbclient/defquery get-all-instances
   "SHOW INSTANCES;")
 
@@ -116,10 +119,9 @@
   (dbclient/create-query
    (let [maybe-suffix
          (cond
-            (= "async" (:replica-type node-config)) " AS ASYNC"
-            (= "strict_sync" (:replica-type node-config)) " AS STRICT_SYNC"
-            :else ""
-         )
+           (= "async" (:replica-type node-config)) " AS ASYNC"
+           (= "strict_sync" (:replica-type node-config)) " AS STRICT_SYNC"
+           :else "")
 
          query
          (str "REGISTER INSTANCE "

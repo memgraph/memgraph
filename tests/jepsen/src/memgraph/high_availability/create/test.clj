@@ -327,7 +327,7 @@
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not coordinator instance."))
 
-; Show instances should be run only on coordinators/
+; SHOW INSTANCES should be run only on coordinators
         :show-instances-read (if (hautils/coord-instance? node)
                                (try
                                  #_{:clj-kondo/ignore [:unresolved-symbol]}
@@ -343,6 +343,22 @@
                                    (assoc op :type :fail :value (str e))))
 
                                (assoc op :type :info :value "Not coordinator"))
+      ; SHOW REPLICATION LAG should only be run on coordinators
+        :show-replication-lag (if (hautils/coord-instance? node)
+                                (try
+                                  #_{:clj-kondo/ignore [:unresolved-symbol]}
+                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
+                                    (let [instances (reduce conj [] #_{:clj-kondo/ignore [:unresolved-var]}
+                                                            (mgquery/get-replication-lag session))]
+                                      (assoc op
+                                             :type :ok
+                                             :value {:instances instances :node node :time (utils/current-local-time-formatted)})))
+                                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                                    (utils/process-service-unavailable-exc op node))
+                                  (catch Exception e
+                                    (assoc op :type :fail :value (str e))))
+
+                                (assoc op :type :info :value "Not coordinator"))
         :setup-cluster
         ; If nothing was done before, registration will be done on the 1st leader and all good.
         ; If leader didn't change but registration was done, we won't even try to register -> all good again.
@@ -480,6 +496,30 @@
                                        (filter #(= :show-instances-read (:f %)))
                                        (map :value))
 
+            failed-show-replication-lag (->> history
+                                             (filter #(= :fail (:type %)))
+                                             (filter #(= :show-replication-lag (:f %)))
+                                             (map :value))
+
+            ok-replication-lag-reads (->> history
+                                         (filter #(= :ok (:type %)))
+                                         (filter #(= :show-replication-lag (:f %)))
+                                         (map :value))
+
+            negative-lag-violations (->> ok-replication-lag-reads
+                                         (mapcat (fn [{:keys [instances node time]}]
+                                                   (for [inst instances
+                                                         :let [data-info (:data_info inst)
+                                                               inst-name (:instance_name inst)]
+                                                         [db-name db-data] data-info
+                                                         :let [behind (get db-data "num_txns_behind_main")]
+                                                         :when (and (some? behind) (neg? behind))]
+                                                     {:instance-name inst-name
+                                                      :database db-name
+                                                      :num-txns-behind-main behind
+                                                      :node node
+                                                      :time time}))))
+
             failed-add-nodes (->> history
                                   (filter #(= :fail (:type %)))
                                   (filter #(= :add-nodes (:f %)))
@@ -521,6 +561,8 @@
                                      (empty? partial-instances)
                                      (empty? failed-setup-cluster)
                                      (empty? failed-show-instances)
+                                     (empty? failed-show-replication-lag)
+                                     (empty? negative-lag-violations)
                                      (empty? failed-add-nodes)
                                      (empty? failed-get-nodes)
                                      (empty? n1-duplicates)
@@ -548,6 +590,8 @@
                             :empty-n3-missing-intervals? (empty? n3-missing-intervals)
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
+                            :empty-failed-show-replication-lag? (empty? failed-show-replication-lag) ; There shouldn't be any failed show replication lag operatons
+                            :empty-negative-lag-violations? (empty? negative-lag-violations) ; num_txns_behind_main should never be negative
                             :empty-failed-add-nodes? (empty? failed-add-nodes) ; There shouldn't be any failed add-nodes operations.
                             :empty-failed-get-nodes? (empty? failed-get-nodes) ; There shouldn't be any failed get-nodes operations.
                             :empty-partial-instances? (empty? partial-instances)}
@@ -563,7 +607,9 @@
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-add-nodes :condition (not (:empty-failed-add-nodes? initial-result)) :value failed-add-nodes}
                      {:key :failed-get-nodes :condition (not (:empty-failed-get-nodes? initial-result)) :value failed-get-nodes}
-                     {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}]]
+                     {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}
+                     {:key :failed-show-replication-lag :condition (not (:empty-failed-show-replication-lag? initial-result)) :value failed-show-replication-lag}
+                     {:key :negative-lag-violations :condition (not (:empty-negative-lag-violations? initial-result)) :value negative-lag-violations}]]
 
         (reduce (fn [result update]
                   (if (:condition update)
@@ -581,6 +627,11 @@
   "Invoke show-instances-read op."
   [_ _]
   {:type :invoke, :f :show-instances-read, :value nil})
+
+(defn show-replication-lag
+  "Invoke show-replication-lag op."
+  [_ _]
+  {:type :invoke, :f :show-replication-lag, :value nil})
 
 (defn setup-cluster
   "Invoke setup-cluster operation."
@@ -606,7 +657,7 @@
     (gen/sleep 5)
     (gen/once create-unique-constraint)
     (gen/delay delay-requests-sec
-               (gen/mix [show-instances-reads add-nodes])))))
+               (gen/mix [show-instances-reads show-replication-lag add-nodes])))))
 
 #_{:clojure-lsp/ignore [:clojure-lsp/unused-public-var]}
 (defn workload

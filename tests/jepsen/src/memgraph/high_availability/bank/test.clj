@@ -148,7 +148,21 @@
     (let [bolt-conn (:bolt-conn this)
           node (:node this)]
       (case (:f op)
-      ; Show instances should be run only on coordinator.
+      ; SHOW REPLICATION LAG should be run only on coordinator.
+        :show-replication-lag (if (hautils/coord-instance? node)
+                                (try
+                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
+                                    (let [instances (->> (mgquery/get-replication-lag session) (reduce conj []))]
+                                      (assoc op
+                                             :type :ok
+                                             :value {:instances instances :node node})))
+                                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                                    (utils/process-service-unavailable-exc op node))
+                                  (catch Exception e
+                                    (assoc op :type :fail :value (str e))))
+                                (assoc op :type :info :value "Not coordinator"))
+
+      ; SHOW INSTANCES should be run only on coordinator.
         :show-instances-read (if (hautils/coord-instance? node)
                                (try
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
@@ -334,6 +348,12 @@
                                        (filter #(= :fail (:type %)))
                                        (filter #(= :show-instances-read (:f %)))
                                        (map :value))
+
+            failed-show-replication-lag (->> history
+                                             (filter #(= :fail (:type %)))
+                                             (filter #(= :show-replication-lag (:f %)))
+                                             (map :value))
+
             failed-read-balances (->> history
                                       (filter #(= :fail (:type %)))
                                       (filter #(= :read-balances (:f %)))
@@ -405,6 +425,7 @@
                                          (empty? failed-setup-cluster)
                                          (empty? failed-initialize-data)
                                          (empty? failed-show-instances)
+                                         (empty? failed-show-replication-lag)
                                          (empty? failed-read-balances))
                             :empty-si-nodes? (empty? empty-si-nodes) ; nodes which have all reads empty
                             :empty-coords-missing-reads? (empty? coords-missing-reads) ; coordinators which have missing coordinators in their reads
@@ -416,6 +437,7 @@
                             :ok-initialize-data-once? (= (count ok-initialize-data) 1)
                             :empty-failed-initialize-data? (empty? failed-initialize-data)
                             :empty-failed-show-instances? (empty? failed-show-instances)
+                            :empty-failed-show-replication-lag? (empty? failed-show-replication-lag)
                             :empty-failed-read-balances? (empty? failed-read-balances)
                             :full-si-reads-exist? (boolean (not-empty full-si-reads))
                             :empty-data-nodes? (empty? empty-data-nodes)}
@@ -426,6 +448,7 @@
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-initialize-data :condition (not (:empty-failed-initialize-data? initial-result)) :value failed-initialize-data}
                      {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}
+                     {:key :failed-show-replication-lag :condition (not (:empty-failed-show-replication-lag? initial-result)) :value failed-show-replication-lag}
                      {:key :failed-read-balances :condition (not (:empty-failed-read-balances? initial-result)) :value failed-read-balances}
                      {:key :correct-data-reads-on-nodes :condition (not (:correct-data-reads-exist-on-all-nodes? initial-result)) :value correct-data-reads}
                      {:key :num-ok-initialize-data :condition (not (:ok-initialize-data-once? initial-result)) :value (count ok-initialize-data)}]]
@@ -441,6 +464,11 @@
   "Create read action."
   [_ _]
   {:type :invoke, :f :show-instances-read, :value nil})
+
+(defn show-replication-lag
+  "Create read action."
+  [_ _]
+  {:type :invoke, :f :show-replication-lag, :value nil})
 
 (defn setup-cluster
   "Setup cluster operation."
@@ -468,7 +496,7 @@
     (gen/once initialize-data)
     (gen/sleep 5)
     (gen/delay 3
-               (gen/mix [show-instances-reads read-balances valid-transfer])))))
+               (gen/mix [show-instances-reads show-replication-lag read-balances valid-transfer])))))
 
 (defn workload
   "Basic HA workload."
