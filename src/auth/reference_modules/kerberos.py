@@ -51,6 +51,15 @@ def _load_config_from_env():
     config["ldap_group_membership_attribute"] = os.environ.get(
         "MEMGRAPH_SSO_KERBEROS_LDAP_GROUP_MEMBERSHIP_ATTRIBUTE", "memberOf"
     )
+    # Nested groups: when enabled, transitively resolves group membership.
+    # Default search filter uses AD's LDAP_MATCHING_RULE_IN_CHAIN (1.2.840.113556.1.4.1941).
+    config["ldap_nested_groups_enabled"] = (
+        os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_NESTED_GROUPS_ENABLED", "false").lower() == "true"
+    )
+    config["ldap_nested_groups_search_filter"] = os.environ.get(
+        "MEMGRAPH_SSO_KERBEROS_LDAP_NESTED_GROUPS_SEARCH_FILTER",
+        "(&(objectClass=group)(member:1.2.840.113556.1.4.1941:={user_dn}))",
+    )
     return config
 
 
@@ -106,19 +115,31 @@ def _resolve_roles_ldap(client_principal: str, role_mapping: dict, config: dict)
         if not conn.entries:
             return {"error": f"User {principal_name} not found in LDAP under {search_base}"}
 
-        group_entry = conn.entries[0][group_attr] if group_attr in conn.entries[0] else None
-        member_of = group_entry.values if group_entry else []
+        if config["ldap_nested_groups_enabled"]:
+            user_dn = conn.entries[0].entry_dn
+            nested_filter = config["ldap_nested_groups_search_filter"].replace(
+                "{user_dn}", ldap3.utils.conv.escape_filter_chars(user_dn)
+            )
+            conn.search(base_dn, nested_filter, attributes=["cn"])
+            user_groups = {entry.cn.value for entry in conn.entries if entry.cn}
+            member_of = []
+        else:
+            group_entry = conn.entries[0][group_attr] if group_attr in conn.entries[0] else None
+            member_of = group_entry.values if group_entry else []
+            user_groups = None
         conn.unbind()
     except Exception as e:
         return {"error": f"LDAP query failed: {str(e)}"}
 
-    # Extract CN from group DNs: "CN=mg-admins,OU=Groups,DC=corp,DC=com" → "mg-admins"
-    user_groups = set()
-    for group_dn in member_of:
-        for rdn in group_dn.split(","):
-            if rdn.strip().upper().startswith("CN="):
-                user_groups.add(rdn.strip()[3:])
-                break
+    # If nested groups path didn't already populate user_groups, parse from memberOf DNs
+    if user_groups is None:
+        # Extract CN from group DNs: "CN=mg-admins,OU=Groups,DC=corp,DC=com" → "mg-admins"
+        user_groups = set()
+        for group_dn in member_of:
+            for rdn in group_dn.split(","):
+                if rdn.strip().upper().startswith("CN="):
+                    user_groups.add(rdn.strip()[3:])
+                    break
 
     # Match groups against role mapping
     roles = []
