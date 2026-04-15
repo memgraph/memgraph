@@ -27,6 +27,7 @@
 #include "query/frontend/ast/query/auth_query.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_graph.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
@@ -667,12 +668,14 @@ struct mgp_vertex {
 
   mgp_vertex(const mgp_vertex &other, allocator_type alloc) : alloc(alloc), impl(other.impl), graph(other.graph) {}
 
-  mgp_vertex(mgp_vertex &&other, allocator_type alloc) : alloc(alloc), impl(other.impl), graph(other.graph) {}
+  mgp_vertex(mgp_vertex &&other, allocator_type alloc)
+      : alloc(alloc), impl(std::move(other.impl)), graph(other.graph) {}
 
   // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
-  mgp_vertex(mgp_vertex &&other) : alloc(other.alloc), impl(other.impl), graph(other.graph) {}
+  mgp_vertex(mgp_vertex &&other) : alloc(other.alloc), impl(std::move(other.impl)), graph(other.graph) {}
 
   memgraph::query::VertexAccessor getImpl() const {
+    DMG_ASSERT(!IsVirtualNode(), "getImpl() is not available for VirtualNode");
     const auto &real = std::get<RealVertexImpl>(impl);
     return std::visit(
         memgraph::utils::Overloaded{[](const memgraph::query::VertexAccessor &va) { return va; },
@@ -689,11 +692,13 @@ struct mgp_vertex {
   // visit only the two real-vertex alternatives; caller must guard IsVirtualNode() first
   template <typename F>
   auto VisitReal(F &&fn) const {
+    DMG_ASSERT(!IsVirtualNode(), "VisitReal called on VirtualNode");
     return std::visit(std::forward<F>(fn), std::get<RealVertexImpl>(impl));
   }
 
   template <typename F>
   auto VisitReal(F &&fn) {
+    DMG_ASSERT(!IsVirtualNode(), "VisitReal called on VirtualNode");
     return std::visit(std::forward<F>(fn), std::get<RealVertexImpl>(impl));
   }
 

@@ -21,13 +21,16 @@ class VirtualNodeStore {
  public:
   using allocator_type = utils::Allocator<VirtualNodeStore>;
 
-  explicit VirtualNodeStore(allocator_type alloc) : nodes_(alloc) {}
+  explicit VirtualNodeStore(allocator_type alloc) : nodes_(alloc), synthetic_to_original_(alloc) {}
 
-  VirtualNodeStore(const VirtualNodeStore &other, allocator_type alloc) : nodes_(other.nodes_, alloc) {}
+  VirtualNodeStore(const VirtualNodeStore &other, allocator_type alloc)
+      : nodes_(other.nodes_, alloc), synthetic_to_original_(other.synthetic_to_original_, alloc) {}
 
   VirtualNodeStore(VirtualNodeStore &&other) noexcept = default;
 
-  VirtualNodeStore(VirtualNodeStore &&other, allocator_type alloc) : nodes_(std::move(other.nodes_), alloc) {}
+  VirtualNodeStore(VirtualNodeStore &&other, allocator_type alloc)
+      : nodes_(std::move(other.nodes_), alloc),
+        synthetic_to_original_(std::move(other.synthetic_to_original_), alloc) {}
 
   VirtualNodeStore(const VirtualNodeStore &other) : VirtualNodeStore(other, other.nodes_.get_allocator()) {}
 
@@ -57,7 +60,7 @@ class VirtualNodeStore {
   // keyed by original Gid for dedup
   utils::pmr::unordered_map<storage::Gid, VirtualNode> nodes_;
   // secondary index: synthetic Gid → original Gid (for O(1) lookup by synthetic id)
-  std::unordered_map<storage::Gid, storage::Gid> synthetic_to_original_;
+  utils::pmr::unordered_map<storage::Gid, storage::Gid> synthetic_to_original_;
 };
 
 }  // namespace memgraph::query
