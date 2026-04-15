@@ -93,7 +93,7 @@ def _resolve_roles_ldap(client_principal: str, role_mapping: dict, config: dict)
     search_base = config["ldap_search_base"] or base_dn
 
     try:
-        server = ldap3.Server(ldap_uri, get_info=ldap3.ALL)
+        server = ldap3.Server(ldap_uri, get_info=ldap3.NONE)
         if config["ldap_auth"] == "simple":
             conn = ldap3.Connection(server, user=config["ldap_bind_dn"], password=config["ldap_bind_password"])
         else:
@@ -153,7 +153,7 @@ def _resolve_roles_ldap(client_principal: str, role_mapping: dict, config: dict)
         if mapping_key in user_groups or mapping_key == "*":
             roles.extend(mg_roles)
 
-    return {"roles": roles}
+    return {"roles": roles, "user_groups": sorted(user_groups)}
 
 
 def authenticate(response: str, scheme: str):
@@ -228,10 +228,15 @@ def authenticate(response: str, scheme: str):
     roles = resolved["roles"]
 
     if not roles:
-        return {
-            "authenticated": False,
-            "errors": f"Cannot map principal {client_principal} to any Memgraph role",
-        }
+        diagnostic = f"Cannot map principal {client_principal} to any Memgraph role."
+        if "user_groups" in resolved:
+            diagnostic += (
+                f" User's LDAP groups: {resolved['user_groups']}."
+                f" Configured role mapping keys: {sorted(role_mapping.keys())}."
+            )
+        else:
+            diagnostic += f" Configured role mapping keys: {sorted(role_mapping.keys())}."
+        return {"authenticated": False, "errors": diagnostic}
 
     return {
         "authenticated": True,
