@@ -55,3 +55,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["show_metrics/show_metrics_openmetrics_format.py"]
     <<: *show_metrics_openmetrics_format_cluster
+
+  - name: "Show metrics JSON aggregation"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_metrics/show_metrics_json_aggregation.py"]
+    <<: *show_metrics_json_format_cluster
