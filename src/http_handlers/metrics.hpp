@@ -13,7 +13,6 @@
 
 #include <functional>
 #include <string>
-#include <unordered_map>
 #include <variant>
 
 #include <boost/beast/http.hpp>
@@ -25,8 +24,6 @@
 namespace memgraph::http {
 
 // Serves the legacy JSON metrics endpoint. Deprecated in favour of OpenMetrics.
-// HighAvailability counters are emitted as deltas (increments since last poll)
-// to preserve backwards compatibility.
 class MetricsRequestHandler final {
  public:
   explicit MetricsRequestHandler(metrics::PrometheusMetrics *metrics) : metrics_(metrics) {}
@@ -61,7 +58,7 @@ class MetricsRequestHandler final {
 
     metrics_->UpdateGauges();
 
-    auto const metric_infos = metrics_->GetGlobalMetricsInfo();
+    auto const metric_infos = metrics_->GetGlobalMetricsInfoForLegacyJson();
 
     // Translation table for backwards compatibility with the legacy JSON format.
     // A source metric may appear multiple times to emit into multiple JSON groups.
@@ -92,12 +89,7 @@ class MetricsRequestHandler final {
                           std::string_view json_type,
                           std::string_view json_name,
                           metrics::MetricInfo const &info) {
-      bool const is_ha_counter = info.type == "HighAvailability" && info.metric_type == "Counter";
-      if (is_ha_counter) {
-        out[json_type][json_name] = ComputeDelta(info.name, std::get<int64_t>(info.value));
-      } else {
-        std::visit([&](auto v) { out[json_type][json_name] = v; }, info.value);
-      }
+      std::visit([&](auto v) { out[json_type][json_name] = v; }, info.value);
     };
 
     nlohmann::json result;
@@ -127,16 +119,7 @@ class MetricsRequestHandler final {
   }
 
  private:
-  int64_t ComputeDelta(std::string const &name, int64_t current) {
-    auto [it, inserted] = prev_ha_values_.emplace(name, current);
-    if (inserted) return current;
-    int64_t const delta = current - it->second;
-    it->second = current;
-    return delta;
-  }
-
   metrics::PrometheusMetrics *metrics_;
-  std::unordered_map<std::string, int64_t> prev_ha_values_;
 };
 
 }  // namespace memgraph::http

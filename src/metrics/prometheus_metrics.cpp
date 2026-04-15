@@ -14,12 +14,14 @@
 #include <fmt/format.h>
 #include <prometheus/client_metric.h>
 #include <prometheus/detail/builder.h>
+#include <array>
 
 #include <ranges>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
+#include "flags/coord_flag_env_handler.hpp"
 #include "utils/logging.hpp"
 
 namespace r = std::ranges;
@@ -30,6 +32,40 @@ namespace memgraph::metrics {
 namespace {
 
 using prometheus::ClientMetric;
+
+bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
+  static constexpr std::array<std::string_view, 28> kLegacyCoordinatorDeltaMetrics{
+      "SuccessfulFailovers",
+      "RaftFailedFailovers",
+      "NoAliveInstanceFailedFailovers",
+      "BecomeLeaderSuccess",
+      "FailedToBecomeLeader",
+      "ShowInstance",
+      "ShowInstances",
+      "DemoteInstance",
+      "UnregisterReplInstance",
+      "RemoveCoordInstance",
+      "StateCheckRpcFail",
+      "StateCheckRpcSuccess",
+      "UnregisterReplicaRpcFail",
+      "UnregisterReplicaRpcSuccess",
+      "EnableWritingOnMainRpcFail",
+      "EnableWritingOnMainRpcSuccess",
+      "PromoteToMainRpcFail",
+      "PromoteToMainRpcSuccess",
+      "DemoteMainToReplicaRpcFail",
+      "DemoteMainToReplicaRpcSuccess",
+      "RegisterReplicaOnMainRpcFail",
+      "RegisterReplicaOnMainRpcSuccess",
+      "SwapMainUUIDRpcFail",
+      "SwapMainUUIDRpcSuccess",
+      "GetDatabaseHistoriesRpcFail",
+      "GetDatabaseHistoriesRpcSuccess",
+      "UpdateDataInstanceConfigRpcFail",
+      "UpdateDataInstanceConfigRpcSuccess",
+  };
+  return std::ranges::find(kLegacyCoordinatorDeltaMetrics, name) != kLegacyCoordinatorDeltaMetrics.end();
+}
 
 // 16 buckets covering 10µs to 120s
 prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
@@ -1843,6 +1879,34 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
       out, "UpdateDataInstanceConfigRpc", "HighAvailability", *g.update_data_instance_config_rpc_seconds);
   AppendHistogramPercentiles(out, "GetHistories", "HighAvailability", *g.get_histories_seconds);
 
+  return out;
+}
+
+std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForLegacyJson() {
+  auto out = GetGlobalMetricsInfo();
+
+  if (!flags::CoordinationSetupInstance().IsCoordinator()) {
+    return out;
+  }
+
+  std::lock_guard const lock{legacy_json_delta_mutex_};
+  for (auto &info : out) {
+    if (info.type != "HighAvailability" || info.metric_type != "Counter" ||
+        !IsLegacyCoordinatorDeltaMetric(info.name)) {
+      continue;
+    }
+    auto *current = std::get_if<int64_t>(&info.value);
+    if (current == nullptr) continue;
+
+    auto [it, inserted] = legacy_json_prev_ha_counter_values_.emplace(info.name, *current);
+    if (inserted) {
+      continue;
+    }
+
+    int64_t const delta = *current - it->second;
+    it->second = *current;
+    info.value = delta;
+  }
   return out;
 }
 

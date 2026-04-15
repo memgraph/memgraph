@@ -267,6 +267,7 @@ class PrometheusMetrics {
 
   std::expected<std::vector<MetricInfo>, std::string> GetDbMetricsInfo(std::string_view db_name) const;
   std::vector<MetricInfo> GetGlobalMetricsInfo() const;
+  std::vector<MetricInfo> GetGlobalMetricsInfoForLegacyJson();
 
   prometheus::Registry &registry() { return registry_; }
 
@@ -286,6 +287,8 @@ class PrometheusMetrics {
 
   prometheus::Registry registry_;
   mutable std::shared_mutex databases_mutex_;
+  mutable std::mutex legacy_json_delta_mutex_;
+  std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
   mutable std::mutex snapshot_resolver_mutex_;
   StorageSnapshotResolver storage_snapshot_resolver_;
 #ifdef MG_ENTERPRISE
