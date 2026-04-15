@@ -3151,42 +3151,18 @@ mgp_error mgp_edges_iterator_get(mgp_edges_iterator *it, mgp_edge **result) {
 mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
   return WrapExceptions(
       [it] {
-        // virtual-only iteration (source vertex is VirtualNode): no real in/out populated
-        if (!it->in && !it->out) {
-          const bool for_in = !it->virtual_in_.empty();
-          auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
-          auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
-          if (virt.empty() || virt_it == virt.end()) {
-            it->current_e = std::nullopt;
-            return static_cast<mgp_edge *>(nullptr);
-          }
-          ++virt_it;
-          if (virt_it == virt.end()) {
-            it->current_e = std::nullopt;
-            return static_cast<mgp_edge *>(nullptr);
-          }
-          const auto &ve = *virt_it;
-          it->current_e.emplace(ve, it->source_vertex.graph, it->GetMemoryResource());
-          return &*it->current_e;
-        }
-
-        MG_ASSERT(it->in || it->out);
-
-        // Emit the current virtual edge pointed to by virt_it
-        auto emit_virtual = [it](auto for_in) -> mgp_edge * {
+        auto emit_virtual = [it](bool for_in) -> mgp_edge * {
           auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
           auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
           if (virt.empty() || virt_it == virt.end()) {
             it->current_e = std::nullopt;
             return nullptr;
           }
-          const auto &ve = *virt_it;
-          it->current_e.emplace(ve, it->source_vertex.graph, it->GetMemoryResource());
+          it->current_e.emplace(*virt_it, it->source_vertex.graph, it->GetMemoryResource());
           return &*it->current_e;
         };
 
-        // Advance to the next virtual edge, then emit it
-        auto next_virtual = [it, &emit_virtual](auto for_in) -> mgp_edge * {
+        auto next_virtual = [it, &emit_virtual](bool for_in) -> mgp_edge * {
           auto &virt = for_in ? it->virtual_in_ : it->virtual_out_;
           auto &virt_it = for_in ? it->virtual_in_it_ : it->virtual_out_it_;
           if (virt.empty() || virt_it == virt.end()) {
@@ -3197,7 +3173,12 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
           return emit_virtual(for_in);
         };
 
-        auto next = [it, &next_virtual, &emit_virtual](auto for_in) -> mgp_edge * {
+        // source is a VirtualNode: no real edges to walk, advance the virtual span
+        if (!it->in && !it->out) {
+          return next_virtual(!it->virtual_in_.empty());
+        }
+
+        auto next = [it, &next_virtual, &emit_virtual](bool for_in) -> mgp_edge * {
           auto &impl_it = for_in ? it->in_it : it->out_it;
           const auto end = for_in ? it->in->end() : it->out->end();
           if (*impl_it == end) {
@@ -3213,7 +3194,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
 #endif
 
           if (*impl_it == end) {
-            // Just exhausted real edges — emit first virtual edge without advancing
+            // real edges exhausted — emit the first virtual edge without advancing
             return emit_virtual(for_in);
           }
           std::visit(memgraph::utils::Overloaded{
@@ -3235,10 +3216,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
 
           return &*it->current_e;
         };
-        if (it->in_it) {
-          return next(true);
-        }
-        return next(false);
+        return next(it->in_it.has_value());
       },
       result);
 }
