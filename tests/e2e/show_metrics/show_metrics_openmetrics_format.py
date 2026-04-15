@@ -19,6 +19,7 @@ _VALID_LINE_PATTERNS = [
     re.compile(r"^$"),  # empty line
     re.compile(r"^# HELP \w+ .*$"),  # HELP comment
     re.compile(r"^# TYPE \w+ \w+$"),  # TYPE comment
+    re.compile(r"^# EOF$"),  # OpenMetrics trailer
     re.compile(r"^[a-zA-Z_]\S*.* [-+]?[\d.]+(?:e[-+]?\d+)?$"),  # metric line
 ]
 
@@ -26,10 +27,16 @@ _VALID_LINE_PATTERNS = [
 def test_metrics_openmetrics_format_returns_valid_openmetrics():
     # Doesn't validate in any depth, but just check that each line
     # matches what we'd expect from an OpenMetrics endpoint.
-    with urllib.request.urlopen("http://localhost:9091/metrics") as response:
+    req = urllib.request.Request(
+        "http://localhost:9091/metrics",
+        headers={"Accept": "application/openmetrics-text; version=1.0.0; charset=utf-8"},
+    )
+    with urllib.request.urlopen(req) as response:
         assert response.status == 200
+        assert response.headers.get("Content-Type", "").startswith("application/openmetrics-text")
         body = response.read().decode("utf-8")
         assert len(body) > 0
+        assert body.endswith("# EOF\n")
         for line in body.splitlines():
             assert any(p.match(line) for p in _VALID_LINE_PATTERNS), f"Unexpected line: {line}"
 
