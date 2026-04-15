@@ -13,7 +13,10 @@
 
 #include "communication/http/server.hpp"
 #include "http_handlers/prometheus_service.hpp"
-#include "metrics/prometheus_metrics.hpp"
+
+namespace memgraph::metrics {
+class PrometheusMetrics;
+}  // namespace memgraph::metrics
 
 extern template class memgraph::communication::http::Server<memgraph::http::PrometheusRequestHandler,
                                                             memgraph::metrics::PrometheusMetrics>;

@@ -55,6 +55,9 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   };
 
  public:
+  explicit InMemoryEdgeTypeIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
+      : metric_handles_{metric_handles} {}
+
   class Iterable {
    public:
     Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
@@ -224,8 +227,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
    private:
     std::shared_ptr<IndicesContainer const> index_container_;
   };
-
-  InMemoryEdgeTypeIndex() = default;
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type,

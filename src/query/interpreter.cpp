@@ -3398,7 +3398,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         }
 
         if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
-          h->rollbacked_transactions->Increment();
+          h->rolled_back_transactions->Increment();
 
         Abort();
         expect_rollback_ = false;
@@ -7001,37 +7001,43 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
             license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "SHOW METRICS INFO"));
       }
       auto *db_handler = interpreter_context->dbms_handler;
-      std::optional<std::string> target_db;
+      std::optional<utils::UUID> target_uuid;
       switch (info_query->database_specification_) {
         case DatabaseInfoQuery::DatabaseSpecification::NONE:
+          if (current_db.db_acc_) {
+            target_uuid = (*current_db.db_acc_)->uuid();
+          }
           break;
         case DatabaseInfoQuery::DatabaseSpecification::CURRENT:
           if (!current_db.db_acc_) {
             throw QueryRuntimeException("No current database for SHOW METRICS INFO ON CURRENT");
           }
-          target_db = (*current_db.db_acc_)->name();
+          target_uuid = (*current_db.db_acc_)->uuid();
           break;
-        case DatabaseInfoQuery::DatabaseSpecification::DATABASE:
-          target_db = info_query->database_;
+        case DatabaseInfoQuery::DatabaseSpecification::DATABASE: {
+          auto acc = db_handler->Get(info_query->database_);
+          if (!acc) {
+            throw QueryRuntimeException("Database '{}' does not exist.", info_query->database_);
+          }
+          target_uuid = acc->uuid();
           break;
-      }
-      if (target_db) {
-        // Validate the database exists
-        if (!db_handler->Get(*target_db)) {
-          throw QueryRuntimeException("Database '{}' does not exist.", *target_db);
         }
       }
+      bool const include_global_only =
+          info_query->database_specification_ != DatabaseInfoQuery::DatabaseSpecification::DATABASE;
       header = {"name", "type", "metric type", "value"};
-      handler = [target_db = std::move(target_db)] {
+      handler = [target_uuid = std::move(target_uuid), include_global_only] {
         std::vector<metrics::MetricInfo> metric_rows;
-        if (target_db) {
-          auto result = metrics::Metrics().GetDbMetricsInfo(*target_db);
+        if (target_uuid) {
+          auto result = metrics::Metrics().GetDbMetricsInfo(*target_uuid);
           if (!result) {
             throw QueryRuntimeException("{}", result.error());
           }
           metric_rows = std::move(*result);
-        } else {
-          metric_rows = metrics::Metrics().GetGlobalMetricsInfo();
+        }
+        if (include_global_only) {
+          auto const global_only = metrics::Metrics().GetGlobalMetricsInfo();
+          metric_rows.insert(metric_rows.end(), global_only.begin(), global_only.end());
         }
         std::vector<std::vector<TypedValue>> results;
         results.reserve(metric_rows.size());
@@ -9929,8 +9935,6 @@ void Interpreter::Abort() {
     }
   });
 
-  bool decrement = true;
-
   // System tx
   // TODO Implement system transaction scope and the ability to abort
   system_transaction_.reset();
@@ -9942,7 +9946,6 @@ void Interpreter::Abort() {
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
     if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
-      decrement = false;
       // Retry CAS from the current expected value (compare_exchange_weak already updated expected)
       continue;
     }

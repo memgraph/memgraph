@@ -32,9 +32,6 @@ class StorageV2GcMetricsTest : public testing::Test {
 
   void TearDown() override {
     memgraph::metrics::Metrics().SetStorageSnapshotResolver({});
-    if (storage) {
-      storage->SetMetricHandles(nullptr);
-    }
     storage.reset();
     memgraph::metrics::Metrics().RemoveDatabase(handles_);
     handles_ = nullptr;
@@ -43,9 +40,6 @@ class StorageV2GcMetricsTest : public testing::Test {
   void InitStorage(std::chrono::milliseconds interval) {
     if (handles_) {
       memgraph::metrics::Metrics().SetStorageSnapshotResolver({});
-      if (storage) {
-        storage->SetMetricHandles(nullptr);
-      }
       storage.reset();
       memgraph::metrics::Metrics().RemoveDatabase(handles_);
       handles_ = nullptr;
@@ -53,7 +47,9 @@ class StorageV2GcMetricsTest : public testing::Test {
     memgraph::storage::Config config;
     config.salient.name = db_name_;
     config.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = interval};
-    storage = std::make_unique<memgraph::storage::InMemoryStorage>(config);
+    handles_ = memgraph::metrics::Metrics().AddDatabase(memgraph::utils::UUID{}, db_name_);
+    storage = std::make_unique<memgraph::storage::InMemoryStorage>(
+        config, std::nullopt, std::make_unique<memgraph::storage::PlanInvalidatorDefault>(), handles_);
     memgraph::metrics::Metrics().SetStorageSnapshotResolver(
         [this](std::string_view name) -> std::optional<memgraph::metrics::StorageSnapshot> {
           if (name != db_name_ || !storage) return std::nullopt;
@@ -65,8 +61,6 @@ class StorageV2GcMetricsTest : public testing::Test {
               .memory_res = info.memory_res,
           };
         });
-    handles_ = memgraph::metrics::Metrics().AddDatabase(db_name_);
-    storage->SetMetricHandles(handles_);
   }
 
   std::unique_ptr<memgraph::storage::Storage> storage;

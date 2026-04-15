@@ -11,10 +11,10 @@
 #pragma once
 
 #include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "rpc/messages.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/replication/recovery.hpp"
-#include "utils/metrics_timer.hpp"
 
 namespace memgraph::storage {
 template <rpc::IsRpc T>
@@ -70,7 +70,7 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
                                                             std::filesystem::path const &root_data_dir,
                                                             replication_coordination_glue::ReplicationMode const mode,
                                                             Args &&...args) {
-  utils::MetricsTimer const timer{RpcInfo<T>::histogram(metrics::Metrics().global)};
+  metrics::ScopedHistogramTimer const timer{RpcInfo<T>::histogram(metrics::Metrics().global)};
   std::optional<rpc::Client::StreamHandler<T>> maybe_stream_result;
 
   // if ASYNC mode, we shouldn't block on transferring durability files because there could be a commit task which holds

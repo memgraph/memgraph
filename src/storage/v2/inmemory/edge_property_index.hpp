@@ -62,6 +62,9 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   };
 
  public:
+  explicit InMemoryEdgePropertyIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
+      : metric_handles_{metric_handles} {}
+
   struct IndividualIndex {
     explicit IndividualIndex() : skip_list_{} {}
 

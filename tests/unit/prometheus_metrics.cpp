@@ -23,19 +23,16 @@
 
 namespace {
 
-// @TODO: can improve this!
 std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &families, std::string_view name,
                                  std::string_view db_name) {
   for (auto const &family : families) {
     if (family.name != name) continue;
     for (auto const &metric : family.metric) {
-      for (auto const &label : metric.label) {
-        if (label.name == "database" && label.value == db_name) {
-          if (!metric.gauge.value && !metric.counter.value) return std::nullopt;
-          if (metric.gauge.value) return metric.gauge.value;
-          return metric.counter.value;
-        }
-      }
+      auto const has_db_label =
+          std::ranges::any_of(metric.label, [&](auto const &l) { return l.name == "database" && l.value == db_name; });
+      if (!has_db_label) continue;
+      if (family.type == prometheus::MetricType::Gauge) return metric.gauge.value;
+      if (family.type == prometheus::MetricType::Counter) return metric.counter.value;
     }
   }
   return std::nullopt;
@@ -45,7 +42,7 @@ std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &fa
 
 TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
   memgraph::metrics::PrometheusMetrics pm;
-  auto *handles = pm.AddDatabase("db1");
+  auto *handles = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
 
   ASSERT_NE(handles->vertex_count, nullptr);
   ASSERT_NE(handles->committed_transactions, nullptr);
@@ -60,8 +57,8 @@ TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
 
 TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
   memgraph::metrics::PrometheusMetrics pm;
-  auto *h1 = pm.AddDatabase("db1");
-  auto *h2 = pm.AddDatabase("db2");
+  auto *h1 = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
+  auto *h2 = pm.AddDatabase(memgraph::utils::UUID{}, "db2");
 
   h1->vertex_count->Set(10.0);
   h2->vertex_count->Set(20.0);
@@ -80,7 +77,7 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
         if (name == "db1") return snapshot;
         return std::nullopt;
       });
-  pm.AddDatabase("db1");
+  pm.AddDatabase(memgraph::utils::UUID{}, "db1");
 
   pm.UpdateGauges();
 
@@ -93,7 +90,7 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
 
 TEST(PrometheusMetrics, RemoveDatabaseRemovesMetrics) {
   memgraph::metrics::PrometheusMetrics pm;
-  auto *handles = pm.AddDatabase("db1");
+  auto *handles = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
   handles->vertex_count->Set(99.0);
 
   pm.RemoveDatabase(handles);

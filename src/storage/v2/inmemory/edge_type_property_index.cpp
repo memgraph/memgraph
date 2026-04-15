@@ -211,8 +211,6 @@ void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_tim
   gauge_ = metrics::ScopedGauge{gauge};
 }
 
-InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() = default;
-
 bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property,
                                                        utils::SkipListDb<Vertex>::Accessor vertices,
                                                        ActiveIndicesUpdater const &updater,

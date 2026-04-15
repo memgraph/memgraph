@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include <algorithm>
-#include <cctype>
 #include <functional>
 #include <sstream>
 #include <string>
@@ -65,12 +63,8 @@ class PrometheusRequestHandler final {
     serializer.Serialize(oss, metrics_->registry().Collect());
 
     auto body = oss.str();
-    auto content_type = std::string{"text/plain; version=0.0.4"};
-    if (WantsOpenMetrics(req)) {
-      if (body.empty() || body.back() != '\n') body.push_back('\n');
-      body += "# EOF\n";
-      content_type = "application/openmetrics-text; version=1.0.0; charset=utf-8";
-    }
+    if (body.empty() || body.back() != '\n') body.push_back('\n');
+    body += "# EOF\n";
     auto const size = body.size();
 
     boost::beast::http::response<boost::beast::http::string_body> res{
@@ -78,25 +72,13 @@ class PrometheusRequestHandler final {
         std::make_tuple(std::move(body)),
         std::make_tuple(boost::beast::http::status::ok, req.version())};
     res.set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-    res.set(boost::beast::http::field::content_type, content_type);
+    res.set(boost::beast::http::field::content_type, "application/openmetrics-text; version=1.0.0; charset=utf-8");
     res.content_length(size);
     res.keep_alive(req.keep_alive());
     return send(std::move(res));
   }
 
  private:
-  template <class Body, class Fields>
-  static bool WantsOpenMetrics(boost::beast::http::request<Body, Fields> const &req) {
-    auto const accept_it = req.find(boost::beast::http::field::accept);
-    if (accept_it == req.end()) return false;
-
-    auto accept = std::string{accept_it->value()};
-    std::transform(accept.begin(), accept.end(), accept.begin(), [](unsigned char c) {
-      return static_cast<char>(std::tolower(c));
-    });
-    return accept.find("application/openmetrics-text") != std::string::npos;
-  }
-
   metrics::PrometheusMetrics *metrics_;
 };
 

@@ -145,7 +145,8 @@ inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
  */
 class TTL final {
  public:
-  explicit TTL(Storage *storage_ptr) : storage_ptr_(storage_ptr) {}
+  TTL(Storage *storage_ptr, metrics::DatabaseMetricHandles *metric_handles)
+      : storage_ptr_(storage_ptr), metric_handles_(metric_handles) {}
 
   ~TTL() = default;
 
@@ -233,8 +234,6 @@ class TTL final {
    */
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
 
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) { metric_handles_ = metric_handles; }
-
  private:
   utils::Scheduler ttl_;  //!< background thread
   TtlInfo info_{};        //!< configuration
@@ -308,7 +307,7 @@ class TTL final {
   std::optional<std::chrono::system_clock::time_point> start_time_{};
 
  public:
-  explicit TTL(Storage * /*storage_ptr*/) {}
+  TTL(Storage * /*storage_ptr*/, metrics::DatabaseMetricHandles * /*metric_handles*/) {}
 
   void Shutdown() {}
 
@@ -336,8 +335,6 @@ class TTL final {
                    std::optional<std::chrono::system_clock::time_point> = std::nullopt) {}
 
   void SetUserCheck(std::function<bool()>) {}
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *) {}
 
   bool Restore() { return false; }
 };

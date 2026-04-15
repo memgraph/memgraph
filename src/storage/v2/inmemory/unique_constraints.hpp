@@ -38,6 +38,9 @@ struct Transaction;
 
 class InMemoryUniqueConstraints : public UniqueConstraints {
  public:
+  explicit InMemoryUniqueConstraints(metrics::DatabaseMetricHandles *metric_handles = nullptr)
+      : metric_handles_{metric_handles} {}
+
   struct Entry {
     std::vector<PropertyValue> values;
     const Vertex *vertex;

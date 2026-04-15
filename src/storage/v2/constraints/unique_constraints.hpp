@@ -37,8 +37,6 @@ class UniqueConstraints {
   UniqueConstraints &operator=(UniqueConstraints &&) = delete;
   virtual ~UniqueConstraints() = default;
 
-  virtual void SetMetricHandles(metrics::DatabaseMetricHandles * /*metric_handles*/) {}
-
   using ConstraintValue = std::vector<std::pair<std::vector<PropertyValue>, Vertex const *>>;
 
   /// Information collected during abort processing, organized by constraint for efficient iteration.

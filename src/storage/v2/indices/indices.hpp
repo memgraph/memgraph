@@ -35,13 +35,17 @@ class MemoryTracker;
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(const Config &config, StorageMode storage_mode, utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
+  Indices(const Config &config, StorageMode storage_mode,
+          utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
+          metrics::DatabaseMetricHandles *metric_handles = nullptr);
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;
   Indices &operator=(const Indices &) = delete;
   Indices &operator=(Indices &&) = delete;
   ~Indices() = default;
+
+  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
   /// This function should be called from garbage collection to clean up the
   /// vertex indices.
@@ -54,8 +58,6 @@ struct Indices {
   void RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
 
   void DropGraphClearIndices();
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
   /// Removes vertices from all vector indices. Must be called before
   /// the vertex is removed from the skip list (while the pointer is still valid).

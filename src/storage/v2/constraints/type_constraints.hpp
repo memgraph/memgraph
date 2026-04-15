@@ -40,6 +40,9 @@ namespace memgraph::storage {
 
 class TypeConstraints {
  public:
+  explicit TypeConstraints(metrics::DatabaseMetricHandles *metric_handles = nullptr)
+      : metric_handles_{metric_handles} {}
+
   struct MultipleThreadsConstraintValidation {
     std::optional<ConstraintViolation> operator()(const utils::SkipListDb<Vertex>::Accessor &vertices,
                                                   const LabelId &label, const PropertyId &property);
@@ -117,8 +120,6 @@ class TypeConstraints {
   void RestoreConstraint(LabelId label, PropertyId property, IndividualConstraintPtr evicted);
 
   void DropGraphClearConstraints();
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
   /// Returns constraints for a specific label, used for registration in property store
   auto GetTypeConstraintsForLabel(LabelId label) const -> absl::flat_hash_map<PropertyId, TypeConstraintKind>;

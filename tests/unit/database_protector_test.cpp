@@ -209,6 +209,7 @@ TEST_F(DatabaseProtectorTest, FactoryHandlesNullProtector) {
       config_,
       std::nullopt,
       std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+      nullptr,
       CreateTestFactory(database_dropped));
 
   // Simulate database being dropped
@@ -236,6 +237,7 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerStopsWhenProtectorReturnsNull) {
       config_,
       std::nullopt,
       std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+      nullptr,
       notifier.CreateNotifyingFactory());
 
   // Create vertices with labels to trigger auto index creation
@@ -284,6 +286,7 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerCompletesBeforeShutdown) {
       config_,
       std::nullopt,
       std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+      nullptr,
       notifier.CreateNotifyingFactory());
 
   // Create vertices with a label to trigger auto index creation

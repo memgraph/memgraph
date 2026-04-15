@@ -30,9 +30,9 @@
 #include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
-#include "utils/metrics_timer.hpp"
 
 namespace {
 constexpr auto timeout_ms = std::chrono::milliseconds(5000);
@@ -88,7 +88,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
 
   try {
     for (const auto &it : AddrInfo{endpoint}) {
-      utils::MetricsTimer const timer{metrics::Metrics().global.socket_connect_seconds};
+      metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.socket_connect_seconds};
 
       int const sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
       if (sfd == -1) {
