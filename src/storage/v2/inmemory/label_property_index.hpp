@@ -159,6 +159,13 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   using AscAllIndicesEntry = BasicAllIndicesEntry<Entry>;
   using DescAllIndicesEntry = BasicAllIndicesEntry<DescEntry>;
 
+  struct AllIndicesData {
+    std::shared_ptr<std::vector<AscAllIndicesEntry> const> asc{
+        std::make_shared<std::vector<AscAllIndicesEntry> const>()};
+    std::shared_ptr<std::vector<DescAllIndicesEntry> const> desc{
+        std::make_shared<std::vector<DescAllIndicesEntry> const>()};
+  };
+
   using PropertiesIndicesStats = std::map<PropertiesPaths, storage::LabelPropertyIndexStats, Compare>;
 
   // Convience function that does Register + Populate + direct Publish
@@ -420,18 +427,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
       -> std::shared_ptr<IndividualIndex<EntryT>>;
 
-  template <typename Fn>
-  void ForEachAllIndices(Fn &&fn) {
-    fn(asc_all_indices_);
-    fn(desc_all_indices_);
-  }
-
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};
-  utils::Synchronized<std::shared_ptr<std::vector<AscAllIndicesEntry> const>, utils::WritePrioritizedRWLock>
-      asc_all_indices_{std::make_shared<std::vector<AscAllIndicesEntry> const>()};
-  utils::Synchronized<std::shared_ptr<std::vector<DescAllIndicesEntry> const>, utils::WritePrioritizedRWLock>
-      desc_all_indices_{std::make_shared<std::vector<DescAllIndicesEntry> const>()};
+  utils::Synchronized<AllIndicesData, utils::WritePrioritizedRWLock> all_indices_;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 

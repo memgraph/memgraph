@@ -11694,6 +11694,10 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     }
 
     // Write DESC label+properties indices and statistics.
+    // WARNING: The ASC and DESC sections must remain adjacent in this exact order
+    // (ASC indices, ASC stats, DESC indices, DESC stats). Recovery reads them
+    // sequentially with no offset table — inserting anything between them will
+    // corrupt snapshot recovery.
     {
       auto desc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
       write_label_property_indices(desc_indices);

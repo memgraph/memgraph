@@ -314,6 +314,7 @@ class OrderByEliminator {
             return s->index_order_ == desired;
           } else {
             // Edge scans currently only support ASC iteration.
+            // TODO: If DESC edge-type indices are added, update this to check the scan's order.
             return ordering == Ordering::ASC;
           }
         },

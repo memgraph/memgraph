@@ -312,6 +312,11 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
   }
 
   // Recover DESC label+property indices statistics.
+  // NOTE: SetIndexStats uses (label, properties) as key with no order discrimination.
+  // ASC and DESC indices for the same (label, properties) share the same stats entry —
+  // second write overwrites first. Currently harmless because stats are identical
+  // regardless of index order, but this assumption should be revisited if stats
+  // ever diverge between ASC and DESC.
   {
     spdlog::info("Recreating {} DESC label+property indices statistics from metadata.",
                  indices_metadata.label_property_desc_stats.size());

@@ -1329,6 +1329,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto desired_order = *pending_dir == Ordering::DESC ? storage::IndexOrder::DESC : storage::IndexOrder::ASC;
         if (candidate.info_.order_ == desired_order && found->order != desired_order) {
           found = make_label_property_index();
+          continue;
         }
       }
     }

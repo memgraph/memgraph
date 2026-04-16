@@ -446,8 +446,9 @@ bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
 namespace {
 // Inserts a new index into indices_map, updates the all_indices tracking list,
 // and populates the reverse lookup. Returns false if the index already exists.
-template <typename IndicesMap, typename AllIndicesLock, typename ReverseLookup>
-bool RegisterIntoIndicesMap(IndicesMap &indices_map, AllIndicesLock &all_indices_lock, ReverseLookup &reverse_lookup,
+// Caller must hold the all_indices_ lock when passing all_indexes.
+template <typename IndicesMap, typename AllIndicesVec, typename ReverseLookup>
+bool RegisterIntoIndicesMap(IndicesMap &indices_map, AllIndicesVec &all_indexes, ReverseLookup &reverse_lookup,
                             LabelId label, PropertiesPaths const &properties) {
   auto [it1, _] = indices_map.try_emplace(label);
   auto &properties_map = it1->second;
@@ -458,12 +459,10 @@ bool RegisterIntoIndicesMap(IndicesMap &indices_map, AllIndicesLock &all_indices
   using IndexPtr = typename std::decay_t<decltype(properties_map)>::mapped_type;
   using IndexT = typename IndexPtr::element_type;
   auto [it3, _2] = properties_map.emplace(properties, std::make_shared<IndexT>(std::move(helper)));
-  all_indices_lock.WithLock([&](auto &all_indexes) {
-    auto new_all_indexes = *all_indexes;
-    new_all_indexes.emplace_back(it3->second, label, properties);
-    using Vec = std::decay_t<decltype(*all_indexes)>;
-    all_indexes = std::make_shared<Vec>(std::move(new_all_indexes));
-  });
+  auto new_all_indexes = *all_indexes;
+  new_all_indexes.emplace_back(it3->second, label, properties);
+  using Vec = std::decay_t<decltype(*all_indexes)>;
+  all_indexes = std::make_shared<Vec>(std::move(new_all_indexes));
   using EntryDetail = std::tuple<PropertiesPaths const *, IndexT *>;
   auto de = EntryDetail{&it3->first, it3->second.get()};
   for (auto &&property_path : properties) {
@@ -478,12 +477,13 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
   return index_.WithLock([&](std::shared_ptr<const IndexContainer> &index) {
     auto new_index = std::make_shared<IndexContainer>(*index);
 
-    bool registered =
-        (order == IndexOrder::ASC)
-            ? RegisterIntoIndicesMap(
-                  new_index->asc_indices_, asc_all_indices_, new_index->asc_reverse_lookup_, label, properties)
-            : RegisterIntoIndicesMap(
-                  new_index->desc_indices_, desc_all_indices_, new_index->desc_reverse_lookup_, label, properties);
+    bool registered = all_indices_.WithLock([&](AllIndicesData &data) {
+      if (order == IndexOrder::ASC)
+        return RegisterIntoIndicesMap(
+            new_index->asc_indices_, data.asc, new_index->asc_reverse_lookup_, label, properties);
+      return RegisterIntoIndicesMap(
+          new_index->desc_indices_, data.desc, new_index->desc_reverse_lookup_, label, properties);
+    });
     if (!registered) return false;
 
     index = std::move(new_index);
@@ -901,9 +901,8 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
 
   CleanupAllIndices();
 
-  auto const remove_from = [&](auto &all_indices_lock) {
-    auto cpy = all_indices_lock.ReadCopy();
-    for (auto &[index, label_id, property_paths] : *cpy) {
+  auto const remove_from = [&](auto const &all_indexes) {
+    for (auto &[index, label_id, property_paths] : *all_indexes) {
       if (token.stop_requested()) return;
 
       auto const &permutationHelper = index->permutations_helper;
@@ -935,7 +934,9 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
     }
   };
 
-  ForEachAllIndices(remove_from);
+  auto data = all_indices_.ReadCopy();
+  remove_from(data.asc);
+  remove_from(data.desc);
 }
 
 template <typename EntryT>
@@ -1132,13 +1133,14 @@ std::optional<storage::LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetI
 void InMemoryLabelPropertyIndex::RunGC() {
   CleanupAllIndices();
 
-  auto const run_gc = [](auto &all_indices_lock) {
-    auto cpy = all_indices_lock.ReadCopy();
-    for (auto &[index, _1, _2] : *cpy) {
+  auto const run_gc = [](auto const &all_indexes) {
+    for (auto &[index, _1, _2] : *all_indexes) {
       index->skiplist.run_gc();
     }
   };
-  ForEachAllIndices(run_gc);
+  auto data = all_indices_.ReadCopy();
+  run_gc(data.asc);
+  run_gc(data.desc);
 }
 
 template <typename EntryT>
@@ -1210,13 +1212,10 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::
 void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   index_.WithLock([](auto &idx) { idx = std::make_shared<IndexContainer>(); });
   stats_->clear();
-  auto const clear = [](auto &all_indices_lock) {
-    all_indices_lock.WithLock([](auto &all_indices) {
-      using Vec = std::decay_t<decltype(*all_indices)>;
-      all_indices = std::make_unique<Vec>();
-    });
-  };
-  ForEachAllIndices(clear);
+  all_indices_.WithLock([](AllIndicesData &data) {
+    data.asc = std::make_shared<std::vector<AscAllIndicesEntry> const>();
+    data.desc = std::make_shared<std::vector<DescAllIndicesEntry> const>();
+  });
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
@@ -1276,16 +1275,17 @@ void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const
 }
 
 void InMemoryLabelPropertyIndex::CleanupAllIndices() {
-  auto const cleanup = [](auto &all_indices_lock) {
-    all_indices_lock.WithLock([](auto &indices) {
-      auto keep_condition = [](auto const &entry) { return entry.index_.use_count() != 1; };
-      if (!r::all_of(*indices, keep_condition)) {
-        using Vec = std::decay_t<decltype(*indices)>;
-        indices = std::make_shared<Vec>(*indices | rv::filter(keep_condition) | r::to<std::vector>());
-      }
-    });
+  auto const cleanup = [](auto &indices) {
+    auto keep_condition = [](auto const &entry) { return entry.index_.use_count() != 1; };
+    if (!r::all_of(*indices, keep_condition)) {
+      using Vec = std::decay_t<decltype(*indices)>;
+      indices = std::make_shared<Vec>(*indices | rv::filter(keep_condition) | r::to<std::vector>());
+    }
   };
-  ForEachAllIndices(cleanup);
+  all_indices_.WithLock([&](AllIndicesData &data) {
+    cleanup(data.asc);
+    cleanup(data.desc);
+  });
 }
 
 template <typename EntryT>

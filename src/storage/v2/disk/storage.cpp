@@ -2173,9 +2173,12 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
 }
 
 std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, PropertiesPaths properties, IndexOrder /*order*/, CheckCancelFunction /*cancel_check*/) {
+    LabelId label, PropertiesPaths properties, IndexOrder order, CheckCancelFunction /*cancel_check*/) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
+  if (order == IndexOrder::DESC) {
+    throw utils::NotYetImplemented("DESC index for DiskStorage.");
+  }
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
   }
