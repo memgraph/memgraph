@@ -2930,21 +2930,24 @@ TEST_F(AuthQueryHandlerFixture, DisambiguationRoleKeywordBothExistResolvesToRole
 
 #ifdef MG_ENTERPRISE
 TEST_F(AuthQueryHandlerFixture, DatabasePrivilegesDisambiguationUserAndRoleKeywordsResolveCorrectTarget) {
-  memgraph::auth::User user{"alice"};
+  memgraph::auth::User user{"admin"};
   user.db_access().GrantAll();
   auth.value()->SaveUser(user);
 
-  memgraph::auth::Role role{"alice"};
+  memgraph::auth::Role role{"admin"};
   role.db_access().Grant("role_db");
   auth.value()->SaveRole(role);
 
-  auto user_result = auth_handler.GetDatabasePrivileges("alice", {"alice"}, memgraph::auth::UserOrRoleType::USER);
+  ASSERT_THROW(auth_handler.GetDatabasePrivileges("admin", {"admin"}, memgraph::auth::UserOrRoleType::UNSPECIFIED),
+               memgraph::query::QueryRuntimeException);
+
+  auto user_result = auth_handler.GetDatabasePrivileges("admin", {"admin"}, memgraph::auth::UserOrRoleType::USER);
   ASSERT_EQ(user_result.size(), 1);
   ASSERT_EQ(user_result[0].size(), 2);
   ASSERT_TRUE(user_result[0][0].IsString());
   ASSERT_EQ(user_result[0][0].ValueString(), "*");
 
-  auto role_result = auth_handler.GetDatabasePrivileges("alice", {"alice"}, memgraph::auth::UserOrRoleType::ROLE);
+  auto role_result = auth_handler.GetDatabasePrivileges("admin", {"admin"}, memgraph::auth::UserOrRoleType::ROLE);
   ASSERT_EQ(role_result.size(), 1);
   ASSERT_EQ(role_result[0].size(), 2);
   ASSERT_TRUE(role_result[0][0].IsList());
@@ -2952,6 +2955,39 @@ TEST_F(AuthQueryHandlerFixture, DatabasePrivilegesDisambiguationUserAndRoleKeywo
   ASSERT_TRUE(std::find_if(grants.begin(), grants.end(), [](const auto &db) {
                 return db.IsString() && db.ValueString() == "role_db";
               }) != grants.end());
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesOnMainForRoleUsesRoleMainDatabaseWhenNamesCollide) {
+  memgraph::auth::Permissions user_perms;
+  user_perms.Grant(memgraph::auth::Permission::CREATE);
+  memgraph::auth::User user{"admin", std::nullopt, user_perms};
+  user.db_access().Grant("user_db");
+  ASSERT_TRUE(user.db_access().SetMain("user_db"));
+  auth.value()->SaveUser(user);
+
+  memgraph::auth::Permissions role_perms;
+  role_perms.Grant(memgraph::auth::Permission::MATCH);
+  memgraph::auth::Role role{"admin", role_perms};
+  role.db_access().Grant("role_db");
+  ASSERT_TRUE(role.db_access().SetMain("role_db"));
+  auth.value()->SaveRole(role);
+
+  ASSERT_THROW(auth_handler.GetMainDatabase("admin", memgraph::auth::UserOrRoleType::UNSPECIFIED),
+               memgraph::query::QueryRuntimeException);
+
+  auto role_main_db = auth_handler.GetMainDatabase("admin", memgraph::auth::UserOrRoleType::ROLE);
+  ASSERT_TRUE(role_main_db.has_value());
+  auto role_result = auth_handler.GetPrivileges("admin", role_main_db, memgraph::auth::UserOrRoleType::ROLE);
+  ASSERT_EQ(role_result.size(), 1);
+  ASSERT_EQ(role_result[0][0].ValueString(), "MATCH");
+  ASSERT_EQ(role_result[0][2].ValueString(), "GRANTED TO ROLE");
+
+  auto user_main_db = auth_handler.GetMainDatabase("admin", memgraph::auth::UserOrRoleType::USER);
+  ASSERT_TRUE(user_main_db.has_value());
+  auto user_result = auth_handler.GetPrivileges("admin", user_main_db, memgraph::auth::UserOrRoleType::USER);
+  ASSERT_EQ(user_result.size(), 1);
+  ASSERT_EQ(user_result[0][0].ValueString(), "CREATE");
+  ASSERT_EQ(user_result[0][2].ValueString(), "GRANTED TO USER");
 }
 #endif
 

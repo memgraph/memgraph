@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "glue/auth_handler.hpp"
+#include <algorithm>
 #include <range/v3/all.hpp>
 
 #include <optional>
@@ -533,6 +534,16 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
   try {
     auto locked_auth = auth_->ReadLock();
     auto local_user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user) : std::nullopt;
+    auto has_role = [&](const std::vector<std::string> &role_names) {
+      return ranges::any_of(role_names,
+                            [&](const auto &role_name) { return locked_auth->GetRole(role_name).has_value(); });
+    };
+
+    if (type == auth::UserOrRoleType::UNSPECIFIED && local_user && has_role(roles)) {
+      throw memgraph::query::QueryRuntimeException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.",
+                                                   user);
+    }
+
     if (local_user) {
       return ShowDatabasePrivileges(local_user);
     }
@@ -591,10 +602,19 @@ void AuthQueryHandler::DeleteDatabase(std::string_view db_name, system::Transact
   }
 }
 
-std::optional<std::string> AuthQueryHandler::GetMainDatabase(const std::string &user_or_role) {
+std::optional<std::string> AuthQueryHandler::GetMainDatabase(const std::string &user_or_role,
+                                                             auth::UserOrRoleType type) {
   try {
     auto locked_auth = auth_->ReadLock();
-    if (auto user = locked_auth->GetUser(user_or_role)) {
+    auto user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user_or_role) : std::nullopt;
+    auto role = (type != auth::UserOrRoleType::USER) ? locked_auth->GetRole(user_or_role) : std::nullopt;
+
+    if (type == auth::UserOrRoleType::UNSPECIFIED && user && role) {
+      throw memgraph::query::QueryRuntimeException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.",
+                                                   user_or_role);
+    }
+
+    if (user) {
       try {
         return user->GetMain();
       } catch (const memgraph::auth::AuthException &) {
@@ -602,7 +622,7 @@ std::optional<std::string> AuthQueryHandler::GetMainDatabase(const std::string &
       }
     }
 
-    if (auto role = locked_auth->GetRole(user_or_role)) {
+    if (role) {
       try {
         return role->GetMain();
       } catch (const memgraph::auth::AuthException &) {
