@@ -1939,8 +1939,7 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
   // AllRoles
   {
     auto roles = auth->AllRoles();
-    ASSERT_TRUE(std::find_if(roles.begin(), roles.end(), [](auto const &r) { return r.rolename() == "moderator"; }) !=
-                roles.end());
+    ASSERT_TRUE(std::ranges::find_if(roles, [](auto const &r) { return r.rolename() == "moderator"; }) != roles.end());
   }
 
   // SaveRole

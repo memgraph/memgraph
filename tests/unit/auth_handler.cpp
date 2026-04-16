@@ -14,6 +14,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <openssl/x509_vfy.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <latch>
@@ -35,6 +36,8 @@
 #include "utils/synchronized.hpp"
 
 #include <nlohmann/json.hpp>
+
+namespace r = std::ranges;
 
 class AuthQueryHandlerFixture : public testing::Test {
  protected:
@@ -2952,9 +2955,8 @@ TEST_F(AuthQueryHandlerFixture, DatabasePrivilegesDisambiguationUserAndRoleKeywo
   ASSERT_EQ(role_result[0].size(), 2);
   ASSERT_TRUE(role_result[0][0].IsList());
   auto const &grants = role_result[0][0].ValueList();
-  ASSERT_TRUE(std::find_if(grants.begin(), grants.end(), [](const auto &db) {
-                return db.IsString() && db.ValueString() == "role_db";
-              }) != grants.end());
+  ASSERT_TRUE(r::find_if(grants, [](const auto &db) { return db.IsString() && db.ValueString() == "role_db"; }) !=
+              grants.end());
 }
 
 TEST_F(AuthQueryHandlerFixture, ShowPrivilegesOnMainForRoleUsesRoleMainDatabaseWhenNamesCollide) {
@@ -3005,9 +3007,7 @@ TEST_F(AuthQueryHandlerFixture, GetRolenamesReturnsBuiltinFlag) {
   auto const roles = auth_handler.GetRolenames();
   ASSERT_EQ(roles.size(), 2);
 
-  auto find = [&](std::string_view name) {
-    return std::find_if(roles.begin(), roles.end(), [&](auto const &p) { return p.first == name; });
-  };
+  auto find = [&](std::string_view name) { return r::find_if(roles, [&](auto const &p) { return p.first == name; }); };
 
   auto regular_it = find("regular_role");
   ASSERT_NE(regular_it, roles.end());
@@ -3031,9 +3031,7 @@ TEST_F(AuthQueryHandlerFixture, GetRolenamesForUserReturnsBuiltinFlag) {
   auto const roles = auth_handler.GetRolenamesForUser("alice", std::nullopt);
   ASSERT_EQ(roles.size(), 2);
 
-  auto find = [&](std::string_view name) {
-    return std::find_if(roles.begin(), roles.end(), [&](auto const &p) { return p.first == name; });
-  };
+  auto find = [&](std::string_view name) { return r::find_if(roles, [&](auto const &p) { return p.first == name; }); };
 
   auto regular_it = find("regular_role");
   ASSERT_NE(regular_it, roles.end());
