@@ -99,10 +99,10 @@ PrometheusMetrics::PrometheusMetrics()
                                          .Name("memgraph_committed_transactions_total")
                                          .Help("Total number of committed transactions")
                                          .Register(registry_)},
-      rollbacked_transactions_family_{prometheus::BuildCounter()
-                                          .Name("memgraph_rollbacked_transactions_total")
-                                          .Help("Total number of rollbacked transactions")
-                                          .Register(registry_)},
+      rolled_back_transactions_family_{prometheus::BuildCounter()
+                                           .Name("memgraph_rolled_back_transactions_total")
+                                           .Help("Total number of rolled back transactions")
+                                           .Register(registry_)},
       failed_query_family_{prometheus::BuildCounter()
                                .Name("memgraph_failed_queries_total")
                                .Help("Total number of failed queries")
@@ -932,7 +932,7 @@ DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name) 
               .triggers_executed = &triggers_executed_family_.Add(labels),
               .active_transactions = &active_transactions_family_.Add(labels),
               .committed_transactions = &committed_transactions_family_.Add(labels),
-              .rollbacked_transactions = &rollbacked_transactions_family_.Add(labels),
+              .rolled_back_transactions = &rolled_back_transactions_family_.Add(labels),
               .failed_query = &failed_query_family_.Add(labels),
               .failed_prepare = &failed_prepare_family_.Add(labels),
               .failed_pull = &failed_pull_family_.Add(labels),
@@ -1038,7 +1038,7 @@ void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
   triggers_executed_family_.Remove(h.triggers_executed);
   active_transactions_family_.Remove(h.active_transactions);
   committed_transactions_family_.Remove(h.committed_transactions);
-  rollbacked_transactions_family_.Remove(h.rollbacked_transactions);
+  rolled_back_transactions_family_.Remove(h.rolled_back_transactions);
   failed_query_family_.Remove(h.failed_query);
   failed_prepare_family_.Remove(h.failed_prepare);
   failed_pull_family_.Remove(h.failed_pull);
@@ -1387,7 +1387,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back(
       {"CommitedTransactions", "Transaction", "Counter", static_cast<int64_t>(h.committed_transactions->Value())});
   out.push_back(
-      {"RollbackedTransactions", "Transaction", "Counter", static_cast<int64_t>(h.rollbacked_transactions->Value())});
+      {"RolledBackTransactions", "Transaction", "Counter", static_cast<int64_t>(h.rolled_back_transactions->Value())});
   out.push_back({"FailedQuery", "Transaction", "Counter", static_cast<int64_t>(h.failed_query->Value())});
   out.push_back({"FailedPrepare", "Transaction", "Counter", static_cast<int64_t>(h.failed_prepare->Value())});
   out.push_back({"FailedPull", "Transaction", "Counter", static_cast<int64_t>(h.failed_pull->Value())});
@@ -1506,7 +1506,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   int64_t total_streams_created = 0, total_messages_consumed = 0;
   int64_t total_triggers_created = 0, total_triggers_executed = 0;
   int64_t total_active_transactions = 0, total_committed_transactions = 0;
-  int64_t total_rollbacked_transactions = 0, total_failed_query = 0;
+  int64_t total_rolled_back_transactions = 0, total_failed_query = 0;
   int64_t total_failed_prepare = 0, total_failed_pull = 0, total_successful_query = 0;
   int64_t total_write_write_conflicts = 0, total_transient_errors = 0;
   int64_t total_read_query = 0, total_write_query = 0, total_read_write_query = 0;
@@ -1599,7 +1599,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
     total_triggers_executed += static_cast<int64_t>(h.triggers_executed->Value());
     total_active_transactions += static_cast<int64_t>(h.active_transactions->Value());
     total_committed_transactions += static_cast<int64_t>(h.committed_transactions->Value());
-    total_rollbacked_transactions += static_cast<int64_t>(h.rollbacked_transactions->Value());
+    total_rolled_back_transactions += static_cast<int64_t>(h.rolled_back_transactions->Value());
     total_failed_query += static_cast<int64_t>(h.failed_query->Value());
     total_failed_prepare += static_cast<int64_t>(h.failed_prepare->Value());
     total_failed_pull += static_cast<int64_t>(h.failed_pull->Value());
@@ -1713,7 +1713,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   // Transaction
   out.push_back({"ActiveTransactions", "Transaction", "Gauge", total_active_transactions});
   out.push_back({"CommitedTransactions", "Transaction", "Counter", total_committed_transactions});
-  out.push_back({"RollbackedTransactions", "Transaction", "Counter", total_rollbacked_transactions});
+  out.push_back({"RolledBackTransactions", "Transaction", "Counter", total_rolled_back_transactions});
   out.push_back({"FailedQuery", "Transaction", "Counter", total_failed_query});
   out.push_back({"FailedPrepare", "Transaction", "Counter", total_failed_prepare});
   out.push_back({"FailedPull", "Transaction", "Counter", total_failed_pull});

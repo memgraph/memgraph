@@ -3215,7 +3215,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         }
 
         if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
-          h->rollbacked_transactions->Increment();
+          h->rolled_back_transactions->Increment();
 
         Abort();
         expect_rollback_ = false;

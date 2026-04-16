@@ -145,7 +145,7 @@ struct DatabaseMetricHandles {
   // Transaction
   prometheus::Gauge *active_transactions;
   prometheus::Counter *committed_transactions;
-  prometheus::Counter *rollbacked_transactions;
+  prometheus::Counter *rolled_back_transactions;
   prometheus::Counter *failed_query;
   prometheus::Counter *failed_prepare;
   prometheus::Counter *failed_pull;
@@ -303,10 +303,10 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &disk_usage_family_;
   prometheus::Family<prometheus::Gauge> &memory_res_family_;
 
-  // Per-database metric families — transaction (partial: active/committed/rollbacked/failed)
+  // Per-database metric families — transaction (partial: active/committed/rolled_back/failed)
   prometheus::Family<prometheus::Gauge> &active_transactions_family_;
   prometheus::Family<prometheus::Counter> &committed_transactions_family_;
-  prometheus::Family<prometheus::Counter> &rollbacked_transactions_family_;
+  prometheus::Family<prometheus::Counter> &rolled_back_transactions_family_;
   prometheus::Family<prometheus::Counter> &failed_query_family_;
 
   // Per-database metric families — query type
