@@ -9266,8 +9266,6 @@ void Interpreter::Abort() {
     }
   });
 
-  bool decrement = true;
-
   // System tx
   // TODO Implement system transaction scope and the ability to abort
   system_transaction_.reset();
@@ -9279,7 +9277,6 @@ void Interpreter::Abort() {
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
     if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
-      decrement = false;
       // Retry CAS from the current expected value (compare_exchange_weak already updated expected)
       continue;
     }
