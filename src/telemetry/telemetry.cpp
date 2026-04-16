@@ -17,6 +17,9 @@
 
 #include <fmt/format.h>
 
+#ifdef MG_ENTERPRISE
+#include "coordination/coordinator_state.hpp"
+#endif
 #include "communication/bolt/metrics.hpp"
 #include "query/plan/operator.hpp"
 #include "requests/requests.hpp"

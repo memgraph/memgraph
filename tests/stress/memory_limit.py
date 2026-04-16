@@ -27,13 +27,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from common import (
-    OutputData,
-    SessionCache,
-    connection_argument_parser,
-    execute_till_success,
-    try_execute,
-)
+from common import OutputData, SessionCache, connection_argument_parser, execute_till_success, try_execute
 
 log = logging.getLogger(__name__)
 output_data = OutputData()
@@ -152,7 +146,7 @@ def get_tracker_data(session) -> Optional[float]:
 
     try:
         data, _ = try_execute(session, f"SHOW STORAGE INFO")
-        memory_tracker_data = isolate_value(data, "memory_tracked")
+        memory_tracker_data = isolate_value(data, "global_memory_tracked")
 
         return parse_data(memory_tracker_data)
 

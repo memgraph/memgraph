@@ -1,0 +1,4 @@
+sources:
+  "1.0-memgraph":
+    url: "https://github.com/rg3/libbcrypt/archive/8aa32ad94ebe06b76853b0767c910c9fbf7ccef4.tar.gz"
+    sha256: "f17ab5222685b4ed32e935b0c6a2a9edbda2438a8514fbbd1f5bc21fb57aac73"

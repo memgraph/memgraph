@@ -84,6 +84,8 @@ class MemoryTracker final {
 
   auto HardLimit() const { return hard_limit_.load(std::memory_order_relaxed); }
 
+  auto MaximumHardLimit() const { return maximum_hard_limit_; }
+
   void SetHardLimit(int64_t limit);
   void TryRaiseHardLimit(int64_t limit);
   void SetMaximumHardLimit(int64_t limit);
