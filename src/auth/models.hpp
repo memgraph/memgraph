@@ -113,6 +113,7 @@ inline constexpr std::array kPermissionsAll = {
     Permission::PROFILE_RESTRICTION,
     Permission::PARALLEL_EXECUTION,
     Permission::SERVER_SIDE_PARAMETERS,
+    Permission::SERVER_SIDE_DESCRIPTIONS,
 };
 // clang-format on
 
