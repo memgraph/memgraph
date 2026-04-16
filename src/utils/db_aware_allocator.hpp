@@ -17,6 +17,7 @@
 // (in utils/) only needs tls_db_arena_idx and DbAwareAllocator.
 
 #include <cstddef>
+#include <memory>
 #include <new>
 #include <type_traits>
 
@@ -75,6 +76,22 @@ template <typename T>
 void DbDeallocate(T *p, std::size_t n) noexcept {
   DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
 }
+
+// Custom deleter for std::unique_ptr<T> when the object was allocated via
+// ArenaAwareAllocator (i.e. with je_mallocx + MALLOCX_TCACHE_NONE).
+// Using the default deleter (operator delete / je_free) would route the
+// deallocation through the calling thread's tcache, delaying the
+// db_arena_dalloc extent-hook callback and causing the DB MemoryTracker to
+// overcount until the tcache flushes.  This deleter calls DbDeallocateBytes
+// (je_sdallocx + MALLOCX_TCACHE_NONE) so the hook fires immediately.
+template <typename T>
+struct ArenaAwareDeleter {
+  void operator()(T *p) const noexcept {
+    if (!p) return;
+    std::destroy_at(p);
+    DbDeallocateBytes(static_cast<void *>(p), sizeof(T), alignof(T));
+  }
+};
 
 // Allocate `n` elements of type T, attributed to arena `idx`.
 // alignment defaults to alignof(T) — pass explicitly only when a stricter

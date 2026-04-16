@@ -635,13 +635,13 @@ class InMemoryStorage final : public Storage {
             // Use non-blocking async indexer
             auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
             // Async index creation -> happens in separate transaction
-            mem_storage->async_indexer_.Enqueue(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+            mem_storage->async_indexer_.Enqueue(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
             if (ttl_info.should_run_edge_ttl) {
               mem_storage->async_indexer_.Enqueue(ttl_property);
             }
           } else {
             // Create index with unique access in same transaction
-            (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+            (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
             // Create edge index if needed based on TTL configuration
             if (ttl_info.should_run_edge_ttl) {
               (void)CreateGlobalEdgeIndex(ttl_property);
@@ -670,7 +670,7 @@ class InMemoryStorage final : public Storage {
         // Only if MAIN, do we proactivly drop indexes
         // REPLICA will recieve deltas from MAIN that will drop the indexes
         // Drop indices (silently fail if index already dropped )
-        (void)DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+        (void)DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
         // Check if edge TTL was enabled and drop edge index if needed (silently fail if index already dropped)
         if (ttl.Config().should_run_edge_ttl) {
           (void)DropGlobalEdgeIndex(ttl_property);
@@ -817,7 +817,14 @@ class InMemoryStorage final : public Storage {
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};
 
+#if USE_JEMALLOC
+  // ArenaAwareDeleter ensures deallocation uses je_sdallocx+MALLOCX_TCACHE_NONE,
+  // matching the ArenaAwareAllocator allocation style so the db_arena_dalloc
+  // extent hook fires immediately (not delayed by the thread's tcache).
+  std::unique_ptr<durability::WalFile, memory::ArenaAwareDeleter<durability::WalFile>> wal_file_;
+#else
   std::unique_ptr<durability::WalFile> wal_file_;
+#endif
   uint64_t wal_unsynced_transactions_{0};
 
   utils::FileRetainer file_retainer_;

@@ -3202,7 +3202,7 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
         alloc.deallocate(raw, 1);
         throw;
       }
-      wal_file_.reset(raw);
+      wal_file_ = decltype(wal_file_)(raw, memory::ArenaAwareDeleter<durability::WalFile>{});
     }
 #else
     wal_file_ = std::make_unique<durability::WalFile>(recovery_.wal_directory_,
