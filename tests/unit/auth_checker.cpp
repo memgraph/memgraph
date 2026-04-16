@@ -287,6 +287,31 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificEdgeTypeGrantOn
   ASSERT_FALSE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE));
 }
 
+TYPED_TEST(FineGrainedAuthCheckerFixture, RoleLabelAclDoesNotBleedAcrossDatabases) {
+  memgraph::auth::Role role1{"role1"};
+  role1.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  role1.db_access().Grant("db1");
+
+  memgraph::auth::Role role2{"role2"};
+  role2.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::FineGrainedPermission::READ);
+  role2.db_access().Grant(this->dba.DatabaseName());
+
+  memgraph::auth::User user{"test"};
+  user.roles().AddRole(role1);
+  user.roles().AddRole(role2);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  // v1 has label "l1", which is permitted by role2
+  ASSERT_TRUE(
+      auth_checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  // v2 has label "l2", v3 has label "l3"
+  ASSERT_FALSE(
+      auth_checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  ASSERT_FALSE(
+      auth_checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+}
+
 TEST(AuthChecker, Generate) {
   std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker"};
   memgraph::utils::OnScopeExit clean([&]() {
