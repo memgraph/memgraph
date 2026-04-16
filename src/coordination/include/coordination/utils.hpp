@@ -79,6 +79,8 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
           return true;
         }
 
+        spdlog::trace("Comparing: {} < {}", db_it->second, max_replica_read_lag);
+
         // return true if cached lag is smaller than max_allowed_replica_read_lag
         return db_it->second < max_replica_read_lag;
       };

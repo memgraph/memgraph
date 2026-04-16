@@ -1164,6 +1164,15 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
   if (raft_state_->IsCurrentMain(instance_name)) {
     // Update cache with the information from the current main if there is a value received
     if (instance_state.inner_state.main_num_txns.has_value()) {
+      for (auto const &[db_uuid, num_txns] : *instance_state.inner_state.main_num_txns) {
+        auto it = main_num_txns_cache_.find(db_uuid);
+        if (it == main_num_txns_cache_.end() || it->second != num_txns) {
+          spdlog::info("main_num_txns_cache_ updated: db={} old={} new={}",
+                       db_uuid,
+                       it != main_num_txns_cache_.end() ? std::to_string(it->second) : "N/A",
+                       num_txns);
+        }
+      }
       main_num_txns_cache_ = *instance_state.inner_state.main_num_txns;
     }
 
@@ -1204,6 +1213,15 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
               return context.config.instance_name;
             }) != std::ranges::end(data_instances);
         if (instance_exists_in_raft) {
+          auto it = replicas_num_txns_cache_.find(replica_name);
+          if (it == replicas_num_txns_cache_.end() || it->second != replica_data) {
+            std::string detail;
+            for (auto const &[db_uuid, num_txns] : replica_data) {
+              if (!detail.empty()) detail += ", ";
+              detail += fmt::format("db={}:txns={}", db_uuid, num_txns);
+            }
+            spdlog::info("replicas_num_txns_cache_ updated: replica={} [{}]", replica_name, detail);
+          }
           replicas_num_txns_cache_.insert_or_assign(replica_name, replica_data);
         } else if (instance.SendRpc<UnregisterReplicaRpc>(replica_name)) {
           replicas_num_txns_cache_.erase(replica_name);
