@@ -218,7 +218,9 @@ add_custom_command(
     DEPENDS
     ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
     ${opencypher_frontend}/grammar/CypherLexer.g4
-    ${opencypher_frontend}/grammar/Cypher.g4)
+    ${opencypher_frontend}/grammar/Cypher.g4
+    CODEGEN
+    VERBATIM)
 
 add_custom_target(generate_opencypher_parser
     DEPENDS ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include})
