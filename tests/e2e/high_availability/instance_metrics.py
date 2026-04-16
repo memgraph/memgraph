@@ -143,7 +143,7 @@ def test_instance_metrics_present(test_name):
         assert f'memgraph_instance_up{{mg_instance="{instance}"}}' in metrics
         assert f'memgraph_instance_is_main{{mg_instance="{instance}"}}' in metrics
         assert f'memgraph_instance_is_leader{{mg_instance="{instance}"}}' in metrics
-        assert f'memgraph_instance_last_response_ms{{mg_instance="{instance}"}}' in metrics
+        assert f'memgraph_instance_last_response_seconds{{mg_instance="{instance}"}}' in metrics
 
 
 if __name__ == "__main__":
