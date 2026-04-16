@@ -736,10 +736,10 @@ PrometheusMetrics::PrometheusMetrics()
                                    .Name("memgraph_instance_is_main")
                                    .Help("1 if the instance is the replication main, 0 otherwise")
                                    .Register(registry_)},
-      instance_last_response_ms_family_{prometheus::BuildGauge()
-                                            .Name("memgraph_instance_last_response_ms")
-                                            .Help("Milliseconds since the last successful response from the instance")
-                                            .Register(registry_)}
+      instance_last_response_seconds_family_{prometheus::BuildGauge()
+                                                 .Name("memgraph_instance_last_response_seconds")
+                                                 .Help("Seconds since the last successful response from the instance")
+                                                 .Register(registry_)}
 #endif
 {
   // Populate GlobalMetricHandles — only session, memory, and HA metrics
@@ -1099,10 +1099,10 @@ void PrometheusMetrics::UpdateGauges() {
       instance_up_family_.Remove(it->second);
       instance_is_leader_family_.Remove(instance_is_leader_gauges_.at(it->first));
       instance_is_main_family_.Remove(instance_is_main_gauges_.at(it->first));
-      instance_last_response_ms_family_.Remove(instance_last_response_ms_gauges_.at(it->first));
+      instance_last_response_seconds_family_.Remove(instance_last_response_seconds_gauges_.at(it->first));
       instance_is_leader_gauges_.erase(it->first);
       instance_is_main_gauges_.erase(it->first);
-      instance_last_response_ms_gauges_.erase(it->first);
+      instance_last_response_seconds_gauges_.erase(it->first);
       it = instance_up_gauges_.erase(it);
     } else {
       ++it;
@@ -1116,12 +1116,14 @@ void PrometheusMetrics::UpdateGauges() {
       instance_up_gauges_.emplace(inst.instance_name, &instance_up_family_.Add(labels));
       instance_is_leader_gauges_.emplace(inst.instance_name, &instance_is_leader_family_.Add(labels));
       instance_is_main_gauges_.emplace(inst.instance_name, &instance_is_main_family_.Add(labels));
-      instance_last_response_ms_gauges_.emplace(inst.instance_name, &instance_last_response_ms_family_.Add(labels));
+      instance_last_response_seconds_gauges_.emplace(inst.instance_name,
+                                                     &instance_last_response_seconds_family_.Add(labels));
     }
     instance_up_gauges_.at(inst.instance_name)->Set(inst.health == "up" ? 1.0 : 0.0);
     instance_is_leader_gauges_.at(inst.instance_name)->Set(inst.cluster_role == "leader" ? 1.0 : 0.0);
     instance_is_main_gauges_.at(inst.instance_name)->Set(inst.cluster_role == "main" ? 1.0 : 0.0);
-    instance_last_response_ms_gauges_.at(inst.instance_name)->Set(static_cast<double>(inst.last_succ_resp_ms));
+    instance_last_response_seconds_gauges_.at(inst.instance_name)
+        ->Set(static_cast<double>(inst.last_succ_resp_ms) / 1000.0);
   }
 #endif
 }

@@ -493,12 +493,12 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &instance_up_family_;
   prometheus::Family<prometheus::Gauge> &instance_is_leader_family_;
   prometheus::Family<prometheus::Gauge> &instance_is_main_family_;
-  prometheus::Family<prometheus::Gauge> &instance_last_response_ms_family_;
+  prometheus::Family<prometheus::Gauge> &instance_last_response_seconds_family_;
   // Tracks currently registered instance gauges by instance_name for lifecycle management
   std::unordered_map<std::string, prometheus::Gauge *> instance_up_gauges_;
   std::unordered_map<std::string, prometheus::Gauge *> instance_is_leader_gauges_;
   std::unordered_map<std::string, prometheus::Gauge *> instance_is_main_gauges_;
-  std::unordered_map<std::string, prometheus::Gauge *> instance_last_response_ms_gauges_;
+  std::unordered_map<std::string, prometheus::Gauge *> instance_last_response_seconds_gauges_;
 #endif
 };
 
