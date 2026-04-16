@@ -1712,8 +1712,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     case AuthQuery::Action::SHOW_DATABASE_PRIVILEGES:
       callback.header = {"grants", "denies"};
 #ifdef MG_ENTERPRISE
-      callback.fn = [auth, user_or_role] {  // NOLINT
-        return auth->GetDatabasePrivileges(user_or_role);
+      callback.fn = [auth, user_or_role, entity_type] {  // NOLINT
+        return auth->GetDatabasePrivileges(user_or_role, entity_type);
       };
 #else
       callback.fn = [] {  // NOLINT

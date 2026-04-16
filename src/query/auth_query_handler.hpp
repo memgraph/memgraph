@@ -75,12 +75,21 @@ class AuthQueryHandler {
 
   using DatabasePrivileges = std::vector<std::vector<memgraph::query::TypedValue>>;
 
-  /// Returns database access rights for the user
+  /// Returns database access rights for the user or role.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual DatabasePrivileges GetDatabasePrivileges(const std::string &user, const std::vector<std::string> &roles) = 0;
+  virtual DatabasePrivileges GetDatabasePrivileges(const std::string &user, const std::vector<std::string> &roles,
+                                                   auth::UserOrRoleType type) = 0;
+
+  DatabasePrivileges GetDatabasePrivileges(const std::string &user, const std::vector<std::string> &roles) {
+    return GetDatabasePrivileges(user, roles, auth::UserOrRoleType::UNSPECIFIED);
+  }
 
   DatabasePrivileges GetDatabasePrivileges(const std::string &user_or_role) {
-    return GetDatabasePrivileges(user_or_role, {user_or_role});
+    return GetDatabasePrivileges(user_or_role, {user_or_role}, auth::UserOrRoleType::UNSPECIFIED);
+  }
+
+  DatabasePrivileges GetDatabasePrivileges(const std::string &user_or_role, auth::UserOrRoleType type) {
+    return GetDatabasePrivileges(user_or_role, {user_or_role}, type);
   }
 
   /// Return true if main database set successfully

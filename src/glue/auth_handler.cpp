@@ -529,23 +529,36 @@ void AuthQueryHandler::RevokeDatabase(const std::string &db_name, const std::str
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatabasePrivileges(
-    const std::string &user, const std::vector<std::string> &roles) {
+    const std::string &user, const std::vector<std::string> &roles, auth::UserOrRoleType type) {
   try {
     auto locked_auth = auth_->ReadLock();
-    if (auto local_user = locked_auth->GetUser(user)) {
+    auto local_user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user) : std::nullopt;
+    if (local_user) {
       return ShowDatabasePrivileges(local_user);
     }
-    // User doesn't exist, check if any of the roles exist (this can happen when auth module is used)
+
+    // User doesn't exist, check if any of the roles exist (this can happen when auth module is used).
     std::optional<memgraph::auth::Roles> roles_obj;
-    for (const auto &role : roles) {
-      if (auto role_obj = locked_auth->GetRole(role)) {
-        if (!roles_obj) roles_obj.emplace();
-        roles_obj->AddRole(std::move(*role_obj));
+    if (type != auth::UserOrRoleType::USER) {
+      for (const auto &role : roles) {
+        if (auto role_obj = locked_auth->GetRole(role)) {
+          if (!roles_obj) roles_obj.emplace();
+          roles_obj->AddRole(std::move(*role_obj));
+        }
       }
     }
     if (roles_obj) {
       return ShowDatabasePrivileges(roles_obj);
     }
+
+    if (type == auth::UserOrRoleType::USER) {
+      throw memgraph::query::QueryRuntimeException("Missing user '{}'.", user);
+    }
+    if (type == auth::UserOrRoleType::ROLE) {
+      throw memgraph::query::QueryRuntimeException("Missing one of roles: {}.",
+                                                   memgraph::utils::JoinVector(roles, ", "));
+    }
+
     throw memgraph::query::QueryRuntimeException(
         "Missing user '{}' or one of role: {}.", user, memgraph::utils::JoinVector(roles, ", "));
   } catch (const memgraph::auth::AuthException &e) {

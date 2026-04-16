@@ -48,8 +48,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   void RevokeDatabase(const std::string &db_name, const std::string &user_or_role, auth::UserOrRoleType type,
                       system::Transaction *system_tx) override;
 
-  std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(
-      const std::string &user, const std::vector<std::string> &roles) override;
+  std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &user,
+                                                                              const std::vector<std::string> &roles,
+                                                                              auth::UserOrRoleType type) override;
 
   void SetMainDatabase(std::string_view db_name, const std::string &user_or_role, auth::UserOrRoleType type,
                        system::Transaction *system_tx) override;
