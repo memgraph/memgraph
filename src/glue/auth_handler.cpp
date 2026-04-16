@@ -533,8 +533,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
     auto locked_auth = auth_->ReadLock();
     auto local_user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user) : std::nullopt;
     auto has_role = [&](const std::vector<std::string> &role_names) {
-      return ranges::any_of(role_names,
-                            [&](const auto &role_name) { return locked_auth->GetRole(role_name).has_value(); });
+      return std::ranges::any_of(role_names,
+                                 [&](const auto &role_name) { return locked_auth->GetRole(role_name).has_value(); });
     };
 
     if (type == auth::UserOrRoleType::UNSPECIFIED && local_user && has_role(roles)) {
