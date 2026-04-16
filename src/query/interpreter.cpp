@@ -1519,7 +1519,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             break;
           }
           case AuthQuery::DatabaseSpecification::MAIN: {
-            auto main_db = auth->GetMainDatabase(user_or_role);
+            auto main_db = auth->GetMainDatabase(user_or_role, entity_type);
             if (!main_db) {
               throw QueryRuntimeException("No user found for SHOW PRIVILEGES ON MAIN");
             }

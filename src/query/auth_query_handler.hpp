@@ -104,7 +104,11 @@ class AuthQueryHandler {
   /// Get the main database for a user or role
   /// @return Optional database access if user/role exists and has a main database set
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<std::string> GetMainDatabase(const std::string &user_or_role) = 0;
+  virtual std::optional<std::string> GetMainDatabase(const std::string &user_or_role, auth::UserOrRoleType type) = 0;
+
+  std::optional<std::string> GetMainDatabase(const std::string &user_or_role) {
+    return GetMainDatabase(user_or_role, auth::UserOrRoleType::UNSPECIFIED);
+  }
 #endif
 
   /// Return false if the role already exists.
