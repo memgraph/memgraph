@@ -25,47 +25,47 @@ def memgraph(**kwargs) -> Memgraph:
 
     try:
         memgraph.execute("DROP USER mrma;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP USER sha256;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP USER sha256_multiple;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP USER bcrypt;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP ROLE mrma;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP ROLE admin;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP ROLE readwrite;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP ROLE readonly;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP PROFILE profile;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP PROFILE Profile;")
-    except Exception as e:
+    except Exception:
         pass
     try:
         memgraph.execute("DROP PROFILE profile2;")
-    except Exception as e:
+    except Exception:
         pass
 
 
