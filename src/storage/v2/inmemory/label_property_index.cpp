@@ -1017,50 +1017,63 @@ typename InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator InMemoryLabelPro
   return {this, index_accessor_.end()};
 }
 
-uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
-    LabelId label, std::span<PropertyPath const> properties) const {
-  auto result = WithFoundIndex(label, properties, [](auto &index) -> uint64_t { return index.skiplist.size(); });
+uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId label,
+                                                                           std::span<PropertyPath const> properties,
+                                                                           std::optional<IndexOrder> order) const {
+  auto result = WithFoundIndex(label, properties, [](auto &index) -> uint64_t { return index.skiplist.size(); }, order);
   DMG_ASSERT(
       result, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
   return *result;
 }
 
-uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
-    LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValue const> values) const {
-  auto result = WithFoundIndex(label, properties, [&](auto &index) -> uint64_t {
-    auto acc = index.skiplist.access();
-    if (!ranges::all_of(values, [](auto &&prop) { return prop.IsNull(); })) {
-      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-      std::vector v(values.begin(), values.end());
-      return acc.estimate_count(v, utils::SkipListLayerForCountEstimation(acc.size()));
-    }
-    // An entry with all values being `Null` won't ever appear in the index,
-    // because it indicates that the properties shouldn't exist. Instead, this
-    // is used as an indicator to estimate the average number of equal elements in
-    // the list (for any given value).
-    return acc.estimate_average_number_of_equals(
-        [](const auto &first, const auto &second) { return first.values == second.values; },
-        // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-        utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
-  });
+uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId label,
+                                                                           std::span<PropertyPath const> properties,
+                                                                           std::span<PropertyValue const> values,
+                                                                           std::optional<IndexOrder> order) const {
+  auto result = WithFoundIndex(
+      label,
+      properties,
+      [&](auto &index) -> uint64_t {
+        auto acc = index.skiplist.access();
+        if (!ranges::all_of(values, [](auto &&prop) { return prop.IsNull(); })) {
+          // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+          std::vector v(values.begin(), values.end());
+          return acc.estimate_count(v, utils::SkipListLayerForCountEstimation(acc.size()));
+        }
+        // An entry with all values being `Null` won't ever appear in the index,
+        // because it indicates that the properties shouldn't exist. Instead, this
+        // is used as an indicator to estimate the average number of equal elements in
+        // the list (for any given value).
+        return acc.estimate_average_number_of_equals(
+            [](const auto &first, const auto &second) { return first.values == second.values; },
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+            utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
+      },
+      order);
   DMG_ASSERT(
       result, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
   return *result;
 }
 
-uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
-    LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> bounds) const {
-  auto result = WithFoundIndex(label, properties, [&](auto &index) -> uint64_t {
-    auto acc = index.skiplist.access();
-    auto in_bounds_for_all_prefix = [&](auto const &entry) {
-      constexpr auto within_bounds = [](PropertyValue const &value, PropertyValueRange const &bounds) -> bool {
-        return bounds.IsValueInRange(value);
-      };
-      auto value_within_bounds = [&](auto &&p) { return std::apply(within_bounds, p); };
-      return std::ranges::all_of(std::ranges::views::zip(entry.values.values_, bounds), value_within_bounds);
-    };
-    return std::ranges::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
-  });
+uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId label,
+                                                                           std::span<PropertyPath const> properties,
+                                                                           std::span<PropertyValueRange const> bounds,
+                                                                           std::optional<IndexOrder> order) const {
+  auto result = WithFoundIndex(
+      label,
+      properties,
+      [&](auto &index) -> uint64_t {
+        auto acc = index.skiplist.access();
+        auto in_bounds_for_all_prefix = [&](auto const &entry) {
+          constexpr auto within_bounds = [](PropertyValue const &value, PropertyValueRange const &bounds) -> bool {
+            return bounds.IsValueInRange(value);
+          };
+          auto value_within_bounds = [&](auto &&p) { return std::apply(within_bounds, p); };
+          return std::ranges::all_of(std::ranges::views::zip(entry.values.values_, bounds), value_within_bounds);
+        };
+        return std::ranges::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
+      },
+      order);
   DMG_ASSERT(
       result, "Index for label {} and properties {} doesn't exist", label.AsUint(), JoinPropertiesAsString(properties));
   return *result;

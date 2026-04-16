@@ -51,13 +51,16 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
     auto ListIndices(uint64_t start_timestamp) const
         -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override;
 
-    auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t override;
+    auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                std::optional<IndexOrder> order = std::nullopt) const -> uint64_t override;
 
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                std::span<PropertyValue const> values) const -> uint64_t override;
+                                std::span<PropertyValue const> values,
+                                std::optional<IndexOrder> order = std::nullopt) const -> uint64_t override;
 
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                std::span<PropertyValueRange const> bounds) const -> uint64_t override;
+                                std::span<PropertyValueRange const> bounds,
+                                std::optional<IndexOrder> order = std::nullopt) const -> uint64_t override;
 
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 

@@ -278,24 +278,27 @@ class InMemoryStorage final : public Storage {
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
-    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const override {
-      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties);
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                    std::optional<IndexOrder> order = std::nullopt) const override {
+      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties, order);
     }
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                    std::span<PropertyValue const> values) const override {
-      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties, values);
+                                    std::span<PropertyValue const> values,
+                                    std::optional<IndexOrder> order = std::nullopt) const override {
+      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties, values, order);
     }
 
     /// Return approximate number of vertices with the given label and value for
     /// the given properties in the range defined by provided upper and lower
     /// bounds.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                    std::span<PropertyValueRange const> bounds) const override {
-      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties, bounds);
+                                    std::span<PropertyValueRange const> bounds,
+                                    std::optional<IndexOrder> order = std::nullopt) const override {
+      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties, bounds, order);
     }
 
     uint64_t ApproximateEdgeCount() const override { return storage_->edge_count_.load(std::memory_order_acquire); }

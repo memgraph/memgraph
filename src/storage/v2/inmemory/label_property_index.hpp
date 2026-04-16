@@ -338,17 +338,20 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     auto GetAbortProcessor() const -> AbortProcessor override;
 
-    auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t override;
+    auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                std::optional<IndexOrder> order = std::nullopt) const -> uint64_t override;
 
     /// Supplying a specific value into the count estimation function will return
     /// an estimated count of nodes which have their property's value set to
     /// `value`. If the `values` specified are all `Null`, then an average number
     /// equal elements is returned.
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                std::span<PropertyValue const> values) const -> uint64_t override;
+                                std::span<PropertyValue const> values,
+                                std::optional<IndexOrder> order = std::nullopt) const -> uint64_t override;
 
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                std::span<PropertyValueRange const> bounds) const -> uint64_t override;
+                                std::span<PropertyValueRange const> bounds,
+                                std::optional<IndexOrder> order = std::nullopt) const -> uint64_t override;
 
     template <typename EntryT>
     auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
@@ -366,11 +369,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         Transaction *transaction, size_t num_chunks);
 
    private:
-    // Finds the index for (label, properties) in asc_indices_ or desc_indices_ and applies fn to it.
-    // Returns std::nullopt if the index doesn't exist in either map.
+    // Finds the index for (label, properties) and applies fn to it.
+    // If order is specified, only searches the corresponding index map.
+    // If order is nullopt, tries ASC first then DESC.
     template <typename Fn>
-    auto WithFoundIndex(LabelId label, std::span<PropertyPath const> properties, Fn &&fn) const
-        -> std::optional<uint64_t> {
+    auto WithFoundIndex(LabelId label, std::span<PropertyPath const> properties, Fn &&fn,
+                        std::optional<IndexOrder> order = std::nullopt) const -> std::optional<uint64_t> {
       auto const try_find = [&](auto &indices_map) -> std::optional<uint64_t> {
         auto it = indices_map.find(label);
         if (it == indices_map.end()) return std::nullopt;
@@ -378,8 +382,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         if (it2 == it->second.end()) return std::nullopt;
         return fn(*it2->second);
       };
-      if (auto r = try_find(index_container_->asc_indices_)) return r;
-      if (auto r = try_find(index_container_->desc_indices_)) return r;
+      if (!order || *order == IndexOrder::ASC) {
+        if (auto r = try_find(index_container_->asc_indices_)) return r;
+      }
+      if (!order || *order == IndexOrder::DESC) {
+        if (auto r = try_find(index_container_->desc_indices_)) return r;
+      }
       return std::nullopt;
     }
 

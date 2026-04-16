@@ -357,13 +357,16 @@ class Storage {
 
     virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const = 0;
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                            std::optional<IndexOrder> order = std::nullopt) const = 0;
 
     virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                            std::span<PropertyValue const> values) const = 0;
+                                            std::span<PropertyValue const> values,
+                                            std::optional<IndexOrder> order = std::nullopt) const = 0;
 
     virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                            std::span<PropertyValueRange const> bounds) const = 0;
+                                            std::span<PropertyValueRange const> bounds,
+                                            std::optional<IndexOrder> order = std::nullopt) const = 0;
 
     virtual uint64_t ApproximateEdgeCount() const = 0;
 

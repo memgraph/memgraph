@@ -1282,7 +1282,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // 6. The index with fewer vertices is better (minor tie-breaker)
       // 7. The index with more optimized filter type is better (final tie-breaker)
 
-      int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
+      int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties, candidate.info_.order_);
       std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
       auto const make_label_property_index = [&]() -> LabelPropertyIndex {
         return {
@@ -1371,7 +1371,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         // Try to find the best LabelPropertyIndex
         for (const auto &label_prop : indices) {
           auto storage_properties = label_prop.info_.properties_;
-          auto vertex_count = db_->VerticesCount(label_id, storage_properties);
+          auto vertex_count = db_->VerticesCount(label_id, storage_properties, label_prop.info_.order_);
           bool has_hint = index_hints_.HasLabelPropertiesIndex(db_, label_id, storage_properties);
           if (vertex_count < best_vertex_count || (has_hint && !best_has_hint)) {
             if (!best_has_hint && has_hint) {
@@ -1519,11 +1519,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                       ranges::views::transform([](auto &&optional) { return *optional; }) |
                                       ranges::to_vector;
 
-          return db_->VerticesCount(scan_op->label_, scan_op->properties_, propertyvalue_ranges);
+          return db_->VerticesCount(scan_op->label_, scan_op->properties_, propertyvalue_ranges, scan_op->index_order_);
         }
         // no values, but we still have the label + properties
         // use basic count without property ranges (ranges depend on runtime parameters)
-        return db_->VerticesCount(scan_op->label_, scan_op->properties_);
+        return db_->VerticesCount(scan_op->label_, scan_op->properties_, scan_op->index_order_);
       });
       return static_cast<double>(cardinality);
     }

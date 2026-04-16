@@ -195,21 +195,24 @@ auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp
 }
 
 auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId /*label*/,
-                                                                   std::span<PropertyPath const> /*properties*/) const
+                                                                   std::span<PropertyPath const> /*properties*/,
+                                                                   std::optional<IndexOrder> /*order*/) const
     -> uint64_t {
   return 10;
 }
 
 auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId /*label*/,
                                                                    std::span<PropertyPath const> /*properties*/,
-                                                                   std::span<PropertyValue const> /*values*/) const
+                                                                   std::span<PropertyValue const> /*values*/,
+                                                                   std::optional<IndexOrder> /*order*/) const
     -> uint64_t {
   return 10;
 }
 
-auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId label,
+auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId /*label*/,
                                                                    std::span<PropertyPath const> /*properties*/,
-                                                                   std::span<PropertyValueRange const> /*bounds*/) const
+                                                                   std::span<PropertyValueRange const> /*bounds*/,
+                                                                   std::optional<IndexOrder> /*order*/) const
     -> uint64_t {
   return 10;
 }
