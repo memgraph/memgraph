@@ -279,7 +279,7 @@ class PrometheusMetrics {
     DatabaseMetricHandles handles;
     // Ref count to handle multiple Database instances with the same name
     // sharing the same prometheus objects. This occurs only in unit tests that
-    // simulate multi-node setups (e..g. main + replicas) in-process.
+    // simulate multi-node setups (e.g. main + replicas) in-process.
     uint32_t ref_count{1};
   };
 

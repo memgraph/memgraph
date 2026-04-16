@@ -1155,6 +1155,7 @@ double HistogramPercentile(prometheus::Histogram const &h, double quantile) {
 
 void AppendHistogramPercentiles(std::vector<MetricInfo> &out, std::string const &name, std::string const &type,
                                 prometheus::Histogram const &h) {
+  // Histograms are stored in seconds; multiply by 1e6 to emit microseconds in SHOW METRICS INFO output.
   for (auto const [quantile, label] :
        {std::pair{0.50, "_us_50p"}, std::pair{0.90, "_us_90p"}, std::pair{0.99, "_us_99p"}}) {
     out.push_back({name + label, type, "Histogram", HistogramPercentile(h, quantile) * 1e6});
@@ -1191,6 +1192,7 @@ double MergedHistogramPercentile(std::vector<prometheus::ClientMetric::Histogram
 
 void AppendMergedHistogramPercentiles(std::vector<MetricInfo> &out, std::string const &name, std::string const &type,
                                       std::vector<prometheus::ClientMetric::Histogram> const &hdatas) {
+  // Histograms are stored in seconds; multiply by 1e6 to emit microseconds in SHOW METRICS INFO output.
   for (auto const [quantile, label] :
        {std::pair{0.50, "_us_50p"}, std::pair{0.90, "_us_90p"}, std::pair{0.99, "_us_99p"}}) {
     out.push_back({name + label, type, "Histogram", MergedHistogramPercentile(hdatas, quantile) * 1e6});
