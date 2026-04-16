@@ -228,10 +228,15 @@ class Database {
   int64_t TenantMemoryLimit() const noexcept { return db_total_memory_tracker_.HardLimit(); }
 
  private:
-  utils::MemoryTracker db_total_memory_tracker_{&utils::total_memory_tracker};
-  utils::MemoryTracker db_memory_tracker_{&db_total_memory_tracker_};
-  utils::MemoryTracker db_embedding_memory_tracker_{&db_total_memory_tracker_};
-  utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
+  // Enforcement-only: caps total per-DB memory (tenant profile limit).
+  // No parent — does not roll up to any global. Per-DB domain trackers list this
+  // as their second parent so every allocation is counted here AND in the domain global.
+  utils::MemoryTracker db_total_memory_tracker_{};
+  // Domain trackers: parent1 = global domain aggregator (for AI_PLATFORM license limits),
+  //                  parent2 = db_total_memory_tracker_ (for tenant limit enforcement).
+  utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker, &db_total_memory_tracker_};
+  utils::MemoryTracker db_embedding_memory_tracker_{&utils::vector_index_memory_tracker, &db_total_memory_tracker_};
+  utils::MemoryTracker db_query_memory_tracker_{&utils::graph_memory_tracker, &db_total_memory_tracker_};
 #if USE_JEMALLOC
   memory::DbArena db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
 #endif

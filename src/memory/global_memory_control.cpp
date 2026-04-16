@@ -35,7 +35,7 @@ namespace memgraph::memory {
 #if USE_JEMALLOC
 
 // Single DbArenaHooks instance for all startup arenas — they all share the same
-// default (base) hooks and feed total_memory_tracker.
+// default (base) hooks and feed graph_memory_tracker (which parents to total_memory_tracker).
 namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DbArenaHooks global_graph_arena_hooks{};
@@ -84,7 +84,7 @@ void SetHooks() {
     // First arena: capture old_hooks and initialise the shared hooks struct.
     if (old_hooks == nullptr) {
       old_hooks = current_old_hooks;
-      InitDbArenaHooks(global_graph_arena_hooks, &utils::total_memory_tracker, old_hooks);
+      InitDbArenaHooks(global_graph_arena_hooks, &utils::graph_memory_tracker, old_hooks);
     } else {
       MG_ASSERT(old_hooks == current_old_hooks, "Inconsistent jemalloc hooks across arenas");
     }
