@@ -377,6 +377,11 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @brief Updates an entry in the vector index: removes existing entry if present, then adds new vector.
 /// If vector is empty, only removes the entry (if it exists) and returns.
 /// Automatically resizes the index if full during add.
+///
+/// Memory tracking note: TrackedVectorAllocator captures its tracker_ pointer at construction time
+/// (inside SetupIndex, where TrackedVectorAllocatorMemoryTrackerScope is active). All allocations
+/// triggered by index.add() and try_reserve() here use that stored tracker — NOT the TLS. Therefore
+/// TrackedVectorAllocatorMemoryTrackerScope does NOT need to be active on the calling thread.
 /// @tparam Key The key type used in the index (e.g., Vertex*, EdgeIndexEntry).
 /// @tparam Spec The index specification type.
 /// @param mg_index The synchronized index wrapper.
