@@ -621,7 +621,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                                      std::span<storage::PropertyValueRange const> property_ranges,
-                                                     View view) {
+                                                     View view, IndexOrder order) {
+  if (order == IndexOrder::DESC) throw utils::NotYetImplemented("DESC index for DiskStorage.");
   if (properties.size() != 1) throw utils::NotYetImplemented("composite index");
   if (properties[0].size() != 1) throw utils::NotYetImplemented("nested index");
 

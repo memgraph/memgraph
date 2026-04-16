@@ -430,13 +430,8 @@ class DbAccessor final {
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label,
                             std::span<storage::PropertyPath const> properties,
-                            std::span<storage::PropertyValueRange const> property_ranges) {
-    return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view));
-  }
-
-  VerticesIterable Vertices(storage::View view, storage::LabelId label,
-                            std::span<storage::PropertyPath const> properties,
-                            std::span<storage::PropertyValueRange const> property_ranges, storage::IndexOrder order) {
+                            std::span<storage::PropertyValueRange const> property_ranges,
+                            storage::IndexOrder order = storage::IndexOrder::ASC) {
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view, order));
   }
 

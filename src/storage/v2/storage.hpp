@@ -281,11 +281,8 @@ class Storage {
     virtual VerticesIterable Vertices(LabelId label, View view) = 0;
 
     virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
-                                      std::span<storage::PropertyValueRange const> property_ranges, View view) = 0;
-
-    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                       std::span<storage::PropertyValueRange const> property_ranges, View view,
-                                      IndexOrder order) = 0;
+                                      IndexOrder order = IndexOrder::ASC) = 0;
 
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
       return Vertices(
@@ -298,11 +295,8 @@ class Storage {
 
     virtual VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                                     std::span<storage::PropertyValueRange const> property_ranges,
-                                                    View view, size_t num_chunks) = 0;
-
-    virtual VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<storage::PropertyPath const> properties,
-                                                    std::span<storage::PropertyValueRange const> property_ranges,
-                                                    View view, size_t num_chunks, IndexOrder order) = 0;
+                                                    View view, size_t num_chunks,
+                                                    IndexOrder order = IndexOrder::ASC) = 0;
 
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 

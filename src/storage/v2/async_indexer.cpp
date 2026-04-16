@@ -119,6 +119,7 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
                 [[maybe_unused]] auto result = storage_acc->CreateIndex(edge_type, cancel_check);
               },
               [&](LabelProperties &lp) {
+                // Async indexer is only used for auto-indexing and TTL, both of which only need ASC.
                 [[maybe_unused]] auto result =
                     storage_acc->CreateIndex(lp.label, lp.properties, IndexOrder::ASC, cancel_check);
               },

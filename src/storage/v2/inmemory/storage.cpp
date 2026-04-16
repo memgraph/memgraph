@@ -2270,15 +2270,6 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, std::span<storage::PropertyPath const> properties,
-    std::span<storage::PropertyValueRange const> property_ranges, View view) {
-  auto *active_indices =
-      static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
-  return VerticesIterable(active_indices->Vertices<InMemoryLabelPropertyIndex::Entry>(
-      label, properties, property_ranges, view, storage_, &transaction_));
-}
-
-VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
-    LabelId label, std::span<storage::PropertyPath const> properties,
     std::span<storage::PropertyValueRange const> property_ranges, View view, IndexOrder order) {
   auto *active_indices =
       static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
@@ -2302,16 +2293,6 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(Label
   auto *active_indices = static_cast<InMemoryLabelIndex::ActiveIndices *>(transaction_.active_indices_->label_.get());
   return VerticesChunkedIterable(
       active_indices->ChunkedVertices(label, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
-}
-
-VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
-    LabelId label, std::span<storage::PropertyPath const> properties,
-    std::span<storage::PropertyValueRange const> property_ranges, View view, size_t num_chunks) {
-  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto *active_indices =
-      static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
-  return VerticesChunkedIterable(active_indices->ChunkedVertices(
-      label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
 }
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
