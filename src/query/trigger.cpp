@@ -275,10 +275,10 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
       *ctx.user_or_role && dba) {
     auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(*ctx.user_or_role, dba);
     DMG_ASSERT(fine_grained_checker, "Auth checker should not be null");
-    // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
+    // if the user has unrestricted access to all labels and edge types, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control
-    if (!fine_grained_checker->HasAllGlobalPrivilegesOnVertices() ||
-        !fine_grained_checker->HasAllGlobalPrivilegesOnEdges()) {
+    if (!fine_grained_checker->HasUnrestrictedAccessToVertices() ||
+        !fine_grained_checker->HasUnrestrictedAccessToEdges()) {
       ctx.auth_checker = std::move(fine_grained_checker);
     }
   }

@@ -14,11 +14,13 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <mutex>
 #include <ranges>
+#include <thread>
 #include <type_traits>
 #include <vector>
 
@@ -394,7 +396,7 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   return *this;
 }
 
-void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
+bool OutputFile::Open(const std::filesystem::path &path, Mode mode) {
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
@@ -418,7 +420,11 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     break;
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  auto const res = fd_ != -1;
+  if (!res) {
+    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  }
+  return res;
 }
 
 bool OutputFile::IsOpen() const { return fd_ != -1; }
@@ -486,6 +492,8 @@ size_t OutputFile::SetPosition(Position position, ssize_t offset) {
   return SeekFile(position, offset);
 }
 
+// logical constness
+// NOLINTNEXTLINE (readability-make-member-function-const)
 bool OutputFile::AcquireLock() {
   MG_ASSERT(IsOpen(), "Trying to acquire a write lock on an unopened file!");
   int ret = -1;
@@ -501,6 +509,22 @@ bool OutputFile::AcquireLock() {
     }
   }
   return ret != -1;
+}
+
+auto OutputFile::AcquireLockWithTimeout(uint32_t data_dir_lock_acquisition_timeout_sec, uint16_t const sleep_time_ms)
+    -> bool {
+  if (data_dir_lock_acquisition_timeout_sec == 0) return AcquireLock();
+  auto const start_time = std::chrono::steady_clock::now();
+  auto const lock_file_timeout = std::chrono::seconds{data_dir_lock_acquisition_timeout_sec};
+  while (true) {
+    if (AcquireLock()) return true;
+    if (std::chrono::steady_clock::now() - start_time > lock_file_timeout) {
+      return false;
+    }
+    spdlog::trace("Failed to acquire lock on {}, retrying in {}ms...", path_, sleep_time_ms);
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time_ms));
+  }
+  std::unreachable();
 }
 
 void OutputFile::Sync() {
@@ -656,7 +680,7 @@ NonConcurrentOutputFile::~NonConcurrentOutputFile() {
   if (IsOpen()) Close();
 }
 
-void NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode) {
+bool NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode) {
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
@@ -681,7 +705,11 @@ void NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode)
     }
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  auto const res = fd_ != -1;
+  if (!res) {
+    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  }
+  return res;
 }
 
 bool NonConcurrentOutputFile::IsOpen() const { return fd_ != -1; }
@@ -749,6 +777,7 @@ size_t NonConcurrentOutputFile::SetPosition(Position position, ssize_t offset) {
   return SeekFile(position, offset);
 }
 
+// NOLINTNEXTLINE (readability-make-member-function-const)
 bool NonConcurrentOutputFile::AcquireLock() {
   MG_ASSERT(IsOpen(), "Trying to acquire a write lock on an unopened file!");
   int ret = -1;

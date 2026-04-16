@@ -15,8 +15,6 @@
 #include <cstddef>
 #include <nlohmann/json.hpp>
 
-#include "slk/serialization.hpp"
-
 namespace memgraph::utils {
 
 void to_json(nlohmann::json &j, const UUID &uuid) { j = nlohmann::json(uuid.uuid); }
@@ -37,13 +35,3 @@ std::string GenerateUUID() {
 }
 
 }  // namespace memgraph::utils
-
-// Serialize UUID
-namespace memgraph::slk {
-void Save(const memgraph::utils::UUID &self, memgraph::slk::Builder *builder) {
-  const auto &arr = static_cast<utils::UUID::arr_t>(self);
-  memgraph::slk::Save(arr, builder);
-}
-
-void Load(memgraph::utils::UUID *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->uuid, reader); }
-}  // namespace memgraph::slk

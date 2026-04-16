@@ -346,7 +346,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       if (replica_data.config == config) {
         return true;
       }
-      locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
+      if (!locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid)) {
+        return false;
+      }
 #ifdef MG_ENTERPRISE
       return StartRpcServer(dbms_handler_, repl_state_, replica_data, auth_, system_, parameters_);
 #else
@@ -357,7 +359,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     // Shutdown any clients we might have had
     ClientsShutdown(locked_repl_state);
     // Creates the server
-    locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
+    if (!locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid)) {
+      return false;
+    }
     spdlog::trace("Role set to replica, instance-level clients destroyed.");
 
     // Start

@@ -48,23 +48,23 @@ read_node_with_index_operation_cases_expected_sizes = [1, 3, 1, 3, 1, 3]
 
 not_read_node_without_index_operation_cases = [
     [],
-    ["GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user;"],
-    ["GRANT NOTHING ON NODES CONTAINING LABELS * TO user;"],
+    ["DENY * ON NODES CONTAINING LABELS :read_label TO user;"],
+    ["DENY * ON NODES CONTAINING LABELS * TO user;"],
     [
         "GRANT UPDATE ON NODES CONTAINING LABELS :read_label TO user;",
-        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
+        "DENY * ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
         "GRANT READ, UPDATE ON NODES CONTAINING LABELS * TO user;",
-        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
+        "DENY * ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
         "GRANT CREATE, READ, DELETE ON NODES CONTAINING LABELS :read_label TO user;",
-        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
+        "DENY * ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
         "GRANT CREATE, READ, DELETE ON NODES CONTAINING LABELS * TO user;",
-        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
+        "DENY * ON NODES CONTAINING LABELS :read_label TO user",
     ],
 ]
 
@@ -72,23 +72,23 @@ not_read_node_without_index_operation_cases_expected_sizes = [0, 0, 0, 0, 2, 0, 
 
 not_read_node_with_index_operation_cases = [
     [],
-    ["GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user;"],
-    ["GRANT NOTHING ON NODES CONTAINING LABELS * TO user;"],
+    ["DENY * ON NODES CONTAINING LABELS :read_label TO user;"],
+    ["DENY * ON NODES CONTAINING LABELS * TO user;"],
     [
         "GRANT UPDATE ON NODES CONTAINING LABELS :read_label TO user;",
-        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
+        "DENY * ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
         "GRANT READ, UPDATE ON NODES CONTAINING LABELS * TO user;",
-        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
+        "DENY * ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
         "GRANT CREATE, READ, DELETE ON NODES CONTAINING LABELS :read_label TO user;",
-        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
+        "DENY * ON NODES CONTAINING LABELS :read_label TO user",
     ],
     [
         "GRANT CREATE, READ, DELETE ON NODES CONTAINING LABELS * TO user;",
-        "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user",
+        "DENY * ON NODES CONTAINING LABELS :read_label TO user",
     ],
 ]
 

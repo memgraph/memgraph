@@ -147,7 +147,8 @@ class InMemoryStorage final : public Storage {
     S3GetFailure,
     S3MissingAwsRegion,
     S3MissingAwsAccessKey,
-    S3MissingAwsSecretKey
+    S3MissingAwsSecretKey,
+    FailedOverwritingUUID
   };
 
   /// @throw std::system_error

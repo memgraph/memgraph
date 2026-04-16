@@ -348,7 +348,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Create the lock file and open a handle to it. This will crash the
     // database if it can't open the file for writing or if any other process is
     // holding the file opened.
-    lock_file_handle_->Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    MG_ASSERT(lock_file_handle_->Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING),
+              "Failed to open {}",
+              lock_file_path_);
     MG_ASSERT(lock_file_handle_->AcquireLock(),
               "Couldn't acquire lock on the storage directory {}"
               "!\nAnother Memgraph process is currently running with the same "
@@ -4078,7 +4080,9 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
     if (uuid() != loaded_snapshot_uuid) {
       // Rewrite the UUID in the snapshot file
-      durability::OverwriteSnapshotUUID(local_path, uuid());
+      if (!durability::OverwriteSnapshotUUID(local_path, uuid())) {
+        return std::unexpected{InMemoryStorage::RecoverSnapshotError::FailedOverwritingUUID};
+      }
     }
     // Generate new name for the snapshot file
     // Must be after moving to .old, otherwise you will move the file itself
