@@ -502,9 +502,9 @@
                                              (map :value))
 
             ok-replication-lag-reads (->> history
-                                         (filter #(= :ok (:type %)))
-                                         (filter #(= :show-replication-lag (:f %)))
-                                         (map :value))
+                                          (filter #(= :ok (:type %)))
+                                          (filter #(= :show-replication-lag (:f %)))
+                                          (map :value))
 
             negative-lag-violations (->> ok-replication-lag-reads
                                          (mapcat (fn [{:keys [instances node time]}]
@@ -513,7 +513,7 @@
                                                                inst-name (:instance_name inst)]
                                                          [db-name db-data] data-info
                                                          :let [behind (get db-data "num_txns_behind_main")]
-                                                         :when (and (some? behind) (neg? behind))]
+                                                         :when (and (some? behind) (pos? behind))]
                                                      {:instance-name inst-name
                                                       :database db-name
                                                       :num-txns-behind-main behind
