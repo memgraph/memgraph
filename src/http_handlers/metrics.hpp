@@ -82,6 +82,7 @@ class MetricsRequestHandler final {
         {"PeakMemoryRes", "Memory", "PeakMemoryRes", "Memory"},
         {"UnreleasedDeltaObjects", "Memory", "unreleased_delta_objects", "General"},
         {"UnreleasedDeltaObjects", "Memory", "UnreleasedDeltaObjects", "Memory"},
+        {"RolledBackTransactions", "Transaction", "RollbackedTransactions", "Transaction"},
         {"SocketConnect_us_50p", "HighAvailability", "SocketConnect_us_50p", "General"},
         {"SocketConnect_us_90p", "HighAvailability", "SocketConnect_us_90p", "General"},
         {"SocketConnect_us_99p", "HighAvailability", "SocketConnect_us_99p", "General"},
