@@ -38,12 +38,14 @@ class MetricsRequestHandler final {
   void HandleRequest(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>> &&req,
                      std::function<void(boost::beast::http::response<boost::beast::http::string_body>)> &&send) {
     auto const bad_request = [&req](std::string_view why) {
+      nlohmann::json error;
+      error["error"] = std::string(why);
       boost::beast::http::response<boost::beast::http::string_body> res{boost::beast::http::status::bad_request,
                                                                         req.version()};
       res.set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-      res.set(boost::beast::http::field::content_type, "text/plain");
+      res.set(boost::beast::http::field::content_type, "application/json");
       res.keep_alive(req.keep_alive());
-      res.body() = std::string(why);
+      res.body() = error.dump();
       res.prepare_payload();
       return res;
     };
