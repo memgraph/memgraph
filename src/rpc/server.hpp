@@ -25,6 +25,8 @@
 
 namespace memgraph::rpc {
 
+// Constructing communication server could throw because of Epoll object, make sure to catch the possible exception when
+// constructing RPC server
 class Server {
  public:
   Server(io::network::Endpoint endpoint, communication::ServerContext *context,

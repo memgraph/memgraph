@@ -37,7 +37,8 @@ namespace memgraph::communication {
  * Listens for incoming connections on the server port and assigns them to the
  * connection listener. The listener processes the events with a thread pool
  * that has `num_workers` threads. It is started automatically on constructor,
- * and stopped at destructor.
+ * and stopped at destructor. Constructing communication server could throw because of Epoll object, make sure to catch
+ * the possible exception when constructing RPC server
  *
  * Current Server architecture:
  * incoming connection -> server -> listener -> session
