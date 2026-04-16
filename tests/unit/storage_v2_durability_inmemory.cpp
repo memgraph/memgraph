@@ -1456,7 +1456,6 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
   {
     memgraph::storage::Config config{
         .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                        .snapshot_on_exit = true,
                        .allow_parallel_snapshot_creation = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}}};
@@ -1608,9 +1607,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   // Create unrelated snapshot.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
@@ -1697,9 +1694,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
   // Create unrelated snapshot.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
@@ -1771,7 +1766,6 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
         .durability =
             {
                 .storage_directory = storage_directory,
-                .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                 .snapshot_on_exit = true,
                 .allow_parallel_snapshot_creation = true,
             },
@@ -1803,9 +1797,7 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
   // Create another snapshot.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::dbms::Database db{config};
@@ -1849,9 +1841,7 @@ TEST_P(DurabilityTest, SnapshotBackup) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
@@ -1892,7 +1882,6 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
         .durability =
             {
                 .storage_directory = storage_directory,
-                .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                 .snapshot_on_exit = true,
                 .allow_parallel_snapshot_creation = true,
             },
@@ -1936,7 +1925,6 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
         .durability =
             {
                 .storage_directory = storage_directory,
-                .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                 .snapshot_on_exit = true,
                 .allow_parallel_snapshot_creation = true,
             },
@@ -1972,9 +1960,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = true}},
     };
     memgraph::dbms::Database db{config};
@@ -3122,9 +3108,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
@@ -3194,7 +3178,6 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
         .durability =
             {
                 .storage_directory = storage_directory,
-                .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                 .snapshot_on_exit = true,
                 .allow_parallel_snapshot_creation = true,
             },
@@ -3491,7 +3474,6 @@ TEST_P(DurabilityTest, ParallelSnapshotRecovery) {
   {
     memgraph::storage::Config config{
         .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                        .snapshot_on_exit = true,
                        .items_per_batch = 13,
                        .allow_parallel_schema_creation = true},
@@ -3623,7 +3605,6 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   // Create snapshot.
   {
     config.durability.recover_on_startup = false;
-    config.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
     config.durability.snapshot_on_exit = true;
     memgraph::dbms::Database db{config};
     CreateBaseDataset(db.storage(), GetParam());
@@ -3708,11 +3689,8 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
   }
   // Create snapshot.
   {
-    memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
-        .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
     memgraph::dbms::Database db{config};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -3750,11 +3728,8 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
   }
   // Create snapshot.
   {
-    memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
-        .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
     memgraph::dbms::Database db{config};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -3802,11 +3777,8 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
   }
   // Create snapshot.
   {
-    memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
-        .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
     memgraph::dbms::Database db{config};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -3851,11 +3823,8 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
   }
   // Create snapshot.
   {
-    memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
-        .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
     memgraph::dbms::Database db{config};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -3909,11 +3878,8 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
 TEST_F(DurabilityTest, TtlDurability) {
   // Test 1: TTL enabled with edge TTL
   {
-    memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
-        .salient.items = {.properties_on_edges = true}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
 
     // Configure TTL with edge TTL enabled
@@ -3959,11 +3925,8 @@ TEST_F(DurabilityTest, TtlDurability) {
 
   // Test 2: TTL enabled without edge TTL
   {
-    memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
-        .salient.items = {.properties_on_edges = true}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
 
     // Configure TTL with edge TTL disabled
@@ -3990,11 +3953,8 @@ TEST_F(DurabilityTest, TtlDurability) {
 
   // Test 3: TTL disabled
   {
-    memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
-        .salient.items = {.properties_on_edges = true}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = true}};
     memgraph::dbms::Database db{config};
 
     // Disable TTL
@@ -4483,9 +4443,7 @@ TEST_P(DurabilityTest, SnapshotWithNonSequentialDeltas) {
 
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::dbms::Database db{config};
@@ -4574,11 +4532,8 @@ TEST_P(DurabilityTest, SnapshotWithNonSequentialDeltas) {
 TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
   // Create descriptions and snapshot.
   {
-    memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_on_exit = true},
-        .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
     memgraph::dbms::Database db{config};
 
     {

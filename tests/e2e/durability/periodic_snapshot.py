@@ -229,7 +229,7 @@ def main_test_analytical(snapshots_dir, set):
 def test_no_flags():
     data_directory = tempfile.TemporaryDirectory()
     interactive_mg_runner.start(memgraph_instances(data_directory.name), "no_flags")
-    assert number_of_snapshots(data_directory.name + "/snapshots") == 0
+    main_test(data_directory.name + "/snapshots")
     interactive_mg_runner.kill_all()
 
 

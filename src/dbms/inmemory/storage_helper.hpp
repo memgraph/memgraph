@@ -27,17 +27,15 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
   auto storage = std::make_unique<storage::InMemoryStorage>(
       std::move(config), std::nullopt, std::move(invalidator), std::move(database_protector_factory));
 
-  if (storage->config_.durability.snapshot_wal_mode != storage::Config::Durability::SnapshotWalMode::DISABLED) {
-    // Connect replication state and storage
-    storage->CreateSnapshotHandler(
-        [storage = storage.get()]() -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
-          auto result = storage->CreateSnapshot();
-          if (!result) {
-            return std::unexpected(result.error());
-          }
-          return {};
-        });
-  }
+  // Connect replication state and storage
+  storage->CreateSnapshotHandler(
+      [storage = storage.get()]() -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
+        auto result = storage->CreateSnapshot();
+        if (!result) {
+          return std::unexpected(result.error());
+        }
+        return {};
+      });
 
   return std::move(storage);
 }

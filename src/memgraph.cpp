@@ -560,19 +560,15 @@ int main(int argc, char **argv) {
                                              !coordination_setup.coordinator_hostname.empty();
 
   if (is_valid_coordinator_instance) {
-    if (!FLAGS_init_file.empty()) {
-      LOG_FATAL(
-          "Coordinator instances don't support --init-file flag. Please restart the instance by removing this flag.");
-    }
-    if (!FLAGS_init_data_file.empty()) {
-      LOG_FATAL(
-          "Coordinator instances don't support --init-data-file flag. Please restart the instance by removing this "
-          "flag.");
-    }
-    spdlog::trace("Disbling snapshot wal mode");
-    // No snapshots and no WAL files are allowed on coordinators
-    db_config.durability.snapshot_wal_mode = DISABLED;
+    MG_ASSERT(
+        FLAGS_init_file.empty(),
+        "Coordinator instances don't support --init-file flag. Please restart the instance by removing this flag.");
+    MG_ASSERT(FLAGS_init_data_file.empty(),
+              "Coordinator instances don't support --init-data-file flag. Please restart the instance by removing this "
+              "flag.");
+    db_config.durability.snapshot_interval = memgraph::utils::SchedulerInterval{"0"};
   }
+
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -653,7 +649,7 @@ int main(int argc, char **argv) {
     return FLAGS_bolt_port;
   }();  // iile
 
-  // singleton coordinator state
+// singleton coordinator state
 #ifdef MG_ENTERPRISE
   using memgraph::coordination::CoordinatorInstanceInitConfig;
   using memgraph::coordination::CoordinatorState;
