@@ -82,7 +82,19 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   streams()->SetArenaIdx(ArenaIdx());
 
 #if USE_JEMALLOC
-  // Pin the after-commit trigger thread to this DB's arena so trigger allocations are attributed correctly.
+  // Pin the after-commit trigger thread to this DB's arena so that all trigger allocations
+  // (including raw operator new / std::string) are attributed to the right DB MemoryTracker.
+  //
+  // Ordering guarantee: this task is submitted before any trigger tasks can reach the pool
+  // (the Database constructor has not returned yet, so no caller can AddTask). With pool size 1
+  // the single thread processes tasks in FIFO order, so the pinning task always runs first.
+  //
+  // Thread replacement: ThreadPool never restarts a thread. If the pool thread terminates
+  // (e.g. uncaught exception in a task), subsequent tasks are never processed — that is a
+  // different bug. For normal operation the pinning task runs exactly once and persists for
+  // the pool's lifetime.
+  MG_ASSERT(after_commit_trigger_pool_.UnfinishedTasksNum() == 0,
+            "No tasks should be queued before the arena-pinning task");
   if (unsigned idx = ArenaIdx(); idx != 0) {
     after_commit_trigger_pool_.AddTask([idx]() mutable {
       je_mallctl("thread.arena", nullptr, nullptr, &idx, sizeof(unsigned));

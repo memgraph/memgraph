@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -54,6 +55,7 @@ class TenantProfiles {
  private:
   static std::string ProfileToJson(const Profile &profile);
 
+  mutable std::shared_mutex mutex_;
   kvstore::KVStore *durability_;
   std::unordered_map<std::string, Profile> profiles_;
   std::unordered_map<std::string, std::string> db_to_profile_;  // db_name → profile_name

@@ -84,6 +84,15 @@ class ArenaPool {
     pool_.push_back(idx);
   }
 
+  // Discard all recycled arena indices from the free-list.
+  //
+  // IMPORTANT: This does NOT destroy the underlying jemalloc arenas or reclaim
+  // their metadata; jemalloc retains the arena structs indefinitely once created.
+  // Discarded indices can never be reused, so jemalloc's internal arena count grows
+  // without bound if Drain() is called repeatedly in a long-lived process.
+  //
+  // Call Drain() only at process exit or in test teardown where the process is
+  // discarded afterwards (e.g. to reset state between test cases without forking).
   void Drain() {
     std::lock_guard<std::mutex> lock(mux_);
     pool_.clear();
@@ -223,6 +232,10 @@ class DbAwareThread {
   [[nodiscard]] std::stop_source get_stop_source() noexcept { return thread_.get_stop_source(); }
 
   void request_stop() { thread_.request_stop(); }
+
+  void swap(DbAwareThread &other) noexcept { thread_.swap(other.thread_); }
+
+  [[nodiscard]] std::jthread::native_handle_type native_handle() { return thread_.native_handle(); }
 
  private:
   std::jthread thread_;

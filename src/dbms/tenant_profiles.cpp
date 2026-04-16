@@ -69,6 +69,7 @@ TenantProfiles::TenantProfiles(kvstore::KVStore &durability) : durability_{&dura
 }
 
 bool TenantProfiles::Create(std::string_view name, int64_t memory_limit) {
+  std::unique_lock lock{mutex_};
   if (profiles_.contains(std::string{name})) return false;
 
   Profile profile{.name = std::string{name}, .memory_limit = memory_limit};
@@ -79,6 +80,7 @@ bool TenantProfiles::Create(std::string_view name, int64_t memory_limit) {
 }
 
 std::optional<std::unordered_set<std::string>> TenantProfiles::Alter(std::string_view name, int64_t memory_limit) {
+  std::unique_lock lock{mutex_};
   auto it = profiles_.find(std::string{name});
   if (it == profiles_.end()) return std::nullopt;
 
@@ -91,6 +93,7 @@ std::optional<std::unordered_set<std::string>> TenantProfiles::Alter(std::string
 }
 
 TenantProfiles::DropResult TenantProfiles::Drop(std::string_view name) {
+  std::unique_lock lock{mutex_};
   auto it = profiles_.find(std::string{name});
   if (it == profiles_.end()) return DropResult::NOT_FOUND;
 
@@ -102,12 +105,14 @@ TenantProfiles::DropResult TenantProfiles::Drop(std::string_view name) {
 }
 
 std::optional<TenantProfiles::Profile> TenantProfiles::Get(std::string_view name) const {
+  std::shared_lock lock{mutex_};
   auto it = profiles_.find(std::string{name});
   if (it == profiles_.end()) return std::nullopt;
   return it->second;
 }
 
 std::vector<TenantProfiles::Profile> TenantProfiles::GetAll() const {
+  std::shared_lock lock{mutex_};
   std::vector<Profile> result;
   result.reserve(profiles_.size());
   for (const auto &[_, profile] : profiles_) {
@@ -117,6 +122,7 @@ std::vector<TenantProfiles::Profile> TenantProfiles::GetAll() const {
 }
 
 std::optional<int64_t> TenantProfiles::AttachToDatabase(std::string_view profile_name, std::string_view db_name) {
+  std::unique_lock lock{mutex_};
   auto pit = profiles_.find(std::string{profile_name});
   if (pit == profiles_.end()) return std::nullopt;
 
@@ -146,6 +152,7 @@ std::optional<int64_t> TenantProfiles::AttachToDatabase(std::string_view profile
 }
 
 bool TenantProfiles::DetachFromDatabase(std::string_view db_name) {
+  std::unique_lock lock{mutex_};
   auto dit = db_to_profile_.find(std::string{db_name});
   if (dit == db_to_profile_.end()) return false;
 
@@ -163,6 +170,7 @@ bool TenantProfiles::DetachFromDatabase(std::string_view db_name) {
 }
 
 std::optional<std::string> TenantProfiles::GetProfileForDatabase(std::string_view db_name) const {
+  std::shared_lock lock{mutex_};
   auto it = db_to_profile_.find(std::string{db_name});
   if (it == db_to_profile_.end()) return std::nullopt;
   return it->second;

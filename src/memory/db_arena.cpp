@@ -69,9 +69,12 @@ bool db_arena_commit(extent_hooks_t *hooks, void *addr, size_t size, size_t offs
   auto *dh = reinterpret_cast<DbArenaHooks *>(hooks);
   const bool err = dh->base_hooks->commit(dh->base_hooks, addr, size, offset, length, arena_ind);
   if (!err) {
+    // Pages are already committed by the OS — we cannot undo the commit here.
+    // OutOfMemoryExceptionBlocker makes MemoryTrackerCanThrow() return false on this thread,
+    // which means Alloc() will never enter its rollback path: the fetch_add is permanent and
+    // the entire tracker chain returns true unconditionally. Tracking is therefore guaranteed.
     const utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
-    dh->tracker->Alloc(
-        static_cast<int64_t>(length));  // TODO: is this safe? -> what if alloc fails, should we return true?
+    dh->tracker->Alloc(static_cast<int64_t>(length));
   }
   return err;
 }

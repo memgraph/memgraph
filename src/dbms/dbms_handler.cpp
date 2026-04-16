@@ -469,11 +469,17 @@ void DbmsHandler::AlterTenantProfile(std::string_view name, int64_t memory_limit
     throw query::QueryRuntimeException("Tenant profile '{}' not found.", name);
   }
   for (const auto &db_name : *attached_dbs) {
-    auto db_acc = Get(db_name);
-    if (memory_limit > 0) {
-      db_acc.get()->SetTenantMemoryLimit(memory_limit);
-    } else {
-      db_acc.get()->ClearTenantMemoryLimit();
+    try {
+      auto db_acc = Get(db_name);
+      if (memory_limit > 0) {
+        db_acc.get()->SetTenantMemoryLimit(memory_limit);
+      } else {
+        db_acc.get()->ClearTenantMemoryLimit();
+      }
+    } catch (const UnknownDatabaseException &) {
+      // DB was dropped concurrently — the profile change is already durable and will not
+      // be re-applied on restart (the DB no longer exists). Skip gracefully.
+      spdlog::warn("AlterTenantProfile: database '{}' not found while applying profile '{}' — skipping", db_name, name);
     }
   }
   if (sys_txn) {
