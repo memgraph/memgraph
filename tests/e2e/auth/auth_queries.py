@@ -764,7 +764,7 @@ def test_complex_role_privilege_flow(memgraph):
 def test_show_databases_for_user_and_role(memgraph):
     default_db = "memgraph"
     """Test SHOW DATABASES FOR <user> and SHOW DATABASES FOR <role> with multiple roles and grants/denies."""
-    # Setup: create databases, users, and roles3
+    # Setup: create databases, users, and roles
     memgraph.execute("CREATE DATABASE db1;")
     memgraph.execute("CREATE DATABASE db2;")
     memgraph.execute("CREATE DATABASE db3;")
