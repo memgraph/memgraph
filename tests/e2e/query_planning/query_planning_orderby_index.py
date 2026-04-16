@@ -367,7 +367,11 @@ def test_desc_index_used_for_filter_scan(memgraph):
     for v in [10, 20, 30, 40, 50]:
         memgraph.execute(f"CREATE (:L {{prop: {v}}})")
 
-    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.prop > 20 AND n.prop < 50 RETURN n.prop AS val"))
+    query = "MATCH (n:L) WHERE n.prop > 20 AND n.prop < 50 RETURN n.prop AS val"
+    plan = get_plan(memgraph, query)
+    assert any("ScanAllByLabelProperties" in step for step in plan), f"Expected index scan in plan: {plan}"
+
+    results = list(memgraph.execute_and_fetch(query))
     values = sorted([r["val"] for r in results])
     assert values == [30, 40]
 

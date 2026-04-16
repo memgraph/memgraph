@@ -287,7 +287,8 @@ class DeltaGenerator final {
                        const std::string &edge_type = {}, const std::string &name = {},
                        std::string const &enum_val = {}, const std::string &enum_type = {},
                        const std::string &vector_index_name = {}, std::uint16_t vector_dimension = 2,
-                       std::size_t vector_capacity = 100) {
+                       std::size_t vector_capacity = 100,
+                       memgraph::storage::IndexOrder index_order = memgraph::storage::IndexOrder::ASC) {
     auto label_id = memgraph::storage::LabelId::FromUint(mapper().NameToId(label));
     std::vector<memgraph::storage::PropertyPath> property_paths;
     for (const auto &[pos, properties] : ranges::views::enumerate(property_paths_as_str)) {
@@ -417,7 +418,7 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           EncodeLabelProperties(encoder, mapper(), label_id, property_paths);
-          encoder.WriteUint(static_cast<uint64_t>(memgraph::storage::IndexOrder::ASC));
+          encoder.WriteUint(static_cast<uint64_t>(index_order));
         });
         break;
       }
@@ -544,9 +545,9 @@ class DeltaGenerator final {
           case LABEL_INDEX_STATS_SET:
             return {WalLabelIndexStatsSet{label, stats}};
           case LABEL_PROPERTIES_INDEX_CREATE:
-            return {WalLabelPropertyIndexCreate{label, {property_paths_as_str}, memgraph::storage::IndexOrder::ASC}};
+            return {WalLabelPropertyIndexCreate{label, {property_paths_as_str}, index_order}};
           case LABEL_PROPERTIES_INDEX_DROP:
-            return {WalLabelPropertyIndexDrop{label, {property_paths_as_str}, memgraph::storage::IndexOrder::ASC}};
+            return {WalLabelPropertyIndexDrop{label, {property_paths_as_str}, index_order}};
           case LABEL_PROPERTIES_INDEX_STATS_SET:
             return {WalLabelPropertyIndexStatsSet{label, {property_paths_as_str}, stats}};
           case LABEL_PROPERTIES_INDEX_STATS_CLEAR:
@@ -1164,6 +1165,98 @@ GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION_TX(TEXT_INDEX_CREATE, "hello", {}, {}, {"prop1", "prop2"}, {}, "index_name", {}, {}, {}, {});
   OPERATION_TX(TEXT_INDEX_DROP, {}, {}, {}, {}, {}, "index_name", {}, {}, {}, {});
   OPERATION_TX(TTL_OPERATION, "hello");
+});
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+GENERATE_SIMPLE_TEST(DescIndexCreateAndDrop, {
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_CREATE,
+               "hello",
+               {{"world"}},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               2,
+               100,
+               memgraph::storage::IndexOrder::DESC);
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_DROP,
+               "hello",
+               {{"world"}},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               2,
+               100,
+               memgraph::storage::IndexOrder::DESC);
+});
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+GENERATE_SIMPLE_TEST(DescCompositeIndexCreateAndDrop, {
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_CREATE,
+               "Person",
+               {{"name"}, {"age"}, {"height"}},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               2,
+               100,
+               memgraph::storage::IndexOrder::DESC);
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_DROP,
+               "Person",
+               {{"name"}, {"age"}, {"height"}},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               2,
+               100,
+               memgraph::storage::IndexOrder::DESC);
+});
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+GENERATE_SIMPLE_TEST(MixedAscDescIndexOperations, {
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_CREATE, "hello", {{"world"}});
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_CREATE,
+               "hello",
+               {{"world"}},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               2,
+               100,
+               memgraph::storage::IndexOrder::DESC);
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_DROP, "hello", {{"world"}});
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_DROP,
+               "hello",
+               {{"world"}},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               {},
+               2,
+               100,
+               memgraph::storage::IndexOrder::DESC);
 });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
