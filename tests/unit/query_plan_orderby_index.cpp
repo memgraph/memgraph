@@ -1218,6 +1218,7 @@ TYPED_TEST(OrderByIndexTest, PropertyAliasRenameChainEliminated) {
 
 // DESC index + ORDER BY DESC → eliminated
 TYPED_TEST(OrderByIndexTest, DescIndexDescOrderEliminated) {
+  // MATCH (n:L) WHERE n.prop > 5 ORDER BY n.prop DESC RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
@@ -1238,6 +1239,7 @@ TYPED_TEST(OrderByIndexTest, DescIndexDescOrderEliminated) {
 
 // DESC index + ORDER BY ASC → NOT eliminated
 TYPED_TEST(OrderByIndexTest, DescIndexAscOrderNotEliminated) {
+  // MATCH (n:L) WHERE n.prop > 5 ORDER BY n.prop RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
@@ -1258,6 +1260,7 @@ TYPED_TEST(OrderByIndexTest, DescIndexAscOrderNotEliminated) {
 
 // ASC index + ORDER BY DESC → NOT eliminated
 TYPED_TEST(OrderByIndexTest, AscIndexDescOrderNotEliminated) {
+  // MATCH (n:L) WHERE n.prop > 5 ORDER BY n.prop DESC RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
@@ -1278,6 +1281,7 @@ TYPED_TEST(OrderByIndexTest, AscIndexDescOrderNotEliminated) {
 
 // Mixed ORDER BY (ASC, DESC) → NOT eliminated (even with matching index)
 TYPED_TEST(OrderByIndexTest, MixedOrderDirectionsNotEliminated) {
+  // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a ASC, n.b DESC RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
@@ -1303,6 +1307,7 @@ TYPED_TEST(OrderByIndexTest, MixedOrderDirectionsNotEliminated) {
 
 // DESC composite index + ORDER BY a DESC, b DESC → eliminated
 TYPED_TEST(OrderByIndexTest, DescCompositeDescOrderEliminated) {
+  // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a DESC, n.b DESC RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
@@ -1330,6 +1335,7 @@ TYPED_TEST(OrderByIndexTest, DescCompositeDescOrderEliminated) {
 
 // DESC index with equality-pinned column + ORDER BY second column DESC → eliminated
 TYPED_TEST(OrderByIndexTest, DescIndexEqualityPinnedEliminated) {
+  // MATCH (n:L) WHERE n.a = 5 ORDER BY n.b DESC RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
@@ -1353,6 +1359,7 @@ TYPED_TEST(OrderByIndexTest, DescIndexEqualityPinnedEliminated) {
 
 // Both ASC and DESC indices exist — ASC ORDER BY uses ASC, DESC ORDER BY uses DESC
 TYPED_TEST(OrderByIndexTest, BothIndicesExistCorrectOneSelected) {
+  // MATCH (n:L) WHERE n.prop > 5 ORDER BY n.prop [ASC|DESC] RETURN n
   FakeDbAccessor dba;
   const auto *const label_name = "L";
   const auto label = dba.Label(label_name);
@@ -1390,11 +1397,40 @@ TYPED_TEST(OrderByIndexTest, BothIndicesExistCorrectOneSelected) {
   }
 }
 
+// Both ASC and DESC indices exist, mixed ORDER BY (ASC, DESC) → NOT eliminated
+TYPED_TEST(OrderByIndexTest, BothIndicesMixedOrderNotEliminated) {
+  // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a ASC, n.b DESC RETURN n
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1, ms::IndexOrder::ASC);
+  dba.SetIndexCount(label, std::span{composite_props}, 1, ms::IndexOrder::DESC);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(5))),
+                                   RETURN("n",
+                                          ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_a.second),
+                                                   Ordering::ASC,
+                                                   PROPERTY_LOOKUP(dba, "n", prop_b.second),
+                                                   Ordering::DESC))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "Mixed ASC/DESC ORDER BY should NOT be eliminated even with both ASC and DESC indices";
+}
+
 // Test: WITH creates a new query part -- ORDER BY on inner scan's symbol must not be eliminated.
 // MATCH (n:X) WHERE n.id > 0 WITH n AS m MATCH (n:Y) WHERE n.id > 0 RETURN m, n ORDER BY n.id
 // Plan: OrderBy → Produce → ScanAll(:Y) → Produce(WITH) → ScanAll(:X) → Once
 // The :Y scan is inner (runs per :X row), so ORDER BY n.id (:Y) is not globally sorted.
 TYPED_TEST(OrderByIndexTest, WithNewQueryPartInnerScanNotEliminated) {
+  // MATCH (n:X) WHERE n.id > 0 WITH n AS m MATCH (n:Y) WHERE n.id > 0 RETURN m, n ORDER BY n.id
   FakeDbAccessor dba;
   const auto *const label_x = "X";
   const auto *const label_y = "Y";
@@ -1438,6 +1474,7 @@ TYPED_TEST(OrderByIndexTest, WithNewQueryPartInnerScanNotEliminated) {
 
 // SET n.x = 1 ORDER BY n.id -- different property, safe to eliminate.
 TYPED_TEST(OrderByIndexTest, SetPropertyDifferentPropEliminated) {
+  // MATCH (n:X) WHERE n.id > 0 SET n.x = 1 RETURN n ORDER BY n.id
   FakeDbAccessor dba;
   const auto *const label_name = "X";
   const auto label = dba.Label(label_name);
@@ -1446,7 +1483,6 @@ TYPED_TEST(OrderByIndexTest, SetPropertyDifferentPropEliminated) {
   dba.SetIndexCount(label, 1);
   dba.SetIndexCount(label, id_prop.second, 1);
 
-  // MATCH (n:X) WHERE n.id > 0 SET n.x = 1 RETURN n ORDER BY n.id
   auto *match = MATCH(PATTERN(NODE("n", label_name)));
   match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
   auto *set = SET(PROPERTY_LOOKUP(dba, "n", x_prop.second), LITERAL(1));
@@ -1462,6 +1498,7 @@ TYPED_TEST(OrderByIndexTest, SetPropertyDifferentPropEliminated) {
 
 // SET n.id = 0 ORDER BY n.id -- same property, must NOT eliminate.
 TYPED_TEST(OrderByIndexTest, SetPropertySamePropNotEliminated) {
+  // MATCH (n:X) WHERE n.id > 0 SET n.id = 0 RETURN n ORDER BY n.id
   FakeDbAccessor dba;
   const auto *const label_name = "X";
   const auto label = dba.Label(label_name);
@@ -1469,7 +1506,6 @@ TYPED_TEST(OrderByIndexTest, SetPropertySamePropNotEliminated) {
   dba.SetIndexCount(label, 1);
   dba.SetIndexCount(label, id_prop.second, 1);
 
-  // MATCH (n:X) WHERE n.id > 0 SET n.id = 0 RETURN n ORDER BY n.id
   auto *match = MATCH(PATTERN(NODE("n", label_name)));
   match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
   auto *set = SET(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0));
@@ -1485,6 +1521,7 @@ TYPED_TEST(OrderByIndexTest, SetPropertySamePropNotEliminated) {
 
 // REMOVE n.x ORDER BY n.id -- different property, safe to eliminate.
 TYPED_TEST(OrderByIndexTest, RemovePropertyDifferentPropEliminated) {
+  // MATCH (n:X) WHERE n.id > 0 REMOVE n.x RETURN n ORDER BY n.id
   FakeDbAccessor dba;
   const auto *const label_name = "X";
   const auto label = dba.Label(label_name);
@@ -1493,7 +1530,6 @@ TYPED_TEST(OrderByIndexTest, RemovePropertyDifferentPropEliminated) {
   dba.SetIndexCount(label, 1);
   dba.SetIndexCount(label, id_prop.second, 1);
 
-  // MATCH (n:X) WHERE n.id > 0 REMOVE n.x RETURN n ORDER BY n.id
   auto *match = MATCH(PATTERN(NODE("n", label_name)));
   match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
   auto *remove = REMOVE(PROPERTY_LOOKUP(dba, "n", x_prop.second));
@@ -1509,6 +1545,7 @@ TYPED_TEST(OrderByIndexTest, RemovePropertyDifferentPropEliminated) {
 
 // REMOVE n.id ORDER BY n.id -- same property, must NOT eliminate.
 TYPED_TEST(OrderByIndexTest, RemovePropertySamePropNotEliminated) {
+  // MATCH (n:X) WHERE n.id > 0 REMOVE n.id RETURN n ORDER BY n.id
   FakeDbAccessor dba;
   const auto *const label_name = "X";
   const auto label = dba.Label(label_name);
@@ -1516,7 +1553,6 @@ TYPED_TEST(OrderByIndexTest, RemovePropertySamePropNotEliminated) {
   dba.SetIndexCount(label, 1);
   dba.SetIndexCount(label, id_prop.second, 1);
 
-  // MATCH (n:X) WHERE n.id > 0 REMOVE n.id RETURN n ORDER BY n.id
   auto *match = MATCH(PATTERN(NODE("n", label_name)));
   match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
   auto *remove = REMOVE(PROPERTY_LOOKUP(dba, "n", id_prop.second));
@@ -1532,6 +1568,7 @@ TYPED_TEST(OrderByIndexTest, RemovePropertySamePropNotEliminated) {
 
 // SET n :Label ORDER BY n.id -- SetLabels doesn't affect property order.
 TYPED_TEST(OrderByIndexTest, SetLabelsEliminated) {
+  // MATCH (n:X) WHERE n.id > 0 SET n :NewLabel RETURN n ORDER BY n.id
   FakeDbAccessor dba;
   const auto *const label_name = "X";
   const auto label = dba.Label(label_name);
@@ -1539,7 +1576,6 @@ TYPED_TEST(OrderByIndexTest, SetLabelsEliminated) {
   dba.SetIndexCount(label, 1);
   dba.SetIndexCount(label, id_prop.second, 1);
 
-  // MATCH (n:X) WHERE n.id > 0 SET n :NewLabel RETURN n ORDER BY n.id
   auto *match = MATCH(PATTERN(NODE("n", label_name)));
   match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
   auto *set = SET("n", std::vector<std::string>{"NewLabel"});
@@ -1555,6 +1591,7 @@ TYPED_TEST(OrderByIndexTest, SetLabelsEliminated) {
 
 // REMOVE n :Label ORDER BY n.id -- RemoveLabels doesn't affect property order.
 TYPED_TEST(OrderByIndexTest, RemoveLabelsEliminated) {
+  // MATCH (n:X) WHERE n.id > 0 REMOVE n :SomeLabel RETURN n ORDER BY n.id
   FakeDbAccessor dba;
   const auto *const label_name = "X";
   const auto label = dba.Label(label_name);
@@ -1562,7 +1599,6 @@ TYPED_TEST(OrderByIndexTest, RemoveLabelsEliminated) {
   dba.SetIndexCount(label, 1);
   dba.SetIndexCount(label, id_prop.second, 1);
 
-  // MATCH (n:X) WHERE n.id > 0 REMOVE n :SomeLabel RETURN n ORDER BY n.id
   auto *match = MATCH(PATTERN(NODE("n", label_name)));
   match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
   auto *remove = REMOVE("n", std::vector<std::string>{"SomeLabel"});
@@ -1578,6 +1614,7 @@ TYPED_TEST(OrderByIndexTest, RemoveLabelsEliminated) {
 
 // SET n.id = -n.id WITH n, n.id AS p RETURN n ORDER BY p -- alias resolves to the modified property.
 TYPED_TEST(OrderByIndexTest, SetPropertySamePropAliasedThroughWithNotEliminated) {
+  // MATCH (n:X) WHERE n.id > 0 SET n.id = -n.id WITH n, n.id AS p RETURN n ORDER BY p
   FakeDbAccessor dba;
   const auto *const label_name = "X";
   const auto label = dba.Label(label_name);
@@ -1585,7 +1622,6 @@ TYPED_TEST(OrderByIndexTest, SetPropertySamePropAliasedThroughWithNotEliminated)
   dba.SetIndexCount(label, 1);
   dba.SetIndexCount(label, id_prop.second, 1);
 
-  // MATCH (n:X) WHERE n.id > 0 SET n.id = -n.id WITH n, n.id AS p RETURN n ORDER BY p
   auto *match = MATCH(PATTERN(NODE("n", label_name)));
   match->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", id_prop.second), LITERAL(0)));
   auto *set = SET(PROPERTY_LOOKUP(dba, "n", id_prop.second), UMINUS(PROPERTY_LOOKUP(dba, "n", id_prop.second)));
@@ -1611,6 +1647,7 @@ TYPED_TEST(OrderByIndexTest, SetPropertySamePropAliasedThroughWithNotEliminated)
 
 // MATCH ()-[e:KNOWS]->() WHERE e.since > 2020 RETURN e.since ORDER BY e.since -- basic edge elimination.
 TYPED_TEST(OrderByIndexTest, EdgeTypePropertyRangeEliminated) {
+  // MATCH ()-[e:KNOWS]->() WHERE e.since > 2020 RETURN e.since AS es ORDER BY e.since
   FakeDbAccessor dba;
   const auto *const edge_type_name = "KNOWS";
   const auto edge_type = dba.EdgeType(edge_type_name);
@@ -1635,6 +1672,7 @@ TYPED_TEST(OrderByIndexTest, EdgeTypePropertyRangeEliminated) {
 
 // MATCH ()-[e:KNOWS]->() WHERE e.since > 2020 RETURN e ORDER BY e.name -- different property, not eliminated.
 TYPED_TEST(OrderByIndexTest, EdgeTypePropertyRangeDifferentPropNotEliminated) {
+  // MATCH ()-[e:KNOWS]->() WHERE e.since > 2020 RETURN e ORDER BY e.name
   FakeDbAccessor dba;
   const auto *const edge_type_name = "KNOWS";
   const auto edge_type = dba.EdgeType(edge_type_name);
@@ -1656,6 +1694,7 @@ TYPED_TEST(OrderByIndexTest, EdgeTypePropertyRangeDifferentPropNotEliminated) {
 
 // MATCH ()-[e]->() WHERE e.since > 2020 RETURN e.since ORDER BY e.since -- global edge property index.
 TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyRangeEliminated) {
+  // MATCH ()-[e]->() WHERE e.since > 2020 RETURN e.since AS es ORDER BY e.since
   FakeDbAccessor dba;
   const auto since_prop = PROPERTY_PAIR(dba, "since");
   dba.SetIndexCount(since_prop.second, 1);  // global edge property index
@@ -1678,6 +1717,7 @@ TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyRangeEliminated) {
 // MATCH ()-[e]->() WHERE e.since > 2020 RETURN e ORDER BY e.name -- global edge index on different property, not
 // eliminated.
 TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyRangeDifferentPropNotEliminated) {
+  // MATCH ()-[e]->() WHERE e.since > 2020 RETURN e ORDER BY e.name
   FakeDbAccessor dba;
   const auto since_prop = PROPERTY_PAIR(dba, "since");
   const auto name_prop = PROPERTY_PAIR(dba, "name");
@@ -1698,6 +1738,7 @@ TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyRangeDifferentPropNotEliminated) 
 
 // MATCH ()-[e:KNOWS]->() WHERE e.since = 2020 RETURN e.since ORDER BY e.since -- exact value, eliminated.
 TYPED_TEST(OrderByIndexTest, EdgeTypePropertyValueEliminated) {
+  // MATCH ()-[e:KNOWS]->() WHERE e.since = 2020 RETURN e.since AS es ORDER BY e.since
   FakeDbAccessor dba;
   const auto *const edge_type_name = "KNOWS";
   const auto edge_type = dba.EdgeType(edge_type_name);
@@ -1722,6 +1763,7 @@ TYPED_TEST(OrderByIndexTest, EdgeTypePropertyValueEliminated) {
 
 // MATCH ()-[e:KNOWS]->() WHERE e.since = 2020 RETURN e ORDER BY e.name -- different property, not eliminated.
 TYPED_TEST(OrderByIndexTest, EdgeTypePropertyValueDifferentPropNotEliminated) {
+  // MATCH ()-[e:KNOWS]->() WHERE e.since = 2020 RETURN e ORDER BY e.name
   FakeDbAccessor dba;
   const auto *const edge_type_name = "KNOWS";
   const auto edge_type = dba.EdgeType(edge_type_name);
@@ -1743,6 +1785,7 @@ TYPED_TEST(OrderByIndexTest, EdgeTypePropertyValueDifferentPropNotEliminated) {
 
 // MATCH ()-[e]->() WHERE e.since = 2020 RETURN e.since ORDER BY e.since -- global edge property value, eliminated.
 TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyValueEliminated) {
+  // MATCH ()-[e]->() WHERE e.since = 2020 RETURN e.since AS es ORDER BY e.since
   FakeDbAccessor dba;
   const auto since_prop = PROPERTY_PAIR(dba, "since");
   dba.SetIndexCount(since_prop.second, 1);  // global edge property index
@@ -1765,6 +1808,7 @@ TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyValueEliminated) {
 // MATCH ()-[e]->() WHERE e.since = 2020 RETURN e ORDER BY e.name -- global edge value, different property, not
 // eliminated.
 TYPED_TEST(OrderByIndexTest, GlobalEdgePropertyValueDifferentPropNotEliminated) {
+  // MATCH ()-[e]->() WHERE e.since = 2020 RETURN e ORDER BY e.name
   FakeDbAccessor dba;
   const auto since_prop = PROPERTY_PAIR(dba, "since");
   const auto name_prop = PROPERTY_PAIR(dba, "name");

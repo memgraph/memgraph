@@ -41,14 +41,6 @@ def test_plan_basic_elimination(memgraph):
     assert expected == actual
 
 
-def test_plan_desc_not_eliminated(memgraph):
-    """ORDER BY DESC not eliminated (index is ASC only)."""
-    memgraph.execute("CREATE INDEX ON :L(prop);")
-
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC")
-    assert any("OrderBy" in step for step in plan), "OrderBy should NOT be eliminated (DESC)"
-
-
 def test_plan_with_renaming_allows_elimination(memgraph):
     """WITH renaming (n AS m) allows elimination -- rename is tracked through Produce."""
     memgraph.execute("CREATE INDEX ON :L(prop);")
@@ -76,14 +68,6 @@ def test_plan_equality_skip_elimination(memgraph):
 
     actual = get_plan(memgraph, "MATCH (n:L) WHERE n.a = 5 RETURN n ORDER BY n.b")
     assert expected == actual
-
-
-def test_plan_reverse_column_order_not_eliminated(memgraph):
-    """ORDER BY n.b, n.a not eliminated when index is (a, b)."""
-    memgraph.execute("CREATE INDEX ON :L(a, b);")
-
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a > 5 RETURN n ORDER BY n.b, n.a")
-    assert any("OrderBy" in step for step in plan), "OrderBy should NOT be eliminated (wrong column order)"
 
 
 # ---------------------------------------------------------------------------
@@ -179,14 +163,6 @@ def test_correctness_return_rename_input_scope(memgraph):
     assert values == [10, 20, 30, 40, 50]
 
 
-def test_plan_in_filter_not_eliminated(memgraph):
-    """ORDER BY not eliminated when IN filter drives the scan (multi-value, not globally sorted)."""
-    memgraph.execute("CREATE INDEX ON :L(a, b);")
-
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a IN [3, 1] RETURN n ORDER BY n.b")
-    assert any("OrderBy" in step for step in plan), "OrderBy should NOT be eliminated (IN is multi-valued)"
-
-
 def test_correctness_in_filter_order_preserved(memgraph):
     """IN filter with ORDER BY -- OrderBy must remain to guarantee correct ordering."""
     memgraph.execute("CREATE INDEX ON :L(a, b);")
@@ -205,36 +181,12 @@ def test_correctness_in_filter_order_preserved(memgraph):
 # ---------------------------------------------------------------------------
 
 
-def test_plan_with_property_alias_elimination(memgraph):
-    """ORDER BY a eliminated when WITH n.prop AS a projects from indexed property."""
-    memgraph.execute("CREATE INDEX ON :L(prop);")
-
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 WITH n.prop AS a RETURN a ORDER BY a")
-    assert not any("OrderBy" in step for step in plan), "OrderBy should be eliminated (alias resolved through Produce)"
-
-
-def test_plan_return_property_alias_elimination(memgraph):
-    """ORDER BY a eliminated when RETURN n.prop AS a defines the alias."""
-    memgraph.execute("CREATE INDEX ON :L(prop);")
-
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n.prop AS a ORDER BY a")
-    assert not any("OrderBy" in step for step in plan), "OrderBy should be eliminated (RETURN alias resolved)"
-
-
 def test_plan_composite_alias_elimination(memgraph):
     """ORDER BY a, b eliminated when WITH projects both from composite index (a, b)."""
     memgraph.execute("CREATE INDEX ON :L(a, b);")
 
     plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a > 0 WITH n.a AS a, n.b AS b RETURN a, b ORDER BY a, b")
     assert not any("OrderBy" in step for step in plan), "OrderBy should be eliminated (composite alias resolved)"
-
-
-def test_plan_composite_alias_wrong_order_not_eliminated(memgraph):
-    """ORDER BY b, a not eliminated when index is (a, b) -- alias order matters."""
-    memgraph.execute("CREATE INDEX ON :L(a, b);")
-
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a > 0 WITH n.b AS b, n.a AS a RETURN b, a ORDER BY b, a")
-    assert any("OrderBy" in step for step in plan), "OrderBy should NOT be eliminated (wrong order)"
 
 
 def test_correctness_with_property_alias(memgraph):
@@ -363,22 +315,6 @@ def test_plan_desc_index_desc_order_eliminated(memgraph):
     assert expected == actual
 
 
-def test_plan_desc_index_asc_order_not_eliminated(memgraph):
-    """ORDER BY ASC not eliminated when only DESC index exists."""
-    memgraph.execute('CREATE INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};')
-
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop")
-    assert any("OrderBy" in step for step in plan), "OrderBy ASC should NOT be eliminated with DESC index"
-
-
-def test_plan_asc_index_desc_order_not_eliminated(memgraph):
-    """ORDER BY DESC not eliminated when only ASC index exists."""
-    memgraph.execute("CREATE INDEX ON :L(prop);")
-
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.prop > 5 RETURN n ORDER BY n.prop DESC")
-    assert any("OrderBy" in step for step in plan), "OrderBy DESC should NOT be eliminated with ASC index"
-
-
 def test_correctness_desc_index_descending_order(memgraph):
     """Results correctly ordered descending with DESC index and ORDER BY DESC."""
     memgraph.execute('CREATE INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};')
@@ -423,14 +359,6 @@ def test_correctness_desc_equality_pinned(memgraph):
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 1 RETURN n ORDER BY n.b DESC"))
     values = [r["n"]._properties["b"] for r in results]
     assert values == [50, 40, 30, 20, 10]
-
-
-def test_plan_mixed_order_not_eliminated(memgraph):
-    """Mixed ASC/DESC in ORDER BY not eliminated even with DESC index."""
-    memgraph.execute('CREATE INDEX ON :L(a, b) WITH CONFIG {"order": "DESC"};')
-
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a > 0 RETURN n ORDER BY n.a ASC, n.b DESC")
-    assert any("OrderBy" in step for step in plan), "Mixed ASC/DESC ORDER BY should NOT be eliminated"
 
 
 def test_desc_index_used_for_filter_scan(memgraph):
