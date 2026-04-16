@@ -2928,6 +2928,33 @@ TEST_F(AuthQueryHandlerFixture, DisambiguationRoleKeywordBothExistResolvesToRole
   ASSERT_EQ(result[0][2].ValueString(), "GRANTED TO ROLE");
 }
 
+#ifdef MG_ENTERPRISE
+TEST_F(AuthQueryHandlerFixture, DatabasePrivilegesDisambiguationUserAndRoleKeywordsResolveCorrectTarget) {
+  memgraph::auth::User user{"alice"};
+  user.db_access().GrantAll();
+  auth.value()->SaveUser(user);
+
+  memgraph::auth::Role role{"alice"};
+  role.db_access().Grant("role_db");
+  auth.value()->SaveRole(role);
+
+  auto user_result = auth_handler.GetDatabasePrivileges("alice", {"alice"}, memgraph::auth::UserOrRoleType::USER);
+  ASSERT_EQ(user_result.size(), 1);
+  ASSERT_EQ(user_result[0].size(), 2);
+  ASSERT_TRUE(user_result[0][0].IsString());
+  ASSERT_EQ(user_result[0][0].ValueString(), "*");
+
+  auto role_result = auth_handler.GetDatabasePrivileges("alice", {"alice"}, memgraph::auth::UserOrRoleType::ROLE);
+  ASSERT_EQ(role_result.size(), 1);
+  ASSERT_EQ(role_result[0].size(), 2);
+  ASSERT_TRUE(role_result[0][0].IsList());
+  auto const &grants = role_result[0][0].ValueList();
+  ASSERT_TRUE(std::find_if(grants.begin(), grants.end(), [](const auto &db) {
+                return db.IsString() && db.ValueString() == "role_db";
+              }) != grants.end());
+}
+#endif
+
 TEST_F(AuthQueryHandlerFixture, GetRolenamesReturnsBuiltinFlag) {
   ASSERT_TRUE(auth_handler.CreateRole("regular_role", nullptr));
 
