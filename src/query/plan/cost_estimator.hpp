@@ -162,8 +162,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     if (index_stats) {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     }
-    cardinality_ *= EstimateLabelPropertiesCardinality(
-        logical_op.label_, logical_op.properties_, logical_op.expression_ranges_, logical_op.index_order_);
+    cardinality_ *=
+        EstimateLabelPropertiesCardinality(logical_op.label_, logical_op.properties_, logical_op.expression_ranges_);
     if (index_hints_.HasLabelPropertiesIndex(db_accessor_, logical_op.label_, logical_op.properties_)) {
       use_index_hints_ = true;
     }
@@ -737,8 +737,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // Used by both single-threaded and parallel scan operators.
   double EstimateLabelPropertiesCardinality(storage::LabelId label,
                                             const std::vector<storage::PropertyPath> &properties,
-                                            const std::vector<ExpressionRange> &expression_ranges,
-                                            std::optional<storage::IndexOrder> order = std::nullopt) {
+                                            const std::vector<ExpressionRange> &expression_ranges) {
     auto maybe_propertyvalue_ranges =
         expression_ranges | ranges::views::transform([&](ExpressionRange const &er) {
           return er.ResolveAtPlantime(parameters, db_accessor_->GetStorageAccessor()->GetNameIdMapper());
@@ -750,9 +749,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
                                   ranges::views::transform([](auto &&optional) { return *optional; }) |
                                   ranges::to_vector;
 
-      return db_accessor_->VerticesCount(label, properties, propertyvalue_ranges, order);
+      return db_accessor_->VerticesCount(label, properties, propertyvalue_ranges);
     } else {
-      return db_accessor_->VerticesCount(label, properties, order) * CardParam::kFilter;
+      return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
     }
   }
 

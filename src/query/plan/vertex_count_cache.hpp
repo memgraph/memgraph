@@ -57,24 +57,22 @@ class VertexCountCache {
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
-                        std::optional<storage::IndexOrder> order = std::nullopt) {
-    auto key = std::make_tuple(label, std::vector(properties.begin(), properties.end()), order);
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties) {
+    auto key = std::make_pair(label, std::vector(properties.begin(), properties.end()));
     if (!label_properties_vertex_count_.contains(key))
-      label_properties_vertex_count_[key] = db_->VerticesCount(label, properties, order);
+      label_properties_vertex_count_[key] = db_->VerticesCount(label, properties);
     return label_properties_vertex_count_.at(key);
   }
 
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
-                        std::span<storage::PropertyValueRange const> bounds,
-                        std::optional<storage::IndexOrder> order = std::nullopt) {
+                        std::span<storage::PropertyValueRange const> bounds) {
     auto key = std::make_tuple(
-        label, std::vector(properties.begin(), properties.end()), std::vector(bounds.begin(), bounds.end()), order);
+        label, std::vector(properties.begin(), properties.end()), std::vector(bounds.begin(), bounds.end()));
     auto it = label_properties_ranges_vertex_count_.find(key);
     if (it != label_properties_ranges_vertex_count_.end()) {
       return it->second;
     } else {
-      auto const count = db_->VerticesCount(label, properties, bounds, order);
+      auto const count = db_->VerticesCount(label, properties, bounds);
       label_properties_ranges_vertex_count_[key] = count;
       return count;
     }
@@ -184,11 +182,9 @@ class VertexCountCache {
 
  private:
   using LabelPropertyKey = std::pair<storage::LabelId, storage::PropertyId>;
-  using LabelPropertiesKey =
-      std::tuple<storage::LabelId, std::vector<storage::PropertyPath>, std::optional<storage::IndexOrder>>;
+  using LabelPropertiesKey = std::pair<storage::LabelId, std::vector<storage::PropertyPath>>;
   using LabelPropertiesRangesKey =
-      std::tuple<storage::LabelId, std::vector<storage::PropertyPath>, std::vector<storage::PropertyValueRange>,
-                 std::optional<storage::IndexOrder>>;
+      std::tuple<storage::LabelId, std::vector<storage::PropertyPath>, std::vector<storage::PropertyValueRange>>;
   using EdgeTypePropertyKey = std::pair<storage::EdgeTypeId, storage::PropertyId>;
 
   struct LabelPropertyHash {
@@ -203,19 +199,18 @@ class VertexCountCache {
 
   struct LabelPropertiesHash {
     size_t operator()(const LabelPropertiesKey &key) const {
-      auto const &[label_id, property_ids, order] = key;
+      auto const &[label_id, property_ids] = key;
       std::size_t seed = 0;
       boost::hash_combine(seed, std::hash<storage::LabelId>{}(label_id));
       boost::hash_combine(
           seed, utils::FnvCollection<std::vector<storage::PropertyPath>, storage::PropertyPath>{}(property_ids));
-      boost::hash_combine(seed, std::hash<int>{}(order ? static_cast<int>(*order) : -1));
       return seed;
     }
   };
 
   struct LabelPropertiesRangesHash {
     size_t operator()(LabelPropertiesRangesKey const &key) const noexcept {
-      auto const &[label_id, property_ids, property_ranges, order] = key;
+      auto const &[label_id, property_ids, property_ranges] = key;
       std::size_t seed = 0;
       boost::hash_combine(seed, std::hash<storage::LabelId>{}(label_id));
       boost::hash_combine(
@@ -223,7 +218,6 @@ class VertexCountCache {
       boost::hash_combine(seed,
                           utils::FnvCollection<std::vector<storage::PropertyValueRange>, storage::PropertyValueRange>{}(
                               property_ranges));
-      boost::hash_combine(seed, std::hash<int>{}(order ? static_cast<int>(*order) : -1));
       return seed;
     }
   };

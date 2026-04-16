@@ -861,8 +861,8 @@ class FakeDbAccessor {
     return 0;
   }
 
-  int64_t VerticesCount(memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties,
-                        std::optional<memgraph::storage::IndexOrder> /*order*/ = std::nullopt) const {
+  int64_t VerticesCount(memgraph::storage::LabelId label,
+                        std::span<memgraph::storage::PropertyPath const> properties) const {
     auto it = std::ranges::find_if(label_properties_index_, [&](auto const &each) {
       return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
     });
@@ -875,8 +875,7 @@ class FakeDbAccessor {
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties,
-                        std::span<memgraph::storage::PropertyValueRange const> bounds,
-                        std::optional<memgraph::storage::IndexOrder> /*order*/ = std::nullopt) const {
+                        std::span<memgraph::storage::PropertyValueRange const> bounds) const {
     // Stub implementation - returns 0
     return 0;
   }

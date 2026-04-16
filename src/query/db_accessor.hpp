@@ -765,22 +765,19 @@ class DbAccessor final {
 
   int64_t VerticesCount(storage::LabelId label) const { return accessor_->ApproximateVertexCount(label); }
 
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
-                        std::optional<storage::IndexOrder> order = std::nullopt) const {
-    return accessor_->ApproximateVertexCount(label, properties, order);
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties) const {
+    return accessor_->ApproximateVertexCount(label, properties);
   }
 
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
-                        std::span<storage::PropertyValue const> values,
-                        std::optional<storage::IndexOrder> order = std::nullopt) const {
-    return accessor_->ApproximateVertexCount(label, properties, values, order);
+                        std::span<storage::PropertyValue const> values) const {
+    return accessor_->ApproximateVertexCount(label, properties, values);
   }
 
   // TODO: rename to ApproximateVertexCount?
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
-                        std::span<storage::PropertyValueRange const> bounds,
-                        std::optional<storage::IndexOrder> order = std::nullopt) const {
-    return accessor_->ApproximateVertexCount(label, properties, bounds, order);
+                        std::span<storage::PropertyValueRange const> bounds) const {
+    return accessor_->ApproximateVertexCount(label, properties, bounds);
   }
 
   std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
