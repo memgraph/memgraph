@@ -39,7 +39,7 @@
 
 #include <fmt/format.h>
 
-#include "planner/pattern/vm/compiled_pattern.hpp"
+#include "planner/pattern/vm/compiled_rule.hpp"
 #include "planner/pattern/vm/instruction.hpp"
 #include "planner/pattern/vm/tracer.hpp"
 

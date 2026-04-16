@@ -126,7 +126,7 @@ class Memgraph(ConanFile):
     def build_requirements(self):
         self.tool_requires("cmake/[>=4 <5]")
         self.tool_requires("ninja/[>=1.13 <2]")
-        self.tool_requires("ccache/[>=4.12 <5]")
+        self.tool_requires("ccache/4.12.3-memgraph")
         self.tool_requires("antlr4/4.13.1")
 
         self.test_requires("benchmark/[>=1.9 <2]")
