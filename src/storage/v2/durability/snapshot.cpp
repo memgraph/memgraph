@@ -11618,50 +11618,66 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
     };
 
-    auto const write_label_property_stats = [&](auto const &label_property_path_pair) {
+    auto const write_label_property_stats = [&](auto const &asc, auto const &desc) {
       auto *inmem_index = static_cast<InMemoryLabelPropertyIndex *>(storage->indices_.label_property_index_.get());
       const auto size_pos = snapshot.GetPosition();
-      snapshot.WriteUint(0);  // Just a place holder
+      snapshot.WriteUint(0);  // placeholder — not every index has stats
       unsigned i = 0;
-      for (const auto &item : label_property_path_pair) {
-        auto stats = inmem_index->GetIndexStats({item.label, item.properties});
-        if (stats) {
-          snapshot.WriteUint(item.label.AsUint());
-          snapshot.WriteUint(item.properties.size());
-          for (const auto &property_path : item.properties) {
-            snapshot.WriteUint(property_path.size());
-            for (const auto &property : property_path) {
-              snapshot.WriteUint(property.AsUint());
+      std::set<std::pair<LabelId, PropertiesPaths>> written;
+
+      auto write_stats_for = [&](auto const &indices) {
+        for (const auto &item : indices) {
+          auto key = std::make_pair(item.label, item.properties);
+          if (written.contains(key)) continue;
+          auto stats = inmem_index->GetIndexStats({item.label, item.properties});
+          if (stats) {
+            written.insert(std::move(key));
+            write_mapping(item.label);
+            snapshot.WriteUint(item.properties.size());
+            for (const auto &property_path : item.properties) {
+              snapshot.WriteUint(property_path.size());
+              for (const auto &property : property_path) {
+                write_mapping(property);
+              }
             }
+            snapshot.WriteUint(stats->count);
+            snapshot.WriteUint(stats->distinct_values_count);
+            snapshot.WriteDouble(stats->statistic);
+            snapshot.WriteDouble(stats->avg_group_size);
+            snapshot.WriteDouble(stats->avg_degree);
+            ++i;
           }
-          snapshot.WriteUint(stats->count);
-          snapshot.WriteUint(stats->distinct_values_count);
-          snapshot.WriteDouble(stats->statistic);
-          snapshot.WriteDouble(stats->avg_group_size);
-          snapshot.WriteDouble(stats->avg_degree);
-          ++i;
         }
-      }
+      };
+
+      write_stats_for(asc);
+      write_stats_for(desc);
+
       if (i != 0) {
         const auto last_pos = snapshot.GetPosition();
         snapshot.SetPosition(size_pos);
-        snapshot.WriteUint(i);  // Write real size
+        snapshot.WriteUint(i);  // write real size
         snapshot.SetPosition(last_pos);
       }
     };
 
-    // Write ASC label+properties indices and statistics.
+    auto asc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
+    auto desc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
+
+    // Write ASC label+properties indices.
     {
-      auto asc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
       write_label_property_indices(asc_indices);
-      if (snapshot_aborted()) return std::nullopt;
-      write_label_property_stats(asc_indices);
       if (snapshot_aborted()) return std::nullopt;
     }
 
-    // Write DESC label+properties indices (no separate stats — ASC and DESC share the same stats entry).
+    // Write label+property index statistics — covers both ASC and DESC-only indices, deduplicated.
     {
-      auto desc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
+      write_label_property_stats(asc_indices, desc_indices);
+      if (snapshot_aborted()) return std::nullopt;
+    }
+
+    // Write DESC label+properties indices.
+    {
       write_label_property_indices(desc_indices);
       if (snapshot_aborted()) return std::nullopt;
     }
