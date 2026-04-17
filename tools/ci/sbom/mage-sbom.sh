@@ -10,9 +10,9 @@ function cleanup() {
     rm -rf syft.tar.gz || true
     rm -rf syft || true
     rm -rf cyclonedx || true
-    # rm -rf sbom/docker-sbom.json || true
-    # rm -rf sbom/memgraph-sbom.json || true
-    # rm -rf sbom/rust-mage-sbom-files || true
+    rm -rf sbom/docker-sbom.json || true
+    rm -rf sbom/memgraph-sbom.json || true
+    rm -rf sbom/rust-mage-sbom-files || true
     exit $exit_code
 }
 trap cleanup ERR EXIT
