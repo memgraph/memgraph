@@ -100,12 +100,13 @@ class PullAwaitable {
     bool owns_handle_{false};
 
     ~Awaiter() {
-      // Only destroy when we exclusively own the handle (rvalue co_await path)
-      // and the child ran to completion.  If the child is still suspended, leave
-      // it — PullPlan::suspended_handle_ handles teardown on interpreter exit.
+      // Destroy the handle when we own it (rvalue co_await path).
+      // Always destroy, even if not done, to prevent leaks when parent cursors
+      // are destroyed while child coroutines are suspended. The caller (cursor)
+      // is responsible for ensuring proper cleanup.
       // In the lvalue co_await path (owns_handle_=false) the originating
       // PullAwaitable still holds the handle and will destroy it.
-      if (owns_handle_ && handle_ && handle_.done()) {
+      if (owns_handle_ && handle_) {
         handle_.destroy();
       }
     }
@@ -207,6 +208,8 @@ class PullAwaitable {
         handle_.promise().RethrowIfException();
         return false;
       }
+      // Match PullAwaitable::Awaiter: surface unhandled_exception() as soon as this resume completes.
+      handle_.promise().RethrowIfException();
       return handle_.promise().has_more_;
     }
 

@@ -86,6 +86,11 @@ class Cursor {
   /// Resets the Cursor to its initial state. Destroys the live generator (if any).
   virtual void Reset();
 
+  /// Interrupt outstanding external waits without tearing down the cursor state.
+  /// Used during cooperative teardown so parked tasks can wake up, observe abort,
+  /// and exit before Shutdown destroys underlying coroutine frames.
+  virtual void Interrupt() {}
+
   /// Perform cleanup which may throw an exception.
   virtual void Shutdown() = 0;
 

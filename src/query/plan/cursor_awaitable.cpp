@@ -33,11 +33,15 @@ PullRunResult RunPullToCompletion(PullAwaitable::ResumeAwaitable &ra, ExecutionC
     resume_target.resume();
   }
 
+  // Always check for exceptions before reporting yield status.
+  // A stale suspended_task_handle_ptr (e.g. from parallel branch execution)
+  // must not hide an exception that the coroutine stored via unhandled_exception().
+  ra.RethrowIfException();
+
   if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
     return PullRunResult::Yielded();
   }
 
-  ra.RethrowIfException();
   return ra.Result() ? PullRunResult::Row() : PullRunResult::Done();
 }
 

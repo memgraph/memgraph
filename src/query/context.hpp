@@ -170,6 +170,10 @@ struct ExecutionContext {
   /// When a cursor yields, it stores the suspended handle here so the scheduler can resume later.
   std::coroutine_handle<> *suspended_task_handle_ptr{nullptr};
 
+  /// Optional marker set by awaiters that park the current resumable task on
+  /// external progress instead of requesting immediate scheduler reschedule.
+  bool *task_parked_ptr{nullptr};
+
   auto commit_args() -> storage::CommitArgs;
 };
 
