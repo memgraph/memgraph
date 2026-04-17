@@ -44,7 +44,7 @@ inline thread_local unsigned tls_db_arena_idx [[gnu::tls_model("initial-exec")]]
 [[nodiscard]] inline void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
 #if USE_JEMALLOC
   if (idx != 0) {
-    int flags = MALLOCX_ARENA(idx);
+    int flags = MALLOCX_ARENA(idx) | MALLOCX_TCACHE_NONE;
     if (alignment > alignof(std::max_align_t)) {
       flags |= MALLOCX_ALIGN(alignment);
     }
@@ -55,9 +55,12 @@ inline thread_local unsigned tls_db_arena_idx [[gnu::tls_model("initial-exec")]]
 }
 
 // Deallocate memory previously allocated via DbAllocateBytes.
+// Uses je_sdallocx with MALLOCX_TCACHE_NONE so the free goes directly to the
+// arena bin, matching the allocation style and allowing decay=0 arenas to
+// return pages to the OS promptly without blocks sitting in the TLS cache.
 inline void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept {
 #if USE_JEMALLOC
-  int flags = 0;
+  int flags = MALLOCX_TCACHE_NONE;
   if (alignment > alignof(std::max_align_t)) {
     flags |= MALLOCX_ALIGN(alignment);
   }
@@ -75,7 +78,12 @@ void DbDeallocate(T *p, std::size_t n) noexcept {
 }
 
 // Custom deleter for std::unique_ptr<T> when the object was allocated via
-// ArenaAwareAllocator (i.e. with je_mallocx).
+// ArenaAwareAllocator (i.e. with je_mallocx + MALLOCX_TCACHE_NONE).
+// Using the default deleter (operator delete / je_free) would route the
+// deallocation through the calling thread's tcache, delaying the
+// db_arena_dalloc extent-hook callback and causing the DB MemoryTracker to
+// overcount until the tcache flushes.  This deleter calls DbDeallocateBytes
+// (je_sdallocx + MALLOCX_TCACHE_NONE) so the hook fires immediately.
 template <typename T>
 struct ArenaAwareDeleter {
   void operator()(T *p) const noexcept {
@@ -125,6 +133,7 @@ struct DbAwareAllocator {
   void deallocate(T *p, std::size_t n) noexcept {
     // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
     // free query-thread allocations regardless of which thread calls deallocate.
+    // MALLOCX_TCACHE_NONE matches the allocation style and lets decay=0 arenas return pages promptly.
     DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
   }
 
@@ -170,6 +179,7 @@ struct ArenaAwareAllocator {
   void deallocate(T *p, std::size_t n) noexcept {
     // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
     // free query-thread allocations regardless of which thread calls deallocate.
+    // MALLOCX_TCACHE_NONE matches the allocation style and lets decay=0 arenas return pages promptly.
     DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
   }
 

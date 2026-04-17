@@ -108,7 +108,7 @@ TEST_F(DbMemoryTrackingTest, ArenaIsolationAndParentPropagation) {
   std::vector<void *> ptrs;
   ptrs.reserve(kAllocCount);
   for (std::size_t i = 0; i < kAllocCount; ++i) {
-    ptrs.push_back(je_mallocx(kAllocSize, MALLOCX_ARENA(arena1)));
+    ptrs.push_back(je_mallocx(kAllocSize, MALLOCX_ARENA(arena1) | MALLOCX_TCACHE_NONE));
   }
 
   const int64_t after1 = db1->DbMemoryUsage();
@@ -129,7 +129,7 @@ TEST_F(DbMemoryTrackingTest, ArenaIsolationAndParentPropagation) {
   std::vector<void *> default_ptrs;
   default_ptrs.reserve(kAllocCount);
   for (std::size_t i = 0; i < kAllocCount; ++i) {
-    default_ptrs.push_back(je_mallocx(kAllocSize, 0));
+    default_ptrs.push_back(je_mallocx(kAllocSize, MALLOCX_TCACHE_NONE));
   }
   EXPECT_LE(db1->DbMemoryUsage(), db1_mid + static_cast<int64_t>(512 * 1024))
       << "Default-arena allocations must not be attributed to any DB";

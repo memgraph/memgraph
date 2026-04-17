@@ -59,6 +59,49 @@ struct VectorEdgeIndex::Impl {
   mutable std::shared_mutex edge_endpoints_mutex_;
 };
 
+namespace {
+
+using EdgeIndexEntry = VectorEdgeIndex::EdgeIndexEntry;
+
+/// @brief Attempts to add all matching edges from a vertex to the vector index.
+/// Handles resize if the index is full.
+/// @param mg_index The synchronized index wrapper.
+/// @param spec The index specification (may be modified if resize occurs).
+/// @param from_vertex The source vertex whose edges to process.
+/// @param snapshot_info Optional snapshot observer for progress tracking.
+/// @param thread_id Optional thread ID hint for usearch's internal optimizations.
+void TryAddEdgesToIndex(synchronized_mg_vector_edge_index_t &mg_index, VectorEdgeIndexSpec &spec, Vertex &from_vertex,
+                        std::optional<SnapshotObserverInfo> const &snapshot_info,
+                        std::optional<std::size_t> thread_id = std::nullopt) {
+  if (from_vertex.deleted()) {
+    return;
+  }
+  for (auto &edge_tuple : from_vertex.out_edges) {
+    if (std::get<kEdgeTypeIdPos>(edge_tuple) != spec.edge_type_id) {
+      continue;
+    }
+    auto *to_vertex = std::get<kVertexPos>(edge_tuple);
+    if (to_vertex->deleted()) {
+      continue;
+    }
+    auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
+    if (edge->deleted()) {
+      continue;
+    }
+    auto property = edge->properties.GetProperty(spec.property);
+    if (property.IsNull()) {
+      continue;
+    }
+    auto vector = ListToVector(property);
+    UpdateVectorIndex(mg_index, spec, edge, vector, thread_id);
+    if (snapshot_info) {
+      snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
+    }
+  }
+}
+
+}  // namespace
+
 VectorEdgeIndex::VectorEdgeIndex(utils::MemoryTracker *memory_tracker)
     : pimpl(std::make_unique<Impl>()), memory_tracker_(memory_tracker) {}
 
