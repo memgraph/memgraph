@@ -155,9 +155,12 @@ class TaskCollection {
 
   ResumableTaskSignature WrapTask(size_t index, PriorityThreadPool *pool = nullptr);
 
-  void Wait();
+  // Wait for all tasks to finish with optional timeout (default 30s).
+  // Returns true if all tasks finished, false if timeout occurred.
+  bool Wait(std::chrono::milliseconds timeout = std::chrono::milliseconds(30000));
 
-  void WaitOrSteal();
+  // Wait for tasks with stealing, returns true if all finished, false on timeout
+  bool WaitOrSteal(std::chrono::milliseconds timeout = std::chrono::milliseconds(30000));
 
   /// Try to steal and run a single IDLE task on the calling thread.
   /// Returns true if a task was claimed and executed, false otherwise.

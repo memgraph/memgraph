@@ -523,23 +523,36 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
   };
 }
 
-void TaskCollection::Wait() {
+bool TaskCollection::Wait(std::chrono::milliseconds timeout) {
   spdlog::trace("TaskCollection::Wait() starting for {} tasks", tasks_.size());
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
   for (size_t i = 0; i < tasks_.size(); ++i) {
     auto &task = tasks_[i];
     auto expected = task.state_->load(std::memory_order_acquire);
     spdlog::trace("TaskCollection::Wait(): task[{}] initial state={}", i, static_cast<int>(expected));
     while (expected != Task::State::FINISHED) {
       spdlog::trace("TaskCollection::Wait(): task[{}] waiting on state={}", i, static_cast<int>(expected));
-      task.state_->wait(expected, std::memory_order_acquire);
+      // P7 FIX: Check for timeout before waiting to prevent indefinite hang
+      const auto now = std::chrono::steady_clock::now();
+      if (now >= deadline) {
+        spdlog::error("TaskCollection::Wait() timeout after {}ms - task[{}] stuck in state={}",
+                      timeout.count(),
+                      i,
+                      static_cast<int>(expected));
+        return false;  // Timeout - tasks may be stuck
+      }
+      // Poll with short sleep to allow timeout checking
+      // std::atomic::wait_for is C++20 but not available in all libstdc++ versions
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
       expected = task.state_->load(std::memory_order_acquire);
-      spdlog::trace("TaskCollection::Wait(): task[{}] woke up, new state={}", i, static_cast<int>(expected));
+      spdlog::trace("TaskCollection::Wait(): task[{}] polled, new state={}", i, static_cast<int>(expected));
     }
   }
   spdlog::trace("TaskCollection::Wait() completed");
+  return true;
 }
 
-void TaskCollection::WaitOrSteal() {
+bool TaskCollection::WaitOrSteal(std::chrono::milliseconds timeout) {
   // Phase 1 - steal tasks that have not been picked up by a pool worker yet.
   // Use IDLE→STOLEN (not IDLE→SCHEDULED): WrapTask closures still in the pool
   // queue interpret SCHEDULED as "resume after yield" and would fall through to
@@ -548,7 +561,7 @@ void TaskCollection::WaitOrSteal() {
   while (TryExecuteOneIdleTask()) {
   }
   // Phase 2 - wait for tasks to finish
-  Wait();
+  return Wait(timeout);
 }
 
 bool TaskCollection::TryExecuteOneIdleTask(PriorityThreadPool *pool) {
