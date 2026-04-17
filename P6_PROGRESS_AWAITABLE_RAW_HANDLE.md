@@ -4,7 +4,19 @@
 **Severity:** MEDIUM
 **Location:** `src/utils/priority_thread_pool.hpp:360`
 **Issue Type:** Race condition - Raw coroutine handle in ProgressAwaitable
-**Status:** OPEN - Needs same fix pattern as P1
+**Status:** **FIXED** - Applied same pattern as P1 (2025-01-17)
+
+### Fix Applied
+
+```cpp
+bool await_suspend(std::coroutine_handle<> handle) const {
+  // No CurrentResumableTaskScope: registering the raw coroutine handle would
+  // create a double-resume race. Fall through to busy-spin instead.
+  return false;
+}
+```
+
+This removes the raw coroutine handle registration, eliminating the double-resume race.
 
 ---
 

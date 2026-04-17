@@ -25,13 +25,27 @@ clear_handle();
 return false;
 ```
 
+### Fix Applied to ProgressAwaitable (2025-01-17)
+
+The same fix pattern has been applied to `CollectionScheduler::ProgressAwaitable`:
+
+```cpp
+bool await_suspend(std::coroutine_handle<> handle) const {
+  // No CurrentResumableTaskScope: registering the raw coroutine handle would
+  // create a double-resume race. Fall through to busy-spin instead.
+  return false;
+}
+```
+
+This removes the second double-resume path identified in the subagent review.
+
 ### Subagent Verification Results
 
 After subagent review, the following findings were confirmed:
 
-1. **ScanParallelCursor fix is CORRECT** - The busy-spin fallback is safe
-2. **SECOND double-resume path found** - `CollectionScheduler::ProgressAwaitable` at operator.cpp:11107 still registers raw coroutine handles
-3. **WorkerResumeEvent::NotifyAll() still has TOCTOU** - The function itself was not hardened, only one caller was removed
+1. **ScanParallelCursor fix is CORRECT** - The busy-spin fallback is safe ✅
+2. **ProgressAwaitable fix is NOW APPLIED** - Same pattern as ScanParallelCursor ✅
+3. **WorkerResumeEvent::NotifyAll() still has TOCTOU** - The function itself should still be hardened with atomic CAS guards (defensive)
 
 ### NEW CRITICAL FINDING: ProgressAwaitable Double-Resume Path
 

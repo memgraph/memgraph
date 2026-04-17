@@ -10,12 +10,12 @@ This document cross-references all identified issues in the parallel query execu
 
 | Issue | Severity | Status | Type | Primary File |
 |-------|----------|--------|------|--------------|
-| **P1** | Medium | Partially Fixed | Double-resume race | priority_thread_pool.cpp |
+| **P1** | Medium | **Fixed** | Double-resume race | priority_thread_pool.cpp |
 | **P2** | Low | Closed (FP) | False positive | cursor_awaitable_core.hpp |
 | **P3** | Low | Closed (FP) | False positive | operator.cpp |
 | **P4** | **Critical** | **Open** | **Deadlock** | **priority_thread_pool.cpp** |
 | **P5** | High | Open | Race condition | operator.cpp |
-| **P6** | Medium | Open | Double-resume pattern | priority_thread_pool.hpp |
+| **P6** | Medium | **Fixed** | Double-resume pattern | priority_thread_pool.hpp |
 | **P7** | Medium | Open | Defensive improvement | priority_thread_pool.cpp |
 
 ---
@@ -25,10 +25,11 @@ This document cross-references all identified issues in the parallel query execu
 ### How Issues Relate to Each Other
 
 ```
-P1 (Double-Resume Race - Partially Fixed)
+P1 (Double-Resume Race - FIXED)
+├── Fixed paths: ScanParallelCursor, ProgressAwaitable
 ├── Related to: P4 (can contribute to state corruption)
 ├── Related to: P5 (orphaned closure sub-problem)
-└── Similar to: P6 (same pattern, different location)
+└── Similar to: P6 (same pattern, different location - also FIXED)
 
 P4 (Silent Task Dropping - PRIMARY DEADLOCK CAUSE)
 ├── Caused deadlock observed in: 2025-01-17
@@ -41,9 +42,10 @@ P5 (Orphaned Closure Race)
 ├── Can trigger: P4 deadlock scenario
 └── Location: ProducerProgressAwaitable
 
-P6 (ProgressAwaitable Raw Handle)
+P6 (ProgressAwaitable Raw Handle - FIXED)
 ├── Same pattern as: P1
-└── Lower risk (different code path)
+├── Fix applied: 2025-01-17 (busy-spin fallback)
+└── Status: Both P1 and P6 now use safe pattern
 
 P7 (TaskCollection Timeout)
 ├── Defensive measure for: P4

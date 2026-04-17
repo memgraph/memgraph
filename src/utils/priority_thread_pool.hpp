@@ -358,7 +358,11 @@ class CollectionScheduler {
     bool await_ready() const { return !scheduler_ || scheduler_->Finished(); }
 
     bool await_suspend(std::coroutine_handle<> handle) const {
-      return scheduler_ && scheduler_->RegisterProgressWaiter(handle, observed_epoch_);
+      // No CurrentResumableTaskScope: registering the raw coroutine handle would
+      // create a double-resume race. NotifyProgress() may resume via RescheduleTaskOnWorker
+      // while another path (e.g., ResumableWrapper::Run) could also try to resume.
+      // Fall through to busy-spin: await_ready() will re-check on next iteration.
+      return false;
     }
 
     void await_resume() const {}
