@@ -27,26 +27,30 @@ class VirtualEdge final {
   using allocator_type = utils::Allocator<VirtualEdge>;
   using property_map = utils::pmr::unordered_map<storage::PropertyId, storage::PropertyValue>;
 
-  VirtualEdge(VirtualNode from, VirtualNode to, utils::pmr::string edge_type_name, allocator_type alloc = {})
-      : from_(std::move(from), alloc),
-        to_(std::move(to), alloc),
+  VirtualEdge(const VirtualNode &from, const VirtualNode &to, utils::pmr::string edge_type_name,
+              allocator_type alloc = {})
+      : from_(from, alloc),
+        to_(to, alloc),
         edge_type_name_(std::move(edge_type_name), alloc),
         gid_(NextSyntheticGid()),
-        properties_(alloc) {}
+        properties_(alloc),
+        cached_hash_(HashKey(from.Gid(), to.Gid(), edge_type_name_)) {}
 
   VirtualEdge(const VirtualEdge &other, allocator_type alloc)
       : from_(other.from_, alloc),
         to_(other.to_, alloc),
         edge_type_name_(other.edge_type_name_, alloc),
         gid_(other.gid_),
-        properties_(other.properties_, alloc) {}
+        properties_(other.properties_, alloc),
+        cached_hash_(other.cached_hash_) {}
 
   VirtualEdge(VirtualEdge &&other, allocator_type alloc)
       : from_(std::move(other.from_), alloc),
         to_(std::move(other.to_), alloc),
         edge_type_name_(std::move(other.edge_type_name_), alloc),
         gid_(other.gid_),
-        properties_(std::move(other.properties_), alloc) {}
+        properties_(std::move(other.properties_), alloc),
+        cached_hash_(other.cached_hash_) {}
 
   VirtualEdge(const VirtualEdge &other) : VirtualEdge(other, other.edge_type_name_.get_allocator()) {}
 
@@ -68,6 +72,8 @@ class VirtualEdge final {
 
   [[nodiscard]] auto Gid() const noexcept -> storage::Gid { return gid_; }
 
+  [[nodiscard]] size_t Hash() const noexcept { return cached_hash_; }
+
   [[nodiscard]] auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
     if (const auto it = properties_.find(key); it != properties_.end()) return it->second;
     return storage::PropertyValue{};
@@ -85,11 +91,20 @@ class VirtualEdge final {
   }
 
  private:
+  static size_t HashKey(storage::Gid from_gid, storage::Gid to_gid, std::string_view type) noexcept {
+    size_t seed = 0;
+    boost::hash_combine(seed, std::hash<storage::Gid>{}(from_gid));
+    boost::hash_combine(seed, std::hash<storage::Gid>{}(to_gid));
+    boost::hash_combine(seed, std::hash<std::string_view>{}(type));
+    return seed;
+  }
+
   VirtualNode from_;
   VirtualNode to_;
   utils::pmr::string edge_type_name_;
   storage::Gid gid_;
   property_map properties_;
+  size_t cached_hash_;
 };
 
 }  // namespace memgraph::query
@@ -97,12 +112,6 @@ class VirtualEdge final {
 namespace std {
 template <>
 struct hash<memgraph::query::VirtualEdge> {
-  size_t operator()(const memgraph::query::VirtualEdge &e) const noexcept {
-    size_t seed = 0;
-    boost::hash_combine(seed, std::hash<memgraph::storage::Gid>{}(e.FromGid()));
-    boost::hash_combine(seed, std::hash<memgraph::storage::Gid>{}(e.ToGid()));
-    boost::hash_combine(seed, std::hash<std::string_view>{}(std::string_view(e.EdgeTypeName())));
-    return seed;
-  }
+  size_t operator()(const memgraph::query::VirtualEdge &e) const noexcept { return e.Hash(); }
 };
 }  // namespace std

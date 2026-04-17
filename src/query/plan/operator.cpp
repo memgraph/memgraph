@@ -10734,7 +10734,7 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             break;
           }
           case Aggregation::Op::DERIVE: {
-            main_value.ValueVirtualGraph().Merge(other_value.ValueVirtualGraph());
+            main_value.ValueVirtualGraph().Merge(std::move(other_value.ValueVirtualGraph()));
             break;
           }
         }
@@ -10820,7 +10820,7 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::DERIVE: {
-          main_value.ValueVirtualGraph().Merge(other_value.ValueVirtualGraph());
+          main_value.ValueVirtualGraph().Merge(std::move(other_value.ValueVirtualGraph()));
           break;
         }
         default:

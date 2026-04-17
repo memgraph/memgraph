@@ -43,6 +43,7 @@ class VirtualGraph final {
 
   // Absorb another graph's nodes and edges into this one (used by parallel aggregate reduce).
   void Merge(const VirtualGraph &other);
+  void Merge(VirtualGraph &&other);
 
  private:
   VirtualNodeStore node_store_;

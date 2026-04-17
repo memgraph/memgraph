@@ -33,6 +33,22 @@ void VirtualNodeStore::MergeFrom(const VirtualNodeStore &other) {
   }
 }
 
+void VirtualNodeStore::MergeFrom(VirtualNodeStore &&other) {
+  for (const auto &[original_gid, node] : other.nodes_) {
+    synthetic_to_original_[node.Gid()] = original_gid;
+  }
+  if (nodes_.get_allocator() == other.nodes_.get_allocator()) {
+    // Matching allocators: unordered_map::merge transfers node handles for keys we don't
+    // already hold; conflicting nodes are left in other (discarded when other goes away).
+    nodes_.merge(other.nodes_);
+    return;
+  }
+  // Allocator mismatch: fall back to per-element move-insert.
+  for (auto &[original_gid, node] : other.nodes_) {
+    nodes_.try_emplace(original_gid, std::move(node));
+  }
+}
+
 const VirtualNode *VirtualNodeStore::Find(storage::Gid original_gid) const {
   if (const auto it = nodes_.find(original_gid); it != nodes_.end()) return &it->second;
   return nullptr;

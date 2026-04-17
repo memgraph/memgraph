@@ -47,6 +47,7 @@ class VirtualNodeStore {
   // node (if present) and copies other's synthetic-gid aliases so edges built against
   // other's synthetic gids can still be resolved through FindBySyntheticGid.
   void MergeFrom(const VirtualNodeStore &other);
+  void MergeFrom(VirtualNodeStore &&other);
 
   [[nodiscard]] const VirtualNode *Find(storage::Gid original_gid) const;
   [[nodiscard]] const VirtualNode *FindBySyntheticGid(storage::Gid synthetic_gid) const;

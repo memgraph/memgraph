@@ -35,8 +35,6 @@ class VirtualEdgeStore {
 
   explicit VirtualEdgeStore(allocator_type alloc) : edges_(alloc), out_index_(alloc), in_index_(alloc) {}
 
-  // Copy/move ctors rebuild the per-vertex indexes because they hold pointers into edges_;
-  // copying or moving across PMR allocators reallocates set nodes and invalidates those pointers.
   VirtualEdgeStore(const VirtualEdgeStore &other, allocator_type alloc)
       : edges_(other.edges_, alloc), out_index_(alloc), in_index_(alloc) {
     RebuildIndexes();
@@ -46,7 +44,14 @@ class VirtualEdgeStore {
 
   VirtualEdgeStore(VirtualEdgeStore &&other, allocator_type alloc)
       : edges_(std::move(other.edges_), alloc), out_index_(alloc), in_index_(alloc) {
-    RebuildIndexes();
+    // Same allocator: edges_ stole buckets, element addresses are stable, so the pointers
+    // in other's indexes are still valid. Move the indexes instead of rebuilding.
+    if (alloc == other.edges_.get_allocator()) {
+      out_index_ = std::move(other.out_index_);
+      in_index_ = std::move(other.in_index_);
+    } else {
+      RebuildIndexes();
+    }
   }
 
   VirtualEdgeStore(const VirtualEdgeStore &other) : VirtualEdgeStore(other, other.edges_.get_allocator()) {}

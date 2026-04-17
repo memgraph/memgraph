@@ -32,4 +32,13 @@ void VirtualGraph::Merge(const VirtualGraph &other) {
   }
 }
 
+void VirtualGraph::Merge(VirtualGraph &&other) {
+  node_store_.MergeFrom(std::move(other.node_store_));
+  // edge_store_.edges() yields const references (unordered_set stores keys immutably),
+  // so the inner copy can't be avoided — but we've at least saved the node copies above.
+  for (const auto &edge : other.edge_store_.edges()) {
+    edge_store_.InsertIfNew(edge);
+  }
+}
+
 }  // namespace memgraph::query
