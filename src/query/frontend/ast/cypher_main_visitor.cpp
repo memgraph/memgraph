@@ -199,16 +199,121 @@ antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfo
 }
 
 antlrcpp::Any CypherMainVisitor::visitConstraintQuery(MemgraphCypher::ConstraintQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "ConstraintQuery should have exactly one child!");
+  auto *constraint_query = std::any_cast<ConstraintQuery *>(ctx->children[0]->accept(this));
+  query_ = constraint_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitMemgraphConstraintQuery(MemgraphCypher::MemgraphConstraintQueryContext *ctx) {
   auto *constraint_query = storage_->Create<ConstraintQuery>();
   MG_ASSERT(ctx->CREATE() || ctx->DROP());
   if (ctx->CREATE()) {
     constraint_query->action_type_ = ConstraintQuery::ActionType::CREATE;
-  } else if (ctx->DROP()) {
+  } else {
     constraint_query->action_type_ = ConstraintQuery::ActionType::DROP;
   }
   constraint_query->constraint_ = std::any_cast<Constraint>(ctx->constraint()->accept(this));
-  query_ = constraint_query;
-  return query_;
+  return constraint_query;
+}
+
+namespace {
+auto ValidateSingleNeo4jPropertyRef(auto *node_pattern, auto *ref, std::string_view constraint_name,
+                                    CypherMainVisitor &visitor) {
+  auto var_name = std::any_cast<std::string>(node_pattern->variable()->symbolicName()->accept(&visitor));
+  auto ref_var = std::any_cast<std::string>(ref->variable()->symbolicName()->accept(&visitor));
+  if (ref_var != var_name) {
+    throw SemanticException("All constraint variable should reference node '{}'", var_name);
+  }
+  auto *nested = ref->nestedPropertyKeyNames();
+  if (nested->propertyKeyName().size() != 1) {
+    throw SemanticException("Nested properties are not supported in {} constraints.", constraint_name);
+  }
+  return nested->propertyKeyName(0);
+}
+}  // namespace
+
+antlrcpp::Any CypherMainVisitor::visitNeo4jUniqueConstraintQuery(
+    MemgraphCypher::Neo4jUniqueConstraintQueryContext *ctx) {
+  auto *constraint_query = storage_->Create<ConstraintQuery>();
+  constraint_query->action_type_ = ConstraintQuery::ActionType::CREATE;
+  if (ctx->symbolicName()) {
+    constraint_query->name_ = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+  }
+
+  auto *pattern = ctx->neo4jConstraintPattern();
+  if (pattern->neo4jEdgeConstraintPattern()) {
+    throw SemanticException("Unique constraints on relationships are not supported.");
+  }
+
+  auto *node_pattern = pattern->neo4jNodeConstraintPattern();
+  auto var_name = std::any_cast<std::string>(node_pattern->variable()->symbolicName()->accept(this));
+
+  Constraint constraint;
+  constraint.type = Constraint::Type::UNIQUE;
+  constraint.label = AddLabel(std::any_cast<std::string>(node_pattern->labelName()->accept(this)));
+  for (auto *ref : ctx->neo4jConstraintPropertyList()->neo4jPropertyRef()) {
+    auto ref_var = std::any_cast<std::string>(ref->variable()->symbolicName()->accept(this));
+    if (ref_var != var_name) {
+      throw SemanticException("All constraint variable should reference node '{}'", var_name);
+    }
+    auto *nested = ref->nestedPropertyKeyNames();
+    if (nested->propertyKeyName().size() != 1) {
+      throw SemanticException("Nested properties are not supported in unique constraints.");
+    }
+    constraint.properties.push_back(std::any_cast<PropertyIx>(nested->propertyKeyName(0)->accept(this)));
+  }
+  constraint_query->constraint_ = std::move(constraint);
+  return constraint_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitNeo4jExistenceConstraintQuery(
+    MemgraphCypher::Neo4jExistenceConstraintQueryContext *ctx) {
+  auto *constraint_query = storage_->Create<ConstraintQuery>();
+  constraint_query->action_type_ = ConstraintQuery::ActionType::CREATE;
+  if (ctx->symbolicName()) {
+    constraint_query->name_ = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+  }
+
+  auto *pattern = ctx->neo4jConstraintPattern();
+  if (pattern->neo4jEdgeConstraintPattern()) {
+    throw SemanticException("Existence constraints on relationships are not supported.");
+  }
+
+  auto *node_pattern = pattern->neo4jNodeConstraintPattern();
+  auto *prop_key = ValidateSingleNeo4jPropertyRef(node_pattern, ctx->neo4jPropertyRef(), "existence", *this);
+
+  Constraint constraint;
+  constraint.type = Constraint::Type::EXISTS;
+  constraint.label = AddLabel(std::any_cast<std::string>(node_pattern->labelName()->accept(this)));
+  constraint.properties.push_back(std::any_cast<PropertyIx>(prop_key->accept(this)));
+  constraint_query->constraint_ = std::move(constraint);
+  return constraint_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitNeo4jTypeConstraintQuery(MemgraphCypher::Neo4jTypeConstraintQueryContext *ctx) {
+  auto *constraint_query = storage_->Create<ConstraintQuery>();
+  constraint_query->action_type_ = ConstraintQuery::ActionType::CREATE;
+  if (ctx->symbolicName()) {
+    constraint_query->name_ = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+  }
+
+  auto *pattern = ctx->neo4jConstraintPattern();
+  if (pattern->neo4jEdgeConstraintPattern()) {
+    throw SemanticException("Type constraints on relationships are not supported.");
+  }
+
+  auto *node_pattern = pattern->neo4jNodeConstraintPattern();
+  auto *prop_key = ValidateSingleNeo4jPropertyRef(node_pattern, ctx->neo4jPropertyRef(), "type", *this);
+
+  Constraint constraint;
+  constraint.type = Constraint::Type::TYPE;
+  constraint.type_constraint =
+      std::any_cast<memgraph::storage::TypeConstraintKind>(visitTypeConstraintType(ctx->typeConstraintType()));
+  constraint.label = AddLabel(std::any_cast<std::string>(node_pattern->labelName()->accept(this)));
+  constraint.properties.push_back(std::any_cast<PropertyIx>(prop_key->accept(this)));
+  constraint_query->constraint_ = std::move(constraint);
+  return constraint_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitConstraint(MemgraphCypher::ConstraintContext *ctx) {
@@ -440,7 +545,20 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
 
   index_query->action_ = IndexQuery::Action::CREATE;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  index_query->properties_ = get_index_properties(ctx->nestedPropertyKeyNames(), *this);
+
+  if (ctx->FOR()) {
+    // Neo4j syntax: CREATE INDEX [name] FOR (n:Label) ON (n.prop1, n.prop2)
+    if (ctx->symbolicName()) {
+      index_query->name_ = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+    }
+    std::vector<MemgraphCypher::NestedPropertyKeyNamesContext *> nested_props;
+    for (auto *ref : ctx->neo4jPropertyRef()) {
+      nested_props.push_back(ref->nestedPropertyKeyNames());
+    }
+    index_query->properties_ = get_index_properties(nested_props, *this);
+  } else {
+    index_query->properties_ = get_index_properties(ctx->nestedPropertyKeyNames(), *this);
+  }
 
   // Check composite properties are unique, and in the case of nested properties,
   // that the prefix is also unique (e.g. if we have `a.b`, `a.b.c` is
@@ -480,9 +598,30 @@ antlrcpp::Any CypherMainVisitor::visitCreateEdgeIndex(MemgraphCypher::CreateEdge
   auto *index_query = storage_->Create<EdgeIndexQuery>();
   index_query->action_ = EdgeIndexQuery::Action::CREATE;
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  if (ctx->propertyKeyName()) {
-    const auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
-    index_query->properties_ = {name_key};
+  auto prop_keys = ctx->propertyKeyName();
+  if (prop_keys.size() > 1) {
+    throw SemanticException("Nested properties are not supported for edge indices.");
+  }
+  if (!prop_keys.empty()) {
+    index_query->properties_ = {std::any_cast<PropertyIx>(prop_keys[0]->accept(this))};
+  }
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateEdgeIndexNeo4j(MemgraphCypher::CreateEdgeIndexNeo4jContext *ctx) {
+  auto *index_query = storage_->Create<EdgeIndexQuery>();
+  index_query->action_ = EdgeIndexQuery::Action::CREATE;
+  if (ctx->symbolicName()) {
+    index_query->name_ = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+  }
+  index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  for (auto *ref : ctx->neo4jPropertyRef()) {
+    auto *nested = ref->nestedPropertyKeyNames();
+    auto prop_keys = nested->propertyKeyName();
+    if (prop_keys.size() != 1) {
+      throw SemanticException("Nested properties are not supported for edge indices.");
+    }
+    index_query->properties_.push_back(std::any_cast<PropertyIx>(prop_keys[0]->accept(this)));
   }
   return index_query;
 }

@@ -172,6 +172,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
+                      | REQUIRE
                       | RESET
                       | RESOURCE
                       | REVOKE
@@ -776,7 +777,7 @@ showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )?;
 
 dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
@@ -784,7 +785,9 @@ createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')
 
 dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
 
-edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex;
+createEdgeIndexNeo4j : CREATE INDEX ( symbolicName )? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' neo4jPropertyRef ( ',' neo4jPropertyRef )* ')' ;
+
+edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex | createEdgeIndexNeo4j ;
 
 indexName : symbolicName ;
 
@@ -813,6 +816,28 @@ vectorIndexQuery : createVectorIndex | dropVectorIndex ;
 dropAllIndexesQuery : DROP ALL INDEXES ;
 
 dropAllConstraintsQuery : DROP ALL CONSTRAINTS ;
+
+neo4jConstraintPropertyList : neo4jPropertyRef
+                             | '(' neo4jPropertyRef ( ',' neo4jPropertyRef )* ')'
+                             ;
+
+neo4jConstraintPattern : '(' variable ':' labelName ')'                                          # neo4jNodeConstraintPattern
+                       | '(' ')' dash '[' variable ':' labelName ']' dash '(' ')'               # neo4jEdgeConstraintPattern
+                       ;
+
+memgraphConstraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
+
+neo4jUniqueConstraintQuery : CREATE CONSTRAINT ( symbolicName )? FOR neo4jConstraintPattern REQUIRE neo4jConstraintPropertyList IS UNIQUE ;
+
+neo4jExistenceConstraintQuery : CREATE CONSTRAINT ( symbolicName )? FOR neo4jConstraintPattern REQUIRE neo4jPropertyRef IS NOT CYPHERNULL ;
+
+neo4jTypeConstraintQuery : CREATE CONSTRAINT ( symbolicName )? FOR neo4jConstraintPattern REQUIRE neo4jPropertyRef IS ':' ':' typeConstraintType ;
+
+constraintQuery : memgraphConstraintQuery
+                | neo4jUniqueConstraintQuery
+                | neo4jExistenceConstraintQuery
+                | neo4jTypeConstraintQuery
+                ;
 
 dropGraphQuery : DROP GRAPH ;
 
