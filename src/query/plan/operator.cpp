@@ -10146,13 +10146,16 @@ class ScanParallelCursor : public Cursor {
   // teardown flag and exit cleanly. Without this, PARKED tasks never unblock and
   // TaskCollection::Finished() keeps returning false, hanging the teardown loop.
   void Interrupt() override {
+    spdlog::trace("ScanParallelCursor::Interrupt() called");
     input_cursor_->Interrupt();
     // Signal teardown before waking so PARKED tasks check the flag and exit.
     {
       const std::lock_guard lock(mutex_);
       shutting_down_ = true;
     }
+    spdlog::trace("ScanParallelCursor::Interrupt(): calling NotifyAll()");
     producer_waiters_.NotifyAll();
+    spdlog::trace("ScanParallelCursor::Interrupt(): NotifyAll() returned");
   }
 
   void Reset() override {
@@ -11108,17 +11111,21 @@ class ParallelBranchCursor : public Cursor {
     // branch task is FINISHED. Otherwise, captured coroutine-frame locals
     // could be destroyed while a branch closure is still queued to run.
     if (collection_scheduler_->HasNonTerminalTasks()) {
+      spdlog::trace("ExecuteBranchesInParallel: entering teardown phase");
       tearing_down->store(true, std::memory_order::release);
       for (const auto &branch_cursor : branch_cursors_) {
+        spdlog::trace("ExecuteBranchesInParallel: calling Interrupt() on branch cursor");
         branch_cursor->Interrupt();
       }
       // Notify progress to wake any parked tasks waiting on events
       collection_scheduler_->DbgVerifyState();
+      spdlog::trace("ExecuteBranchesInParallel: calling WaitOrSteal()");
       // Use WaitOrSteal() which does NOT allow yielding (no pool passed).
       // During teardown, we need tasks to complete inline; yielding and
       // rescheduling would create a race where the cursor could be destroyed
       // while a rescheduled task is still running.
       active_collection->WaitOrSteal();
+      spdlog::trace("ExecuteBranchesInParallel: WaitOrSteal() returned");
     }
 
 #ifndef NDEBUG

@@ -269,7 +269,9 @@ void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Prio
 // the original task: LP continuations (ID ≤ INT64_MAX) naturally run after any pending
 // HP tasks (ID > INT64_MAX) without needing any special priority boost.
 void PriorityThreadPool::RescheduleTaskOnWorker(uint16_t worker_id, TaskSignature task) {
+  spdlog::trace("RescheduleTaskOnWorker: worker_id={}", worker_id);
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
+    spdlog::trace("RescheduleTaskOnWorker: pool stop requested, dropping task");
     return;
   }
   DMG_ASSERT(
@@ -280,14 +282,19 @@ void PriorityThreadPool::RescheduleTaskOnWorker(uint16_t worker_id, TaskSignatur
     // If no task is currently active, treat it as a new LOW priority task
     id = task_id_.fetch_sub(1, std::memory_order_acq_rel);
   }
+  spdlog::trace("RescheduleTaskOnWorker: pushing to worker {} with task_id={}", worker_id, id);
   w->push(std::move(task), id, /*pinned=*/true);
+  spdlog::trace("RescheduleTaskOnWorker: push completed");
 }
 
 void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id, bool pinned) {
+  spdlog::trace("Worker::push: worker_id={} task_id={} pinned={}", worker_id_, id, pinned);
   {
     auto l = std::unique_lock{mtx_};
     Work w{.id = id, .work = std::move(new_task), .pinned = pinned};
     (pinned ? work_pinned_ : work_).push(std::move(w));
+    spdlog::trace(
+        "Worker::push: worker_id={} queue size: pinned={} normal={}", worker_id_, work_pinned_.size(), work_.size());
     // TODO thing about atomic ordering and if this can be missed or requested when not needed
     // Only request a yield when the worker is actively running a task. If it is idle it will
     // pick up the HP task immediately from the priority queue without needing an interrupt.
@@ -300,7 +307,9 @@ void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id, bool pi
     }
   }
   has_pending_work_.store(true, std::memory_order_release);
+  spdlog::trace("Worker::push: notifying worker {}", worker_id_);
   cv_.notify_one();
+  spdlog::trace("Worker::push: notify completed");
 }
 
 void PriorityThreadPool::Worker::stop() {
@@ -457,8 +466,10 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
 ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool *pool) {
   auto &task = tasks_[index];
   return [this, index, &task = task.task_, state = task.state_, pool]() -> bool {
-#ifndef NDEBUG
     const auto initial_state = state->load(std::memory_order_acquire);
+    spdlog::trace("WrapTask[{}]: starting with state={}", index, static_cast<int>(initial_state));
+#ifndef NDEBUG
+
     DMG_ASSERT(initial_state == Task::State::IDLE || initial_state == Task::State::SCHEDULED ||
                    initial_state == Task::State::PARKED,
                "WrapTask[{}] started with invalid initial state {} (expected IDLE/SCHEDULED/PARKED)",
@@ -476,6 +487,7 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
       // STOLEN means WaitOrSteal claimed it for direct execution — don't double-run.
       // FINISHED means already done — skip.
       if (expected != Task::State::SCHEDULED && expected != Task::State::PARKED) {
+        spdlog::trace("WrapTask[{}]: unexpected state {}, skipping", index, static_cast<int>(expected));
         return false;
       }
     }
@@ -510,13 +522,19 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
 }
 
 void TaskCollection::Wait() {
-  for (auto &task : tasks_) {
+  spdlog::trace("TaskCollection::Wait() starting for {} tasks", tasks_.size());
+  for (size_t i = 0; i < tasks_.size(); ++i) {
+    auto &task = tasks_[i];
     auto expected = task.state_->load(std::memory_order_acquire);
+    spdlog::trace("TaskCollection::Wait(): task[{}] initial state={}", i, static_cast<int>(expected));
     while (expected != Task::State::FINISHED) {
+      spdlog::trace("TaskCollection::Wait(): task[{}] waiting on state={}", i, static_cast<int>(expected));
       task.state_->wait(expected, std::memory_order_acquire);
       expected = task.state_->load(std::memory_order_acquire);
+      spdlog::trace("TaskCollection::Wait(): task[{}] woke up, new state={}", i, static_cast<int>(expected));
     }
   }
+  spdlog::trace("TaskCollection::Wait() completed");
 }
 
 void TaskCollection::WaitOrSteal() {
@@ -697,12 +715,18 @@ void WorkerResumeEvent::NotifyAll() {
     ++epoch_;
     waiters.swap(waiters_);
   }
+  spdlog::trace("NotifyAll: waking {} waiters", waiters.size());
 
   for (auto &waiter : waiters) {
     if (waiter.handle) {
-      if (waiter.handle.done()) continue;
+      if (waiter.handle.done()) {
+        spdlog::trace("NotifyAll: waiter handle already done, skipping");
+        continue;
+      }
       if (waiter.pool && waiter.worker_id) {
+        spdlog::trace("NotifyAll: rescheduling handle to worker {}", *waiter.worker_id);
         waiter.pool->RescheduleTaskOnWorker(*waiter.worker_id, [handle = waiter.handle]() mutable {
+          spdlog::trace("Resumed handle lambda: resuming handle");
           if (handle && !handle.done()) handle.resume();
         });
         continue;
@@ -712,9 +736,11 @@ void WorkerResumeEvent::NotifyAll() {
     }
     if (!waiter.task) continue;
     if (waiter.pool && waiter.worker_id) {
+      spdlog::trace("NotifyAll: rescheduling task to worker {}", *waiter.worker_id);
       waiter.pool->RescheduleTaskOnWorker(*waiter.worker_id, std::move(waiter.task));
       continue;
     }
+    spdlog::trace("NotifyAll: executing task directly");
     waiter.task();
   }
 }
