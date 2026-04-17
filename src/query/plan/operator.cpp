@@ -9981,6 +9981,10 @@ class ScanParallelCursor : public Cursor {
           const std::lock_guard lock(cursor_->mutex_);
           if (cursor_->shutting_down_ || cursor_->interrupted_) {
             spdlog::trace("ProducerProgressAwaitable::await_suspend Path 1: not suspending due to shutdown/interrupt");
+            // P5 FIX: Remove our waiter to prevent orphaned closure race.
+            // If we don't remove it, NotifyAll() will dispatch a task to resume
+            // a coroutine that never suspended, causing state corruption.
+            cursor_->producer_waiters_.RemoveWaiter(handle, observed_epoch_);
             if (context_->task_parked_ptr) {
               *context_->task_parked_ptr = false;
             }

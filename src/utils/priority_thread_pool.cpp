@@ -11,6 +11,7 @@
 
 #include "utils/priority_thread_pool.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -707,6 +708,19 @@ bool WorkerResumeEvent::RegisterTaskWaiter(TaskSignature task, PriorityThreadPoo
   }
   waiters_.push_back(Waiter{.task = std::move(task), .pool = pool, .worker_id = worker_id});
   return true;
+}
+
+bool WorkerResumeEvent::RemoveWaiter(std::coroutine_handle<> handle, uint64_t observed_epoch) {
+  const auto lock = std::lock_guard(mutex_);
+  // Only remove if the epoch hasn't changed (i.e., NotifyAll hasn't been called yet)
+  if (epoch_ != observed_epoch) {
+    return false;  // NotifyAll already ran, too late to remove
+  }
+  // Find and remove the waiter with matching handle
+  auto it = std::remove_if(waiters_.begin(), waiters_.end(), [&handle](const Waiter &w) { return w.handle == handle; });
+  const bool found = it != waiters_.end();
+  waiters_.erase(it, waiters_.end());
+  return found;
 }
 
 void WorkerResumeEvent::NotifyAll() {

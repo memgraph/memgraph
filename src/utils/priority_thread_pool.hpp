@@ -225,6 +225,11 @@ class WorkerResumeEvent {
   bool RegisterTaskWaiter(TaskSignature task, PriorityThreadPool *pool, std::optional<uint16_t> worker_id,
                           uint64_t observed_epoch);
 
+  // Remove a waiter that was previously registered but should not be notified.
+  // Used when a task decides not to suspend after successfully registering.
+  // Returns true if the waiter was found and removed, false otherwise.
+  bool RemoveWaiter(std::coroutine_handle<> handle, uint64_t observed_epoch);
+
   void NotifyAll();
 
  private:
