@@ -82,6 +82,8 @@ class VirtualNode final {
 
   [[nodiscard]] auto Properties() const noexcept -> const property_map & { return properties_; }
 
+  // Identity via synthetic gid. Two VirtualNodes representing the same underlying vertex but
+  // constructed separately compare unequal; use OriginalGid() to test "same real vertex".
   bool operator==(const VirtualNode &other) const noexcept { return gid_ == other.gid_; }
 
  private:

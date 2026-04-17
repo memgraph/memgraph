@@ -13,6 +13,7 @@
 
 #include "query/virtual_edge_store.hpp"
 #include "query/virtual_node_store.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 
 namespace memgraph::query {
@@ -39,7 +40,11 @@ class VirtualGraph final {
 
   [[nodiscard]] const VirtualEdgeStore &edge_store() const { return edge_store_; }
 
-  [[nodiscard]] auto get_allocator() const -> allocator_type { return node_store_.get_allocator(); }
+  [[nodiscard]] auto get_allocator() const -> allocator_type {
+    DMG_ASSERT(node_store_.get_allocator().resource() == edge_store_.get_allocator().resource(),
+               "VirtualGraph sub-store allocators diverged");
+    return node_store_.get_allocator();
+  }
 
   // Absorb another graph's nodes and edges into this one (used by parallel aggregate reduce).
   void Merge(const VirtualGraph &other);

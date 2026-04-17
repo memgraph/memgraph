@@ -6616,6 +6616,36 @@ class AggregateCursor : public Cursor {
     projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
   }
 
+  // Walks options[key] as a map of (name -> value) and invokes setter(prop_id, pv) for each entry.
+  template <typename Setter>
+  void ApplyPropertyMap(const TypedValue::TMap &options, const char *key, Setter &&setter) const {
+    const auto it = options.find(key);
+    if (it == options.end() || it->second.type() != TypedValue::Type::Map || !db_accessor_) return;
+    auto *name_id_mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+    for (const auto &[name, val] : it->second.ValueMap()) {
+      setter(db_accessor_->NameToProperty(name), val.ToPropertyValue(name_id_mapper));
+    }
+  }
+
+  VirtualNode BuildDerivedNode(const VertexAccessor &vertex, const char *labels_key, const char *props_key,
+                               const TypedValue::TMap &options, VirtualNode::allocator_type alloc) const {
+    VirtualNode::label_list labels{alloc};
+    if (const auto labels_it = options.find(labels_key);
+        labels_it != options.end() && labels_it->second.type() == TypedValue::Type::List) {
+      for (const auto &label : labels_it->second.ValueList()) {
+        if (label.type() == TypedValue::Type::String) labels.emplace_back(label.ValueString());
+      }
+    }
+    VirtualNode::property_map properties{alloc};
+    ApplyPropertyMap(options, props_key, [&](storage::PropertyId id, storage::PropertyValue pv) {
+      properties.insert_or_assign(id, std::move(pv));
+    });
+    return {vertex.Gid(), std::move(labels), std::move(properties), alloc};
+  }
+
+  // Collapses the path to a single synthetic edge between its endpoints. Intermediate vertices
+  // on the path are ignored by design — derive() is for producing compressed overlay edges
+  // (e.g. shortest-path distillation), not for replicating the path structurally.
   void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value,
                               VirtualGraph &projected_graph) {
     static constexpr auto kVirtualEdgeType = "virtualEdgeType";
@@ -6631,62 +6661,30 @@ class AggregateCursor : public Cursor {
     if (options_value.type() != TypedValue::Type::Map) {
       throw QueryRuntimeException("derive() argument 2 must be a map of options (e.g. {virtualEdgeType: 'TYPE'}).");
     }
-
     const auto &options = options_value.ValueMap();
-    const auto it = options.find(kVirtualEdgeType);
-    if (it == options.end() || it->second.type() != TypedValue::Type::String) {
+    const auto type_it = options.find(kVirtualEdgeType);
+    if (type_it == options.end() || type_it->second.type() != TypedValue::Type::String) {
       throw QueryRuntimeException("derive() options map must contain a 'virtualEdgeType' string key.");
     }
-    const auto graph_alloc = projected_graph.get_allocator();
-    utils::pmr::string edge_type_name{it->second.ValueString(), graph_alloc};
 
-    const auto &path = path_value.ValuePath();
-    const auto &path_vertices = path.vertices();
+    const auto &path_vertices = path_value.ValuePath().vertices();
+    // Empty path contributes nothing to the aggregate — no-op, matches how other path-consuming
+    // aggregations (project_path) treat vacuous inputs.
     if (path_vertices.empty()) return;
 
-    auto create_virtual_node =
-        [&](const VertexAccessor &vertex, const char *labels_key, const char *props_key) -> VirtualNode {
-      VirtualNode::label_list labels{graph_alloc};
-      VirtualNode::property_map properties{graph_alloc};
+    const auto alloc = projected_graph.get_allocator();
+    const auto &stored_from = projected_graph.node_store().InsertOrGet(
+        BuildDerivedNode(path_vertices.front(), kSourceLabels, kSourceProperties, options, alloc));
 
-      if (const auto labels_it = options.find(labels_key);
-          labels_it != options.end() && labels_it->second.type() == TypedValue::Type::List) {
-        for (const auto &label : labels_it->second.ValueList()) {
-          if (label.type() == TypedValue::Type::String) {
-            labels.emplace_back(label.ValueString());
-          }
-        }
-      }
-      if (const auto node_props_it = options.find(props_key);
-          node_props_it != options.end() && node_props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
-        for (const auto &[key, val] : node_props_it->second.ValueMap()) {
-          const auto prop_id = db_accessor_->NameToProperty(key);
-          properties[prop_id] = val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper());
-        }
-      }
-      return {vertex.Gid(), std::move(labels), std::move(properties), graph_alloc};
-    };
-
-    const auto &from = path_vertices.front();
-    const auto &stored_from =
-        projected_graph.node_store().InsertOrGet(create_virtual_node(from, kSourceLabels, kSourceProperties));
-
-    // single-vertex path — no edge to create
     if (path_vertices.size() < 2) return;
 
-    const auto &to = path_vertices.back();
-    const auto &stored_to =
-        projected_graph.node_store().InsertOrGet(create_virtual_node(to, kTargetLabels, kTargetProperties));
+    const auto &stored_to = projected_graph.node_store().InsertOrGet(
+        BuildDerivedNode(path_vertices.back(), kTargetLabels, kTargetProperties, options, alloc));
 
-    VirtualEdge ve(stored_from, stored_to, std::move(edge_type_name), graph_alloc);
-
-    const auto props_it = options.find(kRelationshipProperties);
-    if (props_it != options.end() && props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
-      for (const auto &[key, val] : props_it->second.ValueMap()) {
-        const auto prop_id = db_accessor_->NameToProperty(key);
-        ve.SetProperty(prop_id, val.ToPropertyValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
-      }
-    }
+    VirtualEdge ve(stored_from, stored_to, utils::pmr::string{type_it->second.ValueString(), alloc}, alloc);
+    ApplyPropertyMap(options, kRelationshipProperties, [&](storage::PropertyId id, storage::PropertyValue pv) {
+      ve.SetProperty(id, std::move(pv));
+    });
 
     projected_graph.edge_store().InsertIfNew(std::move(ve));
   }
