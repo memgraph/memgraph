@@ -31,14 +31,20 @@ bool VirtualEdgeStore::InsertIfNew(VirtualEdge edge) {
   return true;
 }
 
-std::span<const VirtualEdge *const> VirtualEdgeStore::OutEdges(storage::Gid vertex_gid) const {
-  if (const auto it = out_index_.find(vertex_gid); it != out_index_.end()) return it->second;
-  return {};
+namespace {
+EdgeRefView MakeView(std::span<const VirtualEdge *const> ptrs) {
+  return ptrs | std::views::transform(detail::kDerefEdgePtr);
+}
+}  // namespace
+
+EdgeRefView VirtualEdgeStore::OutEdges(storage::Gid vertex_gid) const {
+  if (const auto it = out_index_.find(vertex_gid); it != out_index_.end()) return MakeView(it->second);
+  return MakeView({});
 }
 
-std::span<const VirtualEdge *const> VirtualEdgeStore::InEdges(storage::Gid vertex_gid) const {
-  if (const auto it = in_index_.find(vertex_gid); it != in_index_.end()) return it->second;
-  return {};
+EdgeRefView VirtualEdgeStore::InEdges(storage::Gid vertex_gid) const {
+  if (const auto it = in_index_.find(vertex_gid); it != in_index_.end()) return MakeView(it->second);
+  return MakeView({});
 }
 
 }  // namespace memgraph::query

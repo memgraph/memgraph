@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <ranges>
+
 #include "query/virtual_node.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
@@ -50,7 +52,7 @@ class VirtualNodeStore {
   [[nodiscard]] const VirtualNode *FindBySyntheticGid(storage::Gid synthetic_gid) const;
   [[nodiscard]] bool Contains(storage::Gid original_gid) const;
 
-  [[nodiscard]] auto &nodes() const { return nodes_; }
+  [[nodiscard]] auto nodes() const { return std::views::all(nodes_); }
 
   [[nodiscard]] auto size() const { return nodes_.size(); }
 

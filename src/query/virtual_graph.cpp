@@ -25,4 +25,11 @@ VirtualGraph::VirtualGraph(VirtualGraph &&other) noexcept = default;
 VirtualGraph::VirtualGraph(VirtualGraph &&other, allocator_type alloc)
     : node_store_(std::move(other.node_store_), alloc), edge_store_(std::move(other.edge_store_), alloc) {}
 
+void VirtualGraph::Merge(const VirtualGraph &other) {
+  node_store_.MergeFrom(other.node_store_);
+  for (const auto &edge : other.edge_store_.edges()) {
+    edge_store_.InsertIfNew(edge);
+  }
+}
+
 }  // namespace memgraph::query

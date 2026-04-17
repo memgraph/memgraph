@@ -16,8 +16,8 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/memory.hpp"
-#include "utils/pmr/map.hpp"
 #include "utils/pmr/string.hpp"
+#include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/vector.hpp"
 
 namespace memgraph::query {
@@ -34,7 +34,7 @@ class VirtualNode final {
  public:
   using allocator_type = utils::Allocator<VirtualNode>;
   using label_list = utils::pmr::vector<utils::pmr::string>;
-  using property_map = utils::pmr::map<storage::PropertyId, storage::PropertyValue>;
+  using property_map = utils::pmr::unordered_map<storage::PropertyId, storage::PropertyValue>;
 
   VirtualNode(storage::Gid original_gid, label_list labels, property_map properties, allocator_type alloc = {})
       : gid_(NextSyntheticGid()),
@@ -76,7 +76,9 @@ class VirtualNode final {
     return storage::PropertyValue{};
   }
 
-  void SetProperty(storage::PropertyId key, const storage::PropertyValue &value) { properties_[key] = value; }
+  void SetProperty(storage::PropertyId key, storage::PropertyValue value) {
+    properties_.insert_or_assign(key, std::move(value));
+  }
 
   [[nodiscard]] auto Properties() const noexcept -> const property_map & { return properties_; }
 

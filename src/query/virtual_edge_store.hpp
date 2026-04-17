@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <ranges>
 #include <span>
 
 #include "query/virtual_edge.hpp"
@@ -20,6 +21,13 @@
 #include "utils/pmr/vector.hpp"
 
 namespace memgraph::query {
+
+namespace detail {
+// Named lambda so the resulting transform_view type is nameable in aliases and struct fields.
+inline constexpr auto kDerefEdgePtr = [](const VirtualEdge *p) noexcept -> const VirtualEdge & { return *p; };
+}  // namespace detail
+
+using EdgeRefView = decltype(std::span<const VirtualEdge *const>{} | std::views::transform(detail::kDerefEdgePtr));
 
 class VirtualEdgeStore {
  public:
@@ -48,15 +56,14 @@ class VirtualEdgeStore {
   ~VirtualEdgeStore() = default;
 
   // Returns true iff the (from, to, type) triple was not already present.
-  // On insert, the edge is stored once in edges_ and pointed to from the per-vertex indexes.
   bool InsertIfNew(VirtualEdge edge);
 
   [[nodiscard]] bool Contains(const VirtualEdge &edge) const { return edges_.contains(edge); }
 
-  [[nodiscard]] std::span<const VirtualEdge *const> OutEdges(storage::Gid vertex_gid) const;
-  [[nodiscard]] std::span<const VirtualEdge *const> InEdges(storage::Gid vertex_gid) const;
+  [[nodiscard]] EdgeRefView OutEdges(storage::Gid vertex_gid) const;
+  [[nodiscard]] EdgeRefView InEdges(storage::Gid vertex_gid) const;
 
-  [[nodiscard]] auto &edges() const { return edges_; }
+  [[nodiscard]] auto edges() const { return std::views::all(edges_); }
 
   [[nodiscard]] auto size() const { return edges_.size(); }
 

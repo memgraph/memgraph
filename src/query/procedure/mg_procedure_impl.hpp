@@ -675,28 +675,28 @@ struct mgp_vertex {
   mgp_vertex(mgp_vertex &&other) : alloc(other.alloc), impl(std::move(other.impl)), graph(other.graph) {}
 
   memgraph::query::VertexAccessor getImpl() const {
-    DMG_ASSERT(!IsVirtualNode(), "getImpl() is not available for VirtualNode");
+    DMG_ASSERT(!IsVirtual(), "getImpl() is not available for VirtualNode");
     if (const auto *va = std::get_if<memgraph::query::VertexAccessor>(&impl)) return *va;
     return std::get<memgraph::query::SubgraphVertexAccessor>(impl).impl_;
   }
 
-  bool IsVirtualNode() const noexcept { return std::holds_alternative<memgraph::query::VirtualNode>(impl); }
+  bool IsVirtual() const noexcept { return std::holds_alternative<memgraph::query::VirtualNode>(impl); }
 
   const memgraph::query::VirtualNode &GetVirtualNode() const { return std::get<memgraph::query::VirtualNode>(impl); }
 
   memgraph::query::VirtualNode &GetVirtualNode() { return std::get<memgraph::query::VirtualNode>(impl); }
 
-  // Visit only the two real-vertex alternatives; caller must guard IsVirtualNode() first.
+  // Visit only the two real-vertex alternatives; caller must guard IsVirtual() first.
   template <typename F>
   auto VisitReal(F &&fn) const {
-    DMG_ASSERT(!IsVirtualNode(), "VisitReal called on VirtualNode");
+    DMG_ASSERT(!IsVirtual(), "VisitReal called on VirtualNode");
     if (const auto *va = std::get_if<memgraph::query::VertexAccessor>(&impl)) return fn(*va);
     return fn(std::get<memgraph::query::SubgraphVertexAccessor>(impl));
   }
 
   template <typename F>
   auto VisitReal(F &&fn) {
-    DMG_ASSERT(!IsVirtualNode(), "VisitReal called on VirtualNode");
+    DMG_ASSERT(!IsVirtual(), "VisitReal called on VirtualNode");
     if (auto *va = std::get_if<memgraph::query::VertexAccessor>(&impl)) return fn(*va);
     return fn(std::get<memgraph::query::SubgraphVertexAccessor>(impl));
   }
@@ -921,18 +921,19 @@ struct mgp_properties_iterator {
   // exception because it's built on top of STL and other libraries.
   mgp_properties_iterator(mgp_graph *graph, decltype(pvs) pvs, allocator_type alloc)
       : alloc(alloc), graph(graph), pvs(std::move(pvs)), current_it(this->pvs.begin()) {
-    if (current_it != this->pvs.end()) {
-      auto value = std::visit(
-          [this, alloc](const auto *impl) {
-            return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), alloc);
-          },
-          graph->impl);
+    PopulateCurrent();
+  }
 
-      current.emplace(value,
-                      mgp_value(current_it->second, graph->getImpl()->GetStorageAccessor()->GetNameIdMapper(), alloc));
-      property.name = current->first.c_str();
-      property.value = &current->second;
-    }
+  // Populate pvs directly from a range of (PropertyId, PropertyValue) pairs — avoids the
+  // intermediate std::map that a caller would otherwise construct with std::map{src.begin(), src.end()}.
+  mgp_properties_iterator(
+      mgp_graph *graph,
+      const memgraph::utils::pmr::unordered_map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> &src,
+      allocator_type alloc)
+      : alloc(alloc), graph(graph) {
+    pvs.insert(src.begin(), src.end());
+    current_it = pvs.begin();
+    PopulateCurrent();
   }
 
   mgp_properties_iterator(const mgp_properties_iterator &) = delete;
@@ -944,6 +945,22 @@ struct mgp_properties_iterator {
   ~mgp_properties_iterator() = default;
 
   memgraph::utils::MemoryResource *GetMemoryResource() const { return alloc.resource(); }
+
+ private:
+  void PopulateCurrent() {
+    if (current_it != pvs.end()) {
+      auto value = std::visit(
+          [this](const auto *impl) {
+            return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), alloc);
+          },
+          graph->impl);
+
+      current.emplace(value,
+                      mgp_value(current_it->second, graph->getImpl()->GetStorageAccessor()->GetNameIdMapper(), alloc));
+      property.name = current->first.c_str();
+      property.value = &current->second;
+    }
+  }
 };
 
 struct mgp_edges_iterator {
@@ -988,12 +1005,11 @@ struct mgp_edges_iterator {
   std::optional<decltype(out->begin())> out_it;
   std::optional<mgp_edge> current_e;
 
-  // Virtual edge iteration (populated for subgraph vertices only). Pointers borrow from
-  // the VirtualEdgeStore, which must outlive this iterator.
-  std::span<const memgraph::query::VirtualEdge *const> virtual_in_;
-  std::span<const memgraph::query::VirtualEdge *const>::iterator virtual_in_it_;
-  std::span<const memgraph::query::VirtualEdge *const> virtual_out_;
-  std::span<const memgraph::query::VirtualEdge *const>::iterator virtual_out_it_;
+  // Borrow from VirtualEdgeStore, which must outlive this iterator.
+  memgraph::query::EdgeRefView virtual_in_;
+  std::ranges::iterator_t<memgraph::query::EdgeRefView> virtual_in_it_;
+  memgraph::query::EdgeRefView virtual_out_;
+  std::ranges::iterator_t<memgraph::query::EdgeRefView> virtual_out_it_;
 };
 
 struct mgp_vertices_iterator {

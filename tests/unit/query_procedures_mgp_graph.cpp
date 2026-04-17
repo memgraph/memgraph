@@ -864,11 +864,11 @@ TYPED_TEST(MgpGraphTest, VertexIteratorYieldsVirtualNodes) {
 
   auto *first = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_get, it);
   ASSERT_NE(first, nullptr);
-  EXPECT_TRUE(first->IsVirtualNode());
+  EXPECT_TRUE(first->IsVirtual());
 
   auto *second = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_next, it);
   ASSERT_NE(second, nullptr);
-  EXPECT_TRUE(second->IsVirtualNode());
+  EXPECT_TRUE(second->IsVirtual());
 
   auto *third = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_next, it);
   EXPECT_EQ(third, nullptr);
@@ -897,12 +897,12 @@ TYPED_TEST(MgpGraphTest, VertexIteratorYieldsRealThenVirtual) {
   // first: real vertex
   auto *first = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_get, it);
   ASSERT_NE(first, nullptr);
-  EXPECT_FALSE(first->IsVirtualNode());
+  EXPECT_FALSE(first->IsVirtual());
 
   // second: virtual node
   auto *second = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_next, it);
   ASSERT_NE(second, nullptr);
-  EXPECT_TRUE(second->IsVirtualNode());
+  EXPECT_TRUE(second->IsVirtual());
 
   // done
   auto *third = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_next, it);
@@ -938,12 +938,12 @@ TYPED_TEST(MgpGraphTest, VirtualOnlyScopeHidesRealVerticesAndEdges) {
   MgpVertexPtr by_synth{EXPECT_MGP_NO_ERROR(
       mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{synth_gid.AsInt()}, &this->memory)};
   ASSERT_NE(by_synth, nullptr);
-  EXPECT_TRUE(by_synth->IsVirtualNode());
+  EXPECT_TRUE(by_synth->IsVirtual());
 
   auto *it = EXPECT_MGP_NO_ERROR(mgp_vertices_iterator *, mgp_graph_iter_vertices, &graph, &this->memory);
   auto *first = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_get, it);
   ASSERT_NE(first, nullptr);
-  EXPECT_TRUE(first->IsVirtualNode());
+  EXPECT_TRUE(first->IsVirtual());
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertices_iterator_next, it), nullptr);
   mgp_vertices_iterator_destroy(it);
 }

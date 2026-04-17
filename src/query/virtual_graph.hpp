@@ -41,6 +41,9 @@ class VirtualGraph final {
 
   [[nodiscard]] auto get_allocator() const -> allocator_type { return node_store_.get_allocator(); }
 
+  // Absorb another graph's nodes and edges into this one (used by parallel aggregate reduce).
+  void Merge(const VirtualGraph &other);
+
  private:
   VirtualNodeStore node_store_;
   VirtualEdgeStore edge_store_;

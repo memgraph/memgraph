@@ -6618,6 +6618,13 @@ class AggregateCursor : public Cursor {
 
   void ProjectPathWithOptions(TypedValue const &path_value, TypedValue const &options_value,
                               VirtualGraph &projected_graph) {
+    static constexpr auto kVirtualEdgeType = "virtualEdgeType";
+    static constexpr auto kSourceLabels = "sourceNodeLabels";
+    static constexpr auto kSourceProperties = "sourceNodeProperties";
+    static constexpr auto kTargetLabels = "targetNodeLabels";
+    static constexpr auto kTargetProperties = "targetNodeProperties";
+    static constexpr auto kRelationshipProperties = "relationshipProperties";
+
     if (path_value.type() != TypedValue::Type::Path) {
       throw QueryRuntimeException("derive() requires a path as argument 1.");
     }
@@ -6626,7 +6633,7 @@ class AggregateCursor : public Cursor {
     }
 
     const auto &options = options_value.ValueMap();
-    const auto it = options.find("virtualEdgeType");
+    const auto it = options.find(kVirtualEdgeType);
     if (it == options.end() || it->second.type() != TypedValue::Type::String) {
       throw QueryRuntimeException("derive() options map must contain a 'virtualEdgeType' string key.");
     }
@@ -6662,18 +6669,18 @@ class AggregateCursor : public Cursor {
 
     const auto &from = path_vertices.front();
     const auto &stored_from =
-        projected_graph.node_store().InsertOrGet(create_virtual_node(from, "sourceNodeLabels", "sourceNodeProperties"));
+        projected_graph.node_store().InsertOrGet(create_virtual_node(from, kSourceLabels, kSourceProperties));
 
     // single-vertex path — no edge to create
     if (path_vertices.size() < 2) return;
 
     const auto &to = path_vertices.back();
     const auto &stored_to =
-        projected_graph.node_store().InsertOrGet(create_virtual_node(to, "targetNodeLabels", "targetNodeProperties"));
+        projected_graph.node_store().InsertOrGet(create_virtual_node(to, kTargetLabels, kTargetProperties));
 
     VirtualEdge ve(stored_from, stored_to, std::move(edge_type_name), graph_alloc);
 
-    const auto props_it = options.find("relationshipProperties");
+    const auto props_it = options.find(kRelationshipProperties);
     if (props_it != options.end() && props_it->second.type() == TypedValue::Type::Map && db_accessor_) {
       for (const auto &[key, val] : props_it->second.ValueMap()) {
         const auto prop_id = db_accessor_->NameToProperty(key);
@@ -10727,12 +10734,7 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             break;
           }
           case Aggregation::Op::DERIVE: {
-            auto &main_vg = main_value.ValueVirtualGraph();
-            auto &other_vg = other_value.ValueVirtualGraph();
-            main_vg.node_store().MergeFrom(other_vg.node_store());
-            for (auto &ve : other_vg.edge_store().edges()) {
-              main_vg.edge_store().InsertIfNew(std::move(ve));
-            }
+            main_value.ValueVirtualGraph().Merge(other_value.ValueVirtualGraph());
             break;
           }
         }
@@ -10818,12 +10820,7 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::DERIVE: {
-          auto &main_vg = main_value.ValueVirtualGraph();
-          auto &other_vg = other_value.ValueVirtualGraph();
-          main_vg.node_store().MergeFrom(other_vg.node_store());
-          for (auto &ve : other_vg.edge_store().edges()) {
-            main_vg.edge_store().InsertIfNew(std::move(ve));
-          }
+          main_value.ValueVirtualGraph().Merge(other_value.ValueVirtualGraph());
           break;
         }
         default:
