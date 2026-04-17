@@ -11,6 +11,10 @@
 
 #include <gflags/gflags.h>
 
+#ifdef MG_ENTERPRISE
+#include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_state.hpp"
+#endif
 #include "dbms/dbms_handler.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_global.hpp"
@@ -63,7 +67,7 @@ int main(int argc, char **argv) {
                                                            nullptr
 #ifdef MG_ENTERPRISE
                                                            ,
-                                                           std::nullopt,
+                                                           nullptr,
                                                            nullptr
 #endif
                                                            ,

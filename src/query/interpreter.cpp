@@ -1313,12 +1313,31 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::DENY_PRIVILEGE:
       forbid_on_replica();
-      callback.fn = [auth, user_or_role, privileges, interpreter = &interpreter] {
+      callback.fn = [auth,
+                     user_or_role,
+                     privileges,
+                     interpreter = &interpreter
+#ifdef MG_ENTERPRISE
+                     ,
+                     label_privileges,
+                     label_matching_modes,
+                     edge_type_privileges
+#endif
+      ] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 
-        auth->DenyPrivilege(user_or_role, privileges, &*interpreter->system_transaction_);
+        auth->DenyPrivilege(user_or_role,
+                            privileges
+#ifdef MG_ENTERPRISE
+                            ,
+                            label_privileges,
+                            label_matching_modes,
+                            edge_type_privileges
+#endif
+                            ,
+                            &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -1666,7 +1685,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                 const query::InterpreterConfig &config, std::vector<Notification> *notifications
 #ifdef MG_ENTERPRISE
                                 ,
-                                std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
+                                coordination::CoordinatorState *coordinator_state
 #endif
 ) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1677,7 +1696,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
   auto const is_managed_by_coordinator = [&]() {
 #ifdef MG_ENTERPRISE
-    return coordinator_state.has_value() && coordinator_state->get().IsDataInstance();
+    return coordinator_state && coordinator_state->IsDataInstance();
 #else
     return false;
 #endif
@@ -2990,9 +3009,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
     // Create only if an explicit user is defined
     auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
     DMG_ASSERT(auth_checker, "Auth checker should not be null");
-    // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
+    // if the user has unrestricted access to all labels and edge types, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control
-    if (!auth_checker->HasAllGlobalPrivilegesOnVertices() || !auth_checker->HasAllGlobalPrivilegesOnEdges()) {
+    if (!auth_checker->HasUnrestrictedAccessToVertices() || !auth_checker->HasUnrestrictedAccessToEdges()) {
       ctx_.auth_checker = std::move(auth_checker);
     }
   }
@@ -4992,12 +5011,13 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
                        .db = target_db};
 }
 
-PreparedQuery PrepareReplicationQuery(
-    ParsedQuery parsed_query, bool in_explicit_transaction, std::vector<Notification> *notifications,
-    ReplicationQueryHandler &replication_query_handler, CurrentDB & /*current_db*/, const InterpreterConfig &config
+PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                      std::vector<Notification> *notifications,
+                                      ReplicationQueryHandler &replication_query_handler, CurrentDB & /*current_db*/,
+                                      const InterpreterConfig &config
 #ifdef MG_ENTERPRISE
-    ,
-    std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
+                                      ,
+                                      coordination::CoordinatorState *coordinator_state
 #endif
 ) {
   if (in_explicit_transaction) {
@@ -5863,6 +5883,9 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
             }
             case S3MissingAwsSecretKey: {
               throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_SECRET_KEY));
+            }
+            case FailedOverwritingUUID: {
+              throw utils::BasicException("Failed to overwrite snapshot with a new storage UUID");
             }
             default: {
               std::unreachable();
@@ -6821,11 +6844,15 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("peak_memory_res"),
              TypedValue(utils::GetReadableSize(static_cast<double>(info.peak_memory_res)))},
             {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
-            {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
-            {TypedValue("memory_tracked"),
+            {TypedValue("global_disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
+            {TypedValue("global_memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
-            {TypedValue("allocation_limit"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
+            {TypedValue("global_runtime_allocation_limit"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.MaximumHardLimit())))},
+            {TypedValue("global_license_allocation_limit"), TypedValue([&] {
+               const auto lic_limit = license::global_license_checker.GetDetailedLicenseInfo().memory_limit;
+               return lic_limit != 0 ? utils::GetReadableSize(static_cast<double>(lic_limit)) : "unlimited";
+             }())},
             {TypedValue("graph_memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::graph_memory_tracker.Amount())))},
             {TypedValue("vector_index_memory_tracked"),
@@ -7795,8 +7822,8 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           interpreter_context->auth_checker && has_user_or_role && db_acc) {
         auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, &*db_acc);
         DMG_ASSERT(auth_checker, "Auth checker should not be null");
-        // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
-        if (auth_checker->HasAllGlobalPrivilegesOnVertices() && auth_checker->HasAllGlobalPrivilegesOnEdges()) {
+        // if the user has unrestricted access to all labels and edge types, we don't need to perform authorization
+        if (auth_checker->HasUnrestrictedAccessToVertices() && auth_checker->HasUnrestrictedAccessToEdges()) {
           auth_checker = nullptr;
         }
       }
@@ -8408,8 +8435,7 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::
   if (!interpreter_context_->coordinator_state_) {
     throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
   }
-  if (interpreter_context_->coordinator_state_.has_value() &&
-      interpreter_context_->coordinator_state_->get().IsDataInstance()) {
+  if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsDataInstance()) {
     auto const &address = routing.find("address");
     if (address == routing.end()) {
       throw QueryException("Routing table must contain address field.");
@@ -8425,7 +8451,7 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::
   }
 
   auto const db_name = db.has_value() ? *db : dbms::kDefaultDB;
-  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable(db_name)};
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable(db_name)};
 }
 #endif
 
@@ -8834,7 +8860,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
 #ifdef MG_ENTERPRISE
     // TODO(antoniofilipovic) extend to cover Lab queries
-    if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->get().IsCoordinator() &&
+    if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
         !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query) &&
         !utils::Downcast<ReloadSSLQuery>(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");

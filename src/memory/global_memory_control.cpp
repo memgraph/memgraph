@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 #include "global_memory_control.hpp"
@@ -243,6 +244,16 @@ void PurgeUnusedMemory() {
   je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
 #else
   malloc_trim(0);
+#endif
+}
+
+void EnableBackgroundThreads() {
+#if USE_JEMALLOC
+  bool enable = true;
+  int err = je_mallctl("background_thread", nullptr, nullptr, &enable, sizeof(enable));
+  if (err) {
+    LOG_FATAL("Failed to enable jemalloc background threads: {} ({})", strerror(err), err);
+  }
 #endif
 }
 

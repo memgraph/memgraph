@@ -14,6 +14,9 @@
 #include <exception>
 #include <memory>
 #include <optional>
+#include <ranges>
+#include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -23,6 +26,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "coordination/coordinator_state.hpp"
 #include "coordination/data_instance_management_server_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
@@ -59,6 +63,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/concurrency_hint.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -96,6 +101,46 @@ void WarnDeprecatedFlags() {
     const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
     if (!info.is_default) spdlog::warn("{}", message);
   };
+}
+
+/// Memgraph does not use positional arguments. After gflags parsing, any remaining
+/// argv[1..argc-1] entries are unexpected — typically caused by writing `--bool-flag false`
+/// (space-separated) instead of `--bool-flag=false`. gflags bool flags don't consume the
+/// next argument; `--flag false` silently sets the flag to true and orphans "false".
+void CheckSuspiciousPositionalArgs(int argc, char **argv) {
+  if (argc <= 1) return;
+
+  auto is_bool_like = [](std::string_view arg) {
+    using namespace std::string_view_literals;
+    constexpr auto kBoolValues =
+        std::array{"true"sv, "false"sv, "yes"sv, "no"sv, "1"sv, "0"sv, "t"sv, "f"sv, "y"sv, "n"sv};
+    auto lower = memgraph::utils::ToLowerCase(arg);
+    return std::ranges::any_of(kBoolValues, [&](std::string_view bv) { return lower == bv; });
+  };
+
+  auto args = std::span(argv + 1, static_cast<size_t>(argc - 1));
+  std::ostringstream oss;
+  bool any_bool_like = false;
+  for (auto *a : args) {
+    if (oss.tellp() > 0) oss << ", ";
+    oss << "'" << a << "'";
+    if (is_bool_like(a)) any_bool_like = true;
+  }
+  auto all_args = std::move(oss).str();
+
+  auto level = FLAGS_strict_flag_check ? spdlog::level::err : spdlog::level::warn;
+  if (any_bool_like) {
+    spdlog::log(level,
+                "Unexpected positional argument(s): {}. "
+                "This is likely caused by writing '--bool-flag false' (space-separated). "
+                "Boolean flags require '=' syntax, e.g. '--bool-flag=false', or use '--nobool-flag'. "
+                "Without '=', the flag is set to true regardless of the value that follows it.",
+                all_args);
+  } else {
+    spdlog::log(
+        level, "Unexpected positional argument(s): {}. Memgraph does not accept positional arguments.", all_args);
+  }
+  if (FLAGS_strict_flag_check) std::exit(EXIT_FAILURE);
 }
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
@@ -207,6 +252,7 @@ void CleanDataDir(std::filesystem::path const &data_directory) {
 
 int main(int argc, char **argv) {
   memgraph::memory::SetHooks();
+  memgraph::memory::EnableBackgroundThreads();
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
 
@@ -214,7 +260,11 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  CheckSuspiciousPositionalArgs(argc, argv);
   WarnDeprecatedFlags();
+
+  // Publish worker count early so allocators can pre-size thread-local structures
+  memgraph::utils::SetNumWorkers(FLAGS_bolt_num_workers);
 
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
@@ -336,6 +386,7 @@ int main(int argc, char **argv) {
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
   CleanDataDir(data_directory);
+  memgraph::flags::CleanLogsDir();
 
   memgraph::utils::EnsureDirOrDie(data_directory);
   // Verify that the user that started the process is the same user that is
@@ -343,15 +394,20 @@ int main(int argc, char **argv) {
   memgraph::storage::durability::VerifyStorageDirectoryOwnerAndProcessUserOrDie(data_directory);
   // Create the lock file and open a handle to it. This will crash the
   // database if it can't open the file for writing or if any other process is
-  // holding the file opened.
+  // holding the file opened after timeout occurs
   memgraph::utils::OutputFile lock_file_handle;
-  lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
-  MG_ASSERT(lock_file_handle.AcquireLock(),
-            "Couldn't acquire lock on the storage directory {}"
-            "!\nAnother Memgraph process is currently running with the same "
-            "storage directory, please stop it first before starting this "
-            "process!",
+  MG_ASSERT(lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING),
+            "Failed to open {}/.lock file",
             data_directory);
+  MG_ASSERT(lock_file_handle.AcquireLockWithTimeout(FLAGS_data_dir_lock_acquisition_timeout_sec),
+            "Couldn't acquire lock on the storage directory {} within {}s!"
+            "Another Memgraph process is currently running with the same "
+            "storage directory, please stop it first before restarting this "
+            "process!",
+            data_directory,
+            FLAGS_data_dir_lock_acquisition_timeout_sec);
+
+  spdlog::trace("Successfully acquired lock on data directory");
 
   const auto memory_limit = memgraph::flags::GetMemoryLimit();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
@@ -392,12 +448,16 @@ int main(int argc, char **argv) {
       data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
   // Start the log if enabled.
   if (FLAGS_audit_enabled) {
-    audit_log.Start();
+    MG_ASSERT(audit_log.Start(), "Failed to open audit file {}", data_directory / "audit");
   }
   // Setup SIGUSR2 to be used for reopening audit log files, when e.g. logrotate
   // rotates our audit logs.
   MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::User2,
-                                                            [&audit_log]() { audit_log.ReopenLog(); }),
+                                                            [&audit_log]() {
+                                                              if (audit_log.ReopenLog()) {
+                                                                spdlog::info("Successfully reopened audit log");
+                                                              }
+                                                            }),
             "Unable to register SIGUSR2 handler!");
 
   // End enterprise features initialization
@@ -456,10 +516,6 @@ int main(int argc, char **argv) {
   spdlog::info("config recover on startup {}, flags {}",
                db_config.durability.recover_on_startup,
                FLAGS_data_recovery_on_startup);
-  memgraph::utils::Scheduler jemalloc_purge_scheduler;
-  jemalloc_purge_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_gc_cycle_sec));
-  jemalloc_purge_scheduler.Run("Jemalloc purge", [] { memgraph::memory::PurgeUnusedMemory(); });
-
   using namespace std::chrono_literals;
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
@@ -714,8 +770,7 @@ int main(int argc, char **argv) {
       system,
       &bolt_server_context,
 #ifdef MG_ENTERPRISE
-      coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
-                        : std::nullopt,
+      coordinator_state.get(),
       &resource_monitoring,
 #endif
       auth_handler.get(),
@@ -801,14 +856,19 @@ int main(int argc, char **argv) {
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry.emplace(telemetry_server,
-                      data_directory / "telemetry",
-                      memgraph::glue::run_id_,
-                      machine_id,
-                      service_name == "BoltS",
-                      FLAGS_data_directory,
-                      std::chrono::hours(8),
-                      1);
+    try {
+      telemetry.emplace(telemetry_server,
+                        data_directory / "telemetry",
+                        memgraph::glue::run_id_,
+                        machine_id,
+                        service_name == "BoltS",
+                        FLAGS_data_directory,
+                        std::chrono::hours(8),
+                        1);
+    } catch (std::exception const &e) {
+      spdlog::error("Failed to initialize telemetry. Error: {}", e.what());
+      return EXIT_FAILURE;
+    }
     telemetry->AddStorageCollector(dbms_handler, *auth_, *parameters);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);
@@ -874,17 +934,22 @@ int main(int argc, char **argv) {
 // replication state
 #ifdef MG_ENTERPRISE
     if (coordinator_state && coordinator_state->IsDataInstance()) {
+      spdlog::trace("Closing data instance mgmt server");
       coordinator_state->GetDataInstanceManagementServer().Shutdown();
     }
 #endif
 
     // Don't replicate on shutdown anymore
     {
-      auto locked_repl_state = repl_state.Lock();
+      // Read lock is fine because we are only shutting down all the state which should be concurrently safe to do with
+      // other operations This allow terminating current commit that is taking place
+      auto locked_repl_state = repl_state.ReadLock();
+      spdlog::trace("Closing repl state");
       locked_repl_state->Shutdown();
     }
 
     dbms_handler.ForEach([](memgraph::dbms::DatabaseAccess acc) {
+      spdlog::trace("Closing background tasks and deleting repl clients for db: {}", acc->name());
       // Stop all triggers, streams and ttl
       acc->StopAllBackgroundTasks();
       acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
@@ -893,7 +958,9 @@ int main(int argc, char **argv) {
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending
     // queries.
+    spdlog::trace("Shutting down interpreter context");
     interpreter_context_.Shutdown();
+    spdlog::trace("Shutting down websocket server");
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();

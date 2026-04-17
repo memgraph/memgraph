@@ -1,0 +1,8 @@
+[settings]
+compiler.tsan=True
+
+[conf]
+tools.build:cflags+=["-fsanitize=thread", "-fno-omit-frame-pointer"]
+tools.build:cxxflags+=["-fsanitize=thread", "-fno-omit-frame-pointer"]
+tools.build:exelinkflags+=["-fsanitize=thread"]
+tools.build:sharedlinkflags+=["-fsanitize=thread"]

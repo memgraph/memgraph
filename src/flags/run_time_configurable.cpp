@@ -35,6 +35,7 @@
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/timezone.hpp"
 
 namespace {
 bool ValidTimezone(std::string_view tz);
@@ -440,6 +441,7 @@ void Initialize(utils::Settings &settings) {
       kRestore,
       [](const std::string &val) {
         timezone_ = ::GetTimezone(val);  // Cache for faster access
+        utils::SetTimezone(timezone_);   // Propagate to utils layer
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!ValidTimezone(in)) {

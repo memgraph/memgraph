@@ -30,8 +30,8 @@
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
-#include "coordination/raft_state.hpp"
 #include "coordination/replication_lag_info.hpp"
+#include "coordination/utils.hpp"
 #include "utils/resource_monitoring.hpp"
 #endif
 

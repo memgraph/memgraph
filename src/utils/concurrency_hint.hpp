@@ -8,14 +8,24 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
 #pragma once
 
-#include <rocksdb/options.h>
+#include <atomic>
+#include <cstddef>
+#include <thread>
 
 namespace memgraph::utils {
 
-/// Apply RocksDB tuning flags to options.
-void ApplyRocksDBConfigFlags(rocksdb::Options &options);
+/// Expected number of concurrent worker threads.
+/// Set once during startup (e.g. from FLAGS_bolt_num_workers);
+/// read by allocators to pre-size thread-local structures.
+inline std::atomic<std::size_t> global_num_workers{0};
+
+inline void SetNumWorkers(std::size_t n) { global_num_workers.store(n, std::memory_order_release); }
+
+inline auto GetNumWorkers() -> std::size_t {
+  auto n = global_num_workers.load(std::memory_order_acquire);
+  return n > 0 ? n : std::thread::hardware_concurrency();
+}
 
 }  // namespace memgraph::utils

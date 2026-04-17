@@ -2,6 +2,9 @@ add_library(mg-coordination STATIC)
 add_library(mg::coordination ALIAS mg-coordination)
 target_sources(mg-coordination
         PUBLIC
+        FILE_SET HEADERS
+        BASE_DIRS include
+        FILES
         include/coordination/constants.hpp
         include/coordination/coordination_observer.hpp
         include/coordination/coordinator_cluster_state.hpp
@@ -60,8 +63,6 @@ target_sources(mg-coordination
         replication_instance_connector.cpp
         utils.cpp
 )
-target_include_directories(mg-coordination PUBLIC include)
-
 find_package(range-v3 REQUIRED)
 
 target_link_libraries(mg-coordination
