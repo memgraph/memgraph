@@ -12,6 +12,7 @@ function cleanup() {
     rm -rf cyclonedx || true
     rm -rf sbom/docker-sbom.json || true
     rm -rf sbom/memgraph-sbom.json || true
+    rm -rf sbom/rust-mage-sbom-files || true
     exit $exit_code
 }
 trap cleanup ERR EXIT
@@ -39,13 +40,29 @@ fi
 curl -L -o cyclonedx "$CYCLONEDXURL"
 chmod +x cyclonedx
 
+SBOM_FILES=(
+  sbom/docker-sbom.json
+  sbom/memgraph-build-sbom.json
+)
+
+# collect Rust MAGE Cargo.lock files
+RUST_MAGE_CARGO_LOCK_FILES=$(find . -name "Cargo.toml" -type f -print)
+mkdir -p sbom/rust-mage-sbom-files
+for cargo_lock_file in "${RUST_MAGE_CARGO_LOCK_FILES[@]}"; do
+  ITEM_NAME=$(basename "$(dirname $cargo_lock_file)")
+  OUTPUT_FILE="sbom/rust-mage-sbom-files/${ITEM_NAME}.json"
+  cargo cyclonedx --format json --override-filename sbom/rust-mage-sbom-files/$ITEM_NAME --manifest-path $cargo_lock_file
+  SBOM_FILES+=($OUTPUT_FILE)
+  echo "Generated SBOM file: $OUTPUT_FILE"
+done
+
 ./cyclonedx merge --input-files \
-  sbom/docker-sbom.json \
-  sbom/memgraph-build-sbom.json \
+  "${SBOM_FILES[@]}" \
   --output-format json \
   --output-file sbom/mage-sbom.json
 echo "Generated SBOM file: sbom/mage-sbom.json"
 rm sbom/memgraph-build-sbom.json
+rm -rf sbom/rust-mage-sbom-files
 
 python3 -m venv sbom/env
 source sbom/env/bin/activate

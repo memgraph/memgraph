@@ -23,17 +23,13 @@ trap cleanup EXIT
 # download syft binary from GitHub Releases
 if [[ "$(arch)" == "x86_64" ]]; then
     SYFTURL="https://github.com/anchore/syft/releases/download/v1.38.0/syft_1.38.0_linux_amd64.tar.gz"
-    CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-x64"
 else
     SYFTURL="https://github.com/anchore/syft/releases/download/v1.38.0/syft_1.38.0_linux_arm64.tar.gz"
-    CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-arm64"
 fi
 
 curl -L -o syft.tar.gz "$SYFTURL"
 tar -xzf syft.tar.gz syft
 chmod +x syft
-curl -L -o cyclonedx "$CYCLONEDXURL"
-chmod +x cyclonedx
 
 # scan the Docker container and combine the reports
 SYFT_FILE_METADATA_SELECTION=none ./syft \

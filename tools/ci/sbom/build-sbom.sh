@@ -63,15 +63,39 @@ function cleanup() {
   exit_status=$?
   if [[ "$no_cleanup" == false ]]; then
     rm -rf tools/ci/sbom/env || true
+    rm -f cyclonedx || true
   fi
   exit $exit_status
 }
 
 trap cleanup EXIT
 
+# download cyclonedx
+if [[ "$(arch)" == "x86_64" ]]; then
+    CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-x64"
+else
+    CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-arm64"
+fi
+
+curl -L -o cyclonedx "$CYCLONEDXURL"
+chmod +x cyclonedx
+
 # copy generated SBOM into release location
 mkdir -p sbom
-cp build/generators/sbom/memgraph-sbom.cdx.json sbom/memgraph-build-sbom.json
+echo "Generated SBOM file: sbom/memgraph-build-sbom.json"
+
+# create SBOM for text-search
+cd mgcxx/text_search
+cargo install cargo-cyclonedx
+cargo cyclonedx --format json --override-filename text-search
+echo "Generated SBOM file: text-search.json"
+cd ../../
+
+./cyclonedx merge --input-files \
+  build/generators/sbom/memgraph-sbom.cdx.json \
+  mgcxx/text_search/text-search.json \
+  --output-format json \
+  --output-file sbom/memgraph-build-sbom.json
 echo "Generated SBOM file: sbom/memgraph-build-sbom.json"
 
 # create venv for generating human-readable SBOM table
