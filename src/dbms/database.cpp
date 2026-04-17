@@ -97,7 +97,10 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
             "No tasks should be queued before the arena-pinning task");
   if (unsigned idx = ArenaIdx(); idx != 0) {
     after_commit_trigger_pool_.AddTask([idx]() mutable {
-      je_mallctl("thread.arena", nullptr, nullptr, &idx, sizeof(unsigned));
+      if (int ret = je_mallctl("thread.arena", nullptr, nullptr, &idx, sizeof(unsigned)); ret != 0) {
+        spdlog::error("Failed to pin after_commit_trigger_pool thread to arena {}: je_mallctl returned {}", idx, ret);
+        return;
+      }
       memory::tls_db_arena_idx = idx;
     });
   }
