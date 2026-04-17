@@ -9947,9 +9947,10 @@ class ScanParallelCursor : public Cursor {
         : cursor_(cursor), context_(context), observed_epoch_(observed_epoch) {}
 
     bool await_ready() const noexcept {
-      // Check if shutdown was requested - don't suspend if tearing down.
+      // Check if shutdown or interrupt was requested - don't suspend if tearing down.
+      // interrupted_ prevents re-parking after a task has been woken by Interrupt().
       const std::lock_guard lock(cursor_->mutex_);
-      return cursor_->shutting_down_;
+      return cursor_->shutting_down_ || cursor_->interrupted_;
     }
 
     bool await_suspend(std::coroutine_handle<> handle) const {
@@ -9988,12 +9989,12 @@ class ScanParallelCursor : public Cursor {
       if (cursor_->producer_waiters_.RegisterWaiter(
               handle, context_->worker_pool, utils::WorkerYieldRegistry::GetCurrentWorkerId(), observed_epoch_)) {
         // Check if shutdown was requested while we were registering.
+        // If so, don't suspend - the NotifyAll() already happened and we'd miss it.
         {
           const std::lock_guard lock(cursor_->mutex_);
           if (cursor_->shutting_down_) {
-            // Already registered, but we need to wake up. The caller will check
-            // shutting_down_ after await_resume() and exit properly.
-            return true;
+            // Don't suspend - proceed to check shutting_down_ in DoPull and exit
+            return false;
           }
         }
         return true;
@@ -10177,6 +10178,7 @@ class ScanParallelCursor : public Cursor {
     all_pulled_ = false;
     producer_active_ = false;
     shutting_down_ = false;
+    interrupted_ = false;
     input_cursor_->Reset();
   }
 
@@ -10196,6 +10198,9 @@ class ScanParallelCursor : public Cursor {
   // Tracks input batch version. Incremented when new input is pulled from upstream (e.g., UNWIND).
   // Used to signal branch collectors to clear their caches when input changes.
   uint64_t batch_version_{0};
+  // Set by Interrupt() to prevent tasks from re-parking after being woken.
+  // Once true, ProducerProgressAwaitable will never suspend again.
+  bool interrupted_{false};
   utils::WorkerResumeEvent producer_waiters_;
   // Long-lived generator per branch (keyed by ExecutionContext*). Each generator loops,
   // assigning one chunk per co_yield. Pull() emplaces on first call and reuses on subsequent calls.
@@ -10772,7 +10777,14 @@ class ParallelMergeCursor : public Cursor {
   }
 
   void Interrupt() override {
-    if (input_cursor_) input_cursor_->Interrupt();
+    input_cursor_->Interrupt();
+    // Signal teardown before waking so PARKED tasks check the flag and exit.
+    {
+      const std::lock_guard lock(mutex_);
+      shutting_down_ = true;
+      interrupted_ = true;  // Prevent re-parking after wake
+    }
+    producer_waiters_.NotifyAll();
   }
 
   void Shutdown() override {
