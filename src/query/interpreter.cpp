@@ -2671,12 +2671,11 @@ Callback HandleQueryCallableMappingsQuery() {
     results.reserve(mapping.size());
 
     for (const auto &[alias, source] : mapping) {
-      std::string type = "unknown";
-      if (procedure::FindProcedure(procedure::gModuleRegistry, source)) {
-        type = "procedure";
-      } else if (procedure::FindFunction(procedure::gModuleRegistry, source)) {
-        type = "function";
-      }
+      const std::string_view type = [&]() -> std::string_view {
+        if (procedure::FindProcedure(procedure::gModuleRegistry, source)) return "procedure";
+        if (procedure::FindFunction(procedure::gModuleRegistry, source)) return "function";
+        return "unknown";
+      }();
 
       std::vector<TypedValue> row;
       row.emplace_back(alias);
