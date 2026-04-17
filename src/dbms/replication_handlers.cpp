@@ -355,7 +355,11 @@ void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_acce
         break;
       }
       case Action::REMOVE_FROM_DATABASE: {
-        tp->DetachFromDatabase(req.db_name);
+        if (!tp->DetachFromDatabase(req.db_name)) {
+          spdlog::warn("TenantProfileHandler: REMOVE_FROM_DATABASE — db '{}' not attached to any profile on replica",
+                       req.db_name);
+          // Continue to clear limit anyway; the DB might exist even if not attached
+        }
         try {
           auto db_acc = dbms_handler.Get(req.db_name);
           db_acc.get()->ClearTenantMemoryLimit();
