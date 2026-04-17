@@ -574,7 +574,7 @@ class Database {
         break;
     }
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &db_accessor};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &db_accessor, "memgraph"};
     context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(auth_checker));
     // We run BFS once from each vertex for each blocked entity.
     input_operator = YieldVertices(&db_accessor, vertices, source_symbol, input_operator);

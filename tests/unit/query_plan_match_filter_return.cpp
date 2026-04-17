@@ -80,7 +80,7 @@ class MatchReturnFixture : public testing::Test {
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all.op_, output);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba, "memgraph"};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     return PullAll(*produce, &context);
 #endif
@@ -559,7 +559,7 @@ TYPED_TEST(ExpandFixture, ExpandWithEdgeFiltering) {
     auto output = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
                       ->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_m.op_, output);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
     auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
     return PullAll(*produce, &context);
   };
@@ -779,7 +779,7 @@ class QueryPlanExpandVariable : public testing::Test {
     ExecutionContext context;
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba, "memgraph"};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 #endif
     } else {
@@ -799,7 +799,7 @@ class QueryPlanExpandVariable : public testing::Test {
     ExecutionContext context;
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba, "memgraph"};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 #endif
     } else {
@@ -1980,7 +1980,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     memgraph::query::ExecutionContext context;
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba, "memgraph"};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 #endif
     } else {
@@ -2437,7 +2437,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     ExecutionContext context;
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba, "memgraph"};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 #endif
     } else {

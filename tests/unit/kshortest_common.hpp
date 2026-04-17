@@ -538,7 +538,7 @@ class Database {
         break;
     }
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &db_accessor};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &db_accessor, "memgraph"};
     context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(auth_checker));
 
     // We run k-shortest paths for all possible source-sink pairs

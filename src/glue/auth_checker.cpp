@@ -131,7 +131,8 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
   // update (if needed), so no need to update after that.
   try {
     auto glue_user = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
-    auto db_name = dba ? std::optional{dba->DatabaseName()} : std::nullopt;
+    DMG_ASSERT(dba, "DbAccessor must be non-null for fine-grained auth checking");
+    auto db_name = dba->DatabaseName();
     if (glue_user.user_) {
       return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba, db_name);
     }
@@ -208,7 +209,7 @@ bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgr
 
 #ifdef MG_ENTERPRISE
 FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba,
-                                               std::optional<std::string> db_name)
+                                               std::string db_name)
     : user_or_role_{std::move(user_or_role)}, dba_(dba), db_name_{std::move(db_name)} {};
 
 auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedLabelPermissions() const {
