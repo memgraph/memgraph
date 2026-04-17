@@ -9953,7 +9953,8 @@ class ScanParallelCursor : public Cursor {
       const bool should_not_suspend = cursor_->shutting_down_ || cursor_->interrupted_;
       if (should_not_suspend) {
         spdlog::trace("ProducerProgressAwaitable::await_ready: not suspending (shutting_down={}, interrupted={})",
-                     cursor_->shutting_down_, cursor_->interrupted_);
+                      cursor_->shutting_down_,
+                      cursor_->interrupted_);
       }
       return should_not_suspend;
     }
@@ -9988,24 +9989,12 @@ class ScanParallelCursor : public Cursor {
         }
         return true;
       }
-      if (!context_->worker_pool) {
-        clear_handle();
-        return false;
-      }
-      if (cursor_->producer_waiters_.RegisterWaiter(
-              handle, context_->worker_pool, utils::WorkerYieldRegistry::GetCurrentWorkerId(), observed_epoch_)) {
-        // Check if shutdown was requested while we were registering.
-        // If so, don't suspend - the NotifyAll() already happened and we'd miss it.
-        {
-          const std::lock_guard lock(cursor_->mutex_);
-          if (cursor_->shutting_down_ || cursor_->interrupted_) {
-            spdlog::trace("ProducerProgressAwaitable::await_suspend Path 2: not suspending due to shutdown/interrupt");
-            // Don't suspend - proceed to check shutting_down_ in DoPull and exit
-            return false;
-          }
-        }
-        return true;
-      }
+      // No CurrentResumableTaskScope: registering the raw coroutine handle in
+      // producer_waiters_ would create a double-resume race. suspended_handle in
+      // the branch lambda closure also holds this handle; both NotifyAll() and the
+      // next WrapTask invocation would call resume() on the same frame concurrently.
+      // Fall through to busy-spin: DoPull will re-check immediately on resume.
+      clear_handle();
       return false;
     }
 
@@ -10085,7 +10074,8 @@ class ScanParallelCursor : public Cursor {
 
       if (producer_epoch) {
         co_await AbortCheck(context);
-        spdlog::trace("ScanParallelCursor::DoPull: about to await ProducerProgressAwaitable (epoch={})", *producer_epoch);
+        spdlog::trace("ScanParallelCursor::DoPull: about to await ProducerProgressAwaitable (epoch={})",
+                      *producer_epoch);
         co_await ProducerProgressAwaitable(this, &context, *producer_epoch);
         spdlog::trace("ScanParallelCursor::DoPull: resumed from ProducerProgressAwaitable");
         // Check if shutdown was requested while we were parked.
@@ -10788,9 +10778,7 @@ class ParallelMergeCursor : public Cursor {
     co_return false;
   }
 
-  void Interrupt() override {
-    input_cursor_->Interrupt();
-  }
+  void Interrupt() override { input_cursor_->Interrupt(); }
 
   void Shutdown() override {
     if (input_cursor_) input_cursor_->Shutdown();
