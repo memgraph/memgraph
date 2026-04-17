@@ -14,6 +14,7 @@
 #include <memory_resource>
 #include <mutex>
 #include <new>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -71,7 +72,9 @@ class ArenaPool {
     unsigned arena_idx = 0;
     size_t sz = sizeof(arena_idx);
     const int err = je_mallctl("arenas.create", &arena_idx, &sz, nullptr, 0);
-    MG_ASSERT(err == 0, "Failed to create jemalloc arena (err={})", err);
+    if (err != 0) {
+      throw std::runtime_error(fmt::format("Failed to create jemalloc arena (err={})", err));
+    }
     return arena_idx;
   }
 

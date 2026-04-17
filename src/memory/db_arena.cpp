@@ -11,6 +11,8 @@
 
 #include "db_arena.hpp"
 
+#include <stdexcept>
+
 #include "utils/logging.hpp"
 
 #if USE_JEMALLOC
@@ -129,8 +131,9 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
   extent_hooks_t *base_hooks = nullptr;
   size_t hooks_sz = sizeof(extent_hooks_t *);
   int err = je_mallctl(hooks_key.c_str(), static_cast<void *>(&base_hooks), &hooks_sz, nullptr, 0);
-  MG_ASSERT(
-      err == 0 && base_hooks != nullptr, "Failed to read default hooks for DB arena {} (err={})", arena_idx_, err);
+  if (err != 0 || base_hooks == nullptr) {
+    throw std::runtime_error(fmt::format("Failed to read default hooks for DB arena {} (err={})", arena_idx_, err));
+  }
 
   // Populate and install our custom hooks.
   InitDbArenaHooks(hooks_, tracker, base_hooks);
@@ -140,7 +143,9 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
                    nullptr,
                    static_cast<void *>(const_cast<extent_hooks_t **>(&new_hooks)),
                    sizeof(extent_hooks_t *));
-  MG_ASSERT(err == 0, "Failed to install custom hooks on DB arena {} (err={})", arena_idx_, err);
+  if (err != 0) {
+    throw std::runtime_error(fmt::format("Failed to install custom hooks on DB arena {} (err={})", arena_idx_, err));
+  }
 }
 
 DbArena::~DbArena() {
@@ -155,18 +160,23 @@ DbArena::~DbArena() {
   // purge so any final hook callbacks still propagate into the DB/global hierarchy here.
   // Note: we intentionally skip arena.N.destroy — jemalloc's arena destruction is
   // experimental and arena indices are explicitly recycled via ArenaPool instead.
-  je_mallctl((arena_key + ".purge").c_str(), nullptr, nullptr, nullptr, 0);
+  if (int perr = je_mallctl((arena_key + ".purge").c_str(), nullptr, nullptr, nullptr, 0); perr != 0) {
+    spdlog::error("DbArena {}: purge failed (err={}); MemoryTracker may drift before hook restore", arena_idx_, perr);
+  }
 
   // Restore the default hooks AFTER purging so jemalloc's background thread cannot
   // call our hooks after `hooks_` is destroyed (use-after-free / null-tracker SIGSEGV).
   // mallctl atomically swaps the hooks pointer; once it returns no new invocations
   // of db_arena_alloc/dalloc/... will be dispatched for this arena.
   const extent_hooks_t *base = hooks_.base_hooks;
-  je_mallctl((arena_key + ".extent_hooks").c_str(),
-             nullptr,
-             nullptr,
-             static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
-             sizeof(extent_hooks_t *));
+  int err = je_mallctl((arena_key + ".extent_hooks").c_str(),
+                       nullptr,
+                       nullptr,
+                       static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
+                       sizeof(extent_hooks_t *));
+  if (err != 0) {
+    spdlog::error("DbArena {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx_, err);
+  }
 
   // Return the index to the pool so the next DbArena can reuse it instead of
   // creating a new one. Hooks are already restored so the arena is safe to reuse.

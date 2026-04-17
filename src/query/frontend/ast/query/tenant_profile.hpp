@@ -39,7 +39,7 @@ class TenantProfileQuery : public memgraph::query::Query {
     SHOW_ONE,
     SET_ON_DATABASE,
     REMOVE_FROM_DATABASE,
-  } action_;
+  } action_{Action::CREATE};
 
   std::string profile_name_;
   std::string db_name_;

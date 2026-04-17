@@ -299,7 +299,11 @@ void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_acce
         break;
       case Action::ALTER: {
         auto dbs = tp->Alter(req.profile_name, req.memory_limit);
-        MG_ASSERT(dbs, "Replicated ALTER for non-existent tenant profile '{}'", req.profile_name);
+        if (!dbs) {
+          spdlog::warn("TenantProfileHandler: ALTER for non-existent tenant profile '{}'", req.profile_name);
+          rpc::SendFinalResponse(res, request_version, res_builder);
+          return;
+        }
         for (const auto &db_name : *dbs) {
           auto db_acc = dbms_handler.Get(db_name);
           if (req.memory_limit > 0) {
@@ -315,7 +319,11 @@ void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_acce
         break;
       case Action::SET_ON_DATABASE: {
         auto limit = tp->AttachToDatabase(req.profile_name, req.db_name);
-        MG_ASSERT(limit, "Replicated SET_ON_DATABASE for non-existent tenant profile '{}'", req.profile_name);
+        if (!limit) {
+          spdlog::warn("TenantProfileHandler: SET_ON_DATABASE for non-existent tenant profile '{}'", req.profile_name);
+          rpc::SendFinalResponse(res, request_version, res_builder);
+          return;
+        }
         auto db_acc = dbms_handler.Get(req.db_name);
         if (*limit > 0) {
           db_acc.get()->SetTenantMemoryLimit(*limit);
