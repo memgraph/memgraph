@@ -271,7 +271,8 @@ void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Prio
 void PriorityThreadPool::RescheduleTaskOnWorker(uint16_t worker_id, TaskSignature task) {
   spdlog::trace("RescheduleTaskOnWorker: worker_id={}", worker_id);
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
-    spdlog::trace("RescheduleTaskOnWorker: pool stop requested, dropping task");
+    spdlog::warn("RescheduleTaskOnWorker: pool stopping, executing task inline to avoid deadlock");
+    task();  // Execute synchronously instead of dropping - prevents deadlock (P4)
     return;
   }
   DMG_ASSERT(
