@@ -708,7 +708,7 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   FType<Or<Null, Edge>>("type", args, nargs);
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  if (args[0].IsVirtualEdge()) return TypedValue(args[0].ValueVirtualEdge().EdgeTypeName(), ctx.memory);
+  if (args[0].IsVirtualEdge()) return {args[0].ValueVirtualEdge().EdgeTypeName(), ctx.memory};
   return TypedValue(dba->EdgeTypeToName(args[0].ValueEdge().EdgeType()), ctx.memory);
 }
 

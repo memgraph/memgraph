@@ -534,7 +534,7 @@ communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const s
   }
   std::vector<std::string> labels;
   labels.reserve(node.Labels().size());
-  for (const auto &l : node.Labels()) labels.emplace_back(l.data(), l.size());
+  for (const auto &label : node.Labels()) labels.emplace_back(label.data(), label.size());
   return {.id = id,
           .labels = std::move(labels),
           .properties = std::move(properties),
