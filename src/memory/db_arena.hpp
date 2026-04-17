@@ -60,9 +60,9 @@ class ArenaPool {
   }
 
   // Return a free arena index — either recycled from the pool or freshly created.
-  // If two threads both see an empty pool, both will call je_mallctl("arenas.create")
+  // If N threads race on an empty pool, all N will call je_mallctl("arenas.create")
   // concurrently; each gets a distinct valid index. This is benign: je_mallctl is
-  // thread-safe and neither index is lost. One extra arena is created versus
+  // thread-safe and neither index is lost. At most N-1 extra arenas are created versus
   // serialising the slow path, which is acceptable for an infrequent operation.
   unsigned Acquire() {
     {

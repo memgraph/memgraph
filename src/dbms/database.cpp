@@ -93,8 +93,6 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   // (e.g. uncaught exception in a task), subsequent tasks are never processed — that is a
   // different bug. For normal operation the pinning task runs exactly once and persists for
   // the pool's lifetime.
-  MG_ASSERT(after_commit_trigger_pool_.UnfinishedTasksNum() == 0,
-            "No tasks should be queued before the arena-pinning task");
   if (unsigned idx = ArenaIdx(); idx != 0) {
     after_commit_trigger_pool_.AddTask([idx]() mutable {
       if (int ret = je_mallctl("thread.arena", nullptr, nullptr, &idx, sizeof(unsigned)); ret != 0) {

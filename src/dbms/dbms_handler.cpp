@@ -295,8 +295,12 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
   }
 
-  // Detach from tenant profile (no-op if not attached).
-  if (tenant_profiles_) tenant_profiles_->DetachFromDatabase(db_name);
+  // Detach from tenant profile. Return value is safe to ignore here because this
+  // code path (TryDelete) is exclusive with the DetachFromDatabase call in Delete_
+  // below. If the DB is not attached, detaching is a no-op.
+  if (tenant_profiles_) {
+    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
+  }
 
   // Success
   // Save delta
@@ -577,8 +581,12 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   // Remove from durability list
   if (durability_) durability_->Delete(Durability::GenKey(db_name));
 
-  // Detach from tenant profile (no-op if not attached).
-  if (tenant_profiles_) tenant_profiles_->DetachFromDatabase(db_name);
+  // Detach from tenant profile. Return value is safe to ignore here because this
+  // code path (Delete_) is exclusive with the TryDelete path above. If the DB is
+  // not attached, detaching is a no-op.
+  if (tenant_profiles_) {
+    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
+  }
 
   // Check if db exists
   // Low level handlers

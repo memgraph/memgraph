@@ -209,14 +209,21 @@ class Database {
 #endif
   }
 
+  /// Total memory tracked for this database (storage + embeddings + query).
+  /// This is the sum of all per-DB trackers and represents the tenant enforcement total.
+  /// Note: Allocations from unpinned query threads may not be fully captured.
   int64_t DbMemoryUsage() const noexcept { return db_total_memory_tracker_.Amount(); }
 
+  /// Peak of total memory tracked for this database.
   int64_t DbPeakMemoryUsage() const noexcept { return db_total_memory_tracker_.Peak(); }
 
+  /// Storage memory only (vertices, edges, indices). Tracked via per-DB arena hooks.
   int64_t DbStorageMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
 
+  /// Vector index (embedding) memory only. Tracked via per-DB arena hooks.
   int64_t DbEmbeddingMemoryUsage() const noexcept { return db_embedding_memory_tracker_.Amount(); }
 
+  /// Query execution (PMR) memory only. Tracked via TrackingMemoryResource.
   int64_t DbQueryMemoryUsage() const noexcept { return db_query_memory_tracker_.Amount(); }
 
   utils::MemoryTracker *DbQueryMemoryTracker() noexcept { return &db_query_memory_tracker_; }
