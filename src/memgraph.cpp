@@ -566,7 +566,7 @@ int main(int argc, char **argv) {
     MG_ASSERT(FLAGS_init_data_file.empty(),
               "Coordinator instances don't support --init-data-file flag. Please restart the instance by removing this "
               "flag.");
-    db_config.durability.is_coordinator = true;
+    db_config.is_coordinator = true;
   }
 
   if (coordination_setup.IsDataInstanceManagedByCoordinator()) {

@@ -21,7 +21,7 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::Config config,
     storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr) {
-  const bool is_coordinator = config.durability.is_coordinator;
+  const bool is_coordinator = config.is_coordinator;
 
   // Use default safe factory from Storage constructor for basic usage
   auto storage = std::make_unique<storage::InMemoryStorage>(
