@@ -305,18 +305,29 @@ void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_acce
           return;
         }
         for (const auto &db_name : *dbs) {
-          auto db_acc = dbms_handler.Get(db_name);
-          if (req.memory_limit > 0) {
-            db_acc.get()->SetTenantMemoryLimit(req.memory_limit);
-          } else {
-            db_acc.get()->ClearTenantMemoryLimit();
+          try {
+            auto db_acc = dbms_handler.Get(db_name);
+            if (req.memory_limit > 0) {
+              db_acc.get()->SetTenantMemoryLimit(req.memory_limit);
+            } else {
+              db_acc.get()->ClearTenantMemoryLimit();
+            }
+          } catch (const UnknownDatabaseException &) {
+            spdlog::warn("TenantProfileHandler: ALTER — db '{}' not found on replica, skipping", db_name);
           }
         }
         break;
       }
-      case Action::DROP:
-        tp->Drop(req.profile_name);
+      case Action::DROP: {
+        const auto result = tp->Drop(req.profile_name);
+        if (result == TenantProfiles::DropResult::HAS_ATTACHED_DATABASES) {
+          spdlog::warn("TenantProfileHandler: DROP for profile '{}' rejected — has attached databases",
+                       req.profile_name);
+          rpc::SendFinalResponse(res, request_version, res_builder);
+          return;
+        }
         break;
+      }
       case Action::SET_ON_DATABASE: {
         auto limit = tp->AttachToDatabase(req.profile_name, req.db_name);
         if (!limit) {
@@ -324,18 +335,30 @@ void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_acce
           rpc::SendFinalResponse(res, request_version, res_builder);
           return;
         }
-        auto db_acc = dbms_handler.Get(req.db_name);
-        if (*limit > 0) {
-          db_acc.get()->SetTenantMemoryLimit(*limit);
-        } else {
-          db_acc.get()->ClearTenantMemoryLimit();
+        try {
+          auto db_acc = dbms_handler.Get(req.db_name);
+          if (*limit > 0) {
+            db_acc.get()->SetTenantMemoryLimit(*limit);
+          } else {
+            db_acc.get()->ClearTenantMemoryLimit();
+          }
+        } catch (const UnknownDatabaseException &) {
+          spdlog::warn(
+              "TenantProfileHandler: SET_ON_DATABASE — db '{}' not found on replica, limit will apply on create",
+              req.db_name);
         }
         break;
       }
       case Action::REMOVE_FROM_DATABASE: {
         tp->DetachFromDatabase(req.db_name);
-        auto db_acc = dbms_handler.Get(req.db_name);
-        db_acc.get()->ClearTenantMemoryLimit();
+        try {
+          auto db_acc = dbms_handler.Get(req.db_name);
+          db_acc.get()->ClearTenantMemoryLimit();
+        } catch (const UnknownDatabaseException &) {
+          spdlog::warn(
+              "TenantProfileHandler: REMOVE_FROM_DATABASE — db '{}' not found on replica, skipping limit clear",
+              req.db_name);
+        }
         break;
       }
       default:

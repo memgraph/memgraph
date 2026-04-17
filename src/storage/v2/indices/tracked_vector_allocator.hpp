@@ -77,7 +77,7 @@ class TrackedVectorAllocator {
       reset();
       inner_ = std::move(other.inner_);
       tracked_bytes_.store(other.tracked_bytes_.exchange(0, std::memory_order_relaxed), std::memory_order_relaxed);
-      tracker_ = std::exchange(other.tracker_, &utils::total_memory_tracker);
+      tracker_ = std::exchange(other.tracker_, &utils::vector_index_memory_tracker);
     }
     return *this;
   }

@@ -60,6 +60,10 @@ class ArenaPool {
   }
 
   // Return a free arena index — either recycled from the pool or freshly created.
+  // If two threads both see an empty pool, both will call je_mallctl("arenas.create")
+  // concurrently; each gets a distinct valid index. This is benign: je_mallctl is
+  // thread-safe and neither index is lost. One extra arena is created versus
+  // serialising the slow path, which is acceptable for an infrequent operation.
   unsigned Acquire() {
     {
       std::lock_guard<std::mutex> lock(mux_);
