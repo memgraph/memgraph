@@ -328,11 +328,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> override;
 
-    auto ListIndices(uint64_t start_timestamp) const
-        -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override;
+    auto ListIndices(uint64_t start_timestamp) const -> std::vector<LabelPropertyIndexEntry> override;
 
-    auto ListIndices(uint64_t start_timestamp, IndexOrder order) const
-        -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>>;
+    auto ListIndices(uint64_t start_timestamp, IndexOrder order) const -> std::vector<LabelPropertyIndexEntry>;
 
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 

@@ -4362,8 +4362,8 @@ void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
     [[maybe_unused]] auto maybe_error = DropIndex(label_id);
   }
 
-  for (auto &[label_id, properties] : indices_info.label_properties) {
-    [[maybe_unused]] auto maybe_error = DropIndex(label_id, std::move(properties));
+  for (auto &entry : indices_info.label_properties) {
+    [[maybe_unused]] auto maybe_error = DropIndex(entry.label, std::move(entry.properties));
   }
 
   for (const auto &edge_type_id : indices_info.edge_type) {

@@ -3691,7 +3691,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) 
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
-  using LPIndex = std::pair<storage::LabelId, std::vector<storage::PropertyPath>>;
+  using LPIndex = storage::LabelPropertyIndexEntry;
   auto view = storage::View::OLD;
 
   auto erase_not_specified_label_indices = [&labels, execution_db_accessor](auto &index_info) {
@@ -3714,7 +3714,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     }
 
     for (auto it = index_info.cbegin(); it != index_info.cend();) {
-      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(it->first))) {
+      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(it->label))) {
         it = index_info.erase(it);
       } else {
         ++it;
@@ -3762,8 +3762,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
       auto const uncomputed_stats_by_prefix = std::invoke([&] {
         auto prefix_key = key;
         auto stats_by_prefix = std::vector<StatsByPrefix>();
-        stats_by_prefix.reserve(key.second.size());
-        while (!prefix_key.second.empty()) {
+        stats_by_prefix.reserve(key.properties.size());
+        while (!prefix_key.properties.empty()) {
           if (label_property_counter.contains(prefix_key)) {
             // If we've computed the stats for a given prefix, we also know
             // that we've computed stats for every prefix of the prefix and
@@ -3772,7 +3772,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
           }
 
           stats_by_prefix.emplace_back(&label_property_counter[prefix_key], &vertex_degree_counter[prefix_key]);
-          prefix_key.second.pop_back();
+          prefix_key.properties.pop_back();
         }
 
         return stats_by_prefix;
@@ -3782,7 +3782,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
         return;
       }
 
-      auto const &[label, properties] = key;
+      auto const &[label, properties, order] = key;
 
       auto prop_ranges = std::vector<storage::PropertyValueRange>();
       prop_ranges.reserve(properties.size());
@@ -3827,9 +3827,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     // could have computed as part of a longer composite key. For example,
     // in computing the stats for :L1(a, b, c), we can quickly compute them for
     // :L1(a, b) and :L1(a).
-    std::ranges::sort(index_info, std::greater{}, [](auto const &label_and_properties) {
-      return label_and_properties.second.size();
-    });
+    std::ranges::sort(index_info, std::greater{}, [](auto const &entry) { return entry.properties.size(); });
 
     for (auto const &index : index_info) {
       count_vertex_prop_info(index);
@@ -3864,7 +3862,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
                                                .statistic = chi_squared_stat,
                                                .avg_group_size = avg_group_size,
                                                .avg_degree = average_degree};
-          execution_db_accessor->SetIndexStats(label_property.first, label_property.second, index_stats);
+          execution_db_accessor->SetIndexStats(label_property.label, label_property.properties, index_stats);
           label_property_stats.push_back(std::make_pair(label_property, index_stats));
         });
 
@@ -3905,8 +3903,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   std::ranges::for_each(label_property_stats, [&](const auto &stat_entry) {
     std::vector<TypedValue> result;
     result.reserve(kComputeStatisticsNumResults);
-    result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
-    result.emplace_back(stat_entry.first.second | rv::transform(prop_path_to_name) | ranges::to_vector);
+    result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.label));
+    result.emplace_back(stat_entry.first.properties | rv::transform(prop_path_to_name) | ranges::to_vector);
     result.emplace_back(static_cast<int64_t>(stat_entry.second.count));
     result.emplace_back(static_cast<int64_t>(stat_entry.second.distinct_values_count));
     result.emplace_back(stat_entry.second.avg_group_size);
@@ -3941,7 +3939,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
     }
 
     for (auto it = index_info.cbegin(); it != index_info.cend();) {
-      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(it->first))) {
+      if (!std::ranges::contains(labels, execution_db_accessor->LabelToName(it->label))) {
         it = index_info.erase(it);
       } else {
         ++it;
@@ -3968,9 +3966,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
 
     std::for_each(index_info.begin(),
                   index_info.end(),
-                  [execution_db_accessor, &label_property_results](
-                      const std::pair<storage::LabelId, std::vector<storage::PropertyPath>> &label_property) {
-                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(label_property.first);
+                  [execution_db_accessor, &label_property_results](const storage::LabelPropertyIndexEntry &entry) {
+                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(entry.label);
                     label_property_results.insert(
                         label_property_results.end(), std::move_iterator{res.begin()}, std::move_iterator{res.end()});
                   });
@@ -6518,12 +6515,14 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(),
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
         }
-        for (const auto &[label, properties] : info.label_properties) {
+        for (const auto &[label, properties, order] : info.label_properties) {
           auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
             return TypedValue{PropertyPathToName(storage, property_path)};
           };
           auto props = properties | rv::transform(prop_path_to_name) | ranges::to_vector;
-          results.push_back({TypedValue(label_property_index_mark),
+          auto type_mark = order == storage::IndexOrder::DESC ? std::string{label_property_index_mark} + " (DESC)"
+                                                              : std::string{label_property_index_mark};
+          results.push_back({TypedValue(std::move(type_mark)),
                              TypedValue(storage->LabelToName(label)),
                              TypedValue(std::move(props)),
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(label, properties)))});
@@ -7856,7 +7855,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         }));
       }
       // Vertex label property indices
-      for (const auto &[label_id, property_paths] : index_info.label_properties) {
+      for (const auto &[label_id, property_paths, order] : index_info.label_properties) {
 #ifdef MG_ENTERPRISE
         if (auth_checker && !auth_checker->Has(std::span{&label_id, 1}, AuthQuery::FineGrainedPrivilege::READ)) {
           continue;
@@ -7867,11 +7866,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         };
 
         auto props = property_paths | rv::transform(path_to_name) | r::to_vector;
+        auto type = order == storage::IndexOrder::DESC ? "label+properties (DESC)" : "label+properties";
         node_indexes.push_back(nlohmann::json::object({
             {"labels", {storage->LabelToName(label_id)}},
             {"properties", props},
             {"count", storage_acc->ApproximateVertexCount(label_id, property_paths)},
-            {"type", "label+properties"},
+            {"type", type},
         }));
       }
       // Vertex label text

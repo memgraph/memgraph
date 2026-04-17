@@ -184,11 +184,11 @@ bool DiskLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label, std::span<
   return index_.contains(LabelProperty{label, properties[0][0]});
 }
 
-auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const
-    -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> {
-  auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyPath>> {
+auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t /*start_timestamp*/) const
+    -> std::vector<LabelPropertyIndexEntry> {
+  auto const convert = [](auto &&index) -> LabelPropertyIndexEntry {
     auto [label, property] = index;
-    return {label, {PropertyPath{property}}};
+    return {label, {PropertyPath{property}}, IndexOrder::ASC};
   };
 
   return index_ | ranges::views::transform(convert) | ranges::to_vector;

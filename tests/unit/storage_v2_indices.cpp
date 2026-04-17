@@ -669,9 +669,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(
+                    LabelPropertyIndexEntry{this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}}));
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -686,9 +686,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(
+                    LabelPropertyIndexEntry{this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}}));
   }
 
   {
@@ -704,10 +704,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}),
-                             std::make_pair(this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(
+                    LabelPropertyIndexEntry{this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}},
+                    LabelPropertyIndexEntry{this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}}}));
   }
 
   {
@@ -722,9 +722,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(
+                    LabelPropertyIndexEntry{this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}}}));
   }
 
   {
@@ -773,9 +773,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(
+                UnorderedElementsAre(LabelPropertyIndexEntry{
                     this->label1,
-                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}}));
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -794,9 +794,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(
+                UnorderedElementsAre(LabelPropertyIndexEntry{
                     this->label1,
-                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}}));
   }
 
   {
@@ -818,12 +818,12 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
     EXPECT_THAT(
         acc->ListAllIndices().label_properties,
         UnorderedElementsAre(
-            std::make_pair(
+            LabelPropertyIndexEntry{
                 this->label1,
-                std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}),
-            std::make_pair(
+                std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}},
+            LabelPropertyIndexEntry{
                 this->label2,
-                std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
+                std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}}));
   }
 
   {
@@ -842,9 +842,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(
+                UnorderedElementsAre(LabelPropertyIndexEntry{
                     this->label2,
-                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}}));
   }
 
   {

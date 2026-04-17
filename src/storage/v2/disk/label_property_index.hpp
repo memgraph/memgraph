@@ -48,8 +48,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> override;
 
-    auto ListIndices(uint64_t start_timestamp) const
-        -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override;
+    auto ListIndices(uint64_t start_timestamp) const -> std::vector<LabelPropertyIndexEntry> override;
 
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t override;
 

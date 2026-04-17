@@ -24,6 +24,7 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/label_property_index_entry.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -99,7 +100,7 @@ class EdgeAccessor;
 // TODO: list status Populating/Ready
 struct IndicesInfo {
   std::vector<LabelId> label;
-  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> label_properties;
+  std::vector<LabelPropertyIndexEntry> label_properties;
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<PropertyId> edge_property;
@@ -284,7 +285,7 @@ class Storage {
                                       std::span<storage::PropertyValueRange const> property_ranges, View view,
                                       IndexOrder order = IndexOrder::ASC) = 0;
 
-    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
+    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
       return Vertices(
           label, properties, std::vector(properties.size(), storage::PropertyValueRange::IsNotNull()), view);
     };

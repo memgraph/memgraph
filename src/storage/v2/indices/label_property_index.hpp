@@ -14,6 +14,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/indices/label_properties_indices_info.hpp"
+#include "storage/v2/indices/label_property_index_entry.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -235,8 +236,7 @@ struct LabelPropertyIndexActiveIndices {
                                                   std::span<PropertyPath const> properties) const
       -> std::vector<LabelPropertiesIndicesInfo> = 0;
 
-  virtual auto ListIndices(uint64_t start_timestamp) const
-      -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> = 0;
+  virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<LabelPropertyIndexEntry> = 0;
 
   virtual auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t = 0;
 

@@ -853,8 +853,8 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const
-    -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> {
-  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ret;
+    -> std::vector<LabelPropertyIndexEntry> {
+  std::vector<LabelPropertyIndexEntry> ret;
 
   auto const count_from = [](auto &indices_map) {
     return r::fold_left(
@@ -862,28 +862,29 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_times
   };
   ret.reserve(count_from(index_container_->asc_indices_) + count_from(index_container_->desc_indices_));
 
-  auto const collect_from = [&](auto &indices_map) {
+  auto const collect_from = [&](auto const &indices_map, IndexOrder order) {
     for (auto const &[label, indices] : indices_map) {
       for (auto const &[props, index] : indices) {
         if (index->status.IsVisible(start_timestamp)) {
-          ret.emplace_back(label, props);
+          ret.emplace_back(label, props, order);
         }
       }
     }
   };
 
-  index_container_->ForEachIndicesMap(collect_from);
+  collect_from(index_container_->asc_indices_, IndexOrder::ASC);
+  collect_from(index_container_->desc_indices_, IndexOrder::DESC);
   return ret;
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp, IndexOrder order) const
-    -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> {
-  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ret;
+    -> std::vector<LabelPropertyIndexEntry> {
+  std::vector<LabelPropertyIndexEntry> ret;
   auto const collect_from = [&](auto const &indices_map) {
     for (auto const &[label, indices] : indices_map) {
       for (auto const &[props, index] : indices) {
         if (index->status.IsVisible(start_timestamp)) {
-          ret.emplace_back(label, props);
+          ret.emplace_back(label, props, order);
         }
       }
     }

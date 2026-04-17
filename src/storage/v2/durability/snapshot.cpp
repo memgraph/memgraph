@@ -11640,7 +11640,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
 
     auto const write_label_property_indices = [&](auto const &label_property) {
       snapshot.WriteUint(label_property.size());
-      for (const auto &[label, property_paths] : label_property) {
+      for (const auto &[label, property_paths, order] : label_property) {
         write_mapping(label);
         snapshot.WriteUint(property_paths.size());
         for (const auto &property_path : property_paths) {
@@ -11658,11 +11658,11 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       snapshot.WriteUint(0);  // Just a place holder
       unsigned i = 0;
       for (const auto &item : label_property_path_pair) {
-        auto stats = inmem_index->GetIndexStats(item);
+        auto stats = inmem_index->GetIndexStats({item.label, item.properties});
         if (stats) {
-          snapshot.WriteUint(item.first.AsUint());
-          snapshot.WriteUint(item.second.size());
-          for (const auto &property_path : item.second) {
+          snapshot.WriteUint(item.label.AsUint());
+          snapshot.WriteUint(item.properties.size());
+          for (const auto &property_path : item.properties) {
             snapshot.WriteUint(property_path.size());
             for (const auto &property : property_path) {
               snapshot.WriteUint(property.AsUint());
