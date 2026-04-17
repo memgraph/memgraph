@@ -559,13 +559,15 @@ int main(int argc, char **argv) {
                                              coordination_setup.coordinator_port && coordination_setup.coordinator_id &&
                                              !coordination_setup.coordinator_hostname.empty();
 
-  if (is_valid_coordinator_instance) {
+  if (is_valid_coordinator_instance || coordination_setup.IsDataInstanceManagedByCoordinator()) {
     MG_ASSERT(
         FLAGS_init_file.empty(),
         "Coordinator instances don't support --init-file flag. Please restart the instance by removing this flag.");
     MG_ASSERT(FLAGS_init_data_file.empty(),
               "Coordinator instances don't support --init-data-file flag. Please restart the instance by removing this "
               "flag.");
+  }
+  if (is_valid_coordinator_instance) {
     db_config.durability.snapshot_interval = memgraph::utils::SchedulerInterval{"0"};
   }
 
