@@ -242,11 +242,11 @@ antlrcpp::Any CypherMainVisitor::visitNeo4jUniqueConstraintQuery(
   }
 
   auto *pattern = ctx->neo4jConstraintPattern();
-  if (pattern->neo4jEdgeConstraintPattern()) {
+  if (dynamic_cast<MemgraphCypher::Neo4jEdgeConstraintPatternContext *>(pattern)) {
     throw SemanticException("Unique constraints on relationships are not supported.");
   }
 
-  auto *node_pattern = pattern->neo4jNodeConstraintPattern();
+  auto *node_pattern = dynamic_cast<MemgraphCypher::Neo4jNodeConstraintPatternContext *>(pattern);
   auto var_name = std::any_cast<std::string>(node_pattern->variable()->symbolicName()->accept(this));
 
   Constraint constraint;
@@ -276,11 +276,11 @@ antlrcpp::Any CypherMainVisitor::visitNeo4jExistenceConstraintQuery(
   }
 
   auto *pattern = ctx->neo4jConstraintPattern();
-  if (pattern->neo4jEdgeConstraintPattern()) {
+  if (dynamic_cast<MemgraphCypher::Neo4jEdgeConstraintPatternContext *>(pattern)) {
     throw SemanticException("Existence constraints on relationships are not supported.");
   }
 
-  auto *node_pattern = pattern->neo4jNodeConstraintPattern();
+  auto *node_pattern = dynamic_cast<MemgraphCypher::Neo4jNodeConstraintPatternContext *>(pattern);
   auto *prop_key = ValidateSingleNeo4jPropertyRef(node_pattern, ctx->neo4jPropertyRef(), "existence", *this);
 
   Constraint constraint;
@@ -299,11 +299,11 @@ antlrcpp::Any CypherMainVisitor::visitNeo4jTypeConstraintQuery(MemgraphCypher::N
   }
 
   auto *pattern = ctx->neo4jConstraintPattern();
-  if (pattern->neo4jEdgeConstraintPattern()) {
+  if (dynamic_cast<MemgraphCypher::Neo4jEdgeConstraintPatternContext *>(pattern)) {
     throw SemanticException("Type constraints on relationships are not supported.");
   }
 
-  auto *node_pattern = pattern->neo4jNodeConstraintPattern();
+  auto *node_pattern = dynamic_cast<MemgraphCypher::Neo4jNodeConstraintPatternContext *>(pattern);
   auto *prop_key = ValidateSingleNeo4jPropertyRef(node_pattern, ctx->neo4jPropertyRef(), "type", *this);
 
   Constraint constraint;
