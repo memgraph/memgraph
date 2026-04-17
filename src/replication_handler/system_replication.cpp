@@ -13,11 +13,11 @@
 
 #include <spdlog/spdlog.h>
 
-#include "auth/replication_handlers.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_handlers.hpp"
 #include "parameters/parameters.hpp"
 #include "parameters/rpc.hpp"
+#include "replication_handler/auth_replication_handlers.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "system/rpc.hpp"

@@ -21,7 +21,7 @@ ITERATIONS = 10
 TOTAL_NODES = 50_000_000
 TOTAL_EDGES = 25_000_000
 
-MONITOR_FIELDS = ["vertex_count", "edge_count", "memory_res", "memory_tracked"]
+MONITOR_FIELDS = ["vertex_count", "edge_count", "memory_res", "global_memory_tracked"]
 
 
 def main():

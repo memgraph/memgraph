@@ -107,7 +107,7 @@ class InterpreterTest : public ::testing::Test {
                                                           nullptr
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt,
+                                                          nullptr,
                                                           nullptr
 #endif
   };
@@ -1193,7 +1193,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
                                                                 nullptr
 #ifdef MG_ENTERPRISE
                                                                 ,
-                                                                std::nullopt,
+                                                                nullptr,
                                                                 nullptr
 #endif
     };

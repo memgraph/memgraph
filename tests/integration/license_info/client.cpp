@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,7 @@
 #include "utils/uuid.hpp"
 
 DEFINE_string(endpoint, "http://127.0.0.1:5500/", "Endpoint that should be used for the test.");
-DEFINE_string(license_type, "enterprise", "License type; can be oem or enterprise.");
+DEFINE_string(license_type, "enterprise", "License type; can be enterprise, oem, or ai_platform.");
 DEFINE_int64(interval, 1, "Interval used for reporting telemetry in seconds.");
 DEFINE_int64(duration, 10, "Duration of the test in seconds.");
 
@@ -34,6 +34,9 @@ memgraph::license::LicenseType StringToLicenseType(const std::string_view licens
   }
   if (license_type == "oem") {
     return memgraph::license::LicenseType::OEM;
+  }
+  if (license_type == "ai_platform") {
+    return memgraph::license::LicenseType::AI_PLATFORM;
   }
   spdlog::critical("Invalid license type!");
   std::terminate();
@@ -53,8 +56,11 @@ int main(int argc, char **argv) {
     license_info->is_valid = true;
   });
 
-  memgraph::license::LicenseInfoSender license_sender(FLAGS_endpoint, memgraph::utils::GenerateUUID(),
-                                                      memgraph::utils::GetMachineId(), 10000000, license_info,
+  memgraph::license::LicenseInfoSender license_sender(FLAGS_endpoint,
+                                                      memgraph::utils::GenerateUUID(),
+                                                      memgraph::utils::GetMachineId(),
+                                                      10000000,
+                                                      license_info,
                                                       std::chrono::seconds(FLAGS_interval));
   std::this_thread::sleep_for(std::chrono::seconds(FLAGS_duration));
 

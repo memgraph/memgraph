@@ -80,7 +80,7 @@ find_package(spdlog REQUIRED)
 find_package(croncpp REQUIRED)
 
 target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp rollbear::strong_type gflags mg-fnv)
-target_link_libraries(mg-utils PRIVATE AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer librdtsc::librdtsc stdc++fs Threads::Threads uuid rt range-v3::range-v3 mg-slk)
+target_link_libraries(mg-utils PRIVATE AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer librdtsc::librdtsc stdc++fs Threads::Threads uuid rt range-v3::range-v3)
 
 add_library(mg-aws STATIC)
 add_library(mg::aws ALIAS mg-aws)
@@ -107,4 +107,4 @@ target_sources(mg-events
     event_trigger.cpp
     event_map.cpp
 )
-target_link_libraries(mg-events mg-utils nlohmann_json::nlohmann_json)
+target_link_libraries(mg-events PRIVATE mg-utils nlohmann_json::nlohmann_json)

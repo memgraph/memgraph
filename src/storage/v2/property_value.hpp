@@ -30,8 +30,6 @@ import memgraph.utils.fnv;
 
 #include <boost/container/flat_map.hpp>
 
-namespace r = ranges;
-
 namespace memgraph::storage {
 
 template <typename T>
@@ -1058,7 +1056,7 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdTyp
       auto const &m1 = first.ValueMap();
       auto const &m2 = second.ValueMap();
       if (m1.size() != m2.size()) return m1.size() <=> m2.size();
-      for (auto &&[v1, v2] : r::views::zip(m1, m2)) {
+      for (auto &&[v1, v2] : ranges::views::zip(m1, m2)) {
         auto key_cmp_res = v1.first <=> v2.first;
         if (key_cmp_res != std::weak_ordering::equivalent) return key_cmp_res;
         auto val_cmp_res = v1.second <=> v2.second;
@@ -1566,7 +1564,7 @@ inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdM
       typename PropertyValue::VectorIndexIdData data;
       const auto &external_vector_index_ids = value.ValueVectorIndexIds();
       data.ids.reserve(external_vector_index_ids.size());
-      r::transform(external_vector_index_ids, std::back_inserter(data.ids), [mapper](auto str) {
+      ranges::transform(external_vector_index_ids, std::back_inserter(data.ids), [mapper](auto str) {
         return mapper->NameToId(str);
       });
       data.vector = value.ValueVectorIndexList();
@@ -1623,7 +1621,7 @@ inline ExternalPropertyValue ToExternalPropertyValue(const PropertyValue &value,
       typename ExternalPropertyValue::VectorIndexIdData data;
       const auto &internal_vector_index_ids = value.ValueVectorIndexIds();
       data.ids.reserve(internal_vector_index_ids.size());
-      r::transform(
+      ranges::transform(
           internal_vector_index_ids, std::back_inserter(data.ids), [mapper](auto id) { return mapper->IdToName(id); });
       data.vector = value.ValueVectorIndexList();
       return ExternalPropertyValue(std::move(data));

@@ -9,3 +9,6 @@ src:*/rdvarint.h
 # librdkafka: signed integer overflow in timestamp conversion (rdkafka_int.h:1171)
 # TODO: file upstream issue at confluentinc/librdkafka
 src:*/rdkafka_int.h
+
+# librdkafka: negative shift exponent in HDR histogram (rdhdrhistogram.c:212)
+src:*/rdhdrhistogram.c

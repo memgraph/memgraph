@@ -396,7 +396,7 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   return *this;
 }
 
-void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
+bool OutputFile::Open(const std::filesystem::path &path, Mode mode) {
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
@@ -420,7 +420,11 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     break;
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  auto const res = fd_ != -1;
+  if (!res) {
+    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  }
+  return res;
 }
 
 bool OutputFile::IsOpen() const { return fd_ != -1; }
@@ -676,7 +680,7 @@ NonConcurrentOutputFile::~NonConcurrentOutputFile() {
   if (IsOpen()) Close();
 }
 
-void NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode) {
+bool NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode) {
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
@@ -701,7 +705,11 @@ void NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode)
     }
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  auto const res = fd_ != -1;
+  if (!res) {
+    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  }
+  return res;
 }
 
 bool NonConcurrentOutputFile::IsOpen() const { return fd_ != -1; }

@@ -1889,7 +1889,7 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   utils::EnsureDirOrDie(wal_directory);
 
   // Initialize the WAL file.
-  wal_.Initialize(path_, kWalMagic, kVersion);
+  MG_ASSERT(wal_.Initialize(path_, kWalMagic, kVersion), "Failed to open WAL file {}", path_);
 
   // Write placeholder offsets.
   wal_.WriteMarker(Marker::SECTION_OFFSETS);
@@ -1928,7 +1928,7 @@ WalFile::WalFile(std::filesystem::path current_wal_path, SalientConfig::Items it
       count_(count),
       seq_num_(seq_num),
       file_retainer_(file_retainer) {
-  wal_.OpenExisting(path_);
+  MG_ASSERT(wal_.OpenExisting(path_), "Failed to open existing WAL file {}", path_);
 }
 
 void WalFile::FinalizeWal() {
