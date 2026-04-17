@@ -326,6 +326,11 @@ void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_acce
           rpc::SendFinalResponse(res, request_version, res_builder);
           return;
         }
+        if (result == TenantProfiles::DropResult::DURABILITY_ERROR) {
+          spdlog::error("TenantProfileHandler: DROP for profile '{}' failed — KVStore I/O error", req.profile_name);
+          rpc::SendFinalResponse(res, request_version, res_builder);
+          return;
+        }
         break;
       }
       case Action::SET_ON_DATABASE: {

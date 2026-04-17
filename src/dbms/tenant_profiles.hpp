@@ -39,7 +39,7 @@ class TenantProfiles {
 
   explicit TenantProfiles(kvstore::KVStore &durability);
 
-  enum class DropResult : uint8_t { SUCCESS, NOT_FOUND, HAS_ATTACHED_DATABASES };
+  enum class DropResult : uint8_t { SUCCESS, NOT_FOUND, HAS_ATTACHED_DATABASES, DURABILITY_ERROR };
 
   bool Create(std::string_view name, int64_t memory_limit);
   std::optional<std::unordered_set<std::string>> Alter(std::string_view name, int64_t memory_limit);

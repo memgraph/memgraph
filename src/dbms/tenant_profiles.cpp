@@ -99,7 +99,7 @@ TenantProfiles::DropResult TenantProfiles::Drop(std::string_view name) {
 
   if (!it->second.databases.empty()) return DropResult::HAS_ATTACHED_DATABASES;
 
-  if (!durability_->Delete(ProfileKey(name))) return DropResult::NOT_FOUND;
+  if (!durability_->Delete(ProfileKey(name))) return DropResult::DURABILITY_ERROR;
   profiles_.erase(it);
   return DropResult::SUCCESS;
 }

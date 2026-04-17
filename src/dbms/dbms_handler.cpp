@@ -502,6 +502,8 @@ void DbmsHandler::DropTenantProfile(std::string_view name, system::Transaction *
     case TenantProfiles::DropResult::HAS_ATTACHED_DATABASES:
       throw query::QueryRuntimeException("Tenant profile '{}' has databases attached. Detach all databases first.",
                                          name);
+    case TenantProfiles::DropResult::DURABILITY_ERROR:
+      throw query::QueryRuntimeException("Failed to persist deletion of tenant profile '{}'. Disk I/O error.", name);
   }
   if (sys_txn) {
     sys_txn->AddAction<TenantProfileAction>(TenantProfileAction::Action::DROP, name, "", 0);
