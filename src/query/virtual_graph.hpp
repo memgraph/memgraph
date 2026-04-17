@@ -32,13 +32,13 @@ class VirtualGraph final {
   VirtualGraph &operator=(VirtualGraph &&) = default;
   ~VirtualGraph() = default;
 
-  [[nodiscard]] VirtualNodeStore &node_store() { return node_store_; }
+  [[nodiscard]] VirtualNodeStore &node_store() noexcept { return node_store_; }
 
-  [[nodiscard]] const VirtualNodeStore &node_store() const { return node_store_; }
+  [[nodiscard]] const VirtualNodeStore &node_store() const noexcept { return node_store_; }
 
-  [[nodiscard]] VirtualEdgeStore &edge_store() { return edge_store_; }
+  [[nodiscard]] VirtualEdgeStore &edge_store() noexcept { return edge_store_; }
 
-  [[nodiscard]] const VirtualEdgeStore &edge_store() const { return edge_store_; }
+  [[nodiscard]] const VirtualEdgeStore &edge_store() const noexcept { return edge_store_; }
 
   [[nodiscard]] auto get_allocator() const -> allocator_type {
     DMG_ASSERT(node_store_.get_allocator().resource() == edge_store_.get_allocator().resource(),

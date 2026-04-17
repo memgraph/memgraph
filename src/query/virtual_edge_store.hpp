@@ -68,13 +68,13 @@ class VirtualEdgeStore {
   [[nodiscard]] EdgeRefView OutEdges(storage::Gid vertex_gid) const;
   [[nodiscard]] EdgeRefView InEdges(storage::Gid vertex_gid) const;
 
-  [[nodiscard]] auto edges() const { return std::views::all(edges_); }
+  [[nodiscard]] auto edges() const noexcept { return std::views::all(edges_); }
 
-  [[nodiscard]] auto size() const { return edges_.size(); }
+  [[nodiscard]] auto size() const noexcept { return edges_.size(); }
 
-  [[nodiscard]] auto empty() const { return edges_.empty(); }
+  [[nodiscard]] auto empty() const noexcept { return edges_.empty(); }
 
-  [[nodiscard]] auto get_allocator() const -> allocator_type { return edges_.get_allocator(); }
+  [[nodiscard]] auto get_allocator() const noexcept -> allocator_type { return edges_.get_allocator(); }
 
  private:
   // Single source of truth; VirtualEdge's operator==/hash are semantic (from, to, type),

@@ -53,13 +53,13 @@ class VirtualNodeStore {
   [[nodiscard]] const VirtualNode *FindBySyntheticGid(storage::Gid synthetic_gid) const;
   [[nodiscard]] bool Contains(storage::Gid original_gid) const;
 
-  [[nodiscard]] auto nodes() const { return std::views::all(nodes_); }
+  [[nodiscard]] auto nodes() const noexcept { return std::views::all(nodes_); }
 
-  [[nodiscard]] auto size() const { return nodes_.size(); }
+  [[nodiscard]] auto size() const noexcept { return nodes_.size(); }
 
-  [[nodiscard]] auto empty() const { return nodes_.empty(); }
+  [[nodiscard]] auto empty() const noexcept { return nodes_.empty(); }
 
-  [[nodiscard]] auto get_allocator() const -> allocator_type { return nodes_.get_allocator(); }
+  [[nodiscard]] auto get_allocator() const noexcept -> allocator_type { return nodes_.get_allocator(); }
 
  private:
   // keyed by original Gid for dedup
