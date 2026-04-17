@@ -120,6 +120,15 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
+def test_disable_snp_interval(test_name):
+    cursor = setup_test(test_name=test_name)
+    try:
+        execute_and_fetch_all(cursor, "set database setting 'storage.snapshot.interval' to '1'")
+        assert False
+    except Exception as e:
+        assert "Coordinators don't support snapshots" in str(e)
+
+
 def test_enable_show_license_info_queries(test_name):
     cursor = setup_test(test_name=test_name)
     execute_and_fetch_all(cursor, "SHOW LICENSE INFO")

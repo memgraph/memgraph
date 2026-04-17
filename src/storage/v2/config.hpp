@@ -94,6 +94,7 @@ struct Config {
 
     bool snapshot_on_exit{false};                      // PER DATABASE
     bool restore_replication_state_on_startup{false};  // PER INSTANCE
+    bool is_coordinator{false};                        // PER INSTANCE - when true, snapshot handler is not wired up
 
     uint64_t items_per_batch{1'000'000};  // PER DATABASE
     uint64_t snapshot_thread_count{8};    // PER INSTANCE SYSTEM FLAG
