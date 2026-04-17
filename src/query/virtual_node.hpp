@@ -59,7 +59,8 @@ class VirtualNode final {
   VirtualNode(VirtualNode &&) noexcept = default;
 
   VirtualNode &operator=(const VirtualNode &) = default;
-  VirtualNode &operator=(VirtualNode &&) noexcept = default;
+  // Not noexcept: pmr move-assign across mismatched allocators may reallocate and throw.
+  VirtualNode &operator=(VirtualNode &&) = default;
   ~VirtualNode() = default;
 
   [[nodiscard]] auto Gid() const noexcept -> storage::Gid { return gid_; }

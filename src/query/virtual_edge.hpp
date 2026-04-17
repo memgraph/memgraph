@@ -53,7 +53,7 @@ class VirtualEdge final {
   VirtualEdge(VirtualEdge &&) noexcept = default;
 
   VirtualEdge &operator=(const VirtualEdge &) = default;
-  VirtualEdge &operator=(VirtualEdge &&) noexcept = default;
+  VirtualEdge &operator=(VirtualEdge &&) = default;
   ~VirtualEdge() = default;
 
   [[nodiscard]] auto From() const noexcept -> const VirtualNode & { return from_; }
@@ -77,9 +77,7 @@ class VirtualEdge final {
 
   [[nodiscard]] auto Properties() const noexcept -> const property_map & { return properties_; }
 
-  // Semantic equality: two VirtualEdges are equal if they connect the same endpoints with the same
-  // edge type. This makes VirtualEdgeStore's unordered_set<VirtualEdge> the single source of truth
-  // for dedup — no parallel dedup structure needed. The synthetic gid_ is metadata only.
+  // Semantic equality on (from, to, type). Drives dedup via unordered_set<VirtualEdge>.
   bool operator==(const VirtualEdge &other) const noexcept {
     return from_.Gid() == other.from_.Gid() && to_.Gid() == other.to_.Gid() && edge_type_name_ == other.edge_type_name_;
   }

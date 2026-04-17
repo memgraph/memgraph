@@ -7809,8 +7809,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     virtual_graph = query::VirtualGraph(std::move(vg_value), vg_value.get_allocator());
     args_list.erase(args_list.begin());
 
-    graph.virtual_graph = &*virtual_graph;
-    graph.virtual_only = true;
+    graph.virtual_overlay = mgp_graph::VirtualOverlay{.graph = &*virtual_graph, .virtual_only = true};
   }
 
   procedure::ValidateArguments(args_list, proc, fully_qualified_procedure_name);

@@ -654,14 +654,14 @@ struct mgp_map_items_iterator {
 
 struct mgp_vertex {
   using allocator_type = memgraph::utils::Allocator<mgp_vertex>;
-  using RealVertexImpl = std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor>;
-  using VertexImpl = std::variant<RealVertexImpl, memgraph::query::VirtualNode>;
+  using VertexImpl = std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor,
+                                  memgraph::query::VirtualNode>;
 
   mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, allocator_type alloc)
-      : alloc(alloc), impl(RealVertexImpl(v)), graph(graph) {}
+      : alloc(alloc), impl(v), graph(graph) {}
 
   mgp_vertex(memgraph::query::SubgraphVertexAccessor v, mgp_graph *graph, allocator_type alloc)
-      : alloc(alloc), impl(RealVertexImpl(v)), graph(graph) {}
+      : alloc(alloc), impl(v), graph(graph) {}
 
   mgp_vertex(memgraph::query::VirtualNode v, mgp_graph *graph, allocator_type alloc)
       : alloc(alloc), impl(std::move(v)), graph(graph) {}
@@ -676,11 +676,8 @@ struct mgp_vertex {
 
   memgraph::query::VertexAccessor getImpl() const {
     DMG_ASSERT(!IsVirtualNode(), "getImpl() is not available for VirtualNode");
-    const auto &real = std::get<RealVertexImpl>(impl);
-    return std::visit(
-        memgraph::utils::Overloaded{[](const memgraph::query::VertexAccessor &va) { return va; },
-                                    [](const memgraph::query::SubgraphVertexAccessor &sva) { return sva.impl_; }},
-        real);
+    if (const auto *va = std::get_if<memgraph::query::VertexAccessor>(&impl)) return *va;
+    return std::get<memgraph::query::SubgraphVertexAccessor>(impl).impl_;
   }
 
   bool IsVirtualNode() const noexcept { return std::holds_alternative<memgraph::query::VirtualNode>(impl); }
@@ -689,17 +686,19 @@ struct mgp_vertex {
 
   memgraph::query::VirtualNode &GetVirtualNode() { return std::get<memgraph::query::VirtualNode>(impl); }
 
-  // visit only the two real-vertex alternatives; caller must guard IsVirtualNode() first
+  // Visit only the two real-vertex alternatives; caller must guard IsVirtualNode() first.
   template <typename F>
   auto VisitReal(F &&fn) const {
     DMG_ASSERT(!IsVirtualNode(), "VisitReal called on VirtualNode");
-    return std::visit(std::forward<F>(fn), std::get<RealVertexImpl>(impl));
+    if (const auto *va = std::get_if<memgraph::query::VertexAccessor>(&impl)) return fn(*va);
+    return fn(std::get<memgraph::query::SubgraphVertexAccessor>(impl));
   }
 
   template <typename F>
   auto VisitReal(F &&fn) {
     DMG_ASSERT(!IsVirtualNode(), "VisitReal called on VirtualNode");
-    return std::visit(std::forward<F>(fn), std::get<RealVertexImpl>(impl));
+    if (auto *va = std::get_if<memgraph::query::VertexAccessor>(&impl)) return fn(*va);
+    return fn(std::get<memgraph::query::SubgraphVertexAccessor>(impl));
   }
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
@@ -708,12 +707,11 @@ struct mgp_vertex {
   mgp_vertex &operator=(const mgp_vertex &) = delete;
   mgp_vertex &operator=(mgp_vertex &&) = delete;
 
+  // Identity via Gid: real Gids count up from 0, synthetic count down from UINT64_MAX,
+  // so mixed real/virtual naturally compares false without a special case.
   bool operator==(const mgp_vertex &other) const noexcept {
-    if (IsVirtualNode() && other.IsVirtualNode()) {
-      return GetVirtualNode().Gid() == other.GetVirtualNode().Gid();
-    }
-    if (IsVirtualNode() || other.IsVirtualNode()) return false;
-    return other.getImpl() == this->getImpl();
+    return std::visit([](const auto &impl) { return impl.Gid(); }, impl) ==
+           std::visit([](const auto &impl) { return impl.Gid(); }, other.impl);
   }
 
   bool operator!=(const mgp_vertex &other) const noexcept { return !(*this == other); };
@@ -822,11 +820,20 @@ struct mgp_graph {
   // `ctx` field is out of place here.
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
-  memgraph::query::VirtualGraph *virtual_graph{nullptr};
-  // set when a Type::VirtualGraph was the procedure's first argument — read-side APIs
-  // (vertices iterator, count, get_vertex_by_id) must expose only the virtual graph,
-  // never the underlying DbAccessor's real vertices/edges.
-  bool virtual_only{false};
+
+  // virtual_only == true hides real storage from read APIs; engaged optional implies non-null graph.
+  struct VirtualOverlay {
+    memgraph::query::VirtualGraph *graph;
+    bool virtual_only;
+  };
+
+  std::optional<VirtualOverlay> virtual_overlay{};
+
+  [[nodiscard]] memgraph::query::VirtualGraph *VirtualGraphPtr() const noexcept {
+    return virtual_overlay ? virtual_overlay->graph : nullptr;
+  }
+
+  [[nodiscard]] bool IsVirtualOnly() const noexcept { return virtual_overlay && virtual_overlay->virtual_only; }
 
   memgraph::query::DbAccessor *getImpl() const {
     return std::visit(

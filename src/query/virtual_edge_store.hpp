@@ -44,7 +44,7 @@ class VirtualEdgeStore {
   VirtualEdgeStore(const VirtualEdgeStore &other) : VirtualEdgeStore(other, other.edges_.get_allocator()) {}
 
   VirtualEdgeStore &operator=(const VirtualEdgeStore &) = default;
-  VirtualEdgeStore &operator=(VirtualEdgeStore &&) noexcept = default;
+  VirtualEdgeStore &operator=(VirtualEdgeStore &&) = default;
   ~VirtualEdgeStore() = default;
 
   // Returns true iff the (from, to, type) triple was not already present.

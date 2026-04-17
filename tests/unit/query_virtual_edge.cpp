@@ -141,24 +141,6 @@ TEST_F(VirtualEdgeTest, SelfLoopAppearsInBothDirections) {
   EXPECT_EQ(vg.edge_store().InEdges(vn1.Gid()).size(), 1);
 }
 
-TEST_F(VirtualEdgeTest, InsertOrUpdateDropsStaleSyntheticGid) {
-  auto acc = db->Access(memgraph::storage::WRITE);
-  const auto real_gid = acc->CreateVertex().Gid();
-  acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-
-  memgraph::query::VirtualNodeStore store(memgraph::utils::NewDeleteResource());
-  const auto stale_synth = store.InsertOrGet(memgraph::query::VirtualNode(real_gid, {"A"}, {})).Gid();
-
-  memgraph::query::VirtualNode replacement(real_gid, {"B"}, {});
-  const auto fresh_synth = replacement.Gid();
-  store.InsertOrUpdate(std::move(replacement));
-
-  EXPECT_EQ(store.FindBySyntheticGid(stale_synth), nullptr);
-  ASSERT_NE(store.FindBySyntheticGid(fresh_synth), nullptr);
-  ASSERT_EQ(store.FindBySyntheticGid(fresh_synth)->Labels().size(), 1);
-  EXPECT_EQ(store.FindBySyntheticGid(fresh_synth)->Labels()[0], "B");
-}
-
 TEST_F(VirtualEdgeTest, MergeFromPreservesCanonicalAndAliasesOtherSynth) {
   auto acc = db->Access(memgraph::storage::WRITE);
   const auto shared_gid = acc->CreateVertex().Gid();

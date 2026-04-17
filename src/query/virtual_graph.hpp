@@ -28,7 +28,7 @@ class VirtualGraph final {
   VirtualGraph(VirtualGraph &&other, allocator_type alloc);
 
   VirtualGraph &operator=(const VirtualGraph &) = default;
-  VirtualGraph &operator=(VirtualGraph &&) noexcept = default;
+  VirtualGraph &operator=(VirtualGraph &&) = default;
   ~VirtualGraph() = default;
 
   [[nodiscard]] VirtualNodeStore &node_store() { return node_store_; }

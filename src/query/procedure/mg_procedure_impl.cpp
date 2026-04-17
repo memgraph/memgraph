@@ -228,7 +228,7 @@ template <typename TFunc, typename... Args>
 bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
   // a virtual-only scope (derive() arg) is read-only: the virtual store is query-scoped
   // and there is no sanctioned path to write into the underlying real DB.
-  return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr && !graph.virtual_only;
+  return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr && !graph.IsVirtualOnly();
 }
 
 bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
@@ -2322,7 +2322,7 @@ mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         if (v->IsVirtualNode()) {
-          if (auto *vg = v->graph->virtual_graph) return vg->edge_store().InEdges(v->GetVirtualNode().Gid()).size();
+          if (auto *vg = v->graph->VirtualGraphPtr()) return vg->edge_store().InEdges(v->GetVirtualNode().Gid()).size();
           return 0;
         }
         auto maybe_in_degree = v->VisitReal([v](const auto &impl) { return impl.InDegree(v->graph->view); });
@@ -2347,7 +2347,8 @@ mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         if (v->IsVirtualNode()) {
-          if (auto *vg = v->graph->virtual_graph) return vg->edge_store().OutEdges(v->GetVirtualNode().Gid()).size();
+          if (auto *vg = v->graph->VirtualGraphPtr())
+            return vg->edge_store().OutEdges(v->GetVirtualNode().Gid()).size();
           return 0;
         }
         auto maybe_out_degree = v->VisitReal([v](const auto &impl) { return impl.OutDegree(v->graph->view); });
@@ -2977,7 +2978,7 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
 
         // virtual nodes have no real edges — only virtual in-edges from the subgraph
         if (v->IsVirtualNode()) {
-          auto *vg = v->graph->virtual_graph;
+          auto *vg = v->graph->VirtualGraphPtr();
           if (!vg) {
             throw memgraph::query::QueryRuntimeException(
                 "Cannot iterate in-edges: virtual node has no associated virtual graph context.");
@@ -3014,7 +3015,7 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
 #endif
 
         // populate virtual in-edges from the virtual graph (if present)
-        if (auto *vg = v->graph->virtual_graph) {
+        if (auto *vg = v->graph->VirtualGraphPtr()) {
           // edge store is indexed by synthetic VirtualNode Gid; resolve real gids through the node store
           const auto lookup_gid = v->VisitReal([&vg](const auto &acc) -> std::optional<memgraph::storage::Gid> {
             if (const auto *vn = vg->node_store().Find(acc.Gid())) return vn->Gid();
@@ -3059,7 +3060,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         MG_ASSERT(it != nullptr);
         // virtual nodes have no real edges — only virtual out-edges from the subgraph
         if (v->IsVirtualNode()) {
-          auto *vg = v->graph->virtual_graph;
+          auto *vg = v->graph->VirtualGraphPtr();
           if (!vg) {
             throw memgraph::query::QueryRuntimeException(
                 "Cannot iterate out-edges: virtual node has no associated virtual graph context.");
@@ -3099,7 +3100,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
 #endif
 
         // populate virtual out-edges from the virtual graph (if present)
-        if (auto *vg = v->graph->virtual_graph) {
+        if (auto *vg = v->graph->VirtualGraphPtr()) {
           // edge store is indexed by synthetic VirtualNode Gid; resolve real gids through the node store
           const auto lookup_gid = v->VisitReal([&vg](const auto &acc) -> std::optional<memgraph::storage::Gid> {
             if (const auto *vn = vg->node_store().Find(acc.Gid())) return vn->Gid();
@@ -3487,8 +3488,8 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
         const auto gid = memgraph::storage::Gid::FromInt(id.as_int);
-        if (graph->virtual_only) {
-          if (const auto *vn = graph->virtual_graph->node_store().FindBySyntheticGid(gid)) {
+        if (graph->IsVirtualOnly()) {
+          if (const auto *vn = graph->VirtualGraphPtr()->node_store().FindBySyntheticGid(gid)) {
             return NewRawMgpObject<mgp_vertex>(memory, *vn, graph);
           }
           return nullptr;
@@ -3506,12 +3507,6 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
                         memory, memgraph::query::SubgraphVertexAccessor(*maybe_vertex, impl->getGraph()), graph);
                   }},
               graph->impl);
-        }
-        // fallback: a real-mode procedure may still want to address virtual-overlay nodes by synthetic Gid
-        if (auto *vg = graph->virtual_graph) {
-          if (const auto *vn = vg->node_store().FindBySyntheticGid(gid)) {
-            return NewRawMgpObject<mgp_vertex>(memory, *vn, graph);
-          }
         }
         return nullptr;
       },
@@ -3940,14 +3935,13 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
       throw ImmutableObjectException{"Cannot remove a vertex from an immutable graph!"};
     }
 
-    auto &real = std::get<mgp_vertex::RealVertexImpl>(vertex->impl);
     const auto result =
         std::visit(memgraph::utils::Overloaded{
                        [&](memgraph::query::DbAccessor *impl) {
-                         return impl->RemoveVertex(&std::get<memgraph::query::VertexAccessor>(real));
+                         return impl->RemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
                        },
                        [&](memgraph::query::SubgraphDbAccessor *impl) {
-                         return impl->RemoveVertex(&std::get<memgraph::query::SubgraphVertexAccessor>(real));
+                         return impl->RemoveVertex(&std::get<memgraph::query::SubgraphVertexAccessor>(vertex->impl));
                        }},
                    graph->impl);
 
@@ -3991,16 +3985,15 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
     if (!MgpGraphIsMutable(*graph)) {
       throw ImmutableObjectException{"Cannot remove a vertex from an immutable graph!"};
     }
-    auto &real = std::get<mgp_vertex::RealVertexImpl>(vertex->impl);
-    const auto result =
-        std::visit(memgraph::utils::Overloaded{
-                       [&real](memgraph::query::DbAccessor *impl) {
-                         return impl->DetachRemoveVertex(&std::get<memgraph::query::VertexAccessor>(real));
-                       },
-                       [&real](memgraph::query::SubgraphDbAccessor *impl) {
-                         return impl->DetachRemoveVertex(&std::get<memgraph::query::SubgraphVertexAccessor>(real));
-                       }},
-                   graph->impl);
+    const auto result = std::visit(
+        memgraph::utils::Overloaded{
+            [vertex](memgraph::query::DbAccessor *impl) {
+              return impl->DetachRemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
+            },
+            [vertex](memgraph::query::SubgraphDbAccessor *impl) {
+              return impl->DetachRemoveVertex(&std::get<memgraph::query::SubgraphVertexAccessor>(vertex->impl));
+            }},
+        graph->impl);
 
     if (!result) {
       switch (result.error()) {
@@ -4068,21 +4061,19 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
         if (!MgpGraphIsMutable(*graph)) {
           throw ImmutableObjectException{"Cannot create an edge in an immutable graph!"};
         }
-        auto &from_real = std::get<mgp_vertex::RealVertexImpl>(from->impl);
-        auto &to_real = std::get<mgp_vertex::RealVertexImpl>(to->impl);
-        auto edge = std::visit(
-            memgraph::utils::Overloaded{[&from_real, &to_real, type](memgraph::query::DbAccessor *impl) {
-                                          return impl->InsertEdge(&std::get<memgraph::query::VertexAccessor>(from_real),
-                                                                  &std::get<memgraph::query::VertexAccessor>(to_real),
-                                                                  impl->NameToEdgeType(type.name));
-                                        },
-                                        [&from_real, &to_real, type](memgraph::query::SubgraphDbAccessor *impl) {
-                                          return impl->InsertEdge(
-                                              &std::get<memgraph::query::SubgraphVertexAccessor>(from_real),
-                                              &std::get<memgraph::query::SubgraphVertexAccessor>(to_real),
-                                              impl->NameToEdgeType(type.name));
-                                        }},
-            graph->impl);
+        auto edge =
+            std::visit(memgraph::utils::Overloaded{
+                           [from, to, type](memgraph::query::DbAccessor *impl) {
+                             return impl->InsertEdge(&std::get<memgraph::query::VertexAccessor>(from->impl),
+                                                     &std::get<memgraph::query::VertexAccessor>(to->impl),
+                                                     impl->NameToEdgeType(type.name));
+                           },
+                           [from, to, type](memgraph::query::SubgraphDbAccessor *impl) {
+                             return impl->InsertEdge(&std::get<memgraph::query::SubgraphVertexAccessor>(from->impl),
+                                                     &std::get<memgraph::query::SubgraphVertexAccessor>(to->impl),
+                                                     impl->NameToEdgeType(type.name));
+                           }},
+                       graph->impl);
 
         if (!edge) {
           switch (edge.error()) {
@@ -4875,14 +4866,14 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
     : alloc(alloc),
       graph(graph),
       vertices(std::visit([graph](auto *impl) { return impl->Vertices(graph->view); }, graph->impl)),
-      current_it(graph->virtual_only ? vertices.end() : vertices.begin()) {
+      current_it(graph->IsVirtualOnly() ? vertices.end() : vertices.begin()) {
 #ifdef MG_ENTERPRISE
-  if (!graph->virtual_only && memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+  if (!graph->IsVirtualOnly() && memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     NextPermitted(*this);
   }
 #endif
 
-  if (auto *vg = graph->virtual_graph) {
+  if (auto *vg = graph->VirtualGraphPtr()) {
     const auto &vn_store = vg->node_store();
     if (!vn_store.empty()) {
       has_virtual_nodes_ = true;
@@ -4912,23 +4903,23 @@ mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vert
 
 mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
-    if (graph->virtual_only) {
-      *result = graph->virtual_graph->node_store().size();
+    if (graph->IsVirtualOnly()) {
+      *result = graph->VirtualGraphPtr()->node_store().size();
       return;
     }
     *result = graph->getImpl()->VerticesCount();
-    if (auto *vg = graph->virtual_graph) *result += vg->node_store().size();
+    if (auto *vg = graph->VirtualGraphPtr()) *result += vg->node_store().size();
   });
 }
 
 mgp_error mgp_graph_approximate_edge_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
-    if (graph->virtual_only) {
-      *result = graph->virtual_graph->edge_store().size();
+    if (graph->IsVirtualOnly()) {
+      *result = graph->VirtualGraphPtr()->edge_store().size();
       return;
     }
     *result = graph->getImpl()->EdgesCount();
-    if (auto *vg = graph->virtual_graph) *result += vg->edge_store().size();
+    if (auto *vg = graph->VirtualGraphPtr()) *result += vg->edge_store().size();
   });
 }
 
