@@ -80,6 +80,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
 #include "query/replication_query_handler.hpp"
@@ -2659,6 +2660,35 @@ Callback HandleConfigQuery() {
   return callback;
 }
 
+Callback HandleQueryCallableMappingsQuery() {
+  Callback callback;
+  callback.header = {"alias_name", "source_name", "type"};
+
+  callback.fn = [] {
+    const auto &mapping = procedure::gCallableAliasMapper.GetMapping();
+
+    std::vector<std::vector<TypedValue>> results;
+    results.reserve(mapping.size());
+
+    for (const auto &[alias, source] : mapping) {
+      const std::string_view type = [&]() -> std::string_view {
+        if (procedure::FindProcedure(procedure::gModuleRegistry, source)) return "procedure";
+        if (procedure::FindFunction(procedure::gModuleRegistry, source)) return "function";
+        return "unknown";
+      }();
+
+      std::vector<TypedValue> row;
+      row.emplace_back(alias);
+      row.emplace_back(source);
+      row.emplace_back(type);
+      results.emplace_back(std::move(row));
+    }
+
+    return results;
+  };
+  return callback;
+}
+
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters,
                             InterpreterContext *interpreter_context) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -5174,6 +5204,30 @@ PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, bool in_explicit_
   }
 
   auto callback = HandleConfigQuery();
+
+  return PreparedQuery{
+      .header = std::move(callback.header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) [[unlikely]] {
+          pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+        }
+
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+}
+
+PreparedQuery PrepareShowQueryCallableMappingsQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
+    throw ShowQueryCallableMappingsInMulticommandTxException();
+  }
+
+  auto callback = HandleQueryCallableMappingsQuery();
 
   return PreparedQuery{
       .header = std::move(callback.header),
@@ -8496,6 +8550,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(ShowConfigQuery & /*unused*/) override {}
 
+  void Visit(ShowQueryCallableMappingsQuery & /*unused*/) override {}
+
   void Visit(SettingQuery & /*unused*/) override {}
 
   void Visit(VersionQuery & /*unused*/) override {}
@@ -8974,6 +9030,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<ShowConfigQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareShowConfigQuery(std::move(parsed_query), in_explicit_transaction_);
+    } else if (utils::Downcast<ShowQueryCallableMappingsQuery>(parsed_query.query)) {
+      /// SYSTEM PURE
+      prepared_query = PrepareShowQueryCallableMappingsQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query = PrepareTriggerQuery(std::move(parsed_query),
                                            in_explicit_transaction_,

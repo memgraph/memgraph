@@ -41,6 +41,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BOOTSTRAP_SERVERS
                       | BUILD
                       | CALL
+                      | CALLABLE
                       | CHECK
                       | CLEAR
                       | CLUSTER
@@ -128,6 +129,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | MAPPINGS
                       | MATCHING
                       | METRICS
                       | MODE
@@ -274,6 +276,7 @@ query : cypherQuery
       | parameterQuery
       | versionQuery
       | showConfigQuery
+      | showQueryCallableMappingsQuery
       | transactionQueueQuery
       | multiDatabaseQuery
       | useDatabase
@@ -750,6 +753,8 @@ showParameters : SHOW PARAMETERS ;
 deleteAllParameters : DELETE ALL PARAMETERS ;
 
 showConfigQuery : SHOW CONFIG ;
+
+showQueryCallableMappingsQuery : SHOW QUERY CALLABLE MAPPINGS ;
 
 versionQuery : SHOW VERSION ;
 
