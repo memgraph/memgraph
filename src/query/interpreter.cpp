@@ -2680,7 +2680,7 @@ Callback HandleQueryCallableMappingsQuery() {
       std::vector<TypedValue> row;
       row.emplace_back(alias);
       row.emplace_back(source);
-      row.emplace_back(std::move(type));
+      row.emplace_back(type);
       results.emplace_back(std::move(row));
     }
 
