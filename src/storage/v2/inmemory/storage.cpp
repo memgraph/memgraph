@@ -324,8 +324,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       vertices_(memory::ArenaAwareAllocator<char>{config.arena_idx}),
       edges_(memory::ArenaAwareAllocator<char>{config.arena_idx}),
       edges_metadata_(memory::ArenaAwareAllocator<char>{config.arena_idx}),
-      recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
-                config.durability.storage_directory / durability::kWalDirectory},
+      recovery_{.snapshot_directory_ = config.durability.storage_directory / durability::kSnapshotDirectory,
+                .wal_directory_ = config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
       global_locker_(file_retainer_.AddLocker()) {

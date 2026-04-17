@@ -78,7 +78,7 @@ struct Config {
   } gc;  // SYSTEM FLAG
 
   struct Durability {
-    enum class SnapshotWalMode { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
+    enum class SnapshotWalMode : uint8_t { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
 
     std::filesystem::path storage_directory{"storage"};    // PER INSTANCE SYSTEM FLAG-> root folder...ish
     std::filesystem::path root_data_directory{"storage"};  // ROOT DATA DIR for instance not for DB
@@ -131,6 +131,8 @@ struct Config {
 
   bool track_label_counts{false};
 
+  bool is_coordinator{false};  // PER INSTANCE - when true, snapshot handler is not wired up
+
   // jemalloc arena index owned by the Database that holds this storage.
   // 0 means no dedicated arena (non-jemalloc builds or unit tests).
   // Used by background threads to pin thread.arena so allocations are
@@ -145,7 +147,7 @@ struct Config {
     // owning Database at construction; they are not part of the logical storage configuration.
     return lhs.gc == rhs.gc && lhs.durability == rhs.durability && lhs.transaction == rhs.transaction &&
            lhs.disk == rhs.disk && lhs.salient == rhs.salient && lhs.force_on_disk == rhs.force_on_disk &&
-           lhs.track_label_counts == rhs.track_label_counts;
+           lhs.track_label_counts == rhs.track_label_counts && lhs.is_coordinator == rhs.is_coordinator;
   }
 };
 
