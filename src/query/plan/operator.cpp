@@ -9950,7 +9950,12 @@ class ScanParallelCursor : public Cursor {
       // Check if shutdown or interrupt was requested - don't suspend if tearing down.
       // interrupted_ prevents re-parking after a task has been woken by Interrupt().
       const std::lock_guard lock(cursor_->mutex_);
-      return cursor_->shutting_down_ || cursor_->interrupted_;
+      const bool should_not_suspend = cursor_->shutting_down_ || cursor_->interrupted_;
+      if (should_not_suspend) {
+        spdlog::trace("ProducerProgressAwaitable::await_ready: not suspending (shutting_down={}, interrupted={})",
+                     cursor_->shutting_down_, cursor_->interrupted_);
+      }
+      return should_not_suspend;
     }
 
     bool await_suspend(std::coroutine_handle<> handle) const {
@@ -9973,7 +9978,8 @@ class ScanParallelCursor : public Cursor {
         // If so, don't suspend - the NotifyAll() already happened and we'd miss it.
         {
           const std::lock_guard lock(cursor_->mutex_);
-          if (cursor_->shutting_down_) {
+          if (cursor_->shutting_down_ || cursor_->interrupted_) {
+            spdlog::trace("ProducerProgressAwaitable::await_suspend Path 1: not suspending due to shutdown/interrupt");
             if (context_->task_parked_ptr) {
               *context_->task_parked_ptr = false;
             }
@@ -9992,7 +9998,8 @@ class ScanParallelCursor : public Cursor {
         // If so, don't suspend - the NotifyAll() already happened and we'd miss it.
         {
           const std::lock_guard lock(cursor_->mutex_);
-          if (cursor_->shutting_down_) {
+          if (cursor_->shutting_down_ || cursor_->interrupted_) {
+            spdlog::trace("ProducerProgressAwaitable::await_suspend Path 2: not suspending due to shutdown/interrupt");
             // Don't suspend - proceed to check shutting_down_ in DoPull and exit
             return false;
           }
@@ -10078,11 +10085,14 @@ class ScanParallelCursor : public Cursor {
 
       if (producer_epoch) {
         co_await AbortCheck(context);
+        spdlog::trace("ScanParallelCursor::DoPull: about to await ProducerProgressAwaitable (epoch={})", *producer_epoch);
         co_await ProducerProgressAwaitable(this, &context, *producer_epoch);
+        spdlog::trace("ScanParallelCursor::DoPull: resumed from ProducerProgressAwaitable");
         // Check if shutdown was requested while we were parked.
         {
           const std::lock_guard lock(mutex_);
-          if (shutting_down_) {
+          if (shutting_down_ || interrupted_) {
+            spdlog::trace("ScanParallelCursor::DoPull: shutting_down_ or interrupted_ is true, exiting");
             co_return false;
           }
         }
@@ -10150,9 +10160,11 @@ class ScanParallelCursor : public Cursor {
     spdlog::trace("ScanParallelCursor::Interrupt() called");
     input_cursor_->Interrupt();
     // Signal teardown before waking so PARKED tasks check the flag and exit.
+    // Also set interrupted_ to prevent tasks from re-parking after being woken.
     {
       const std::lock_guard lock(mutex_);
       shutting_down_ = true;
+      interrupted_ = true;
     }
     spdlog::trace("ScanParallelCursor::Interrupt(): calling NotifyAll()");
     producer_waiters_.NotifyAll();
@@ -10778,13 +10790,6 @@ class ParallelMergeCursor : public Cursor {
 
   void Interrupt() override {
     input_cursor_->Interrupt();
-    // Signal teardown before waking so PARKED tasks check the flag and exit.
-    {
-      const std::lock_guard lock(mutex_);
-      shutting_down_ = true;
-      interrupted_ = true;  // Prevent re-parking after wake
-    }
-    producer_waiters_.NotifyAll();
   }
 
   void Shutdown() override {
