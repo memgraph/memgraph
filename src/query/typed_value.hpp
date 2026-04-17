@@ -130,7 +130,7 @@ class TypedValue {
   TypedValue() : type_(Type::Null) {}
 
   /** Construct a Null value with given utils::MemoryResource. */
-  explicit TypedValue(utils::MemoryResource *res) : alloc_(res), type_(Type::Null) {}
+  explicit TypedValue(utils::MemoryResource *res) : alloc_(res ? res : utils::NewDeleteResource()), type_(Type::Null) {}
 
   explicit TypedValue(allocator_type alloc) : alloc_(alloc), type_(Type::Null) {}
 

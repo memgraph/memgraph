@@ -755,13 +755,13 @@ TypedValue::TypedValue(TypedValue &&other, allocator_type alloc) : alloc_{alloc}
       alloc_trait::construct(alloc_, &double_v, other.double_v);
       break;
     case TypedValue::Type::String:
-      alloc_trait::construct(alloc_, &string_v, std::move(other.string_v));
+      std::construct_at(&string_v, std::move(other.string_v), alloc_);
       break;
     case Type::List:
-      alloc_trait::construct(alloc_, &list_v, std::move(other.list_v));
+      std::construct_at(&list_v, std::move(other.list_v), alloc_);
       break;
     case Type::Map: {
-      alloc_trait::construct(alloc_, &map_v, std::move(other.map_v));
+      std::construct_at(&map_v, std::move(other.map_v), alloc_);
       break;
     }
     case Type::Vertex:
@@ -1175,10 +1175,39 @@ TypedValue &TypedValue::operator=(Path &&other) {
 
 #undef DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT
 
+namespace {
+bool IsAllocatorIndependent(TypedValue::Type type) {
+  switch (type) {
+    case TypedValue::Type::Null:
+    case TypedValue::Type::Bool:
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Edge:
+    case TypedValue::Type::Date:
+    case TypedValue::Type::LocalTime:
+    case TypedValue::Type::LocalDateTime:
+    case TypedValue::Type::ZonedDateTime:
+    case TypedValue::Type::Duration:
+    case TypedValue::Type::Function:
+    case TypedValue::Type::Enum:
+    case TypedValue::Type::Point2d:
+    case TypedValue::Type::Point3d:
+      return true;
+    case TypedValue::Type::String:
+    case TypedValue::Type::List:
+    case TypedValue::Type::Map:
+    case TypedValue::Type::Path:
+    case TypedValue::Type::Graph:
+      return false;
+  }
+}
+}  // namespace
+
 TypedValue &TypedValue::operator=(const TypedValue &other) {
   static_assert(!alloc_trait::propagate_on_container_copy_assignment::value, "Allocator propagation not implemented");
   if (this != &other) {
-    if (type_ == other.type_ && alloc_ == other.alloc_) {
+    if (type_ == other.type_ && IsAllocatorIndependent(type_)) {
       // same type, copy assign value
       switch (type_) {
         case Type::Null:
@@ -1192,33 +1221,12 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Double:
           double_v = other.double_v;
           break;
-        case Type::String:
-          string_v = other.string_v;
-          break;
-        case Type::List:
-          list_v = other.list_v;
-          break;
-        case Type::Map: {
-          map_v = other.map_v;
-          break;
-        }
         case Type::Vertex:
           vertex_v = other.vertex_v;
           break;
         case Type::Edge:
           edge_v = other.edge_v;
           break;
-        case Type::Path: {
-          auto *path = path_v.release();
-          if (path) {
-            utils::Allocator<Path>(alloc_).delete_object(path);
-          }
-          if (other.path_v) {
-            auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(*other.path_v);
-            path_v = std::unique_ptr<Path>(path_ptr);
-          }
-          break;
-        }
         case Type::Date:
           date_v = other.date_v;
           break;
@@ -1234,17 +1242,6 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Duration:
           duration_v = other.duration_v;
           break;
-        case Type::Graph: {
-          auto *graph = graph_v.release();
-          if (graph) {
-            utils::Allocator<Graph>(alloc_).delete_object(graph);
-          }
-          if (other.graph_v) {
-            auto *graph_ptr = utils::Allocator<Graph>(alloc_).new_object<Graph>(*other.graph_v);
-            graph_v = std::unique_ptr<Graph>(graph_ptr);
-          }
-          break;
-        }
         case Type::Function:
           function_v = other.function_v;
           break;
@@ -1257,13 +1254,19 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Point3d:
           point_3d_v = other.point_3d_v;
           break;
+        case Type::String:
+        case Type::List:
+        case Type::Map:
+        case Type::Path:
+        case Type::Graph:
+          LOG_FATAL("Allocator-dependent TypedValue reached allocator-independent assignment path");
       }
       return *this;
     }
     // destroy + construct
     auto alloc = alloc_;
-    alloc_trait::destroy(alloc, this);
-    alloc_trait::construct(alloc, std::launder(this), other);
+    std::destroy_at(this);
+    std::construct_at(std::launder(this), other, alloc);
     // NOLINTNEXTLINE(cppcoreguidelines-c-copy-assignment-signature,misc-unconventional-assign-operator)
     return *std::launder(this);
   }
@@ -1274,7 +1277,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
   static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::propagate_on_container_move_assignment::value,
                 "Allocator propagation not implemented");
   if (this != &other) {
-    if (type_ == other.type_ && alloc_ == other.alloc_) {
+    if (type_ == other.type_ && IsAllocatorIndependent(type_)) {
       // same type, move assign value
       switch (type_) {
         case Type::Null:
@@ -1288,30 +1291,12 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Double:
           double_v = other.double_v;
           break;
-        case Type::String:
-          string_v = std::move(other.string_v);
-          break;
-        case Type::List:
-          list_v = std::move(other.list_v);
-          break;
-        case Type::Map: {
-          map_v = std::move(other.map_v);
-          break;
-        }
         case Type::Vertex:
           vertex_v = other.vertex_v;
           break;
         case Type::Edge:
           edge_v = other.edge_v;
           break;
-        case Type::Path: {
-          auto *path = path_v.release();
-          if (path) {
-            utils::Allocator<Path>(alloc_).delete_object(path);
-          }
-          path_v = std::move(other.path_v);
-          break;
-        }
         case Type::Date:
           date_v = other.date_v;
           break;
@@ -1327,14 +1312,6 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Duration:
           duration_v = other.duration_v;
           break;
-        case Type::Graph: {
-          auto *graph = graph_v.release();
-          if (graph) {
-            utils::Allocator<Graph>(alloc_).delete_object(graph);
-          }
-          graph_v = std::move(other.graph_v);
-          break;
-        }
         case Type::Function:
           function_v = std::move(other.function_v);
           break;
@@ -1347,6 +1324,12 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Point3d:
           point_3d_v = other.point_3d_v;
           break;
+        case Type::String:
+        case Type::List:
+        case Type::Map:
+        case Type::Path:
+        case Type::Graph:
+          LOG_FATAL("Allocator-dependent TypedValue reached allocator-independent assignment path");
       }
 
       return *this;
