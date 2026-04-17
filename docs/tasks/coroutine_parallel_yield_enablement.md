@@ -20,8 +20,9 @@ Completed slices:
 - `9270ac03b` `query: coordinate ScanParallel batch producers`
 - `208352688` `query: suspend branch joins on task progress`
 - `ed148a02f` `query: enable scheduler yields in background branches`
-- pending commit: suspend ScanParallel waiters on producer handoff
-- pending commit: build ScanParallel batches locally before publish
+- `e045ba4ad` `query: suspend ScanParallel waiters cooperatively`
+- `b0f44a087` `query: localize ScanParallel producer batches`
+- pending follow-up: fix resumable worker-branch execution after suspendable ScanParallel waits
 
 What is true now:
 - the parent parallel join no longer blocks in `WaitOrSteal()`
@@ -35,10 +36,21 @@ What is true now:
 - the ScanParallel producer now builds the next batch locally before publishing shared state
 - the shared upstream pull inside `ScanParallelCursor` no longer needs to disable yield while building the next batch
 - nested synchronous cursor consumers such as `EvaluatePatternFilter` are unchanged
+- the first regression after enabling suspendable ScanParallel waits appears at `b0f44a087`
+- the current failure is in parallel aggregate correctness, not in serial execution
+- investigation shows worker branches can suspend in `ScanParallel` but still be classified as `Done` by the branch driver
+- this leaves some branch-local aggregates in pre-post-processing state (`COUNT=0`, `AVG=sum`) and breaks merge correctness
 
 Immediate next goal:
-- verify the ScanParallel producer path on real parallel plans now that the upstream pull no longer disables yield
-- keep tightening the join semantics from "progress wait" toward a more explicit branch-completion abstraction if needed
+- refactor worker branches to use a true scheduler-managed resumable-task model
+- fix the branch lifecycle on top of `b0f44a087`, then cherry-pick that fix forward onto later commits in this stack
+- see [parallel_resumable_branch_fix.md](/home/andreja.linux/workspace/memgraph2/docs/tasks/parallel_resumable_branch_fix.md)
+- current implementation direction:
+  - keep branches as resumable pool tasks
+  - distinguish immediate scheduler yield from parked-on-external-progress suspension
+  - make producer-progress wakeups resume the branch task itself instead of only the inner cursor coroutine
+  - separately prevent stale reused aggregate rows when `ProcessAll()` returns `false`
+  - implement this in slices, starting with generic self-park support in the thread-pool/task layer plus unit tests
 
 ## Working rules for this series
 
@@ -77,6 +89,25 @@ Current local failure:
 This means local full-build verification for this series is currently blocked by unrelated
 planner module state. Targeted validation and user-local builds are still useful until that
 separate issue is cleared.
+
+### New regression: TryExecuteOneIdleTask throws when branch task yields
+
+After enabling scheduler yields in background branches (`ed148a02f`),
+`TryExecuteOneIdleTask()` can run an IDLE branch task inline on the main thread.
+If the scheduler preempts that task (sets `yield_requested`), the task yields
+and the lambda returns `true`. `TryExecuteOneIdleTask` then throws:
+
+```
+"WaitOrSteal cannot handle yielding tasks. Use co_await Finished() instead."
+```
+
+Observed as intermittent `DatabaseError` in `test_exception_single_invalid`
+(~15% failure rate with 8 workers). See `parallel_resumable_branch_fix.md`
+for the full diagnosis and fix plan.
+
+Previous aggregate regression (branches misclassified as done when parked on
+ScanParallel producer progress) has been fixed by slices 1-3 of the branch
+fix. The remaining correctness issue is this yield-in-inline-steal bug.
 
 ## Current blockers
 

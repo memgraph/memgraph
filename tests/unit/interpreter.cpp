@@ -24,6 +24,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "interpreter_faker.hpp"
+#include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
@@ -41,6 +42,7 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/priority_thread_pool.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/worker_yield_signal.hpp"
@@ -55,6 +57,14 @@ auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
     list.push_back(x.ValueEdge());
   }
   return list;
+};
+
+struct EnterpriseLicenseGuard {
+  EnterpriseLicenseGuard() {
+    memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
+  }
+
+  ~EnterpriseLicenseGuard() { memgraph::license::global_license_checker.DisableTesting(); }
 };
 
 }  // namespace
@@ -220,6 +230,35 @@ TYPED_TEST(InterpreterTest, YieldFlowPoolInterpreterPull) {
   EXPECT_EQ(stream.GetResults().size(), 1U) << "Query should complete with 1 result after yield and resume";
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 300 * 3000)
       << "Query should complete with 300 nodes after yield and resume";
+}
+
+TYPED_TEST(InterpreterTest, ParallelExecutionAggregateRemainsCorrectAcrossBranchParking) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Parallel aggregate regression test is intended for the in-memory execution path";
+  }
+
+  EnterpriseLicenseGuard enterprise_license;
+  memgraph::utils::WorkerYieldRegistry registry(8);
+  memgraph::utils::PriorityThreadPool pool(8, nullptr, &registry);
+  this->interpreter_context.worker_pool = &pool;
+  auto reset_worker_pool = memgraph::utils::OnScopeExit([this]() { this->interpreter_context.worker_pool = nullptr; });
+
+  this->Interpret("UNWIND range(1, 200) AS i CREATE (:N {p: i})");
+  this->Interpret("UNWIND range(1, 3) AS i CREATE (:N)");
+
+  auto stream =
+      this->Interpret("USING PARALLEL EXECUTION 8 MATCH (n:N) RETURN count(*), sum(n.p), avg(n.p), min(n.p), max(n.p)");
+
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  ASSERT_EQ(stream.GetResults()[0].size(), 5U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 203);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 20100);
+  EXPECT_DOUBLE_EQ(stream.GetResults()[0][2].ValueDouble(), 100.5);
+  EXPECT_EQ(stream.GetResults()[0][3].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][4].ValueInt(), 200);
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
 }
 
 // Run query with different ast twice to see if query executes correctly when

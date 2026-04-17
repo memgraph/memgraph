@@ -963,6 +963,8 @@ class ScanAllCursor : public Cursor {
   }
 #endif
 
+  void Interrupt() override { input_cursor_->Interrupt(); }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
@@ -2920,6 +2922,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       co_yield true;
     }
   }
+
+  void Interrupt() override { input_cursor_->Interrupt(); }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
@@ -6429,7 +6433,8 @@ class AggregateCursor : public Cursor {
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     if (!pulled_all_input_) {
       co_await AbortCheck(context);
-      if (!(co_await ProcessAll(&frame, &context)) && !self_.group_by_.empty()) co_return false;
+      const bool process_all_res = co_await ProcessAll(&frame, &context);
+      if (!process_all_res && (!self_.group_by_.empty() || !aggregation_.empty())) co_return false;
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
@@ -9891,15 +9896,90 @@ class ScanParallelCursor : public Cursor {
   ScanParallelCursor(const ScanParallel &self, utils::MemoryResource *mem, TChunksFun get_chunks)
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), get_chunks_(std::move(get_chunks)) {}
 
+  ~ScanParallelCursor() override {
+    // Signal teardown and wake all parked coroutines.
+    {
+      const std::lock_guard lock(mutex_);
+      shutting_down_ = true;
+    }
+    producer_waiters_.NotifyAll();
+
+    // Destroy all owned generators before the cursor storage goes away. Callers
+    // must ensure no branch task is still executing this cursor during teardown.
+    const std::lock_guard lock(gen_map_mutex_);
+    gen_map_.clear();
+  }
+
+ private:
+  // Wrapper for PullAwaitable that decrements the active coroutine counter on destruction.
+  // This ensures the cursor waits until all coroutine frames are truly destroyed.
+  struct CoroutineTracker {
+    PullAwaitable awaitable;
+    ScanParallelCursor *cursor;
+
+    CoroutineTracker(PullAwaitable &&a, ScanParallelCursor *c) : awaitable(std::move(a)), cursor(c) {}
+
+    CoroutineTracker(CoroutineTracker &&other) noexcept
+        : awaitable(std::move(other.awaitable)), cursor(std::exchange(other.cursor, nullptr)) {}
+
+    CoroutineTracker &operator=(CoroutineTracker &&other) noexcept {
+      if (this != &other) {
+        awaitable = PullAwaitable{};
+        Release();
+        awaitable = std::move(other.awaitable);
+        cursor = std::exchange(other.cursor, nullptr);
+      }
+      return *this;
+    }
+
+    ~CoroutineTracker() {
+      awaitable = PullAwaitable{};
+      Release();
+    }
+
+   private:
+    void Release() {
+      // Decrement the counter when the coroutine is destroyed and notify the destructor.
+      if (cursor) {
+        cursor->active_coroutines_.fetch_sub(1, std::memory_order_acq_rel);
+        cursor = nullptr;
+      }
+    }
+  };
+
   class ProducerProgressAwaitable {
    public:
     ProducerProgressAwaitable(ScanParallelCursor *cursor, ExecutionContext *context, uint64_t observed_epoch)
         : cursor_(cursor), context_(context), observed_epoch_(observed_epoch) {}
 
-    bool await_ready() const noexcept { return false; }
+    bool await_ready() const noexcept {
+      // Check if shutdown was requested - don't suspend if tearing down.
+      const std::lock_guard lock(cursor_->mutex_);
+      return cursor_->shutting_down_;
+    }
 
     bool await_suspend(std::coroutine_handle<> handle) const {
-      if (!context_->worker_pool) return false;
+      const auto store_handle = [&]() {
+        if (context_->suspended_task_handle_ptr) {
+          *context_->suspended_task_handle_ptr = handle;
+        }
+      };
+      const auto clear_handle = [&]() {
+        if (context_->suspended_task_handle_ptr) {
+          *context_->suspended_task_handle_ptr = {};
+        }
+      };
+      store_handle();
+      if (utils::CurrentResumableTask::RegisterWaiter(cursor_->producer_waiters_, observed_epoch_)) {
+        if (context_->task_parked_ptr) {
+          *context_->task_parked_ptr = true;
+        }
+        return true;
+      }
+      if (!context_->worker_pool) {
+        clear_handle();
+        return false;
+      }
       return cursor_->producer_waiters_.RegisterWaiter(
           handle, context_->worker_pool, utils::WorkerYieldRegistry::GetCurrentWorkerId(), observed_epoch_);
     }
@@ -9929,15 +10009,19 @@ class ScanParallelCursor : public Cursor {
     // frame mid-iteration.
     // Keyed by &ctx (not `this`) so two ScanParallelCursors of the same template type
     // don't collide when both run on the same thread (e.g. nested parallel scans).
-    PullAwaitable *gen = nullptr;
+    CoroutineTracker *tracker = nullptr;
     {
       // TODO: This is correct, but a thread local cache would be better. The issue with that is that
       // a thread can encounter mutiple scan parallel cursors. In addition cleanup is much harder.
       auto lock = std::unique_lock{gen_map_mutex_};
-      auto [it, _] = gen_map_.emplace(&ctx, DoPull(f, ctx));
-      gen = &it->second;
+      auto it = gen_map_.find(&ctx);
+      if (it == gen_map_.end()) {
+        it = gen_map_.emplace(&ctx, CoroutineTracker{DoPull(f, ctx), this}).first;
+        active_coroutines_.fetch_add(1, std::memory_order_acq_rel);
+      }
+      tracker = &it->second;
     }
-    return gen->Resume();
+    return tracker->awaitable.Resume();
   }
 
   PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
@@ -9977,6 +10061,13 @@ class ScanParallelCursor : public Cursor {
       if (producer_epoch) {
         co_await AbortCheck(context);
         co_await ProducerProgressAwaitable(this, &context, *producer_epoch);
+        // Check if shutdown was requested while we were parked.
+        {
+          const std::lock_guard lock(mutex_);
+          if (shutting_down_) {
+            co_return false;
+          }
+        }
         continue;
       }
 
@@ -10034,10 +10125,24 @@ class ScanParallelCursor : public Cursor {
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
+  // Wake any tasks parked on ProducerProgressAwaitable so they can observe the
+  // teardown flag and exit cleanly. Without this, PARKED tasks never unblock and
+  // TaskCollection::Finished() keeps returning false, hanging the teardown loop.
+  void Interrupt() override {
+    input_cursor_->Interrupt();
+    producer_waiters_.NotifyAll();
+  }
+
   void Reset() override {
     Cursor::Reset();
+    // Signal teardown and wake parked coroutines before clearing gen_map_.
     {
-      const std::unique_lock lock(gen_map_mutex_);
+      const std::lock_guard lock(mutex_);
+      shutting_down_ = true;
+    }
+    producer_waiters_.NotifyAll();
+    {
+      const std::lock_guard lock(gen_map_mutex_);
       gen_map_.clear();
     }
     const std::unique_lock lock(mutex_);
@@ -10046,13 +10151,15 @@ class ScanParallelCursor : public Cursor {
     frame_.reset();
     all_pulled_ = false;
     producer_active_ = false;
+    shutting_down_ = false;
     input_cursor_->Reset();
-    producer_waiters_.NotifyAll();
   }
 
  private:
-  mutable std::mutex mutex_;          // Guards shared scan state: index_, chunks_, frame_, all_pulled_
+  mutable std::mutex mutex_;          // Guards shared scan state: index_, chunks_, frame_, all_pulled_, shutting_down_
   mutable std::mutex gen_map_mutex_;  // Guards gen_map_ only; held briefly (emplace + pointer read)
+  std::atomic<size_t> active_coroutines_{0};  // Tracks coroutines not yet destroyed
+  bool shutting_down_{false};                 // Set during cursor destruction to signal coroutines to exit
   size_t index_{0};
   std::shared_ptr<std::invoke_result_t<TChunksFun, Frame &, ExecutionContext &>> chunks_;
   const ScanParallel &self_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
@@ -10067,7 +10174,8 @@ class ScanParallelCursor : public Cursor {
   utils::WorkerResumeEvent producer_waiters_;
   // Long-lived generator per branch (keyed by ExecutionContext*). Each generator loops,
   // assigning one chunk per co_yield. Pull() emplaces on first call and reuses on subsequent calls.
-  std::unordered_map<ExecutionContext *, PullAwaitable> gen_map_;
+  // Uses CoroutineTracker to track when coroutines are destroyed for safe cursor teardown.
+  std::unordered_map<ExecutionContext *, CoroutineTracker> gen_map_;
 };
 #endif
 
@@ -10638,6 +10746,10 @@ class ParallelMergeCursor : public Cursor {
     co_return false;
   }
 
+  void Interrupt() override {
+    if (input_cursor_) input_cursor_->Interrupt();
+  }
+
   void Shutdown() override {
     if (input_cursor_) input_cursor_->Shutdown();
     input_cursor_.reset();
@@ -10713,23 +10825,40 @@ class ParallelBranchCursor : public Cursor {
 
     co_await AbortCheck(context);
 
-    std::atomic_int pull_result = 0;
+    auto pull_result = std::make_shared<std::atomic_int>(0);
+    auto tearing_down = std::make_shared<std::atomic_bool>(false);
+    const auto *self_ptr = &self;
     const auto num_branches = branch_cursors_.size();
     const auto num_branches_without_main = num_branches - 1;
 
     utils::TaskCollection tasks(num_branches);
-    std::vector<std::exception_ptr> exceptions(num_branches, nullptr);
-    // Store context copies from each branch for unification after execution
-    std::vector<ExecutionContext> branch_contexts(num_branches_without_main);
-    // Store collector copies for each branch (they're not thread-safe, so each branch needs its own)
-    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(num_branches_without_main);
-    std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors(num_branches_without_main);
+    // Use heap-allocated shared storage for exceptions to ensure it outlives the
+    // parent coroutine if it yields. Branch tasks capture the shared_ptr by value,
+    // keeping the storage alive until all tasks complete.
+    // Use heap-allocated shared storage for all data accessed by branch tasks.
+    // Branch tasks capture shared_ptrs by value to keep storage alive even if
+    // parent coroutine yields and is destroyed before tasks complete.
+    auto exceptions = std::make_shared<std::vector<std::exception_ptr>>(num_branches, nullptr);
+    auto branch_contexts = std::make_shared<std::vector<ExecutionContext>>(num_branches_without_main);
+    auto branch_trigger_collectors =
+        std::make_shared<std::vector<std::optional<TriggerContextCollector>>>(num_branches_without_main);
+    auto branch_frame_collectors =
+        std::make_shared<std::vector<std::optional<FrameChangeCollector>>>(num_branches_without_main);
 
     // Execute branches 1..N in parallel
     for (size_t i = 1; i < num_branches; i++) {
-      tasks.AddResumableTask([&,
+      // Capture exceptions by value (copy shared_ptr) to ensure heap-allocated
+      // storage stays alive even if parent coroutine is destroyed while yielded.
+      tasks.AddResumableTask([this,
                               i,
                               context,
+                              exceptions,
+                              branch_contexts,
+                              branch_trigger_collectors,
+                              branch_frame_collectors,  // Copy shared_ptrs by value
+                              pull_result,
+                              tearing_down,
+                              self_ptr,
                               frame_size = frame.elems().size(),
                               main_thread = std::this_thread::get_id(),
                               post_pull_func,
@@ -10737,6 +10866,7 @@ class ParallelBranchCursor : public Cursor {
                               mem_tracking = memgraph::memory::CrossThreadMemoryTracking(),
                               awaitable_opt = std::optional<plan::PullAwaitable::ResumeAwaitable>(),
                               suspended_handle = std::coroutine_handle<>(),
+                              task_parked = false,
                               frame_local_opt = std::optional<Frame>()]() mutable -> bool {
         const OOMExceptionEnabler oom_exception;
 
@@ -10749,12 +10879,12 @@ class ParallelBranchCursor : public Cursor {
           const auto metadata_i = i - 1;
           if (context.frame_change_collector != nullptr) {
             auto &collector =
-                branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
+                (*branch_frame_collectors)[metadata_i].emplace(context.frame_change_collector->get_allocator());
             collector.CopyStructureFrom(*context.frame_change_collector);
             context.frame_change_collector = &collector;
           }
           if (context.trigger_context_collector != nullptr) {
-            auto &collector = branch_trigger_collectors[metadata_i].emplace(
+            auto &collector = (*branch_trigger_collectors)[metadata_i].emplace(
                 context.trigger_context_collector->CreateEmptyWithSameConfig());
             context.trigger_context_collector = &collector;
           }
@@ -10785,40 +10915,79 @@ class ParallelBranchCursor : public Cursor {
           }
         });
 
-        SCOPED_PROFILE_OP_BY_REF(self);
+        SCOPED_PROFILE_OP_BY_REF(*self_ptr);
         context.suspended_task_handle_ptr = &suspended_handle;
+        task_parked = false;
+        context.task_parked_ptr = &task_parked;
         const auto &cursor = branch_cursors_[i];
+
+        if (tearing_down->load(std::memory_order::acquire) ||
+            (context.stopping_context.exception_occurred &&
+             context.stopping_context.exception_occurred->load(std::memory_order::acquire))) {
+          context.suspended_task_handle_ptr = nullptr;
+          context.task_parked_ptr = nullptr;
+          awaitable_opt.reset();
+          context.hops_limit.Free();
+          return false;
+        }
 
         try {
           if (!awaitable_opt) {
-            spdlog::trace("First hit {} on {}", i, std::this_thread::get_id());
             pre_pull_func(cursor.get());
             awaitable_opt.emplace(cursor->Pull(*frame_local_opt, context));
           }
 
-          // std::cout << "RunPull " << i << std::endl;
-          auto result = plan::RunPullToCompletion(*awaitable_opt, context);
-          // std::cout << "RunPull " << i << " result: " << (int)result.status << std::endl;
+          plan::PullRunResult result = plan::PullRunResult::Done();
+          if (awaitable_opt->Done()) {
+            awaitable_opt->RethrowIfException();
+          } else {
+            std::coroutine_handle<> resume_target;
+            if (suspended_handle) {
+              resume_target = std::exchange(suspended_handle, {});
+            } else {
+              resume_target = awaitable_opt->GetHandle();
+            }
+
+            if (resume_target && !resume_target.done()) {
+              resume_target.resume();
+            }
+
+            if (suspended_handle) {
+              result = plan::PullRunResult::Yielded();
+            } else {
+              awaitable_opt->RethrowIfException();
+              result = awaitable_opt->Result() ? plan::PullRunResult::Row() : plan::PullRunResult::Done();
+            }
+          }
+
+          if (task_parked) {
+            context.suspended_task_handle_ptr = nullptr;
+            context.task_parked_ptr = nullptr;
+            return false;
+          }
           if (result.status == plan::PullRunResult::Status::Yielded) {
+            context.suspended_task_handle_ptr = nullptr;
+            context.task_parked_ptr = nullptr;
             return true;
           }
 
-          // std::cout << "Post pull " << i << std::endl;
-          pull_result.fetch_add((int)(result.status == plan::PullRunResult::Status::HasRow));
+          pull_result->fetch_add(static_cast<int>(result.status == plan::PullRunResult::Status::HasRow));
           post_pull_func(cursor.get(), &(*frame_local_opt));
-          spdlog::trace("Cleanup {} on {}", i, std::this_thread::get_id());
 
           // Cleanup after finish
-          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-          const_cast<std::optional<ScopedProfile> &>(profile).reset();
           context.hops_limit.Free();
-          branch_contexts[i - 1] = std::move(context);
-        } catch (const std::exception &e) {
-          spdlog::trace("Exception {}", i);
+          context.suspended_task_handle_ptr = nullptr;
+          context.task_parked_ptr = nullptr;
+          (*branch_contexts)[i - 1] = std::move(context);
+        } catch (...) {
+          context.suspended_task_handle_ptr = nullptr;
+          context.task_parked_ptr = nullptr;
           DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
-          if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
-            exceptions[i] = std::current_exception();
-          }
+          // Store exception BEFORE setting the flag. The release ordering in fetch_or
+          // ensures the write to exceptions[i] is visible to any thread that
+          // acquire-loads exception_occurred and sees true.
+          (*exceptions)[i] = std::current_exception();
+          context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::release);
           return false;
         }
         return false;
@@ -10831,7 +11000,8 @@ class ParallelBranchCursor : public Cursor {
           "should not happen!");
       throw QueryRuntimeException("Collection scheduler not initialized");
     }
-    collection_scheduler_->SetCollection(std::make_shared<utils::TaskCollection>(std::move(tasks)));
+    auto active_collection = std::make_shared<utils::TaskCollection>(std::move(tasks));
+    collection_scheduler_->SetCollection(active_collection);
     collection_scheduler_->SetPool(context.worker_pool);
 
     // Capture the parallel operator's stats node now, while context.stats_root still points to it.
@@ -10840,6 +11010,12 @@ class ParallelBranchCursor : public Cursor {
     // do not fire after co_return — so context.stats_root remains pointing at the inner cursor's stats node
     // after branch 0 finishes. Capturing here (before any Pull) gives us the correct node for merge matching.
     plan::ProfilingStats *parallel_stats = context.stats_root;
+
+    const auto clear_parent_suspended_handle = [&context] {
+      if (context.suspended_task_handle_ptr) {
+        *context.suspended_task_handle_ptr = {};
+      }
+    };
 
     // TODO Reuse the same logic as each thread
     // Execute branch 0 on the main thread
@@ -10851,49 +11027,118 @@ class ParallelBranchCursor : public Cursor {
     const auto &cursor = branch_cursors_[0];
     try {
       pre_pull_func(cursor.get());
-      pull_result.fetch_add((int)co_await cursor->Pull(frame, context));
+      pull_result->fetch_add(static_cast<int>(co_await cursor->Pull(frame, context)));
       // NOTE: hops limit is shared between threads, so we need to free the leftover quota
       context.hops_limit.Free();
       post_pull_func(cursor.get(), &frame);
-    } catch (const std::exception &e) {
+    } catch (...) {
       DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
-      if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
-        // Exception occurred on the main thread, set flag and pass exception to the main thread
-        exceptions[0] = std::current_exception();
-      }
+      // Store exception BEFORE setting the flag so the main thread's acquire-load
+      // of exception_occurred is guaranteed to see the written exception pointer.
+      (*exceptions)[0] = std::current_exception();
+      context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::release);
     }
 
-    spdlog::trace("First branch finished on {}", std::this_thread::get_id());
-
     // Cooperatively wait for branch completion instead of blocking the current
-    // worker in WaitOrSteal(). Branch tasks still do not yield yet, but the
-    // parent coroutine can now hit AbortCheck while waiting and hand the worker
-    // back to the scheduler when a yield is requested.
-    while (!collection_scheduler_->Finished()) {
+    // worker in WaitOrSteal(). We use AllTerminal() to ensure that ALL branch
+    // tasks have reached terminal state (FINISHED) before proceeding. This is
+    // the structured join guarantee: no branch closure may run after this loop.
+    //
+    // NOTE: Do NOT propagate HintedAbortError(EXCEPTION) out of this loop.
+    // AbortCheck sees exception_occurred set and throws HintedAbortError(EXCEPTION),
+    // but the real branch exception is stored in exceptions[] and must be rethrown below.
+    // There is a race: exception_occurred may be set between the explicit check and the
+    // co_await AbortCheck call, so we also catch HintedAbortError(EXCEPTION) and break.
+    // Other abort reasons (TERMINATED, SHUTDOWN, TIMEOUT) propagate normally.
+    while (collection_scheduler_->HasNonTerminalTasks()) {
       if (collection_scheduler_->TryExecuteOneIdleTask()) {
         continue;
       }
-      co_await AbortCheck(context);
-      if (!collection_scheduler_->Finished()) {
+      if (context.stopping_context.exception_occurred &&
+          context.stopping_context.exception_occurred->load(std::memory_order_acquire)) {
+        break;
+      }
+      try {
+        co_await AbortCheck(context);
+      } catch (HintedAbortError const &e) {
+        if (e.Reason() == AbortReason::EXCEPTION) break;
+        throw;
+      }
+      if (collection_scheduler_->HasNonTerminalTasks()) {
         co_await collection_scheduler_->WaitForProgressAwaitable();
       }
     }
 
+    // Ensure all branch tasks reach terminal state before proceeding.
+    // The lambdas capture local variables by reference, so we must wait for
+    // them to complete. Use Interrupt() to signal early termination.
+    //
+    // This is the structured join drain: we must not proceed until every
+    // branch task is FINISHED. Otherwise, captured coroutine-frame locals
+    // could be destroyed while a branch closure is still queued to run.
+    if (collection_scheduler_->HasNonTerminalTasks()) {
+      tearing_down->store(true, std::memory_order::release);
+      for (const auto &branch_cursor : branch_cursors_) {
+        branch_cursor->Interrupt();
+      }
+      // Notify progress to wake any parked tasks waiting on events
+      collection_scheduler_->DbgVerifyState();
+      // Use WaitOrSteal() which does NOT allow yielding (no pool passed).
+      // During teardown, we need tasks to complete inline; yielding and
+      // rescheduling would create a race where the cursor could be destroyed
+      // while a rescheduled task is still running.
+      active_collection->WaitOrSteal();
+    }
+
+#ifndef NDEBUG
+    // After the join loop and optional drain, ALL tasks must be terminal.
+    // If this fails, a branch closure could still run after we return and
+    // destroy captured coroutine-frame locals.
+    DMG_ASSERT(active_collection->AllTerminal(),
+               "ExecuteBranchesInParallel returning while some branch tasks are not terminal - "
+               "this will cause use-after-free of captured coroutine-frame locals");
+#endif
+
+    // All branches are done. Clean up the scheduler before checking exceptions
+    // so that branch cursor destruction happens after all branch work is complete.
+    collection_scheduler_->SetPool(nullptr);
+    collection_scheduler_->SetCollection(nullptr);
+
     // Check for exceptions
     if (const auto exception_it = std::find_if(
-            exceptions.begin(), exceptions.end(), [](const std::exception_ptr &e) { return e != nullptr; });
-        exception_it != exceptions.end()) {
+            exceptions->begin(), exceptions->end(), [](const std::exception_ptr &e) { return e != nullptr; });
+        exception_it != exceptions->end()) {
+      // Shutdown branch cursors before rethrowing to ensure clean state
+      clear_parent_suspended_handle();
+      for (const auto &branch_cursor : branch_cursors_) {
+        branch_cursor->Shutdown();
+      }
       // Just rethrow the first exception
       std::rethrow_exception(*exception_it);
     }
 
     // Nothing to pull, return
-    if (pull_result.load() == 0) co_return false;
+    if (pull_result->load() == 0) {
+      // Shutdown branch cursors before early return
+      clear_parent_suspended_handle();
+      for (const auto &branch_cursor : branch_cursors_) {
+        branch_cursor->Shutdown();
+      }
+      co_return false;
+    }
 
     // Unify context fields from all branches
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     const_cast<std::optional<ScopedProfile> &>(profile).reset();
-    UnifyContexts(context, branch_contexts, branch_trigger_collectors, branch_frame_collectors, parallel_stats);
+    UnifyContexts(context, *branch_contexts, *branch_trigger_collectors, *branch_frame_collectors, parallel_stats);
+
+    // Shutdown branch cursors after all work is complete.
+    // This must happen after UnifyContexts since branch cursors may still be
+    // referenced during context unification.
+    clear_parent_suspended_handle();
+    for (const auto &branch_cursor : branch_cursors_) {
+      branch_cursor->Shutdown();
+    }
 
     co_return true;
   }
@@ -11088,13 +11333,21 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
             break;
           }
           case Aggregation::Op::MIN:
-            if ((other_value < main_value).ValueBool()) {
-              main_value = std::move(other_value);
+            try {
+              if ((other_value < main_value).ValueBool()) {
+                main_value = std::move(other_value);
+              }
+            } catch (const TypedValueException &) {
+              throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.", other_value.type(), main_value.type());
             }
             break;
           case Aggregation::Op::MAX:
-            if ((other_value > main_value).ValueBool()) {
-              main_value = std::move(other_value);
+            try {
+              if ((other_value > main_value).ValueBool()) {
+                main_value = std::move(other_value);
+              }
+            } catch (const TypedValueException &) {
+              throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.", other_value.type(), main_value.type());
             }
             break;
           case Aggregation::Op::COLLECT_LIST: {
@@ -11171,14 +11424,22 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           break;
         }
         case Aggregation::Op::MIN: {
-          if ((other_value < main_value).ValueBool()) {
-            main_value = std::move(other_value);
+          try {
+            if ((other_value < main_value).ValueBool()) {
+              main_value = std::move(other_value);
+            }
+          } catch (const TypedValueException &) {
+            throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.", other_value.type(), main_value.type());
           }
           break;
         }
         case Aggregation::Op::MAX: {
-          if ((other_value > main_value).ValueBool()) {
-            main_value = std::move(other_value);
+          try {
+            if ((other_value > main_value).ValueBool()) {
+              main_value = std::move(other_value);
+            }
+          } catch (const TypedValueException &) {
+            throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.", other_value.type(), main_value.type());
           }
           break;
         }
@@ -11241,20 +11502,25 @@ class AggregateParallelCursor : public ParallelBranchCursor {
     const auto &remember = static_cast<AggregateCursor *>(branch_cursors_[0].get())->self_.remember_;
     const auto &aggregations = static_cast<AggregateCursor *>(branch_cursors_[0].get())->self_.aggregations_;
 
-    std::mutex branch_aggregations_mutex;
-    std::queue<decltype(main_aggregation_)> branch_aggregations;
+    struct BranchAggregationState {
+      std::mutex mutex;
+      std::queue<decltype(main_aggregation_)> branch_aggregations;
+    };
+
+    auto branch_aggregation_state = std::make_shared<BranchAggregationState>();
+    const auto *aggregations_ptr = &aggregations;
 
     // First pull, process all input and store results in the aggregation map
     if (!initialized_) {
       initialized_ = true;
-      auto pre_pull_func = [&branch_aggregations_mutex, &branch_aggregations](Cursor *cursor) {
+      auto pre_pull_func = [branch_aggregation_state](Cursor *cursor) {
         // Try to find a free aggregation to reuse
         decltype(main_aggregation_) complete_aggregation = nullptr;
         {
-          const std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
-          if (!branch_aggregations.empty()) {
-            complete_aggregation = branch_aggregations.front();
-            branch_aggregations.pop();
+          const std::lock_guard<std::mutex> lock(branch_aggregation_state->mutex);
+          if (!branch_aggregation_state->branch_aggregations.empty()) {
+            complete_aggregation = branch_aggregation_state->branch_aggregations.front();
+            branch_aggregation_state->branch_aggregations.pop();
           }
         }
         // Reuse already completed section if available
@@ -11262,8 +11528,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
           static_cast<AggregateCursor *>(cursor)->aggregation_ = std::move(*complete_aggregation);
         }
       };
-      auto post_pull_func = [&branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor,
-                                                                                              Frame * /*frame*/) {
+      auto post_pull_func = [branch_aggregation_state, aggregations_ptr](Cursor *cursor, Frame * /*frame*/) {
         auto *aggregation = &static_cast<AggregateCursor *>(cursor)->aggregation_;
         decltype(main_aggregation_) complete_aggregation = nullptr;
 
@@ -11271,17 +11536,17 @@ class AggregateParallelCursor : public ParallelBranchCursor {
           complete_aggregation = nullptr;
           // Phase 1: find a free aggregation
           {
-            const std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
-            if (!branch_aggregations.empty()) {
-              complete_aggregation = branch_aggregations.front();
-              branch_aggregations.pop();
+            const std::lock_guard<std::mutex> lock(branch_aggregation_state->mutex);
+            if (!branch_aggregation_state->branch_aggregations.empty()) {
+              complete_aggregation = branch_aggregation_state->branch_aggregations.front();
+              branch_aggregation_state->branch_aggregations.pop();
             } else {
-              branch_aggregations.push(aggregation);
+              branch_aggregation_state->branch_aggregations.push(aggregation);
               return;
             }
           }
           // Phase 2: unify the aggregation
-          UnifyAggregation(*aggregation, *complete_aggregation, aggregations);
+          UnifyAggregation(*aggregation, *complete_aggregation, *aggregations_ptr);
         }
       };
 
@@ -11296,8 +11561,9 @@ class AggregateParallelCursor : public ParallelBranchCursor {
       }
 
       // There should be only one aggregation left in the list
-      DMG_ASSERT(branch_aggregations.size() == 1, "There should be only one aggregation left in the list");
-      main_aggregation_ = branch_aggregations.front();
+      DMG_ASSERT(branch_aggregation_state->branch_aggregations.size() == 1,
+                 "There should be only one aggregation left in the list");
+      main_aggregation_ = branch_aggregation_state->branch_aggregations.front();
       aggregation_it_ = main_aggregation_->begin();
       if (main_aggregation_->empty()) {
         DefaultAggregation(context, aggregations, remember, frame_writer);
