@@ -131,12 +131,13 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
   // update (if needed), so no need to update after that.
   try {
     auto glue_user = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
+    auto db_name = dba ? std::optional{dba->DatabaseName()} : std::nullopt;
     if (glue_user.user_) {
-      return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba);
+      return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba, db_name);
     }
     if (glue_user.roles_) {
       return std::make_unique<glue::FineGrainedAuthChecker>(
-          auth::RoleWUsername{glue_user.username().value(), glue_user.roles_.value()}, dba);
+          auth::RoleWUsername{glue_user.username().value(), glue_user.roles_.value()}, dba, db_name);
     }
     DMG_ASSERT(false, "Glue user has neither user not role");
   } catch (std::bad_cast &) {
@@ -206,13 +207,14 @@ bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgr
 #endif
 
 #ifdef MG_ENTERPRISE
-FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba)
-    : user_or_role_{std::move(user_or_role)}, dba_(dba) {};
+FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba,
+                                               std::optional<std::string> db_name)
+    : user_or_role_{std::move(user_or_role)}, dba_(dba), db_name_{std::move(db_name)} {};
 
 auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedLabelPermissions() const {
   if (!cached_label_permissions_) {
-    cached_label_permissions_ = std::visit(memgraph::utils::Overloaded{[](auto const &user_or_role) {
-                                             return user_or_role.GetFineGrainedAccessLabelPermissions();
+    cached_label_permissions_ = std::visit(memgraph::utils::Overloaded{[this](auto const &user_or_role) {
+                                             return user_or_role.GetFineGrainedAccessLabelPermissions(db_name_);
                                            }},
                                            user_or_role_);
   }
@@ -221,8 +223,8 @@ auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedLabel
 
 auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedEdgePermissions() const {
   if (!cached_edge_permissions_) {
-    cached_edge_permissions_ = std::visit(memgraph::utils::Overloaded{[](auto const &user_or_role) {
-                                            return user_or_role.GetFineGrainedAccessEdgeTypePermissions();
+    cached_edge_permissions_ = std::visit(memgraph::utils::Overloaded{[this](auto const &user_or_role) {
+                                            return user_or_role.GetFineGrainedAccessEdgeTypePermissions(db_name_);
                                           }},
                                           user_or_role_);
   }

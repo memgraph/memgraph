@@ -287,29 +287,102 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificEdgeTypeGrantOn
   ASSERT_FALSE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE));
 }
 
-TYPED_TEST(FineGrainedAuthCheckerFixture, RoleLabelAclDoesNotBleedAcrossDatabases) {
+TYPED_TEST(FineGrainedAuthCheckerFixture, PerDatabaseRoleAssignmentScopesFga) {
   memgraph::auth::Role role1{"role1"};
-  role1.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  role1.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::FineGrainedPermission::READ);
+  role1.db_access().Grant("db2");
+  role1.db_access().Grant("db4");
+
+  memgraph::auth::Role role2{"role2"};
+  role2.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::FineGrainedPermission::READ);
+  role2.db_access().Grant("db3");
+  role2.db_access().Grant("db4");
+
+  memgraph::auth::User user{"test"};
+  user.AddMultiTenantRole(role1, "db2");
+  user.AddMultiTenantRole(role2, "db3");
+  user.AddMultiTenantRole(role1, "db4");
+  user.AddMultiTenantRole(role2, "db4");
+
+  // db1: no roles assigned so no vertices visible
+  {
+    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db1"};
+    ASSERT_FALSE(
+        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_FALSE(
+        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_FALSE(
+        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  }
+
+  // db2: role1 assigned so only :l1 visible
+  {
+    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db2"};
+    ASSERT_TRUE(
+        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_FALSE(
+        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_FALSE(
+        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  }
+
+  // db3: role2 assigned so only :l2 visible
+  {
+    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db3"};
+    ASSERT_FALSE(
+        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_TRUE(
+        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_FALSE(
+        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  }
+
+  // db4: role1 and role2 assigned so both :l1 and :l2 visible
+  {
+    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db4"};
+    ASSERT_TRUE(
+        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_TRUE(
+        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_FALSE(
+        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  }
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalRoleFgaIsFilteredByDatabase) {
+  memgraph::auth::Role role1{"role1"};
+  role1.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::FineGrainedPermission::READ);
   role1.db_access().Grant("db1");
 
   memgraph::auth::Role role2{"role2"};
-  role2.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::FineGrainedPermission::READ);
-  role2.db_access().Grant(this->dba.DatabaseName());
+  role2.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::FineGrainedPermission::READ);
+  role2.db_access().Grant("db2");
 
   memgraph::auth::User user{"test"};
   user.roles().AddRole(role1);
   user.roles().AddRole(role2);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  // db1: role1 applies so only :l1 visible
+  {
+    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db1"};
+    ASSERT_TRUE(
+        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_FALSE(
+        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_FALSE(
+        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  }
 
-  // v1 has label "l1", which is permitted by role2
-  ASSERT_TRUE(
-      auth_checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-  // v2 has label "l2", v3 has label "l3"
-  ASSERT_FALSE(
-      auth_checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-  ASSERT_FALSE(
-      auth_checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  // db2: role2 applies so only :l2 visible
+  {
+    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db2"};
+    ASSERT_FALSE(
+        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_TRUE(
+        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    ASSERT_FALSE(
+        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  }
 }
 
 TEST(AuthChecker, Generate) {
