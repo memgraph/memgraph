@@ -37,6 +37,8 @@ CREATE INDEX ON :`label2`(`prop`);
 CREATE INDEX ON :`composite`(`a`, `b`, `c`, `d`);
 CREATE INDEX ON :`composite`(`d`, `c`, `b`, `a`);
 CREATE INDEX ON :`nested`(`a`.`b`.`c`);
+CREATE INDEX ON :`desc_label`(`prop`) WITH CONFIG {"order": "DESC"};
+CREATE INDEX ON :`desc_composite`(`a`, `b`) WITH CONFIG {"order": "DESC"};
 CREATE INDEX ON :`TTL`(`ttl`);
 CREATE TEXT INDEX `text_index_with_properties` ON :`text`(`prop1`, `prop2`);
 CREATE TEXT INDEX `text_index_without_properties` ON :`text`;

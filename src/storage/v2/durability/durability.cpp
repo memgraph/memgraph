@@ -311,25 +311,6 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Label+property indices statistics are recreated.");
   }
 
-  // Recover DESC label+property indices statistics.
-  // NOTE: SetIndexStats uses (label, properties) as key with no order discrimination.
-  // ASC and DESC indices for the same (label, properties) share the same stats entry —
-  // second write overwrites first. Currently harmless because stats are identical
-  // regardless of index order, but this assumption should be revisited if stats
-  // ever diverge between ASC and DESC.
-  {
-    spdlog::info("Recreating {} DESC label+property indices statistics from metadata.",
-                 indices_metadata.label_property_desc_stats.size());
-    for (const auto &[label, entry] : indices_metadata.label_property_desc_stats) {
-      auto const &[properties, stats] = entry;
-      mem_label_property_index->SetIndexStats(label, properties, stats);
-      spdlog::info("Statistics for DESC index on :{}({}) are recreated from metadata",
-                   name_id_mapper->IdToName(label.AsUint()),
-                   PropertyPathFormatter(properties, name_id_mapper));
-    }
-    spdlog::info("DESC label+property indices statistics are recreated.");
-  }
-
   // Recover edge-type indices.
   {
     spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());

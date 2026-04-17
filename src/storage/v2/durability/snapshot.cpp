@@ -10342,40 +10342,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       spdlog::info("Metadata of DESC label+property indices are recovered.");
     }
 
-    // Recover DESC label+property indices statistics.
-    {
-      auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Couldn't recover the number of entries for DESC label property statistics!");
-      for (uint64_t i = 0; i < *size; ++i) {
-        const auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Couldn't read label for DESC label property index statistics!");
-        auto property_paths = get_property_paths("DESC label property index statistics");
-        const auto count = snapshot.ReadUint();
-        if (!count) throw RecoveryFailure("Couldn't read count for DESC label property index statistics!");
-        const auto distinct_values_count = snapshot.ReadUint();
-        if (!distinct_values_count)
-          throw RecoveryFailure("Couldn't read distinct values count for DESC label property index statistics!");
-        const auto statistic = snapshot.ReadDouble();
-        if (!statistic)
-          throw RecoveryFailure("Couldn't read statistics value for DESC label-property index statistics!");
-        const auto avg_group_size = snapshot.ReadDouble();
-        if (!avg_group_size)
-          throw RecoveryFailure("Couldn't read average group size for DESC label property index statistics!");
-        const auto avg_degree = snapshot.ReadDouble();
-        if (!avg_degree)
-          throw RecoveryFailure("Couldn't read average degree for DESC label property index statistics!");
-        const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_property_desc_stats.emplace_back(
-            label_id,
-            std::make_pair(std::move(property_paths),
-                           LabelPropertyIndexStats{.count = *count,
-                                                   .distinct_values_count = *distinct_values_count,
-                                                   .statistic = *statistic,
-                                                   .avg_group_size = *avg_group_size,
-                                                   .avg_degree = *avg_degree}));
-      }
-    }
-
     spdlog::info("Recovering metadata of indices.");
     if (!snapshot.SetPosition(info.offset_edge_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
@@ -11693,16 +11659,10 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       if (snapshot_aborted()) return std::nullopt;
     }
 
-    // Write DESC label+properties indices and statistics.
-    // WARNING: The ASC and DESC sections must remain adjacent in this exact order
-    // (ASC indices, ASC stats, DESC indices, DESC stats). Recovery reads them
-    // sequentially with no offset table — inserting anything between them will
-    // corrupt snapshot recovery.
+    // Write DESC label+properties indices (no separate stats — ASC and DESC share the same stats entry).
     {
       auto desc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
       write_label_property_indices(desc_indices);
-      if (snapshot_aborted()) return std::nullopt;
-      write_label_property_stats(desc_indices);
       if (snapshot_aborted()) return std::nullopt;
     }
 
