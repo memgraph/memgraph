@@ -9968,14 +9968,37 @@ class ScanParallelCursor : public Cursor {
         if (context_->task_parked_ptr) {
           *context_->task_parked_ptr = true;
         }
+        // Check if shutdown was requested between await_ready() and now.
+        // If so, don't suspend - the NotifyAll() already happened and we'd miss it.
+        {
+          const std::lock_guard lock(cursor_->mutex_);
+          if (cursor_->shutting_down_) {
+            if (context_->task_parked_ptr) {
+              *context_->task_parked_ptr = false;
+            }
+            return false;  // Don't suspend - proceed to check shutting_down_ in DoPull
+          }
+        }
         return true;
       }
       if (!context_->worker_pool) {
         clear_handle();
         return false;
       }
-      return cursor_->producer_waiters_.RegisterWaiter(
-          handle, context_->worker_pool, utils::WorkerYieldRegistry::GetCurrentWorkerId(), observed_epoch_);
+      if (cursor_->producer_waiters_.RegisterWaiter(
+              handle, context_->worker_pool, utils::WorkerYieldRegistry::GetCurrentWorkerId(), observed_epoch_)) {
+        // Check if shutdown was requested while we were registering.
+        {
+          const std::lock_guard lock(cursor_->mutex_);
+          if (cursor_->shutting_down_) {
+            // Already registered, but we need to wake up. The caller will check
+            // shutting_down_ after await_resume() and exit properly.
+            return true;
+          }
+        }
+        return true;
+      }
+      return false;
     }
 
     void await_resume() const noexcept {}
@@ -10124,6 +10147,11 @@ class ScanParallelCursor : public Cursor {
   // TaskCollection::Finished() keeps returning false, hanging the teardown loop.
   void Interrupt() override {
     input_cursor_->Interrupt();
+    // Signal teardown before waking so PARKED tasks check the flag and exit.
+    {
+      const std::lock_guard lock(mutex_);
+      shutting_down_ = true;
+    }
     producer_waiters_.NotifyAll();
   }
 
@@ -10794,6 +10822,15 @@ class ParallelBranchCursor : public Cursor {
   void Reset() override {
     Cursor::Reset();
     for (const auto &cursor : branch_cursors_) cursor->Reset();
+  }
+
+  // Propagate interrupt to all branch cursors to wake PARKED tasks during teardown.
+  // Without this, ScanParallelCursor's PARKED tasks never receive the wake signal,
+  // causing TaskCollection::Wait() to deadlock during exception handling.
+  void Interrupt() override {
+    for (const auto &cursor : branch_cursors_) {
+      cursor->Interrupt();
+    }
   }
 
  protected:
