@@ -29,7 +29,8 @@ using namespace std::chrono_literals;
 namespace {
 #ifdef MG_ENTERPRISE
 void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state, system::System &system,
-                        dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth, parameters::Parameters &parameters) {
+                        dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth, parameters::Parameters &parameters,
+                        bool const suppress_durability_warning = false) {
   /*
    * REPLICATION RECOVERY AND STARTUP
    */
@@ -40,7 +41,7 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
   };
 
   // Replication recovery and frequent check start
-  auto main = [&system, &dbms_handler, &auth, &parameters](RoleMainData &mainData) {
+  auto main = [&system, &dbms_handler, &auth, &parameters, suppress_durability_warning](RoleMainData &mainData) {
     for (auto &client : mainData.registered_replicas_) {
       if (client.try_set_uuid &&
           replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, mainData.uuid_)) {
@@ -59,7 +60,8 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
 
     // Warning
     if (dbms_handler.default_config().durability.snapshot_wal_mode ==
-        storage::Config::Durability::SnapshotWalMode::DISABLED) {
+            storage::Config::Durability::SnapshotWalMode::DISABLED &&
+        !suppress_durability_warning) {
       spdlog::warn(
           "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please "
           "consider "
@@ -185,7 +187,7 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
 #ifdef MG_ENTERPRISE
 ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
                                        dbms::DbmsHandler &dbms_handler, system::System &system, auth::SynchedAuth &auth,
-                                       parameters::Parameters &parameters)
+                                       parameters::Parameters &parameters, bool const suppress_durability_warning)
     : repl_state_{repl_state}, dbms_handler_{dbms_handler}, system_{system}, auth_{auth}, parameters_{parameters} {
 #else
 ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
@@ -194,7 +196,7 @@ ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, uti
     : repl_state_{repl_state}, dbms_handler_{dbms_handler}, system_{system}, parameters_{parameters} {
 #endif
 #ifdef MG_ENTERPRISE
-  RecoverReplication(repl_state_, system_, dbms_handler_, auth_, parameters_);
+  RecoverReplication(repl_state_, system_, dbms_handler_, auth_, parameters_, suppress_durability_warning);
 #else
   RecoverReplication(repl_state_, system_, dbms_handler_, parameters_);
 #endif
