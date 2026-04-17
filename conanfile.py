@@ -68,6 +68,11 @@ class Memgraph(ConanFile):
         "jemalloc/*:malloc_conf": "retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
         "rapidcheck/*:enable_gtest": True,
         "rapidcheck/*:enable_gmock": True,
+        "gflags/*:nothreads": False,
+        "gflags/*:namespace": "google;gflags",
+        "nuraft/*:asio": "standalone",
+        "rocksdb/*:with_gflags": True,
+        "rocksdb/*:use_rtti": True,
     }
 
     def requirements(self):
@@ -85,14 +90,14 @@ class Memgraph(ConanFile):
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
         self.requires("fmt/11.2.0")
-        self.requires("gflags/2.2.0-memgraph", options={"nothreads": False, "namespace": "google;gflags"}, force=True)
+        self.requires("gflags/2.2.0-memgraph", force=True)
         self.requires("jemalloc/5.2.1-memgraph")
         self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.6.1")
         self.requires("librdtsc/0.3-memgraph")
         self.requires("mgclient/1.4.3")
         self.requires("nlohmann_json/3.11.3-memgraph")
-        self.requires("nuraft/2.1.0-memgraph", options={"asio": "standalone"})
+        self.requires("nuraft/2.1.0-memgraph")
         has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
         openssl_shared = not has_sanitizers
         # Production builds dynamically link OpenSSL so the binary can use any system-provided
@@ -103,7 +108,7 @@ class Memgraph(ConanFile):
         self.requires("protobuf/3.21.12")
         self.requires("pulsar-client-cpp/4.0.0-memgraph")
         self.requires("range-v3/0.12.0")
-        self.requires("rocksdb/8.1.1-memgraph", options={"with_gflags": True, "use_rtti": True})
+        self.requires("rocksdb/8.1.1-memgraph")
         self.requires("simdjson/4.2.2")
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
