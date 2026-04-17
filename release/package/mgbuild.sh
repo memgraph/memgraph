@@ -551,7 +551,6 @@ build_memgraph () {
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
   echo "Building targeted package..."
-  local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
   # Fix issue with git marking directory as not safe
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"
   if [[ "$init_only" == "true" ]]; then
@@ -713,15 +712,9 @@ build_memgraph () {
 
 init_tests() {
   echo "Initializing tests..."
-  # we need to add the ~/.local/bin to the path
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && export PATH=\$PATH:\$HOME/.local/bin && export DISABLE_NODE=$DISABLE_NODE && ./init-test --ci"
-  echo "...Done"
-}
-
-init_tests() {
-  echo "Initializing tests..."
+  local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
   docker exec -u root "$build_container" bash -c "apt update && apt install -y python3-venv"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && ./init-test --ci"
+  docker exec -u mg "$SETUP_MGDEPS_CACHE_ENDPOINT && $build_container" bash -c "cd $MGBUILD_ROOT_DIR && ./init-test --ci"
   echo "...Done"
 }
 
