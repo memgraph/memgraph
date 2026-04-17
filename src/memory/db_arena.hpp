@@ -106,6 +106,38 @@ class ArenaPool {
   std::vector<unsigned> pool_;
 };
 
+// Move-only RAII handle for a jemalloc arena index obtained from ArenaPool.
+// Releases the index back to the pool on destruction. Moved-from handles hold
+// the sentinel value 0 (no arena) and release nothing.
+class ArenaHandle {
+ public:
+  ArenaHandle() noexcept = default;
+
+  explicit ArenaHandle(unsigned idx) noexcept : idx_(idx) {}
+
+  ~ArenaHandle() { ArenaPool::Instance().Release(idx_); }
+
+  ArenaHandle(ArenaHandle &&o) noexcept : idx_(std::exchange(o.idx_, 0)) {}
+
+  ArenaHandle &operator=(ArenaHandle &&o) noexcept {
+    if (this != &o) {
+      ArenaPool::Instance().Release(idx_);
+      idx_ = std::exchange(o.idx_, 0);
+    }
+    return *this;
+  }
+
+  ArenaHandle(const ArenaHandle &) = delete;
+  ArenaHandle &operator=(const ArenaHandle &) = delete;
+
+  unsigned idx() const noexcept { return idx_; }
+
+  explicit operator bool() const noexcept { return idx_ != 0; }
+
+ private:
+  unsigned idx_{0};
+};
+
 // Owns a dynamically-created jemalloc arena with custom extent hooks that
 // report committed OS pages to a `utils::MemoryTracker` owned by the caller.
 // The arena index is stable for the lifetime of this object.
@@ -119,11 +151,11 @@ class DbArena {
   DbArena(DbArena &&) = delete;
   DbArena &operator=(DbArena &&) = delete;
 
-  unsigned idx() const noexcept { return arena_idx_; }
+  unsigned idx() const noexcept { return arena_handle_.idx(); }
 
  private:
   DbArenaHooks hooks_{};
-  unsigned arena_idx_{0};
+  ArenaHandle arena_handle_{};
 };
 
 #endif  // USE_JEMALLOC

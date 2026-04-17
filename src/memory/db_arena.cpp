@@ -122,9 +122,10 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
 
 DbArena::DbArena(utils::MemoryTracker *tracker) {
   // Acquire an arena index — reuse a recycled one if available, otherwise create fresh.
-  arena_idx_ = ArenaPool::Instance().Acquire();
+  arena_handle_ = ArenaHandle{ArenaPool::Instance().Acquire()};
+  const unsigned arena_idx = arena_handle_.idx();
 
-  const std::string arena_key = "arena." + std::to_string(arena_idx_);
+  const std::string arena_key = "arena." + std::to_string(arena_idx);
 
   // Read the default (or previously-restored) hooks on the arena so we can call through.
   const std::string hooks_key = arena_key + ".extent_hooks";
@@ -132,7 +133,7 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
   size_t hooks_sz = sizeof(extent_hooks_t *);
   int err = je_mallctl(hooks_key.c_str(), static_cast<void *>(&base_hooks), &hooks_sz, nullptr, 0);
   if (err != 0 || base_hooks == nullptr) {
-    throw std::runtime_error(fmt::format("Failed to read default hooks for DB arena {} (err={})", arena_idx_, err));
+    throw std::runtime_error(fmt::format("Failed to read default hooks for DB arena {} (err={})", arena_idx, err));
   }
 
   // Populate and install our custom hooks.
@@ -144,13 +145,14 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
                    static_cast<void *>(const_cast<extent_hooks_t **>(&new_hooks)),
                    sizeof(extent_hooks_t *));
   if (err != 0) {
-    throw std::runtime_error(fmt::format("Failed to install custom hooks on DB arena {} (err={})", arena_idx_, err));
+    throw std::runtime_error(fmt::format("Failed to install custom hooks on DB arena {} (err={})", arena_idx, err));
   }
 }
 
 DbArena::~DbArena() {
-  if (arena_idx_ == 0) return;
-  const std::string arena_key = "arena." + std::to_string(arena_idx_);
+  if (!arena_handle_) return;
+  const unsigned arena_idx = arena_handle_.idx();
+  const std::string arena_key = "arena." + std::to_string(arena_idx);
 
   // Purge all dirty/muzzy pages back to the OS FIRST, while our custom hooks are
   // still installed. This ensures dalloc/decommit callbacks fire through our tracker
@@ -161,7 +163,7 @@ DbArena::~DbArena() {
   // Note: we intentionally skip arena.N.destroy — jemalloc's arena destruction is
   // experimental and arena indices are explicitly recycled via ArenaPool instead.
   if (int perr = je_mallctl((arena_key + ".purge").c_str(), nullptr, nullptr, nullptr, 0); perr != 0) {
-    spdlog::error("DbArena {}: purge failed (err={}); MemoryTracker may drift before hook restore", arena_idx_, perr);
+    spdlog::error("DbArena {}: purge failed (err={}); MemoryTracker may drift before hook restore", arena_idx, perr);
   }
 
   // Restore the default hooks AFTER purging so jemalloc's background thread cannot
@@ -175,12 +177,11 @@ DbArena::~DbArena() {
                        static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
                        sizeof(extent_hooks_t *));
   if (err != 0) {
-    spdlog::error("DbArena {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx_, err);
+    spdlog::error("DbArena {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx, err);
   }
 
-  // Return the index to the pool so the next DbArena can reuse it instead of
-  // creating a new one. Hooks are already restored so the arena is safe to reuse.
-  ArenaPool::Instance().Release(arena_idx_);
+  // arena_handle_ destructor returns the index to the pool once this function returns.
+  // Hooks are already restored above so the arena is safe to reuse.
 }
 
 }  // namespace memgraph::memory

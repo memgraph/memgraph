@@ -295,6 +295,9 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
   }
 
+  // Detach from tenant profile (no-op if not attached).
+  if (tenant_profiles_) tenant_profiles_->DetachFromDatabase(db_name);
+
   // Success
   // Save delta
   if (transaction) {
@@ -380,6 +383,9 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
       durability_->Delete(old_key);
     }
   }
+
+  // Update tenant profile membership (no-op if database had no profile attached).
+  if (tenant_profiles_) tenant_profiles_->RenameDatabase(old_name, new_name);
 
   // Add system action for replication
   if (txn) {
@@ -568,6 +574,9 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
 
   // Remove from durability list
   if (durability_) durability_->Delete(Durability::GenKey(db_name));
+
+  // Detach from tenant profile (no-op if not attached).
+  if (tenant_profiles_) tenant_profiles_->DetachFromDatabase(db_name);
 
   // Check if db exists
   // Low level handlers

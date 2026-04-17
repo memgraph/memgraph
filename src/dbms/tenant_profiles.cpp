@@ -169,6 +169,31 @@ bool TenantProfiles::DetachFromDatabase(std::string_view db_name) {
   return true;
 }
 
+bool TenantProfiles::RenameDatabase(std::string_view old_name, std::string_view new_name) {
+  std::unique_lock lock{mutex_};
+  auto dit = db_to_profile_.find(std::string{old_name});
+  if (dit == db_to_profile_.end()) return false;  // not attached to any profile
+
+  auto &profile = profiles_.at(dit->second);
+  auto updated = profile;
+  updated.databases.erase(std::string{old_name});
+  updated.databases.insert(std::string{new_name});
+
+  std::map<std::string, std::string> to_put{
+      {ProfileKey(updated.name), ProfileToJson(updated)},
+      {DbMappingKey(new_name), dit->second},
+  };
+  std::vector<std::string> to_delete{DbMappingKey(old_name)};
+  if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return false;
+
+  profile.databases.erase(std::string{old_name});
+  profile.databases.insert(std::string{new_name});
+  auto profile_name = std::move(dit->second);
+  db_to_profile_.erase(dit);
+  db_to_profile_[std::string{new_name}] = std::move(profile_name);
+  return true;
+}
+
 std::optional<std::string> TenantProfiles::GetProfileForDatabase(std::string_view db_name) const {
   std::shared_lock lock{mutex_};
   auto it = db_to_profile_.find(std::string{db_name});

@@ -50,6 +50,7 @@ class TenantProfiles {
 
   std::optional<int64_t> AttachToDatabase(std::string_view profile_name, std::string_view db_name);
   bool DetachFromDatabase(std::string_view db_name);
+  bool RenameDatabase(std::string_view old_name, std::string_view new_name);
   std::optional<std::string> GetProfileForDatabase(std::string_view db_name) const;
 
  private:

@@ -15,10 +15,6 @@
 #include <cstdlib>
 #include <memory_resource>
 
-namespace memgraph::storage {
-struct delta_container;
-}  // namespace memgraph::storage
-
 namespace memgraph::utils {
 
 /// This is a monotonic allocator which:
@@ -115,10 +111,10 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
 
   bool do_is_equal(memory_resource const &other) const noexcept final { return std::addressof(other) == this; }
 
- private:
+ public:
   void set_upstream(std::pmr::memory_resource *upstream) noexcept { upstream_ = upstream; }
-  friend struct memgraph::storage::delta_container;
 
+ private:
   std::pmr::memory_resource *upstream_ = std::pmr::get_default_resource();
   header *pages = nullptr;
   void *ptr = nullptr;
