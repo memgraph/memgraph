@@ -236,7 +236,11 @@ class Database {
   //                  parent2 = db_total_memory_tracker_ (for tenant limit enforcement).
   utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker, &db_total_memory_tracker_};
   utils::MemoryTracker db_embedding_memory_tracker_{&utils::vector_index_memory_tracker, &db_total_memory_tracker_};
-  utils::MemoryTracker db_query_memory_tracker_{&utils::graph_memory_tracker, &db_total_memory_tracker_};
+  // Query memory tracker: only enforces tenant limits. Domain aggregation happens via
+  // extent hooks on the default arena (global_graph_arena_hooks → graph_memory_tracker).
+  // Avoids double-counting: if this had graph_memory_tracker as parent, we'd count each
+  // query PMR byte twice (once via TrackingMemoryResource::Alloc, once via arena hooks).
+  utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
 #if USE_JEMALLOC
   memory::DbArena db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
 #endif
