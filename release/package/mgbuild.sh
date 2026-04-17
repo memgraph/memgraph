@@ -447,7 +447,6 @@ build_memgraph () {
   local cmake_only=false
   local for_docker=false
   local copy_from_host=true
-  local init_flags="--ci"
   local conan_remote=""
   local conan_username=""
   local conan_password=""
