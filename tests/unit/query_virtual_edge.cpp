@@ -47,17 +47,26 @@ TEST_F(VirtualEdgeTest, AccessorsAndIdentity) {
   EXPECT_EQ(ve1.To().Gid(), vn2.Gid());
   EXPECT_EQ(ve1.EdgeTypeName(), "RELATES_TO");
 
-  // Each virtual edge gets a unique Gid; equality is Gid-based
+  // Each virtual edge still gets a unique synthetic Gid (metadata only).
   EXPECT_NE(ve1.Gid(), ve2.Gid());
-  EXPECT_NE(ve1, ve2);
-  EXPECT_EQ(ve1, ve1);
   EXPECT_GT(ve1.Gid(), ve2.Gid());  // Gids count down
 
-  // Works in unordered containers
+  // Equality is semantic: same (from, to, type) triple → equal, regardless of synthetic Gid.
+  // This is what makes VirtualEdgeStore's unordered_set the single source of truth for dedup.
+  EXPECT_EQ(ve1, ve2);
+  EXPECT_EQ(ve1, ve1);
+
+  memgraph::query::VirtualEdge ve_other_type(vn1, vn2, "OTHER_TYPE");
+  EXPECT_NE(ve1, ve_other_type);
+
+  memgraph::query::VirtualEdge ve_reversed(vn2, vn1, "RELATES_TO");
+  EXPECT_NE(ve1, ve_reversed);
+
+  // Unordered-set dedups by the (from, to, type) triple.
   std::unordered_set<memgraph::query::VirtualEdge> set;
   set.insert(ve1);
-  set.insert(ve2);
-  set.insert(ve1);  // duplicate
+  set.insert(ve2);  // same triple as ve1 → not inserted
+  set.insert(ve_other_type);
   EXPECT_EQ(set.size(), 2);
 }
 

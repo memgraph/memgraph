@@ -22,8 +22,10 @@
 
 namespace memgraph::query {
 
-// synthetic gids count down from UINT64_MAX to avoid collision with real gids (which count up from 0)
-inline storage::Gid NextVirtualNodeGid() {
+// Synthetic Gids for VirtualNode and VirtualEdge share a single counter counting down from UINT64_MAX,
+// so node and edge Gids are drawn from the same space and can never collide with each other
+// (nor with real Gids, which count up from 0).
+inline storage::Gid NextSyntheticGid() {
   static std::atomic<uint64_t> counter{std::numeric_limits<uint64_t>::max()};
   return storage::Gid::FromUint(counter.fetch_sub(1, std::memory_order_relaxed));
 }
@@ -35,7 +37,7 @@ class VirtualNode final {
   using property_map = utils::pmr::map<storage::PropertyId, storage::PropertyValue>;
 
   VirtualNode(storage::Gid original_gid, label_list labels, property_map properties, allocator_type alloc = {})
-      : gid_(NextVirtualNodeGid()),
+      : gid_(NextSyntheticGid()),
         original_gid_(original_gid),
         labels_(std::move(labels), alloc),
         properties_(std::move(properties), alloc) {}

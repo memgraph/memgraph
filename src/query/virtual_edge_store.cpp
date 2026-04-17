@@ -13,27 +13,30 @@
 
 namespace memgraph::query {
 
-void VirtualEdgeStore::IndexEdge(const VirtualEdge &edge) {
-  out_index_[edge.FromGid()].push_back(edge);
-  in_index_[edge.ToGid()].push_back(edge);
+void VirtualEdgeStore::IndexEdge(const VirtualEdge *edge) {
+  out_index_[edge->FromGid()].push_back(edge);
+  in_index_[edge->ToGid()].push_back(edge);
+}
+
+void VirtualEdgeStore::RebuildIndexes() {
+  for (const auto &edge : edges_) {
+    IndexEdge(&edge);
+  }
 }
 
 bool VirtualEdgeStore::InsertIfNew(VirtualEdge edge) {
-  const auto inserted = dedup_.emplace(edge.FromGid(), edge.ToGid(), edge.EdgeTypeName()).second;
+  const auto [it, inserted] = edges_.insert(std::move(edge));
   if (!inserted) return false;
-  IndexEdge(edge);
-  edges_.insert(std::move(edge));
+  IndexEdge(&*it);
   return true;
 }
 
-bool VirtualEdgeStore::Contains(const VirtualEdge &edge) const { return edges_.contains(edge); }
-
-std::span<const VirtualEdge> VirtualEdgeStore::OutEdges(storage::Gid vertex_gid) const {
+std::span<const VirtualEdge *const> VirtualEdgeStore::OutEdges(storage::Gid vertex_gid) const {
   if (const auto it = out_index_.find(vertex_gid); it != out_index_.end()) return it->second;
   return {};
 }
 
-std::span<const VirtualEdge> VirtualEdgeStore::InEdges(storage::Gid vertex_gid) const {
+std::span<const VirtualEdge *const> VirtualEdgeStore::InEdges(storage::Gid vertex_gid) const {
   if (const auto it = in_index_.find(vertex_gid); it != in_index_.end()) return it->second;
   return {};
 }

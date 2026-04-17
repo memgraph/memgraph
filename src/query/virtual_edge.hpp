@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <atomic>
+#include <boost/functional/hash.hpp>
 
 #include "query/virtual_node.hpp"
 #include "storage/v2/id_types.hpp"
@@ -22,12 +22,6 @@
 
 namespace memgraph::query {
 
-// Synthetic Gids count down from UINT64_MAX to avoid collision with real Gids (which count up from 0).
-inline storage::Gid NextVirtualEdgeGid() {
-  static std::atomic<uint64_t> counter{std::numeric_limits<uint64_t>::max()};
-  return storage::Gid::FromUint(counter.fetch_sub(1, std::memory_order_relaxed));
-}
-
 class VirtualEdge final {
  public:
   using allocator_type = utils::Allocator<VirtualEdge>;
@@ -37,7 +31,7 @@ class VirtualEdge final {
       : from_(std::move(from), alloc),
         to_(std::move(to), alloc),
         edge_type_name_(std::move(edge_type_name), alloc),
-        gid_(NextVirtualEdgeGid()),
+        gid_(NextSyntheticGid()),
         properties_(alloc) {}
 
   VirtualEdge(const VirtualEdge &other, allocator_type alloc)
@@ -83,7 +77,12 @@ class VirtualEdge final {
 
   [[nodiscard]] auto Properties() const noexcept -> const property_map & { return properties_; }
 
-  bool operator==(const VirtualEdge &other) const noexcept { return gid_ == other.gid_; }
+  // Semantic equality: two VirtualEdges are equal if they connect the same endpoints with the same
+  // edge type. This makes VirtualEdgeStore's unordered_set<VirtualEdge> the single source of truth
+  // for dedup — no parallel dedup structure needed. The synthetic gid_ is metadata only.
+  bool operator==(const VirtualEdge &other) const noexcept {
+    return from_.Gid() == other.from_.Gid() && to_.Gid() == other.to_.Gid() && edge_type_name_ == other.edge_type_name_;
+  }
 
  private:
   VirtualNode from_;
@@ -99,7 +98,11 @@ namespace std {
 template <>
 struct hash<memgraph::query::VirtualEdge> {
   size_t operator()(const memgraph::query::VirtualEdge &e) const noexcept {
-    return std::hash<memgraph::storage::Gid>{}(e.Gid());
+    size_t seed = 0;
+    boost::hash_combine(seed, std::hash<memgraph::storage::Gid>{}(e.FromGid()));
+    boost::hash_combine(seed, std::hash<memgraph::storage::Gid>{}(e.ToGid()));
+    boost::hash_combine(seed, std::hash<std::string_view>{}(std::string_view(e.EdgeTypeName())));
+    return seed;
   }
 };
 }  // namespace std

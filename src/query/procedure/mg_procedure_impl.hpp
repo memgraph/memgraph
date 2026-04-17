@@ -981,11 +981,12 @@ struct mgp_edges_iterator {
   std::optional<decltype(out->begin())> out_it;
   std::optional<mgp_edge> current_e;
 
-  // Virtual edge iteration (populated for subgraph vertices only)
-  std::span<const memgraph::query::VirtualEdge> virtual_in_;
-  std::span<const memgraph::query::VirtualEdge>::iterator virtual_in_it_;
-  std::span<const memgraph::query::VirtualEdge> virtual_out_;
-  std::span<const memgraph::query::VirtualEdge>::iterator virtual_out_it_;
+  // Virtual edge iteration (populated for subgraph vertices only). Pointers borrow from
+  // the VirtualEdgeStore, which must outlive this iterator.
+  std::span<const memgraph::query::VirtualEdge *const> virtual_in_;
+  std::span<const memgraph::query::VirtualEdge *const>::iterator virtual_in_it_;
+  std::span<const memgraph::query::VirtualEdge *const> virtual_out_;
+  std::span<const memgraph::query::VirtualEdge *const>::iterator virtual_out_it_;
 };
 
 struct mgp_vertices_iterator {

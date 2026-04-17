@@ -2978,12 +2978,14 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
         // virtual nodes have no real edges — only virtual in-edges from the subgraph
         if (v->IsVirtualNode()) {
           auto *vg = v->graph->virtual_graph;
-          MG_ASSERT(vg, "Virtual nodes should only exist in virtual graph context");
+          if (!vg) {
+            throw memgraph::query::QueryRuntimeException(
+                "Cannot iterate in-edges: virtual node has no associated virtual graph context.");
+          }
           it->virtual_in_ = vg->edge_store().InEdges(v->GetVirtualNode().Gid());
           it->virtual_in_it_ = it->virtual_in_.begin();
           if (!it->virtual_in_.empty()) {
-            const auto &ve = *it->virtual_in_it_;
-            it->current_e.emplace(ve, v->graph, it->GetMemoryResource());
+            it->current_e.emplace(**it->virtual_in_it_, v->graph, it->GetMemoryResource());
           }
           return it.release();
         }
@@ -3042,8 +3044,7 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
                   }},
               v->graph->impl);
         } else if (!it->virtual_in_.empty() && it->virtual_in_it_ != it->virtual_in_.end()) {
-          const auto &ve = *it->virtual_in_it_;
-          it->current_e.emplace(ve, v->graph, it->GetMemoryResource());
+          it->current_e.emplace(**it->virtual_in_it_, v->graph, it->GetMemoryResource());
         }
 
         return it.release();
@@ -3059,12 +3060,14 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         // virtual nodes have no real edges — only virtual out-edges from the subgraph
         if (v->IsVirtualNode()) {
           auto *vg = v->graph->virtual_graph;
-          MG_ASSERT(vg, "Virtual nodes should only exist in virtual graph context");
+          if (!vg) {
+            throw memgraph::query::QueryRuntimeException(
+                "Cannot iterate out-edges: virtual node has no associated virtual graph context.");
+          }
           it->virtual_out_ = vg->edge_store().OutEdges(v->GetVirtualNode().Gid());
           it->virtual_out_it_ = it->virtual_out_.begin();
           if (!it->virtual_out_.empty()) {
-            const auto &ve = *it->virtual_out_it_;
-            it->current_e.emplace(ve, v->graph, it->GetMemoryResource());
+            it->current_e.emplace(**it->virtual_out_it_, v->graph, it->GetMemoryResource());
           }
           return it.release();
         }
@@ -3126,8 +3129,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
                   }},
               v->graph->impl);
         } else if (!it->virtual_out_.empty() && it->virtual_out_it_ != it->virtual_out_.end()) {
-          const auto &ve = *it->virtual_out_it_;
-          it->current_e.emplace(ve, v->graph, it->GetMemoryResource());
+          it->current_e.emplace(**it->virtual_out_it_, v->graph, it->GetMemoryResource());
         }
 
         return it.release();
@@ -3160,7 +3162,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
             it->current_e = std::nullopt;
             return nullptr;
           }
-          it->current_e.emplace(*virt_it, it->source_vertex.graph, it->GetMemoryResource());
+          it->current_e.emplace(**virt_it, it->source_vertex.graph, it->GetMemoryResource());
           return &*it->current_e;
         };
 

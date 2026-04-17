@@ -13,11 +13,8 @@
 
 #include <span>
 
-#include <boost/functional/hash.hpp>
-
 #include "query/virtual_edge.hpp"
 #include "utils/memory.hpp"
-#include "utils/pmr/string.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
@@ -28,21 +25,21 @@ class VirtualEdgeStore {
  public:
   using allocator_type = utils::Allocator<VirtualEdgeStore>;
 
-  explicit VirtualEdgeStore(allocator_type alloc) : edges_(alloc), dedup_(alloc), out_index_(alloc), in_index_(alloc) {}
+  explicit VirtualEdgeStore(allocator_type alloc) : edges_(alloc), out_index_(alloc), in_index_(alloc) {}
 
+  // Copy/move ctors rebuild the per-vertex indexes because they hold pointers into edges_;
+  // copying or moving across PMR allocators reallocates set nodes and invalidates those pointers.
   VirtualEdgeStore(const VirtualEdgeStore &other, allocator_type alloc)
-      : edges_(other.edges_, alloc),
-        dedup_(other.dedup_, alloc),
-        out_index_(other.out_index_, alloc),
-        in_index_(other.in_index_, alloc) {}
+      : edges_(other.edges_, alloc), out_index_(alloc), in_index_(alloc) {
+    RebuildIndexes();
+  }
 
   VirtualEdgeStore(VirtualEdgeStore &&other) noexcept = default;
 
   VirtualEdgeStore(VirtualEdgeStore &&other, allocator_type alloc)
-      : edges_(std::move(other.edges_), alloc),
-        dedup_(std::move(other.dedup_), alloc),
-        out_index_(std::move(other.out_index_), alloc),
-        in_index_(std::move(other.in_index_), alloc) {}
+      : edges_(std::move(other.edges_), alloc), out_index_(alloc), in_index_(alloc) {
+    RebuildIndexes();
+  }
 
   VirtualEdgeStore(const VirtualEdgeStore &other) : VirtualEdgeStore(other, other.edges_.get_allocator()) {}
 
@@ -51,13 +48,13 @@ class VirtualEdgeStore {
   ~VirtualEdgeStore() = default;
 
   // Returns true iff the (from, to, type) triple was not already present.
+  // On insert, the edge is stored once in edges_ and pointed to from the per-vertex indexes.
   bool InsertIfNew(VirtualEdge edge);
-  [[nodiscard]] bool Contains(const VirtualEdge &edge) const;
 
-  [[nodiscard]] std::span<const VirtualEdge> OutEdges(storage::Gid vertex_gid) const;
-  [[nodiscard]] std::span<const VirtualEdge> InEdges(storage::Gid vertex_gid) const;
+  [[nodiscard]] bool Contains(const VirtualEdge &edge) const { return edges_.contains(edge); }
 
-  [[nodiscard]] auto &edges() { return edges_; }
+  [[nodiscard]] std::span<const VirtualEdge *const> OutEdges(storage::Gid vertex_gid) const;
+  [[nodiscard]] std::span<const VirtualEdge *const> InEdges(storage::Gid vertex_gid) const;
 
   [[nodiscard]] auto &edges() const { return edges_; }
 
@@ -65,48 +62,18 @@ class VirtualEdgeStore {
 
   [[nodiscard]] auto empty() const { return edges_.empty(); }
 
+  [[nodiscard]] auto get_allocator() const -> allocator_type { return edges_.get_allocator(); }
+
  private:
+  // Single source of truth; VirtualEdge's operator==/hash are semantic (from, to, type),
+  // so unordered_set membership is the dedup. References/pointers into unordered_set are
+  // stable across insertions, which is why out_index_/in_index_ can hold raw pointers.
   utils::pmr::unordered_set<VirtualEdge> edges_;
+  utils::pmr::unordered_map<storage::Gid, utils::pmr::vector<const VirtualEdge *>> out_index_;
+  utils::pmr::unordered_map<storage::Gid, utils::pmr::vector<const VirtualEdge *>> in_index_;
 
-  struct DedupKey {
-    using allocator_type = utils::Allocator<DedupKey>;
-
-    DedupKey(storage::Gid from, storage::Gid to, std::string_view type, allocator_type alloc = {})
-        : from(from), to(to), type(type, alloc) {}
-
-    DedupKey(const DedupKey &other, allocator_type alloc) : from(other.from), to(other.to), type(other.type, alloc) {}
-
-    DedupKey(DedupKey &&other, allocator_type alloc) noexcept
-        : from(other.from), to(other.to), type(std::move(other.type), alloc) {}
-
-    DedupKey(const DedupKey &) = default;
-    DedupKey(DedupKey &&) noexcept = default;
-    DedupKey &operator=(const DedupKey &) = default;
-    DedupKey &operator=(DedupKey &&) noexcept = default;
-    ~DedupKey() = default;
-
-    storage::Gid from;
-    storage::Gid to;
-    utils::pmr::string type;
-
-    bool operator==(const DedupKey &) const = default;
-  };
-
-  struct DedupKeyHash {
-    size_t operator()(const DedupKey &k) const noexcept {
-      size_t seed = 0;
-      boost::hash_combine(seed, std::hash<storage::Gid>{}(k.from));
-      boost::hash_combine(seed, std::hash<storage::Gid>{}(k.to));
-      boost::hash_combine(seed, std::hash<std::string_view>{}(k.type));
-      return seed;
-    }
-  };
-
-  utils::pmr::unordered_set<DedupKey, DedupKeyHash> dedup_;
-  utils::pmr::unordered_map<storage::Gid, utils::pmr::vector<VirtualEdge>> out_index_;
-  utils::pmr::unordered_map<storage::Gid, utils::pmr::vector<VirtualEdge>> in_index_;
-
-  void IndexEdge(const VirtualEdge &edge);
+  void IndexEdge(const VirtualEdge *edge);
+  void RebuildIndexes();
 };
 
 }  // namespace memgraph::query
