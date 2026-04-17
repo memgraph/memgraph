@@ -28,6 +28,7 @@
 
 namespace memgraph::utils {
 class PriorityThreadPool;
+class WorkerResumeEvent;
 
 // Thread-safe mask that returns the position of first set bit
 class HotMask {
@@ -81,6 +82,14 @@ using TaskSignature = std::move_only_function<void()>;
 // same worker, false if it completed.
 using ResumableTaskSignature = std::move_only_function<bool()>;
 
+/// Thread-local access to the currently running resumable task.
+/// Allows generic external-progress awaiters to self-park the task and arrange
+/// for it to be resumed later by a WorkerResumeEvent.
+class CurrentResumableTask {
+ public:
+  static bool RegisterWaiter(WorkerResumeEvent &event, uint64_t observed_epoch);
+};
+
 // Collection of tasks that can be executed by the thread pool
 // The idea is to batch tasks and have the ability to wait on them
 // Also execute non scheduler tasks in the local thread
@@ -93,7 +102,8 @@ class TaskCollection {
   TaskCollection &operator=(const TaskCollection &) = delete;
 
   TaskCollection(TaskCollection &&other) noexcept {
-    auto guard = std::lock_guard{other.progress_mutex_};
+    auto tasks_guard = std::lock_guard{other.tasks_mutex_};
+    auto progress_guard = std::lock_guard{other.progress_mutex_};
     tasks_ = std::move(other.tasks_);
     progress_epoch_ = other.progress_epoch_;
   }
@@ -123,16 +133,27 @@ class TaskCollection {
     enum class State : uint8_t {
       IDLE,
       SCHEDULED,  // Claimed by pool's WrapTask closure; also "suspended between yield-resume cycles"
+      PARKED,     // Suspended on external progress; an event will requeue the task
       STOLEN,     // Claimed by WaitOrSteal for direct execution on the calling thread
       FINISHED,
     };
+
+    /// Returns true if this state represents terminal completion (no more execution possible).
+    bool IsTerminal() const { return state_->load(std::memory_order_acquire) == State::FINISHED; }
+
+    /// Returns true if this task could potentially run later (not terminal and not actively running).
+    bool CanRunLater() const {
+      const auto s = state_->load(std::memory_order_acquire);
+      return s == State::IDLE || s == State::SCHEDULED || s == State::PARKED || s == State::STOLEN;
+    }
+
     std::shared_ptr<std::atomic<State>> state_;
     ResumableTaskSignature task_;
   };
 
   Task &operator[](size_t index) { return tasks_[index]; }
 
-  ResumableTaskSignature WrapTask(size_t index);
+  ResumableTaskSignature WrapTask(size_t index, PriorityThreadPool *pool = nullptr);
 
   void Wait();
 
@@ -142,7 +163,9 @@ class TaskCollection {
   /// Returns true if a task was claimed and executed, false otherwise.
   /// This is intended for cooperative polling loops that want to make local
   /// progress without blocking the current thread.
-  bool TryExecuteOneIdleTask();
+  /// If a pool is provided and the task yields, it will be rescheduled on the pool.
+  /// If no pool is provided and the task yields, a runtime error is thrown.
+  bool TryExecuteOneIdleTask(PriorityThreadPool *pool = nullptr);
 
   /// Wait for any task in the collection to report progress (finish or yield),
   /// or until the timeout expires. Returns true if progress was observed.
@@ -152,7 +175,22 @@ class TaskCollection {
 
   bool Finished() const;
 
+  /// Returns true only when ALL tasks are in FINISHED state.
+  /// This is the proper join predicate - no task can run later.
+  bool AllTerminal() const;
+
+  /// Returns true if any task could potentially run later (not terminal).
+  bool HasNonTerminalTasks() const;
+
   size_t Size() const { return tasks_.size(); }
+
+#ifdef NDEBUG
+  /// Debug-only: verify task state invariants (no-op in release).
+  void DbgVerifyState() const {}
+#else
+  /// Debug-only: verify that task state transitions are valid.
+  void DbgVerifyState() const;
+#endif
 
  private:
   bool RegisterProgressWaiter(std::coroutine_handle<> handle, PriorityThreadPool *pool, uint16_t worker_id,
@@ -160,6 +198,7 @@ class TaskCollection {
   void NotifyProgress();
 
   std::vector<Task> tasks_;
+  mutable std::mutex tasks_mutex_;  // Protects tasks_ during concurrent steal/schedule operations
   mutable std::mutex progress_mutex_;
   std::condition_variable progress_cv_;
   uint64_t progress_epoch_{0};
@@ -183,11 +222,15 @@ class WorkerResumeEvent {
   bool RegisterWaiter(std::coroutine_handle<> handle, PriorityThreadPool *pool, std::optional<uint16_t> worker_id,
                       uint64_t observed_epoch);
 
+  bool RegisterTaskWaiter(TaskSignature task, PriorityThreadPool *pool, std::optional<uint16_t> worker_id,
+                          uint64_t observed_epoch);
+
   void NotifyAll();
 
  private:
   struct Waiter {
     std::coroutine_handle<> handle;
+    TaskSignature task;
     PriorityThreadPool *pool;
     std::optional<uint16_t> worker_id;
   };
@@ -232,7 +275,7 @@ class PriorityThreadPool {
 
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {
-      ScheduleResumableTask(collection.WrapTask(i), Priority::LOW);
+      ScheduleResumableTask(collection.WrapTask(i, this), Priority::LOW);
     }
   }
 
@@ -342,7 +385,7 @@ class CollectionScheduler {
     collection_.reset();
   }
 
-  bool TryExecuteOneIdleTask() const { return collection_ && collection_->TryExecuteOneIdleTask(); }
+  bool TryExecuteOneIdleTask() const { return collection_ && collection_->TryExecuteOneIdleTask(pool_); }
 
   bool WaitForProgress(std::chrono::milliseconds timeout) const {
     return collection_ && collection_->WaitForProgress(timeout);
@@ -353,6 +396,23 @@ class CollectionScheduler {
   bool Finished() const {
     if (collection_) return collection_->Finished();
     return true;
+  }
+
+  /// Returns true only when ALL tasks are in FINISHED state.
+  bool AllTerminal() const {
+    if (collection_) return collection_->AllTerminal();
+    return true;
+  }
+
+  /// Returns true if any task could potentially run later (not terminal).
+  bool HasNonTerminalTasks() const {
+    if (collection_) return collection_->HasNonTerminalTasks();
+    return false;
+  }
+
+  /// Debug-only state verification (no-op in release).
+  void DbgVerifyState() const {
+    if (collection_) collection_->DbgVerifyState();
   }
 
  private:

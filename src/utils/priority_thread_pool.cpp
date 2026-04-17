@@ -36,6 +36,47 @@ constexpr uint16_t kMaxWorkers = memgraph::utils::HotMask::kMaxElements;
 
 namespace memgraph::utils {
 
+namespace {
+struct CurrentResumableTaskState {
+  PriorityThreadPool *pool{nullptr};
+  std::optional<uint16_t> worker_id;
+  std::function<void()> resume_task{};
+  bool parked{false};
+};
+
+thread_local std::vector<CurrentResumableTaskState> current_resumable_task_stack;
+
+class CurrentResumableTaskScope {
+ public:
+  CurrentResumableTaskScope(PriorityThreadPool *pool, std::optional<uint16_t> worker_id, std::function<void()> resume)
+      : active_(true) {
+    current_resumable_task_stack.push_back(CurrentResumableTaskState{
+        .pool = pool, .worker_id = worker_id, .resume_task = std::move(resume), .parked = false});
+  }
+
+  CurrentResumableTaskScope(const CurrentResumableTaskScope &) = delete;
+  CurrentResumableTaskScope &operator=(const CurrentResumableTaskScope &) = delete;
+
+  CurrentResumableTaskScope(CurrentResumableTaskScope &&other) noexcept
+      : active_(std::exchange(other.active_, false)) {}
+
+  ~CurrentResumableTaskScope() {
+    if (active_) {
+      DMG_ASSERT(!current_resumable_task_stack.empty(), "Missing current resumable task state");
+      current_resumable_task_stack.pop_back();
+    }
+  }
+
+  [[nodiscard]] bool WasParked() const {
+    DMG_ASSERT(active_ && !current_resumable_task_stack.empty(), "Missing current resumable task state");
+    return current_resumable_task_stack.back().parked;
+  }
+
+ private:
+  bool active_{false};
+};
+}  // namespace
+
 struct TmpHotElement {
   uint8_t id;
   uint64_t new_mask;
@@ -179,6 +220,20 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   // HP threads are going to steal this work if not executed in time
 }
 
+bool CurrentResumableTask::RegisterWaiter(WorkerResumeEvent &event, uint64_t observed_epoch) {
+  if (current_resumable_task_stack.empty()) return false;
+  auto &state = current_resumable_task_stack.back();
+  if (!state.resume_task) return false;
+
+  TaskSignature resume_task = [resume = state.resume_task]() mutable { resume(); };
+  if (!event.RegisterTaskWaiter(std::move(resume_task), state.pool, state.worker_id, observed_epoch)) {
+    return false;
+  }
+
+  state.parked = true;
+  return true;
+}
+
 void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Priority priority) {
   struct ResumableWrapper {
     std::shared_ptr<ResumableTaskSignature> task;
@@ -186,7 +241,10 @@ void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Prio
     Priority priority;
 
     void Run() {
+      const auto worker_id = WorkerYieldRegistry::GetCurrentWorkerId();
+      CurrentResumableTaskScope current_task_scope{pool, worker_id, [w = *this]() mutable { w.Run(); }};
       const bool yielded = (*task)();
+      if (current_task_scope.WasParked()) return;
       if (!yielded) return;
       auto *sig = WorkerYieldRegistry::GetCurrentYieldSignal();
       if (sig && sig->load(std::memory_order_acquire)) {
@@ -396,21 +454,44 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
 }
 
 // Prepares task for safe scheduling
-ResumableTaskSignature TaskCollection::WrapTask(size_t index) {
+ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool *pool) {
   auto &task = tasks_[index];
-  return [this, &task = task.task_, state = task.state_]() -> bool {
+  return [this, index, &task = task.task_, state = task.state_, pool]() -> bool {
+#ifndef NDEBUG
+    const auto initial_state = state->load(std::memory_order_acquire);
+    DMG_ASSERT(initial_state == Task::State::IDLE || initial_state == Task::State::SCHEDULED ||
+                   initial_state == Task::State::PARKED,
+               "WrapTask[{}] started with invalid initial state {} (expected IDLE/SCHEDULED/PARKED)",
+               index,
+               static_cast<uint8_t>(initial_state));
+    DMG_ASSERT(initial_state != Task::State::FINISHED,
+               "WrapTask[{}] invoked on already-FINISHED task - this indicates a stale queued resume closure",
+               index);
+#endif
+
     auto expected = Task::State::IDLE;
     if (!state->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
-      // SCHEDULED means this is a resume after a yield — fall through to re-execute.
+      // SCHEDULED means this is a resume after a yield.
+      // PARKED means an external event woke the task and requeued it.
       // STOLEN means WaitOrSteal claimed it for direct execution — don't double-run.
       // FINISHED means already done — skip.
-      if (expected != Task::State::SCHEDULED) {
+      if (expected != Task::State::SCHEDULED && expected != Task::State::PARKED) {
         return false;
       }
     }
 
     try {
+      CurrentResumableTaskScope current_task_scope{
+          pool, WorkerYieldRegistry::GetCurrentWorkerId(), [this, index, pool]() mutable {
+            auto wrapped_task = WrapTask(index, pool);
+            wrapped_task();
+          }};
       const bool yielded = task();
+      if (current_task_scope.WasParked()) {
+        state->store(Task::State::PARKED, std::memory_order_release);
+        NotifyProgress();  // Notify that task parked (progress in the sense of "state changed")
+        return false;
+      }
       if (yielded) {
         NotifyProgress();
         return true;
@@ -450,8 +531,13 @@ void TaskCollection::WaitOrSteal() {
   Wait();
 }
 
-bool TaskCollection::TryExecuteOneIdleTask() {
-  for (auto &task : tasks_) {
+bool TaskCollection::TryExecuteOneIdleTask(PriorityThreadPool *pool) {
+  // Lock protects tasks_ vector access from races with ScheduledCollection's WrapTask closures.
+  // The state atomic handles CAS, but we need mutual exclusion when accessing task.task_.
+  std::unique_lock lock(tasks_mutex_);
+
+  for (size_t index = 0; index < tasks_.size(); ++index) {
+    auto &task = tasks_[index];
     auto expected = Task::State::IDLE;
     if (!task.state_->compare_exchange_strong(expected, Task::State::STOLEN, std::memory_order_acq_rel)) {
       continue;
@@ -460,11 +546,22 @@ bool TaskCollection::TryExecuteOneIdleTask() {
     try {
       const bool yielded = task.task_();
       if (yielded) {
-        throw std::runtime_error("WaitOrSteal cannot handle yielding tasks. Use co_await Finished() instead.");
+        if (pool != nullptr) {
+          // Task yielded during cooperative execution; reschedule it on the pool
+          // Transition from STOLEN back to SCHEDULED so WrapTask knows to resume it
+          task.state_->store(Task::State::SCHEDULED, std::memory_order_release);
+          // WrapTask needs the lock too - release before calling to avoid deadlock
+          lock.unlock();
+          pool->ScheduleResumableTask(WrapTask(index, pool), Priority::LOW);
+          NotifyProgress();
+        } else {
+          throw std::runtime_error("WaitOrSteal cannot handle yielding tasks. Use co_await Finished() instead.");
+        }
+      } else {
+        task.state_->store(Task::State::FINISHED, std::memory_order_release);
+        task.state_->notify_one();  // Notify waiting threads
+        NotifyProgress();
       }
-      task.state_->store(Task::State::FINISHED, std::memory_order_release);
-      task.state_->notify_one();  // Notify waiting threads
-      NotifyProgress();
     } catch (...) {
       task.state_->store(Task::State::FINISHED, std::memory_order_release);
       task.state_->notify_one();  // Notify even on exception
@@ -492,6 +589,33 @@ bool TaskCollection::Finished() const {
   return std::ranges::all_of(
       tasks_, [](const auto &task) { return task.state_->load(std::memory_order_acquire) == Task::State::FINISHED; });
 }
+
+bool TaskCollection::AllTerminal() const {
+  return std::ranges::all_of(
+      tasks_, [](const auto &task) { return task.state_->load(std::memory_order_acquire) == Task::State::FINISHED; });
+}
+
+bool TaskCollection::HasNonTerminalTasks() const {
+  return std::ranges::any_of(tasks_, [](const auto &task) {
+    const auto s = task.state_->load(std::memory_order_acquire);
+    return s != Task::State::FINISHED;
+  });
+}
+
+#ifndef NDEBUG
+void TaskCollection::DbgVerifyState() const {
+  for (size_t i = 0; i < tasks_.size(); ++i) {
+    const auto &task = tasks_[i];
+    const auto s = task.state_->load(std::memory_order_acquire);
+    // State should always be valid
+    DMG_ASSERT(s == Task::State::IDLE || s == Task::State::SCHEDULED || s == Task::State::PARKED ||
+                   s == Task::State::STOLEN || s == Task::State::FINISHED,
+               "Task {} has invalid state {}",
+               i,
+               static_cast<uint8_t>(s));
+  }
+}
+#endif
 
 bool TaskCollection::RegisterProgressWaiter(std::coroutine_handle<> handle, PriorityThreadPool *pool,
                                             uint16_t worker_id, uint64_t observed_epoch) {
@@ -556,6 +680,16 @@ bool WorkerResumeEvent::RegisterWaiter(std::coroutine_handle<> handle, PriorityT
   return true;
 }
 
+bool WorkerResumeEvent::RegisterTaskWaiter(TaskSignature task, PriorityThreadPool *pool,
+                                           std::optional<uint16_t> worker_id, uint64_t observed_epoch) {
+  const auto lock = std::lock_guard(mutex_);
+  if (epoch_ != observed_epoch) {
+    return false;
+  }
+  waiters_.push_back(Waiter{.task = std::move(task), .pool = pool, .worker_id = worker_id});
+  return true;
+}
+
 void WorkerResumeEvent::NotifyAll() {
   std::vector<Waiter> waiters;
   {
@@ -565,14 +699,23 @@ void WorkerResumeEvent::NotifyAll() {
   }
 
   for (auto &waiter : waiters) {
-    if (!waiter.handle || waiter.handle.done()) continue;
-    if (waiter.pool && waiter.worker_id) {
-      waiter.pool->RescheduleTaskOnWorker(*waiter.worker_id, [handle = waiter.handle]() mutable {
-        if (handle && !handle.done()) handle.resume();
-      });
+    if (waiter.handle) {
+      if (waiter.handle.done()) continue;
+      if (waiter.pool && waiter.worker_id) {
+        waiter.pool->RescheduleTaskOnWorker(*waiter.worker_id, [handle = waiter.handle]() mutable {
+          if (handle && !handle.done()) handle.resume();
+        });
+        continue;
+      }
+      waiter.handle.resume();
       continue;
     }
-    waiter.handle.resume();
+    if (!waiter.task) continue;
+    if (waiter.pool && waiter.worker_id) {
+      waiter.pool->RescheduleTaskOnWorker(*waiter.worker_id, std::move(waiter.task));
+      continue;
+    }
+    waiter.task();
   }
 }
 
