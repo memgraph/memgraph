@@ -143,7 +143,6 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
   void do_deallocate(void *p, std::size_t bytes, std::size_t alignment) noexcept override {
     // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
     // free query-thread allocations regardless of which thread calls do_deallocate.
-    // MALLOCX_TCACHE_NONE matches the allocation style and lets decay=0 arenas return pages promptly.
     DbDeallocateBytes(p, bytes, alignment);
   }
 
@@ -164,7 +163,12 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
 struct DbArenaScope {
   explicit DbArenaScope(unsigned arena_idx) noexcept : prev_(tls_db_arena_idx) { tls_db_arena_idx = arena_idx; }
 
-  ~DbArenaScope() noexcept { tls_db_arena_idx = prev_; }
+  ~DbArenaScope() noexcept {
+    tls_db_arena_idx = prev_;
+#if USE_JEMALLOC
+    je_mallctl("thread.tcache.flush", NULL, NULL, NULL, 0);
+#endif
+  }
 
   DbArenaScope(const DbArenaScope &) = delete;
   DbArenaScope &operator=(const DbArenaScope &) = delete;

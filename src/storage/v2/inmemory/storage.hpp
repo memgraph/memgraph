@@ -818,9 +818,6 @@ class InMemoryStorage final : public Storage {
   uint64_t wal_seq_num_{0};
 
 #if USE_JEMALLOC
-  // ArenaAwareDeleter ensures deallocation uses je_sdallocx+MALLOCX_TCACHE_NONE,
-  // matching the ArenaAwareAllocator allocation style so the db_arena_dalloc
-  // extent hook fires immediately (not delayed by the thread's tcache).
   std::unique_ptr<durability::WalFile, memory::ArenaAwareDeleter<durability::WalFile>> wal_file_;
 #else
   std::unique_ptr<durability::WalFile> wal_file_;
