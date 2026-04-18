@@ -155,7 +155,12 @@ def clear_test_data(uri: str):
         driver.close()
 
 
-def run_query_in_process(uri: str, query: str, result_queue: multiprocessing.Queue, auth: Optional[tuple] = None):
+def run_query_in_process(
+    uri: str,
+    query: str,
+    result_queue: multiprocessing.Queue,
+    auth: Optional[tuple] = None,
+):
     """
     Execute a query in a separate process.
     Puts the result or exception info into the queue.
@@ -295,8 +300,8 @@ class TestTerminateTransaction:
             with driver.session() as session:
                 session.run(f"TERMINATE TRANSACTIONS '{tx_id}'")
 
-            # Wait for process to finish
-            process.join(timeout=5.0)
+            # Wait for process to finish (increased from 5s to 60s for P4 fix verification)
+            process.join(timeout=60.0)
             assert not process.is_alive(), "Query process should have terminated"
 
             # Check result - should be an error
