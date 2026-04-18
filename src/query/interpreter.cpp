@@ -5598,15 +5598,22 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
   return callback;
 }
 
-Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
+Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba, storage::Storage::Accessor *raw_accessor) {
   Callback callback;
-  callback.fn = [&db, dba]() mutable {
+  callback.fn = [&db, dba, raw_accessor]() mutable {
     auto storage_mode = db->GetStorageMode();
-    if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-      throw utils::BasicException(
-          "Drop graph can only be used in the analytical mode. Switch to analytical mode by executing 'STORAGE MODE "
-          "IN_MEMORY_ANALYTICAL'");
+    if (storage_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+      throw utils::BasicException("DROP GRAPH is not yet supported for on-disk storage.");
     }
+
+    auto *storage = static_cast<storage::InMemoryStorage *>(db->storage());
+
+    if (storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      storage->SetStorageMode(storage::StorageMode::IN_MEMORY_ANALYTICAL,
+                              raw_accessor,
+                              /*skip_constraint_check=*/true);
+    }
+
     dba->DropGraph();
 
     auto *trigger_store = db->trigger_store();
@@ -5617,6 +5624,13 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
 
     auto &ttl = db->ttl();
     ttl.Disable();
+
+    if (storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      storage->SetStorageMode(storage::StorageMode::IN_MEMORY_TRANSACTIONAL, raw_accessor);
+    }
+
+    auto *plan_cache = db->plan_cache();
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
 
     return std::vector<std::vector<TypedValue>>();
   };
@@ -5698,11 +5712,12 @@ PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Drop graph query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
+  auto *raw_accessor = current_db.db_transactional_accessor_.get();
 
   auto *drop_graph_query = utils::Downcast<DropGraphQuery>(parsed_query.query);
   MG_ASSERT(drop_graph_query);
 
-  std::function<void()> callback = DropGraph(db_acc, dba).fn;
+  std::function<void()> callback = DropGraph(db_acc, dba, raw_accessor).fn;
 
   return PreparedQuery{
       .header = {},
