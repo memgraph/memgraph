@@ -293,6 +293,10 @@ class PriorityThreadPool {
 
   uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
 
+  /// Returns true if the pool is shutting down (stop has been requested).
+  /// Used by ResumableWrapper to detect shutdown and handle yields inline.
+  bool IsShuttingDown() const { return pool_stop_source_.stop_requested(); }
+
   // Single worker implementation
   class Worker {
    public:

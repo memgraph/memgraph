@@ -254,6 +254,14 @@ void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Prio
           return;
         }
       }
+      // During shutdown: don't yield, run continuation inline to prevent task loss (P4 fix).
+      // When executing on a non-worker thread (no worker_id), ScheduledAddTask would drop
+      // the task during shutdown. Re-executing inline ensures completion.
+      if (pool->IsShuttingDown()) {
+        spdlog::trace("ResumableWrapper::Run: pool shutting down, re-executing inline");
+        Run();  // Inline recursive execution - tasks should complete quickly during shutdown
+        return;
+      }
       // Fallback: signal was cleared or no worker id — re-add as a normal scheduled task.
       pool->ScheduledAddTask([w = *this]() mutable { w.Run(); }, priority);
     }
