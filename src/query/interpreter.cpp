@@ -2891,7 +2891,7 @@ struct TxTimeout {
   std::optional<std::chrono::duration<double>> value_;
 };
 
-struct PullPlan {
+struct PullPlan : std::enable_shared_from_this<PullPlan> {
   explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
@@ -2920,6 +2920,19 @@ struct PullPlan {
     if (suspended_handle_) {
       cursor_->Reset();
       suspended_handle_ = {};
+    }
+  }
+
+  // Interrupt the query execution - called during graceful shutdown to wake
+  // PARKED tasks and allow them to exit cleanly. Prevents deadlock when
+  // SIGTERM is received during parallel query execution (P4 shutdown hang fix).
+  void Interrupt() {
+    // Use weak_ptr pattern to avoid race with destructor
+    // If the PullPlan is being destroyed, don't try to interrupt
+    if (auto self = weak_from_this().lock()) {
+      if (cursor_) {
+        cursor_->Interrupt();
+      }
     }
   }
 
@@ -3365,7 +3378,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                 Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr
+                                 Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr,
+                                 std::function<void()> *interrupt_handler = nullptr
 #ifdef MG_ENTERPRISE
                                  ,
                                  std::shared_ptr<utils::UserResources> user_resource = {}
@@ -3481,6 +3495,16 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               user_resource
 #endif
   );
+
+  // Set up interrupt handler for graceful shutdown (P4 shutdown hang fix)
+  if (interrupt_handler) {
+    *interrupt_handler = [pull_plan_weak = std::weak_ptr<PullPlan>(pull_plan)]() {
+      if (auto pull_plan = pull_plan_weak.lock()) {
+        pull_plan->Interrupt();
+      }
+    };
+  }
+
   return PreparedQuery{
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
@@ -8604,7 +8628,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                           user_or_role_,
                                           make_stopping_context(),
                                           *this,
-                                          &*frame_change_collector_
+                                          &*frame_change_collector_,
+                                          &query_execution->interrupt_handler
 #ifdef MG_ENTERPRISE
                                           ,
                                           user_resource_
@@ -9025,6 +9050,16 @@ void Interpreter::Abort() {
     if (qe) qe->CleanRuntimeData();
   }
   frame_change_collector_.reset();
+}
+
+void Interpreter::Interrupt() {
+  // Interrupt all running queries to wake PARKED tasks during graceful shutdown
+  // This is called by InterpreterContext::Shutdown() to prevent the P4 shutdown hang
+  for (auto &qe : query_executions_) {
+    if (qe && qe->interrupt_handler) {
+      qe->interrupt_handler();
+    }
+  }
 }
 
 std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() {

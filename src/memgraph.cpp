@@ -865,6 +865,11 @@ int main(int argc, char **argv) {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     spdlog::trace("Shutting down handler!");
+
+    // Interrupt all running queries BEFORE shutting down the worker pool
+    // This wakes PARKED tasks and allows them to exit cleanly (P4 shutdown hang fix)
+    interpreter_context_.Shutdown();
+
     spdlog::info("Workers shutting down.");
     if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server
@@ -881,10 +886,7 @@ int main(int argc, char **argv) {
       acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
     });
 
-    // After the server is notified to stop accepting and processing
-    // connections we tell the execution engine to stop processing all pending
-    // queries.
-    interpreter_context_.Shutdown();
+    // Shutdown websocket and metrics servers
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();

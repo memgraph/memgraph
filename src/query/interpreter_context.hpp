@@ -96,7 +96,7 @@ struct InterpreterContext {
 
   /// Function that is used to tell all active interpreters that they should stop
   /// their ongoing execution.
-  void Shutdown() { is_shutting_down.store(true, std::memory_order_release); }
+  void Shutdown();
 
   std::vector<std::vector<TypedValue>> TerminateTransactions(
       const std::unordered_set<Interpreter *> &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids,

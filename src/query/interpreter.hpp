@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include <gflags/gflags.h>
 
 #include "dbms/database.hpp"
@@ -440,6 +442,13 @@ class Interpreter final {
    */
   void Abort();
 
+  /**
+   * Interrupt running queries during graceful shutdown.
+   * Called by InterpreterContext::Shutdown() to wake PARKED tasks and
+   * allow them to exit cleanly. Prevents deadlock during SIGTERM (P4 fix).
+   */
+  void Interrupt();
+
   struct TxVerifier {
     TxVerifier(TransactionStatus original_status, std::atomic<TransactionStatus> &transaction_status)
         : original_status_(original_status), transaction_status_(transaction_status) {}
@@ -532,7 +541,12 @@ class Interpreter final {
     void CleanRuntimeData() {
       prepared_query.reset();
       notifications.clear();
+      interrupt_handler = nullptr;  // Clear interrupt handler
     }
+
+    // Function to interrupt a running query during shutdown
+    // This is set when the query is prepared and called during graceful shutdown
+    std::function<void()> interrupt_handler;
   };
 
   // Interpreter supports multiple prepared queries at the same time.

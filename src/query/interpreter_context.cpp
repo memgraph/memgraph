@@ -97,6 +97,8 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
       if (same_user(interpreter->user_or_role_, user_or_role) ||
           privilege_checker(user_or_role, get_interpreter_db_name())) {
         killed = true;  // Note: this is used by the above `clean_status` (OnScopeExit)
+        // Interrupt the interpreter to wake PARKED tasks during parallel query execution
+        interpreter->Interrupt();
         spdlog::warn("Transaction {} successfully killed", transaction_id);
       } else {
         spdlog::warn("Not enough rights to kill the transaction");
@@ -136,4 +138,17 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
   }
   return results;
 }
+
+void InterpreterContext::Shutdown() {
+  is_shutting_down.store(true, std::memory_order_release);
+
+  // Interrupt all running interpreters to wake PARKED tasks
+  // This prevents the P4 shutdown hang where PARKED tasks never get woken
+  interpreters.WithLock([](auto &interpreters) {
+    for (auto *interpreter : interpreters) {
+      interpreter->Interrupt();
+    }
+  });
+}
+
 }  // namespace memgraph::query
