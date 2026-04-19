@@ -164,6 +164,18 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         std::make_shared<std::vector<AscAllIndicesEntry> const>()};
     std::shared_ptr<std::vector<DescAllIndicesEntry> const> desc{
         std::make_shared<std::vector<DescAllIndicesEntry> const>()};
+
+    template <typename Fn>
+    void ForEach(Fn &&fn) {
+      fn(asc);
+      fn(desc);
+    }
+
+    template <typename Fn>
+    void ForEach(Fn &&fn) const {
+      fn(asc);
+      fn(desc);
+    }
   };
 
   using PropertiesIndicesStats = std::map<PropertiesPaths, storage::LabelPropertyIndexStats, Compare>;
@@ -216,7 +228,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       typename utils::SkipList<EntryT>::Iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
-      bool skip_lower_bound_check_{false};
     };
 
     Iterator begin();
@@ -274,7 +285,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       typename utils::SkipList<EntryT>::ChunkedIterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_{nullptr};
-      bool skip_lower_bound_check_{false};
     };
 
     class Chunk {
@@ -328,9 +338,13 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> override;
 
-    auto ListIndices(uint64_t start_timestamp) const -> std::vector<LabelPropertyIndexEntry> override;
+    auto ListIndices(uint64_t start_timestamp) const -> std::vector<LabelPropertyIndexEntry> override {
+      return ListIndicesImpl(start_timestamp, std::nullopt);
+    }
 
-    auto ListIndices(uint64_t start_timestamp, IndexOrder order) const -> std::vector<LabelPropertyIndexEntry>;
+    auto ListIndices(uint64_t start_timestamp, IndexOrder order) const -> std::vector<LabelPropertyIndexEntry> {
+      return ListIndicesImpl(start_timestamp, order);
+    }
 
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
@@ -364,6 +378,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         Transaction *transaction, size_t num_chunks);
 
    private:
+    auto ListIndicesImpl(uint64_t start_timestamp, std::optional<IndexOrder> order) const
+        -> std::vector<LabelPropertyIndexEntry>;
+
     // Finds the index for (label, properties) and applies fn to it.
     // Tries ASC first then DESC — count is the same regardless of order.
     template <typename Fn>
@@ -416,6 +433,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void DropGraphClearIndices() override;
 
  private:
+  // Shared implementation of DropIndex / DropSingleOrder. `order == std::nullopt` drops both.
+  DropResult DropFromSelected(LabelId label, std::vector<PropertyPath> const &properties,
+                              ActiveIndicesUpdater const &updater, std::optional<IndexOrder> order);
   void DropSingleOrder(LabelId label, std::vector<PropertyPath> const &properties, ActiveIndicesUpdater const &updater,
                        IndexOrder order);
   void CleanupAllIndices();
