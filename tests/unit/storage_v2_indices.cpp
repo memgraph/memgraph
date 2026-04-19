@@ -2528,6 +2528,67 @@ TYPED_TEST(IndexTest, LabelPropertyDescIndexTransactionalIsolation) {
               UnorderedElementsAre(0, 1, 2, 3, 4));
 }
 
+// Aborting a transaction that inserted into a (label, prop) covered by BOTH an ASC and a
+// DESC index must roll back from BOTH skiplists. Exercises AbortEntries' pairing of one
+// copy-insert and one move-insert — if either half were broken, the aborted vertices would
+// stay visible through the untouched index order.
+TYPED_TEST(IndexTest, LabelPropertyAbortClearsBothAscAndDescIndices) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support DESC indices";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}, IndexOrder::ASC).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}, IndexOrder::DESC).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Seed with some committed vertices so we can confirm they survive the abort.
+  std::vector<int64_t> committed_ids;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < 3; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      committed_ids.push_back(vertex.GetProperty(this->prop_id, View::NEW)->ValueInt());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Write + abort: these vertices must disappear from BOTH index orders.
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (int i = 10; i < 15; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+    }
+    acc->Abort();
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()},
+                                         View::NEW,
+                                         IndexOrder::ASC),
+                           View::NEW),
+              ::testing::UnorderedElementsAreArray(committed_ids));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()},
+                                         View::NEW,
+                                         IndexOrder::DESC),
+                           View::NEW),
+              ::testing::UnorderedElementsAreArray(committed_ids));
+}
+
 // Parallel scan (ChunkedVertices) with DESC index produces all expected results.
 TYPED_TEST(IndexTest, LabelPropertyDescIndexParallelScan) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
