@@ -6522,7 +6522,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           auto props = properties | rv::transform(prop_path_to_name) | ranges::to_vector;
           auto type_mark = order == storage::IndexOrder::DESC ? std::string{label_property_index_mark} + " (DESC)"
                                                               : std::string{label_property_index_mark};
-          results.push_back({TypedValue(std::move(type_mark)),
+          results.push_back({TypedValue(type_mark),
                              TypedValue(storage->LabelToName(label)),
                              TypedValue(std::move(props)),
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(label, properties)))});
@@ -7866,7 +7866,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         };
 
         auto props = property_paths | rv::transform(path_to_name) | r::to_vector;
-        auto type = order == storage::IndexOrder::DESC ? "label+properties (DESC)" : "label+properties";
+        const auto *type = order == storage::IndexOrder::DESC ? "label+properties (DESC)" : "label+properties";
         node_indexes.push_back(nlohmann::json::object({
             {"labels", {storage->LabelToName(label_id)}},
             {"properties", props},

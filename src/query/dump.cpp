@@ -366,7 +366,7 @@ void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage:
 
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ")";
   if (order == storage::IndexOrder::DESC) {
-    *os << " WITH CONFIG {\"order\": \"DESC\"}";
+    *os << R"( WITH CONFIG {"order": "DESC"})";
   }
   *os << ";";
 }

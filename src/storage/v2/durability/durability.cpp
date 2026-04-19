@@ -292,7 +292,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
         throw RecoveryFailure("The DESC label+property index must be created here!");
       spdlog::info("DESC index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(label.AsUint()),
-                   PropertyPathFormatter{properties, name_id_mapper});
+                   PropertyPathFormatter{.data = properties, .name_mapper = name_id_mapper});
     }
     spdlog::info("DESC label+property indices are recreated.");
   }

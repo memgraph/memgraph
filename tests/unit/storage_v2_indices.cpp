@@ -2179,7 +2179,7 @@ TYPED_TEST(IndexTest, LabelPropertyDescCompositeIndexRangeBounds) {
   std::vector<int64_t> expected_ids;
   for (auto const &vd : vertices_data) {
     if (vd.a >= 1 && vd.a <= 3 && vd.b >= 1 && vd.b <= 5) {
-      expected_ids.push_back(vd.id);
+      expected_ids.emplace_back(vd.id);
     }
   }
   EXPECT_THAT(result_ids, ::testing::UnorderedElementsAreArray(expected_ids));
@@ -2462,7 +2462,7 @@ TYPED_TEST(IndexTest, LabelPropertyDescCompositeThreeProperties) {
   // Should return vertices with a=2 and a=3
   std::vector<int64_t> expected_ids;
   for (auto const &vd : vertices_data) {
-    if (vd.a >= 2) expected_ids.push_back(vd.id);
+    if (vd.a >= 2) expected_ids.emplace_back(vd.id);
   }
   EXPECT_THAT(bounded_ids, ::testing::UnorderedElementsAreArray(expected_ids));
 }
@@ -2554,7 +2554,7 @@ TYPED_TEST(IndexTest, LabelPropertyAbortClearsBothAscAndDescIndices) {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 3; ++i) {
       auto vertex = this->CreateVertex(acc.get());
-      committed_ids.push_back(vertex.GetProperty(this->prop_id, View::NEW)->ValueInt());
+      committed_ids.emplace_back(vertex.GetProperty(this->prop_id, View::NEW)->ValueInt());
       ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
     }

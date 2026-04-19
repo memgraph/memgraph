@@ -266,7 +266,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
 
     auto bounds_checker = [&]() {
       auto at_boundary_counter = 0;
-      for (auto level = 0u; level < lower_bound.size(); ++level) {
+      for (auto level = 0U; level < lower_bound.size(); ++level) {
         switch (value_within_bounds(lower_bound[level], upper_bound[level], index_iterator->values.values_[level])) {
           case InBoundResult::UNDER: {
             // At level 0, out_of_range_below is direction-dependent: ASC→Skip, DESC→NoMoreValidEntries.
@@ -458,7 +458,7 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
   return index_.WithLock([&](std::shared_ptr<const IndexContainer> &index) {
     auto new_index = std::make_shared<IndexContainer>(*index);
 
-    bool registered = all_indices_.WithLock([&](AllIndicesData &data) {
+    const bool registered = all_indices_.WithLock([&](AllIndicesData &data) {
       if (order == IndexOrder::ASC)
         return RegisterIntoIndicesMap(
             new_index->asc_indices_, data.asc, new_index->asc_reverse_lookup_, label, properties);
@@ -657,7 +657,7 @@ bool DropFromOrder(IndicesMap &indices_map, ReverseLookup &reverse_lookup, Label
   auto it1 = indices_map.find(label);
   if (it1 == indices_map.end()) return false;
   auto &properties_map = it1->second;
-  bool ok = DropFromIndicesMap(properties_map, reverse_lookup, properties, label);
+  const bool ok = DropFromIndicesMap(properties_map, reverse_lookup, properties, label);
   if (ok && properties_map.empty()) {
     indices_map.erase(it1);
   }
@@ -668,7 +668,7 @@ bool DropFromOrder(IndicesMap &indices_map, ReverseLookup &reverse_lookup, Label
 void InMemoryLabelPropertyIndex::CleanupStatsForDrop(IndexContainer const &new_index, LabelId label,
                                                      std::vector<PropertyPath> const &properties) {
   auto const make_props_subspan = [&](std::size_t length) {
-    return std::span{properties.cbegin(), properties.cbegin() + length + 1};
+    return std::span{properties.cbegin(), properties.cbegin() + static_cast<std::ptrdiff_t>(length + 1)};
   };
   auto const count_prefix_usage = [&](auto &label_indices, std::size_t prefix_len) -> std::size_t {
     auto const prefix = make_props_subspan(prefix_len);
@@ -720,7 +720,7 @@ LabelPropertyIndex::DropResult InMemoryLabelPropertyIndex::DropFromSelected(Labe
     CleanupStatsForDrop(*new_index, label, properties);
     index = std::move(new_index);
     updater(std::make_shared<ActiveIndices>(index));
-    return {dropped_asc, dropped_desc};
+    return {.dropped_asc = dropped_asc, .dropped_desc = dropped_desc};
   });
   CleanupAllIndices();
   return result;
@@ -880,9 +880,9 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
         auto next_it = it;
         ++next_it;
 
-        bool has_next = next_it != end_it;
+        const bool has_next = next_it != end_it;
         if (it->timestamp < oldest_active_start_timestamp) {
-          bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
+          const bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
           if (redundant_duplicate || !AnyVersionHasLabelProperties(*it->vertex,
                                                                    label_id,
                                                                    property_paths,
@@ -993,7 +993,7 @@ uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     auto acc = index.skiplist.access();
     if (!ranges::all_of(values, [](auto &&prop) { return prop.IsNull(); })) {
       // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-      std::vector v(values.begin(), values.end());
+      const std::vector v(values.begin(), values.end());
       return acc.estimate_count(v, utils::SkipListLayerForCountEstimation(acc.size()));
     }
     // An entry with all values being `Null` won't ever appear in the index,
@@ -1125,11 +1125,11 @@ auto FindIndexOrDie(IndicesMap const &indices_map, LabelId label, std::span<Prop
 
 template <typename EntryT>
 auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(LabelId label, std::span<PropertyPath const> properties,
-                                                         std::span<PropertyValueRange const> values, View view,
+                                                         std::span<PropertyValueRange const> range, View view,
                                                          Storage *storage, Transaction *transaction)
     -> Iterable<EntryT> {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
-  return Vertices<EntryT>(label, properties, values, std::move(vertices_acc), view, storage, transaction);
+  return Vertices<EntryT>(label, properties, range, std::move(vertices_acc), view, storage, transaction);
 }
 
 template <typename EntryT>
@@ -1220,7 +1220,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const
         auto it2 = it->second.find(*prop);
         if (it2 == it->second.end()) continue;
         auto acc = it2->second->skiplist.access();
-        for (auto &[values, vertex] : to_remove) {
+        for (auto &[values, vertex] : to_remove) {  // NOLINT(readability-qualified-auto)
           if constexpr (Move) {
             acc.remove(EntryT{std::move(values), vertex, start_timestamp});
           } else {
