@@ -58,6 +58,8 @@ sinks:
     type: loki
     inputs: [enrich]
     endpoint: "${VLOGS_INSERT_ENDPOINT}"
+    healthcheck:
+      enabled: false
 ${VLOGS_AUTH_BLOCK}
     encoding:
       codec: text
