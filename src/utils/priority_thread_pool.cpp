@@ -292,12 +292,21 @@ void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Prio
         // Clear the yield signal before rescheduling to prevent infinite rescheduling loops (P10 fix)
         sig->store(false, std::memory_order_release);
       }
-      // During shutdown: don't yield, run continuation inline to prevent task loss (P4 fix).
-      // When executing on a non-worker thread (no worker_id), ScheduledAddTask would drop
-      // the task during shutdown. Re-executing inline ensures completion.
+      // EC-3 fix: During shutdown, drain inline iteratively to prevent task loss (P4) while
+      // avoiding unbounded stack growth from recursive Run() calls (EC-3). Tasks yield until
+      // the abort signal propagates; the loop is bounded in practice by that signal.
       if (pool->IsShuttingDown()) {
-        spdlog::warn("ResumableWrapper::Run: pool shutting down, re-executing inline");
-        Run();  // Inline recursive execution - tasks should complete quickly during shutdown
+        spdlog::warn("ResumableWrapper::Run: pool shutting down, draining inline (iterative)");
+        while (true) {
+          const auto wid = WorkerYieldRegistry::GetCurrentWorkerId();
+          CurrentResumableTaskScope scope{pool, wid, [w = *this]() mutable { w.Run(); }};
+          const bool inner_yielded = (*task)();
+          if (scope.WasParked() || !inner_yielded) break;
+          auto *inner_sig = WorkerYieldRegistry::GetCurrentYieldSignal();
+          if (inner_sig && inner_sig->load(std::memory_order_acquire)) {
+            inner_sig->store(false, std::memory_order_release);
+          }
+        }
         return;
       }
       // P10: Yield signal has been cleared above
