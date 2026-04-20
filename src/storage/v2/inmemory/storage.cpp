@@ -479,7 +479,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
 #if USE_JEMALLOC
       if (config_.arena_idx != 0) {
         je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
-        memory::tls_db_arena_idx = config_.arena_idx;
+        memory::tls_db_arena_state.arena = config_.arena_idx;
       }
 #endif
       this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
@@ -4248,7 +4248,7 @@ void InMemoryStorage::CreateSnapshotHandler(
 #if USE_JEMALLOC
     if (config_.arena_idx != 0) {
       je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
-      memory::tls_db_arena_idx = config_.arena_idx;
+      memory::tls_db_arena_state.arena = config_.arena_idx;
     }
 #endif
     if (!token.stop_requested()) {

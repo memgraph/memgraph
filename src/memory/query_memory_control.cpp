@@ -151,8 +151,10 @@ void CrossThreadMemoryTracking::StartTracking() {
   if (query_tracker) memgraph::memory::StartTrackingCurrentThread(query_tracker);
   if (user_tracker) memgraph::memory::StartTrackingUserResource(user_tracker);
   if (db_arena_idx != 0) {
-    prev_arena_ = memory::tls_db_arena_idx;
-    memory::tls_db_arena_idx = db_arena_idx;
+    prev_arena_ = memory::tls_db_arena_state.arena;
+    memory::tls_db_arena_state.arena = db_arena_idx;
+    // Note: tcache is not preserved across cross-thread tracking
+    // as the tcache is per-(thread,DB) and this is a different thread
   }
 }
 
@@ -160,7 +162,7 @@ void CrossThreadMemoryTracking::StopTracking() {
   if (query_tracker) memgraph::memory::StopTrackingCurrentThread();
   if (user_tracker) memgraph::memory::StopTrackingUserResource();
   if (prev_arena_) {
-    memory::tls_db_arena_idx = *prev_arena_;
+    memory::tls_db_arena_state.arena = *prev_arena_;
     prev_arena_.reset();
   }
 }

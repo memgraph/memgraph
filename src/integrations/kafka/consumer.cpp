@@ -417,7 +417,7 @@ void Consumer::StartConsuming() {
 #if USE_JEMALLOC
     if (info_.arena_idx != 0) {
       je_mallctl("thread.arena", nullptr, nullptr, &info_.arena_idx, sizeof(unsigned));
-      memory::tls_db_arena_idx = info_.arena_idx;
+      memory::tls_db_arena_state.arena = info_.arena_idx;
     }
 #endif
 

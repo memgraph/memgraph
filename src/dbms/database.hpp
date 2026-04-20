@@ -198,7 +198,7 @@ class Database {
 
   /**
    * @brief jemalloc arena index owned by this database (0 if not using jemalloc).
-   *        Allocations on threads with tls_db_arena_idx == ArenaIdx() are attributed
+   *        Allocations on threads with tls_db_arena_state.arena == ArenaIdx() are attributed
    *        to this database's memory tracker.
    */
   unsigned ArenaIdx() const noexcept {
@@ -208,6 +208,11 @@ class Database {
     return 0;
 #endif
   }
+
+#if USE_JEMALLOC
+  /// Returns the DbArena for per-thread arena management
+  memory::DbArena &Arena() noexcept { return db_arena_; }
+#endif
 
   /// Total memory tracked for this database (storage + embeddings + query).
   /// This is the sum of all per-DB trackers and represents the tenant enforcement total.

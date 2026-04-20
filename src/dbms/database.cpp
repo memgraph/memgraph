@@ -99,7 +99,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
         spdlog::error("Failed to pin after_commit_trigger_pool thread to arena {}: je_mallctl returned {}", idx, ret);
         return;
       }
-      memory::tls_db_arena_idx = idx;
+      memory::tls_db_arena_state.arena = idx;
     });
   }
 #endif
@@ -146,3 +146,18 @@ void Database::SwitchToOnDisk() {
 }
 
 }  // namespace memgraph::dbms
+
+// DbArenaScope constructor implementation (Database* variant) - defined here
+// to avoid circular include between db_arena.cpp and database.hpp
+#if USE_JEMALLOC
+namespace memgraph::memory {
+
+DbArenaScope::DbArenaScope(memgraph::dbms::Database *db) : prev_(tls_db_arena_state) {
+  if (db != nullptr) {
+    tls_db_arena_state.arena = db->Arena().AcquireThreadArena();
+    tls_db_arena_state.tcache = db->Arena().GetOrCreateTcache(tls_db_arena_state.arena);
+  }
+}
+
+}  // namespace memgraph::memory
+#endif  // USE_JEMALLOC

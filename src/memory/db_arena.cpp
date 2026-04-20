@@ -121,9 +121,10 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
 }
 
 DbArena::DbArena(utils::MemoryTracker *tracker) {
-  // Acquire an arena index — reuse a recycled one if available, otherwise create fresh.
-  arena_handle_ = ArenaHandle{ArenaPool::Instance().Acquire()};
-  const unsigned arena_idx = arena_handle_.idx();
+  // Create the first arena for backwards compatibility
+  arena_handles_.emplace_back(ArenaPool::Instance().Acquire());
+  first_arena_idx_ = arena_handles_.back().idx();
+  const unsigned arena_idx = first_arena_idx_;
 
   const std::string arena_key = "arena." + std::to_string(arena_idx);
 
@@ -150,38 +151,161 @@ DbArena::DbArena(utils::MemoryTracker *tracker) {
 }
 
 DbArena::~DbArena() {
-  if (!arena_handle_) return;
-  const unsigned arena_idx = arena_handle_.idx();
+  // Purge all per-thread arenas and restore their hooks
+  for (auto &handle : arena_handles_) {
+    if (!handle) continue;
+    const unsigned arena_idx = handle.idx();
+    const std::string arena_key = "arena." + std::to_string(arena_idx);
+
+    // Purge all dirty/muzzy pages back to the OS FIRST, while our custom hooks are
+    // still installed.
+    if (int perr = je_mallctl((arena_key + ".purge").c_str(), nullptr, nullptr, nullptr, 0); perr != 0) {
+      spdlog::error("DbArena {}: purge failed (err={}); MemoryTracker may drift before hook restore", arena_idx, perr);
+    }
+
+    // Restore the default hooks AFTER purging
+    const extent_hooks_t *base = hooks_.base_hooks;
+    int err = je_mallctl((arena_key + ".extent_hooks").c_str(),
+                         nullptr,
+                         nullptr,
+                         static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
+                         sizeof(extent_hooks_t *));
+    if (err != 0) {
+      spdlog::error("DbArena {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx, err);
+    }
+  }
+  // arena_handles_ destructor will release indices to pool
+}
+
+unsigned DbArena::idx() const noexcept { return first_arena_idx_; }
+
+unsigned DbArena::AcquireThreadArena() {
+  const auto tid = std::this_thread::get_id();
+
+  // Fast path: check if already in map
+  {
+    std::lock_guard<std::mutex> lock(arena_map_mux_);
+    auto it = thread_arena_map_.find(tid);
+    if (it != thread_arena_map_.end()) {
+      return it->second;
+    }
+  }
+
+  // Cold path: create new arena for this thread
+  arena_handles_.emplace_back(ArenaPool::Instance().Acquire());
+  unsigned arena_idx = arena_handles_.back().idx();
+
+  // Install hooks on the new arena
   const std::string arena_key = "arena." + std::to_string(arena_idx);
+  const std::string hooks_key = arena_key + ".extent_hooks";
 
-  // Purge all dirty/muzzy pages back to the OS FIRST, while our custom hooks are
-  // still installed. This ensures dalloc/decommit callbacks fire through our tracker
-  // so the DB and global MemoryTrackers are correctly decremented before we unlink them.
-  // Important: there is no "tracker handoff" after this point. DB-owned allocations are
-  // expected to be destroyed before ~DbArena runs, and the DB MemoryTrackers outlive this
-  // purge so any final hook callbacks still propagate into the DB/global hierarchy here.
-  // Note: we intentionally skip arena.N.destroy — jemalloc's arena destruction is
-  // experimental and arena indices are explicitly recycled via ArenaPool instead.
-  if (int perr = je_mallctl((arena_key + ".purge").c_str(), nullptr, nullptr, nullptr, 0); perr != 0) {
-    spdlog::error("DbArena {}: purge failed (err={}); MemoryTracker may drift before hook restore", arena_idx, perr);
+  extent_hooks_t *base_hooks = nullptr;
+  size_t hooks_sz = sizeof(extent_hooks_t *);
+  int err = je_mallctl(hooks_key.c_str(), static_cast<void *>(&base_hooks), &hooks_sz, nullptr, 0);
+  if (err != 0 || base_hooks == nullptr) {
+    spdlog::error("Failed to read default hooks for per-thread arena {} (err={})", arena_idx, err);
+    // Return the first arena as fallback
+    return first_arena_idx_;
   }
 
-  // Restore the default hooks AFTER purging so jemalloc's background thread cannot
-  // call our hooks after `hooks_` is destroyed (use-after-free / null-tracker SIGSEGV).
-  // mallctl atomically swaps the hooks pointer; once it returns no new invocations
-  // of db_arena_alloc/dalloc/... will be dispatched for this arena.
-  const extent_hooks_t *base = hooks_.base_hooks;
-  int err = je_mallctl((arena_key + ".extent_hooks").c_str(),
-                       nullptr,
-                       nullptr,
-                       static_cast<void *>(const_cast<extent_hooks_t **>(&base)),
-                       sizeof(extent_hooks_t *));
+  // Install hooks (reuse the same hooks_ struct - all arenas report to same tracker)
+  const extent_hooks_t *new_hooks = &hooks_.hooks;
+  err = je_mallctl(hooks_key.c_str(),
+                   nullptr,
+                   nullptr,
+                   static_cast<void *>(const_cast<extent_hooks_t **>(&new_hooks)),
+                   sizeof(extent_hooks_t *));
   if (err != 0) {
-    spdlog::error("DbArena {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx, err);
+    spdlog::error("Failed to install custom hooks on per-thread arena {} (err={})", arena_idx, err);
+    return first_arena_idx_;
   }
 
-  // arena_handle_ destructor returns the index to the pool once this function returns.
-  // Hooks are already restored above so the arena is safe to reuse.
+  // Insert into map
+  {
+    std::lock_guard<std::mutex> lock(arena_map_mux_);
+    thread_arena_map_[tid] = arena_idx;
+  }
+
+  return arena_idx;
+}
+
+unsigned DbArena::GetOrCreateTcache(unsigned arena_idx) {
+  if (arena_idx == 0) return UINT_MAX;
+
+  unsigned tcache_idx = UINT_MAX;
+  size_t sz = sizeof(tcache_idx);
+
+  // Create a tcache for this thread
+  // tcache.create returns the new tcache index
+  int err = je_mallctl("tcache.create", &tcache_idx, &sz, nullptr, 0);
+  if (err != 0) {
+    spdlog::warn("Failed to create tcache for arena {} (err={})", arena_idx, err);
+    return UINT_MAX;
+  }
+
+  return tcache_idx;
+}
+
+void DbArena::DestroyThreadTcache(unsigned tcache_idx) noexcept {
+  if (tcache_idx == UINT_MAX) return;
+
+  // tcache.flush ensures all cached allocations are returned to their arenas
+  je_mallctl("tcache.flush", nullptr, nullptr, &tcache_idx, sizeof(unsigned));
+
+  // tcache.destroy frees the tcache metadata
+  je_mallctl("tcache.destroy", nullptr, nullptr, &tcache_idx, sizeof(unsigned));
+}
+
+// DbArenaScope implementation (legacy constructor only - Database* constructor in database.cpp)
+DbArenaScope::DbArenaScope(unsigned arena_idx) noexcept : prev_(tls_db_arena_state) {
+  tls_db_arena_state.arena = arena_idx;
+  // Don't set tcache - legacy mode uses TCACHE_NONE
+}
+
+DbArenaScope::~DbArenaScope() noexcept {
+  // Restore previous state
+  tls_db_arena_state = prev_;
+}
+
+// Helper functions for setting up per-thread arena resources
+unsigned SetupThreadArena(unsigned arena_idx) {
+  if (arena_idx == 0) {
+    tls_db_arena_state.arena = 0;
+    tls_db_arena_state.tcache = UINT_MAX;
+    return UINT_MAX;
+  }
+
+  tls_db_arena_state.arena = arena_idx;
+
+  // Create a tcache for this thread
+  unsigned tcache_idx = UINT_MAX;
+  size_t sz = sizeof(tcache_idx);
+  int err = je_mallctl("tcache.create", &tcache_idx, &sz, nullptr, 0);
+  if (err != 0) {
+    spdlog::warn("Failed to create tcache for arena {} (err={})", arena_idx, err);
+    tls_db_arena_state.tcache = UINT_MAX;
+    return UINT_MAX;
+  }
+
+  tls_db_arena_state.tcache = tcache_idx;
+
+  // Also bind thread.arena for raw allocations
+  je_mallctl("thread.arena", nullptr, nullptr, &arena_idx, sizeof(unsigned));
+
+  return tcache_idx;
+}
+
+void CleanupThreadTcache(unsigned tcache_idx) noexcept {
+  if (tcache_idx == UINT_MAX) return;
+
+  // tcache.flush ensures all cached allocations are returned to their arenas
+  je_mallctl("tcache.flush", nullptr, nullptr, &tcache_idx, sizeof(unsigned));
+
+  // tcache.destroy frees the tcache metadata
+  je_mallctl("tcache.destroy", nullptr, nullptr, &tcache_idx, sizeof(unsigned));
+
+  // Reset TLS
+  tls_db_arena_state.tcache = UINT_MAX;
 }
 
 }  // namespace memgraph::memory

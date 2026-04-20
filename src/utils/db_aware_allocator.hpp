@@ -14,7 +14,7 @@
 // Thin header intentionally placed in utils/ to break the utils <-> memory
 // circular dependency.  db_arena.hpp (in memory/) includes this file and adds
 // the heavier DbArena / DbArenaScope / DbAwareThread machinery.  SkipList
-// (in utils/) only needs tls_db_arena_idx and DbAwareAllocator.
+// (in utils/) only needs tls_db_arena_state.arena and DbAwareAllocator.
 
 #include <cstddef>
 #include <memory>
@@ -29,22 +29,32 @@ void JeFree(void *ptr, std::size_t size, int flags) noexcept;
 
 namespace memgraph::memory {
 
-// Thread-local arena index for the currently active database.
-// 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
+// Thread-local state for the currently active database arena.
+// arena  = 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
+// tcache = UINT_MAX means "not yet initialized" — fall back to TCACHE_NONE.
+//
 // Set by DbArenaScope for shared query threads and directly at thread-start
 // for DB-owned background threads (GC, snapshot, TTL, async indexer, ...).
 //
 // DEVNOTE: initial-exec TLS model requires this to be in the main executable,
 //          not a shared library. Matches the pattern used by query_memory_control.
+struct DbArenaTlsState {
+  unsigned arena{0};          // Current thread's arena for active DB
+  unsigned tcache{UINT_MAX};  // Per-(thread, DB) tcache index; UINT_MAX = uninitialized
+};
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-inline thread_local unsigned tls_db_arena_idx [[gnu::tls_model("initial-exec")]] = 0;
+inline thread_local DbArenaTlsState tls_db_arena_state [[gnu::tls_model("initial-exec")]] = {};
 
 // Allocate `bytes` bytes with the given `alignment`, attributed to arena `idx`.
 // Returns void* — use DbAllocate<T> for typed element-count based allocation.
+// Uses per-thread tcache if available for speed (avoids arena lock on alloc).
 [[nodiscard]] inline void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
 #if USE_JEMALLOC
   if (idx != 0) {
-    int flags = MALLOCX_ARENA(idx) | MALLOCX_TCACHE_NONE;
+    int flags = MALLOCX_ARENA(idx);
+    const unsigned tc = tls_db_arena_state.tcache;
+    flags |= (tc != UINT_MAX) ? MALLOCX_TCACHE(tc) : MALLOCX_TCACHE_NONE;
     if (alignment > alignof(std::max_align_t)) {
       flags |= MALLOCX_ALIGN(alignment);
     }
@@ -102,7 +112,7 @@ template <typename T>
 }
 
 // Stateless C++ allocator that routes allocations to the DB arena currently
-// pinned on this thread (tls_db_arena_idx).  When no arena is pinned (idx==0)
+// pinned on this thread (tls_db_arena_state.arena).  When no arena is pinned (idx==0)
 // it falls back to the process-default allocator.
 //
 // Zero data members → qualifies for EBO in containers (e.g. small_vector,
@@ -126,7 +136,7 @@ struct DbAwareAllocator {
   explicit DbAwareAllocator(DbAwareAllocator<U> const & /*unused*/) noexcept {}
 
   [[nodiscard]] T *allocate(std::size_t n) {
-    const unsigned idx = tls_db_arena_idx;
+    const unsigned idx = tls_db_arena_state.arena;
     return DbAllocate<T>(n, idx);
   }
 

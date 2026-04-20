@@ -16,6 +16,7 @@
 #include <new>
 #include <stdexcept>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -26,6 +27,11 @@
 #include "utils/db_aware_allocator.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+
+// Forward declare (in dbms namespace)
+namespace memgraph::dbms {
+class Database;
+}
 
 namespace memgraph::memory {
 
@@ -142,9 +148,10 @@ class ArenaHandle {
   unsigned idx_{0};
 };
 
-// Owns a dynamically-created jemalloc arena with custom extent hooks that
+// Owns per-thread jemalloc arenas with custom extent hooks that
 // report committed OS pages to a `utils::MemoryTracker` owned by the caller.
-// The arena index is stable for the lifetime of this object.
+// Each thread working on this database gets its own arena to eliminate
+// arena-bin-lock contention.
 class DbArena {
  public:
   explicit DbArena(utils::MemoryTracker *tracker);
@@ -155,11 +162,33 @@ class DbArena {
   DbArena(DbArena &&) = delete;
   DbArena &operator=(DbArena &&) = delete;
 
-  unsigned idx() const noexcept { return arena_handle_.idx(); }
+  // Legacy: returns the first arena (for backwards compatibility)
+  // Prefer AcquireThreadArena() for per-thread access
+  unsigned idx() const noexcept;
+
+  // Acquire (or create) the arena assigned to this thread for this DB.
+  // Checks thread_arena_map_[this_thread::get_id()] under mutex.
+  // Cold path (first call per thread): creates arena, installs hooks, inserts into map.
+  unsigned AcquireThreadArena();
+
+  // Get or create per-(thread, DB) tcache. Returns UINT_MAX if tcache creation fails.
+  unsigned GetOrCreateTcache(unsigned arena_idx);
+
+  // Destroy tcache for the calling thread (call on thread exit before TLS teardown).
+  void DestroyThreadTcache(unsigned tcache_idx) noexcept;
 
  private:
   DbArenaHooks hooks_{};
-  ArenaHandle arena_handle_{};
+
+  // Protects thread_arena_map_ on writes; read is lock-free via TLS on hot path
+  std::mutex arena_map_mux_;
+  // Maps thread_id -> arena_index for this database
+  std::unordered_map<std::thread::id, unsigned> thread_arena_map_;
+  // Per-thread arena handles (for cleanup in destructor)
+  std::vector<ArenaHandle> arena_handles_;
+
+  // Cache of the first arena for backwards compatibility
+  unsigned first_arena_idx_{0};
 };
 
 #endif  // USE_JEMALLOC
@@ -194,16 +223,21 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
   unsigned arena_idx_;
 };
 
-// RAII guard: installs a DB arena index for the duration of its scope and
-// restores the previous value on destruction. Supports nested scopes.
+// RAII guard: installs a DB arena and tcache for the duration of its scope and
+// restores the previous values on destruction. Supports nested scopes.
 //
 // Usage (query threads):
-//   DbArenaScope scope{db.ArenaIdx()};
+//   DbArenaScope scope{&db};          // Acquire per-thread arena from Database
+//   DbArenaScope scope{arena_idx};    // Legacy: direct arena index (uses TCACHE_NONE)
 //   ... execute pull ...
 struct DbArenaScope {
-  explicit DbArenaScope(unsigned arena_idx) noexcept : prev_(tls_db_arena_idx) { tls_db_arena_idx = arena_idx; }
+  // Acquire per-thread arena and tcache from the database.
+  explicit DbArenaScope(memgraph::dbms::Database *db);
 
-  ~DbArenaScope() noexcept { tls_db_arena_idx = prev_; }
+  // Legacy constructor: direct arena index (no tcache)
+  explicit DbArenaScope(unsigned arena_idx) noexcept;
+
+  ~DbArenaScope() noexcept;
 
   DbArenaScope(const DbArenaScope &) = delete;
   DbArenaScope &operator=(const DbArenaScope &) = delete;
@@ -211,28 +245,40 @@ struct DbArenaScope {
   DbArenaScope &operator=(DbArenaScope &&) = delete;
 
  private:
-  unsigned prev_;
+  DbArenaTlsState prev_;
+  // Note: db_ member removed - not needed as we store state in prev_
 };
 
-// A std::jthread wrapper that sets tls_db_arena_idx on the new thread so that
+// Helper functions for setting up per-thread arena resources.
+// These can be called at the start/end of thread execution.
+#if USE_JEMALLOC
+// Sets up per-thread arena and tcache for the given arena index.
+// Returns the tcache index (UINT_MAX on failure).
+unsigned SetupThreadArena(unsigned arena_idx);
+
+// Cleans up per-thread tcache.
+void CleanupThreadTcache(unsigned tcache_idx) noexcept;
+#endif
+
+// A std::jthread wrapper that sets tls_db_arena_state on the new thread so that
 // allocations through DbAwareAllocator / ArenaAwareAllocator containers are
 // attributed to the owning DB arena.  Does NOT redirect thread.arena via
 // je_mallctl — raw allocations (std::string, operator new, …) on these threads
 // go to the default jemalloc arena and are not attributed.
 //
 // Two construction forms:
-//   DbAwareThread t{callable, args...};            // inherits tls_db_arena_idx from caller
+//   DbAwareThread t{callable, args...};            // inherits tls_db_arena_state from caller
 //   DbAwareThread t{arena_idx, callable, args...}; // explicit arena index
 //
 // Non-jemalloc builds: no-op wrapper, identical behaviour to std::jthread.
 class DbAwareThread {
  public:
-  // Inherit the calling thread's arena index.
+  // Inherit the calling thread's arena state.
   template <typename F, typename... Args>
     requires(std::is_invocable_v<std::decay_t<F>, std::decay_t<Args>...> ||
              std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>)
   explicit DbAwareThread(F &&f, Args &&...args)
-      : DbAwareThread(tls_db_arena_idx, std::forward<F>(f), std::forward<Args>(args)...) {}
+      : DbAwareThread(tls_db_arena_state.arena, std::forward<F>(f), std::forward<Args>(args)...) {}
 
   // Explicit arena index.
   template <typename F, typename... Args>
@@ -241,7 +287,7 @@ class DbAwareThread {
   DbAwareThread(unsigned arena_idx, F &&f, Args &&...args)
       : thread_(
             [arena_idx, func = std::forward<F>(f)](std::stop_token st, std::decay_t<Args>... a) mutable {
-              tls_db_arena_idx = arena_idx;
+              tls_db_arena_state.arena = arena_idx;
               if constexpr (std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>) {
                 func(std::move(st), std::move(a)...);
               } else {

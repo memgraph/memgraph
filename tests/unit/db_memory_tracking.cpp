@@ -399,14 +399,14 @@ TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
     acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
   };
 
-  // Full pin: je_mallctl("thread.arena") + tls_db_arena_idx
+  // Full pin: je_mallctl("thread.arena") + tls_db_arena_state.arena
   // (mirrors stream consumer, replication applier, after-commit trigger pool)
   {
     const int64_t before = db->DbMemoryUsage();
     std::atomic<int64_t> after{0};
     std::thread t([&] {
       je_mallctl("thread.arena", nullptr, nullptr, const_cast<unsigned *>(&arena_idx), sizeof(unsigned));
-      memgraph::memory::tls_db_arena_idx = arena_idx;
+      memgraph::memory::tls_db_arena_state.arena = arena_idx;
       create_vertices("FullPinNode");
       after.store(db->DbMemoryUsage());
     });
@@ -689,6 +689,138 @@ TEST_F(DbMemoryTrackingTest, PlanCacheInsertionsAreAttributedToOwningDatabase) {
   EXPECT_GT(after, before + static_cast<int64_t>(4096))
       << "DB storage tracker should include plan-cache node allocations done during prepare. before=" << before
       << " after=" << after;
+}
+
+// ---------------------------------------------------------------------------
+// Per-thread arena tests
+// ---------------------------------------------------------------------------
+
+// Test that AcquireThreadArena returns the same arena for the same thread
+TEST_F(DbMemoryTrackingTest, PerThreadArena_SameThreadSameArena) {
+  auto dir = data_dir_ / "db_per_thread";
+  std::filesystem::create_directories(dir);
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
+  auto acc = db_gk.access();
+  ASSERT_TRUE(acc);
+  auto *db = acc->get();
+
+  // First call should create an arena for this thread
+  unsigned arena1 = db->Arena().AcquireThreadArena();
+  EXPECT_NE(arena1, 0u) << "AcquireThreadArena should return a valid arena";
+
+  // Second call from the same thread should return the same arena
+  unsigned arena2 = db->Arena().AcquireThreadArena();
+  EXPECT_EQ(arena1, arena2) << "Same thread should get the same arena";
+}
+
+// Test that different threads get different arenas
+TEST_F(DbMemoryTrackingTest, PerThreadArena_DifferentThreadsDifferentArenas) {
+  auto dir = data_dir_ / "db_per_thread_multi";
+  std::filesystem::create_directories(dir);
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
+  auto acc = db_gk.access();
+  ASSERT_TRUE(acc);
+  auto *db = acc->get();
+
+  constexpr int kNumThreads = 4;
+  std::vector<unsigned> arenas(kNumThreads);
+  std::vector<std::thread> threads;
+
+  for (int i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([&, i]() {
+      arenas[i] = db->Arena().AcquireThreadArena();
+      // Also test tcache creation
+      unsigned tcache = db->Arena().GetOrCreateTcache(arenas[i]);
+      EXPECT_NE(tcache, UINT_MAX) << "Should be able to create tcache";
+      db->Arena().DestroyThreadTcache(tcache);
+    });
+  }
+
+  for (auto &t : threads) {
+    t.join();
+  }
+
+  // All arenas should be valid and non-zero
+  for (int i = 0; i < kNumThreads; ++i) {
+    EXPECT_NE(arenas[i], 0u) << "Thread " << i << " should have a valid arena";
+  }
+
+  // All arenas should be unique (per-thread)
+  for (int i = 0; i < kNumThreads; ++i) {
+    for (int j = i + 1; j < kNumThreads; ++j) {
+      EXPECT_NE(arenas[i], arenas[j]) << "Threads " << i << " and " << j << " should have different arenas";
+    }
+  }
+}
+
+// Test that DbArenaScope correctly sets and restores TLS
+TEST_F(DbMemoryTrackingTest, DbArenaScope_SetsAndRestoresTls) {
+  auto dir = data_dir_ / "db_scope";
+  std::filesystem::create_directories(dir);
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
+  auto acc = db_gk.access();
+  ASSERT_TRUE(acc);
+  auto *db = acc->get();
+
+  // Get the initial state
+  unsigned initial_arena = memgraph::memory::tls_db_arena_state.arena;
+
+  {
+    // Create scope - should acquire per-thread arena
+    memgraph::memory::DbArenaScope scope(db);
+    unsigned scoped_arena = memgraph::memory::tls_db_arena_state.arena;
+    EXPECT_NE(scoped_arena, 0u) << "Within scope, arena should be set";
+    EXPECT_NE(scoped_arena, initial_arena) << "Within scope, arena should be different from initial";
+  }
+
+  // After scope exits, should be restored
+  unsigned final_arena = memgraph::memory::tls_db_arena_state.arena;
+  EXPECT_EQ(final_arena, initial_arena) << "After scope exits, arena should be restored";
+}
+
+// Test that TLS state structure works correctly
+TEST_F(DbMemoryTrackingTest, TlsStateStructure) {
+  using memgraph::memory::tls_db_arena_state;
+  using memgraph::memory::DbArenaTlsState;
+
+  // Check initial state
+  EXPECT_EQ(tls_db_arena_state.arena, 0u) << "Initial arena should be 0";
+  EXPECT_EQ(tls_db_arena_state.tcache, UINT_MAX) << "Initial tcache should be UINT_MAX";
+
+  // Modify state
+  tls_db_arena_state.arena = 42;
+  tls_db_arena_state.tcache = 5;
+
+  EXPECT_EQ(tls_db_arena_state.arena, 42u);
+  EXPECT_EQ(tls_db_arena_state.tcache, 5u);
+
+  // Reset
+  tls_db_arena_state = DbArenaTlsState{};
+  EXPECT_EQ(tls_db_arena_state.arena, 0u);
+  EXPECT_EQ(tls_db_arena_state.tcache, UINT_MAX);
+}
+
+// Test SetupThreadArena helper function
+TEST_F(DbMemoryTrackingTest, SetupThreadArena_Helper) {
+  using memgraph::memory::SetupThreadArena;
+  using memgraph::memory::CleanupThreadTcache;
+  using memgraph::memory::tls_db_arena_state;
+
+  // Setup with arena 0 should reset
+  SetupThreadArena(0);
+  EXPECT_EQ(tls_db_arena_state.arena, 0u);
+  EXPECT_EQ(tls_db_arena_state.tcache, UINT_MAX);
+
+  // Setup with valid arena should work
+  unsigned tcache = SetupThreadArena(1);  // Arena 1 should always exist
+  if (tcache != UINT_MAX) {
+    EXPECT_EQ(tls_db_arena_state.arena, 1u);
+    EXPECT_NE(tls_db_arena_state.tcache, UINT_MAX);
+    CleanupThreadTcache(tcache);
+  }
 }
 
 #endif  // USE_JEMALLOC
