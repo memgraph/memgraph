@@ -67,8 +67,13 @@ def test_missing_config(monkeypatch):
     assert result["authenticated"] is False
     assert "Missing role mappings" in result["errors"]
 
-    monkeypatch.delenv("MEMGRAPH_SSO_KERBEROS_SERVICE_PRINCIPAL")
     monkeypatch.setenv("MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING", "*:analyst")
+    result = authenticate(response="dGVzdA==", scheme="kerberos")
+    assert result["authenticated"] is False
+    assert "keytab" in result["errors"].lower()
+
+    monkeypatch.setenv("MEMGRAPH_SSO_KERBEROS_KEYTAB", "/etc/memgraph/memgraph.keytab")
+    monkeypatch.delenv("MEMGRAPH_SSO_KERBEROS_SERVICE_PRINCIPAL")
     result = authenticate(response="dGVzdA==", scheme="kerberos")
     assert result == {"authenticated": False, "errors": "Missing service principal configuration"}
 

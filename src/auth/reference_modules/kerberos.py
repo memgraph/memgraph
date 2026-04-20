@@ -160,10 +160,9 @@ def authenticate(response: str, scheme: str):
         return {"authenticated": False, "errors": f"Configuration error: {' '.join(e.args)}"}
 
     keytab_path = config["keytab"]
-    if keytab_path:
-        os.environ["KRB5_KTNAME"] = keytab_path
-    else:
-        os.environ.pop("KRB5_KTNAME", None)
+    if not keytab_path:
+        return {"authenticated": False, "errors": "Missing keytab configuration (MEMGRAPH_SSO_KERBEROS_KEYTAB)"}
+    os.environ["KRB5_KTNAME"] = keytab_path
 
     service_principal = config["service_principal"]
     if not service_principal:
