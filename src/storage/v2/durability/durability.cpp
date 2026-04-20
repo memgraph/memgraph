@@ -402,9 +402,10 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());
     for (const auto &[label, property] : indices_metadata.point_label_property) {
       // TODO: parallel execution
-      if (!indices->point_index_.CreatePointIndex(label, property, vertices->access(), updater, snapshot_info)) {
+      if (!indices->point_index_.CreatePointIndex(label, property, vertices->access(), snapshot_info)) {
         throw RecoveryFailure("The point index must be created here!");
       }
+      indices->point_index_.PublishActiveIndices(updater);
       spdlog::info("Point index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(label.AsUint()),
                    name_id_mapper->IdToName(property.AsUint()));

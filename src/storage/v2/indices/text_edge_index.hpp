@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <spdlog/spdlog.h>
 #include <mutex>
 #include <nlohmann/json_fwd.hpp>
 
@@ -30,6 +29,10 @@ struct Transaction;
 
 struct ActiveIndicesUpdater;
 
+// TODO(follow-up): TextIndex and TextEdgeIndex are ~95% structurally identical
+// (Data/IndexContainer/ActiveIndices/deferred_drop/Create/Drop/Recover/Clear).
+// Extract a CRTP or template base before the duplication drifts.
+
 struct TextEdgeIndexData {
   mutable mgcxx::text_search::Context context;
   EdgeTypeId scope;
@@ -45,15 +48,7 @@ struct TextEdgeIndexData {
   TextEdgeIndexData(mgcxx::text_search::Context context, EdgeTypeId scope, std::vector<PropertyId> properties)
       : context(std::move(context)), scope(scope), properties(std::move(properties)) {}
 
-  ~TextEdgeIndexData() {
-    if (deferred_drop) {
-      try {
-        mgcxx::text_search::drop_index(std::move(context));
-      } catch (...) {
-        spdlog::error("Failed to drop text edge index during deferred cleanup");
-      }
-    }
-  }
+  ~TextEdgeIndexData();
 
   TextEdgeIndexData(const TextEdgeIndexData &) = delete;
   TextEdgeIndexData &operator=(const TextEdgeIndexData &) = delete;
@@ -141,14 +136,19 @@ class TextEdgeIndex {
     return std::make_shared<ActiveIndices>(index_);
   }
 
-  void CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper,
-                   ActiveIndicesUpdater const &updater);
+  /// Creates the index and populates it. Caller is responsible for publishing
+  /// the resulting ActiveIndices snapshot via PublishActiveIndices — typically
+  /// deferred through Transaction::commit_callbacks_ so the snapshot is only
+  /// observable after the DDL transaction commits.
+  void CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 
   void RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
                     NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  void DropIndex(const std::string &index_name, ActiveIndicesUpdater const &updater);
+  /// Marks the index for deferred drop and removes it from the container.
+  /// Caller is responsible for publishing via PublishActiveIndices.
+  void DropIndex(const std::string &index_name);
 
   bool IndexExists(const std::string &index_name) const;
 
@@ -159,12 +159,15 @@ class TextEdgeIndex {
   /// the caller (DropGraphClearIndices) is responsible for republishing.
   void Clear();
 
+  /// Publishes the current index container as the new ActiveIndices snapshot.
+  /// Safe to call any time; read operations see the latest published snapshot.
+  void PublishActiveIndices(ActiveIndicesUpdater const &updater);
+
  private:
   std::filesystem::path text_index_storage_dir_;
   std::shared_ptr<IndexContainer> index_;
 
   void CreateTantivyIndex(const std::string &index_path, const TextEdgeIndexSpec &index_info);
-  void PublishActiveIndices(ActiveIndicesUpdater const &updater);
 
   static void AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
                                  nlohmann::json properties, std::string all_property_values,

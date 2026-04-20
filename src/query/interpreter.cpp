@@ -105,6 +105,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
 #include "utils/compile_time.hpp"
@@ -6538,7 +6539,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         constexpr std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
 
         auto ai = storage->GetActiveIndices();
-        auto const ts = std::numeric_limits<uint64_t>::max();
+        auto const ts = storage::kLargestCommittedTimestamp;
         storage::IndicesInfo const info{
             .label = ai->label_->ListIndices(ts),
             .label_properties = ai->label_properties_->ListIndices(ts),
@@ -6601,7 +6602,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
               {TypedValue(fmt::format("{} (name: {})", text_label_index_mark, index_name)),
                TypedValue(storage->LabelToName(label)),
                TypedValue(std::move(prop_names)),
-               TypedValue(static_cast<int>(ai->text_->ApproximateVerticesTextCount(index_name).value_or(0)))});
+               TypedValue(static_cast<int>(ai->text_->ApproximateVerticesTextCount(index_name).value()))});
         }
         for (const auto &[index_name, label, properties] : info.text_edge_indices) {
           auto prop_names =
@@ -6612,14 +6613,14 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
               {TypedValue(fmt::format("{} (name: {})", text_edge_type_index_mark, index_name)),
                TypedValue(storage->EdgeTypeToName(label)),
                TypedValue(std::move(prop_names)),
-               TypedValue(static_cast<int>(ai->text_edge_->ApproximateEdgesTextCount(index_name).value_or(0)))});
+               TypedValue(static_cast<int>(ai->text_edge_->ApproximateEdgesTextCount(index_name).value()))});
         }
         for (const auto &[label_id, prop_id] : info.point_label_property) {
           results.push_back(
               {TypedValue(point_label_property_index_mark),
                TypedValue(storage->LabelToName(label_id)),
                TypedValue(storage->PropertyToName(prop_id)),
-               TypedValue(static_cast<int>(ai->point_->ApproximatePointCount(label_id, prop_id).value_or(0)))});
+               TypedValue(static_cast<int>(ai->point_->ApproximatePointCount(label_id, prop_id).value()))});
         }
 
         for (const auto &spec : info.vector_indices_spec) {
@@ -6627,15 +6628,16 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(storage->LabelToName(spec.label_id)),
                              TypedValue(storage->PropertyToName(spec.property)),
                              TypedValue(static_cast<int>(
-                                 storage->ApproximateVerticesVectorCount(spec.label_id, spec.property).value_or(0)))});
+                                 ai->vector_->ApproximateNodesVectorCount(spec.label_id, spec.property).value()))});
         }
 
         for (const auto &spec : info.vector_edge_indices_spec) {
-          results.push_back({TypedValue(vector_edge_property_index_mark),
-                             TypedValue(storage->EdgeTypeToName(spec.edge_type_id)),
-                             TypedValue(storage->PropertyToName(spec.property)),
-                             TypedValue(static_cast<int>(
-                                 storage->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)))});
+          results.push_back(
+              {TypedValue(vector_edge_property_index_mark),
+               TypedValue(storage->EdgeTypeToName(spec.edge_type_id)),
+               TypedValue(storage->PropertyToName(spec.property)),
+               TypedValue(static_cast<int>(
+                   ai->vector_edge_->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value()))});
         }
 
         std::ranges::sort(results, [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -6676,7 +6678,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       header = {"constraint type", "label", "properties", "data_type"};
       handler = [storage = current_db.db_acc_->get()->storage()] {
         auto ac = storage->GetActiveConstraints();
-        auto const ts = std::numeric_limits<uint64_t>::max();
+        auto const ts = storage::kLargestCommittedTimestamp;
         storage::ConstraintsInfo const info{
             .existence = ac->existence_->ListConstraints(ts),
             .unique = ac->unique_->ListConstraints(ts),
@@ -6805,8 +6807,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           "index_name", "label", "property", "capacity", "dimension", "metric", "size", "scalar_kind", "index_type"};
       handler = [database] {
         auto *storage = database->storage();
-        auto vector_indices = storage->indices_.vector_index_.ListVectorIndicesInfo();
-        auto vector_edge_indices = storage->indices_.vector_edge_index_.ListVectorIndicesInfo();
+        auto ai = storage->GetActiveIndices();
+        auto vector_indices = ai->vector_->ListVectorIndicesInfo();
+        auto vector_edge_indices = ai->vector_edge_->ListVectorIndicesInfo();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(vector_indices.size());
 

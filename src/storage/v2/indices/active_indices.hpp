@@ -60,22 +60,26 @@ struct ActiveIndices {
         vector_{std::move(vector)},
         vector_edge_{std::move(vector_edge)} {}
 
-  /// Factory methods that return a new ActiveIndices with one field replaced.
-  /// Keeps layout knowledge in one place and eliminates positional argument mistakes.
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithLabel(std::shared_ptr<LabelIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithLabelProperties(
-      std::shared_ptr<LabelPropertyIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithEdgeType(std::shared_ptr<EdgeTypeIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithEdgeTypeProperties(
-      std::shared_ptr<EdgeTypePropertyIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithEdgeProperty(
-      std::shared_ptr<EdgePropertyIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithText(std::shared_ptr<TextIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithTextEdge(std::shared_ptr<TextEdgeIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithPoint(std::shared_ptr<PointIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithVector(std::shared_ptr<VectorIndexActiveIndices> x) const;
-  [[nodiscard]] std::shared_ptr<ActiveIndices const> WithVectorEdge(
-      std::shared_ptr<VectorEdgeIndexActiveIndices> x) const;
+  // TODO(follow-up): enforce DMG_ASSERT that every sub-index snapshot is
+  // non-null in the ctor. Currently blocked because isolated tests (e.g.
+  // VectorEdgeIndexRecoveryTest) construct an ActiveIndices with only the
+  // sub-index they care about and pass nullptrs for the rest. Fix by adding
+  // a shared test helper that default-constructs empty sub-index snapshots
+  // (each concrete ActiveIndices supports an empty container), then make
+  // non-null a hard invariant here. Until then, the MG_ASSERTs inside
+  // ActiveIndicesUpdater::operator() are the safety net.
+
+  /// Returns a new ActiveIndices with one field replaced, identified by
+  /// pointer-to-member. Keeps layout knowledge in one place and avoids the
+  /// positional-argument foot-gun of the 10-arg ctor.
+  ///
+  /// Example: auto next = ai.With<&ActiveIndices::text_>(new_text);
+  template <auto Member, class X>
+  [[nodiscard]] std::shared_ptr<ActiveIndices const> With(X x) const {
+    auto next = *this;
+    next.*Member = std::move(x);
+    return std::make_shared<ActiveIndices>(std::move(next));
+  }
 
   bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
     // label

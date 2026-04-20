@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/text_edge_index.hpp"
+#include <spdlog/spdlog.h>
 #include "mgcxx_text_search.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -22,6 +23,16 @@ namespace r = ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
+
+TextEdgeIndexData::~TextEdgeIndexData() {
+  if (deferred_drop) {
+    try {
+      mgcxx::text_search::drop_index(std::move(context));
+    } catch (...) {
+      spdlog::error("Failed to drop text edge index during deferred cleanup");
+    }
+  }
+}
 
 // ---- TextEdgeIndex (owner) methods ----
 
@@ -84,7 +95,7 @@ void TextEdgeIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) {
 }
 
 void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices,
-                                NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater) {
+                                NameIdMapper *name_id_mapper) {
   CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name), index_info);
 
   auto &index_data = *index_->at(index_info.index_name);
@@ -108,8 +119,6 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
   } catch (const std::exception &e) {
     throw query::TextSearchException("Text index commit error: {}", e.what());
   }
-
-  PublishActiveIndices(updater);
 }
 
 void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipList<Vertex>::Accessor vertices,
@@ -168,7 +177,7 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
   PublishActiveIndices(updater);
 }
 
-void TextEdgeIndex::DropIndex(const std::string &index_name, ActiveIndicesUpdater const &updater) {
+void TextEdgeIndex::DropIndex(const std::string &index_name) {
   auto it = index_->find(index_name);
   if (it == index_->end()) {
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
@@ -184,7 +193,6 @@ void TextEdgeIndex::DropIndex(const std::string &index_name, ActiveIndicesUpdate
   new_map->erase(index_name);
 
   index_ = std::move(new_map);
-  PublishActiveIndices(updater);
 }
 
 bool TextEdgeIndex::IndexExists(const std::string &index_name) const { return index_->contains(index_name); }
@@ -199,18 +207,14 @@ std::vector<TextEdgeIndexSpec> TextEdgeIndex::ListIndices() const {
 }
 
 void TextEdgeIndex::Clear() {
-  // Clear() only runs under exclusive access (DROP GRAPH in analytical mode,
-  // or InMemoryStorage::Clear during recovery), so no concurrent readers exist.
-  // Unlike DropIndex (which uses copy-on-write for snapshot isolation), we can
-  // just clean up in place and swap in an empty map at the end.
-  for (auto &[index_name, data_ptr] : *index_) {
-    try {
-      // Tantivy contexts require explicit drop_index() — the Rust opaque type
-      // has a deleted C++ destructor and cannot be cleaned up via RAII alone.
-      mgcxx::text_search::drop_index(std::move(data_ptr->context));
-    } catch (const std::exception &e) {
-      spdlog::error("Failed to drop text edge index {} during clear: {}", index_name, e.what());
-    }
+  // DatabaseInfoQuery (SHOW INDEX INFO) reads text indices through ActiveIndices
+  // snapshots without holding a storage accessor, so Clear() can race with a
+  // reader still referencing the same TextEdgeIndexData via an older snapshot.
+  // Mark every entry for deferred drop and swap in an empty map; the actual
+  // tantivy drop_index happens in ~TextEdgeIndexData when the last snapshot
+  // reference is released.
+  for (auto &[_, data_ptr] : *index_) {
+    data_ptr->deferred_drop = true;
   }
   index_ = std::make_shared<IndexContainer>();
 }

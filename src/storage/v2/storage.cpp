@@ -725,14 +725,18 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
-  auto updater = storage_->indices_.MakeUpdater();
   try {
-    storage_->indices_.text_index_.CreateIndex(
-        text_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get(), updater);
+    storage_->indices_.text_index_.CreateIndex(text_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get());
   } catch (const query::TextSearchException &e) {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
+  // Defer publication to commit time so concurrent readers don't observe a
+  // create that gets rolled back.
+  auto updater = storage_->indices_.MakeUpdater();
+  auto &text_index = storage_->indices_.text_index_;
+  transaction_.commit_callbacks_.Add(
+      [&text_index, updater](uint64_t /*commit_ts*/) { text_index.PublishActiveIndices(updater); });
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_index_info);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
@@ -747,14 +751,18 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
-  auto updater = storage_->indices_.MakeUpdater();
   try {
     storage_->indices_.text_edge_index_.CreateIndex(
-        text_edge_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get(), updater);
+        text_edge_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get());
   } catch (const query::TextSearchException &e) {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
+  // Defer publication to commit time. See CreateTextIndex above.
+  auto updater = storage_->indices_.MakeUpdater();
+  auto &text_edge_index = storage_->indices_.text_edge_index_;
+  transaction_.commit_callbacks_.Add(
+      [&text_edge_index, updater](uint64_t /*commit_ts*/) { text_edge_index.PublishActiveIndices(updater); });
   transaction_.md_deltas.emplace_back(MetadataDelta::text_edge_index_create, text_edge_index_info);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
   return {};
@@ -765,9 +773,15 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
   auto updater = storage_->indices_.MakeUpdater();
   if (storage_->indices_.text_index_.IndexExists(index_name)) {
-    storage_->indices_.text_index_.DropIndex(index_name, updater);
+    storage_->indices_.text_index_.DropIndex(index_name);
+    auto &text_index = storage_->indices_.text_index_;
+    transaction_.commit_callbacks_.Add(
+        [&text_index, updater](uint64_t /*commit_ts*/) { text_index.PublishActiveIndices(updater); });
   } else if (storage_->indices_.text_edge_index_.IndexExists(index_name)) {
-    storage_->indices_.text_edge_index_.DropIndex(index_name, updater);
+    storage_->indices_.text_edge_index_.DropIndex(index_name);
+    auto &text_edge_index = storage_->indices_.text_edge_index_;
+    transaction_.commit_callbacks_.Add(
+        [&text_edge_index, updater](uint64_t /*commit_ts*/) { text_edge_index.PublishActiveIndices(updater); });
   } else {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }

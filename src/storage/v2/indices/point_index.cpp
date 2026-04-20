@@ -125,7 +125,6 @@ void PointIndexStorage::PublishActiveIndices(ActiveIndicesUpdater const &updater
 }
 
 bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                                         ActiveIndicesUpdater const &updater,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto key = LabelPropKey{label, property};
   if (indexes_->contains(key)) return false;
@@ -177,12 +176,11 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, uti
   auto [_, inserted] = new_indexes->try_emplace(key, std::move(new_index));
   if (inserted) {
     indexes_ = std::move(new_indexes);
-    PublishActiveIndices(updater);
   }
   return inserted;
 }
 
-bool PointIndexStorage::DropPointIndex(LabelId label, PropertyId property, ActiveIndicesUpdater const &updater) {
+bool PointIndexStorage::DropPointIndex(LabelId label, PropertyId property) {
   auto key = LabelPropKey{label, property};
   if (!indexes_->contains(key)) return false;
 
@@ -190,7 +188,6 @@ bool PointIndexStorage::DropPointIndex(LabelId label, PropertyId property, Activ
   auto new_indexes = std::make_shared<index_container_t>(*indexes_);
   new_indexes->erase(key);
   indexes_ = std::move(new_indexes);
-  PublishActiveIndices(updater);
   return true;
 }
 

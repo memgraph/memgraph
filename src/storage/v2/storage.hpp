@@ -458,11 +458,6 @@ class Storage {
           index_name, search_query, search_mode, limit, transaction_);
     }
 
-    std::string EdgeTextIndexAggregate(const std::string &index_name, const std::string &search_query,
-                                       const std::string &aggregation_query) const {
-      return transaction_.active_indices_->text_edge_->Aggregate(index_name, search_query, aggregation_query);
-    }
-
     virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
 
     virtual IndicesInfo ListAllIndices() const = 0;
@@ -1076,6 +1071,10 @@ class Storage {
     return repl_storage_state_.GetReplicaState(name);
   }
 
+  // Schema-metadata sets (labels / edge-types ever observed in the DB) are
+  // monotonically growing — entries are never removed. A snapshot-free read is
+  // therefore safe even without a storage accessor: a concurrent insert can
+  // only add entries that weren't present at the call site's logical moment.
   std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
   std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
 
@@ -1084,20 +1083,8 @@ class Storage {
 
   auto GetActiveConstraints() const -> ActiveConstraintsPtr { return constraints_.active_constraints_.ReadCopy(); }
 
-  /// Live approximate counts from the underlying vector indices (not from snapshot).
-  /// Vector index counts change on every data mutation but the ActiveIndices snapshot
-  /// is only refreshed on Create/Drop, so we read directly from the live index.
-  // TODO: This bypasses snapshot isolation — a concurrent DROP can remove the index between
-  // the snapshot listing and this live read (value_or(0) prevents crashes). Fix by refactoring
-  // VectorIndex to use shared_ptr + COW like TextIndex, so ActiveIndices holds a reference to
-  // the live index data and counts are both live and snapshot-safe.
-  std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const {
-    return indices_.vector_index_.ApproximateNodesVectorCount(label, property);
-  }
-
-  std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const {
-    return indices_.vector_edge_index_.ApproximateEdgesVectorCount(edge_type, property);
-  }
+  // Vector index counts are now accessed through ActiveIndices snapshots (shared_ptr + COW),
+  // which provide both live counts and snapshot isolation.
 
   /// Check if async indexer is idle (no pending work)
   /// @return true if async indexer is idle, false if actively processing or has pending work

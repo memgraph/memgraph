@@ -2045,10 +2045,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE, "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
-  auto updater = in_memory->indices_.MakeUpdater();
-  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access(), updater)) {
+  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time so concurrent readers don't observe a
+  // create that gets rolled back. Matches the constraint / vector-index paths.
+  auto updater = in_memory->indices_.MakeUpdater();
+  transaction_.commit_callbacks_.Add(
+      [&point_index, updater](uint64_t /*commit_ts*/) { point_index.PublishActiveIndices(updater); });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
@@ -2060,10 +2064,13 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE, "Dropping point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
-  auto updater = in_memory->indices_.MakeUpdater();
-  if (!point_index.DropPointIndex(label, property, updater)) {
+  if (!point_index.DropPointIndex(label, property)) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time. See CreatePointIndex above.
+  auto updater = in_memory->indices_.MakeUpdater();
+  transaction_.commit_callbacks_.Add(
+      [&point_index, updater](uint64_t /*commit_ts*/) { point_index.PublishActiveIndices(updater); });
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
@@ -2082,8 +2089,11 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       !vector_index.CreateIndex(spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time so concurrent readers don't observe a
+  // create that gets rolled back. Matches the constraint CREATE/DROP paths below.
   auto updater = in_memory->indices_.MakeUpdater();
-  updater(vector_index.GetActiveIndices());
+  transaction_.commit_callbacks_.Add(
+      [&vector_index, updater](uint64_t /*commit_ts*/) { updater(vector_index.GetActiveIndices()); });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
@@ -2097,11 +2107,15 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto updater = in_memory->indices_.MakeUpdater();
+  // Defer publication to commit time. Metrics are dec'd eagerly (matching the
+  // CREATE path's eager inc) since they're not MVCC-versioned.
   if (vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
-    updater(vector_index.GetActiveIndices());
+    transaction_.commit_callbacks_.Add(
+        [&vector_index, updater](uint64_t /*commit_ts*/) { updater(vector_index.GetActiveIndices()); });
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
   } else if (vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
-    updater(vector_edge_index.GetActiveIndices());
+    transaction_.commit_callbacks_.Add(
+        [&vector_edge_index, updater](uint64_t /*commit_ts*/) { updater(vector_edge_index.GetActiveIndices()); });
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   } else {
     return std::unexpected{IndexDefinitionError{}};
@@ -2136,8 +2150,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
       !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
+  // Defer publication to commit time. See CreateVectorIndex above.
   auto updater = in_memory->indices_.MakeUpdater();
-  updater(vector_edge_index.GetActiveIndices());
+  transaction_.commit_callbacks_.Add(
+      [&vector_edge_index, updater](uint64_t /*commit_ts*/) { updater(vector_edge_index.GetActiveIndices()); });
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
@@ -2186,8 +2202,12 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
   if (!existence_constraints->DropConstraint(label, property)) {
     return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
+  // Defer publication to commit time so concurrent readers don't observe the
+  // drop if the DDL transaction aborts. Matches the CREATE path above.
   auto updater = in_memory->constraints_.MakeUpdater();
-  updater(existence_constraints->GetActiveConstraints());
+  transaction_.commit_callbacks_.Add([existence_constraints, updater](uint64_t /*commit_ts*/) {
+    updater(existence_constraints->GetActiveConstraints());
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
   return {};
 }
@@ -2230,8 +2250,12 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
+  // Defer publication to commit time so concurrent readers don't observe the
+  // drop if the DDL transaction aborts. Matches the CREATE path above.
   auto updater = in_memory->constraints_.MakeUpdater();
-  updater(mem_unique_constraints->GetActiveConstraints());
+  transaction_.commit_callbacks_.Add([mem_unique_constraints, updater](uint64_t /*commit_ts*/) {
+    updater(mem_unique_constraints->GetActiveConstraints());
+  });
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
@@ -2279,8 +2303,11 @@ std::expected<void, StorageTypeConstraintDroppingError> InMemoryStorage::InMemor
   if (!deleted_constraint) {
     return std::unexpected{StorageTypeConstraintDroppingError{ConstraintDefinitionError{}}};
   }
+  // Defer publication to commit time so concurrent readers don't observe the
+  // drop if the DDL transaction aborts. Matches the CREATE path above.
   auto updater = in_memory->constraints_.MakeUpdater();
-  updater(type_constraints->GetActiveConstraints());
+  transaction_.commit_callbacks_.Add(
+      [type_constraints, updater](uint64_t /*commit_ts*/) { updater(type_constraints->GetActiveConstraints()); });
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, kind);
   return {};
 }

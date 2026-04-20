@@ -109,11 +109,12 @@ struct PointIndexStorage {
     std::shared_ptr<index_container_t> indexes_;
   };
 
-  // Query (modify index set)
+  // Query (modify index set). Caller is responsible for publishing the
+  // resulting ActiveIndices snapshot via PublishActiveIndices — for user DDL
+  // this is typically deferred through Transaction::commit_callbacks_.
   bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                        ActiveIndicesUpdater const &updater,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
-  bool DropPointIndex(LabelId label, PropertyId property, ActiveIndicesUpdater const &updater);
+  bool DropPointIndex(LabelId label, PropertyId property);
 
   // Transaction (establish what to collect + able to build next index)
   auto CreatePointIndexContext() const -> PointIndexContext { return PointIndexContext{indexes_}; }
@@ -134,10 +135,11 @@ struct PointIndexStorage {
 
   bool PointIndexExists(LabelId labelId, PropertyId propertyId);
 
+  /// Publishes the current index container as the new ActiveIndices snapshot.
+  void PublishActiveIndices(ActiveIndicesUpdater const &updater);
+
  private:
   std::shared_ptr<index_container_t> indexes_ = std::make_shared<index_container_t>();
-
-  void PublishActiveIndices(ActiveIndicesUpdater const &updater);
 };
 
 }  // namespace memgraph::storage
