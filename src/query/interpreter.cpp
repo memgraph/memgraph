@@ -2284,7 +2284,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         auto const db_lag_data_to_tv = [](coordination::ReplicaDBLagData orig) {
           auto info = std::map<std::string, TypedValue>{};
           info.emplace("num_committed_txns", TypedValue{static_cast<int64_t>(orig.num_committed_txns_)});
-          info.emplace("num_txns_behind_main", TypedValue{static_cast<int64_t>(orig.num_txns_behind_main_)});
+          info.emplace("num_txns_behind_main", TypedValue{orig.num_txns_behind_main_});
           return TypedValue{std::move(info)};
         };
 

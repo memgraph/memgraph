@@ -418,7 +418,7 @@ auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationL
           for (auto &repl_storage_client : storage_clients) {
             auto const replica_name = repl_storage_client->Name();
             auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
-            auto const replica_lag = num_main_committed_txns - num_committed_txns_repl;
+            auto const replica_lag = static_cast<int64_t>(num_main_committed_txns - num_committed_txns_repl);
             // Insert or find the already inserted element
             auto [replica_it, _] = lag_info.replicas_info_.try_emplace(
                 replica_name, std::map<std::string, coordination::ReplicaDBLagData>{});
