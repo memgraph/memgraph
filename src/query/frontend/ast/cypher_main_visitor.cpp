@@ -14,6 +14,7 @@
 #include <cstring>
 #include <iterator>
 #include <range/v3/all.hpp>
+#include <ranges>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -2165,8 +2166,8 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
                                  std::vector<AuthQuery::LabelMatchingMode>,
                                  std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
             ctx->entityPrivileges->accept(this));
-    for (size_t i = 0; i < label_privileges.size(); ++i) {
-      const auto &[privilege, labels] = label_privileges[i];
+    for (auto const &[i, privilege_and_labels] : label_privileges | std::views::enumerate) {
+      auto const &[privilege, labels] = privilege_and_labels;
       auth->label_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
       auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
@@ -2197,8 +2198,8 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
                                  std::vector<AuthQuery::LabelMatchingMode>,
                                  std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
             ctx->entityPrivileges->accept(this));
-    for (size_t i = 0; i < label_privileges.size(); ++i) {
-      const auto &[privilege, labels] = label_privileges[i];
+    for (auto const &[i, privilege_and_labels] : label_privileges | std::views::enumerate) {
+      auto const &[privilege, labels] = privilege_and_labels;
       auth->label_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
       auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
@@ -2241,8 +2242,8 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
                                  std::vector<AuthQuery::LabelMatchingMode>,
                                  std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
             ctx->entityPrivileges->accept(this));
-    for (size_t i = 0; i < label_privileges.size(); ++i) {
-      const auto &[privilege, labels] = label_privileges[i];
+    for (auto const &[i, privilege_and_labels] : label_privileges | std::views::enumerate) {
+      auto const &[privilege, labels] = privilege_and_labels;
       auth->label_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
       auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
