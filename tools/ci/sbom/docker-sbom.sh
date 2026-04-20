@@ -9,9 +9,9 @@ TAG=$1
 function cleanup() {
     exit_status=$?
     rm -rf tools/ci/sbom/env || true
-    rm -f syft
-    rm -f syft.tar.gz
-    rm -r cyclonedx
+    rm -f syft || true
+    rm -f syft.tar.gz || true
+    rm -f cyclonedx || true
     exit $exit_status
 }
 

@@ -16,6 +16,7 @@ tmpdir=$(mktemp -d repo-XXXXXXXX)
 trap "rm -rf $tmpdir" EXIT INT
 
 exclude_dirs=(
+  conan_recipes
   mage/cpp/community_detection_module/grappolo
   mage/cpp/text_module/utf8
 )

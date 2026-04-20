@@ -1,0 +1,1874 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3fd9d70..c32178f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -78,8 +78,7 @@ endif ()
+
+ # ----------------------------------------------------------------------------
+ # includes
+-set (CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+-include (utils)
++include ("${CMAKE_CURRENT_SOURCE_DIR}/cmake/utils.cmake")
+
+ # ----------------------------------------------------------------------------
+ # package information
+@@ -92,12 +91,12 @@ set (PACKAGE_DESCRIPTION "A commandline flags library that allows for distribute
+ set (PACKAGE_URL         "http://gflags.github.io/gflags")
+
+ project (${PACKAGE_NAME} CXX)
+-if (CMAKE_VERSION VERSION_LESS 100)
++if (CMAKE_VERSION VERSION_LESS 3.4)
+   # C language still needed because the following required CMake modules
+   # (or their dependencies, respectively) are not correctly handling
+-  # the case where only CXX is enabled.
+-  # - CheckTypeSize.cmake (fixed in CMake 3.1, cf. http://www.cmake.org/Bug/view.php?id=14056)
+-  # - FindThreads.cmake (--> CheckIncludeFiles.cmake <--)
++  # the case where only CXX is enabled
++  # - CheckTypeSize.cmake (fixed in CMake 3.1, cf. https://cmake.org/Bug/view.php?id=14056)
++  # - FindThreads.cmake   (fixed in CMake 3.4, cf. https://cmake.org/Bug/view.php?id=14905)
+   enable_language (C)
+ endif ()
+
+@@ -211,6 +210,8 @@ if (INCLUDE_DIR MATCHES "^\\.\\.[/\\]")
+ endif ()
+ set (GFLAGS_INCLUDE_DIR "${INCLUDE_DIR}")
+
++option (GFLAGS_NO_FILENAMES "Disable filenames in gflags" 0)
++
+ # ----------------------------------------------------------------------------
+ # system checks
+ include (CheckTypeSize)
+@@ -326,7 +327,6 @@ endif ()
+ set (PUBLIC_HDRS
+   "gflags.h"
+   "gflags_declare.h"
+-  "gflags_completions.h"
+ )
+
+ if (GFLAGS_NAMESPACE_SECONDARY)
+@@ -351,7 +351,6 @@ set (PRIVATE_HDRS
+ set (GFLAGS_SRCS
+   "gflags.cc"
+   "gflags_reporting.cc"
+-  "gflags_completions.cc"
+ )
+
+ if (OS_WINDOWS)
+@@ -525,9 +524,6 @@ if (INSTALL_HEADERS)
+     DESTINATION ${CONFIG_INSTALL_DIR}
+   )
+   install (EXPORT ${EXPORT_NAME} DESTINATION ${CONFIG_INSTALL_DIR})
+-  if (UNIX)
+-    install (PROGRAMS src/gflags_completions.sh DESTINATION ${RUNTIME_INSTALL_DIR})
+-  endif ()
+ endif ()
+
+ if (PKGCONFIG_INSTALL_DIR)
+diff --git a/README.md b/README.md
+index d7a3600..ed799eb 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,8 @@
+ [![Build Status](https://travis-ci.org/gflags/gflags.svg?branch=master)](https://travis-ci.org/gflags/gflags)
+ [![Build status](https://ci.appveyor.com/api/projects/status/4ctod566ysraus74/branch/master?svg=true)](https://ci.appveyor.com/project/schuhschuh/gflags/branch/master)
+
++The documentation of the gflags library is available online at https://gflags.github.io/gflags/.
++
+ 25 November 2016
+ ----------------
+
+diff --git a/bazel/gflags.bzl b/bazel/gflags.bzl
+index 6a89f88..cd0edad 100644
+--- a/bazel/gflags.bzl
++++ b/bazel/gflags.bzl
+@@ -10,7 +10,7 @@ def gflags_sources(namespace=["google", "gflags"]):
+     native.genrule(
+         name = "gflags_declare_h",
+         srcs = ["src/gflags_declare.h.in"],
+-        outs = ["gflags/gflags_declare.h"],
++        outs = ["include/gflags/gflags_declare.h"],
+         cmd  = ("awk '{ " +
+                 "gsub(/@GFLAGS_NAMESPACE@/, \"" + namespace[0] + "\"); " +
+                 "gsub(/@(HAVE_STDINT_H|HAVE_SYS_TYPES_H|HAVE_INTTYPES_H|GFLAGS_INTTYPES_FORMAT_C99)@/, \"1\"); " +
+@@ -23,7 +23,7 @@ def gflags_sources(namespace=["google", "gflags"]):
+         native.genrule(
+             name = gflags_ns_h_file.replace('.', '_'),
+             srcs = ["src/gflags_ns.h.in"],
+-            outs = ["gflags/" + gflags_ns_h_file],
++            outs = ["include/gflags/" + gflags_ns_h_file],
+             cmd  = ("awk '{ " +
+                     "gsub(/@ns@/, \"" + ns + "\"); " +
+                     "gsub(/@NS@/, \"" + ns.upper() + "\"); " +
+@@ -33,7 +33,7 @@ def gflags_sources(namespace=["google", "gflags"]):
+     native.genrule(
+         name = "gflags_h",
+         srcs = ["src/gflags.h.in"],
+-        outs = ["gflags/gflags.h"],
++        outs = ["include/gflags/gflags.h"],
+         cmd  = ("awk '{ " +
+                 "gsub(/@GFLAGS_ATTRIBUTE_UNUSED@/, \"\"); " +
+                 "gsub(/@INCLUDE_GFLAGS_NS_H@/, \"" + '\n'.join(["#include \\\"gflags/{}\\\"".format(hdr) for hdr in gflags_ns_h_files]) + "\"); " +
+@@ -42,7 +42,7 @@ def gflags_sources(namespace=["google", "gflags"]):
+     native.genrule(
+         name = "gflags_completions_h",
+         srcs = ["src/gflags_completions.h.in"],
+-        outs = ["gflags/gflags_completions.h"],
++        outs = ["include/gflags/gflags_completions.h"],
+         cmd  = "awk '{ gsub(/@GFLAGS_NAMESPACE@/, \"" + namespace[0] + "\"); print; }' $(<) > $(@)"
+     )
+     hdrs = [":gflags_h", ":gflags_declare_h", ":gflags_completions_h"]
+@@ -85,7 +85,7 @@ def gflags_library(hdrs=[], srcs=[], threads=1):
+         name       = name,
+         hdrs       = hdrs,
+         srcs       = srcs,
+-        includes   = ["$(GENDIR)"],
++        includes   = ["include/"],
+         copts      = copts,
+         linkopts   = linkopts,
+         visibility = ["//visibility:public"]
+diff --git a/src/gflags.cc b/src/gflags.cc
+index bc62227..38e2d26 100644
+--- a/src/gflags.cc
++++ b/src/gflags.cc
+@@ -116,16 +116,8 @@ using namespace MUTEX_NAMESPACE;
+
+
+ // Special flags, type 1: the 'recursive' flags.  They set another flag's val.
+-DEFINE_string(flagfile,   "", "load flags from file");
+-DEFINE_string(fromenv,    "", "set flags from the environment"
+-                              " [use 'export FLAGS_flag1=value']");
+-DEFINE_string(tryfromenv, "", "set flags from the environment if present");
++DEFINE_string(flag_file,   "", "load flags from file");
+
+-// Special flags, type 2: the 'parsing' flags.  They modify how we parse.
+-DEFINE_string(undefok, "", "comma-separated list of flag names that it is okay to specify "
+-                           "on the command line even if the program does not define a flag "
+-                           "with that name.  IMPORTANT: flags in this list that have "
+-                           "arguments MUST use the flag=value format");
+
+ namespace GFLAGS_NAMESPACE {
+
+@@ -517,12 +509,13 @@ class CommandLineFlag {
+  public:
+   // Note: we take over memory-ownership of current_val and default_val.
+   CommandLineFlag(const char* name, const char* help, const char* filename,
+-                  FlagValue* current_val, FlagValue* default_val);
++                  bool hidden, FlagValue* current_val, FlagValue* default_val);
+   ~CommandLineFlag();
+
+   const char* name() const { return name_; }
+   const char* help() const { return help_; }
+   const char* filename() const { return file_; }
++  bool hidden() const { return hidden_; }
+   const char* CleanFileName() const;  // nixes irrelevant prefix such as homedir
+   string current_value() const { return current_->ToString(); }
+   string default_value() const { return defvalue_->ToString(); }
+@@ -554,6 +547,7 @@ class CommandLineFlag {
+   const char* const name_;     // Flag name
+   const char* const help_;     // Help message
+   const char* const file_;     // Which file did this come from?
++  const bool hidden_;          // Is the flag hidden?
+   bool modified_;              // Set after default assignment?
+   FlagValue* defvalue_;        // Default value for flag
+   FlagValue* current_;         // Current value for flag
+@@ -568,9 +562,9 @@ class CommandLineFlag {
+ };
+
+ CommandLineFlag::CommandLineFlag(const char* name, const char* help,
+-                                 const char* filename,
++                                 const char* filename, bool hidden,
+                                  FlagValue* current_val, FlagValue* default_val)
+-    : name_(name), help_(help), file_(filename), modified_(false),
++    : name_(name), help_(help), file_(filename), hidden_(hidden), modified_(false),
+       defvalue_(default_val), current_(current_val), validate_fn_proto_(NULL) {
+ }
+
+@@ -610,6 +604,7 @@ void CommandLineFlag::FillCommandLineFlagInfo(
+   result->current_value = current_value();
+   result->default_value = default_value();
+   result->filename = CleanFileName();
++  result->hidden = hidden();
+   UpdateModifiedBit();
+   result->is_default = !modified_;
+   result->has_validator_fn = validate_function() != NULL;
+@@ -950,7 +945,7 @@ FlagRegistry* FlagRegistry::GlobalRegistry() {
+ //    (This is via a call to HandleCommandLineHelpFlags(), in
+ //    gflags_reporting.cc.)
+ //    An optional stage 3 prints out the error messages.
+-//       This is a bit of a simplification.  For instance, --flagfile
++//       This is a bit of a simplification.  For instance, --flag-file
+ //    is handled as soon as it's seen in stage 1, not in stage 2.
+ // --------------------------------------------------------------------
+
+@@ -983,19 +978,19 @@ class CommandLineFlagParser {
+   // describing the new value that the option has been set to.  If
+   // option_name does not specify a valid option name, or value is not
+   // a valid value for option_name, newval is empty.  Does recursive
+-  // processing for --flagfile and --fromenv.  Returns the new value
++  // processing for --flag-file.  Returns the new value
+   // if everything went ok, or empty-string if not.  (Actually, the
+-  // return-string could hold many flag/value pairs due to --flagfile.)
++  // return-string could hold many flag/value pairs due to --flag-file.)
+   // NB: Must have called registry_->Lock() before calling this function.
+   string ProcessSingleOptionLocked(CommandLineFlag* flag,
+                                    const char* value,
+                                    FlagSettingMode set_mode);
+
+   // Set a whole batch of command line options as specified by contentdata,
+-  // which is in flagfile format (and probably has been read from a flagfile).
++  // which is in flag_file format (and probably has been read from a flag_file).
+   // Returns the new value if everything went ok, or empty-string if
+   // not.  (Actually, the return-string could hold many flag/value
+-  // pairs due to --flagfile.)
++  // pairs due to --flag-file.)
+   // NB: Must have called registry_->Lock() before calling this function.
+   string ProcessOptionsFromStringLocked(const string& contentdata,
+                                         FlagSettingMode set_mode);
+@@ -1005,9 +1000,6 @@ class CommandLineFlagParser {
+   // These are called by ProcessSingleOptionLocked and, similarly, return
+   // new values if everything went ok, or the empty-string if not.
+   string ProcessFlagfileLocked(const string& flagval, FlagSettingMode set_mode);
+-  // diff fromenv/tryfromenv
+-  string ProcessFromenvLocked(const string& flagval, FlagSettingMode set_mode,
+-                              bool errors_are_fatal);
+
+  private:
+   FlagRegistry* const registry_;
+@@ -1061,9 +1053,6 @@ static string ReadFileIntoString(const char* filename) {
+
+ uint32 CommandLineFlagParser::ParseNewCommandLineFlags(int* argc, char*** argv,
+                                                        bool remove_flags) {
+-  const char *program_name = strrchr((*argv)[0], PATH_SEPARATOR);   // nix path
+-  program_name = (program_name == NULL ? (*argv)[0] : program_name+1);
+-
+   int first_nonopt = *argc;        // for non-options moved to the end
+
+   registry_->Lock();
+@@ -1170,51 +1159,6 @@ string CommandLineFlagParser::ProcessFlagfileLocked(const string& flagval,
+   return msg;
+ }
+
+-string CommandLineFlagParser::ProcessFromenvLocked(const string& flagval,
+-                                                   FlagSettingMode set_mode,
+-                                                   bool errors_are_fatal) {
+-  if (flagval.empty())
+-    return "";
+-
+-  string msg;
+-  vector<string> flaglist;
+-  ParseFlagList(flagval.c_str(), &flaglist);
+-
+-  for (size_t i = 0; i < flaglist.size(); ++i) {
+-    const char* flagname = flaglist[i].c_str();
+-    CommandLineFlag* flag = registry_->FindFlagLocked(flagname);
+-    if (flag == NULL) {
+-      error_flags_[flagname] =
+-          StringPrintf("%sunknown command line flag '%s' "
+-                       "(via --fromenv or --tryfromenv)\n",
+-                       kError, flagname);
+-      undefined_names_[flagname] = "";
+-      continue;
+-    }
+-
+-    const string envname = string("FLAGS_") + string(flagname);
+-    string envval;
+-    if (!SafeGetEnv(envname.c_str(), envval)) {
+-      if (errors_are_fatal) {
+-        error_flags_[flagname] = (string(kError) + envname +
+-                                  " not found in environment\n");
+-      }
+-      continue;
+-    }
+-
+-    // Avoid infinite recursion.
+-    if (envval == "fromenv" || envval == "tryfromenv") {
+-      error_flags_[flagname] =
+-          StringPrintf("%sinfinite recursion on environment flag '%s'\n",
+-                       kError, envval.c_str());
+-      continue;
+-    }
+-
+-    msg += ProcessSingleOptionLocked(flag, envval.c_str(), set_mode);
+-  }
+-  return msg;
+-}
+-
+ string CommandLineFlagParser::ProcessSingleOptionLocked(
+     CommandLineFlag* flag, const char* value, FlagSettingMode set_mode) {
+   string msg;
+@@ -1223,18 +1167,11 @@ string CommandLineFlagParser::ProcessSingleOptionLocked(
+     return "";
+   }
+
+-  // The recursive flags, --flagfile and --fromenv and --tryfromenv,
+-  // must be dealt with as soon as they're seen.  They will emit
++  // The recursive flag --flag-file
++  // must be dealt with as soon as it's seen.  It will emit
+   // messages of their own.
+-  if (strcmp(flag->name(), "flagfile") == 0) {
+-    msg += ProcessFlagfileLocked(FLAGS_flagfile, set_mode);
+-
+-  } else if (strcmp(flag->name(), "fromenv") == 0) {
+-    // last arg indicates envval-not-found is fatal (unlike in --tryfromenv)
+-    msg += ProcessFromenvLocked(FLAGS_fromenv, set_mode, true);
+-
+-  } else if (strcmp(flag->name(), "tryfromenv") == 0) {
+-    msg += ProcessFromenvLocked(FLAGS_tryfromenv, set_mode, false);
++  if (strcmp(flag->name(), "flag_file") == 0) {
++    msg += ProcessFlagfileLocked(FLAGS_flag_file, set_mode);
+   }
+
+   return msg;
+@@ -1270,21 +1207,6 @@ void CommandLineFlagParser::ValidateUnmodifiedFlags() {
+ }
+
+ bool CommandLineFlagParser::ReportErrors() {
+-  // error_flags_ indicates errors we saw while parsing.
+-  // But we ignore undefined-names if ok'ed by --undef_ok
+-  if (!FLAGS_undefok.empty()) {
+-    vector<string> flaglist;
+-    ParseFlagList(FLAGS_undefok.c_str(), &flaglist);
+-    for (size_t i = 0; i < flaglist.size(); ++i) {
+-      // We also deal with --no<flag>, in case the flagname was boolean
+-      const string no_version = string("no") + flaglist[i];
+-      if (undefined_names_.find(flaglist[i]) != undefined_names_.end()) {
+-        error_flags_[flaglist[i]] = "";    // clear the error message
+-      } else if (undefined_names_.find(no_version) != undefined_names_.end()) {
+-        error_flags_[no_version] = "";
+-      }
+-    }
+-  }
+   // Likewise, if they decided to allow reparsing, all undefined-names
+   // are ok; we just silently ignore them now, and hope that a future
+   // parse will pick them up somehow.
+@@ -1311,23 +1233,23 @@ bool CommandLineFlagParser::ReportErrors() {
+ string CommandLineFlagParser::ProcessOptionsFromStringLocked(
+     const string& contentdata, FlagSettingMode set_mode) {
+   string retval;
+-  const char* flagfile_contents = contentdata.c_str();
++  const char* flag_file_contents = contentdata.c_str();
+   bool flags_are_relevant = true;   // set to false when filenames don't match
+   bool in_filename_section = false;
+
+-  const char* line_end = flagfile_contents;
++  const char* line_end = flag_file_contents;
+   // We read this file a line at a time.
+-  for (; line_end; flagfile_contents = line_end + 1) {
+-    while (*flagfile_contents && isspace(*flagfile_contents))
+-      ++flagfile_contents;
++  for (; line_end; flag_file_contents = line_end + 1) {
++    while (*flag_file_contents && isspace(*flag_file_contents))
++      ++flag_file_contents;
+     // Windows uses "\r\n"
+-    line_end = strchr(flagfile_contents, '\r');
++    line_end = strchr(flag_file_contents, '\r');
+     if (line_end == NULL)
+-        line_end = strchr(flagfile_contents, '\n');
++        line_end = strchr(flag_file_contents, '\n');
+
+-    size_t len = line_end ? line_end - flagfile_contents
+-                          : strlen(flagfile_contents);
+-    string line(flagfile_contents, len);
++    size_t len = line_end ? line_end - flag_file_contents
++                          : strlen(flag_file_contents);
++    string line(flag_file_contents, len);
+
+     // Each line can be one of four things:
+     // 1) A comment line -- we skip it
+@@ -1351,7 +1273,7 @@ string CommandLineFlagParser::ProcessOptionsFromStringLocked(
+       CommandLineFlag* flag = registry_->SplitArgumentLocked(name_and_val,
+                                                              &key, &value,
+                                                              &error_message);
+-      // By API, errors parsing flagfile lines are silently ignored.
++      // By API, errors parsing flag_file lines are silently ignored.
+       if (flag == NULL) {
+         // "WARNING: flagname '" + key + "' not found\n"
+       } else if (value == NULL) {
+@@ -1462,13 +1384,14 @@ namespace {
+ void RegisterCommandLineFlag(const char* name,
+                              const char* help,
+                              const char* filename,
++                             bool hidden,
+                              FlagValue* current,
+                              FlagValue* defvalue) {
+   if (help == NULL)
+     help = "";
+   // Importantly, flag_ will never be deleted, so storage is always good.
+   CommandLineFlag* flag =
+-      new CommandLineFlag(name, help, filename, current, defvalue);
++      new CommandLineFlag(name, help, filename, hidden, current, defvalue);
+   FlagRegistry::GlobalRegistry()->RegisterFlag(flag);  // default registry
+ }
+ }
+@@ -1477,18 +1400,19 @@ template <typename FlagType>
+ FlagRegisterer::FlagRegisterer(const char* name,
+                                const char* help,
+                                const char* filename,
++                               bool hidden,
+                                FlagType* current_storage,
+                                FlagType* defvalue_storage) {
+   FlagValue* const current = new FlagValue(current_storage, false);
+   FlagValue* const defvalue = new FlagValue(defvalue_storage, false);
+-  RegisterCommandLineFlag(name, help, filename, current, defvalue);
++  RegisterCommandLineFlag(name, help, filename, hidden, current, defvalue);
+ }
+
+ // Force compiler to generate code for the given template specialization.
+ #define INSTANTIATE_FLAG_REGISTERER_CTOR(type)                  \
+   template GFLAGS_DLL_DECL FlagRegisterer::FlagRegisterer(      \
+       const char* name, const char* help, const char* filename, \
+-      type* current_storage, type* defvalue_storage)
++      bool hidden, type* current_storage, type* defvalue_storage)
+
+ // Do this for all supported flag types.
+ INSTANTIATE_FLAG_REGISTERER_CTOR(bool);
+@@ -1733,7 +1657,7 @@ class FlagSaverImpl {
+       // Sets up all the const variables in backup correctly
+       CommandLineFlag* backup = new CommandLineFlag(
+           main->name(), main->help(), main->filename(),
+-          main->current_->New(), main->defvalue_->New());
++          main->hidden(), main->current_->New(), main->defvalue_->New());
+       // Sets up all the non-const variables in backup correctly
+       backup->CopyFrom(*main);
+       backup_registry_.push_back(backup);   // add it to a convenient list
+@@ -1782,11 +1706,11 @@ FlagSaver::~FlagSaver() {
+ //    These are mostly-deprecated routines that stick the
+ //    commandline flags into a file/string and read them back
+ //    out again.  I can see a use for CommandlineFlagsIntoString,
+-//    for creating a flagfile, but the rest don't seem that useful
++//    for creating a flag_file, but the rest don't seem that useful
+ //    -- some, I think, are a poor-man's attempt at FlagSaver --
+ //    and are included only until we can delete them from callers.
+-//    Note they don't save --flagfile flags (though they do save
+-//    the result of having called the flagfile, of course).
++//    Note they don't save --flag-file flags (though they do save
++//    the result of having called the flag_file, of course).
+ // --------------------------------------------------------------------
+
+ static string TheseCommandlineFlagsIntoString(
+@@ -1852,10 +1776,10 @@ bool AppendFlagsIntoFile(const string& filename, const char *prog_name) {
+
+   vector<CommandLineFlagInfo> flags;
+   GetAllFlags(&flags);
+-  // But we don't want --flagfile, which leads to weird recursion issues
++  // But we don't want --flag-file, which leads to weird recursion issues
+   vector<CommandLineFlagInfo>::iterator i;
+   for (i = flags.begin(); i != flags.end(); ++i) {
+-    if (strcmp(i->name.c_str(), "flagfile") == 0) {
++    if (strcmp(i->name.c_str(), "flag_file") == 0) {
+       flags.erase(i);
+       break;
+     }
+@@ -1979,16 +1903,13 @@ static uint32 ParseCommandLineFlagsInternal(int* argc, char*** argv,
+   FlagRegistry* const registry = FlagRegistry::GlobalRegistry();
+   CommandLineFlagParser parser(registry);
+
+-  // When we parse the commandline flags, we'll handle --flagfile,
+-  // --tryfromenv, etc. as we see them (since flag-evaluation order
+-  // may be important).  But sometimes apps set FLAGS_tryfromenv/etc.
++  // When we parse the commandline flags, we'll handle --flag-file,
++  // etc. as we see them (since flag-evaluation order
++  // may be important).  But sometimes apps set FLAGS_flag_file/etc.
+   // manually before calling ParseCommandLineFlags.  We want to evaluate
+   // those too, as if they were the first flags on the commandline.
+   registry->Lock();
+-  parser.ProcessFlagfileLocked(FLAGS_flagfile, SET_FLAGS_VALUE);
+-  // Last arg here indicates whether flag-not-found is a fatal error or not
+-  parser.ProcessFromenvLocked(FLAGS_fromenv, SET_FLAGS_VALUE, true);
+-  parser.ProcessFromenvLocked(FLAGS_tryfromenv, SET_FLAGS_VALUE, false);
++  parser.ProcessFlagfileLocked(FLAGS_flag_file, SET_FLAGS_VALUE);
+   registry->Unlock();
+
+   // Now get the flags specified on the commandline
+diff --git a/src/gflags.h.in b/src/gflags.h.in
+index 43b3f7a..0d55f00 100644
+--- a/src/gflags.h.in
++++ b/src/gflags.h.in
+@@ -83,10 +83,20 @@
+
+ #include "gflags/gflags_declare.h" // IWYU pragma: export
+
++#define GFLAGS_NO_FILENAMES @GFLAGS_NO_FILENAMES@
++
++// If this flag is true then don't store source filenames
++#if GFLAGS_NO_FILENAMES
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wbuiltin-macro-redefined"
++#undef __FILE__
++#define __FILE__ ""
++#pragma GCC diagnostic pop
++#endif
+
+ // We always want to export variables defined in user code
+ #ifndef GFLAGS_DLL_DEFINE_FLAG
+-#  ifdef _MSC_VER
++#  if GFLAGS_IS_A_DLL && defined(_MSC_VER)
+ #    define GFLAGS_DLL_DEFINE_FLAG __declspec(dllexport)
+ #  else
+ #    define GFLAGS_DLL_DEFINE_FLAG
+@@ -159,6 +169,7 @@ struct CommandLineFlagInfo {
+   std::string current_value;   // the current value, as a string
+   std::string default_value;   // the default value, as a string
+   std::string filename;        // 'cleaned' version of filename holding the flag
++  bool hidden;                 // true if the flag is hidden
+   bool has_validator_fn;       // true if RegisterFlagValidator called on this flag
+   bool is_default;             // true if the flag has the default value and
+                                // has not been set explicitly from the cmdline
+@@ -298,7 +309,7 @@ bool ReadFlagsFromString(const std::string& flagfilecontents,
+                          const char* prog_name,
+                          bool errors_are_fatal);  // uses SET_FLAGS_VALUE
+
+-// These let you manually implement --flagfile functionality.
++// These let you manually implement --flag-file functionality.
+ // DEPRECATED.
+ extern GFLAGS_DLL_DECL bool AppendFlagsIntoFile(const std::string& filename, const char* prog_name);
+ extern GFLAGS_DLL_DECL bool ReadFromFlagsFile(const std::string& filename, const char* prog_name, bool errors_are_fatal);   // uses SET_FLAGS_VALUE
+@@ -437,7 +448,7 @@ class GFLAGS_DLL_DECL FlagRegisterer {
+   // Calling this constructor with unsupported type will produce linker error.
+   template <typename FlagType>
+   FlagRegisterer(const char* name,
+-                 const char* help, const char* filename,
++                 const char* help, const char* filename, bool hidden,
+                  FlagType* current_storage, FlagType* defvalue_storage);
+ };
+
+@@ -473,14 +484,14 @@ extern GFLAGS_DLL_DECL const char kStrippedFlagHelp[];
+ // FLAGS_no<name>.  This serves the second purpose of assuring a
+ // compile error if someone tries to define a flag named no<name>
+ // which is illegal (--foo and --nofoo both affect the "foo" flag).
+-#define DEFINE_VARIABLE(type, shorttype, name, value, help)             \
++#define DEFINE_VARIABLE(type, shorttype, name, value, help, hidden)     \
+   namespace fL##shorttype {                                             \
+     static const type FLAGS_nono##name = value;                         \
+     /* We always want to export defined variables, dll or no */         \
+     GFLAGS_DLL_DEFINE_FLAG type FLAGS_##name = FLAGS_nono##name;        \
+     type FLAGS_no##name = FLAGS_nono##name;                             \
+     static GFLAGS_NAMESPACE::FlagRegisterer o_##name(                   \
+-      #name, MAYBE_STRIPPED_HELP(help), __FILE__,                       \
++      #name, MAYBE_STRIPPED_HELP(help), __FILE__, hidden,               \
+       &FLAGS_##name, &FLAGS_no##name);                                  \
+   }                                                                     \
+   using fL##shorttype::FLAGS_##name
+@@ -509,26 +520,55 @@ GFLAGS_DLL_DECL bool IsBoolFlag(bool from);
+     typedef ::fLB::CompileAssert FLAG_##name##_value_is_not_a_bool[     \
+             (sizeof(::fLB::IsBoolFlag(val)) != sizeof(double))? 1: -1]; \
+   }                                                                     \
+-  DEFINE_VARIABLE(bool, B, name, val, txt)
++  DEFINE_VARIABLE(bool, B, name, val, txt, false)
+
+ #define DEFINE_int32(name, val, txt) \
+    DEFINE_VARIABLE(GFLAGS_NAMESPACE::int32, I, \
+-                   name, val, txt)
++                   name, val, txt, false)
+
+ #define DEFINE_uint32(name,val, txt) \
+    DEFINE_VARIABLE(GFLAGS_NAMESPACE::uint32, U, \
+-                   name, val, txt)
++                   name, val, txt, false)
+
+ #define DEFINE_int64(name, val, txt) \
+    DEFINE_VARIABLE(GFLAGS_NAMESPACE::int64, I64, \
+-                   name, val, txt)
++                   name, val, txt, false)
+
+ #define DEFINE_uint64(name,val, txt) \
+    DEFINE_VARIABLE(GFLAGS_NAMESPACE::uint64, U64, \
+-                   name, val, txt)
++                   name, val, txt, false)
+
+ #define DEFINE_double(name, val, txt) \
+-   DEFINE_VARIABLE(double, D, name, val, txt)
++   DEFINE_VARIABLE(double, D, name, val, txt, false)
++
++// Here are the actual hidden DEFINE_*-macros.
++// The respective DECLARE_*-macros are the same used when DEFINE-ing
++// a non hidden flag.
++#define DEFINE_HIDDEN_bool(name, val, txt)                              \
++  namespace fLB {                                                       \
++    typedef ::fLB::CompileAssert FLAG_##name##_value_is_not_a_bool[     \
++            (sizeof(::fLB::IsBoolFlag(val)) != sizeof(double))? 1: -1]; \
++  }                                                                     \
++  DEFINE_VARIABLE(bool, B, name, val, txt, true)
++
++#define DEFINE_HIDDEN_int32(name, val, txt) \
++   DEFINE_VARIABLE(GFLAGS_NAMESPACE::int32, I, \
++                   name, val, txt, true)
++
++#define DEFINE_HIDDEN_uint32(name,val, txt) \
++   DEFINE_VARIABLE(GFLAGS_NAMESPACE::uint32, U, \
++                   name, val, txt, true)
++
++#define DEFINE_HIDDEN_int64(name, val, txt) \
++   DEFINE_VARIABLE(GFLAGS_NAMESPACE::int64, I64, \
++                   name, val, txt, true)
++
++#define DEFINE_HIDDEN_uint64(name,val, txt) \
++   DEFINE_VARIABLE(GFLAGS_NAMESPACE::uint64, U64, \
++                   name, val, txt, true)
++
++#define DEFINE_HIDDEN_double(name, val, txt) \
++   DEFINE_VARIABLE(double, D, name, val, txt, true)
+
+ // Strings are trickier, because they're not a POD, so we can't
+ // construct them at static-initialization time (instead they get
+@@ -587,7 +627,26 @@ public:
+                                    dont_pass0toDEFINE_string(s_##name[0].s, \
+                                                              val);          \
+     static GFLAGS_NAMESPACE::FlagRegisterer o_##name(                       \
+-        #name, MAYBE_STRIPPED_HELP(txt), __FILE__,                          \
++        #name, MAYBE_STRIPPED_HELP(txt), __FILE__, false,                   \
++        FLAGS_no##name, new (s_##name[1].s) clstring(*FLAGS_no##name));     \
++    static StringFlagDestructor d_##name(s_##name[0].s, s_##name[1].s);     \
++    extern GFLAGS_DLL_DEFINE_FLAG clstring& FLAGS_##name;                   \
++    using fLS::FLAGS_##name;                                                \
++    clstring& FLAGS_##name = *FLAGS_no##name;                               \
++  }                                                                         \
++  using fLS::FLAGS_##name
++
++// Hidden string define
++#define DEFINE_HIDDEN_string(name, val, txt)                                \
++  namespace fLS {                                                           \
++    using ::fLS::clstring;                                                  \
++    using ::fLS::StringFlagDestructor;                                      \
++    static union { void* align; char s[sizeof(clstring)]; } s_##name[2];    \
++    clstring* const FLAGS_no##name = ::fLS::                                \
++                                   dont_pass0toDEFINE_string(s_##name[0].s, \
++                                                             val);          \
++    static GFLAGS_NAMESPACE::FlagRegisterer o_##name(                       \
++        #name, MAYBE_STRIPPED_HELP(txt), __FILE__, true,                    \
+         FLAGS_no##name, new (s_##name[1].s) clstring(*FLAGS_no##name));     \
+     static StringFlagDestructor d_##name(s_##name[0].s, s_##name[1].s);     \
+     extern GFLAGS_DLL_DEFINE_FLAG clstring& FLAGS_##name;                   \
+diff --git a/src/gflags_completions.cc b/src/gflags_completions.cc
+deleted file mode 100644
+index f772486..0000000
+--- a/src/gflags_completions.cc
++++ /dev/null
+@@ -1,768 +0,0 @@
+-// Copyright (c) 2008, Google Inc.
+-// All rights reserved.
+-//
+-// Redistribution and use in source and binary forms, with or without
+-// modification, are permitted provided that the following conditions are
+-// met:
+-//
+-//     * Redistributions of source code must retain the above copyright
+-// notice, this list of conditions and the following disclaimer.
+-//     * Redistributions in binary form must reproduce the above
+-// copyright notice, this list of conditions and the following disclaimer
+-// in the documentation and/or other materials provided with the
+-// distribution.
+-//     * Neither the name of Google Inc. nor the names of its
+-// contributors may be used to endorse or promote products derived from
+-// this software without specific prior written permission.
+-//
+-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+-//
+-// ---
+-
+-// Bash-style command line flag completion for C++ binaries
+-//
+-// This module implements bash-style completions.  It achieves this
+-// goal in the following broad chunks:
+-//
+-//  1) Take a to-be-completed word, and examine it for search hints
+-//  2) Identify all potentially matching flags
+-//     2a) If there are no matching flags, do nothing.
+-//     2b) If all matching flags share a common prefix longer than the
+-//         completion word, output just that matching prefix
+-//  3) Categorize those flags to produce a rough ordering of relevence.
+-//  4) Potentially trim the set of flags returned to a smaller number
+-//     that bash is happier with
+-//  5) Output the matching flags in groups ordered by relevence.
+-//     5a) Force bash to place most-relevent groups at the top of the list
+-//     5b) Trim most flag's descriptions to fit on a single terminal line
+-
+-#include <stdio.h>
+-#include <stdlib.h>
+-#include <string.h>   // for strlen
+-
+-#include <set>
+-#include <string>
+-#include <utility>
+-#include <vector>
+-
+-#include "config.h"
+-#include "gflags/gflags.h"
+-#include "gflags/gflags_completions.h"
+-#include "util.h"
+-
+-using std::set;
+-using std::string;
+-using std::vector;
+-
+-
+-DEFINE_string(tab_completion_word, "",
+-              "If non-empty, HandleCommandLineCompletions() will hijack the "
+-              "process and attempt to do bash-style command line flag "
+-              "completion on this value.");
+-DEFINE_int32(tab_completion_columns, 80,
+-             "Number of columns to use in output for tab completion");
+-
+-
+-namespace GFLAGS_NAMESPACE {
+-
+-
+-namespace {
+-// Function prototypes and Type forward declarations.  Code may be
+-// more easily understood if it is roughly ordered according to
+-// control flow, rather than by C's "declare before use" ordering
+-struct CompletionOptions;
+-struct NotableFlags;
+-
+-// The entry point if flag completion is to be used.
+-static void PrintFlagCompletionInfo(void);
+-
+-
+-// 1) Examine search word
+-static void CanonicalizeCursorWordAndSearchOptions(
+-    const string &cursor_word,
+-    string *canonical_search_token,
+-    CompletionOptions *options);
+-
+-static bool RemoveTrailingChar(string *str, char c);
+-
+-
+-// 2) Find all matches
+-static void FindMatchingFlags(
+-    const vector<CommandLineFlagInfo> &all_flags,
+-    const CompletionOptions &options,
+-    const string &match_token,
+-    set<const CommandLineFlagInfo *> *all_matches,
+-    string *longest_common_prefix);
+-
+-static bool DoesSingleFlagMatch(
+-    const CommandLineFlagInfo &flag,
+-    const CompletionOptions &options,
+-    const string &match_token);
+-
+-
+-// 3) Categorize matches
+-static void CategorizeAllMatchingFlags(
+-    const set<const CommandLineFlagInfo *> &all_matches,
+-    const string &search_token,
+-    const string &module,
+-    const string &package_dir,
+-    NotableFlags *notable_flags);
+-
+-static void TryFindModuleAndPackageDir(
+-    const vector<CommandLineFlagInfo> &all_flags,
+-    string *module,
+-    string *package_dir);
+-
+-
+-// 4) Decide which flags to use
+-static void FinalizeCompletionOutput(
+-    const set<const CommandLineFlagInfo *> &matching_flags,
+-    CompletionOptions *options,
+-    NotableFlags *notable_flags,
+-    vector<string> *completions);
+-
+-static void RetrieveUnusedFlags(
+-    const set<const CommandLineFlagInfo *> &matching_flags,
+-    const NotableFlags &notable_flags,
+-    set<const CommandLineFlagInfo *> *unused_flags);
+-
+-
+-// 5) Output matches
+-static void OutputSingleGroupWithLimit(
+-    const set<const CommandLineFlagInfo *> &group,
+-    const string &line_indentation,
+-    const string &header,
+-    const string &footer,
+-    bool long_output_format,
+-    int *remaining_line_limit,
+-    size_t *completion_elements_added,
+-    vector<string> *completions);
+-
+-// (helpers for #5)
+-static string GetShortFlagLine(
+-    const string &line_indentation,
+-    const CommandLineFlagInfo &info);
+-
+-static string GetLongFlagLine(
+-    const string &line_indentation,
+-    const CommandLineFlagInfo &info);
+-
+-
+-//
+-// Useful types
+-
+-// Try to deduce the intentions behind this completion attempt.  Return the
+-// canonical search term in 'canonical_search_token'.  Binary search options
+-// are returned in the various booleans, which should all have intuitive
+-// semantics, possibly except:
+-//  - return_all_matching_flags: Generally, we'll trim the number of
+-//    returned candidates to some small number, showing those that are
+-//    most likely to be useful first.  If this is set, however, the user
+-//    really does want us to return every single flag as an option.
+-//  - force_no_update: Any time we output lines, all of which share a
+-//    common prefix, bash will 'helpfully' not even bother to show the
+-//    output, instead changing the current word to be that common prefix.
+-//    If it's clear this shouldn't happen, we'll set this boolean
+-struct CompletionOptions {
+-  bool flag_name_substring_search;
+-  bool flag_location_substring_search;
+-  bool flag_description_substring_search;
+-  bool return_all_matching_flags;
+-  bool force_no_update;
+-};
+-
+-// Notable flags are flags that are special or preferred for some
+-// reason.  For example, flags that are defined in the binary's module
+-// are expected to be much more relevent than flags defined in some
+-// other random location.  These sets are specified roughly in precedence
+-// order.  Once a flag is placed in one of these 'higher' sets, it won't
+-// be placed in any of the 'lower' sets.
+-struct NotableFlags {
+-  typedef set<const CommandLineFlagInfo *> FlagSet;
+-  FlagSet perfect_match_flag;
+-  FlagSet module_flags;       // Found in module file
+-  FlagSet package_flags;      // Found in same directory as module file
+-  FlagSet most_common_flags;  // One of the XXX most commonly supplied flags
+-  FlagSet subpackage_flags;   // Found in subdirectories of package
+-};
+-
+-
+-//
+-// Tab completion implementation - entry point
+-static void PrintFlagCompletionInfo(void) {
+-  string cursor_word = FLAGS_tab_completion_word;
+-  string canonical_token;
+-  CompletionOptions options = { };
+-  CanonicalizeCursorWordAndSearchOptions(
+-      cursor_word,
+-      &canonical_token,
+-      &options);
+-
+-  DVLOG(1) << "Identified canonical_token: '" << canonical_token << "'";
+-
+-  vector<CommandLineFlagInfo> all_flags;
+-  set<const CommandLineFlagInfo *> matching_flags;
+-  GetAllFlags(&all_flags);
+-  DVLOG(2) << "Found " << all_flags.size() << " flags overall";
+-
+-  string longest_common_prefix;
+-  FindMatchingFlags(
+-      all_flags,
+-      options,
+-      canonical_token,
+-      &matching_flags,
+-      &longest_common_prefix);
+-  DVLOG(1) << "Identified " << matching_flags.size() << " matching flags";
+-  DVLOG(1) << "Identified " << longest_common_prefix
+-          << " as longest common prefix.";
+-  if (longest_common_prefix.size() > canonical_token.size()) {
+-    // There's actually a shared common prefix to all matching flags,
+-    // so may as well output that and quit quickly.
+-    DVLOG(1) << "The common prefix '" << longest_common_prefix
+-            << "' was longer than the token '" << canonical_token
+-            << "'.  Returning just this prefix for completion.";
+-    fprintf(stdout, "--%s", longest_common_prefix.c_str());
+-    return;
+-  }
+-  if (matching_flags.empty()) {
+-    VLOG(1) << "There were no matching flags, returning nothing.";
+-    return;
+-  }
+-
+-  string module;
+-  string package_dir;
+-  TryFindModuleAndPackageDir(all_flags, &module, &package_dir);
+-  DVLOG(1) << "Identified module: '" << module << "'";
+-  DVLOG(1) << "Identified package_dir: '" << package_dir << "'";
+-
+-  NotableFlags notable_flags;
+-  CategorizeAllMatchingFlags(
+-      matching_flags,
+-      canonical_token,
+-      module,
+-      package_dir,
+-      &notable_flags);
+-  DVLOG(2) << "Categorized matching flags:";
+-  DVLOG(2) << " perfect_match: " << notable_flags.perfect_match_flag.size();
+-  DVLOG(2) << " module: " << notable_flags.module_flags.size();
+-  DVLOG(2) << " package: " << notable_flags.package_flags.size();
+-  DVLOG(2) << " most common: " << notable_flags.most_common_flags.size();
+-  DVLOG(2) << " subpackage: " << notable_flags.subpackage_flags.size();
+-
+-  vector<string> completions;
+-  FinalizeCompletionOutput(
+-      matching_flags,
+-      &options,
+-      &notable_flags,
+-      &completions);
+-
+-  if (options.force_no_update)
+-    completions.push_back("~");
+-
+-  DVLOG(1) << "Finalized with " << completions.size()
+-          << " chosen completions";
+-
+-  for (vector<string>::const_iterator it = completions.begin();
+-      it != completions.end();
+-      ++it) {
+-    DVLOG(9) << "  Completion entry: '" << *it << "'";
+-    fprintf(stdout, "%s\n", it->c_str());
+-  }
+-}
+-
+-
+-// 1) Examine search word (and helper method)
+-static void CanonicalizeCursorWordAndSearchOptions(
+-    const string &cursor_word,
+-    string *canonical_search_token,
+-    CompletionOptions *options) {
+-  *canonical_search_token = cursor_word;
+-  if (canonical_search_token->empty()) return;
+-
+-  // Get rid of leading quotes and dashes in the search term
+-  if ((*canonical_search_token)[0] == '"')
+-    *canonical_search_token = canonical_search_token->substr(1);
+-  while ((*canonical_search_token)[0] == '-')
+-    *canonical_search_token = canonical_search_token->substr(1);
+-
+-  options->flag_name_substring_search = false;
+-  options->flag_location_substring_search = false;
+-  options->flag_description_substring_search = false;
+-  options->return_all_matching_flags = false;
+-  options->force_no_update = false;
+-
+-  // Look for all search options we can deduce now.  Do this by walking
+-  // backwards through the term, looking for up to three '?' and up to
+-  // one '+' as suffixed characters.  Consume them if found, and remove
+-  // them from the canonical search token.
+-  int found_question_marks = 0;
+-  int found_plusses = 0;
+-  while (true) {
+-    if (found_question_marks < 3 &&
+-        RemoveTrailingChar(canonical_search_token, '?')) {
+-      ++found_question_marks;
+-      continue;
+-    }
+-    if (found_plusses < 1 &&
+-        RemoveTrailingChar(canonical_search_token, '+')) {
+-      ++found_plusses;
+-      continue;
+-    }
+-    break;
+-  }
+-
+-  switch (found_question_marks) {  // all fallthroughs
+-    case 3: options->flag_description_substring_search = true;
+-    case 2: options->flag_location_substring_search = true;
+-    case 1: options->flag_name_substring_search = true;
+-  };
+-
+-  options->return_all_matching_flags = (found_plusses > 0);
+-}
+-
+-// Returns true if a char was removed
+-static bool RemoveTrailingChar(string *str, char c) {
+-  if (str->empty()) return false;
+-  if ((*str)[str->size() - 1] == c) {
+-    *str = str->substr(0, str->size() - 1);
+-    return true;
+-  }
+-  return false;
+-}
+-
+-
+-// 2) Find all matches (and helper methods)
+-static void FindMatchingFlags(
+-    const vector<CommandLineFlagInfo> &all_flags,
+-    const CompletionOptions &options,
+-    const string &match_token,
+-    set<const CommandLineFlagInfo *> *all_matches,
+-    string *longest_common_prefix) {
+-  all_matches->clear();
+-  bool first_match = true;
+-  for (vector<CommandLineFlagInfo>::const_iterator it = all_flags.begin();
+-      it != all_flags.end();
+-      ++it) {
+-    if (DoesSingleFlagMatch(*it, options, match_token)) {
+-      all_matches->insert(&*it);
+-      if (first_match) {
+-        first_match = false;
+-        *longest_common_prefix = it->name;
+-      } else {
+-        if (longest_common_prefix->empty() || it->name.empty()) {
+-          longest_common_prefix->clear();
+-          continue;
+-        }
+-        string::size_type pos = 0;
+-        while (pos < longest_common_prefix->size() &&
+-            pos < it->name.size() &&
+-            (*longest_common_prefix)[pos] == it->name[pos])
+-          ++pos;
+-        longest_common_prefix->erase(pos);
+-      }
+-    }
+-  }
+-}
+-
+-// Given the set of all flags, the parsed match options, and the
+-// canonical search token, produce the set of all candidate matching
+-// flags for subsequent analysis or filtering.
+-static bool DoesSingleFlagMatch(
+-    const CommandLineFlagInfo &flag,
+-    const CompletionOptions &options,
+-    const string &match_token) {
+-  // Is there a prefix match?
+-  string::size_type pos = flag.name.find(match_token);
+-  if (pos == 0) return true;
+-
+-  // Is there a substring match if we want it?
+-  if (options.flag_name_substring_search &&
+-      pos != string::npos)
+-    return true;
+-
+-  // Is there a location match if we want it?
+-  if (options.flag_location_substring_search &&
+-      flag.filename.find(match_token) != string::npos)
+-    return true;
+-
+-  // TODO(user): All searches should probably be case-insensitive
+-  // (especially this one...)
+-  if (options.flag_description_substring_search &&
+-      flag.description.find(match_token) != string::npos)
+-    return true;
+-
+-  return false;
+-}
+-
+-// 3) Categorize matches (and helper method)
+-
+-// Given a set of matching flags, categorize them by
+-// likely relevence to this specific binary
+-static void CategorizeAllMatchingFlags(
+-    const set<const CommandLineFlagInfo *> &all_matches,
+-    const string &search_token,
+-    const string &module,  // empty if we couldn't find any
+-    const string &package_dir,  // empty if we couldn't find any
+-    NotableFlags *notable_flags) {
+-  notable_flags->perfect_match_flag.clear();
+-  notable_flags->module_flags.clear();
+-  notable_flags->package_flags.clear();
+-  notable_flags->most_common_flags.clear();
+-  notable_flags->subpackage_flags.clear();
+-
+-  for (set<const CommandLineFlagInfo *>::const_iterator it =
+-        all_matches.begin();
+-      it != all_matches.end();
+-      ++it) {
+-    DVLOG(2) << "Examining match '" << (*it)->name << "'";
+-    DVLOG(7) << "  filename: '" << (*it)->filename << "'";
+-    string::size_type pos = string::npos;
+-    if (!package_dir.empty())
+-      pos = (*it)->filename.find(package_dir);
+-    string::size_type slash = string::npos;
+-    if (pos != string::npos)  // candidate for package or subpackage match
+-      slash = (*it)->filename.find(
+-          PATH_SEPARATOR,
+-          pos + package_dir.size() + 1);
+-
+-    if ((*it)->name == search_token) {
+-      // Exact match on some flag's name
+-      notable_flags->perfect_match_flag.insert(*it);
+-      DVLOG(3) << "Result: perfect match";
+-    } else if (!module.empty() && (*it)->filename == module) {
+-      // Exact match on module filename
+-      notable_flags->module_flags.insert(*it);
+-      DVLOG(3) << "Result: module match";
+-    } else if (!package_dir.empty() &&
+-        pos != string::npos && slash == string::npos) {
+-      // In the package, since there was no slash after the package portion
+-      notable_flags->package_flags.insert(*it);
+-      DVLOG(3) << "Result: package match";
+-    } else if (false) {
+-      // In the list of the XXX most commonly supplied flags overall
+-      // TODO(user): Compile this list.
+-      DVLOG(3) << "Result: most-common match";
+-    } else if (!package_dir.empty() &&
+-        pos != string::npos && slash != string::npos) {
+-      // In a subdirectory of the package
+-      notable_flags->subpackage_flags.insert(*it);
+-      DVLOG(3) << "Result: subpackage match";
+-    }
+-
+-    DVLOG(3) << "Result: not special match";
+-  }
+-}
+-
+-static void PushNameWithSuffix(vector<string>* suffixes, const char* suffix) {
+-  suffixes->push_back(
+-      StringPrintf("/%s%s", ProgramInvocationShortName(), suffix));
+-}
+-
+-static void TryFindModuleAndPackageDir(
+-    const vector<CommandLineFlagInfo> &all_flags,
+-    string *module,
+-    string *package_dir) {
+-  module->clear();
+-  package_dir->clear();
+-
+-  vector<string> suffixes;
+-  // TODO(user): There's some inherant ambiguity here - multiple directories
+-  // could share the same trailing folder and file structure (and even worse,
+-  // same file names), causing us to be unsure as to which of the two is the
+-  // actual package for this binary.  In this case, we'll arbitrarily choose.
+-  PushNameWithSuffix(&suffixes, ".");
+-  PushNameWithSuffix(&suffixes, "-main.");
+-  PushNameWithSuffix(&suffixes, "_main.");
+-  // These four are new but probably merited?
+-  PushNameWithSuffix(&suffixes, "-test.");
+-  PushNameWithSuffix(&suffixes, "_test.");
+-  PushNameWithSuffix(&suffixes, "-unittest.");
+-  PushNameWithSuffix(&suffixes, "_unittest.");
+-
+-  for (vector<CommandLineFlagInfo>::const_iterator it = all_flags.begin();
+-      it != all_flags.end();
+-      ++it) {
+-    for (vector<string>::const_iterator suffix = suffixes.begin();
+-        suffix != suffixes.end();
+-        ++suffix) {
+-      // TODO(user): Make sure the match is near the end of the string
+-      if (it->filename.find(*suffix) != string::npos) {
+-        *module = it->filename;
+-        string::size_type sep = it->filename.rfind(PATH_SEPARATOR);
+-        *package_dir = it->filename.substr(0, (sep == string::npos) ? 0 : sep);
+-        return;
+-      }
+-    }
+-  }
+-}
+-
+-// Can't specialize template type on a locally defined type.  Silly C++...
+-struct DisplayInfoGroup {
+-  const char* header;
+-  const char* footer;
+-  set<const CommandLineFlagInfo *> *group;
+-
+-  int SizeInLines() const {
+-    int size_in_lines = static_cast<int>(group->size()) + 1;
+-    if (strlen(header) > 0) {
+-      size_in_lines++;
+-    }
+-    if (strlen(footer) > 0) {
+-      size_in_lines++;
+-    }
+-    return size_in_lines;
+-  }
+-};
+-
+-// 4) Finalize and trim output flag set
+-static void FinalizeCompletionOutput(
+-    const set<const CommandLineFlagInfo *> &matching_flags,
+-    CompletionOptions *options,
+-    NotableFlags *notable_flags,
+-    vector<string> *completions) {
+-
+-  // We want to output lines in groups.  Each group needs to be indented
+-  // the same to keep its lines together.  Unless otherwise required,
+-  // only 99 lines should be output to prevent bash from harassing the
+-  // user.
+-
+-  // First, figure out which output groups we'll actually use.  For each
+-  // nonempty group, there will be ~3 lines of header & footer, plus all
+-  // output lines themselves.
+-  int max_desired_lines =  // "999999 flags should be enough for anyone.  -dave"
+-    (options->return_all_matching_flags ? 999999 : 98);
+-  int lines_so_far = 0;
+-
+-  vector<DisplayInfoGroup> output_groups;
+-  bool perfect_match_found = false;
+-  if (lines_so_far < max_desired_lines &&
+-      !notable_flags->perfect_match_flag.empty()) {
+-    perfect_match_found = true;
+-    DisplayInfoGroup group =
+-        { "",
+-          "==========",
+-          &notable_flags->perfect_match_flag };
+-    lines_so_far += group.SizeInLines();
+-    output_groups.push_back(group);
+-  }
+-  if (lines_so_far < max_desired_lines &&
+-      !notable_flags->module_flags.empty()) {
+-    DisplayInfoGroup group = {
+-        "-* Matching module flags *-",
+-        "===========================",
+-        &notable_flags->module_flags };
+-    lines_so_far += group.SizeInLines();
+-    output_groups.push_back(group);
+-  }
+-  if (lines_so_far < max_desired_lines &&
+-      !notable_flags->package_flags.empty()) {
+-    DisplayInfoGroup group = {
+-        "-* Matching package flags *-",
+-        "============================",
+-        &notable_flags->package_flags };
+-    lines_so_far += group.SizeInLines();
+-    output_groups.push_back(group);
+-  }
+-  if (lines_so_far < max_desired_lines &&
+-      !notable_flags->most_common_flags.empty()) {
+-    DisplayInfoGroup group = {
+-        "-* Commonly used flags *-",
+-        "=========================",
+-        &notable_flags->most_common_flags };
+-    lines_so_far += group.SizeInLines();
+-    output_groups.push_back(group);
+-  }
+-  if (lines_so_far < max_desired_lines &&
+-      !notable_flags->subpackage_flags.empty()) {
+-    DisplayInfoGroup group = {
+-        "-* Matching sub-package flags *-",
+-        "================================",
+-        &notable_flags->subpackage_flags };
+-    lines_so_far += group.SizeInLines();
+-    output_groups.push_back(group);
+-  }
+-
+-  set<const CommandLineFlagInfo *> obscure_flags;  // flags not notable
+-  if (lines_so_far < max_desired_lines) {
+-    RetrieveUnusedFlags(matching_flags, *notable_flags, &obscure_flags);
+-    if (!obscure_flags.empty()) {
+-      DisplayInfoGroup group = {
+-          "-* Other flags *-",
+-          "",
+-          &obscure_flags };
+-      lines_so_far += group.SizeInLines();
+-      output_groups.push_back(group);
+-    }
+-  }
+-
+-  // Second, go through each of the chosen output groups and output
+-  // as many of those flags as we can, while remaining below our limit
+-  int remaining_lines = max_desired_lines;
+-  size_t completions_output = 0;
+-  int indent = static_cast<int>(output_groups.size()) - 1;
+-  for (vector<DisplayInfoGroup>::const_iterator it =
+-        output_groups.begin();
+-      it != output_groups.end();
+-      ++it, --indent) {
+-    OutputSingleGroupWithLimit(
+-        *it->group,  // group
+-        string(indent, ' '),  // line indentation
+-        string(it->header),  // header
+-        string(it->footer),  // footer
+-        perfect_match_found,  // long format
+-        &remaining_lines,  // line limit - reduces this by number printed
+-        &completions_output,  // completions (not lines) added
+-        completions);  // produced completions
+-    perfect_match_found = false;
+-  }
+-
+-  if (completions_output != matching_flags.size()) {
+-    options->force_no_update = false;
+-    completions->push_back("~ (Remaining flags hidden) ~");
+-  } else {
+-    options->force_no_update = true;
+-  }
+-}
+-
+-static void RetrieveUnusedFlags(
+-    const set<const CommandLineFlagInfo *> &matching_flags,
+-    const NotableFlags &notable_flags,
+-    set<const CommandLineFlagInfo *> *unused_flags) {
+-  // Remove from 'matching_flags' set all members of the sets of
+-  // flags we've already printed (specifically, those in notable_flags)
+-  for (set<const CommandLineFlagInfo *>::const_iterator it =
+-        matching_flags.begin();
+-      it != matching_flags.end();
+-      ++it) {
+-    if (notable_flags.perfect_match_flag.count(*it) ||
+-        notable_flags.module_flags.count(*it) ||
+-        notable_flags.package_flags.count(*it) ||
+-        notable_flags.most_common_flags.count(*it) ||
+-        notable_flags.subpackage_flags.count(*it))
+-      continue;
+-    unused_flags->insert(*it);
+-  }
+-}
+-
+-// 5) Output matches (and helper methods)
+-
+-static void OutputSingleGroupWithLimit(
+-    const set<const CommandLineFlagInfo *> &group,
+-    const string &line_indentation,
+-    const string &header,
+-    const string &footer,
+-    bool long_output_format,
+-    int *remaining_line_limit,
+-    size_t *completion_elements_output,
+-    vector<string> *completions) {
+-  if (group.empty()) return;
+-  if (!header.empty()) {
+-    if (*remaining_line_limit < 2) return;
+-    *remaining_line_limit -= 2;
+-    completions->push_back(line_indentation + header);
+-    completions->push_back(line_indentation + string(header.size(), '-'));
+-  }
+-  for (set<const CommandLineFlagInfo *>::const_iterator it = group.begin();
+-      it != group.end() && *remaining_line_limit > 0;
+-      ++it) {
+-    --*remaining_line_limit;
+-    ++*completion_elements_output;
+-    completions->push_back(
+-        (long_output_format
+-          ? GetLongFlagLine(line_indentation, **it)
+-          : GetShortFlagLine(line_indentation, **it)));
+-  }
+-  if (!footer.empty()) {
+-    if (*remaining_line_limit < 1) return;
+-    --*remaining_line_limit;
+-    completions->push_back(line_indentation + footer);
+-  }
+-}
+-
+-static string GetShortFlagLine(
+-    const string &line_indentation,
+-    const CommandLineFlagInfo &info) {
+-  string prefix;
+-  bool is_string = (info.type == "string");
+-  SStringPrintf(&prefix, "%s--%s [%s%s%s] ",
+-                line_indentation.c_str(),
+-                info.name.c_str(),
+-                (is_string ? "'" : ""),
+-                info.default_value.c_str(),
+-                (is_string ? "'" : ""));
+-  int remainder =
+-      FLAGS_tab_completion_columns - static_cast<int>(prefix.size());
+-  string suffix;
+-  if (remainder > 0)
+-    suffix =
+-        (static_cast<int>(info.description.size()) > remainder ?
+-         (info.description.substr(0, remainder - 3) + "...").c_str() :
+-         info.description.c_str());
+-  return prefix + suffix;
+-}
+-
+-static string GetLongFlagLine(
+-    const string &line_indentation,
+-    const CommandLineFlagInfo &info) {
+-
+-  string output = DescribeOneFlag(info);
+-
+-  // Replace '-' with '--', and remove trailing newline before appending
+-  // the module definition location.
+-  string old_flagname = "-" + info.name;
+-  output.replace(
+-      output.find(old_flagname),
+-      old_flagname.size(),
+-      "-" + old_flagname);
+-  // Stick a newline and indentation in front of the type and default
+-  // portions of DescribeOneFlag()s description
+-  static const char kNewlineWithIndent[] = "\n    ";
+-  output.replace(output.find(" type:"), 1, string(kNewlineWithIndent));
+-  output.replace(output.find(" default:"), 1, string(kNewlineWithIndent));
+-  output = StringPrintf("%s Details for '--%s':\n"
+-                        "%s    defined: %s",
+-                        line_indentation.c_str(),
+-                        info.name.c_str(),
+-                        output.c_str(),
+-                        info.filename.c_str());
+-
+-  // Eliminate any doubled newlines that crept in.  Specifically, if
+-  // DescribeOneFlag() decided to break the line just before "type"
+-  // or "default", we don't want to introduce an extra blank line
+-  static const string line_of_spaces(FLAGS_tab_completion_columns, ' ');
+-  static const char kDoubledNewlines[] = "\n     \n";
+-  for (string::size_type newlines = output.find(kDoubledNewlines);
+-      newlines != string::npos;
+-      newlines = output.find(kDoubledNewlines))
+-    // Replace each 'doubled newline' with a single newline
+-    output.replace(newlines, sizeof(kDoubledNewlines) - 1, string("\n"));
+-
+-  for (string::size_type newline = output.find('\n');
+-      newline != string::npos;
+-      newline = output.find('\n')) {
+-    int newline_pos = static_cast<int>(newline) % FLAGS_tab_completion_columns;
+-    int missing_spaces = FLAGS_tab_completion_columns - newline_pos;
+-    output.replace(newline, 1, line_of_spaces, 1, missing_spaces);
+-  }
+-  return output;
+-}
+-}  // anonymous
+-
+-void HandleCommandLineCompletions(void) {
+-  if (FLAGS_tab_completion_word.empty()) return;
+-  PrintFlagCompletionInfo();
+-  gflags_exitfunc(0);
+-}
+-
+-
+-} // namespace GFLAGS_NAMESPACE
+diff --git a/src/gflags_completions.h.in b/src/gflags_completions.h.in
+deleted file mode 100644
+index b27e5fd..0000000
+--- a/src/gflags_completions.h.in
++++ /dev/null
+@@ -1,121 +0,0 @@
+-// Copyright (c) 2008, Google Inc.
+-// All rights reserved.
+-//
+-// Redistribution and use in source and binary forms, with or without
+-// modification, are permitted provided that the following conditions are
+-// met:
+-//
+-//     * Redistributions of source code must retain the above copyright
+-// notice, this list of conditions and the following disclaimer.
+-//     * Redistributions in binary form must reproduce the above
+-// copyright notice, this list of conditions and the following disclaimer
+-// in the documentation and/or other materials provided with the
+-// distribution.
+-//     * Neither the name of Google Inc. nor the names of its
+-// contributors may be used to endorse or promote products derived from
+-// this software without specific prior written permission.
+-//
+-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+-//
+-// ---
+-
+-//
+-// Implement helpful bash-style command line flag completions
+-//
+-// ** Functional API:
+-// HandleCommandLineCompletions() should be called early during
+-// program startup, but after command line flag code has been
+-// initialized, such as the beginning of HandleCommandLineHelpFlags().
+-// It checks the value of the flag --tab_completion_word.  If this
+-// flag is empty, nothing happens here.  If it contains a string,
+-// however, then HandleCommandLineCompletions() will hijack the
+-// process, attempting to identify the intention behind this
+-// completion.  Regardless of the outcome of this deduction, the
+-// process will be terminated, similar to --helpshort flag
+-// handling.
+-//
+-// ** Overview of Bash completions:
+-// Bash can be told to programatically determine completions for the
+-// current 'cursor word'.  It does this by (in this case) invoking a
+-// command with some additional arguments identifying the command
+-// being executed, the word being completed, and the previous word
+-// (if any).  Bash then expects a sequence of output lines to be
+-// printed to stdout.  If these lines all contain a common prefix
+-// longer than the cursor word, bash will replace the cursor word
+-// with that common prefix, and display nothing.  If there isn't such
+-// a common prefix, bash will display the lines in pages using 'more'.
+-//
+-// ** Strategy taken for command line completions:
+-// If we can deduce either the exact flag intended, or a common flag
+-// prefix, we'll output exactly that.  Otherwise, if information
+-// must be displayed to the user, we'll take the opportunity to add
+-// some helpful information beyond just the flag name (specifically,
+-// we'll include the default flag value and as much of the flag's
+-// description as can fit on a single terminal line width, as specified
+-// by the flag --tab_completion_columns).  Furthermore, we'll try to
+-// make bash order the output such that the most useful or relevent
+-// flags are the most likely to be shown at the top.
+-//
+-// ** Additional features:
+-// To assist in finding that one really useful flag, substring matching
+-// was implemented.  Before pressing a <TAB> to get completion for the
+-// current word, you can append one or more '?' to the flag to do
+-// substring matching.  Here's the semantics:
+-//   --foo<TAB>     Show me all flags with names prefixed by 'foo'
+-//   --foo?<TAB>    Show me all flags with 'foo' somewhere in the name
+-//   --foo??<TAB>   Same as prior case, but also search in module
+-//                  definition path for 'foo'
+-//   --foo???<TAB>  Same as prior case, but also search in flag
+-//                  descriptions for 'foo'
+-// Finally, we'll trim the output to a relatively small number of
+-// flags to keep bash quiet about the verbosity of output.  If one
+-// really wanted to see all possible matches, appending a '+' to the
+-// search word will force the exhaustive list of matches to be printed.
+-//
+-// ** How to have bash accept completions from a binary:
+-// Bash requires that it be informed about each command that programmatic
+-// completion should be enabled for.  Example addition to a .bashrc
+-// file would be (your path to gflags_completions.sh file may differ):
+-
+-/*
+-$ complete -o bashdefault -o default -o nospace -C                            \
+- '/home/build/eng/bash/bash_completions.sh --tab_completion_columns $COLUMNS' \
+-  time  env  binary_name  another_binary  [...]
+-*/
+-
+-// This would allow the following to work:
+-//   $ /path/to/binary_name --vmodule<TAB>
+-// Or:
+-//   $ ./bin/path/another_binary --gfs_u<TAB>
+-// (etc)
+-//
+-// Sadly, it appears that bash gives no easy way to force this behavior for
+-// all commands.  That's where the "time" in the above example comes in.
+-// If you haven't specifically added a command to the list of completion
+-// supported commands, you can still get completions by prefixing the
+-// entire command with "env".
+-//   $ env /some/brand/new/binary --vmod<TAB>
+-// Assuming that "binary" is a newly compiled binary, this should still
+-// produce the expected completion output.
+-
+-
+-#ifndef GFLAGS_COMPLETIONS_H_
+-#define GFLAGS_COMPLETIONS_H_
+-
+-namespace @GFLAGS_NAMESPACE@ {
+-
+-extern void HandleCommandLineCompletions(void);
+-
+-}
+-
+-#endif  // GFLAGS_COMPLETIONS_H_
+diff --git a/src/gflags_completions.sh b/src/gflags_completions.sh
+deleted file mode 100755
+index c5fb7e6..0000000
+--- a/src/gflags_completions.sh
++++ /dev/null
+@@ -1,117 +0,0 @@
+-#!/bin/bash
+-
+-# Copyright (c) 2008, Google Inc.
+-# All rights reserved.
+-#
+-# Redistribution and use in source and binary forms, with or without
+-# modification, are permitted provided that the following conditions are
+-# met:
+-#
+-#     * Redistributions of source code must retain the above copyright
+-# notice, this list of conditions and the following disclaimer.
+-#     * Redistributions in binary form must reproduce the above
+-# copyright notice, this list of conditions and the following disclaimer
+-# in the documentation and/or other materials provided with the
+-# distribution.
+-#     * Neither the name of Google Inc. nor the names of its
+-# contributors may be used to endorse or promote products derived from
+-# this software without specific prior written permission.
+-#
+-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+-#
+-# ---
+-# Author: Dave Nicponski
+-#
+-# This script is invoked by bash in response to a matching compspec.  When
+-# this happens, bash calls this script using the command shown in the -C
+-# block of the complete entry, but also appends 3 arguments.  They are:
+-#   - The command being used for completion
+-#   - The word being completed
+-#   - The word preceding the completion word.
+-#
+-# Here's an example of how you might use this script:
+-# $ complete -o bashdefault -o default -o nospace -C                         \
+-#   '/usr/local/bin/gflags_completions.sh --tab_completion_columns $COLUMNS' \
+-#   time  env  binary_name  another_binary  [...]
+-
+-# completion_word_index gets the index of the (N-1)th argument for
+-# this command line.  completion_word gets the actual argument from
+-# this command line at the (N-1)th position
+-completion_word_index="$(($# - 1))"
+-completion_word="${!completion_word_index}"
+-
+-# TODO(user): Replace this once gflags_completions.cc has
+-# a bool parameter indicating unambiguously to hijack the process for
+-# completion purposes.
+-if [ -z "$completion_word" ]; then
+-  # Until an empty value for the completion word stops being misunderstood
+-  # by binaries, don't actually execute the binary or the process
+-  # won't be hijacked!
+-  exit 0
+-fi
+-
+-# binary_index gets the index of the command being completed (which bash
+-# places in the (N-2)nd position.  binary gets the actual command from
+-# this command line at that (N-2)nd position
+-binary_index="$(($# - 2))"
+-binary="${!binary_index}"
+-
+-# For completions to be universal, we may have setup the compspec to
+-# trigger on 'harmless pass-through' commands, like 'time' or 'env'.
+-# If the command being completed is one of those two, we'll need to
+-# identify the actual command being executed.  To do this, we need
+-# the actual command line that the <TAB> was pressed on.  Bash helpfully
+-# places this in the $COMP_LINE variable.
+-if [ "$binary" == "time" ] || [ "$binary" == "env" ]; then
+-  # we'll assume that the first 'argument' is actually the
+-  # binary
+-
+-
+-  # TODO(user): This is not perfect - the 'env' command, for instance,
+-  #   is allowed to have options between the 'env' and 'the command to
+-  #   be executed'.  For example, consider:
+-  # $ env FOO="bar"  bin/do_something  --help<TAB>
+-  # In this case, we'll mistake the FOO="bar" portion as the binary.
+-  #   Perhaps we should continuing consuming leading words until we
+-  #   either run out of words, or find a word that is a valid file
+-  #   marked as executable.  I can't think of any reason this wouldn't
+-  #   work.
+-
+-  # Break up the 'original command line' (not this script's command line,
+-  # rather the one the <TAB> was pressed on) and find the second word.
+-  parts=( ${COMP_LINE} )
+-  binary=${parts[1]}
+-fi
+-
+-# Build the command line to use for completion.  Basically it involves
+-# passing through all the arguments given to this script (except the 3
+-# that bash added), and appending a '--tab_completion_word "WORD"' to
+-# the arguments.
+-params=""
+-for ((i=1; i<=$(($# - 3)); ++i)); do
+-  params="$params \"${!i}\"";
+-done
+-params="$params --tab_completion_word \"$completion_word\""
+-
+-# TODO(user): Perhaps stash the output in a temporary file somewhere
+-# in /tmp, and only cat it to stdout if the command returned a success
+-# code, to prevent false positives
+-
+-# If we think we have a reasonable command to execute, then execute it
+-# and hope for the best.
+-candidate=$(type -p "$binary")
+-if [ ! -z "$candidate" ]; then
+-  eval "$candidate 2>/dev/null $params"
+-elif [ -f "$binary" ] && [ -x "$binary" ]; then
+-  eval "$binary 2>/dev/null $params"
+-fi
+diff --git a/src/gflags_reporting.cc b/src/gflags_reporting.cc
+index 7cc6691..2bc5f70 100644
+--- a/src/gflags_reporting.cc
++++ b/src/gflags_reporting.cc
+@@ -34,7 +34,7 @@
+ // This file contains code for handling the 'reporting' flags.  These
+ // are flags that, when present, cause the program to report some
+ // information and then exit.  --help and --version are the canonical
+-// reporting flags, but we also have flags like --helpxml, etc.
++// reporting flags, but we also have flags like --help-xml, etc.
+ //
+ // There's only one function that's meant to be called externally:
+ // HandleCommandLineHelpFlags().  (Well, actually, ShowUsageWithFlags(),
+@@ -52,23 +52,18 @@
+ #include <string.h>
+ #include <ctype.h>
+ #include <assert.h>
++#include <algorithm>
+ #include <string>
+ #include <vector>
+
+ #include "config.h"
+ #include "gflags/gflags.h"
+-#include "gflags/gflags_completions.h"
+ #include "util.h"
+
+
+ // The 'reporting' flags.  They all call gflags_exitfunc().
+ DEFINE_bool  (help,        false, "show help on all flags [tip: all flags can have two dashes]");
+-DEFINE_bool  (helpfull,    false, "show help on all flags -- same as -help");
+-DEFINE_bool  (helpshort,   false, "show help on only the main module for this program");
+-DEFINE_string(helpon,      "",    "show help on the modules named by this flag value");
+-DEFINE_string(helpmatch,   "",    "show help on modules whose name contains the specified substr");
+-DEFINE_bool  (helppackage, false, "show help on all modules in the main package");
+-DEFINE_bool  (helpxml,     false, "produce an xml version of help");
++DEFINE_bool  (help_xml,    false, "produce an xml version of help");
+ DEFINE_bool  (version,     false, "show version and build info and exit");
+
+
+@@ -93,8 +88,8 @@ static void AddString(const string& s,
+                       string* final_string, int* chars_in_line) {
+   const int slen = static_cast<int>(s.length());
+   if (*chars_in_line + 1 + slen >= kLineLength) {  // < 80 chars/line
+-    *final_string += "\n      ";
+-    *chars_in_line = 6;
++    *final_string += "\n        ";
++    *chars_in_line = 8;
+   } else {
+     *final_string += " ";
+     *chars_in_line += 1;
+@@ -114,12 +109,17 @@ static string PrintStringFlagsWithQuotes(const CommandLineFlagInfo& flag,
+   }
+ }
+
++string ReplaceChar(string str, char find, char replace) {
++  std::replace(str.begin(), str.end(), find, replace);
++  return str;
++}
++
+ // Create a descriptive string for a flag.
+ // Goes to some trouble to make pretty line breaks.
+ string DescribeOneFlag(const CommandLineFlagInfo& flag) {
+   string main_part;
+-  SStringPrintf(&main_part, "    -%s (%s)",
+-                flag.name.c_str(),
++  SStringPrintf(&main_part, "    --%s (%s)",
++                ReplaceChar(flag.name, '_', '-').c_str(),
+                 flag.description.c_str());
+   const char* c_string = main_part.c_str();
+   int chars_left = static_cast<int>(main_part.length());
+@@ -161,8 +161,8 @@ string DescribeOneFlag(const CommandLineFlagInfo& flag) {
+     }
+     if (*c_string == '\0')
+       break;
+-    StringAppendF(&final_string, "\n      ");
+-    chars_in_line = 6;
++    StringAppendF(&final_string, "\n        ");
++    chars_in_line = 8;
+   }
+
+   // Append data type
+@@ -202,7 +202,9 @@ static string DescribeOneFlagInXML(const CommandLineFlagInfo& flag) {
+   // and meaning need to avoid attribute normalization.  This way it
+   // can be parsed by simple programs, in addition to xml parsers.
+   string r("<flag>");
++#if GFLAGS_NO_FILENAMES == 0
+   AddXMLTag(&r, "file", flag.filename);
++#endif
+   AddXMLTag(&r, "name", flag.name);
+   AddXMLTag(&r, "meaning", flag.description);
+   AddXMLTag(&r, "default", flag.default_value);
+@@ -267,17 +269,23 @@ static void ShowUsageWithFlagsMatching(const char *argv0,
+   vector<CommandLineFlagInfo> flags;
+   GetAllFlags(&flags);           // flags are sorted by filename, then flagname
+
++#if GFLAGS_NO_FILENAMES == 0
+   string last_filename;          // so we know when we're at a new file
+   bool first_directory = true;   // controls blank lines between dirs
++#endif
+   bool found_match = false;      // stays false iff no dir matches restrict
+   for (vector<CommandLineFlagInfo>::const_iterator flag = flags.begin();
+        flag != flags.end();
+        ++flag) {
++#if GFLAGS_NO_FILENAMES != 0
++    if (flag->hidden) continue;
++#endif
+     if (substrings.empty() ||
+         FileMatchesSubstring(flag->filename, substrings)) {
+       // If the flag has been stripped, pretend that it doesn't exist.
+       if (flag->description == kStrippedFlagHelp) continue;
+       found_match = true;     // this flag passed the match!
++#if GFLAGS_NO_FILENAMES == 0
+       if (flag->filename != last_filename) {                      // new file
+         if (Dirname(flag->filename) != Dirname(last_filename)) {  // new dir!
+           if (!first_directory)
+@@ -287,6 +295,7 @@ static void ShowUsageWithFlagsMatching(const char *argv0,
+         fprintf(stdout, "\n  Flags from %s:\n", flag->filename.c_str());
+         last_filename = flag->filename;
+       }
++#endif
+       // Now print this flag
+       fprintf(stdout, "%s", DescribeOneFlag(*flag).c_str());
+     }
+@@ -372,61 +381,15 @@ static void AppendPrognameStrings(vector<string>* substrings,
+ void HandleCommandLineHelpFlags() {
+   const char* progname = ProgramInvocationShortName();
+
+-  HandleCommandLineCompletions();
+-
+   vector<string> substrings;
+   AppendPrognameStrings(&substrings, progname);
+
+-  if (FLAGS_helpshort) {
+-    // show only flags related to this binary:
+-    // E.g. for fileutil.cc, want flags containing   ... "/fileutil." cc
+-    ShowUsageWithFlagsMatching(progname, substrings);
+-    gflags_exitfunc(1);
+-
+-  } else if (FLAGS_help || FLAGS_helpfull) {
++  if (FLAGS_help) {
+     // show all options
+     ShowUsageWithFlagsRestrict(progname, "");   // empty restrict
+     gflags_exitfunc(1);
+
+-  } else if (!FLAGS_helpon.empty()) {
+-    string restrict = PATH_SEPARATOR + FLAGS_helpon + ".";
+-    ShowUsageWithFlagsRestrict(progname, restrict.c_str());
+-    gflags_exitfunc(1);
+-
+-  } else if (!FLAGS_helpmatch.empty()) {
+-    ShowUsageWithFlagsRestrict(progname, FLAGS_helpmatch.c_str());
+-    gflags_exitfunc(1);
+-
+-  } else if (FLAGS_helppackage) {
+-    // Shows help for all files in the same directory as main().  We
+-    // don't want to resort to looking at dirname(progname), because
+-    // the user can pick progname, and it may not relate to the file
+-    // where main() resides.  So instead, we search the flags for a
+-    // filename like "/progname.cc", and take the dirname of that.
+-    vector<CommandLineFlagInfo> flags;
+-    GetAllFlags(&flags);
+-    string last_package;
+-    for (vector<CommandLineFlagInfo>::const_iterator flag = flags.begin();
+-         flag != flags.end();
+-         ++flag) {
+-      if (!FileMatchesSubstring(flag->filename, substrings))
+-        continue;
+-      const string package = Dirname(flag->filename) + PATH_SEPARATOR;
+-      if (package != last_package) {
+-        ShowUsageWithFlagsRestrict(progname, package.c_str());
+-        VLOG(7) << "Found package: " << package;
+-        if (!last_package.empty()) {      // means this isn't our first pkg
+-          LOG(WARNING) << "Multiple packages contain a file=" << progname;
+-        }
+-        last_package = package;
+-      }
+-    }
+-    if (last_package.empty()) {   // never found a package to print
+-      LOG(WARNING) << "Unable to find a package for file=" << progname;
+-    }
+-    gflags_exitfunc(1);
+-
+-  } else if (FLAGS_helpxml) {
++  } else if (FLAGS_help_xml) {
+     ShowXMLOfFlags(progname);
+     gflags_exitfunc(1);
+
+diff --git a/src/mutex.h b/src/mutex.h
+index 1648c2f..7d7c364 100644
+--- a/src/mutex.h
++++ b/src/mutex.h
+@@ -166,7 +166,7 @@ class Mutex {
+   // It inhibits work being done by the destructor, which makes it
+   // safer for code that tries to acqiure this mutex in their global
+   // destructor.
+-  inline Mutex(LinkerInitialized);
++  explicit inline Mutex(LinkerInitialized);
+
+   // Destructor
+   inline ~Mutex();
+@@ -197,7 +197,7 @@ class Mutex {
+   inline void SetIsSafe() { is_safe_ = true; }
+
+   // Catch the error of writing Mutex when intending MutexLock.
+-  Mutex(Mutex* /*ignored*/) {}
++  explicit Mutex(Mutex* /*ignored*/) {}
+   // Disallow "evil" constructors
+   Mutex(const Mutex&);
+   void operator=(const Mutex&);

@@ -1,0 +1,10 @@
+sources:
+  "8.1.1-memgraph":
+    url: "https://github.com/facebook/rocksdb/archive/refs/tags/v8.1.1.tar.gz"
+    sha256: "9102704e169cfb53e7724a30750eeeb3e71307663852f01fa08d5a320e6155a8"
+patches:
+  "8.1.1-memgraph":
+    - patch_file: "patches/rocksdb-v8.1.1.patch"
+      patch_description: "Fixes for Memgraph"
+    - patch_file: "patches/rocksdb-v8.1.1-gcc15.patch"
+      patch_description: "Fix unique_ptr incomplete-type build failure with newer libstdc++."

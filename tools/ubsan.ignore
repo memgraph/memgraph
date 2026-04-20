@@ -12,3 +12,6 @@ src:*/rdkafka_int.h
 
 # librdkafka: negative shift exponent in HDR histogram (rdhdrhistogram.c:212)
 src:*/rdhdrhistogram.c
+
+# rocksdb: load of misaligned address 0x737fbff2a406 for type 'uint32_t' (aka 'unsigned int'), which requires 4 byte alignment
+src:*/util/crc32c.cc
