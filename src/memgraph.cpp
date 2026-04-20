@@ -544,16 +544,6 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
-  if (std::chrono::seconds(FLAGS_instance_down_timeout_sec) <
-      std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)) {
-    LOG_FATAL(
-        "Instance down timeout config option must be greater than or equal to instance health check frequency config "
-        "option!");
-  }
-
-#endif
-
-#ifdef MG_ENTERPRISE
   memgraph::flags::SetFinalCoordinationSetup();
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
   if (coordination_setup.IsDataInstanceManagedByCoordinator() &&
@@ -562,6 +552,37 @@ int main(int argc, char **argv) {
               "When running Memgraph in high availability mode, a data instance must be started with flag "
               "--storage-wal-enabled=true. One of the flags used for setting up snapshots "
               "--storage-snapshot-interval-sec or --storage-snapshot-interval also needs to be set.");
+  }
+  auto const is_valid_coordinator_instance = coordination_setup.management_port &&
+                                             coordination_setup.coordinator_port && coordination_setup.coordinator_id &&
+                                             !coordination_setup.coordinator_hostname.empty();
+
+  if (is_valid_coordinator_instance) {
+    MG_ASSERT(
+        FLAGS_init_file.empty(),
+        "Coordinator instances don't support --init-file flag. Please restart the instance by removing this flag.");
+    MG_ASSERT(FLAGS_init_data_file.empty(),
+              "Coordinator instances don't support --init-data-file flag. Please restart the instance by removing this "
+              "flag.");
+    db_config.is_coordinator = true;
+  }
+
+  if (coordination_setup.IsDataInstanceManagedByCoordinator()) {
+    MG_ASSERT(FLAGS_init_file.empty(),
+              "Data instances don't support --init-file flag. Please restart the instance by removing this flag.");
+    MG_ASSERT(FLAGS_init_data_file.empty(),
+              "Data instances don't support --init-data-file flag. Please restart the instance by removing this "
+              "flag.");
+  }
+
+#endif
+
+#ifdef MG_ENTERPRISE
+  if (std::chrono::seconds(FLAGS_instance_down_timeout_sec) <
+      std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)) {
+    LOG_FATAL(
+        "Instance down timeout config option must be greater than or equal to instance health check frequency config "
+        "option!");
   }
 
 #endif
@@ -634,7 +655,7 @@ int main(int argc, char **argv) {
     return FLAGS_bolt_port;
   }();  // iile
 
-  // singleton coordinator state
+// singleton coordinator state
 #ifdef MG_ENTERPRISE
   using memgraph::coordination::CoordinatorInstanceInitConfig;
   using memgraph::coordination::CoordinatorState;
@@ -646,9 +667,7 @@ int main(int argc, char **argv) {
   std::shared_ptr<CoordinatorState> coordinator_state{};
   auto const is_valid_data_instance =
       coordination_setup.management_port && !coordination_setup.coordinator_port && !coordination_setup.coordinator_id;
-  auto const is_valid_coordinator_instance = coordination_setup.management_port &&
-                                             coordination_setup.coordinator_port && coordination_setup.coordinator_id &&
-                                             !coordination_setup.coordinator_hostname.empty();
+
   auto try_init_coord_state = [&coordinator_state,
                                &extracted_bolt_port,
                                &is_valid_data_instance,
@@ -716,16 +735,15 @@ int main(int argc, char **argv) {
     });
   });
 
-  // Note: Now that all system's subsystems are initialised (dbms & auth)
-  //       We can now initialise the recovery of replication (which will include those subsystems)
-  //       ReplicationHandler will handle the recovery
-  auto replication_handler = memgraph::replication::ReplicationHandler{repl_state,
-                                                                       dbms_handler,
-                                                                       system,
+// Note: Now that all system's subsystems are initialised (dbms & auth)
+//       We can now initialise the recovery of replication (which will include those subsystems)
+//       ReplicationHandler will handle the recovery
 #ifdef MG_ENTERPRISE
-                                                                       *auth_,
+  auto replication_handler = memgraph::replication::ReplicationHandler{
+      repl_state, dbms_handler, system, *auth_, *parameters, is_valid_coordinator_instance};
+#else
+  auto replication_handler = memgraph::replication::ReplicationHandler{repl_state, dbms_handler, system, *parameters};
 #endif
-                                                                       *parameters};
 
   auto db_acc = dbms_handler.Get();
 

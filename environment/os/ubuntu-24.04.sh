@@ -76,8 +76,9 @@ MEMGRAPH_BUILD_DEPS=(
     libsasl2-dev
     ninja-build
     libopenblas-dev # required for building scipy
+    libkrb5-dev # for building python gssapi (kerberos auth module)
     # Pulsar dependencies
-    # libnghttp2-dev libpsl-dev libkrb5-dev librtmp-dev libldap2-dev libidn2-dev libbrotli-dev libidn2-dev libssh-dev
+    # libnghttp2-dev libpsl-dev librtmp-dev libldap2-dev libidn2-dev libbrotli-dev libidn2-dev libssh-dev
     fakeroot debhelper # for building deb packages
 )
 
@@ -85,6 +86,7 @@ MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp2 libatomic1 adduser
+    libkrb5-3 # runtime for python gssapi (kerberos auth module)
 )
 
 NEW_DEPS=(

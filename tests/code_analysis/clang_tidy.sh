@@ -100,8 +100,11 @@ fi
 # - .cppm.o and .modmap files are listed as inputs in the ninja graph
 # - .bmi (Binary Module Interface) files are build targets that clang-tidy
 #   needs to resolve `import` statements in non-module translation units
-ninja -C build -t inputs | grep -E '\.cppm\.o$|\.o\.modmap$' | xargs -r ninja -C build
-ninja -C build -t targets all | grep -oP '^[^:]*\.bmi(?=:)' | xargs -r ninja -C build
+# `|| [[ $? -eq 1 ]]` tolerates grep's "no match" (exit 1) without masking
+# real grep errors (exit 2, e.g. missing -P support or I/O failure) — those
+# still propagate and abort the script.
+ninja -C build -t inputs | { grep -E '\.cppm\.o$|\.o\.modmap$' || [[ $? -eq 1 ]]; } | xargs -r ninja -C build
+ninja -C build -t targets all | { grep -oP '^[^:]*\.bmi(?=:)' || [[ $? -eq 1 ]]; } | xargs -r ninja -C build
 
 # Merge mage's compile_commands.json into the main one if it exists
 if [[ -f "mage/cpp/build/compile_commands.json" ]]; then

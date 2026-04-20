@@ -77,12 +77,14 @@ MEMGRAPH_BUILD_DEPS=(
     cyrus-sasl-devel
     ninja-build
     perl
+    krb5-devel # for building python gssapi (kerberos auth module)
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp
+    krb5-libs # runtime for python gssapi (kerberos auth module)
 )
 
 NEW_DEPS=(

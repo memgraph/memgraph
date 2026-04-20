@@ -217,6 +217,7 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
                               return utils::Priority::LOW;
                             // For now return HIGH only for hand-picked queries (non-system and non-db queries)
                             auto high_priority = utils::Downcast<query::ShowConfigQuery>(query) ||
+                                                 utils::Downcast<query::ShowQueryCallableMappingsQuery>(query) ||
                                                  utils::Downcast<query::SettingQuery>(query) ||
                                                  utils::Downcast<query::VersionQuery>(query) ||
                                                  utils::Downcast<query::TransactionQueueQuery>(query) ||

@@ -460,6 +460,17 @@ jobs:
           name: "mage-sbom"
           path: "sbom/"
 
+      - name: Upload SBOM to S3
+        if: ${{ inputs.generate_sbom == true && inputs.push_to_s3 == true && startsWith(inputs.ref, 'v') && contains(inputs.ref, '-rc') }}
+        env:
+          AWS_S3_BUCKET: deps.memgraph.io
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          S3_DEST_DIR: "${{ inputs.s3_dest_dir }}/sbom/"
+        run: |
+          aws s3 sync sbom/ "s3://$AWS_S3_BUCKET/$S3_DEST_DIR"
+
       - name: Start container for e2e tests
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         run: |

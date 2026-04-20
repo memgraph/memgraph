@@ -1,0 +1,9 @@
+function(copy_show_query_callable_mappings_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(show_query_callable_mappings ${FILE_NAME})
+endfunction()
+
+copy_show_query_callable_mappings_e2e_python_files(common.py)
+copy_show_query_callable_mappings_e2e_python_files(show_query_callable_mappings.py)
+
+copy_e2e_files(show_query_callable_mappings workloads.yaml)
+copy_e2e_files(show_query_callable_mappings test_mappings.json)
