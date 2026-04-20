@@ -1,4 +1,5 @@
 import base64
+import os
 import sys
 from types import ModuleType
 from unittest.mock import MagicMock
@@ -20,15 +21,9 @@ from kerberos import authenticate
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    for var in [
-        "MEMGRAPH_SSO_KERBEROS_KEYTAB",
-        "MEMGRAPH_SSO_KERBEROS_SERVICE_PRINCIPAL",
-        "MEMGRAPH_SSO_KERBEROS_REALM",
-        "MEMGRAPH_SSO_KERBEROS_USERNAME_FIELD",
-        "MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING",
-        "KRB5_KTNAME",
-    ]:
-        monkeypatch.delenv(var, raising=False)
+    for var in list(os.environ.keys()):
+        if var.startswith("MEMGRAPH_SSO_KERBEROS_") or var == "KRB5_KTNAME":
+            monkeypatch.delenv(var, raising=False)
     mock_gssapi.Name.reset_mock(side_effect=True)
     mock_gssapi.Credentials.reset_mock(side_effect=True)
     mock_gssapi.SecurityContext.reset_mock(side_effect=True)
