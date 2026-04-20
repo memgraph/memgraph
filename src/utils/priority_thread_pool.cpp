@@ -562,8 +562,18 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
       // Without this transition, the task remains in PARKED state indefinitely,
       // causing TaskCollection::Wait() to timeout waiting for FINISHED.
       if (expected == Task::State::PARKED) {
-        state->store(Task::State::SCHEDULED, std::memory_order_release);
-        spdlog::trace("WrapTask[{}]: transitioned PARKED -> SCHEDULED", index);
+        // EC-6 fix: use CAS instead of plain store.  A plain store would silently
+        // overwrite any state written by a concurrent actor between our failed CAS
+        // (which read PARKED) and this store.  If a future writer (e.g. a timeout
+        // → FINISHED transition) races here, the CAS detects it and skips.
+        auto parked = Task::State::PARKED;
+        if (!state->compare_exchange_strong(parked, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
+          // State changed while we weren't looking — honour the new state.
+          spdlog::trace(
+              "WrapTask[{}]: PARKED->SCHEDULED CAS lost (state now {}), skipping", index, static_cast<int>(parked));
+          return false;
+        }
+        spdlog::trace("WrapTask[{}]: transitioned PARKED -> SCHEDULED (CAS)", index);
       }
     }
 
@@ -731,8 +741,10 @@ bool TaskCollection::Finished() const {
 }
 
 bool TaskCollection::AllTerminal() const {
-  return std::ranges::all_of(
-      tasks_, [](const auto &task) { return task.state_->load(std::memory_order_acquire) == Task::State::FINISHED; });
+  // EC-7 fix: delegate to Finished() — both check only FINISHED today.
+  // STOLEN is never a resting state; no other terminal state exists yet.
+  // If a second terminal state (e.g. DESTROYED) is introduced, update both here.
+  return Finished();
 }
 
 bool TaskCollection::HasNonTerminalTasks() const {
