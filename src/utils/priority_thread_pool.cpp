@@ -658,47 +658,59 @@ bool TaskCollection::WaitOrSteal(std::chrono::milliseconds timeout) {
 }
 
 bool TaskCollection::TryExecuteOneIdleTask(PriorityThreadPool *pool) {
-  // Lock protects tasks_ vector access from races with ScheduledCollection's WrapTask closures.
-  // The state atomic handles CAS, but we need mutual exclusion when accessing task.task_.
-  std::unique_lock lock(tasks_mutex_);
+  // EC-5 fix: claim the task under the lock, then release before executing.
+  // Previously tasks_mutex_ was held for the entire task body on non-yielding tasks,
+  // which would deadlock any concurrent caller that also needs tasks_mutex_.
+  ResumableTaskSignature captured_task;
+  std::shared_ptr<std::atomic<Task::State>> captured_state;
+  size_t captured_index = 0;
 
-  for (size_t index = 0; index < tasks_.size(); ++index) {
-    auto &task = tasks_[index];
-    auto expected = Task::State::IDLE;
-    if (!task.state_->compare_exchange_strong(expected, Task::State::STOLEN, std::memory_order_acq_rel)) {
-      continue;
-    }
-
-    spdlog::warn("TryExecuteOneIdleTask: stole task[{}], executing inline", index);
-    try {
-      const bool yielded = task.task_();
-      spdlog::warn("TryExecuteOneIdleTask: task[{}] completed yielded={}", index, yielded);
-      if (yielded) {
-        if (pool != nullptr) {
-          // Task yielded during cooperative execution; reschedule it on the pool
-          // Transition from STOLEN back to SCHEDULED so WrapTask knows to resume it
-          task.state_->store(Task::State::SCHEDULED, std::memory_order_release);
-          // WrapTask needs the lock too - release before calling to avoid deadlock
-          lock.unlock();
-          pool->ScheduleResumableTask(WrapTask(index, pool), Priority::LOW);
-          NotifyProgress();
-        } else {
-          throw std::runtime_error("WaitOrSteal cannot handle yielding tasks. Use co_await Finished() instead.");
-        }
-      } else {
-        task.state_->store(Task::State::FINISHED, std::memory_order_release);
-        task.state_->notify_one();  // Notify waiting threads
-        NotifyProgress();
+  {
+    std::unique_lock lock(tasks_mutex_);
+    for (size_t index = 0; index < tasks_.size(); ++index) {
+      auto &task = tasks_[index];
+      auto expected = Task::State::IDLE;
+      if (!task.state_->compare_exchange_strong(expected, Task::State::STOLEN, std::memory_order_acq_rel)) {
+        continue;
       }
-    } catch (...) {
-      task.state_->store(Task::State::FINISHED, std::memory_order_release);
-      task.state_->notify_one();  // Notify even on exception
-      NotifyProgress();
-      throw;
+      captured_task = std::move(task.task_);
+      captured_state = task.state_;
+      captured_index = index;
+      break;
     }
-    return true;
+  }  // lock released before execution
+
+  if (!captured_state) return false;
+
+  spdlog::warn("TryExecuteOneIdleTask: stole task[{}], executing inline", captured_index);
+  try {
+    const bool yielded = captured_task();
+    spdlog::warn("TryExecuteOneIdleTask: task[{}] completed yielded={}", captured_index, yielded);
+    if (yielded) {
+      if (pool != nullptr) {
+        captured_state->store(Task::State::SCHEDULED, std::memory_order_release);
+        // Restore the task so WrapTask can resume it.
+        {
+          std::unique_lock lock(tasks_mutex_);
+          tasks_[captured_index].task_ = std::move(captured_task);
+        }
+        pool->ScheduleResumableTask(WrapTask(captured_index, pool), Priority::LOW);
+        NotifyProgress();
+      } else {
+        throw std::runtime_error("WaitOrSteal cannot handle yielding tasks. Use co_await Finished() instead.");
+      }
+    } else {
+      captured_state->store(Task::State::FINISHED, std::memory_order_release);
+      captured_state->notify_one();
+      NotifyProgress();
+    }
+  } catch (...) {
+    captured_state->store(Task::State::FINISHED, std::memory_order_release);
+    captured_state->notify_one();
+    NotifyProgress();
+    throw;
   }
-  return false;
+  return true;
 }
 
 bool TaskCollection::WaitForProgress(std::chrono::milliseconds timeout) {
