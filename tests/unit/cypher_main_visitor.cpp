@@ -2042,7 +2042,7 @@ TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
             expected_properties);
 }
 
-TEST_P(CypherMainVisitorTest, CreateNodeIndexNeo4jSyntax) {
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntax) {
   auto &ast_generator = *GetParam();
   auto *index_query = dynamic_cast<IndexQuery *>(
       ast_generator.ParseQuery("CREATE INDEX node_range_index FOR (n:Person) ON (n.surname)"));
@@ -2053,7 +2053,7 @@ TEST_P(CypherMainVisitorTest, CreateNodeIndexNeo4jSyntax) {
   EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
 }
 
-TEST_P(CypherMainVisitorTest, CreateNodeIndexNeo4jSyntaxNoName) {
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntaxNoName) {
   auto &ast_generator = *GetParam();
   auto *index_query =
       dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("CREATE INDEX FOR (n:Person) ON (n.surname)"));
@@ -2064,7 +2064,7 @@ TEST_P(CypherMainVisitorTest, CreateNodeIndexNeo4jSyntaxNoName) {
   EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
 }
 
-TEST_P(CypherMainVisitorTest, CreateNodeIndexNeo4jSyntaxComposite) {
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntaxComposite) {
   auto &ast_generator = *GetParam();
   auto *index_query = dynamic_cast<IndexQuery *>(
       ast_generator.ParseQuery("CREATE INDEX composite_idx FOR (n:Person) ON (n.age, n.country)"));
@@ -2075,7 +2075,7 @@ TEST_P(CypherMainVisitorTest, CreateNodeIndexNeo4jSyntaxComposite) {
   EXPECT_EQ(index_query->properties_, expected);
 }
 
-TEST_P(CypherMainVisitorTest, CreateNodeIndexNeo4jSyntaxCompositeNestedProperties) {
+TEST_P(CypherMainVisitorTest, CreateNodeIndexAlternativeSyntaxCompositeNestedProperties) {
   auto &ast_generator = *GetParam();
   auto *index_query = dynamic_cast<IndexQuery *>(
       ast_generator.ParseQuery("CREATE INDEX nested_idx FOR (n:Person) ON (n.name.first, n.address.city)"));
@@ -2136,13 +2136,13 @@ TEST_P(CypherMainVisitorTest, CreateIndexAlternativeSyntaxVariableMismatch) {
   EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR (n:Person) ON (x.surname)"), SemanticException);
 }
 
-TEST_P(CypherMainVisitorTest, CreateIndexNeo4jSyntaxNumericNameNotAllowed) {
+TEST_P(CypherMainVisitorTest, CreateIndexAlternativeSyntaxNumericNameNotAllowed) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX 1 FOR (n:Person) ON (n.surname)"), SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX 1 FOR ()-[r:KNOWS]-() ON (r.since)"), SyntaxException);
 }
 
-TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jNumericNameNotAllowed) {
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeNumericNameNotAllowed) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT 1 FOR (n:Book) REQUIRE n.isbn IS UNIQUE"), SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT 1 FOR (n:Author) REQUIRE n.name IS NOT NULL"),
@@ -4909,7 +4909,7 @@ TEST_P(CypherMainVisitorTest, DropConstraint) {
   }
 }
 
-TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jUniqueNode) {
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeUniqueNode) {
   {
     auto &ast_generator = *GetParam();
     auto *query = dynamic_cast<ConstraintQuery *>(
@@ -4945,18 +4945,18 @@ TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jUniqueNode) {
   }
 }
 
-TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jUniqueEdgeNotSupported) {
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeUniqueEdgeNotSupported) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT sequels FOR ()-[s:SEQUEL_OF]-() REQUIRE s.order IS UNIQUE"),
                SemanticException);
 }
 
-TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jUniqueWrongVariable) {
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeUniqueWrongVariable) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT FOR (n:Book) REQUIRE m.isbn IS UNIQUE"), SemanticException);
 }
 
-TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jExistenceNode) {
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeExistenceNode) {
   {
     auto &ast_generator = *GetParam();
     auto *query = dynamic_cast<ConstraintQuery *>(
@@ -4980,20 +4980,20 @@ TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jExistenceNode) {
   }
 }
 
-TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jExistenceEdgeNotSupported) {
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeExistenceEdgeNotSupported) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(
       ast_generator.ParseQuery("CREATE CONSTRAINT wrote_year FOR ()-[wrote:WROTE]-() REQUIRE wrote.year IS NOT NULL"),
       SemanticException);
 }
 
-TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jExistenceWrongVariable) {
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeExistenceWrongVariable) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT FOR (n:Author) REQUIRE m.name IS NOT NULL"),
                SemanticException);
 }
 
-TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jTypeNode) {
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeTypeNode) {
   {
     auto &ast_generator = *GetParam();
     auto *query = dynamic_cast<ConstraintQuery *>(
@@ -5020,14 +5020,14 @@ TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jTypeNode) {
   }
 }
 
-TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jTypeEdgeNotSupported) {
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeTypeEdgeNotSupported) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(
       ast_generator.ParseQuery("CREATE CONSTRAINT part_of FOR ()-[part:PART_OF]-() REQUIRE part.order IS :: INTEGER"),
       SemanticException);
 }
 
-TEST_P(CypherMainVisitorTest, CreateConstraintNeo4jTypeWrongVariable) {
+TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeTypeWrongVariable) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT FOR (n:Movie) REQUIRE m.title IS :: STRING"),
                SemanticException);
