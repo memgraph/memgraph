@@ -239,6 +239,11 @@ bool CurrentResumableTask::RegisterWaiter(WorkerResumeEvent &event, uint64_t obs
   if (current_resumable_task_stack.empty()) return false;
   auto &state = current_resumable_task_stack.back();
   if (!state.resume_task) return false;
+  // EC-2 fix: A task without a pinned worker_id was stolen (executed inline on a non-pool thread
+  // via TryExecuteOneIdleTask). If we allowed it to park, NotifyAll would resume the closure on
+  // whatever thread calls NotifyAll (the producer), violating TLS pinning invariants.
+  // Return false → await_suspend busy-spins instead of parking.
+  if (!state.worker_id) return false;
 
   TaskSignature resume_task = [resume = state.resume_task]() mutable { resume(); };
   if (!event.RegisterTaskWaiter(
