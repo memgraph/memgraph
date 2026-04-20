@@ -34,7 +34,7 @@ def _load_config_from_env():
     config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING", ""))
 
     # LDAP group-based role mapping (optional)
-    config["role_mapping_mode"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING_MODE", "principal")
+    config["role_mapping_mode"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING_MODE", "ldap")
     config["ldap_uri"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_URI", "")
     config["ldap_base_dn"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_BASE_DN", "")
     config["ldap_search_base"] = os.environ.get("MEMGRAPH_SSO_KERBEROS_LDAP_SEARCH_BASE", "")
