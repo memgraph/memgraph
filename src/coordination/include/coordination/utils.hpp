@@ -81,7 +81,8 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
 
         spdlog::trace("Comparing: {} < {}", db_it->second, max_replica_read_lag);
 
-        // return true if cached lag is smaller than max_allowed_replica_read_lag
+        // return true if cached lag is smaller than max_allowed_replica_read_lag. This also allows routing to replicas
+        // with negative lag. negative lag can occur when an instance becomes main without comitting all txns
         return db_it->second < max_replica_read_lag;
       };
 

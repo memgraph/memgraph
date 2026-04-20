@@ -440,31 +440,35 @@ std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT> Replic
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
     auto const db_name = db_acc->name();
 
-    repl_storage_state.replication_storage_clients_.WithReadLock([&db_name, &replicas](auto &storage_clients) {
-      for (auto &repl_storage_client : storage_clients) {
-        auto const replica_name = repl_storage_client->Name();
-        auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
-        // Insert or find the already inserted element
-        auto [replica_it, _] = replicas.try_emplace(replica_name, std::map<std::string, int64_t>{});
-        replica_it->second.emplace(db_name, num_committed_txns_repl);
-      }
-    });
-
-    auto const num_main_committed_txns =
-        repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
-    main.emplace(std::string{db_acc->storage()->uuid()}, num_main_committed_txns);
-
     repl_storage_state.replication_storage_clients_.WithReadLock(
-        [&db_name, &replicas, num_main_committed_txns](auto &storage_clients) {
+        [&db_name, &replicas, &repl_storage_state, &main, &db_acc](auto &storage_clients) {
+          // First observe replicas' num committed txns then main's so we avoid negative calculation
+          for (auto &repl_storage_client : storage_clients) {
+            auto const replica_name = repl_storage_client->Name();
+            uint64_t const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
+            // Insert or find the already inserted element
+            auto [replica_it, _] = replicas.try_emplace(replica_name, std::map<std::string, int64_t>{});
+            replica_it->second.emplace(db_name, num_committed_txns_repl);
+          }
+
+          auto const num_main_committed_txns =
+              repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
+          main.emplace(std::string{db_acc->storage()->uuid()}, num_main_committed_txns);
+
           for (auto &repl_storage_client : storage_clients) {
             auto const replica_name = repl_storage_client->Name();
             auto replica_it = replicas.find(replica_name);
             DMG_ASSERT(replica_it != replicas.end(), "No info for replica {}", replica_name);
             auto old_value_it = replica_it->second.find(db_name);
             DMG_ASSERT(old_value_it != replica_it->second.end(), "No info for db {}", db_name);
-            old_value_it->second = num_main_committed_txns - old_value_it->second;
-            if (repl_storage_client->Mode() != replication_coordination_glue::ReplicationMode::ASYNC) {
-              MG_ASSERT(old_value_it->second >= 0, "Replica lag should not be negative");
+            // For SYNC replica it can happen that the instance becomes main without committing all transactions from
+            // before
+            // Avoid lossy compression for casting uint64_t to int64_t
+            auto const replica_num_committed_txns = static_cast<uint64_t>(old_value_it->second);
+            if (num_main_committed_txns >= replica_num_committed_txns) {
+              old_value_it->second = num_main_committed_txns - replica_num_committed_txns;
+            } else {
+              old_value_it->second = -static_cast<int64_t>(replica_num_committed_txns - num_main_committed_txns);
             }
           }
         });

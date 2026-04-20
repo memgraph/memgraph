@@ -470,23 +470,23 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   try {
     auto response = replica_stream->Finalize();
     // NOLINTNEXTLINE
-    return replica_state_.WithLock([this, response, durability_commit_timestamp](auto &state) mutable
-                                       -> std::expected<void, io::network::ClientCommunicationError> {
-      // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
-      // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
-      // MAYBE_BEHIND state if we missed next txn.
-      if (state != ReplicaState::REPLICATING) {
-        return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-      }
+    return replica_state_.WithLock(
+        [response](auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
+          // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
+          // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+          // MAYBE_BEHIND state if we missed next txn.
+          if (state != ReplicaState::REPLICATING) {
+            return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+          }
 
-      if (!response.success) {
-        state = ReplicaState::MAYBE_BEHIND;
-        return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-      }
+          if (!response.success) {
+            state = ReplicaState::MAYBE_BEHIND;
+            return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+          }
 
-      state = ReplicaState::READY;
-      return {};
-    });
+          state = ReplicaState::READY;
+          return {};
+        });
   } catch (rpc::RpcTimeoutException const &) {
     replica_state_.WithLock([&replica_stream](auto &state) {
       replica_stream.reset();
