@@ -192,5 +192,126 @@ def test_role_mapping(monkeypatch, role_mapping, principal, expected_roles, shou
         assert "cannot be mapped" in result["errors"]
 
 
+def _ldap_entry(dn, attrs):
+    entry = MagicMock()
+    entry.entry_dn = dn
+    entry.__contains__ = lambda self, k: k in attrs
+    entry.__getitem__ = lambda self, k: MagicMock(values=attrs[k])
+    entry.cn = MagicMock(value=attrs.get("cn"))
+    return entry
+
+
+def _mock_ldap_conn(monkeypatch, bound=True, search_responses=()):
+    import ldap3
+
+    conn = MagicMock()
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=None)
+    conn.bound = bound
+    conn.result = {"description": "invalidCredentials"} if not bound else {}
+    responses = iter(search_responses)
+
+    def do_search(*_a, **_kw):
+        conn.entries = next(responses, [])
+
+    conn.search.side_effect = do_search
+    monkeypatch.setattr(ldap3, "Server", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr(ldap3, "Connection", lambda *a, **kw: conn)
+    return conn
+
+
+def _ldap_env(monkeypatch, overrides=None):
+    defaults = {
+        "MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING_MODE": "ldap",
+        "MEMGRAPH_SSO_KERBEROS_LDAP_URI": "ldap://localhost",
+        "MEMGRAPH_SSO_KERBEROS_LDAP_BASE_DN": "dc=example,dc=com",
+        "MEMGRAPH_SSO_KERBEROS_LDAP_AUTH": "simple",
+        "MEMGRAPH_SSO_KERBEROS_LDAP_BIND_DN": "cn=admin,dc=example,dc=com",
+        "MEMGRAPH_SSO_KERBEROS_LDAP_BIND_PASSWORD": "pw",
+        "MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING": "mg-admins:admin;Engineering, EMEA:viewer",
+    }
+    if overrides:
+        defaults.update(overrides)
+    _setup_env(monkeypatch, defaults)
+
+
+def test_ldap_successful_mapping_with_escaped_dn(monkeypatch):
+    _ldap_env(monkeypatch)
+    _setup_mock_ctx("david@EXAMPLE.COM")
+    _mock_ldap_conn(
+        monkeypatch,
+        search_responses=[
+            [
+                _ldap_entry(
+                    "CN=david,CN=Users,DC=example,DC=com",
+                    {
+                        "memberOf": [
+                            "CN=mg-admins,OU=Groups,DC=example,DC=com",
+                            r"CN=Engineering\, EMEA,OU=Groups,DC=example,DC=com",
+                        ]
+                    },
+                )
+            ]
+        ],
+    )
+
+    result = authenticate(response=TOKEN, scheme="kerberos")
+
+    assert result["authenticated"] is True
+    assert sorted(result["roles"]) == ["admin", "viewer"]
+
+
+def test_ldap_nested_groups(monkeypatch):
+    _ldap_env(
+        monkeypatch,
+        {
+            "MEMGRAPH_SSO_KERBEROS_LDAP_NESTED_GROUPS_ENABLED": "true",
+            "MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING": "all-tech-staff:admin",
+        },
+    )
+    _setup_mock_ctx("david@EXAMPLE.COM")
+    _mock_ldap_conn(
+        monkeypatch,
+        search_responses=[
+            [_ldap_entry("CN=david,CN=Users,DC=example,DC=com", {"memberOf": []})],
+            [_ldap_entry("CN=all-tech-staff,OU=Groups,DC=example,DC=com", {"cn": "all-tech-staff"})],
+        ],
+    )
+
+    result = authenticate(response=TOKEN, scheme="kerberos")
+
+    assert result["authenticated"] is True
+    assert result["roles"] == ["admin"]
+
+
+@pytest.mark.parametrize(
+    "bound,search_responses,expected_err",
+    [
+        (False, [], "LDAP bind failed"),
+        (True, [[]], "not found in LDAP"),
+        (True, [[_ldap_entry("CN=david,CN=Users,DC=example,DC=com", {"memberOf": []})]], "cannot be mapped"),
+    ],
+)
+def test_ldap_error_paths(monkeypatch, bound, search_responses, expected_err):
+    _ldap_env(monkeypatch)
+    _setup_mock_ctx("david@EXAMPLE.COM")
+    _mock_ldap_conn(monkeypatch, bound=bound, search_responses=search_responses)
+
+    result = authenticate(response=TOKEN, scheme="kerberos")
+
+    assert result["authenticated"] is False
+    assert expected_err in result["errors"]
+
+
+def test_username_field_principal_no_realm(monkeypatch):
+    _setup_env(monkeypatch, {"MEMGRAPH_SSO_KERBEROS_USERNAME_FIELD": "name"})
+    _setup_mock_ctx("david")
+
+    result = authenticate(response=TOKEN, scheme="kerberos")
+
+    assert result["authenticated"] is True
+    assert result["username"] == "david"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
