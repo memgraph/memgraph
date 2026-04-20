@@ -710,12 +710,16 @@ TypedValue::TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{a
     case Type::Edge:
       alloc_trait::construct(alloc_, &edge_v, other.edge_v);
       return;
-    case Type::VirtualEdge:
-      alloc_trait::construct(alloc_, &virtual_edge_v, other.virtual_edge_v);
+    case Type::VirtualEdge: {
+      auto *ve_ptr = utils::Allocator<VirtualEdge>(alloc_).new_object<VirtualEdge>(*other.virtual_edge_v);
+      alloc_trait::construct(alloc_, &virtual_edge_v, ve_ptr);
       return;
-    case Type::VirtualNode:
-      alloc_trait::construct(alloc_, &virtual_node_v, other.virtual_node_v);
+    }
+    case Type::VirtualNode: {
+      auto *vn_ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(*other.virtual_node_v);
+      alloc_trait::construct(alloc_, &virtual_node_v, vn_ptr);
       return;
+    }
     case Type::Path: {
       auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(*other.path_v);
       alloc_trait::construct(alloc_, &path_v, path_ptr);
@@ -794,10 +798,20 @@ TypedValue::TypedValue(TypedValue &&other, allocator_type alloc) : alloc_{alloc}
       alloc_trait::construct(alloc_, &edge_v, other.edge_v);
       break;
     case Type::VirtualEdge:
-      alloc_trait::construct(alloc_, &virtual_edge_v, std::move(other.virtual_edge_v));
+      if (other.alloc_ == alloc_) {
+        alloc_trait::construct(alloc_, &virtual_edge_v, std::move(other.virtual_edge_v));
+      } else {
+        auto *ve_ptr = utils::Allocator<VirtualEdge>(alloc_).new_object<VirtualEdge>(std::move(*other.virtual_edge_v));
+        alloc_trait::construct(alloc_, &virtual_edge_v, ve_ptr);
+      }
       break;
     case Type::VirtualNode:
-      alloc_trait::construct(alloc_, &virtual_node_v, std::move(other.virtual_node_v));
+      if (other.alloc_ == alloc_) {
+        alloc_trait::construct(alloc_, &virtual_node_v, std::move(other.virtual_node_v));
+      } else {
+        auto *vn_ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(std::move(*other.virtual_node_v));
+        alloc_trait::construct(alloc_, &virtual_node_v, vn_ptr);
+      }
       break;
     case Type::Path: {
       if (other.alloc_ == alloc_) {
@@ -970,8 +984,8 @@ DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, map_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, virtual_edge_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, virtual_node_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, *virtual_edge_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, *virtual_node_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
@@ -1158,7 +1172,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const EdgeAccessor &, Edge, edge_v)
 
 TypedValue &TypedValue::operator=(const VirtualEdge &other) {
   if (this->type_ == TypedValue::Type::VirtualEdge) {
-    this->virtual_edge_v = other;
+    *this->virtual_edge_v = other;
   } else {
     *this = TypedValue(other, alloc_);
   }
@@ -1167,7 +1181,7 @@ TypedValue &TypedValue::operator=(const VirtualEdge &other) {
 
 TypedValue &TypedValue::operator=(const VirtualNode &other) {
   if (this->type_ == TypedValue::Type::VirtualNode) {
-    this->virtual_node_v = other;
+    *this->virtual_node_v = other;
   } else {
     *this = TypedValue(other, alloc_);
   }
@@ -1285,12 +1299,28 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Edge:
           edge_v = other.edge_v;
           break;
-        case Type::VirtualEdge:
-          virtual_edge_v = other.virtual_edge_v;
+        case Type::VirtualEdge: {
+          auto *ve = virtual_edge_v.release();
+          if (ve) {
+            utils::Allocator<VirtualEdge>(alloc_).delete_object(ve);
+          }
+          if (other.virtual_edge_v) {
+            auto *ve_ptr = utils::Allocator<VirtualEdge>(alloc_).new_object<VirtualEdge>(*other.virtual_edge_v);
+            virtual_edge_v = std::unique_ptr<VirtualEdge>(ve_ptr);
+          }
           break;
-        case Type::VirtualNode:
-          virtual_node_v = other.virtual_node_v;
+        }
+        case Type::VirtualNode: {
+          auto *vn = virtual_node_v.release();
+          if (vn) {
+            utils::Allocator<VirtualNode>(alloc_).delete_object(vn);
+          }
+          if (other.virtual_node_v) {
+            auto *vn_ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(*other.virtual_node_v);
+            virtual_node_v = std::unique_ptr<VirtualNode>(vn_ptr);
+          }
           break;
+        }
         case Type::Path: {
           auto *path = path_v.release();
           if (path) {
@@ -1398,12 +1428,22 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Edge:
           edge_v = other.edge_v;
           break;
-        case Type::VirtualEdge:
+        case Type::VirtualEdge: {
+          auto *ve = virtual_edge_v.release();
+          if (ve) {
+            utils::Allocator<VirtualEdge>(alloc_).delete_object(ve);
+          }
           virtual_edge_v = std::move(other.virtual_edge_v);
           break;
-        case Type::VirtualNode:
+        }
+        case Type::VirtualNode: {
+          auto *vn = virtual_node_v.release();
+          if (vn) {
+            utils::Allocator<VirtualNode>(alloc_).delete_object(vn);
+          }
           virtual_node_v = std::move(other.virtual_node_v);
           break;
+        }
         case Type::Path: {
           auto *path = path_v.release();
           if (path) {
@@ -1495,12 +1535,22 @@ TypedValue::~TypedValue() {
     case Type::Edge:
       std::destroy_at(&edge_v);
       break;
-    case Type::VirtualEdge:
+    case Type::VirtualEdge: {
+      auto *ve = virtual_edge_v.release();
       std::destroy_at(&virtual_edge_v);
+      if (ve) {
+        utils::Allocator<VirtualEdge>(alloc_).delete_object(ve);
+      }
       break;
-    case Type::VirtualNode:
+    }
+    case Type::VirtualNode: {
+      auto *vn = virtual_node_v.release();
       std::destroy_at(&virtual_node_v);
+      if (vn) {
+        utils::Allocator<VirtualNode>(alloc_).delete_object(vn);
+      }
       break;
+    }
     case Type::Path: {
       auto *path = path_v.release();
       std::destroy_at(&path_v);

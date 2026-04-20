@@ -289,11 +289,15 @@ class TypedValue {
   explicit TypedValue(const EdgeAccessor &edge, allocator_type alloc = {})
       : alloc_{alloc}, edge_v{edge}, type_(Type::Edge) {}
 
-  explicit TypedValue(const VirtualEdge &ve, allocator_type alloc = {})
-      : alloc_{alloc}, virtual_edge_v{ve}, type_(Type::VirtualEdge) {}
+  explicit TypedValue(const VirtualEdge &ve, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::VirtualEdge) {
+    auto *ptr = utils::Allocator<VirtualEdge>(alloc_).new_object<VirtualEdge>(ve);
+    alloc_trait::construct(alloc_, &virtual_edge_v, ptr);
+  }
 
-  explicit TypedValue(const VirtualNode &vn, allocator_type alloc = {})
-      : alloc_{alloc}, virtual_node_v{vn}, type_(Type::VirtualNode) {}
+  explicit TypedValue(const VirtualNode &vn, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::VirtualNode) {
+    auto *ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(vn);
+    alloc_trait::construct(alloc_, &virtual_node_v, ptr);
+  }
 
   explicit TypedValue(const Path &path, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Path) {
     auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(path);
@@ -389,11 +393,15 @@ class TypedValue {
   explicit TypedValue(EdgeAccessor &&edge, allocator_type alloc) noexcept
       : alloc_{alloc}, edge_v{std::move(edge)}, type_(Type::Edge) {}
 
-  explicit TypedValue(VirtualEdge &&ve, allocator_type alloc)
-      : alloc_{alloc}, virtual_edge_v{std::move(ve)}, type_(Type::VirtualEdge) {}
+  explicit TypedValue(VirtualEdge &&ve, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualEdge) {
+    auto *ptr = utils::Allocator<VirtualEdge>(alloc_).new_object<VirtualEdge>(std::move(ve));
+    alloc_trait::construct(alloc_, &virtual_edge_v, ptr);
+  }
 
-  explicit TypedValue(VirtualNode &&vn, allocator_type alloc)
-      : alloc_{alloc}, virtual_node_v{std::move(vn)}, type_(Type::VirtualNode) {}
+  explicit TypedValue(VirtualNode &&vn, allocator_type alloc) : alloc_{alloc}, type_(Type::VirtualNode) {
+    auto *ptr = utils::Allocator<VirtualNode>(alloc_).new_object<VirtualNode>(std::move(vn));
+    alloc_trait::construct(alloc_, &virtual_node_v, ptr);
+  }
 
   /**
    * Construct with the value of path.
@@ -526,8 +534,8 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, virtual_edge_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, virtual_node_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, *virtual_edge_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, *virtual_node_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
@@ -797,8 +805,11 @@ class TypedValue {
     std::unique_ptr<Graph> graph_v;
     std::unique_ptr<VirtualGraph> virtual_graph_v;
     std::function<void(TypedValue *)> function_v;
-    VirtualEdge virtual_edge_v;
-    VirtualNode virtual_node_v;
+    // Heap-allocated so the union's size isn't dominated by VirtualEdge (~336 bytes with two
+    // VirtualNodes + pmr containers). Keeping them by value would bloat every Frame slot and every
+    // TypedValue in a collect() list.
+    std::unique_ptr<VirtualEdge> virtual_edge_v;
+    std::unique_ptr<VirtualNode> virtual_node_v;
   };
 
   /**
