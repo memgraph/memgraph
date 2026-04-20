@@ -2087,7 +2087,7 @@ TEST_P(CypherMainVisitorTest, CreateNodeIndexNeo4jSyntaxCompositeNestedPropertie
   EXPECT_EQ(index_query->properties_, expected);
 }
 
-TEST_P(CypherMainVisitorTest, CreateEdgeIndexNeo4jSyntax) {
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntax) {
   auto &ast_generator = *GetParam();
   auto *index_query = dynamic_cast<EdgeIndexQuery *>(
       ast_generator.ParseQuery("CREATE INDEX rel_range_index FOR ()-[r:KNOWS]-() ON (r.since)"));
@@ -2098,7 +2098,7 @@ TEST_P(CypherMainVisitorTest, CreateEdgeIndexNeo4jSyntax) {
   EXPECT_EQ(index_query->properties_[0], ast_generator.Prop("since"));
 }
 
-TEST_P(CypherMainVisitorTest, CreateEdgeIndexNeo4jSyntaxNoName) {
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxNoName) {
   auto &ast_generator = *GetParam();
   auto *index_query =
       dynamic_cast<EdgeIndexQuery *>(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (r.since)"));
@@ -2109,7 +2109,7 @@ TEST_P(CypherMainVisitorTest, CreateEdgeIndexNeo4jSyntaxNoName) {
   EXPECT_EQ(index_query->properties_[0], ast_generator.Prop("since"));
 }
 
-TEST_P(CypherMainVisitorTest, CreateEdgeIndexNeo4jSyntaxComposite) {
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxComposite) {
   auto &ast_generator = *GetParam();
   auto *index_query = dynamic_cast<EdgeIndexQuery *>(
       ast_generator.ParseQuery("CREATE INDEX composite_rel_idx FOR ()-[r:PURCHASED]-() ON (r.date, r.amount)"));

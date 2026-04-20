@@ -369,10 +369,10 @@ integerLiteral : DecimalLiteral
                | HexadecimalLiteral
                ;
 
-neo4jPropertyRef : variable '.' nestedPropertyKeyNames ;
+alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
 
 createIndex : CREATE INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )?
-            | CREATE INDEX ( symbolicName )? FOR '(' variable ':' labelName ')' ON '(' neo4jPropertyRef ( ',' neo4jPropertyRef )* ')'
+            | CREATE INDEX ( symbolicName )? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
             ;
 
 dropIndex : DROP INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ;

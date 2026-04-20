@@ -156,13 +156,11 @@ memgraphCypherKeyword : cypherKeyword
                       | PERMISSIONS
                       | POINT
                       | PORT
-                      | PROPERTY
                       | PRIVILEGES
                       | PROPERTY
                       | PROFILE_RESTRICTION
                       | PROFILES
                       | PULSAR
-                      | QUOTE
                       | QUOTE
                       | READ
                       | READ_FILE
@@ -790,9 +788,14 @@ createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')
 
 dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
 
-createEdgeIndexNeo4j : CREATE INDEX ( symbolicName )? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' neo4jPropertyRef ( ',' neo4jPropertyRef )* ')' ;
+createEdgeIndexAlternativeSyntax : CREATE INDEX ( symbolicName )? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')' ;
 
-edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex | createEdgeIndexNeo4j ;
+edgeIndexQuery : createEdgeIndex
+               | dropEdgeIndex
+               | createGlobalEdgeIndex
+               | dropGlobalEdgeIndex
+               | createEdgeIndexAlternativeSyntax
+               ;
 
 indexName : symbolicName ;
 
@@ -822,26 +825,24 @@ dropAllIndexesQuery : DROP ALL INDEXES ;
 
 dropAllConstraintsQuery : DROP ALL CONSTRAINTS ;
 
-neo4jConstraintPropertyList : neo4jPropertyRef
-                             | '(' neo4jPropertyRef ( ',' neo4jPropertyRef )* ')'
+alternativePropertyRefList : alternativePropertyRef
+                             | '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
                              ;
 
-neo4jConstraintPattern : '(' variable ':' labelName ')'                                          # neo4jNodeConstraintPattern
-                       | '(' ')' dash '[' variable ':' labelName ']' dash '(' ')'               # neo4jEdgeConstraintPattern
+alternativeConstraintPattern : '(' variable ':' labelName ')'                                          # alternativeNodeConstraintPattern
+                       | '(' ')' dash '[' variable ':' labelName ']' dash '(' ')'               # alternativeEdgeConstraintPattern
                        ;
 
 memgraphConstraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
 
-neo4jUniqueConstraintQuery : CREATE CONSTRAINT ( symbolicName )? FOR neo4jConstraintPattern REQUIRE neo4jConstraintPropertyList IS UNIQUE ;
-
-neo4jExistenceConstraintQuery : CREATE CONSTRAINT ( symbolicName )? FOR neo4jConstraintPattern REQUIRE neo4jPropertyRef IS NOT CYPHERNULL ;
-
-neo4jTypeConstraintQuery : CREATE CONSTRAINT ( symbolicName )? FOR neo4jConstraintPattern REQUIRE neo4jPropertyRef IS ':' ':' typeConstraintType ;
+alternativeConstraintSyntax : CREATE CONSTRAINT ( symbolicName )? FOR alternativeConstraintPattern REQUIRE
+                  ( alternativePropertyRefList IS UNIQUE
+                  | alternativePropertyRef IS NOT CYPHERNULL
+                  | alternativePropertyRef IS ':' ':' typeConstraintType
+                  ) ;
 
 constraintQuery : memgraphConstraintQuery
-                | neo4jUniqueConstraintQuery
-                | neo4jExistenceConstraintQuery
-                | neo4jTypeConstraintQuery
+                | alternativeConstraintSyntax
                 ;
 
 dropGraphQuery : DROP GRAPH ;
