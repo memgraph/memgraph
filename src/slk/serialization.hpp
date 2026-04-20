@@ -440,9 +440,7 @@ inline void Save(const std::optional<T> &obj, Builder *builder) {
   }
 }
 
-inline void Save(const utils::TypeId &obj, Builder *builder) {
-  Save(static_cast<std::underlying_type_t<utils::TypeId>>(obj), builder);
-}
+inline void Save(const utils::TypeId &obj, Builder *builder) { Save(std::to_underlying(obj), builder); }
 
 template <typename T>
 inline void Load(std::optional<T> *obj, Reader *reader) {

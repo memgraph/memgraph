@@ -91,19 +91,15 @@ enum class FineGrainedPermission : uint64_t {
 // clang-format on
 
 constexpr FineGrainedPermission operator|(FineGrainedPermission lhs, FineGrainedPermission rhs) {
-  return static_cast<FineGrainedPermission>(std::underlying_type_t<FineGrainedPermission>(lhs) |
-                                            std::underlying_type_t<FineGrainedPermission>(rhs));
+  return static_cast<FineGrainedPermission>(std::to_underlying(lhs) | std::to_underlying(rhs));
 }
 
-constexpr uint64_t operator|(uint64_t lhs, FineGrainedPermission rhs) { return lhs | static_cast<uint64_t>(rhs); }
+constexpr uint64_t operator|(uint64_t lhs, FineGrainedPermission rhs) { return lhs | std::to_underlying(rhs); }
 
-constexpr uint64_t operator&(uint64_t lhs, FineGrainedPermission rhs) {
-  return (lhs & static_cast<uint64_t>(rhs)) != 0;
-}
+constexpr uint64_t operator&(uint64_t lhs, FineGrainedPermission rhs) { return (lhs & std::to_underlying(rhs)) != 0; }
 
 constexpr FineGrainedPermission operator&(FineGrainedPermission lhs, FineGrainedPermission rhs) {
-  return static_cast<FineGrainedPermission>(std::underlying_type_t<FineGrainedPermission>(lhs) &
-                                            std::underlying_type_t<FineGrainedPermission>(rhs));
+  return static_cast<FineGrainedPermission>(std::to_underlying(lhs) & std::to_underlying(rhs));
 }
 
 constexpr FineGrainedPermission &operator|=(FineGrainedPermission &lhs, FineGrainedPermission rhs) {
@@ -112,7 +108,7 @@ constexpr FineGrainedPermission &operator|=(FineGrainedPermission &lhs, FineGrai
 }
 
 constexpr FineGrainedPermission operator~(FineGrainedPermission permission) {
-  return static_cast<FineGrainedPermission>(~static_cast<std::underlying_type_t<FineGrainedPermission>>(permission));
+  return static_cast<FineGrainedPermission>(~std::to_underlying(permission));
 }
 
 constexpr FineGrainedPermission kAllLabelPermissions =
