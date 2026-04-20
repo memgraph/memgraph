@@ -133,18 +133,20 @@ Indices::Indices(const Config &config, StorageMode storage_mode)
       edge_property_index_ = std::make_unique<DiskEdgePropertyIndex>();
     }
   });
-  active_indices_.WithLock([&](ActiveIndicesPtr &ai) {
-    ai = std::make_shared<ActiveIndices>(label_index_->GetActiveIndices(),
-                                         label_property_index_->GetActiveIndices(),
-                                         edge_type_index_->GetActiveIndices(),
-                                         edge_type_property_index_->GetActiveIndices(),
-                                         edge_property_index_->GetActiveIndices(),
-                                         text_index_.GetActiveIndices(),
-                                         text_edge_index_.GetActiveIndices(),
-                                         point_index_.GetActiveIndices(),
-                                         vector_index_.GetActiveIndices(),
-                                         vector_edge_index_.GetActiveIndices());
-  });
+  // Build the composite snapshot outside the outer lock so we don't establish
+  // an outer→inner lock-order edge (TSAN flags that as a potential deadlock
+  // because sub-index GetActiveIndices() takes its own inner read-lock).
+  auto snapshot = std::make_shared<ActiveIndices>(label_index_->GetActiveIndices(),
+                                                  label_property_index_->GetActiveIndices(),
+                                                  edge_type_index_->GetActiveIndices(),
+                                                  edge_type_property_index_->GetActiveIndices(),
+                                                  edge_property_index_->GetActiveIndices(),
+                                                  text_index_.GetActiveIndices(),
+                                                  text_edge_index_.GetActiveIndices(),
+                                                  point_index_.GetActiveIndices(),
+                                                  vector_index_.GetActiveIndices(),
+                                                  vector_edge_index_.GetActiveIndices());
+  active_indices_.WithLock([&](ActiveIndicesPtr &ai) { ai = std::move(snapshot); });
 }
 
 Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_indices) const {
