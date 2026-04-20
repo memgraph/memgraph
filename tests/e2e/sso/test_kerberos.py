@@ -52,6 +52,7 @@ def _setup_env(monkeypatch, overrides=None):
 def _setup_mock_ctx(principal="david@EXAMPLE.COM", complete=True):
     mock_ctx = MagicMock()
     mock_ctx.complete = complete
+    mock_ctx.step.return_value = None
     mock_ctx.initiator_name = MagicMock()
     mock_ctx.initiator_name.__str__ = lambda self: principal
     mock_gssapi.SecurityContext.return_value = mock_ctx
@@ -114,6 +115,39 @@ def test_realm_validation(monkeypatch, realm, client_principal, should_pass):
     assert result["authenticated"] is should_pass
     if not should_pass:
         assert "does not match expected realm" in result["errors"]
+
+
+def test_mutual_auth_rejected(monkeypatch):
+    _setup_env(monkeypatch)
+    _setup_mock_ctx()
+    mock_gssapi.SecurityContext.return_value.step.return_value = b"response-token"
+
+    result = authenticate(response=TOKEN, scheme="kerberos")
+
+    assert result["authenticated"] is False
+    assert "Mutual authentication not supported" in result["errors"]
+
+
+def test_invalid_role_mapping_mode(monkeypatch):
+    _setup_env(monkeypatch, {"MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING_MODE": "bogus"})
+    _setup_mock_ctx()
+
+    result = authenticate(response=TOKEN, scheme="kerberos")
+
+    assert result["authenticated"] is False
+    assert "Invalid role_mapping_mode" in result["errors"]
+
+
+def test_role_mapping_with_spn_port(monkeypatch):
+    # rsplit(":", 1) must preserve the ":1433" in the SPN
+    mapping = "MSSQLSvc/db.example.com:1433@EXAMPLE.COM:admin"
+    _setup_env(monkeypatch, {"MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING": mapping})
+    _setup_mock_ctx("MSSQLSvc/db.example.com:1433@EXAMPLE.COM")
+
+    result = authenticate(response=TOKEN, scheme="kerberos")
+
+    assert result["authenticated"] is True
+    assert result["roles"] == ["admin"]
 
 
 def test_incomplete_context(monkeypatch):

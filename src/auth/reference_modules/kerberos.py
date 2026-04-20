@@ -13,7 +13,7 @@ def _load_role_mappings(raw_role_mappings: str) -> dict:
         for mapping in raw_role_mappings.strip().split(";"):
             if not mapping.strip():
                 continue
-            mapping_list = mapping.split(":")
+            mapping_list = mapping.rsplit(":", 1)
             if len(mapping_list) != 2:
                 raise ValueError(f"Invalid role mapping: {mapping}")
             idp_role, mg_roles = mapping_list
@@ -98,37 +98,38 @@ def _resolve_roles_ldap(client_principal: str, role_mapping: dict, config: dict)
             conn = ldap3.Connection(server, user=config["ldap_bind_dn"], password=config["ldap_bind_password"])
         else:
             conn = ldap3.Connection(server, authentication=ldap3.SASL, sasl_mechanism=ldap3.KERBEROS)
-        if not conn.bind():
-            return {"error": f"LDAP bind failed: {conn.result}"}
 
-        custom_filter = config["ldap_user_search_filter"]
-        if custom_filter:
-            search_filter = custom_filter.replace("{username}", ldap3.utils.conv.escape_filter_chars(principal_name))
-        else:
-            user_attr = config["ldap_user_attribute"]
-            user_obj_class = config["ldap_user_object_class"]
-            search_filter = (
-                f"(&(objectClass={user_obj_class})({user_attr}={ldap3.utils.conv.escape_filter_chars(principal_name)}))"
-            )
-        group_attr = config["ldap_group_membership_attribute"]
-        conn.search(search_base, search_filter, attributes=[group_attr])
+        with conn:
+            if not conn.bound:
+                return {"error": f"LDAP bind failed: {conn.result}"}
 
-        if not conn.entries:
-            return {"error": f"User {principal_name} not found in LDAP under {search_base}"}
+            custom_filter = config["ldap_user_search_filter"]
+            if custom_filter:
+                search_filter = custom_filter.replace(
+                    "{username}", ldap3.utils.conv.escape_filter_chars(principal_name)
+                )
+            else:
+                user_attr = config["ldap_user_attribute"]
+                user_obj_class = config["ldap_user_object_class"]
+                search_filter = f"(&(objectClass={user_obj_class})({user_attr}={ldap3.utils.conv.escape_filter_chars(principal_name)}))"
+            group_attr = config["ldap_group_membership_attribute"]
+            conn.search(search_base, search_filter, attributes=[group_attr])
 
-        if config["ldap_nested_groups_enabled"]:
-            user_dn = conn.entries[0].entry_dn
-            nested_filter = config["ldap_nested_groups_search_filter"].replace(
-                "{user_dn}", ldap3.utils.conv.escape_filter_chars(user_dn)
-            )
-            conn.search(base_dn, nested_filter, attributes=["cn"])
-            user_groups = {entry.cn.value for entry in conn.entries if entry.cn}
-            member_of = []
-        else:
-            group_entry = conn.entries[0][group_attr] if group_attr in conn.entries[0] else None
-            member_of = group_entry.values if group_entry else []
-            user_groups = None
-        conn.unbind()
+            if not conn.entries:
+                return {"error": f"User {principal_name} not found in LDAP under {search_base}"}
+
+            if config["ldap_nested_groups_enabled"]:
+                user_dn = conn.entries[0].entry_dn
+                nested_filter = config["ldap_nested_groups_search_filter"].replace(
+                    "{user_dn}", ldap3.utils.conv.escape_filter_chars(user_dn)
+                )
+                conn.search(base_dn, nested_filter, attributes=["cn"])
+                user_groups = {entry.cn.value for entry in conn.entries if entry.cn}
+                member_of = []
+            else:
+                group_entry = conn.entries[0][group_attr] if group_attr in conn.entries[0] else None
+                member_of = group_entry.values if group_entry else []
+                user_groups = None
     except Exception as e:
         return {"error": f"LDAP query failed: {str(e)}"}
 
@@ -189,10 +190,15 @@ def authenticate(response: str, scheme: str):
         server_name = gssapi.Name(service_principal, gssapi.NameType.kerberos_principal)
         server_creds = gssapi.Credentials(name=server_name, usage="accept")
         ctx = gssapi.SecurityContext(creds=server_creds, usage="accept")
-        ctx.step(token_bytes)
+        output_token = ctx.step(token_bytes)
 
         if not ctx.complete:
-            return {"authenticated": False, "errors": "GSSAPI security context negotiation incomplete"}
+            return {
+                "authenticated": False,
+                "errors": "GSSAPI negotiation incomplete (multi-leg not supported)",
+            }
+        if output_token:
+            return {"authenticated": False, "errors": "Mutual authentication not supported"}
 
         client_principal = str(ctx.initiator_name)
     except gssapi.exceptions.GSSError as e:
@@ -220,8 +226,13 @@ def authenticate(response: str, scheme: str):
 
     if role_mapping_mode == "ldap":
         resolved = _resolve_roles_ldap(client_principal, role_mapping, config)
-    else:
+    elif role_mapping_mode == "principal":
         resolved = _resolve_roles_principal(client_principal, role_mapping)
+    else:
+        return {
+            "authenticated": False,
+            "errors": f"Invalid role_mapping_mode: {role_mapping_mode}. Must be 'ldap' or 'principal'.",
+        }
 
     if "error" in resolved:
         return {"authenticated": False, "errors": resolved["error"]}
