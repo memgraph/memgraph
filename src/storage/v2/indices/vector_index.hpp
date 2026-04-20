@@ -13,6 +13,7 @@
 
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
@@ -132,6 +133,17 @@ struct VectorIndexActiveIndices {
   virtual std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const = 0;
 };
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
+struct IndexItem {
+  synchronized_mg_vector_index_t mg_index;
+  VectorIndexSpec spec;
+
+  IndexItem(mg_vector_index_t &&index, VectorIndexSpec spec) : mg_index(std::move(index)), spec(std::move(spec)) {}
+};
+
+/// Container mapping index IDs to shared index items.
+using VectorIndexContainer = std::unordered_map<uint64_t, std::shared_ptr<IndexItem>>;
+
 /// @class VectorIndex
 /// @brief High-level interface for managing vector indexes.
 ///
@@ -161,30 +173,29 @@ class VectorIndex {
 
   using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
 
-  /// Concrete ActiveIndices implementation holding a snapshot of vector index metadata.
+  /// Concrete ActiveIndices implementation holding a shared reference to the live index container.
   struct ActiveIndices : VectorIndexActiveIndices {
     ActiveIndices() = default;
 
-    ActiveIndices(std::vector<VectorIndexSpec> specs, std::vector<VectorIndexInfo> infos)
-        : specs_(std::move(specs)), infos_(std::move(infos)) {}
+    explicit ActiveIndices(std::shared_ptr<VectorIndexContainer const> container)
+        : index_container_(std::move(container)) {}
 
     std::vector<VectorIndexSpec> ListIndices() const override;
     std::vector<VectorIndexInfo> ListVectorIndicesInfo() const override;
     std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const override;
 
    private:
-    std::vector<VectorIndexSpec> specs_;
-    std::vector<VectorIndexInfo> infos_;
+    std::shared_ptr<VectorIndexContainer const> index_container_;
   };
 
-  VectorIndex();
-  ~VectorIndex();
-  VectorIndex(VectorIndex &&) noexcept;
-  VectorIndex &operator=(VectorIndex &&) noexcept;
+  VectorIndex() = default;
+  ~VectorIndex() = default;
+  VectorIndex(VectorIndex &&) noexcept = default;
+  VectorIndex &operator=(VectorIndex &&) noexcept = default;
 
   /// Returns the current active indices snapshot for use in transactions.
   auto GetActiveIndices() const -> std::shared_ptr<VectorIndexActiveIndices> {
-    return std::make_shared<ActiveIndices>(ListIndices(), ListVectorIndicesInfo());
+    return std::make_shared<ActiveIndices>(index_);
   }
 
   /// @brief Creates a new index based on the provided specification.
@@ -331,8 +342,7 @@ class VectorIndex {
   void AddVertexToIndex(uint64_t index_id, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
                         std::optional<std::size_t> thread_id = std::nullopt);
 
-  struct Impl;
-  std::unique_ptr<Impl> pimpl;
+  std::shared_ptr<VectorIndexContainer> index_ = std::make_shared<VectorIndexContainer>();
 };
 
 }  // namespace memgraph::storage

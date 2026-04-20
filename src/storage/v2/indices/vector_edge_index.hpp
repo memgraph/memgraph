@@ -12,7 +12,9 @@
 #pragma once
 
 #include <map>
+#include <shared_mutex>
 #include "storage/v2/durability/serialization.hpp"
+#include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
@@ -78,6 +80,29 @@ struct VectorEdgeIndexActiveIndices {
   virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
 };
 
+// unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
+// operations.
+using mg_vector_edge_index_t = unum::usearch::index_dense_gt<Edge *, unum::usearch::uint40_t,
+                                                             TrackedVectorAllocator<64>, TrackedVectorAllocator<8>>;
+
+struct synchronized_mg_vector_edge_index_t {
+  mg_vector_edge_index_t index;
+  mutable utils::ResourceLock mutex{};
+
+  explicit synchronized_mg_vector_edge_index_t(mg_vector_edge_index_t &&idx) : index(std::move(idx)) {}
+};
+
+struct EdgeTypeIndexItem {
+  synchronized_mg_vector_edge_index_t mg_index;
+  VectorEdgeIndexSpec spec;
+
+  EdgeTypeIndexItem(mg_vector_edge_index_t index, VectorEdgeIndexSpec spec)
+      : mg_index(std::move(index)), spec(std::move(spec)) {}
+};
+
+/// Container mapping index IDs to shared edge index items.
+using VectorEdgeIndexContainer = std::unordered_map<uint64_t, std::shared_ptr<EdgeTypeIndexItem>>;
+
 /// @class VectorEdgeIndex
 /// @brief High-level interface for managing vector edge indexes.
 ///
@@ -117,30 +142,38 @@ class VectorEdgeIndex {
 
   using VectorSearchEdgeResults = std::vector<std::tuple<EdgeIndexEntry, double, double>>;
 
-  /// Concrete ActiveIndices implementation holding a snapshot of vector edge index metadata.
+  /// Concrete ActiveIndices implementation holding a shared reference to the live edge index container.
   struct ActiveIndices : VectorEdgeIndexActiveIndices {
     ActiveIndices() = default;
 
-    ActiveIndices(std::vector<VectorEdgeIndexSpec> specs, std::vector<VectorEdgeIndexInfo> infos)
-        : specs_(std::move(specs)), infos_(std::move(infos)) {}
+    explicit ActiveIndices(std::shared_ptr<VectorEdgeIndexContainer const> container)
+        : index_container_(std::move(container)) {}
 
     std::vector<VectorEdgeIndexSpec> ListIndices() const override;
     std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const override;
     std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override;
 
    private:
-    std::vector<VectorEdgeIndexSpec> specs_;
-    std::vector<VectorEdgeIndexInfo> infos_;
+    std::shared_ptr<VectorEdgeIndexContainer const> index_container_;
   };
 
-  VectorEdgeIndex();
-  ~VectorEdgeIndex();
-  VectorEdgeIndex(VectorEdgeIndex &&) noexcept;
-  VectorEdgeIndex &operator=(VectorEdgeIndex &&) noexcept;
+  VectorEdgeIndex() = default;
+  ~VectorEdgeIndex() = default;
+
+  VectorEdgeIndex(VectorEdgeIndex &&other) noexcept
+      : index_(std::move(other.index_)), edge_endpoints_(std::move(other.edge_endpoints_)) {}
+
+  VectorEdgeIndex &operator=(VectorEdgeIndex &&other) noexcept {
+    if (this != &other) {
+      index_ = std::move(other.index_);
+      edge_endpoints_ = std::move(other.edge_endpoints_);
+    }
+    return *this;
+  }
 
   /// Returns the current active indices snapshot for use in transactions.
   auto GetActiveIndices() const -> std::shared_ptr<VectorEdgeIndexActiveIndices> {
-    return std::make_shared<ActiveIndices>(ListIndices(), ListVectorIndicesInfo());
+    return std::make_shared<ActiveIndices>(index_);
   }
 
   /// @brief Creates a new index based on the provided specification.
@@ -220,8 +253,11 @@ class VectorEdgeIndex {
   /// @brief Removes an edge from a vector index.
   void RemoveEdgeFromIndex(Edge *edge, uint64_t index_id);
 
-  struct Impl;
-  std::unique_ptr<Impl> pimpl;
+  std::shared_ptr<VectorEdgeIndexContainer> index_ = std::make_shared<VectorEdgeIndexContainer>();
+  std::unordered_map<Edge *, std::pair<Vertex *, Vertex *>> edge_endpoints_;
+  // Lock order: mg_index.mutex → edge_endpoints_mutex_ (never acquire mg_index.mutex while holding
+  // edge_endpoints_mutex_)
+  mutable std::shared_mutex edge_endpoints_mutex_;
 };
 
 }  // namespace memgraph::storage
