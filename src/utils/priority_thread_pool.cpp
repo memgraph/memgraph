@@ -617,7 +617,9 @@ bool TaskCollection::Wait(std::chrono::milliseconds timeout) {
     auto last_log = std::chrono::steady_clock::now();
     while (expected != Task::State::FINISHED) {
       spdlog::warn("TaskCollection::Wait(): task[{}] waiting on state={}", i, static_cast<int>(expected));
-      // Log every 5 seconds if stuck
+      // EC-4 fix: use atomic::wait() instead of sleep_for(10ms) polling.
+      // notify_one() is already called by WrapTask/TryExecuteOneIdleTask when storing FINISHED.
+      // Spurious wakeups are handled by re-checking expected after each wait.
       auto now = std::chrono::steady_clock::now();
       if (now - last_log > std::chrono::seconds(5)) {
         spdlog::warn("TaskCollection::Wait(): task[{}] still stuck in state={} after {}ms",
@@ -626,19 +628,17 @@ bool TaskCollection::Wait(std::chrono::milliseconds timeout) {
                      std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count());
         last_log = now;
       }
-      // P7 FIX: Check for timeout before waiting to prevent indefinite hang
       if (now >= deadline) {
         spdlog::error("TaskCollection::Wait() timeout after {}ms - task[{}] stuck in state={}",
                       timeout.count(),
                       i,
                       static_cast<int>(expected));
-        return false;  // Timeout - tasks may be stuck
+        return false;
       }
-      // Poll with short sleep to allow timeout checking
-      // std::atomic::wait_for is C++20 but not available in all libstdc++ versions
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      // Block until notify_one() wakes us (or spurious wakeup); re-read state after.
+      task.state_->wait(expected, std::memory_order_acquire);
       expected = task.state_->load(std::memory_order_acquire);
-      spdlog::warn("TaskCollection::Wait(): task[{}] polled, new state={}", i, static_cast<int>(expected));
+      spdlog::warn("TaskCollection::Wait(): task[{}] woke, new state={}", i, static_cast<int>(expected));
     }
   }
   spdlog::warn("TaskCollection::Wait() completed");
