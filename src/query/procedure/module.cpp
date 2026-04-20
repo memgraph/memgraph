@@ -1068,7 +1068,7 @@ bool PythonModule::Close() {
        ++it) {
     std::string dir_entry_stem = it->path().stem().string();
     if (it->is_regular_file() || dir_entry_stem == "__pycache__") continue;
-    if (dir_entry_stem.find(stem) != std::string_view::npos) {
+    if (dir_entry_stem.contains(stem)) {
       it.disable_recursion_pending();
       submodules.emplace_back(it->path());
     }
