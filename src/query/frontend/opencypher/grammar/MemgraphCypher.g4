@@ -780,7 +780,9 @@ showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )?;
+propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
+
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName propertyKeyList?;
 
 dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
@@ -799,13 +801,13 @@ edgeIndexQuery : createEdgeIndex
 
 indexName : symbolicName ;
 
-createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName propertyKeyList* ;
 
 dropTextIndex : DROP TEXT INDEX indexName ;
 
 textIndexQuery : createTextIndex | dropTextIndex;
 
-createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
+createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName propertyKeyList* ;
 
 createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
 
@@ -949,11 +951,11 @@ edgeTypePattern
 
 descriptionTarget
     : LABEL ':' labelName ( ':' labelName )*
-    | EDGE TYPE PROPERTY edgeTypePattern '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE PROPERTY edgeTypePattern propertyKeyList
     | EDGE TYPE edgeTypePattern
     | EDGE TYPE ':' labelName
-    | LABEL PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
-    | EDGE TYPE PROPERTY ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | LABEL PROPERTY ':' labelName ( ':' labelName )* propertyKeyList
+    | EDGE TYPE PROPERTY ':' labelName propertyKeyList
     | PROPERTY propertyKeyName
     | DATABASE symbolicName
     ;

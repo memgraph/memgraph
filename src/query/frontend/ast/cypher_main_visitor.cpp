@@ -531,8 +531,13 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
     if (ctx->symbolicName()) {
       index_query->name_ = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
     }
+    auto var_name = std::any_cast<std::string>(ctx->variable()->symbolicName()->accept(this));
     std::vector<MemgraphCypher::NestedPropertyKeyNamesContext *> nested_props;
     for (auto *ref : ctx->alternativePropertyRef()) {
+      auto ref_var = std::any_cast<std::string>(ref->variable()->symbolicName()->accept(this));
+      if (ref_var != var_name) {
+        throw SemanticException("All index properties should reference '{}'", var_name);
+      }
       nested_props.push_back(ref->nestedPropertyKeyNames());
     }
     index_query->properties_ = get_index_properties(nested_props, *this);
@@ -578,11 +583,11 @@ antlrcpp::Any CypherMainVisitor::visitCreateEdgeIndex(MemgraphCypher::CreateEdge
   auto *index_query = storage_->Create<EdgeIndexQuery>();
   index_query->action_ = EdgeIndexQuery::Action::CREATE;
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  auto prop_keys = ctx->propertyKeyName();
-  if (prop_keys.size() > 1) {
-    throw SemanticException("Nested properties are not supported for edge indices.");
-  }
-  if (!prop_keys.empty()) {
+  if (auto *list = ctx->propertyKeyList()) {
+    auto prop_keys = list->propertyKeyName();
+    if (prop_keys.size() > 1) {
+      throw SemanticException("Nested properties are not supported for edge indices.");
+    }
     index_query->properties_ = {std::any_cast<PropertyIx>(prop_keys[0]->accept(this))};
   }
   return index_query;
@@ -596,7 +601,12 @@ antlrcpp::Any CypherMainVisitor::visitCreateEdgeIndexAlternativeSyntax(
     index_query->name_ = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
   }
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  auto var_name = std::any_cast<std::string>(ctx->variable()->symbolicName()->accept(this));
   for (auto *ref : ctx->alternativePropertyRef()) {
+    auto ref_var = std::any_cast<std::string>(ref->variable()->symbolicName()->accept(this));
+    if (ref_var != var_name) {
+      throw SemanticException("All index properties should reference '{}'", var_name);
+    }
     auto *nested = ref->nestedPropertyKeyNames();
     auto prop_keys = nested->propertyKeyName();
     if (prop_keys.size() != 1) {
@@ -661,8 +671,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextIndex(MemgraphCypher::CreateText
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
   index_query->action_ = TextIndexQuery::Action::CREATE;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  for (auto *property_key_name_ctx : ctx->propertyKeyName()) {
-    index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
+  for (auto *list : ctx->propertyKeyList()) {
+    for (auto *property_key_name_ctx : list->propertyKeyName()) {
+      index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
+    }
   }
   return index_query;
 }
@@ -678,8 +690,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::Create
   auto *index_query = storage_->Create<CreateTextEdgeIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  for (auto *property_key_name_ctx : ctx->propertyKeyName()) {
-    index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
+  for (auto *list : ctx->propertyKeyList()) {
+    for (auto *property_key_name_ctx : list->propertyKeyName()) {
+      index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
+    }
   }
   query_ = index_query;
   return index_query;
@@ -4469,7 +4483,7 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
     for (auto *label : ctx->labelName()) {
       description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
     }
-    for (auto *property : ctx->propertyKeyName()) {
+    for (auto *property : ctx->propertyKeyList()->propertyKeyName()) {
       description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
     }
   } else if (ctx->EDGE() && ctx->PROPERTY() && ctx->edgeTypePattern()) {
@@ -4483,13 +4497,13 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
     for (auto *label : pattern_nodes[1]->labelName()) {
       description_query->to_labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
     }
-    for (auto *property : ctx->propertyKeyName()) {
+    for (auto *property : ctx->propertyKeyList()->propertyKeyName()) {
       description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
     }
   } else if (ctx->EDGE() && ctx->PROPERTY()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY;
     description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));
-    for (auto *property : ctx->propertyKeyName()) {
+    for (auto *property : ctx->propertyKeyList()->propertyKeyName()) {
       description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
     }
   } else if (ctx->EDGE() && ctx->edgeTypePattern()) {

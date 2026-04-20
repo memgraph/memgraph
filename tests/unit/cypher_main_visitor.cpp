@@ -2121,9 +2121,19 @@ TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxComposite) {
   EXPECT_EQ(index_query->properties_[1], ast_generator.Prop("amount"));
 }
 
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxVariableMismatch) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (x.since)"), SemanticException);
+}
+
 TEST_P(CypherMainVisitorTest, CreateEdgeIndexMemgraphSyntaxCompositeNotSupported) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE EDGE INDEX ON :KNOWS(since, weight)"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateIndexAlternativeSyntaxVariableMismatch) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR (n:Person) ON (x.surname)"), SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, CreateIndexNeo4jSyntaxNumericNameNotAllowed) {
