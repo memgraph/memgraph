@@ -402,7 +402,6 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
   }
 }
 
-// TODO: (andi) Catch correct error
 // RPC lock released at the end of this function
 // Used for STRICT_SYNC replica
 // We don't need to check here for timeout vs. generic error because we aren't handling errors in the 2nd phase of the
