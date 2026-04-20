@@ -3928,6 +3928,20 @@ class ShowConfigQuery : public memgraph::query::Query {
   }
 };
 
+class ShowQueryCallableMappingsQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowQueryCallableMappingsQuery *Clone(AstStorage *storage) const override {
+    ShowQueryCallableMappingsQuery *object = storage->Create<ShowQueryCallableMappingsQuery>();
+    return object;
+  }
+};
+
 class TransactionQueueQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

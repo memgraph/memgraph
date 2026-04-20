@@ -4077,6 +4077,12 @@ antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfig
   return query_;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowQueryCallableMappingsQuery(
+    MemgraphCypher::ShowQueryCallableMappingsQueryContext * /*ctx*/) {
+  query_ = storage_->Create<ShowQueryCallableMappingsQuery>();
+  return query_;
+}
+
 antlrcpp::Any CypherMainVisitor::visitParameterQuery(MemgraphCypher::ParameterQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "ParameterQuery should have exactly one child!");
   auto *parameter_query = std::any_cast<ParameterQuery *>(ctx->children[0]->accept(this));

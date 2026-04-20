@@ -1224,6 +1224,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext *ctx) override;
 
   /**
+   * @return ShowQueryCallableMappingsQuery*
+   */
+  antlrcpp::Any visitShowQueryCallableMappingsQuery(
+      MemgraphCypher::ShowQueryCallableMappingsQueryContext *ctx) override;
+
+  /**
    * @return ParameterQuery*
    */
   antlrcpp::Any visitParameterQuery(MemgraphCypher::ParameterQueryContext *ctx) override;
