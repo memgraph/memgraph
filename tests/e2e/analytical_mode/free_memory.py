@@ -59,5 +59,34 @@ def test_analytical_mode_objects_are_actually_deleted_when_storage_mode_changes(
     check_storage_info(cursor, expected_values)
 
 
+def test_analytical_mode_label_property_index_cleanup_on_free_memory(connect):
+    """Tests stale label+property index entries are cleaned up by FREE MEMORY in analytical mode.
+
+    Without cleanup, overwriting the indexed property leaves the original entries behind, so
+    SHOW INDEX INFO reports 2x the number of vertices. FREE MEMORY must reclaim them.
+    """
+
+    node_count = 100_000
+
+    cursor = connect.cursor()
+    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    cursor.execute(f'UNWIND range(1, {node_count}) AS x CREATE (:Node {{str: "abcdefghijklomnpqrstuvwxyz"}});')
+    cursor.execute("CREATE INDEX ON :Node;")
+    cursor.execute("CREATE INDEX ON :Node(str);")
+    cursor.execute("MATCH (n) SET n.str = 1;")
+    cursor.execute("FREE MEMORY;")
+
+    cursor.execute("SHOW INDEX INFO;")
+    index_info = cursor.fetchall()
+
+    label_property_rows = [
+        row for row in index_info if row[0] == "label+property" and row[1] == "Node" and row[2] == ["str"]
+    ]
+    assert len(label_property_rows) == 1, f"Expected exactly one :Node(str) index row, got {index_info}"
+    assert (
+        label_property_rows[0][3] == node_count
+    ), f"Expected {node_count} entries in :Node(str) index, got {label_property_rows[0][3]}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
