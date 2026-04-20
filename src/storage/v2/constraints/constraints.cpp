@@ -35,11 +35,11 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode) {
         std::unreachable();
     }
   });
-  active_constraints_.WithLock([&](ActiveConstraintsPtr &ac) {
-    ac = std::make_shared<ActiveConstraints>(existence_constraints_->GetActiveConstraints(),
-                                             unique_constraints_->GetActiveConstraints(),
-                                             type_constraints_->GetActiveConstraints());
-  });
+  // Build composite outside the outer lock — see Indices::Indices ctor.
+  auto snapshot = std::make_shared<ActiveConstraints>(existence_constraints_->GetActiveConstraints(),
+                                                      unique_constraints_->GetActiveConstraints(),
+                                                      type_constraints_->GetActiveConstraints());
+  active_constraints_.WithLock([&](ActiveConstraintsPtr &ac) { ac = std::move(snapshot); });
 }
 
 void Constraints::DropGraphClearConstraints() {
@@ -47,11 +47,10 @@ void Constraints::DropGraphClearConstraints() {
   static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->DropGraphClearConstraints();
   existence_constraints_->DropGraphClearConstraints();
   type_constraints_->DropGraphClearConstraints();
-  active_constraints_.WithLock([&](ActiveConstraintsPtr &ac) {
-    ac = std::make_shared<ActiveConstraints>(existence_constraints_->GetActiveConstraints(),
-                                             unique_constraints_->GetActiveConstraints(),
-                                             type_constraints_->GetActiveConstraints());
-  });
+  auto snapshot = std::make_shared<ActiveConstraints>(existence_constraints_->GetActiveConstraints(),
+                                                      unique_constraints_->GetActiveConstraints(),
+                                                      type_constraints_->GetActiveConstraints());
+  active_constraints_.WithLock([&](ActiveConstraintsPtr &ac) { ac = std::move(snapshot); });
 }
 
 }  // namespace memgraph::storage

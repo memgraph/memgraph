@@ -773,15 +773,23 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
   auto updater = storage_->indices_.MakeUpdater();
   if (storage_->indices_.text_index_.IndexExists(index_name)) {
-    storage_->indices_.text_index_.DropIndex(index_name);
+    auto evicted = storage_->indices_.text_index_.DropIndex(index_name);
     auto &text_index = storage_->indices_.text_index_;
+    // Flip deferred_drop only on commit so an aborted DROP leaves the on-disk
+    // tantivy directory intact (other snapshots still alias the same data).
     transaction_.commit_callbacks_.Add(
-        [&text_index, updater](uint64_t /*commit_ts*/) { text_index.PublishActiveIndices(updater); });
+        [&text_index, updater, evicted = std::move(evicted)](uint64_t /*commit_ts*/) mutable {
+          evicted->deferred_drop = true;
+          text_index.PublishActiveIndices(updater);
+        });
   } else if (storage_->indices_.text_edge_index_.IndexExists(index_name)) {
-    storage_->indices_.text_edge_index_.DropIndex(index_name);
+    auto evicted = storage_->indices_.text_edge_index_.DropIndex(index_name);
     auto &text_edge_index = storage_->indices_.text_edge_index_;
     transaction_.commit_callbacks_.Add(
-        [&text_edge_index, updater](uint64_t /*commit_ts*/) { text_edge_index.PublishActiveIndices(updater); });
+        [&text_edge_index, updater, evicted = std::move(evicted)](uint64_t /*commit_ts*/) mutable {
+          evicted->deferred_drop = true;
+          text_edge_index.PublishActiveIndices(updater);
+        });
   } else {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }

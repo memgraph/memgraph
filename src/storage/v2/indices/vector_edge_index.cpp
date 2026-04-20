@@ -34,6 +34,8 @@ namespace memgraph::storage {
 
 // Types moved to vector_edge_index.hpp
 
+void VectorEdgeIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) const { updater(GetActiveIndices()); }
+
 std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &spec, NameIdMapper *name_id_mapper) {
   const auto index_id = name_id_mapper->NameToId(spec.index_name);
   if (index_->contains(index_id)) {

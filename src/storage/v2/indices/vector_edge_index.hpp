@@ -110,8 +110,8 @@ using VectorEdgeIndexContainer = std::unordered_map<uint64_t, std::shared_ptr<Ed
 /// listing all indexes, and searching for edges using a query vector.
 /// Currently, vector edge index operates in READ_UNCOMMITTED isolation level. Database can
 /// still operate in any other isolation level.
-/// This class is thread-safe and uses the Pimpl (Pointer to Implementation) idiom
-/// to hide implementation details.
+/// The index container is held via a copy-on-write shared_ptr<VectorEdgeIndexContainer>,
+/// so ActiveIndices snapshots remain stable while Create/Drop swap in a new version.
 class VectorEdgeIndex {
  public:
   struct AbortProcessor {
@@ -175,6 +175,10 @@ class VectorEdgeIndex {
   auto GetActiveIndices() const -> std::shared_ptr<VectorEdgeIndexActiveIndices> {
     return std::make_shared<ActiveIndices>(index_);
   }
+
+  /// Publishes the current index container as the new ActiveIndices snapshot.
+  /// Mirrors the API on TextEdgeIndex / PointIndexStorage.
+  void PublishActiveIndices(ActiveIndicesUpdater const &updater) const;
 
   /// @brief Creates a new index based on the provided specification.
   bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,

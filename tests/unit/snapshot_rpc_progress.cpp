@@ -541,8 +541,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   InitActiveIndicesStore();
-  auto updater = ActiveIndicesUpdater{active_indices_store_};
-  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), updater, snapshot_info));
+  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
@@ -570,8 +569,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
   snapshot_info.emplace(mocked_observer, 40);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   InitActiveIndicesStore();
-  auto updater = ActiveIndicesUpdater{active_indices_store_};
-  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), updater, snapshot_info));
+  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {

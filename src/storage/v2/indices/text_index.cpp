@@ -163,22 +163,22 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipList<Ve
   PublishActiveIndices(updater);
 }
 
-void TextIndex::DropIndex(const std::string &index_name) {
+std::shared_ptr<TextIndexData> TextIndex::DropIndex(const std::string &index_name) {
   auto it = index_->find(index_name);
   if (it == index_->end()) {
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   }
-
-  // Mark for deferred drop: the tantivy context stays valid for existing
-  // snapshots. When the last shared_ptr<TextIndexData> reference is released,
-  // the destructor will call drop_index.
-  it->second->deferred_drop = true;
+  auto evicted = it->second;  // Keep alive until the caller's commit callback.
 
   // Copy-on-write: work on a new map so existing ActiveIndices snapshots are not affected.
   auto new_map = std::make_shared<IndexContainer>(*index_);
   new_map->erase(index_name);
-
   index_ = std::move(new_map);
+
+  // deferred_drop stays false here on purpose. The caller flips it only after
+  // the DDL transaction commits; if the transaction aborts, the flag stays
+  // false and ~TextIndexData leaves the on-disk tantivy directory intact.
+  return evicted;
 }
 
 bool TextIndex::IndexExists(const std::string &index_name) const { return index_->contains(index_name); }

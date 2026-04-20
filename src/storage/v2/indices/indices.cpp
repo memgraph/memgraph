@@ -61,18 +61,19 @@ void Indices::DropGraphClearIndices() {
   point_index_.Clear();
   vector_index_.Clear();
   vector_edge_index_.Clear();
-  active_indices_.WithLock([&](ActiveIndicesPtr &ci) {
-    ci = std::make_shared<ActiveIndices>(label_index_->GetActiveIndices(),
-                                         label_property_index_->GetActiveIndices(),
-                                         edge_type_index_->GetActiveIndices(),
-                                         edge_type_property_index_->GetActiveIndices(),
-                                         edge_property_index_->GetActiveIndices(),
-                                         text_index_.GetActiveIndices(),
-                                         text_edge_index_.GetActiveIndices(),
-                                         point_index_.GetActiveIndices(),
-                                         vector_index_.GetActiveIndices(),
-                                         vector_edge_index_.GetActiveIndices());
-  });
+  // Build the composite snapshot outside the outer lock to avoid the
+  // outer->inner lock-order edge (see Indices::Indices ctor comment).
+  auto snapshot = std::make_shared<ActiveIndices>(label_index_->GetActiveIndices(),
+                                                  label_property_index_->GetActiveIndices(),
+                                                  edge_type_index_->GetActiveIndices(),
+                                                  edge_type_property_index_->GetActiveIndices(),
+                                                  edge_property_index_->GetActiveIndices(),
+                                                  text_index_.GetActiveIndices(),
+                                                  text_edge_index_.GetActiveIndices(),
+                                                  point_index_.GetActiveIndices(),
+                                                  vector_index_.GetActiveIndices(),
+                                                  vector_edge_index_.GetActiveIndices());
+  active_indices_.WithLock([&](ActiveIndicesPtr &ci) { ci = std::move(snapshot); });
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {

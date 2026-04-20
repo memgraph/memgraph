@@ -141,9 +141,13 @@ class TextIndex {
                     NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  /// Marks the index for deferred drop and removes it from the container.
-  /// Caller is responsible for publishing via PublishActiveIndices.
-  void DropIndex(const std::string &index_name);
+  /// Removes the index from the live container and returns the evicted
+  /// TextIndexData. The caller MUST keep the returned shared_ptr until commit
+  /// time and only then flip its `deferred_drop` flag — doing so earlier
+  /// (or in DropIndex itself) would destroy the on-disk tantivy directory
+  /// if the DDL transaction later aborts, because existing ActiveIndices
+  /// snapshots still alias the same TextIndexData.
+  [[nodiscard]] std::shared_ptr<TextIndexData> DropIndex(const std::string &index_name);
 
   bool IndexExists(const std::string &index_name) const;
 

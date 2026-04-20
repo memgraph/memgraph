@@ -2004,6 +2004,10 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
   transaction_.active_indices_->text_->ApplyTrackedChanges(transaction_, disk_storage->name_id_mapper_.get());
   disk_storage->durable_metadata_.UpdateMetaData(
       disk_storage->timestamp_, disk_storage->vertex_count_, disk_storage->edge_count_);
+  // Run deferred publishes (index CREATE/DROP snapshot swap, etc.) now that
+  // the txn is fully committed. Commit timestamp is 0 if the txn had no
+  // writes — callbacks that care about ts can handle either case.
+  transaction_.commit_callbacks_.RunAll(commit_timestamp_.value_or(0));
   is_transaction_active_ = false;
 
   return {};

@@ -151,8 +151,8 @@ using VectorIndexContainer = std::unordered_map<uint64_t, std::shared_ptr<IndexI
 /// listing all indexes, and searching for nodes using a query vector.
 /// Currently, vector index operates in READ_UNCOMMITTED isolation level. Database can
 /// still operate in any other isolation level.
-/// This class is thread-safe and uses the Pimpl (Pointer to Implementation) idiom
-/// to hide implementation details.
+/// The index container is held via a copy-on-write shared_ptr<VectorIndexContainer>,
+/// so ActiveIndices snapshots remain stable while Create/Drop swap in a new version.
 class VectorIndex {
  public:
   using LabelToAdd = std::set<LabelId>;
@@ -197,6 +197,10 @@ class VectorIndex {
   auto GetActiveIndices() const -> std::shared_ptr<VectorIndexActiveIndices> {
     return std::make_shared<ActiveIndices>(index_);
   }
+
+  /// Publishes the current index container as the new ActiveIndices snapshot.
+  /// Mirrors the API on TextIndex / PointIndexStorage.
+  void PublishActiveIndices(ActiveIndicesUpdater const &updater) const;
 
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.
