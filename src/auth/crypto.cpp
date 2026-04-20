@@ -24,6 +24,7 @@
 #include <nlohmann/json.hpp>
 #include <random>
 #include <sstream>
+#include <utility>
 
 #include "auth/exceptions.hpp"
 #include "utils/enum.hpp"
@@ -200,7 +201,7 @@ auto ExtractSalt(std::string_view salt_durable) -> std::array<char, SALT_SIZE> {
       return 10 + (a - 'a');
     }
     MG_ASSERT(false, "Currupt hash, can't extract salt");
-    __builtin_unreachable();
+    std::unreachable();
   };
 
   for (; b != e; b += 2, ++inserter) {

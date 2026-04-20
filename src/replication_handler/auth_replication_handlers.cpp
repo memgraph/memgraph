@@ -11,6 +11,7 @@
 
 #include "replication_handler/auth_replication_handlers.hpp"
 #include <spdlog/spdlog.h>
+#include <utility>
 
 #include "auth/auth.hpp"
 #include "auth/profiles/user_profiles.hpp"
@@ -131,7 +132,7 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
         auth->DropProfile(req.name);
       } break;
       case N:
-        __builtin_unreachable();
+        std::unreachable();
     }
     // Success
     res = DropAuthDataRes(true);

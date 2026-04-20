@@ -13,6 +13,8 @@
 
 #include <optional>
 #include <set>
+#include <utility>
+
 #include <storage/v2/snapshot_observer_info.hpp>
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/id_types.hpp"
@@ -285,7 +287,7 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
     case PropertyValueType::Null:
       MG_ASSERT(false, "Unexpected conversion from PropertyValueType::Null to TypeConstraint::Type");
   }
-  __builtin_unreachable();
+  std::unreachable();
 }
 
 bool PropertyValueMatchesTypeConstraint(const PropertyValue &property, TypeConstraintKind constraint_type) {

@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 
 #include "absl/container/flat_hash_map.h"
 
@@ -69,7 +70,7 @@ inline std::string_view TypeConstraintKindToString(TypeConstraintKind type) {
     case TypeConstraintKind::POINT:
       return "POINT"sv;
   }
-  __builtin_unreachable();
+  std::unreachable();
 }
 
 inline PropertyStoreType TypeConstraintsKindToPropertyStoreType(TypeConstraintKind type) {
@@ -98,7 +99,7 @@ inline PropertyStoreType TypeConstraintsKindToPropertyStoreType(TypeConstraintKi
     case TypeConstraintKind::POINT:
       return PropertyStoreType::POINT;
   }
-  __builtin_unreachable();
+  std::unreachable();
 }
 
 inline bool TemporalMatch(TemporalType type, TypeConstraintKind expected_type) {
@@ -112,7 +113,7 @@ inline bool TemporalMatch(TemporalType type, TypeConstraintKind expected_type) {
     case TemporalType::Duration:
       return expected_type == TypeConstraintKind::DURATION;
   }
-  __builtin_unreachable();
+  std::unreachable();
 }
 
 /// Convert a PropertyValue to its corresponding TypeConstraintKind.
