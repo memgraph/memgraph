@@ -79,8 +79,9 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
           return true;
         }
         // return true if cached lag is smaller than max_allowed_replica_read_lag. This also allows routing to replicas
-        // with negative lag. negative lag can occur when an instance becomes main without comitting all txns
-        return db_it->second < max_replica_read_lag;
+        // with negative lag. negative lag can occur when an instance becomes main without comitting all txns. Check for
+        // overflow also
+        return db_it->second < 0 || db_it->second < max_replica_read_lag;
       };
 
   auto readers = raft_log_data_instances | ranges::views::filter(std::not_fn(is_instance_main_func)) |

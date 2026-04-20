@@ -461,15 +461,7 @@ std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT> Replic
             DMG_ASSERT(replica_it != replicas.end(), "No info for replica {}", replica_name);
             auto old_value_it = replica_it->second.find(db_name);
             DMG_ASSERT(old_value_it != replica_it->second.end(), "No info for db {}", db_name);
-            // For SYNC replica it can happen that the instance becomes main without committing all transactions from
-            // before
-            // Avoid lossy compression for casting uint64_t to int64_t
-            auto const replica_num_committed_txns = static_cast<uint64_t>(old_value_it->second);
-            if (num_main_committed_txns >= replica_num_committed_txns) {
-              old_value_it->second = num_main_committed_txns - replica_num_committed_txns;
-            } else {
-              old_value_it->second = -static_cast<int64_t>(replica_num_committed_txns - num_main_committed_txns);
-            }
+            old_value_it->second = num_main_committed_txns - old_value_it->second;
           }
         });
   });
