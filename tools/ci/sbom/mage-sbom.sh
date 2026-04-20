@@ -46,7 +46,7 @@ SBOM_FILES=(
 )
 
 # collect Rust MAGE Cargo.toml files
-cargo install cargo-cyclonedx
+cargo install --locked --version 0.5.9 cargo-cyclonedx
 mapfile -t RUST_MAGE_CARGO_MANIFEST_FILES < <(find mage/rust -name "Cargo.toml" -type f -print)
 mkdir -p sbom/rust-mage-sbom-files
 for cargo_manifest_file in "${RUST_MAGE_CARGO_MANIFEST_FILES[@]}"; do

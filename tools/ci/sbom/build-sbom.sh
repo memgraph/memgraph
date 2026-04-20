@@ -85,11 +85,11 @@ mkdir -p sbom
 echo "Generated SBOM file: sbom/memgraph-build-sbom.json"
 
 # create SBOM for text-search
-cd mgcxx/text_search
-cargo install cargo-cyclonedx
+pushd "$SOURCE_DIR/mgcxx/text_search" >/dev/null
+cargo install --locked --version 0.5.9 cargo-cyclonedx
 cargo cyclonedx --format json --override-filename text-search
 echo "Generated SBOM file: text-search.json"
-cd ../../
+popd >/dev/null
 
 ./cyclonedx merge --input-files \
   build/generators/sbom/memgraph-sbom.cdx.json \
