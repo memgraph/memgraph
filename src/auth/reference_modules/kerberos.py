@@ -64,6 +64,16 @@ def _load_config_from_env():
     return config
 
 
+def _cn_from_group_dn(dn: str):
+    """Extract the group CN from a DN, unescaping LDAP-special chars (e.g. \\, -> ,)."""
+    from ldap3.utils.dn import parse_dn
+
+    parsed = parse_dn(dn)
+    if not parsed or parsed[0][0].upper() != "CN":
+        return None
+    return re.sub(r"\\(.)", r"\1", parsed[0][1])
+
+
 def _resolve_roles_principal(client_principal: str, role_mapping: dict) -> dict:
     """Map roles by matching the Kerberos principal name against static mappings."""
     roles = []
@@ -125,36 +135,19 @@ def _resolve_roles_ldap(client_principal: str, role_mapping: dict, config: dict)
                 )
                 conn.search(base_dn, nested_filter, attributes=["cn"])
                 user_groups = {entry.cn.value for entry in conn.entries if entry.cn}
-                member_of = []
             else:
                 group_entry = conn.entries[0][group_attr] if group_attr in conn.entries[0] else None
                 member_of = group_entry.values if group_entry else []
-                user_groups = None
+                user_groups = {cn for dn in member_of if (cn := _cn_from_group_dn(dn))}
     except Exception as e:
         return {"error": f"LDAP query failed: {str(e)}"}
 
-    # If nested groups path didn't already populate user_groups, parse from memberOf DNs
-    if user_groups is None:
-        # Extract CN from group DNs using ldap3's parser (handles escaped chars correctly)
-        from ldap3.utils.dn import parse_dn
-
-        user_groups = set()
-        for group_dn in member_of:
-            parsed = parse_dn(group_dn)
-            if parsed and parsed[0][0].upper() == "CN":
-                # parse_dn returns the value with LDAP escapes still present (e.g. "Engineering\, EMEA").
-                # Unescape so it matches what the admin puts in MEMGRAPH_SSO_KERBEROS_ROLE_MAPPING.
-                escaped_value = parsed[0][1]
-                unescaped = re.sub(r"\\(.)", r"\1", escaped_value)
-                user_groups.add(unescaped)
-
-    # Match groups against role mapping
     roles = []
     for mapping_key, mg_roles in role_mapping.items():
         if mapping_key in user_groups or mapping_key == "*":
             roles.extend(mg_roles)
 
-    return {"roles": roles, "user_groups": sorted(user_groups)}
+    return {"roles": roles}
 
 
 def authenticate(response: str, scheme: str):
