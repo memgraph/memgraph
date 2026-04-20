@@ -224,7 +224,7 @@ struct EGraph : private detail::EGraphBase {
   }
 
   EGraph(EGraph &&) noexcept = default;
-  auto operator=(EGraph &&) -> EGraph & = default;
+  auto operator=(EGraph &&) noexcept -> EGraph & = default;
 
   using EGraphBase::find;
   using EGraphBase::needs_rebuild;

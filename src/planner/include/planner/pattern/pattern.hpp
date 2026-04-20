@@ -104,7 +104,7 @@ struct SymNode {
   std::vector<ChildSpec<Symbol>> children;
   std::optional<PatternVar> binding;
 
-  SymNode(Symbol s, std::vector<ChildSpec<Symbol>> c = {}, std::optional<PatternVar> b = std::nullopt)
+  explicit SymNode(Symbol s, std::vector<ChildSpec<Symbol>> c = {}, std::optional<PatternVar> b = std::nullopt)
       : symbol(s), children(std::move(c)), binding(b) {}
 };
 

@@ -11,8 +11,12 @@
 
 #pragma once
 
+#include <algorithm>
+#include <concepts>
 #include <cstdint>
+#include <iterator>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,16 +24,43 @@
 #include "query/plan_v2/egraph.hpp"
 #include "query/plan_v2/private_symbol.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/small_vector.hpp"
 
 namespace memgraph::query::plan::v2 {
 
 // ========================================================================
-// symbol_make_traits - each defines storage_type and make()
-// make() receives only its storage + an emplacer callback
+// symbol_make_traits — single place where per-symbol semantics live.
+//
+// Every specialisation provides:
+//   - storage_type: what auxiliary side-data this symbol needs (interning
+//     maps, counters, etc). Empty struct if none.
+//   - make(storage, user_args...) -> lowered_node: maps the user-facing
+//     constructor arguments to (children, optional disambiguator), updating
+//     storage as needed. The caller (egraph::impl::Make) does the actual
+//     emplace into the core e-graph using the returned lowered form.
+//
+// The lowering contract lives in exactly one place (this header). Adding a
+// new symbol is one specialisation plus one facade method on egraph.
 // ========================================================================
+
+struct lowered_node {
+  utils::small_vector<eclass> children;
+  std::optional<uint64_t> disambiguator;
+};
 
 template <symbol S>
 struct symbol_make_traits;
+
+/// Concept every symbol_make_traits<S> specialisation must satisfy for a given
+/// user-arg pack. Verifies both that the storage_type is well-formed and that
+/// make() is callable with (storage&, Args...) returning lowered_node, so a
+/// malformed trait or a wrong-arity call fails at the constraint with a clear
+/// message rather than deep inside impl::Make.
+template <typename T, typename... Args>
+concept SymbolMakeTraits =
+    std::is_default_constructible_v<typename T::storage_type> && requires(typename T::storage_type &s, Args &&...args) {
+      { T::make(s, std::forward<Args>(args)...) } -> std::same_as<lowered_node>;
+    };
 
 /// Once: auto-incrementing counter
 template <>
@@ -38,10 +69,7 @@ struct symbol_make_traits<symbol::Once> {
     uint64_t counter = 0;
   };
 
-  template <typename Emplacer>
-  static auto make(storage_type &s, Emplacer &&emplace) -> eclass {
-    return emplace(s.counter++);
-  }
+  static auto make(storage_type &s) -> lowered_node { return {.children = {}, .disambiguator = s.counter++}; }
 };
 
 /// Symbol: position -> name mapping
@@ -51,10 +79,9 @@ struct symbol_make_traits<symbol::Symbol> {
     std::map<int32_t, std::string> store;
   };
 
-  template <typename Emplacer>
-  static auto make(storage_type &s, Emplacer &&emplace, int32_t pos, std::string_view name) -> eclass {
+  static auto make(storage_type &s, int32_t pos, std::string_view name) -> lowered_node {
     s.store.try_emplace(pos, std::string{name});
-    return emplace(static_cast<uint64_t>(pos));
+    return {.children = {}, .disambiguator = static_cast<uint64_t>(pos)};
   }
 };
 
@@ -66,11 +93,10 @@ struct symbol_make_traits<symbol::Literal> {
     uint64_t next_id = 0;
   };
 
-  template <typename Emplacer>
-  static auto make(storage_type &s, Emplacer &&emplace, storage::ExternalPropertyValue const &value) -> eclass {
+  static auto make(storage_type &s, storage::ExternalPropertyValue const &value) -> lowered_node {
     auto [it, inserted] = s.store.try_emplace(value, s.next_id);
     if (inserted) ++s.next_id;
-    return emplace(it->second);
+    return {.children = {}, .disambiguator = it->second};
   }
 };
 
@@ -79,9 +105,8 @@ template <>
 struct symbol_make_traits<symbol::ParamLookup> {
   struct storage_type {};
 
-  template <typename Emplacer>
-  static auto make(storage_type & /*s*/, Emplacer &&emplace, int32_t pos) -> eclass {
-    return emplace(static_cast<uint64_t>(pos));
+  static auto make(storage_type &, int32_t pos) -> lowered_node {
+    return {.children = {}, .disambiguator = static_cast<uint64_t>(pos)};
   }
 };
 
@@ -90,9 +115,8 @@ template <>
 struct symbol_make_traits<symbol::Bind> {
   struct storage_type {};
 
-  template <typename Emplacer>
-  static auto make(storage_type & /*s*/, Emplacer &&emplace, eclass input, eclass sym, eclass expr) -> eclass {
-    return emplace(input, sym, expr);
+  static auto make(storage_type &, eclass input, eclass sym, eclass expr) -> lowered_node {
+    return {.children = utils::small_vector<eclass>{input, sym, expr}, .disambiguator = std::nullopt};
   }
 };
 
@@ -101,9 +125,8 @@ template <>
 struct symbol_make_traits<symbol::Identifier> {
   struct storage_type {};
 
-  template <typename Emplacer>
-  static auto make(storage_type & /*s*/, Emplacer &&emplace, eclass sym) -> eclass {
-    return emplace(sym);
+  static auto make(storage_type &, eclass sym) -> lowered_node {
+    return {.children = utils::small_vector<eclass>{sym}, .disambiguator = std::nullopt};
   }
 };
 
@@ -112,11 +135,12 @@ template <>
 struct symbol_make_traits<symbol::Output> {
   struct storage_type {};
 
-  template <typename Emplacer>
-  static auto make(storage_type & /*s*/, Emplacer &&emplace, eclass input, std::vector<eclass> named_outputs)
-      -> eclass {
-    named_outputs.insert(named_outputs.begin(), input);
-    return emplace(std::move(named_outputs));
+  static auto make(storage_type &, eclass input, std::vector<eclass> named_outputs) -> lowered_node {
+    auto children = utils::small_vector<eclass>{};
+    children.reserve(named_outputs.size() + 1);
+    children.push_back(input);
+    std::ranges::copy(named_outputs, std::back_inserter(children));
+    return {.children = std::move(children), .disambiguator = std::nullopt};
   }
 };
 
@@ -128,11 +152,10 @@ struct symbol_make_traits<symbol::NamedOutput> {
     uint64_t next_id = 0;
   };
 
-  template <typename Emplacer>
-  static auto make(storage_type &s, Emplacer &&emplace, std::string_view name, eclass sym, eclass expr) -> eclass {
+  static auto make(storage_type &s, std::string_view name, eclass sym, eclass expr) -> lowered_node {
     auto [it, inserted] = s.store.try_emplace(std::string{name}, s.next_id);
     if (inserted) ++s.next_id;
-    return emplace(it->second, sym, expr);
+    return {.children = utils::small_vector<eclass>{sym, expr}, .disambiguator = it->second};
   }
 };
 

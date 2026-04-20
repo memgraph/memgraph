@@ -101,7 +101,7 @@ class PatternsCompilerBase {
 
   /// Result of emitting symbol structure (iteration, checks, children).
   struct SymbolStructure {
-    InstrAddr innermost;         // Deepest child backtrack (for exhaustive enum), or backtrack for leaf
+    InstrAddr backtrack_addr;    // Deepest child backtrack (for exhaustive enum), or backtrack for leaf
     InstrAddr parent_traversal;  // Backtrack for joined parent traversal: loop_pos for non-leaf, backtrack for leaf
   };
 
@@ -233,7 +233,7 @@ class PatternsCompilerBase {
 // ### 6. Code Structure Contract
 //
 //   - Code begins with iteration setup for root pattern (if any)
-//   - For patterns with bindings: ends with Yield, Jump(innermost_loop), Halt
+//   - For patterns with bindings: ends with Yield, Jump(backtrack_addr), Halt
 //   - For patterns without bindings (e.g., pure wildcard): just Halt
 //   - Halt is always the last instruction
 //
@@ -277,7 +277,7 @@ class PatternsCompilerBase {
 /// 6:  IterENodes r3, r2            ; iterate inner Neg (no backtrack)
 /// ...
 /// N:  Yield
-/// N+1: Jump @innermost             ; try more combinations
+/// N+1: Jump @backtrack_addr             ; try more combinations
 /// halt:
 /// N+2: Halt
 /// ```
@@ -337,12 +337,12 @@ class PatternsCompiler : protected PatternsCompilerBase {
                                  PatternState &ps) -> InstrAddr;
 
   /// Emit parent walk fragment: walk up from entry to root via IterParents chain.
-  auto emit_parent_walk_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision, InstrAddr innermost,
-                                 EClassReg eclass_reg, InstrAddr eclass_exhaust) -> InstrAddr;
+  auto emit_parent_walk_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision,
+                                 InstrAddr backtrack_addr, EClassReg eclass_reg, InstrAddr eclass_exhaust) -> InstrAddr;
 
   /// Emit enode verification fragment: IterENodes + CheckSymbol + children at entry node.
-  auto emit_enode_verify_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision, InstrAddr innermost,
-                                  EClassReg eclass_reg) -> InstrAddr;
+  auto emit_enode_verify_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision,
+                                  InstrAddr backtrack_addr, EClassReg eclass_reg) -> InstrAddr;
 
   // ============================================================================
   // Emission: node-level
@@ -399,11 +399,11 @@ auto PatternsCompiler<Symbol>::compile_patterns(std::span<Pattern<Symbol> const>
   // Compute emission plan (join order + hoisting tree)
   auto const plan = compute_emit_plan(effective);
 
-  auto innermost = emit_patterns(effective, plan);
+  auto backtrack_addr = emit_patterns(effective, plan);
 
   // Emit yield and continue loop
   emit(Instruction::yield(binding_order_.back()));
-  emit(Instruction::jmp(innermost));
+  emit(Instruction::jmp(backtrack_addr));
 
   // Emit halt and patch placeholders
   auto halt_pos = emit(Instruction::halt());
@@ -483,7 +483,7 @@ auto PatternsCompiler<Symbol>::compute_entry(Pattern<Symbol> const &pat,
   std::optional<Candidate> symbol;
   std::optional<std::pair<Candidate, PatternVar>> shared;
 
-  auto search = [&](auto &self, PatternNodeId node_id, std::vector<PathStep> &steps) -> void {
+  auto search = [&](this auto &self, PatternNodeId node_id, std::vector<PathStep> &steps) -> void {
     auto try_shared = [&](PatternVar var) {
       if (bound.contains(var) && (!shared || steps.size() > shared->first.depth)) {
         shared = {{steps.size(), node_id, steps}, var};
@@ -501,7 +501,7 @@ auto PatternsCompiler<Symbol>::compute_entry(Pattern<Symbol> const &pat,
                      }
                      for (std::size_t i = 0; i < sym.children.size(); ++i) {
                        steps.emplace_back(node_id, i);
-                       self(self, sym.children[i], steps);
+                       self(sym.children[i], steps);
                        steps.pop_back();
                      }
                    },
@@ -511,7 +511,7 @@ auto PatternsCompiler<Symbol>::compute_entry(Pattern<Symbol> const &pat,
   };
 
   std::vector<PathStep> steps;
-  search(search, pat.root(), steps);
+  search(pat.root(), steps);
 
   // Priority 1: deepest shared var → enter via existing register, no new binding.
   if (shared) {
@@ -595,7 +595,7 @@ auto PatternsCompiler<Symbol>::compute_emit_plan(std::span<Pattern<Symbol> const
 template <typename Symbol>
 auto PatternsCompiler<Symbol>::emit_patterns(std::span<Pattern<Symbol> const> patterns, EmitPlan const &plan)
     -> InstrAddr {
-  InstrAddr innermost = kHaltPlaceholder;
+  InstrAddr backtrack_addr = kHaltPlaceholder;
 
   // Per-pattern emission state: populated by EclassIter, consumed by ParentWalk/EnodeVerify.
   std::vector<PatternState> state(plan.entries.size());
@@ -607,17 +607,17 @@ auto PatternsCompiler<Symbol>::emit_patterns(std::span<Pattern<Symbol> const> pa
 
     switch (frag.kind) {
       case Fragment::EclassIter:
-        innermost = emit_eclass_iter_fragment(pat, pe.entry, innermost, ps);
+        backtrack_addr = emit_eclass_iter_fragment(pat, pe.entry, backtrack_addr, ps);
         break;
       case Fragment::ParentWalk:
-        innermost = emit_parent_walk_fragment(pat, pe.entry, innermost, ps.eclass_reg, ps.eclass_exhaust);
+        backtrack_addr = emit_parent_walk_fragment(pat, pe.entry, backtrack_addr, ps.eclass_reg, ps.eclass_exhaust);
         break;
       case Fragment::EnodeVerify:
-        innermost = emit_enode_verify_fragment(pat, pe.entry, innermost, ps.eclass_reg);
+        backtrack_addr = emit_enode_verify_fragment(pat, pe.entry, backtrack_addr, ps.eclass_reg);
         break;
     }
   }
-  return innermost;
+  return backtrack_addr;
 }
 
 template <typename Symbol>
@@ -657,7 +657,7 @@ auto PatternsCompiler<Symbol>::emit_eclass_iter_fragment(Pattern<Symbol> const &
 
 template <typename Symbol>
 auto PatternsCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision,
-                                                         InstrAddr innermost, EClassReg eclass_reg,
+                                                         InstrAddr backtrack_addr, EClassReg eclass_reg,
                                                          InstrAddr eclass_exhaust) -> InstrAddr {
   auto const bindings_before = seen_vars_.size();
   EClassReg current_eclass_reg = eclass_reg;
@@ -670,8 +670,8 @@ auto PatternsCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &
     auto sym_idx = get_symbol_index(step_sym.sym);
 
     // Iterate parents of current e-class.
-    auto loop_pos = emit_iter_loop(Instruction::iter_parents(parent_reg, current_eclass_reg, innermost),
-                                   Instruction::next_parent(parent_reg, innermost))
+    auto loop_pos = emit_iter_loop(Instruction::iter_parents(parent_reg, current_eclass_reg, backtrack_addr),
+                                   Instruction::next_parent(parent_reg, backtrack_addr))
                         .loop;
 
     // Check symbol and arity.
@@ -687,7 +687,7 @@ auto PatternsCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &
       emit(Instruction::check_eclass_eq(*verify_child_reg, current_eclass_reg, loop_pos));
     }
 
-    auto children_innermost = emit_children(pattern, step_sym, parent_reg, loop_pos, child_idx);
+    auto children_backtrack_addr = emit_children(pattern, step_sym, parent_reg, loop_pos, child_idx);
 
     auto const binding = pattern.binding_for(step.node_id);
     auto const is_last_step = (step_idx + 1 == decision.path_to_root.size());
@@ -707,9 +707,9 @@ auto PatternsCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &
       auto mark_addr = emit(Instruction::mark_seen(get_slot(*binding)));
       emit(Instruction::jmp(loop_pos));
       patch_target(skip_addr, current_addr());
-      innermost = mark_addr;
+      backtrack_addr = mark_addr;
     } else {
-      innermost = children_innermost;
+      backtrack_addr = children_backtrack_addr;
     }
   }
 
@@ -722,28 +722,28 @@ auto PatternsCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &
     return eclass_exhaust;
   }
 
-  return innermost;
+  return backtrack_addr;
 }
 
 template <typename Symbol>
 auto PatternsCompiler<Symbol>::emit_enode_verify_fragment(Pattern<Symbol> const &pattern, EntryDecision const &decision,
-                                                          InstrAddr innermost, EClassReg eclass_reg) -> InstrAddr {
+                                                          InstrAddr backtrack_addr, EClassReg eclass_reg) -> InstrAddr {
   return std::visit(utils::Overloaded{
                         [&](SymbolWithChildren<Symbol> const &sym) {
                           auto const bindings_before = seen_vars_.size();
-                          auto structure = emit_symbol_structure(pattern, sym, eclass_reg, innermost);
+                          auto structure = emit_symbol_structure(pattern, sym, eclass_reg, backtrack_addr);
                           auto const has_new_bindings = (seen_vars_.size() != bindings_before);
-                          // For root entries (no parent walk), always use innermost to enumerate
+                          // For root entries (no parent walk), always use backtrack_addr to enumerate
                           // all child combinations. For non-root entries with no new bindings, the
                           // verify is purely existential — use parent_traversal to skip duplicate
                           // tuples from equivalent enodes. When the subtree introduces new bindings,
-                          // inner enode alternatives can produce distinct tuples, so use innermost.
+                          // inner enode alternatives can produce distinct tuples, so use backtrack_addr.
                           if (decision.path_to_root.empty() || has_new_bindings) {
-                            return structure.innermost;
+                            return structure.backtrack_addr;
                           }
                           return structure.parent_traversal;
                         },
-                        [&](auto const &) { return innermost; },
+                        [&](auto const &) { return backtrack_addr; },
                     },
                     pattern[decision.node]);
 }
@@ -778,7 +778,7 @@ auto PatternsCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, 
     emit_var_binding(*binding, eclass_reg, bind_backtrack.value_or(backtrack));
   }
 
-  return emit_symbol_structure(pattern, sym, eclass_reg, backtrack).innermost;
+  return emit_symbol_structure(pattern, sym, eclass_reg, backtrack).backtrack_addr;
 }
 
 template <typename Symbol>
@@ -820,8 +820,8 @@ auto PatternsCompiler<Symbol>::emit_symbol_structure(Pattern<Symbol> const &patt
     return {backtrack, backtrack};
   }
 
-  auto innermost = emit_children(pattern, sym, enode_reg, loop_pos);
-  return {innermost, loop_pos};
+  auto backtrack_addr = emit_children(pattern, sym, enode_reg, loop_pos);
+  return {backtrack_addr, loop_pos};
 }
 
 template <typename Symbol>
@@ -838,7 +838,7 @@ auto PatternsCompiler<Symbol>::emit_children(Pattern<Symbol> const &pattern, Sym
 
   // Stack-allocated for typical arities (≤4 children). Heap fallback for larger.
   boost::container::small_vector<DeferredChild, 4> deferred;
-  InstrAddr innermost = backtrack;
+  InstrAddr backtrack_addr = backtrack;
   for (std::size_t i = 0; i < sym.children.size(); ++i) {
     if (skip_child_idx && i == *skip_child_idx) continue;
     auto const child_id = sym.children[i];
@@ -848,7 +848,7 @@ auto PatternsCompiler<Symbol>::emit_children(Pattern<Symbol> const &pattern, Sym
                      // Non-nesting: LoadChild + process immediately at enode level.
                      auto child_reg = alloc_eclass_reg();
                      emit(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
-                     innermost = emit_node(pattern, child_id, child_reg, innermost);
+                     backtrack_addr = emit_node(pattern, child_id, child_reg, backtrack_addr);
                    },
                    [&](SymbolWithChildren<Symbol> const &) {
                      // Nesting: LoadChild now, defer IterENodes to phase 2.
@@ -862,9 +862,9 @@ auto PatternsCompiler<Symbol>::emit_children(Pattern<Symbol> const &pattern, Sym
 
   // Phase 2: Process deferred symbol children (creates nested IterENodes loops).
   for (auto const &[node_id, child_reg] : deferred) {
-    innermost = emit_node(pattern, node_id, child_reg, innermost);
+    backtrack_addr = emit_node(pattern, node_id, child_reg, backtrack_addr);
   }
-  return innermost;
+  return backtrack_addr;
 }
 
 // ============================================================================
@@ -879,10 +879,10 @@ auto PatternsCompiler<Symbol>::get_symbol_index(Symbol const &sym) -> uint8_t {
   for (std::size_t i = 0; i < symbols_.size(); ++i) {
     if (symbols_[i] == sym) return static_cast<uint8_t>(i);
   }
-  symbols_.push_back(sym);
   if (symbols_.size() > std::numeric_limits<uint8_t>::max()) [[unlikely]] {
     throw std::overflow_error("Pattern too complex: symbol table limit exceeded");
   }
+  symbols_.push_back(sym);
   return static_cast<uint8_t>(symbols_.size() - 1);
 }
 

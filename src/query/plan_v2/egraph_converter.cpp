@@ -111,12 +111,13 @@ struct Builder {
   }
 
   auto Build(utils::tag_value<symbol::Symbol> /*tag*/, enode_ref node, children_ref /*children*/) -> BuildResult {
-    auto const frame_position = next_frame_position_++;
     auto const sym_pos = static_cast<int32_t>(node.disambiguator());
     auto const it = reverse_symbol_name_store_.find(sym_pos);
-    std::string name = (it != reverse_symbol_name_store_.end()) ? it->second : "unknown";
+    if (it == reverse_symbol_name_store_.end()) [[unlikely]] {
+      throw QueryException{"Planner error, symbol not found in store"};
+    }
     // TODO/NOTE: lost user_declared_, type_, and token_position_
-    return Symbol{std::move(name), frame_position, false /*TODO*/};
+    return symbol_table_.CreateSymbol(it->second, false /*TODO*/);
   }
 
   auto Build(utils::tag_value<symbol::Literal> /*tag*/, enode_ref node, children_ref /*children*/) -> BuildResult {
@@ -185,11 +186,11 @@ struct Builder {
   std::map<int32_t, std::string> reverse_symbol_name_store_;
 
   AstStorage ast_storage_;
-  int next_frame_position_ = 0;
+  SymbolTable symbol_table_;
 };
 
 auto ConvertToLogicalOperator(egraph const &e, eclass root)
-    -> std::tuple<std::unique_ptr<LogicalOperator>, double, AstStorage> {
+    -> std::tuple<std::unique_ptr<LogicalOperator>, double, AstStorage, SymbolTable> {
   auto const &impl = internal::get_impl(e);
 
   /// STAGE: Extraction from EGraph using CostModel
@@ -224,7 +225,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
 
   // TODO: make the rest of query plan root? use a shared_ptr (hence avoid this clone)
   auto unique_result = result->Clone(&builder.ast_storage_);
-  return {std::move(unique_result), 0.0, std::move(builder.ast_storage_)};
+  return {std::move(unique_result), 0.0, std::move(builder.ast_storage_), std::move(builder.symbol_table_)};
 
   // egraph extraction -> subgraph of the egraph (one Enode per EClass)
   // start for a root

@@ -159,7 +159,7 @@ auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
  */
 template <typename Symbol, typename Analysis, typename CostModel>
 struct Extractor {
-  Extractor(EGraph<Symbol, Analysis> const &egraph, CostModel &&cost_model)
+  Extractor(EGraph<Symbol, Analysis> const &egraph, CostModel cost_model)
       : egraph_(egraph), cost_model_(std::move(cost_model)) {}
 
   /**

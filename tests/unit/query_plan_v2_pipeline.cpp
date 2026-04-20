@@ -142,9 +142,12 @@ class PlannerV2PipelineTest : public ::testing::TestWithParam<PipelineTestCase> 
     auto result = ApplyAllRewrites(eg);
     rewrite_result_ = result;
 
-    // The plan references AST nodes owned by plan_ast_storage_
-    auto [plan, cost, new_ast_storage] = ConvertToLogicalOperator(eg, root);
+    // The plan references AST nodes owned by plan_ast_storage_, and the compact
+    // SymbolTable owns only the symbols surviving extraction. Replace the
+    // parse-time symbol_table_ so downstream lookups see the authoritative table.
+    auto [plan, cost, new_ast_storage, new_symbol_table] = ConvertToLogicalOperator(eg, root);
     plan_ast_storage_ = std::move(new_ast_storage);
+    symbol_table_ = std::move(new_symbol_table);
 
     return std::move(plan);
   }
@@ -186,6 +189,74 @@ TEST_P(PlannerV2PipelineTest, Pipeline) {
   if (tc.should_saturate) {
     EXPECT_TRUE(rewrite_result_.saturated());
   }
+}
+
+// Walk a plan tree and collect (NamedExpression name, symbol_pos_) pairs for every
+// NamedExpression encountered under Produce operators. Used to verify that the
+// extracted plan's symbol positions resolve to a symbol with the matching name.
+class NamedExpressionCollector : public plan::HierarchicalLogicalOperatorVisitor {
+ public:
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  struct Entry {
+    std::string name;
+    int32_t symbol_pos;
+  };
+
+  std::vector<Entry> entries;
+
+  bool Visit(plan::Once & /*unused*/) override { return true; }
+
+  bool PreVisit(plan::Produce &op) override {
+    for (auto *named_expr : op.named_expressions_) {
+      entries.push_back({named_expr->name_, named_expr->symbol_pos_});
+    }
+    return true;
+  }
+};
+
+TEST_F(PlannerV2PipelineTest, ExtractedSymbolPositionsResolveInCompactTable) {
+  // Guards the compact-SymbolTable contract: ConvertToLogicalOperator returns a
+  // compact SymbolTable alongside the plan, PlanQuery installs it as the
+  // authoritative table, and every NamedExpression::symbol_pos_ in the extracted
+  // plan must resolve in that table to a Symbol whose name matches.
+  //
+  // Regression target: a previous version assigned compact frame positions to
+  // reconstructed Symbol objects but returned no SymbolTable, leaving
+  // symbol_pos_ values referring to a table that didn't exist. Downstream
+  // symbol_table.at(...) calls then fell back to the parse-time table and
+  // could retrieve the wrong Symbol.
+  auto plan = PlanQuery("WITH 1 AS a, 2 AS b RETURN a, b;");
+  ASSERT_NE(plan, nullptr);
+
+  NamedExpressionCollector collector;
+  plan->Accept(collector);
+  ASSERT_FALSE(collector.entries.empty());
+
+  std::vector<std::string> failures;
+  for (auto const &[name, pos] : collector.entries) {
+    if (pos < 0 || pos >= symbol_table_.max_position()) {
+      failures.push_back("'" + name + "' @ symbol_pos=" + std::to_string(pos) +
+                         " OOB for parse-time SymbolTable (size=" + std::to_string(symbol_table_.max_position()) + ")");
+      continue;
+    }
+    auto const &resolved = symbol_table_.table().at(static_cast<std::size_t>(pos));
+    if (resolved.name() != name) {
+      failures.push_back("'" + name + "' @ symbol_pos=" + std::to_string(pos) + " resolves to Symbol named '" +
+                         resolved.name() + "'");
+    }
+  }
+
+  EXPECT_TRUE(failures.empty()) << "Extracted plan's symbol_pos_ values do not resolve against the compact "
+                                   "SymbolTable returned from ConvertToLogicalOperator. The compact table and "
+                                   "the positions it is indexed by must be produced together. Failures:\n"
+                                << [&] {
+                                     std::string out;
+                                     for (auto const &f : failures) out += "  " + f + "\n";
+                                     return out;
+                                   }();
 }
 
 // clang-format off

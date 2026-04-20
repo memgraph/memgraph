@@ -158,11 +158,11 @@ struct ENodeRef {
 
   auto value() const -> const ENode<Symbol> & { return *ptr_; }
 
-  friend bool operator==(const ENodeRef &rhs, const ENodeRef &lhs) { return *rhs.ptr_ == *lhs.ptr_; }
+  friend bool operator==(const ENodeRef &lhs, const ENodeRef &rhs) { return *lhs.ptr_ == *rhs.ptr_; }
 
-  friend bool operator==(const ENodeRef &rhs, const ENode<Symbol> &lhs) { return *rhs.ptr_ == lhs; }
+  friend bool operator==(const ENodeRef &lhs, const ENode<Symbol> &rhs) { return *lhs.ptr_ == rhs; }
 
-  friend bool operator==(const ENode<Symbol> &rhs, const ENodeRef &lhs) { return rhs == *lhs.ptr_; }
+  friend bool operator==(const ENode<Symbol> &lhs, const ENodeRef &rhs) { return lhs == *rhs.ptr_; }
 
   [[nodiscard]] auto hash() const -> std::size_t { return ptr_->hash(); }
 

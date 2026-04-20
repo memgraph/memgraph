@@ -345,6 +345,33 @@ TEST(EGraph_DuplicateRemoval, ManyDuplicatesExceedingSBO) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
+TEST(EGraph_DuplicateRemoval, TwoCongruentParentsCollapseAfterChildMerge) {
+  // Targets the scenario in process_parents() where two parent e-nodes end up in the
+  // SAME canonical_to_parents group. Static analysis argues the assert inside
+  // repair_hashcons_enode (hashcons_.find(ENodeRef{enode}) != end) cannot fire: each
+  // parent has a DISTINCT pre-canonical hashcons key (otherwise add_enode would have
+  // deduplicated at insertion), and repair only erases the key of the enode currently
+  // being repaired — it never removes a sibling's entry.
+  //
+  // This test empirically confirms that: two F(a_i) nodes are forced into one
+  // canonical_to_parents group by merging their children, rebuild must not trip the
+  // assert (Debug build), and congruence closure holds.
+  EGraph<Op, NoAnalysis> egraph;
+  TestProcessingContext ctx;
+  auto a0 = egraph.emplace(Op::A, 0).eclass_id;
+  auto a1 = egraph.emplace(Op::A, 1).eclass_id;
+  auto p0 = egraph.emplace(Op::F, {a0}).eclass_id;
+  auto p1 = egraph.emplace(Op::F, {a1}).eclass_id;
+  ASSERT_NE(p0, p1);
+
+  egraph.merge(a0, a1);
+  egraph.rebuild(ctx);
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+  EXPECT_EQ(egraph.find(p0), egraph.find(p1));
+  EXPECT_EQ(egraph.num_dead_nodes(), 1);
+}
+
 TEST(EGraph_SelfReference, ChainCollapseWithDeferredNodes) {
   // Self-referential chain F(F(F(a))) where nodes are created between merge and rebuild.
   //

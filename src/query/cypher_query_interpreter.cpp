@@ -178,11 +178,10 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
   //       symbols are needed for debugging (a semantic name)
   //       during evaluation frame slots are dumping ground for temporary evaluation results
   //       planner may remove need for all symbols (hence we shouldn't waste frame slots that are unused)
-  auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
-
-  auto [root, cost, used_ast_storage] = std::invoke([&] {
+  auto [root, cost, used_ast_storage, symbol_table] = std::invoke([&] {
     // TODO: this is problem multi tenant queries (ATM we assume a single active database for whole query)
     auto vertex_counts = plan::VertexCountCache(db_accessor);
+    auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
 
     if (flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2)) {
       // WITH 1 AS tmp RETURN tmp AS result;
@@ -192,13 +191,14 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
       // Apply e-graph rewrites (inline identifiers, etc.)
       plan::v2::ApplyAllRewrites(egraph);
 
-      // TODO: new ast_storage + symbol_table
-      auto [plan, cost, new_ast_storage] = ConvertToLogicalOperator(egraph, root);  // LogicalOperator + double
-      return std::tuple{std::move(plan), cost, std::move(new_ast_storage)};
+      // Extraction produces a compact SymbolTable covering only the symbols in
+      // the extracted plan; return it in place of the parse-time table so
+      // downstream lookups target the authoritative one.
+      return ConvertToLogicalOperator(egraph, root);
     }
     auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
     auto [plan, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
-    return std::tuple{std::move(plan), cost, std::move(ast_storage)};
+    return std::tuple{std::move(plan), cost, std::move(ast_storage), std::move(symbol_table)};
   });
 
   auto rw_type_checker = plan::ReadWriteTypeChecker();

@@ -90,11 +90,13 @@ struct EClass : private detail::EClassBase {
   void merge_with(EClass &&other) {
     EClassBase::merge_with(other);
 
-    // Merge analysis data if present
-    if constexpr (!std::is_same_v<Analysis, void>) {
-      // This would need to be implemented based on the analysis type
-      // For now, just a placeholder
-    }
+    // Non-empty Analysis types carry per-eclass state that needs combining on
+    // merge; there's no implementation yet, so catch at compile time to force
+    // the issue the first time someone instantiates EClass with a stateful
+    // analysis. Empty analyses (e.g. NoAnalysis) have nothing to merge.
+    static_assert(std::is_empty_v<Analysis>,
+                  "EClass::merge_with does not yet know how to combine Analysis data across e-classes; "
+                  "implement analysis merging before instantiating EClass with a stateful Analysis type.");
   }
 
  private:

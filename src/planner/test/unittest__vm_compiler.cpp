@@ -424,4 +424,27 @@ TEST_F(PatternVM_Compiler, Validation_DuplicateSymbolBindingAcrossPatterns) {
   EXPECT_THROW(compiler.compile(pattern1, pattern2), std::invalid_argument);
 }
 
+TEST(PatternVM_Compiler_Validation, SymbolTableOverflowThrows) {
+  // The VM encodes symbol indices as uint8_t; the compiler's symbol table is
+  // therefore capped at 256 distinct Symbol values. Exceeding this must throw
+  // rather than silently wrap the index. Uses a uint16_t-keyed pattern to
+  // produce enough distinct symbols (the Op enum used by the main fixture has
+  // far fewer than 256 values).
+  using OverflowCompiler = pattern::vm::PatternsCompiler<uint16_t>;
+  using OverflowPattern = pattern::Pattern<uint16_t>;
+
+  auto builder = OverflowPattern::Builder{};
+  constexpr auto kVar = pattern::PatternVar{0};
+  auto cur = builder.var(kVar);
+  // 256 nested unary symbols, each distinct. The compiler's symbols_ vector
+  // will grow past uint8_t::max() while emitting CheckSymbol opcodes.
+  for (uint16_t i = 0; i < 256; ++i) {
+    cur = builder.sym(i, {cur});
+  }
+  auto pattern = std::move(builder).build();
+
+  OverflowCompiler overflow_compiler;
+  EXPECT_THROW(overflow_compiler.compile(pattern), std::overflow_error);
+}
+
 }  // namespace memgraph::planner::core
