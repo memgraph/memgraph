@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,15 +11,19 @@
 
 #include "utils/system_info.hpp"
 
-#include <string>
-
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <sys/utsname.h>
+#include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <nlohmann/json.hpp>
+#include <string>
+#include <thread>
+#include <vector>
 
 #include "utils/file.hpp"
 #include "utils/string.hpp"
-
-#include <nlohmann/json.hpp>
 
 namespace memgraph::utils {
 
@@ -215,6 +219,14 @@ RuntimeEnv DetectRuntimeEnv() {
     return RuntimeEnv::KUBERNETES;
   }
   return RuntimeEnv::NO_KUBERNETES;
+}
+
+unsigned GetSafeHardwareConcurrency(unsigned fallback) {
+  auto hw = std::thread::hardware_concurrency();
+  if (hw != 0) return hw;
+
+  hw = static_cast<unsigned>(GetCPUInfo("").cpu_count);
+  return hw != 0 ? hw : std::max(fallback, 1U);
 }
 
 }  // namespace memgraph::utils

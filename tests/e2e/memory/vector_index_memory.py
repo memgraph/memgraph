@@ -105,7 +105,7 @@ def test_graph_and_vector_index_tracked_sum_to_total():
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
 
     baseline = get_storage_info(cursor)
-    baseline_gap = parse_mib(baseline["memory_res"]) - parse_mib(baseline["memory_tracked"])
+    baseline_gap = parse_mib(baseline["memory_res"]) - parse_mib(baseline["global_memory_tracked"])
     execute_and_fetch_all(
         cursor,
         f"CREATE VECTOR INDEX emb_idx ON :Embedding(vec) "
@@ -115,7 +115,7 @@ def test_graph_and_vector_index_tracked_sum_to_total():
     insert_vectors(cursor, INDEX_VECTOR_COUNT, DIMENSION)
 
     info = get_storage_info(cursor)
-    total = parse_mib(info["memory_tracked"])
+    total = parse_mib(info["global_memory_tracked"])
     graph = parse_mib(info["graph_memory_tracked"])
     vector_index = parse_mib(info["vector_index_memory_tracked"])
     rss = parse_mib(info["memory_res"])

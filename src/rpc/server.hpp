@@ -20,14 +20,17 @@
 #include "rpc/messages.hpp"
 #include "rpc/protocol.hpp"
 #include "slk/streams.hpp"
+#include "utils/system_info.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::rpc {
 
+// Constructing communication server could throw because of Epoll object, make sure to catch the possible exception when
+// constructing RPC server
 class Server {
  public:
   Server(io::network::Endpoint endpoint, communication::ServerContext *context,
-         size_t workers_count = std::thread::hardware_concurrency());
+         size_t workers_count = memgraph::utils::GetSafeHardwareConcurrency());
   Server(const Server &) = delete;
   Server(Server &&) = delete;
   Server &operator=(const Server &) = delete;

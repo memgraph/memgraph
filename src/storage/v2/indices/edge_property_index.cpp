@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,9 +14,9 @@
 
 namespace memgraph::storage {
 
-void EdgePropertyIndex::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property,
-                                                                Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
-                                                                PropertyValue value) {
+void EdgePropertyIndexAbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property,
+                                                              Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
+                                                              PropertyValue value) {
   auto it = cleanup_collection_.find(property);
   if (it == cleanup_collection_.end()) {
     DMG_ASSERT(false, "Should not be possible");
@@ -25,13 +25,13 @@ void EdgePropertyIndex::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_
   it->second.emplace_back(std::move(value), from_vertex, to_vertex, edge, edge_type);
 }
 
-EdgePropertyIndex::AbortProcessor::AbortProcessor(std::span<PropertyId const> properties) {
+EdgePropertyIndexAbortProcessor::EdgePropertyIndexAbortProcessor(std::span<PropertyId const> properties) {
   for (auto edge_type : properties) {
     cleanup_collection_.insert({edge_type, {}});
   }
 }
 
-bool EdgePropertyIndex::AbortProcessor::IsInteresting(PropertyId property) {
+bool EdgePropertyIndexAbortProcessor::IsInteresting(PropertyId property) const {
   return cleanup_collection_.contains(property);
 }
 

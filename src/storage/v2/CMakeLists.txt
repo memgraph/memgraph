@@ -9,6 +9,7 @@ target_sources(mg-storage-v2
         commit_log.cpp
         config.cpp
         constraint_verification_info.cpp
+        delta.cpp
         constraints/constraints.cpp
         constraints/existence_constraints.cpp
         constraints/type_constraints.cpp
@@ -22,6 +23,7 @@ target_sources(mg-storage-v2
         disk/label_index.cpp
         disk/label_property_index.cpp
         disk/rocksdb_storage.cpp
+        disk/rocksdb_utils.cpp
         disk/storage.cpp
         disk/unique_constraints.cpp
         durability/durability.cpp
@@ -32,6 +34,7 @@ target_sources(mg-storage-v2
         edge_ref.cpp
         edges_iterable.cpp
         id_types.cpp
+        indices/active_indices_updater.cpp
         indices/edge_property_index.cpp
         indices/edge_type_index.cpp
         indices/edge_type_property_index.cpp
@@ -43,9 +46,9 @@ target_sources(mg-storage-v2
         indices/point_index.cpp
         indices/point_index_change_collector.cpp
         indices/point_iterator.cpp
-        indices/text_index_utils.cpp
-        indices/text_index.cpp
         indices/text_edge_index.cpp
+        indices/text_index.cpp
+        indices/text_index_utils.cpp
         indices/vector_edge_index.cpp
         indices/vector_index.cpp
         inmemory/edge_property_index.cpp
@@ -68,6 +71,7 @@ target_sources(mg-storage-v2
         schema_info.cpp
         snapshot_progress.cpp
         storage.cpp
+        storage_error.cpp
         storage_mode.cpp
         temporal.cpp
         transaction.cpp
@@ -104,6 +108,7 @@ target_sources(mg-storage-v2
         enum_store.hpp
         id_types.hpp
         indices/active_indices.hpp
+        indices/active_indices_updater.hpp
         indices/indices_utils.hpp
         indices/point_index.hpp
         indices/point_index_change_collector.hpp
@@ -125,6 +130,7 @@ target_sources(mg-storage-v2
         property_store.hpp
         indexed_property_decoder.hpp
         property_value.hpp
+        property_value_fwd.hpp
         property_value_utils.hpp
         replication/replication_transaction.hpp
         schema_info.hpp
@@ -153,6 +159,7 @@ target_link_libraries(mg-storage-v2
     mg::replication
     Threads::Threads
     mg-utils
+    mg-aws
     mg-flags
     gflags
     abseil::abseil
@@ -166,6 +173,8 @@ target_link_libraries(mg-storage-v2
     usearch
     rollbear::strong_type
     atomic
+    PRIVATE
+    ctre::ctre
 )
 
 add_subdirectory(fuzz EXCLUDE_FROM_ALL)

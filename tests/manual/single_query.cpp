@@ -11,6 +11,7 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "license/license.hpp"
+#include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
@@ -46,10 +47,11 @@ int main(int argc, char *argv[]) {
                                                           nullptr,
                                                           nullptr,
                                                           repl_state,
-                                                          system_state
+                                                          system_state,
+                                                          nullptr
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt,
+                                                          nullptr,
                                                           nullptr
 #endif
   );

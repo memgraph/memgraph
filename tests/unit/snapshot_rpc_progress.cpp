@@ -20,8 +20,10 @@
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -36,9 +38,13 @@ using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
-using memgraph::rpc::GenericRpcFailedException;
+using memgraph::rpc::RpcTimeoutException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
+using memgraph::storage::ActiveIndices;
+using memgraph::storage::ActiveIndicesPtr;
+using memgraph::storage::ActiveIndicesStore;
+using memgraph::storage::ActiveIndicesUpdater;
 using memgraph::storage::Config;
 using memgraph::storage::CoordinateReferenceSystem;
 using memgraph::storage::Edge;
@@ -46,6 +52,7 @@ using memgraph::storage::EdgeRef;
 using memgraph::storage::EdgeTypeId;
 using memgraph::storage::ExistenceConstraints;
 using memgraph::storage::Gid;
+using memgraph::storage::InMemoryEdgePropertyIndex;
 using memgraph::storage::InMemoryEdgeTypeIndex;
 using memgraph::storage::InMemoryEdgeTypePropertyIndex;
 using memgraph::storage::InMemoryLabelIndex;
@@ -86,7 +93,10 @@ class SnapshotRpcProgressTest : public ::testing::Test {
   std::filesystem::path main_directory{std::filesystem::temp_directory_path() /
                                        "MG_test_unit_snapshot_rpc_progress_main"};
 
-  void SetUp() override { Clear(); }
+  void SetUp() override {
+    Clear();
+    InitActiveIndicesStore();
+  }
 
   void TearDown() override { Clear(); }
 
@@ -109,6 +119,17 @@ class SnapshotRpcProgressTest : public ::testing::Test {
   }();
 
   InMemoryStorage storage{main_conf};
+  ActiveIndicesStore active_indices_store_;
+
+  void InitActiveIndicesStore() {
+    active_indices_store_.WithLock([](ActiveIndicesPtr &ai) {
+      ai = std::make_shared<ActiveIndices>(std::make_shared<InMemoryLabelIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryLabelPropertyIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>());
+    });
+  }
 };
 
 class MockedSnapshotObserver final : public Observer<void> {
@@ -129,7 +150,8 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedNoVertices) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, snapshot_info));
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
+  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedVertices) {
@@ -151,7 +173,8 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, snapshot_info));
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
+  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelIndexMultiThreadedVertices) {
@@ -175,7 +198,8 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexMultiThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, snapshot_info));
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
+  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) {
@@ -190,8 +214,9 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) 
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, snapshot_info));
+      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
@@ -214,8 +239,9 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, snapshot_info));
+      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) {
@@ -240,11 +266,13 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) 
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(
       label_prop_idx.CreateIndexOnePass(label,
                                         std::vector{PropertyPath{prop_c}, PropertyPath{prop_a}, PropertyPath{prop_b}},
                                         vertices.access(),
                                         par_schema_info,
+                                        updater,
                                         snapshot_info));
 }
 
@@ -270,8 +298,9 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, snapshot_info));
+      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
@@ -298,11 +327,13 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(
       label_prop_idx.CreateIndexOnePass(label,
                                         std::vector{PropertyPath{prop_c}, PropertyPath{prop_a}, PropertyPath{prop_b}},
                                         vertices.access(),
                                         par_schema_info,
+                                        updater,
                                         snapshot_info));
 }
 
@@ -407,7 +438,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SnapshotRpc>(UUID{}, UUID{});
-  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedNoVertices) {
@@ -420,7 +451,8 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedNoVertices) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, vertices.access(), snapshot_info));
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, vertices.access(), updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedVerticesEdges) {
@@ -443,7 +475,8 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedVerticesEdges) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(3);
-  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, vertices.access(), snapshot_info));
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, vertices.access(), updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedNoVertices) {
@@ -457,7 +490,8 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedNoVertice
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), snapshot_info));
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesEdges) {
@@ -486,7 +520,8 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), snapshot_info));
+  auto updater = ActiveIndicesUpdater{active_indices_store_};
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), updater, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {

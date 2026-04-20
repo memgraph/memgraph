@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <shared_mutex>
 #include <unordered_map>
 #include <utility>

@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "system/state.hpp"
+
+#include <utility>
+
 #include "utils/file.hpp"
 
 namespace memgraph::system {

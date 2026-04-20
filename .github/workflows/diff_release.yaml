@@ -62,7 +62,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -127,7 +127,7 @@ jobs:
 
       - name: Save test data
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         if: failure()
         with:
           name: "GQL Behave Tests(Release build)${{ env.RUN_ID }}"
@@ -135,7 +135,7 @@ jobs:
 
       - name: Save quality assurance status
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "GQL Behave Status${{ env.RUN_ID }}"
           path: |
@@ -171,7 +171,7 @@ jobs:
       - name: Save enterprise DEB package
         if: ${{ env.RUN_ID == '' }}
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "Enterprise DEB package"
           path: build/output/${{ env.OS }}/memgraph*.deb
@@ -195,10 +195,10 @@ jobs:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 80
+    timeout-minutes: 100
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -310,6 +310,106 @@ jobs:
           --github-run-number "${{ github.run_number }}" \
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
+      - name: Run mgbench-vector-search-index
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench-vector-search-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload mgbench-vector-search-index results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "vector-search-index" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Run mgbench-vector-search-edge-index
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench-vector-search-edge-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload mgbench-vector-search-edge-index results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "vector-search-edge-index" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Run mgbench-text-search-index
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench-text-search-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload mgbench-text-search-index results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "text-search-index" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Run mgbench-text-search-edge-index
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench-text-search-edge-index --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload mgbench-text-search-edge-index results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "text-search-edge-index" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -332,7 +432,7 @@ jobs:
     timeout-minutes: 110
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -426,7 +526,7 @@ jobs:
 
       - name: Save test data
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         if: failure()
         with:
           name: "Test data(Release build)${{ env.RUN_ID }}"
@@ -454,7 +554,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -556,7 +656,7 @@ jobs:
 
       - name: Save stress and durability test logs
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         if: failure()
         with:
           name: "Stress and Durability Test Logs${{ env.RUN_ID }}"
@@ -584,7 +684,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Set up repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
@@ -657,7 +757,7 @@ jobs:
 
       - name: Save test data
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         if: failure()
         with:
           name: "Query modules tests(Release build)${{ env.RUN_ID }}"

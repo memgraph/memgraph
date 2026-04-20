@@ -15,8 +15,12 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <optional>
+#include <string>
 
 #include "flags/coord_flag_env_handler.hpp"
+#include "nlohmann/json_fwd.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/compressor.hpp"
@@ -70,7 +74,7 @@ struct Config {
   } gc;  // SYSTEM FLAG
 
   struct Durability {
-    enum class SnapshotWalMode { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
+    enum class SnapshotWalMode : uint8_t { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
 
     std::filesystem::path storage_directory{"storage"};    // PER INSTANCE SYSTEM FLAG-> root folder...ish
     std::filesystem::path root_data_directory{"storage"};  // ROOT DATA DIR for instance not for DB
@@ -122,6 +126,8 @@ struct Config {
   bool force_on_disk{false};  // TODO: cleanup.... remove + make the default storage_mode ON_DISK_TRANSACTIONAL if true
 
   bool track_label_counts{false};
+
+  bool is_coordinator{false};  // PER INSTANCE - when true, snapshot handler is not wired up
 
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };

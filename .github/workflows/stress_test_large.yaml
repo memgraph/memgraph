@@ -1,6 +1,6 @@
 name: Stress test large
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
+  group: stress-test-large-${{ github.event_name == 'workflow_dispatch' && 'manual' || 'scheduled' }}
   cancel-in-progress: true
 
 on:

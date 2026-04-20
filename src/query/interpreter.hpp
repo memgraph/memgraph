@@ -14,10 +14,12 @@
 #include <gflags/gflags.h>
 
 #include "dbms/database.hpp"
+#include "dbms/database_protector.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/query_logger.hpp"
 #include "query/stream.hpp"
+#include "query/trigger_context.hpp"
 #include "system/transaction.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_trigger.hpp"
@@ -28,8 +30,8 @@
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
-#include "coordination/raft_state.hpp"
 #include "coordination/replication_lag_info.hpp"
+#include "coordination/utils.hpp"
 #include "utils/resource_monitoring.hpp"
 #endif
 

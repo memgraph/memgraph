@@ -144,18 +144,12 @@ repo_clone_try_double () {
 # Download from primary_urls might fail because the cache is not installed.
 
 declare -A primary_urls=(
-  ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
-  ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
   ["neo4j"]="http://$local_cache_host/neo4j-community-5.6.0-unix.tar.gz"
-  ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
-  ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
-  ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
-  ["nlohmann_json"]="http://$local_cache_host/git/json.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -163,18 +157,12 @@ declare -A primary_urls=(
 # at all, should never fail. In other words, if it fails, the whole build
 # should fail.
 declare -A secondary_urls=(
-  ["rapidcheck"]="https://github.com/emil-e/rapidcheck.git"
-  ["libbcrypt"]="https://github.com/rg3/libbcrypt"
   ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
   ["neo4j"]="https://dist.neo4j.org/neo4j-community-5.6.0-unix.tar.gz"
-  ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
-  ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
-  ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
-  ["nlohmann_json"]="https://github.com/nlohmann/json.git"
 )
 
 # Skip download if we are under the latest toolchains (>= 6).
@@ -190,13 +178,6 @@ skip_if_under_toolchain () {
   fi
 }
 
-# rapidcheck
-rapidcheck_tag="ff6af6fc683159deb51c543b065eba14dfcf329b" # (2023-12-14)
-repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
-
-libbcrypt_tag="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4" # custom version (Dec 16, 2016)
-skip_if_under_toolchain "libbcrypt" repo_clone_try_double "${primary_urls[libbcrypt]}" "${secondary_urls[libbcrypt]}" "libbcrypt" "$libbcrypt_tag"
-
 # neo4j
 file_get_try_double "${primary_urls[neo4j]}" "${secondary_urls[neo4j]}"
 tar -xzf neo4j-community-5.6.0-unix.tar.gz
@@ -206,10 +187,6 @@ rm neo4j-community-5.6.0-unix.tar.gz
 # mgconsole
 mgconsole_tag="v1.4.0" # (2023-05-21)
 skip_if_under_toolchain "mgconsole" repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
-
-# librdkafka
-librdkafka_tag="v2.6.1" # (2024-12-05)
-skip_if_under_toolchain "librdkafka" repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag" true
 
 if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
   protobuf_tag="v3.12.4"
@@ -231,37 +208,6 @@ else
   echo "Skipping pulsar download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
-  librdtsc_tag="v0.3"
-  repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" "librdtsc" "$librdtsc_tag" true
-  pushd librdtsc
-  git apply ../librdtsc.patch
-  popd
-else
-  echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
-
-if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
-  # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
-  JEMALLOC_COMMIT_VERSION="5.2.1"
-  repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
-  # this is hack for cmake in libs to set path, and for FindJemalloc to use Jemalloc_INCLUDE_DIR
-  pushd jemalloc
-  ./autogen.sh
-  export CC=clang
-  ./configure \
-    --disable-cxx \
-    --with-lg-page=12 \
-    --with-lg-hugepage=21 \
-    --enable-shared=no --prefix=$working_dir \
-    --with-jemalloc-prefix=je_ \
-    --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
-  make -j$CPUS install
-  popd
-else
-  echo "Skipping jemalloc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
-
 # usearch (shallow clone to reduce flakiness)
 usearch_ref="v2.21.4" # (2025-12-16)
 if [[ "$use_cache" == true ]]; then
@@ -276,11 +222,4 @@ pushd usearch
 git checkout "$usearch_ref"
 git submodule update --init --recursive
 git apply ../usearch.patch
-popd
-
-# nlohmann_json
-nlohmann_json_tag="v3.11.3"
-repo_clone_try_double "${primary_urls[nlohmann_json]}" "${secondary_urls[nlohmann_json]}" "nlohmann_json" "$nlohmann_json_tag"
-pushd nlohmann_json
-patch -p1 < "${working_dir}/nlohmann_json3.11.3.patch"
 popd

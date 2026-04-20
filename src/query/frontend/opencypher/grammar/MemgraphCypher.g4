@@ -36,10 +36,12 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
+                      | BOLT_SERVER
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
                       | BUILD
                       | CALL
+                      | CALLABLE
                       | CHECK
                       | CLEAR
                       | CLUSTER
@@ -59,10 +61,13 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DATABASES
                       | DATE
+                      | DEFAULT
                       | DEFINER
                       | DELIMITER
                       | DEMOTE
                       | DENY
+                      | DESCRIPTION
+                      | DESCRIPTIONS
                       | DIRECTORY
                       | DISABLE
                       | DO
@@ -71,6 +76,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | DURATION
                       | EDGE
+                      | EDGE_TYPE
                       | EDGE_TYPES
                       | EDGES
                       | ENABLE
@@ -110,6 +116,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ISOLATION
                       | JSONL
                       | KAFKA
+                      | LABEL
                       | LABELS
                       | LAG
                       | LEADERSHIP
@@ -122,6 +129,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | MAPPINGS
                       | MATCHING
                       | METRICS
                       | MODE
@@ -133,7 +141,6 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NODES
-                      | NOTHING
                       | NULLIF
                       | OF_TOKEN
                       | OFF
@@ -146,9 +153,12 @@ memgraphCypherKeyword : cypherKeyword
                       | PARQUET
                       | PASSWORD
                       | PERIODIC
+                      | PERMISSIONS
                       | POINT
                       | PORT
+                      | PROPERTY
                       | PRIVILEGES
+                      | PROPERTY
                       | PROFILE_RESTRICTION
                       | PROFILES
                       | PULSAR
@@ -158,6 +168,7 @@ memgraphCypherKeyword : cypherKeyword
                       | READ_FILE
                       | RECOVER
                       | REGISTER
+                      | RELOAD
                       | RENAME
                       | REPLACE
                       | REPLICA
@@ -196,6 +207,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TERMINATE
                       | TEXT
                       | TIMEOUT
+                      | TLS
                       | TO
                       | TOPICS
                       | TRACE
@@ -264,6 +276,7 @@ query : cypherQuery
       | parameterQuery
       | versionQuery
       | showConfigQuery
+      | showQueryCallableMappingsQuery
       | transactionQueueQuery
       | multiDatabaseQuery
       | useDatabase
@@ -284,6 +297,8 @@ query : cypherQuery
       | ttlQuery
       | setSessionTraceQuery
       | userProfileQuery
+      | descriptionQuery
+      | reloadSSLQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -485,7 +500,7 @@ clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymboli
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM userOrRole=userOrRoleName ;
 
@@ -541,7 +556,7 @@ privilege : CREATE
           | SERVER_SIDE_PARAMETERS
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
+granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
 
 granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
 
@@ -739,6 +754,8 @@ deleteAllParameters : DELETE ALL PARAMETERS ;
 
 showConfigQuery : SHOW CONFIG ;
 
+showQueryCallableMappingsQuery : SHOW QUERY CALLABLE MAPPINGS ;
+
 versionQuery : SHOW VERSION ;
 
 transactionIdList : transactionId ( ',' transactionId )* ;
@@ -831,6 +848,8 @@ ttlQuery: stopTtlQuery
         | startTtlQuery
         ;
 
+reloadSSLQuery: RELOAD BOLT_SERVER TLS ;
+
 typeConstraintType : BOOLEAN
              | STRING
              | INTEGER
@@ -875,3 +894,40 @@ userProfileQuery : createUserProfile
                  | clearUserProfile
                  | showResourceConsumption
                  ;
+
+descriptionQuery
+    : setDescription
+    | deleteDescription
+    | showDescriptions
+    ;
+
+setDescription
+    : SET DESCRIPTION ON descriptionTarget StringLiteral
+    ;
+
+deleteDescription
+    : DELETE DESCRIPTION ON descriptionTarget
+    ;
+
+showDescriptions
+    : SHOW DESCRIPTIONS
+    ;
+
+edgeTypePatternNode
+    : '(' ( ':' labelName )+ ')'
+    ;
+
+edgeTypePattern
+    : edgeTypePatternNode '-' '[' ':' labelName ']' '-' '>' edgeTypePatternNode
+    ;
+
+descriptionTarget
+    : LABEL ':' labelName ( ':' labelName )*
+    | EDGE TYPE PROPERTY edgeTypePattern '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE edgeTypePattern
+    | EDGE TYPE ':' labelName
+    | LABEL PROPERTY ':' labelName ( ':' labelName )* '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | EDGE TYPE PROPERTY ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')'
+    | PROPERTY propertyKeyName
+    | DATABASE symbolicName
+    ;

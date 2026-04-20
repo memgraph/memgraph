@@ -9,16 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "kvstore/rocksdb_utils.hpp"
+#include "storage/v2/disk/rocksdb_utils.hpp"
 
-#include "flags/general.hpp"
+#include <rocksdb/env.h>
+#include <rocksdb/options.h>
+#include <string_view>
+
 #include "spdlog/spdlog.h"
 
-namespace memgraph::utils {
+namespace memgraph::storage {
 
 namespace {
 
-rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(const std::string &level) {
+rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(std::string_view level) {
   if (level == "DEBUG_LEVEL") return rocksdb::InfoLogLevel::DEBUG_LEVEL;
   if (level == "INFO_LEVEL") return rocksdb::InfoLogLevel::INFO_LEVEL;
   if (level == "WARN_LEVEL") return rocksdb::InfoLogLevel::WARN_LEVEL;
@@ -31,9 +34,9 @@ rocksdb::InfoLogLevel ParseRocksDBInfoLogLevel(const std::string &level) {
 
 }  // namespace
 
-void ApplyRocksDBConfigFlags(rocksdb::Options &options) {
-  options.info_log_level = ParseRocksDBInfoLogLevel(FLAGS_storage_rocksdb_info_log_level);
-  options.enable_thread_tracking = FLAGS_storage_rocksdb_enable_thread_tracking;
+void ApplyRocksDBConfig(rocksdb::Options &options, std::string_view info_log_level, bool enable_thread_tracking) {
+  options.info_log_level = ParseRocksDBInfoLogLevel(info_log_level);
+  options.enable_thread_tracking = enable_thread_tracking;
 }
 
-}  // namespace memgraph::utils
+}  // namespace memgraph::storage

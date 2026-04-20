@@ -24,9 +24,10 @@ default_storage_info_dict = {
     "memory_res": "",  # machine dependent
     "peak_memory_res": "",  # machine dependent
     "unreleased_delta_objects": 0,
-    "disk_usage": "",  # machine dependent
-    "memory_tracked": "",  # machine dependent
-    "allocation_limit": "",  # machine dependent
+    "global_disk_usage": "",  # machine dependent
+    "global_memory_tracked": "",  # machine dependent
+    "global_runtime_allocation_limit": "",  # machine dependent
+    "global_license_allocation_limit": "",  # machine dependent
     "graph_memory_tracked": "",  # machine dependent
     "vector_index_memory_tracked": "",  # machine dependent
     "global_isolation_level": "SNAPSHOT_ISOLATION",
@@ -62,9 +63,10 @@ def test_does_default_config_match():
         "database_uuid",
         "memory_res",
         "peak_memory_res",
-        "disk_usage",
-        "memory_tracked",
-        "allocation_limit",
+        "global_disk_usage",
+        "global_memory_tracked",
+        "global_runtime_allocation_limit",
+        "global_license_allocation_limit",
         "graph_memory_tracked",
         "vector_index_memory_tracked",
         "vm_max_map_count",

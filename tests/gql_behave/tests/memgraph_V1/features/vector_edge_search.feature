@@ -97,8 +97,8 @@ Feature: Vector edge search related features
         And with new vector edge index test_index on :E1(prop1) with dimension 2 and capacity 10
         And having executed
             """
-            CREATE (a)-[:E1 {prop1: [1.1, 1.1]}]->(b)
-            CREATE (a)-[:E1 {prop1: [2.1, 2.1]}]->(b)
+            CREATE (a)-[:E1 {prop1: [1.5, 1.5]}]->(b)
+            CREATE (a)-[:E1 {prop1: [2.5, 2.5]}]->(b)
             """
         When executing query:
             """
@@ -106,15 +106,15 @@ Feature: Vector edge search related features
             """
         Then the result should be:
             | edge                      |
-            | [:E1 {prop1: [1.1, 1.1]}] |
+            | [:E1 {prop1: [1.5, 1.5]}] |
 
     Scenario: Vector edge search performs on integer values
         Given an empty graph
         And with new vector edge index test_index on :E1(prop1) with dimension 2 and capacity 10
         And having executed
             """
-            CREATE (a)-[:E1 {prop1: [1.1, 1.1]}]->(b)
-            CREATE (a)-[:E1 {prop1: [2.1, 2.1]}]->(b)
+            CREATE (a)-[:E1 {prop1: [1.5, 1.5]}]->(b)
+            CREATE (a)-[:E1 {prop1: [2.5, 2.5]}]->(b)
             """
         When executing query:
             """
@@ -122,7 +122,7 @@ Feature: Vector edge search related features
             """
         Then the result should be:
             | edge                      |
-            | [:E1 {prop1: [2.1, 2.1]}] |
+            | [:E1 {prop1: [2.5, 2.5]}] |
 
     Scenario: Vector edge search raises error on value that is not integer or double
         Given an empty graph

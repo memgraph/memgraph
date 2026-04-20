@@ -27,6 +27,8 @@
 #include "constants.hpp"
 #include "dbms/database.hpp"
 #include "kvstore/kvstore.hpp"
+#include "query/stream/streams.hpp"
+#include "query/trigger.hpp"
 #include "storage/v2/config.hpp"
 #ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
@@ -65,6 +67,7 @@ struct Statistics {
   std::array<uint64_t, 3>
       property_store_compression_level{};  //!< Number of databases with each compression level [LOW, MID, HIGH]
   uint64_t num_parameters;                 //!< Number of server-side parameters
+  uint64_t num_descriptions;               //!< Number of server-side descriptions
 };
 
 static inline nlohmann::json ToJson(const Statistics &stats) {
@@ -99,6 +102,7 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
                                        {"100K-999K", stats.label_node_count_histogram[5]},
                                        {"1M+", stats.label_node_count_histogram[6]}};
   res["num_parameters"] = stats.num_parameters;
+  res["num_descriptions"] = stats.num_descriptions;
 
   return res;
 }
@@ -360,6 +364,8 @@ class DbmsHandler {
         using underlying_type = std::underlying_type_t<utils::CompressionLevel>;
         ++stats.property_store_compression_level[static_cast<underlying_type>(
             storage_info.property_store_compression_level)];
+
+        stats.num_descriptions += db_acc->storage()->GetDescriptionCount();
 
         auto const label_counts = db_acc->storage()->GetLabelCounts();
 

@@ -24,7 +24,7 @@ logging.getLogger("neo4j").setLevel(logging.CRITICAL)
 
 R = TypeVar("R")
 
-SYNC_REPLICA_ERROR = "At least one SYNC replica has not confirmed committing last transaction."
+SYNC_REPLICA_ERROR = "Failed to replicate to SYNC replica"
 WRITE_ON_REPLICA_ERROR = "Write queries are forbidden on the replica instance"
 
 COORDINATOR_INSTANCES = {"coord_1", "coord_2", "coord_3"}

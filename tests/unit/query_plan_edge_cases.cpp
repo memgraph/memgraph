@@ -75,10 +75,11 @@ class QueryExecution : public testing::Test {
                                  nullptr,
                                  nullptr,
                                  repl_state.value(),
-                                 *system_state
+                                 *system_state,
+                                 nullptr
 #ifdef MG_ENTERPRISE
                                  ,
-                                 std::nullopt,
+                                 nullptr,
                                  nullptr
 #endif
     );

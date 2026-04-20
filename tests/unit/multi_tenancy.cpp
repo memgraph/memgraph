@@ -120,10 +120,11 @@ class MultiTenantTest : public ::testing::Test {
                               &parameters,
                               &dbms,
                               repl_state,
-                              system
+                              system,
+                              nullptr
 #ifdef MG_ENTERPRISE
                               ,
-                              std::nullopt,
+                              nullptr,
                               nullptr
 #endif
           } {

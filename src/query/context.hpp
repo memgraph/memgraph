@@ -19,7 +19,6 @@
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
-#include "query/trigger.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/counter.hpp"
@@ -29,6 +28,9 @@
 #include "query/hops_limit.hpp"
 
 namespace memgraph::query {
+
+class FineGrainedAuthChecker;
+class TriggerContextCollector;
 
 enum class TransactionStatus {
   IDLE,

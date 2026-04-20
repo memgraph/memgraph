@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -45,14 +45,14 @@ class Log {
   /// Starts the audit log. If you don't want to use the audit log just don't
   /// start it. All functions can still be used when the log isn't started and
   /// they won't do anything. Isn't thread-safe.
-  void Start();
+  bool Start();
 
   /// Adds an entry to the audit log. Thread-safe.
   void Record(const std::string &address, const std::string &username, const std::string &query,
               const memgraph::communication::bolt::map_t &params, const std::string &db);
 
   /// Reopens the log file. Used for log file rotation. Thread-safe.
-  void ReopenLog();
+  bool ReopenLog();
 
  private:
   void Flush();

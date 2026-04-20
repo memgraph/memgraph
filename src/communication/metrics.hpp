@@ -15,12 +15,13 @@
 #include <atomic>
 #include <map>
 #include <mutex>
+#include <nlohmann/json_fwd.hpp>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <utility>
 #include <vector>
-
-#include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::communication {
 

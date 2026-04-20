@@ -13,6 +13,7 @@
 #include <any>
 #include <cstring>
 #include <iterator>
+#include <range/v3/all.hpp>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -1987,6 +1988,10 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     }
   }
 
+  if (yield_ctx->where()) {
+    call_proc->where_ = std::any_cast<Where *>(yield_ctx->where()->accept(this));
+  }
+
   return call_proc;
 }
 
@@ -2186,6 +2191,22 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->systemPrivileges) {
     auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
+  } else if (ctx->entityPrivileges) {
+    const auto [label_privileges, label_matching_modes, edge_type_privileges] =
+        std::any_cast<std::tuple<std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                                 std::vector<AuthQuery::LabelMatchingMode>,
+                                 std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
+            ctx->entityPrivileges->accept(this));
+    for (size_t i = 0; i < label_privileges.size(); ++i) {
+      const auto &[privilege, labels] = label_privileges[i];
+      auth->label_privileges_.emplace_back(
+          std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
+      auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
+    }
+    for (const auto &[privilege, edge_types] : edge_type_privileges) {
+      auth->edge_type_privileges_.emplace_back(
+          std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, edge_types}});
+    }
   } else {
     /* deny all privileges */
     auth->privileges_ = kPrivilegesAll;
@@ -2288,6 +2309,12 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
       auto value = std::any_cast<std::vector<std::string>>(typeSpec->edgeType->accept(this));
 
       for (const auto &key : keys) {
+        if (key == AuthQuery::FineGrainedPrivilege::SET_LABEL || key == AuthQuery::FineGrainedPrivilege::REMOVE_LABEL ||
+            key == AuthQuery::FineGrainedPrivilege::DELETE_EDGE ||
+            key == AuthQuery::FineGrainedPrivilege::CREATE_EDGE) {
+          throw SemanticException(
+              "SET LABEL, REMOVE LABEL, DELETE EDGE, and CREATE EDGE permissions are not applicable to edges");
+        }
         if (key == AuthQuery::FineGrainedPrivilege::ALL) {
           edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
           edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::DELETE, value);
@@ -2424,10 +2451,14 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
  * @return AuthQuery::FineGrainedPrivilege
  */
 antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) {
-  if (ctx->NOTHING()) return AuthQuery::FineGrainedPrivilege::NOTHING;
   if (ctx->READ()) return AuthQuery::FineGrainedPrivilege::READ;
   if (ctx->UPDATE()) return AuthQuery::FineGrainedPrivilege::UPDATE;
+  if (ctx->SET() && ctx->LABEL()) return AuthQuery::FineGrainedPrivilege::SET_LABEL;
+  if (ctx->REMOVE() && ctx->LABEL()) return AuthQuery::FineGrainedPrivilege::REMOVE_LABEL;
+  if (ctx->SET() && ctx->PROPERTY()) return AuthQuery::FineGrainedPrivilege::SET_PROPERTY;
+  if (ctx->CREATE() && ctx->EDGE()) return AuthQuery::FineGrainedPrivilege::CREATE_EDGE;
   if (ctx->CREATE()) return AuthQuery::FineGrainedPrivilege::CREATE;
+  if (ctx->DELETE() && ctx->EDGE()) return AuthQuery::FineGrainedPrivilege::DELETE_EDGE;
   if (ctx->DELETE()) return AuthQuery::FineGrainedPrivilege::DELETE;
   if (ctx->ASTERISK()) return AuthQuery::FineGrainedPrivilege::ALL;
   LOG_FATAL("Should not get here - unknown fine grained privilege!");
@@ -2447,14 +2478,26 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilegeList(MemgraphCypher::Gran
       throw SemanticException("Duplicate permission in permissions list");
     }
 
-    if ((priv == AuthQuery::FineGrainedPrivilege::NOTHING && !seen.empty()) ||
-        (priv != AuthQuery::FineGrainedPrivilege::NOTHING && seen.contains(AuthQuery::FineGrainedPrivilege::NOTHING))) {
-      throw SemanticException("Cannot combine NOTHING with other permissions");
-    }
-
     if ((priv == AuthQuery::FineGrainedPrivilege::ALL && !seen.empty()) ||
         (priv != AuthQuery::FineGrainedPrivilege::ALL && seen.contains(AuthQuery::FineGrainedPrivilege::ALL))) {
       throw SemanticException("Cannot combine * with other permissions");
+    }
+
+    // UPDATE is a shorthand for SET_LABEL, REMOVE_LABEL, SET_PROPERTY,
+    // DELETE_EDGE, CREATE_EDGE: we cannot combine the compound permission with
+    // the discrete ones.
+    auto const is_update_component = [](AuthQuery::FineGrainedPrivilege p) {
+      return p == AuthQuery::FineGrainedPrivilege::SET_LABEL || p == AuthQuery::FineGrainedPrivilege::REMOVE_LABEL ||
+             p == AuthQuery::FineGrainedPrivilege::SET_PROPERTY || p == AuthQuery::FineGrainedPrivilege::DELETE_EDGE ||
+             p == AuthQuery::FineGrainedPrivilege::CREATE_EDGE;
+    };
+    if (priv == AuthQuery::FineGrainedPrivilege::UPDATE && std::ranges::any_of(seen, is_update_component)) {
+      throw SemanticException(
+          "Cannot combine UPDATE with SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE, or CREATE EDGE");
+    }
+    if (is_update_component(priv) && seen.contains(AuthQuery::FineGrainedPrivilege::UPDATE)) {
+      throw SemanticException(
+          "Cannot combine UPDATE with SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE, or CREATE EDGE");
     }
 
     seen.insert(priv);
@@ -3895,6 +3938,12 @@ antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfig
   return query_;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowQueryCallableMappingsQuery(
+    MemgraphCypher::ShowQueryCallableMappingsQueryContext * /*ctx*/) {
+  query_ = storage_->Create<ShowQueryCallableMappingsQuery>();
+  return query_;
+}
+
 antlrcpp::Any CypherMainVisitor::visitParameterQuery(MemgraphCypher::ParameterQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "ParameterQuery should have exactly one child!");
   auto *parameter_query = std::any_cast<ParameterQuery *>(ctx->children[0]->accept(this));
@@ -4069,6 +4118,12 @@ antlrcpp::Any CypherMainVisitor::visitShowSchemaInfoQuery(MemgraphCypher::ShowSc
   auto *show_schema_info_query = storage_->Create<ShowSchemaInfoQuery>();
   query_ = show_schema_info_query;
   return show_schema_info_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitReloadSSLQuery(MemgraphCypher::ReloadSSLQueryContext * /*ctx*/) {
+  auto *reload_ssl_query = storage_->Create<ReloadSSLQuery>();
+  query_ = reload_ssl_query;
+  return reload_ssl_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitTtlQuery(MemgraphCypher::TtlQueryContext *ctx) {
@@ -4276,6 +4331,95 @@ auto CypherMainVisitor::ExtractOperators(std::vector<antlr4::tree::ParseTree *> 
     }
   }
   return operators;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDescriptionQuery(MemgraphCypher::DescriptionQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "DescriptionQuery should have exactly one child!");
+  // Description string and labels are resolved at parse time, so caching would serve stale values.
+  query_info_.is_cacheable = false;
+  auto *description_query = std::any_cast<DescriptionQuery *>(ctx->children[0]->accept(this));
+  query_ = description_query;
+  return description_query;
+}
+
+void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetContext *ctx,
+                                              DescriptionQuery *description_query) {
+  if (ctx->LABEL() && ctx->PROPERTY()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::LABEL_PROPERTY;
+    for (auto *label : ctx->labelName()) {
+      description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+    for (auto *property : ctx->propertyKeyName()) {
+      description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
+    }
+  } else if (ctx->EDGE() && ctx->PROPERTY() && ctx->edgeTypePattern()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY;
+    auto *pattern = ctx->edgeTypePattern();
+    auto pattern_nodes = pattern->edgeTypePatternNode();
+    for (auto *label : pattern_nodes[0]->labelName()) {
+      description_query->from_labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+    description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(pattern->labelName()->accept(this)));
+    for (auto *label : pattern_nodes[1]->labelName()) {
+      description_query->to_labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+    for (auto *property : ctx->propertyKeyName()) {
+      description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
+    }
+  } else if (ctx->EDGE() && ctx->PROPERTY()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY;
+    description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));
+    for (auto *property : ctx->propertyKeyName()) {
+      description_query->properties_.emplace_back(std::any_cast<PropertyIx>(property->accept(this)));
+    }
+  } else if (ctx->EDGE() && ctx->edgeTypePattern()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE_PATTERN;
+    auto *pattern = ctx->edgeTypePattern();
+    auto pattern_nodes = pattern->edgeTypePatternNode();
+    for (auto *label : pattern_nodes[0]->labelName()) {
+      description_query->from_labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+    description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(pattern->labelName()->accept(this)));
+    for (auto *label : pattern_nodes[1]->labelName()) {
+      description_query->to_labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+  } else if (ctx->LABEL()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::LABEL;
+    for (auto *label : ctx->labelName()) {
+      description_query->labels_.emplace_back(AddLabel(std::any_cast<std::string>(label->accept(this))));
+    }
+  } else if (ctx->PROPERTY()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY;
+    description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName(0)->accept(this)));
+  } else if (ctx->EDGE()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE;
+    description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));
+  } else if (ctx->DATABASE()) {
+    description_query->target_kind_ = storage::DescriptionTargetKind::DATABASE;
+    description_query->database_name_ = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+  }
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetDescription(MemgraphCypher::SetDescriptionContext *ctx) {
+  auto *description_query = storage_->Create<DescriptionQuery>();
+  description_query->action_ = DescriptionQuery::Action::SET;
+  FillDescriptionTarget(ctx->descriptionTarget(), description_query);
+  const auto token_pos = static_cast<int>(ctx->StringLiteral()->getSymbol()->getTokenIndex());
+  description_query->description_ = parameters_->AtTokenPosition(token_pos).ValueString();
+  return description_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDeleteDescription(MemgraphCypher::DeleteDescriptionContext *ctx) {
+  auto *description_query = storage_->Create<DescriptionQuery>();
+  description_query->action_ = DescriptionQuery::Action::DELETE;
+  FillDescriptionTarget(ctx->descriptionTarget(), description_query);
+  return description_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowDescriptions(MemgraphCypher::ShowDescriptionsContext * /*ctx*/) {
+  auto *description_query = storage_->Create<DescriptionQuery>();
+  description_query->action_ = DescriptionQuery::Action::SHOW_ALL;
+  return description_query;
 }
 
 }  // namespace memgraph::query::frontend

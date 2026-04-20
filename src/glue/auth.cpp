@@ -10,8 +10,9 @@
 // licenses/APL.txt.
 
 #include "glue/auth.hpp"
+
 #include "auth/models.hpp"
-#include "query/exceptions.hpp"
+#include "frontend/ast/query/auth_query.hpp"
 
 namespace memgraph::glue {
 
@@ -77,25 +78,43 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::PARALLEL_EXECUTION;
     case query::AuthQuery::Privilege::SERVER_SIDE_PARAMETERS:
       return auth::Permission::SERVER_SIDE_PARAMETERS;
+    case query::AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS:
+      return auth::Permission::SERVER_SIDE_DESCRIPTIONS;
   }
 }
 
 #ifdef MG_ENTERPRISE
 auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
-    const query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
+    query::AuthQuery::FineGrainedPrivilege const fine_grained_privilege, FineGrainedPermissionType const type) {
   switch (fine_grained_privilege) {
-    case query::AuthQuery::FineGrainedPrivilege::NOTHING:
-      return auth::FineGrainedPermission::NOTHING;
     case query::AuthQuery::FineGrainedPrivilege::READ:
       return auth::FineGrainedPermission::READ;
     case query::AuthQuery::FineGrainedPrivilege::UPDATE:
-      return auth::FineGrainedPermission::UPDATE;
+      // UPDATE is a grammar shorthand. For labels, this expands to
+      // SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE | CREATE_EDGE.
+      // For edge types, it is a synonym for SET_PROPERTY.
+      if (type == FineGrainedPermissionType::LABEL) {
+        return auth::FineGrainedPermission::SET_LABEL | auth::FineGrainedPermission::REMOVE_LABEL |
+               auth::FineGrainedPermission::SET_PROPERTY | auth::FineGrainedPermission::DELETE_EDGE |
+               auth::FineGrainedPermission::CREATE_EDGE;
+      }
+      return auth::FineGrainedPermission::SET_PROPERTY;
+    case query::AuthQuery::FineGrainedPrivilege::SET_LABEL:
+      return auth::FineGrainedPermission::SET_LABEL;
+    case query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL:
+      return auth::FineGrainedPermission::REMOVE_LABEL;
+    case query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY:
+      return auth::FineGrainedPermission::SET_PROPERTY;
     case query::AuthQuery::FineGrainedPrivilege::CREATE:
       return auth::FineGrainedPermission::CREATE;
     case query::AuthQuery::FineGrainedPrivilege::DELETE:
       return auth::FineGrainedPermission::DELETE;
+    case query::AuthQuery::FineGrainedPrivilege::DELETE_EDGE:
+      return auth::FineGrainedPermission::DELETE_EDGE;
+    case query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE:
+      return auth::FineGrainedPermission::CREATE_EDGE;
     case query::AuthQuery::FineGrainedPrivilege::ALL:
-      return auth::kAllPermissions;
+      return type == FineGrainedPermissionType::LABEL ? auth::kAllLabelPermissions : auth::kAllEdgeTypePermissions;
   }
 }
 #endif

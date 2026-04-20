@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -98,9 +98,18 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       ,
       system::Transaction *system_tx) override;
 
-  void DenyPrivilege(const std::string &user_or_role,
-                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                     system::Transaction *system_tx) override;
+  void DenyPrivilege(
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
+#ifdef MG_ENTERPRISE
+      ,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &label_privileges,
+      const std::vector<memgraph::query::AuthQuery::LabelMatchingMode> &label_matching_modes,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &edge_type_privileges
+#endif
+      ,
+      system::Transaction *system_tx) override;
 
   void RevokePrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges

@@ -17,6 +17,7 @@
 
 #include "replication/epoch.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/enum_store.hpp"
@@ -50,6 +51,7 @@ struct SnapshotInfo {
   uint64_t offset_edge_batches{kInvalidOffset};
   uint64_t offset_vertex_batches{kInvalidOffset};
   uint64_t offset_ttl{kInvalidOffset};
+  uint64_t offset_descriptions{kInvalidOffset};
 
   std::string uuid;
   std::string epoch_id;
@@ -73,7 +75,7 @@ struct RecoveredSnapshot {
 /// @throw RecoveryFailure
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path);
 
-void OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const &uuid);
+bool OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const &uuid);
 
 /// Function used to load the snapshot data into the storage.
 /// @throw RecoveryFailure
@@ -83,6 +85,7 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config,
                                memgraph::storage::EnumStore *enum_store,
                                memgraph::storage::SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
+                               memgraph::storage::DescriptionStore *description_store,
                                std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;

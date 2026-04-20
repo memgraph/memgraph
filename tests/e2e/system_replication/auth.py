@@ -416,7 +416,6 @@ def test_manual_roles_recovery(connection, test_name):
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
-                "--data_directory",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
             "data_directory": f"{get_data_path(file, test_name)}/replica1",
@@ -888,15 +887,31 @@ def test_auth_replication(connection, test_name):
     check(
         partial(show_privileges_func, user_or_role="role3"),
         {
-            ("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
-            ("UPDATE ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
+            (
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
+                "GRANT",
+                "LABEL PERMISSION GRANTED TO ROLE",
+            ),
+            (
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY",
+                "GRANT",
+                "LABEL PERMISSION GRANTED TO ROLE",
+            ),
         },
     )
     check(
         partial(show_privileges_func, user_or_role="user3b"),
         {
-            ("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
-            ("UPDATE ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE"),
+            (
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
+                "GRANT",
+                "LABEL PERMISSION GRANTED TO ROLE",
+            ),
+            (
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l4, :l5 MATCHING ANY",
+                "GRANT",
+                "LABEL PERMISSION GRANTED TO ROLE",
+            ),
         },
     )
     execute_and_fetch_all(cursor_main, "REVOKE * ON NODES CONTAINING LABELS :l1 FROM user4")
@@ -904,11 +919,23 @@ def test_auth_replication(connection, test_name):
     check(partial(show_privileges_func, user_or_role="user4"), set())
     check(
         partial(show_privileges_func, user_or_role="role3"),
-        {("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE")},
+        {
+            (
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
+                "GRANT",
+                "LABEL PERMISSION GRANTED TO ROLE",
+            )
+        },
     )
     check(
         partial(show_privileges_func, user_or_role="user3b"),
-        {("UPDATE ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO ROLE")},
+        {
+            (
+                "UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE) ON NODES CONTAINING LABELS :l2, :l3 MATCHING ANY",
+                "GRANT",
+                "LABEL PERMISSION GRANTED TO ROLE",
+            )
+        },
     )
 
     # GRANT/DENY DATABASE

@@ -10,7 +10,9 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <string>
 #include <unordered_map>
+#include <utility>
 
 #include "gflags/gflags.h"
 

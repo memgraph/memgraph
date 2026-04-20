@@ -28,6 +28,7 @@ namespace memgraph::storage::durability {
 //////////////////////////
 
 namespace {
+
 template <typename FileType>
 void WriteSize(Encoder<FileType> *encoder, uint64_t size) {
   size = utils::HostToLittleEndian(size);
@@ -36,21 +37,24 @@ void WriteSize(Encoder<FileType> *encoder, uint64_t size) {
 }  // namespace
 
 template <typename FileType>
-void Encoder<FileType>::Initialize(const std::filesystem::path &path) {
-  file_.Open(path, FileType::Mode::OVERWRITE_EXISTING);
+bool Encoder<FileType>::Initialize(const std::filesystem::path &path) {
+  return file_.Open(path, FileType::Mode::OVERWRITE_EXISTING);
 }
 
 template <typename FileType>
-void Encoder<FileType>::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
-  Initialize(path);
+bool Encoder<FileType>::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
+  if (!Initialize(path)) {
+    return false;
+  }
   Write(reinterpret_cast<const uint8_t *>(magic.data()), magic.size());
   auto version_encoded = utils::HostToLittleEndian(version);
   Write(reinterpret_cast<const uint8_t *>(&version_encoded), sizeof(version_encoded));
+  return true;
 }
 
 template <typename FileType>
-void Encoder<FileType>::OpenExisting(const std::filesystem::path &path) {
-  file_.Open(path, FileType::Mode::APPEND_TO_EXISTING);
+bool Encoder<FileType>::OpenExisting(const std::filesystem::path &path) {
+  return file_.Open(path, FileType::Mode::APPEND_TO_EXISTING);
 }
 
 template <typename FileType>
@@ -692,6 +696,9 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
+    case Marker::SECTION_DESCRIPTIONS:
+    case Marker::DELTA_DESCRIPTION_SET:
+    case Marker::DELTA_DESCRIPTION_DELETE:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return std::nullopt;
@@ -846,6 +853,9 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
+    case Marker::SECTION_DESCRIPTIONS:
+    case Marker::DELTA_DESCRIPTION_SET:
+    case Marker::DELTA_DESCRIPTION_DELETE:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return false;

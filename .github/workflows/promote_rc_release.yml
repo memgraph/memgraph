@@ -41,6 +41,7 @@ env:
   mage_rc_dir: ${{ inputs.use_test_rc && 'mage-mock-rc/' || 'mage/' }}v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
   release_bucket: ${{ github.event.inputs.test == 'false' && 'download.memgraph.com' || 'deps.memgraph.io' }}
   release_dir: memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}/v${{ github.event.inputs.release_version }}
+  mage_release_dir: memgraph-mage${{ github.event.inputs.test == 'true' && '-release-test' || '' }}/v${{ github.event.inputs.release_version }}
   package_rpm_amd: memgraph-${{ github.event.inputs.release_version }}_1-1.x86_64.rpm
   package_rpm_arm: memgraph-${{ github.event.inputs.release_version }}_1-1.aarch64.rpm
   package_deb_amd: memgraph_${{ github.event.inputs.release_version }}-1_amd64.deb
@@ -120,7 +121,7 @@ jobs:
           exit 1
 
       - name: Setup AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
         with:
           aws-access-key-id: ${{ secrets.AWS_AK_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SAK }}
@@ -202,7 +203,7 @@ jobs:
           exit 1
 
       - name: Setup AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
         with:
           aws-access-key-id: ${{ secrets.AWS_AK_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SAK }}
@@ -294,7 +295,7 @@ jobs:
           fi
 
       - name: "Log in to Docker Hub"
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -375,8 +376,30 @@ jobs:
         run: |
           mage_version="$RELEASE_VERSION"
           image_tag="${mage_version}${{ matrix.image_ext }}"
+          docker_dir_amd="docker"
+          docker_dir_arm="docker-aarch64"
+
+          if [[ "${{ matrix.image_ext }}" == *"-malloc"* ]]; then
+            docker_dir_amd="${docker_dir_amd}-malloc"
+            docker_dir_arm="docker-malloc-aarch64"
+          fi
+          if [[ "${{ matrix.image_ext }}" == *"-relwithdebinfo"* ]]; then
+            docker_dir_amd="${docker_dir_amd}-relwithdebinfo"
+            docker_dir_arm="${docker_dir_arm}-relwithdebinfo"
+          fi
+          if [[ "${{ matrix.image_ext }}" == *"-cuda"* ]]; then
+            docker_dir_amd="${docker_dir_amd}-cuda"
+            docker_dir_arm="${docker_dir_arm}-cuda"
+          fi
+          if [[ "${{ matrix.image_ext }}" == *"-cugraph"* ]]; then
+            docker_dir_amd="${docker_dir_amd}-cugraph"
+            docker_dir_arm="${docker_dir_arm}-cugraph"
+          fi
+
           echo "docker_tar_amd=mage-${mage_version}${{ matrix.image_ext }}.tar.gz" >> $GITHUB_ENV
           echo "docker_tar_arm=mage-${mage_version}-arm64${{ matrix.image_ext }}.tar.gz" >> $GITHUB_ENV
+          echo "docker_dir_amd=${docker_dir_amd}" >> $GITHUB_ENV
+          echo "docker_dir_arm=${docker_dir_arm}" >> $GITHUB_ENV
           echo "rc_image=${docker_repo_rc_mage}:${image_tag}" >> $GITHUB_ENV
           echo "release_image=${docker_repo_release_mage}:${image_tag}" >> $GITHUB_ENV
           echo "image_tag=${image_tag}" >> $GITHUB_ENV
@@ -387,9 +410,11 @@ jobs:
         run: |
           echo "s3_input_amd=s3://${rc_bucket}/${mage_rc_dir}/${docker_tar_amd}" >> $GITHUB_ENV
           echo "s3_input_arm=s3://${rc_bucket}/${mage_rc_dir}/${docker_tar_arm}" >> $GITHUB_ENV
+          echo "s3_output_amd=s3://${release_bucket}/${mage_release_dir}/${docker_dir_amd}/${docker_tar_amd}" >> $GITHUB_ENV
+          echo "s3_output_arm=s3://${release_bucket}/${mage_release_dir}/${docker_dir_arm}/${docker_tar_arm}" >> $GITHUB_ENV
 
       - name: Setup AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
         with:
           aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
@@ -453,8 +478,61 @@ jobs:
               echo "No conflict found..."
           fi
 
+      - name: Check if release tarball for this build already exists
+        run: |
+          if [[ "${has_rc_package_amd}" == "true" ]] && aws s3 ls "${s3_output_amd}" &> /dev/null; then
+            echo "Release tarball for AMD already exists at ${s3_output_amd}"
+            if [[ "$FORCE_PROMOTE" != "true" ]]; then
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            echo "Forcing promotion of existing AMD tarball ..."
+          fi
+          if [[ "${has_rc_package_arm}" == "true" ]] && aws s3 ls "${s3_output_arm}" &> /dev/null; then
+            echo "Release tarball for ARM already exists at ${s3_output_arm}"
+            if [[ "$FORCE_PROMOTE" != "true" ]]; then
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            echo "Forcing promotion of existing ARM tarball ..."
+          fi
+
+      - name: Promote RC tarballs to release bucket
+        run: |
+          if [[ "${has_rc_package_amd}" == "true" ]]; then
+            aws s3 cp "${s3_input_amd}" "${s3_output_amd}"
+            echo "Copied AMD tarball to ${s3_output_amd}"
+          else
+            echo "Skipping AMD tarball copy: RC package not available."
+          fi
+          if [[ "${has_rc_package_arm}" == "true" ]]; then
+            aws s3 cp "${s3_input_arm}" "${s3_output_arm}"
+            echo "Copied ARM tarball to ${s3_output_arm}"
+          else
+            echo "Skipping ARM tarball copy: RC package not available."
+          fi
+
+      - name: Check if MAGE ubuntu packages already exist
+        if: ${{ matrix.image_ext == '' }}
+        run: |
+          release_deb_check=$(aws s3 ls "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" | awk '/memgraph-mage_.*\.deb/ {print}')
+          if [[ -n "${release_deb_check}" ]]; then
+            echo "MAGE ubuntu packages already exist under s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
+            if [[ "$FORCE_PROMOTE" != "true" ]]; then
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            echo "Forcing promotion of existing ubuntu packages ..."
+          fi
+
+      - name: Promote MAGE ubuntu packages to release bucket
+        if: ${{ matrix.image_ext == '' }}
+        run: |
+          aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" --recursive --exclude "*" --include "memgraph-mage_${RELEASE_VERSION}-1_*.deb"
+          echo "Copied Ubuntu 24.04 MAGE packages to s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
+
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}

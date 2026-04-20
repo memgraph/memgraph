@@ -84,9 +84,21 @@ class AuthQuery : public memgraph::query::Query {
     PROFILE_RESTRICTION,
     PARALLEL_EXECUTION,
     SERVER_SIDE_PARAMETERS,
+    SERVER_SIDE_DESCRIPTIONS,
   };
 
-  enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE, DELETE, ALL };
+  enum class FineGrainedPrivilege {
+    READ,
+    UPDATE,
+    SET_LABEL,
+    REMOVE_LABEL,
+    SET_PROPERTY,
+    CREATE,
+    DELETE,
+    DELETE_EDGE,
+    CREATE_EDGE,
+    ALL
+  };
 
   enum class LabelMatchingMode { ANY, EXACTLY };
 
@@ -203,6 +215,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::PROFILE_RESTRICTION,
     AuthQuery::Privilege::PARALLEL_EXECUTION,
     AuthQuery::Privilege::SERVER_SIDE_PARAMETERS,
+    AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS,
 };
 
 }  // namespace memgraph::query

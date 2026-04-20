@@ -101,6 +101,7 @@ mgp_default_const_ptr!(u64);
 mgp_default_zero!(i32);
 mgp_default_zero!(i64);
 mgp_default_zero!(u64);
+mgp_default_zero!(usize);
 
 impl MgpDefault for mgp_edge_id {
     fn default() -> Self {

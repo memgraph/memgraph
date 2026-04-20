@@ -53,6 +53,7 @@ struct RoleMainData {
   bool writing_enabled_{false};
 };
 
+// Implicit move constructor is noexcept because all fields have also noexcept move constructor
 struct RoleReplicaData {
   ReplicationServerConfig config;
   std::unique_ptr<ReplicationServer> server;
@@ -81,10 +82,7 @@ struct ReplicationState {
   ReplicationState &operator=(ReplicationState const &) = delete;
   ReplicationState &operator=(ReplicationState &&) = delete;
 
-  enum class FetchReplicationError : uint8_t {
-    NOTHING_FETCHED,
-    PARSE_ERROR,
-  };
+  enum class FetchReplicationError : uint8_t { NOTHING_FETCHED, PARSE_ERROR, REPL_SERVER_FAILURE };
 
   using FetchReplicationResult_t = std::expected<ReplicationData_t, FetchReplicationError>;
   using FetchVariantResult_t = std::expected<std::variant<RoleMainData, RoleReplicaData>, FetchReplicationError>;
@@ -151,12 +149,14 @@ struct ReplicationState {
   std::expected<ReplicationClient *, RegisterReplicaStatus> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain(const utils::UUID &main_uuid);
-  bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                 std::optional<utils::UUID> const &maybe_main_uuid);
+  [[nodiscard]] bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                               std::optional<utils::UUID> const &maybe_main_uuid);
 
   std::optional<nlohmann::json> GetTelemetryJson() const;
 
-  void Shutdown();
+  // const because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires constness
+  // of functions being invoked
+  void Shutdown() const;
 
   auto GetDeltasBatchProgressSize() const -> uint64_t;
   void UpdateDeltasBatchProgressSize(uint64_t new_value);

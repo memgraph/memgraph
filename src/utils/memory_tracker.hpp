@@ -12,6 +12,9 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
 #include <optional>
 #include <string>
 #include <utility>
@@ -80,6 +83,8 @@ class MemoryTracker final {
   auto Peak() const { return peak_.load(std::memory_order_relaxed); }
 
   auto HardLimit() const { return hard_limit_.load(std::memory_order_relaxed); }
+
+  auto MaximumHardLimit() const { return maximum_hard_limit_; }
 
   void SetHardLimit(int64_t limit);
   void TryRaiseHardLimit(int64_t limit);

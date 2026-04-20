@@ -16,6 +16,7 @@
 
 #include "parameters/parameters.hpp"
 #include "query/interpreter.hpp"
+#include "query/query_user.hpp"
 
 #include "system/include/system/system.hpp"
 #include "utils/resource_monitoring.hpp"
@@ -25,16 +26,18 @@ namespace memgraph::query {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::optional<InterpreterContext> InterpreterContextHolder::instance{};
 
-InterpreterContext::InterpreterContext(
-    InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
-    memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
-    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, memgraph::system::System &system,
+InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
+                                       memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
+                                       utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
+                                       memgraph::system::System &system,
+                                       communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE
-    std::optional<std::reference_wrapper<memgraph::coordination::CoordinatorState>> const &coordinator_state,
-    utils::ResourceMonitoring *resource_monitoring,
+                                       coordination::CoordinatorState *coordinator_state,
+                                       utils::ResourceMonitoring *resource_monitoring,
 #endif
-    AuthQueryHandler *ah, AuthChecker *ac, ReplicationQueryHandler *replication_handler,
-    utils::PriorityThreadPool *worker_pool)
+                                       AuthQueryHandler *ah, AuthChecker *ac,
+                                       ReplicationQueryHandler *replication_handler,
+                                       utils::PriorityThreadPool *worker_pool)
     : settings(settings),
       parameters(parameters),
       dbms_handler(dbms_handler),
@@ -48,6 +51,7 @@ InterpreterContext::InterpreterContext(
       auth_checker(ac),
       replication_handler_{replication_handler},
       system_{&system},
+      bolt_server_context_(bolt_server_context),
       worker_pool(worker_pool) {
 }
 

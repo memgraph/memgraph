@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,13 +11,17 @@
 
 #include "edge_type_index.hpp"
 
-#include "utils/exceptions.hpp"
+#include <memory>
+#include <span>
+#include <vector>
 
 #include "spdlog/spdlog.h"
+#include "storage/v2/edge_ref.hpp"
+#include "storage/v2/id_types.hpp"
 
 namespace memgraph::storage {
 
-bool DiskEdgeTypeIndex::DropIndex(EdgeTypeId /*edge_type*/) {
+bool DiskEdgeTypeIndex::DropIndex(EdgeTypeId /*edge_type*/, ActiveIndicesUpdater const & /*updater*/) {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return true;
 }
@@ -53,8 +57,8 @@ void DiskEdgeTypeIndex::DropGraphClearIndices() {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
-auto DiskEdgeTypeIndex::GetActiveIndices() const -> std::unique_ptr<EdgeTypeIndex::ActiveIndices> {
-  return std::make_unique<DiskEdgeTypeIndex::ActiveIndices>();
+auto DiskEdgeTypeIndex::GetActiveIndices() const -> std::shared_ptr<EdgeTypeIndex::ActiveIndices> {
+  return std::make_shared<DiskEdgeTypeIndex::ActiveIndices>();
 }
 
 }  // namespace memgraph::storage

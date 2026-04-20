@@ -64,6 +64,7 @@ MEMGRAPH_BUILD_DEPS=(
     libssl-dev
     libseccomp-dev
     netcat-traditional # tests are using nc to wait for memgraph
+    iptables # for stress tests that simulate network failures
     python3 python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests

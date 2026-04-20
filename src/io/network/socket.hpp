@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,23 @@
 
 #pragma once
 
+#include <sys/types.h>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
 #include <optional>
+#include <string_view>
 #include <utility>
 
 #include "io/network/endpoint.hpp"
 
 namespace memgraph::io::network {
+
+enum class ClientCommunicationError : uint8_t {
+  SOCKET_FAILED_TO_CONNECT,  // failed to establish socket connection
+  TIMEOUT_ERROR,
+  GENERIC_ERROR
+};
 
 /**
  * This class creates a network socket.
@@ -120,6 +131,15 @@ class Socket {
   void SetTimeout(int64_t sec, int64_t usec);
 
   /**
+   * Sets TCP_USER_TIMEOUT on the socket. If transmitted data remains
+   * unacknowledged for @p timeout_ms milliseconds, the kernel tears down
+   * the connection and any blocked send()/recv() returns ETIMEDOUT.
+   *
+   * Default: 5000ms (5s).
+   */
+  void SetUserTimeout(int timeout_ms = 5000);
+
+  /**
    * Checks if there are any errors on a socket. Returns 0 if there are none.
    */
   int ErrorStatus() const;
@@ -150,8 +170,11 @@ class Socket {
    *             false if write failed
    */
 
-  bool Write(const uint8_t *data, size_t len, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
-  bool Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
+  [[nodiscard]] auto Write(const uint8_t *data, size_t len, bool have_more = false,
+                           std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, ClientCommunicationError>;
+  [[nodiscard]] auto Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, ClientCommunicationError>;
 
   /**
    * Read data from the socket.

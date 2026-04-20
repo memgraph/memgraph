@@ -353,7 +353,10 @@ constexpr utils::TypeInfo query::CreateSnapshotQuery::kType{
     .id = utils::TypeId::AST_CREATE_SNAPSHOT_QUERY, .name = "CreateSnapshotQuery", .superclass = &query::Query::kType};
 
 constexpr utils::TypeInfo query::ParameterQuery::kType{
-    .id=utils::TypeId::AST_PARAMETER_QUERY, .name="ParameterQuery", .superclass=&query::Query::kType};
+    .id = utils::TypeId::AST_PARAMETER_QUERY, .name = "ParameterQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::DescriptionQuery::kType{
+    .id = utils::TypeId::AST_DESCRIPTION_QUERY, .name = "DescriptionQuery", .superclass = &query::Query::kType};
 
 constexpr utils::TypeInfo query::RecoverSnapshotQuery::kType{.id = utils::TypeId::AST_RECOVER_SNAPSHOT_QUERY,
                                                              .name = "RecoverSnapshotQuery",
@@ -379,6 +382,11 @@ constexpr utils::TypeInfo query::Foreach::kType{utils::TypeId::AST_FOREACH, "For
 
 constexpr utils::TypeInfo query::ShowConfigQuery::kType{
     .id = utils::TypeId::AST_SHOW_CONFIG_QUERY, .name = "ShowConfigQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowQueryCallableMappingsQuery::kType{
+    .id = utils::TypeId::AST_SHOW_QUERY_CALLABLE_MAPPINGS_QUERY,
+    .name = "ShowQueryCallableMappingsQuery",
+    .superclass = &query::Query::kType};
 
 constexpr utils::TypeInfo query::AnalyzeGraphQuery::kType{
     .id = utils::TypeId::AST_ANALYZE_GRAPH_QUERY, .name = "AnalyzeGraphQuery", .superclass = &query::Query::kType};
@@ -440,7 +448,11 @@ constexpr utils::TypeInfo query::DropEnumQuery::kType{
 constexpr utils::TypeInfo query::ShowSchemaInfoQuery::kType{
     .id = utils::TypeId::AST_SHOW_SCHEMA_INFO_QUERY, .name = "ShowSchemaInfoQuery", .superclass = &query::Query::kType};
 
-constexpr utils::TypeInfo query::TtlQuery::kType{utils::TypeId::AST_TTL_QUERY, "TtlQuery", &query::Query::kType};
+constexpr utils::TypeInfo query::ReloadSSLQuery::kType{
+    .id = utils::TypeId::AST_RELOAD_SSL_QUERY, .name = "ReloadSSLQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::TtlQuery::kType{
+    .id = utils::TypeId::AST_TTL_QUERY, .name = "TtlQuery", .superclass = &query::Query::kType};
 
 constexpr utils::TypeInfo query::SessionTraceQuery::kType{
     .id = utils::TypeId::AST_SESSION_TRACE_QUERY, .name = "SessionTraceQuery", .superclass = &query::Query::kType};

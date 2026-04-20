@@ -57,6 +57,8 @@ constexpr auto kSyncFailoverOnly = "sync_failover_only"sv;
 constexpr auto kMaxFailoverLagOnReplica = "max_failover_replica_lag"sv;
 constexpr auto kMaxReplicaReadLag = "max_replica_read_lag"sv;
 constexpr auto kDeltasBatchProgressSize = "deltas_batch_progress_size"sv;
+constexpr auto kInstanceDownTimeoutSec = "instance_down_timeout_sec"sv;
+constexpr auto kInstanceHealthCheckFreqSec = "instance_health_check_frequency_sec"sv;
 
 // cluster state
 constexpr int MAX_SNAPSHOTS = 3;

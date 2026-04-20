@@ -1039,7 +1039,12 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start(test_name)
     )
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
-    expected_cluster = [("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader")]
+    expected_cluster = [
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+    ]
 
     mg_sleep_and_assert(expected_cluster, partial(show_instances, coordinator3_cursor))
 

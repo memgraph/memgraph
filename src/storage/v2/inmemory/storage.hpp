@@ -24,6 +24,7 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/snapshot_progress.hpp"
 #include "storage/v2/storage.hpp"
@@ -145,7 +146,8 @@ class InMemoryStorage final : public Storage {
     S3GetFailure,
     S3MissingAwsRegion,
     S3MissingAwsAccessKey,
-    S3MissingAwsSecretKey
+    S3MissingAwsSecretKey,
+    FailedOverwritingUUID
   };
 
   /// @throw std::system_error
@@ -178,9 +180,10 @@ class InMemoryStorage final : public Storage {
 
     void CheckForFastDiscardOfDeltas();
 
-    [[nodiscard]] bool HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
+    [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,
-                                                    CommitArgs const &commit_args);
+                                                    CommitArgs const &commit_args)
+        -> std::expected<void, ShipDeltasError>;
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -264,13 +267,13 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label) const override {
-      return transaction_.active_indices_.label_->ApproximateVertexCount(label);
+      return transaction_.active_indices_->label_->ApproximateVertexCount(label);
     }
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const override {
-      return transaction_.active_indices_.label_properties_->ApproximateVertexCount(label, properties);
+      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties);
     }
 
     /// Return approximate number of vertices with the given label and the given
@@ -278,7 +281,7 @@ class InMemoryStorage final : public Storage {
     /// and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValue const> values) const override {
-      return transaction_.active_indices_.label_properties_->ApproximateVertexCount(label, properties, values);
+      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties, values);
     }
 
     /// Return approximate number of vertices with the given label and value for
@@ -286,42 +289,42 @@ class InMemoryStorage final : public Storage {
     /// bounds.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValueRange const> bounds) const override {
-      return transaction_.active_indices_.label_properties_->ApproximateVertexCount(label, properties, bounds);
+      return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties, bounds);
     }
 
     uint64_t ApproximateEdgeCount() const override { return storage_->edge_count_.load(std::memory_order_acquire); }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override {
-      return transaction_.active_indices_.edge_type_->ApproximateEdgeCount(edge_type);
+      return transaction_.active_indices_->edge_type_->ApproximateEdgeCount(edge_type);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override {
-      return transaction_.active_indices_.edge_type_properties_->ApproximateEdgeCount(edge_type, property);
+      return transaction_.active_indices_->edge_type_properties_->ApproximateEdgeCount(edge_type, property);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
                                   const PropertyValue &value) const override {
-      return transaction_.active_indices_.edge_type_properties_->ApproximateEdgeCount(edge_type, property, value);
+      return transaction_.active_indices_->edge_type_properties_->ApproximateEdgeCount(edge_type, property, value);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
                                   const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      return transaction_.active_indices_.edge_type_properties_->ApproximateEdgeCount(
+      return transaction_.active_indices_->edge_type_properties_->ApproximateEdgeCount(
           edge_type, property, lower, upper);
     }
 
     uint64_t ApproximateEdgeCount(PropertyId property) const override {
-      return transaction_.active_indices_.edge_property_->ApproximateEdgeCount(property);
+      return transaction_.active_indices_->edge_property_->ApproximateEdgeCount(property);
     }
 
     uint64_t ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const override {
-      return transaction_.active_indices_.edge_property_->ApproximateEdgeCount(property, value);
+      return transaction_.active_indices_->edge_property_->ApproximateEdgeCount(property, value);
     }
 
     uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      return transaction_.active_indices_.edge_property_->ApproximateEdgeCount(property, lower, upper);
+      return transaction_.active_indices_->edge_property_->ApproximateEdgeCount(property, lower, upper);
     }
 
     std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
@@ -374,31 +377,31 @@ class InMemoryStorage final : public Storage {
                                          VertexAccessor *to_vertex) override;
 
     bool LabelIndexReady(LabelId label) const override {
-      return transaction_.active_indices_.label_->IndexReady(label);
+      return transaction_.active_indices_->label_->IndexReady(label);
     }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
-      return transaction_.active_indices_.label_properties_->IndexExists(label, properties);
+      return transaction_.active_indices_->label_properties_->IndexExists(label, properties);
     }
 
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
-      return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
+      return transaction_.active_indices_->label_properties_->IndexReady(label, properties);
     }
 
     bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override {
-      return transaction_.active_indices_.edge_type_->IndexReady(edge_type);
+      return transaction_.active_indices_->edge_type_->IndexReady(edge_type);
     }
 
     bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const override {
-      return transaction_.active_indices_.edge_type_properties_->IndexReady(edge_type, property);
+      return transaction_.active_indices_->edge_type_properties_->IndexReady(edge_type, property);
     }
 
     bool EdgePropertyIndexExists(PropertyId property) const override {
-      return transaction_.active_indices_.edge_property_->IndexExists(property);
+      return transaction_.active_indices_->edge_property_->IndexExists(property);
     }
 
     bool EdgePropertyIndexReady(PropertyId property) const override {
-      return transaction_.active_indices_.edge_property_->IndexReady(property);
+      return transaction_.active_indices_->edge_property_->IndexReady(property);
     }
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;
@@ -441,7 +444,6 @@ class InMemoryStorage final : public Storage {
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `IndexDefinitionError`: the index already exists.
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
                                                                  CheckCancelFunction cancel_check) override;
@@ -449,7 +451,6 @@ class InMemoryStorage final : public Storage {
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
@@ -458,7 +459,6 @@ class InMemoryStorage final : public Storage {
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
@@ -467,7 +467,6 @@ class InMemoryStorage final : public Storage {
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type, PropertyId property,
@@ -476,7 +475,6 @@ class InMemoryStorage final : public Storage {
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
@@ -485,14 +483,12 @@ class InMemoryStorage final : public Storage {
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropIndex(
         LabelId label, std::vector<storage::PropertyPath> &&properties) override;
@@ -500,21 +496,18 @@ class InMemoryStorage final : public Storage {
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) override;
 
@@ -529,14 +522,12 @@ class InMemoryStorage final : public Storage {
     utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) override;
 
     utils::small_vector<float> GetVectorFromVectorIndex(Vertex *vertex, std::string_view index_name) const override;
-
     std::expected<void, StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) override;
 
     std::expected<void, StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `ConstraintViolation`: there is already a vertex existing that would break this new constraint.
     /// * `ConstraintDefinitionError`: the constraint already exists.
     /// @throw std::bad_alloc
@@ -547,14 +538,12 @@ class InMemoryStorage final : public Storage {
     /// Drop an existing existence constraint.
     /// Returns void if the existence constraint has been dropped.
     /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `ConstraintDefinitionError`: the constraint did not exists.
     std::expected<void, StorageExistenceConstraintDroppingError> DropExistenceConstraint(LabelId label,
                                                                                          PropertyId property) override;
 
     /// Create an unique constraint.
     /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `ConstraintViolation`: there are already vertices violating the constraint.
     /// Returns `UniqueConstraints::CreationStatus` otherwise. Value can be:
     /// * `SUCCESS` if the constraint was successfully created,
@@ -567,7 +556,6 @@ class InMemoryStorage final : public Storage {
 
     /// Removes an existing unique constraint.
     /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// Returns `UniqueConstraints::DeletionStatus` otherwise. Value can be:
     /// * `SUCCESS` if constraint was successfully removed,
     /// * `NOT_FOUND` if the specified constraint was not found,
@@ -775,6 +763,9 @@ class InMemoryStorage final : public Storage {
 
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
+  // Wipe all storage state. Caller must hold main_lock_ exclusively.
+  void Clear();
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -797,8 +788,6 @@ class InMemoryStorage final : public Storage {
   EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
 
   EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
-
-  void Clear();
 
   // Main object storage
   utils::SkipList<Vertex> vertices_;

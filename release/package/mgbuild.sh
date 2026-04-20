@@ -78,7 +78,7 @@ DEFAULT_MGDEPS_CACHE_PORT="80"
 DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
 DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
-DEFAULT_RUST_VERSION="1.85"
+DEFAULT_RUST_VERSION="1.89"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -162,6 +162,7 @@ print_help () {
   echo -e "  --dest-dir string             Specify a custom path for destination directory on host. Provide relative path inside memgraph directory."
   echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
   echo -e "                                This directory should contain the memgraph package."
+  echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
 
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login (default empty)"
@@ -427,7 +428,7 @@ upload_conan_cache() {
 
 build_memgraph () {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env && rustup toolchain install $DEFAULT_RUST_VERSION && export RUSTUP_TOOLCHAIN=$DEFAULT_RUST_VERSION"
   local container_build_dir="$MGBUILD_ROOT_DIR/build"
   local container_output_dir="$container_build_dir/output"
   local arm_flag=""
@@ -600,53 +601,34 @@ build_memgraph () {
     docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add artifactory $conan_remote --force"
   fi
 
-  # Install our config
-  docker exec -u mg "$build_container" bash -c "$CMD_START && conan config install ./conan_config"
+  # Register vendored recipes as a local-recipes-index remote
+  # NOTE: also registered in build.sh — keep in sync
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add memgraph-recipes /home/mg/memgraph/conan_recipes -t local-recipes-index --force"
 
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
   local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
-  local EXPORT_BUILD_TYPE="export BUILD_TYPE=$build_type"
 
-  # Determine profile template based on sanitizer flags
-  local DASAN_ENABLED=false
-  local DUBSAN_ENABLED=false
-
-  # Check if ASAN or UBSAN flags are set
+  # Build profile list from sanitizer flags
+  local SANITIZER_PROFILES=""
   if [[ "$asan_flag" == "-DASAN=ON" ]]; then
-    DASAN_ENABLED=true
+    SANITIZER_PROFILES="$SANITIZER_PROFILES -pr:h add_asan"
+    echo "ASAN enabled"
   fi
   if [[ "$ubsan_flag" == "-DUBSAN=ON" ]]; then
-    DUBSAN_ENABLED=true
+    SANITIZER_PROFILES="$SANITIZER_PROFILES -pr:h add_ubsan"
+    echo "UBSAN enabled"
   fi
 
-  MG_SANITIZERS=""
-  if [[ "$DASAN_ENABLED" == true ]]; then
-    MG_SANITIZERS="address"
-  fi
-  if [[ "$DUBSAN_ENABLED" == true ]]; then
-    if [[ -n "$MG_SANITIZERS" ]]; then
-      # If we already have address sanitizer, add undefined to the list
-      MG_SANITIZERS="address,undefined"
-    else
-      MG_SANITIZERS="undefined"
-    fi
-  fi
+  local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_v7 $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
 
-  if [[ -n "$MG_SANITIZERS" ]]; then
-    echo "Sanitizers enabled: $MG_SANITIZERS"
-    CMD_START="$CMD_START && export MG_SANITIZERS=$MG_SANITIZERS"
-  else
-    echo "No sanitizers enabled"
-  fi
-
-  CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
+  CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN"
   if [[ -n "$build_dependency" ]]; then
     echo "Installing build dependency: $build_dependency"
     if [[ "$build_dependency" == "all" ]]; then
-      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing $CONAN_PROFILE_ARGS"
     else
-      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install --requires $build_dependency --lockfile="" --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install --requires $build_dependency --lockfile="" --build=missing $CONAN_PROFILE_ARGS"
     fi
 
     if [[ -n "$conan_remote" && -n "$conan_username" && -n "$conan_password" ]]; then
@@ -656,7 +638,7 @@ build_memgraph () {
 
     exit 0
   else
-    docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing $CONAN_PROFILE_ARGS"
   fi
   CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
 
@@ -830,6 +812,7 @@ package_docker() {
   local generate_sbom=false
   local malloc=false
   local custom_mirror=false
+  local keep_image_loaded=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
@@ -852,6 +835,10 @@ package_docker() {
         [[ "$2" == "true" ]] && custom_mirror=true
         shift 2
       ;;
+      --keep-image-loaded)
+        keep_image_loaded=$2
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -867,10 +854,10 @@ package_docker() {
 
   if [[ "$build_type" == "Release" ]]; then
     echo "Package release"
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc
+    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   else
     echo "Package other"
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc
+    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
@@ -1117,7 +1104,9 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=standalone/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
     ;;
     stress-native-ha)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_AWS_KEY_ID && $EXPORT_AWS_SECRET_KEY && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=ha/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
+      # Set up passwordless sudo for mg user (needed by stress tests that use iptables)
+      docker exec -u root $build_container bash -c "apt-get update -qq && apt-get install -y -qq sudo && adduser mg sudo && echo 'mg ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_AWS_KEY_ID && $EXPORT_AWS_SECRET_KEY && export REPLICATION_MODE=${REPLICATION_MODE:-sync} && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=ha/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
     ;;
     stress-docker-ha)
       export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license
@@ -1262,6 +1251,66 @@ test_memgraph() {
       done
 
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_index/default/vector/*"
+    ;;
+    mgbench-vector-search-edge-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-vector-search-edge-index" >&2
+            echo "Supported flags: --export-results-file" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_edge_index/default/vector/*"
+    ;;
+    mgbench-text-search-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-text-search-index" >&2
+            echo "Supported flags: --export-results-file" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_index/default/text/*"
+    ;;
+    mgbench-text-search-edge-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-text-search-edge-index" >&2
+            echo "Supported flags: --export-results-file" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results $export_results_file --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_edge_index/default/text/*"
     ;;
     upload-to-bench-graph)
       shift 1

@@ -3363,17 +3363,103 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE, UPDATE, CREATE ON NODES CONTAINING LABELS :Label1 TO user"),
                SemanticException);
 
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT NOTHING, READ ON NODES CONTAINING LABELS :Label1 TO user"),
-               SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ, NOTHING ON NODES CONTAINING LABELS :Label1 TO user"),
-               SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE, UPDATE, NOTHING ON NODES CONTAINING LABELS :Label1 TO user"),
-               SemanticException);
-
   ASSERT_THROW(ast_generator.ParseQuery("GRANT *, READ ON NODES CONTAINING LABELS :Label1 TO user"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT READ, * ON NODES CONTAINING LABELS :Label1 TO user"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE, UPDATE, * ON NODES CONTAINING LABELS :Label1 TO user"),
                SemanticException);
+
+  // UPDATE cannot be combined with its component permissions
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT UPDATE, SET LABEL ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT SET LABEL, UPDATE ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT UPDATE, REMOVE LABEL ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT UPDATE, SET PROPERTY ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT UPDATE, DELETE EDGE ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT UPDATE, CREATE EDGE ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+
+  // SET LABEL, REMOVE LABEL, DELETE EDGE, CREATE EDGE not applicable to edges
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT SET LABEL ON EDGES OF TYPE :KNOWS TO user"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT REMOVE LABEL ON EDGES OF TYPE :KNOWS TO user"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT DELETE EDGE ON EDGES OF TYPE :KNOWS TO user"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE EDGE ON EDGES OF TYPE :KNOWS TO user"), SemanticException);
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_LABEL}, {{"*"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT SET LABEL ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   label_privileges,
+                   {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::REMOVE_LABEL}, {{"Label1"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT REMOVE LABEL ON NODES CONTAINING LABELS :Label1 TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   label_privileges,
+                   {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_PROPERTY}, {{"*"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT SET PROPERTY ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   label_privileges,
+                   {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+
+  edge_type_privileges.clear();
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_PROPERTY}, {{"KNOWS"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT SET PROPERTY ON EDGES OF TYPE :KNOWS TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   {},
+                   edge_type_privileges,
+                   {});
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Person"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_LABEL}, {{"Person"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_PROPERTY}, {{"Person"}}}});
+  check_auth_query(
+      &ast_generator,
+      "GRANT READ, SET LABEL, SET PROPERTY ON NODES CONTAINING LABELS :Person TO user",
+      AuthQuery::Action::GRANT_PRIVILEGE,
+      "",
+      {},
+      "user",
+      {},
+      {},
+      label_privileges,
+      {},
+      {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -4022,9 +4108,6 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
   edge_type_privileges.clear();
 
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE READ, READ ON NODES CONTAINING LABELS :Label1 FROM user"),
-               SemanticException);
-
-  ASSERT_THROW(ast_generator.ParseQuery("REVOKE NOTHING, READ ON NODES CONTAINING LABELS :Label1 FROM user"),
                SemanticException);
 
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE *, READ ON NODES CONTAINING LABELS :Label1 FROM user"),
@@ -4877,6 +4960,26 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, CallProcedureWithYieldWhere) {
+  AddProc(*mock_module, "proc", {}, {"res"}, ProcedureType::READ);
+  auto &ast_generator = *GetParam();
+
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mock_module.proc() YIELD res WHERE res > 0"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  ASSERT_TRUE(call_proc);
+  ASSERT_EQ(call_proc->procedure_name_, "mock_module.proc");
+  ASSERT_EQ(call_proc->result_fields_.size(), 1U);
+  ASSERT_EQ(call_proc->result_fields_[0], "res");
+  ASSERT_TRUE(call_proc->where_);
+  ASSERT_TRUE(call_proc->where_->expression_);
+  CheckRWType(query, kRead);
+}
+
 TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
   AddProc(*mock_module, "proc", {"arg1", "arg2", "arg3"}, {"res"}, ProcedureType::READ);
   auto &ast_generator = *GetParam();
@@ -5360,12 +5463,11 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
   // mg.procedures returns something, so it needs to have a YIELD.
   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures()"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures() PROCEDURE MEMORY UNLIMITED"), SemanticException);
-  // TODO: Implement support for the following syntax. These are defined in
-  // Neo4j and accepted in openCypher CIP.
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc RETURN 42"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42 RETURN *"), SyntaxException);
+  // YIELD WHERE is now supported; unknown procedure triggers SemanticException.
+  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42 RETURN *"), SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
@@ -7463,6 +7565,37 @@ TEST_P(CypherMainVisitorTest, ShowSchemaInfoQuery) {
   auto &ast_generator = *GetParam();
   const auto *query = dynamic_cast<ShowSchemaInfoQuery *>(ast_generator.ParseQuery("SHOW SCHEMA INFO;"));
   ASSERT_NE(query, nullptr);
+}
+
+TEST_P(CypherMainVisitorTest, ReloadSSLQuery) {
+  auto &ast_generator = *GetParam();
+
+  // Valid: RELOAD BOLT_SERVER TLS
+  {
+    const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("RELOAD BOLT_SERVER TLS;"));
+    ASSERT_NE(query, nullptr);
+  }
+
+  // Case insensitivity
+  {
+    const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("reload bolt_server tls;"));
+    ASSERT_NE(query, nullptr);
+  }
+
+  // Invalid: missing TLS keyword
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("RELOAD BOLT_SERVER;"), SyntaxException);
+  }
+
+  // Invalid: missing BOLT_SERVER
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("RELOAD TLS;"), SyntaxException);
+  }
+
+  // Invalid: wrong order
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("RELOAD TLS BOLT_SERVER;"), SyntaxException);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, TtlQuery) {
