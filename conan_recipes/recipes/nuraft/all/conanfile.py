@@ -2,7 +2,7 @@ from conan import ConanFile
 from conan.errors import ConanInvalidConfiguration
 from conan.tools.build import check_min_cppstd
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, replace_in_file, rm, rmdir
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, patch, rm, rmdir
 from conan.tools.scm import Version
 import os
 
@@ -69,33 +69,6 @@ class NuRaftConan(ConanFile):
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)
-        if Version(self.version) >= 3:
-            self._patch_sources()
-
-    def _patch_sources(self):
-        cmakelists = os.path.join(self.source_folder, "CMakeLists.txt")
-        if Version(self.version) >= 3:
-            replace_in_file(
-                self,
-                cmakelists,
-                "    find_package(OpenSSL)\n\n    if(OPENSSL_FOUND)\n"
-                "        set(LIBSSL OpenSSL::SSL)\n"
-                "        set(LIBCRYPTO OpenSSL::Crypto)\n"
-                "    else()\n"
-                "        add_compile_definitions(SSL_LIBRARY_NOT_FOUND=1)\n"
-                "    endif()\n",
-                "    if(DISABLE_SSL)\n"
-                "        add_compile_definitions(SSL_LIBRARY_NOT_FOUND=1)\n"
-                "    else()\n"
-                "        find_package(OpenSSL)\n\n"
-                "        if(OPENSSL_FOUND)\n"
-                "            set(LIBSSL OpenSSL::SSL)\n"
-                "            set(LIBCRYPTO OpenSSL::Crypto)\n"
-                "        else()\n"
-                "            add_compile_definitions(SSL_LIBRARY_NOT_FOUND=1)\n"
-                "        endif()\n"
-                "    endif()\n",
-            )
 
     def generate(self):
         tc = CMakeToolchain(self)
@@ -114,10 +87,12 @@ class NuRaftConan(ConanFile):
         if Version(self.version) < 3:
             if self.options.asio == "standalone":
                 self.run("bash prepare.sh", cwd=self.source_folder)
-                self.run(
-                    "patch -p1 < "
-                    f"\"{os.path.join(self.export_sources_folder, 'patches', '1002-standalone-asio-2.1.patch')}\"",
-                    cwd=self.source_folder,
+                patch(
+                    self,
+                    base_path=self.source_folder,
+                    patch_file=os.path.join(
+                        self.export_sources_folder, "patches", "1002-standalone-asio-2.1.patch"
+                    ),
                 )
         cmake = CMake(self)
         cmake.configure()

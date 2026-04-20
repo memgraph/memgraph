@@ -9,6 +9,10 @@ sources:
     url: https://github.com/ebay/nuraft/archive/refs/tags/v2.0.0.tar.gz
     sha256: f7f535f0e5c0417fb9a0ab87514a1b77647fc8e7ed967b85ca611df1cae14023
 patches:
+  "3.0.0-memgraph":
+    - patch_file: "patches/2001-disable-ssl-option.patch"
+      patch_description: "Gate find_package(OpenSSL) behind a DISABLE_SSL CMake option."
+      patch_type: "conan"
   "2.1.0-memgraph":
     - patch_file: "patches/1001-cmake_patches.patch"
       patch_description: "Provide CMake correct dependency discovery logic."
