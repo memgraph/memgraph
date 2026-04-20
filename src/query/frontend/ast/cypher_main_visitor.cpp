@@ -199,7 +199,7 @@ antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfo
 }
 
 antlrcpp::Any CypherMainVisitor::visitConstraintQuery(MemgraphCypher::ConstraintQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "ConstraintQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "ConstraintQuery should have exactly one child!");
   auto *constraint_query = std::any_cast<ConstraintQuery *>(ctx->children[0]->accept(this));
   query_ = constraint_query;
   return query_;
@@ -493,28 +493,28 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
 }
 
 antlrcpp::Any CypherMainVisitor::visitIndexQuery(MemgraphCypher::IndexQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "IndexQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "IndexQuery should have exactly one child!");
   auto *index_query = std::any_cast<IndexQuery *>(ctx->children[0]->accept(this));
   query_ = index_query;
   return index_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitPointIndexQuery(MemgraphCypher::PointIndexQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "PointIndexQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "PointIndexQuery should have exactly one child!");
   auto *point_index_query = std::any_cast<PointIndexQuery *>(ctx->children[0]->accept(this));
   query_ = point_index_query;
   return point_index_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitTextIndexQuery(MemgraphCypher::TextIndexQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "TextIndexQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "TextIndexQuery should have exactly one child!");
   auto *text_index_query = std::any_cast<TextIndexQuery *>(ctx->children[0]->accept(this));
   query_ = text_index_query;
   return text_index_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitVectorIndexQuery(MemgraphCypher::VectorIndexQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "VectorIndexQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "VectorIndexQuery should have exactly one child!");
   auto *vector_index_query = std::any_cast<VectorIndexQuery *>(ctx->children[0]->accept(this));
   query_ = vector_index_query;
   return vector_index_query;
@@ -573,7 +573,7 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
 }
 
 antlrcpp::Any CypherMainVisitor::visitEdgeIndexQuery(MemgraphCypher::EdgeIndexQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "EdgeIndexQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "EdgeIndexQuery should have exactly one child!");
   auto *index_query = std::any_cast<EdgeIndexQuery *>(ctx->children[0]->accept(this));
   query_ = index_query;
   return index_query;
@@ -737,7 +737,7 @@ antlrcpp::Any CypherMainVisitor::visitDropVectorIndex(MemgraphCypher::DropVector
 }
 
 antlrcpp::Any CypherMainVisitor::visitAuthQuery(MemgraphCypher::AuthQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "AuthQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "AuthQuery should have exactly one child!");
   auto *auth_query = std::any_cast<AuthQuery *>(ctx->children[0]->accept(this));
   query_ = auth_query;
   return auth_query;
@@ -767,21 +767,21 @@ antlrcpp::Any CypherMainVisitor::visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeG
 }
 
 antlrcpp::Any CypherMainVisitor::visitReplicationQuery(MemgraphCypher::ReplicationQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "ReplicationQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "ReplicationQuery should have exactly one child!");
   auto *replication_query = std::any_cast<ReplicationQuery *>(ctx->children[0]->accept(this));
   query_ = replication_query;
   return replication_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReplicationInfoQuery(MemgraphCypher::ReplicationInfoQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "ReplicationInfoQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "ReplicationInfoQuery should have exactly one child!");
   auto *replication_info_query = std::any_cast<ReplicationInfoQuery *>(ctx->children[0]->accept(this));
   query_ = replication_info_query;
   return replication_info_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCoordinatorQuery(MemgraphCypher::CoordinatorQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "CoordinatorQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "CoordinatorQuery should have exactly one child!");
   auto *coordinator_query = std::any_cast<CoordinatorQuery *>(ctx->children[0]->accept(this));
   query_ = coordinator_query;
   return coordinator_query;
@@ -1154,7 +1154,7 @@ antlrcpp::Any CypherMainVisitor::visitFreeMemoryQuery(MemgraphCypher::FreeMemory
 }
 
 antlrcpp::Any CypherMainVisitor::visitTriggerQuery(MemgraphCypher::TriggerQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "TriggerQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "TriggerQuery should have exactly one child!");
   auto *trigger_query = std::any_cast<TriggerQuery *>(ctx->children[0]->accept(this));
   query_ = trigger_query;
   return trigger_query;
@@ -1304,14 +1304,14 @@ antlrcpp::Any CypherMainVisitor::visitShowNextSnapshotQuery(MemgraphCypher::Show
 }
 
 antlrcpp::Any CypherMainVisitor::visitStreamQuery(MemgraphCypher::StreamQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "StreamQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "StreamQuery should have exactly one child!");
   auto *stream_query = std::any_cast<StreamQuery *>(ctx->children[0]->accept(this));
   query_ = stream_query;
   return stream_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "CreateStreamQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "CreateStreamQuery should have exactly one child!");
   auto *stream_query = std::any_cast<StreamQuery *>(ctx->children[0]->accept(this));
   query_ = stream_query;
   return stream_query;
@@ -1671,7 +1671,7 @@ antlrcpp::Any CypherMainVisitor::visitCheckStream(MemgraphCypher::CheckStreamCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitSettingQuery(MemgraphCypher::SettingQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "SettingQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "SettingQuery should have exactly one child!");
   auto *setting_query = std::any_cast<SettingQuery *>(ctx->children[0]->accept(this));
   query_ = setting_query;
   return setting_query;
@@ -1718,7 +1718,7 @@ antlrcpp::Any CypherMainVisitor::visitShowSettings(MemgraphCypher::ShowSettingsC
 }
 
 antlrcpp::Any CypherMainVisitor::visitTransactionQueueQuery(MemgraphCypher::TransactionQueueQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "TransactionQueueQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "TransactionQueueQuery should have exactly one child!");
   auto *transaction_queue_query = std::any_cast<TransactionQueueQuery *>(ctx->children[0]->accept(this));
   query_ = transaction_queue_query;
   return transaction_queue_query;
@@ -4079,7 +4079,7 @@ antlrcpp::Any CypherMainVisitor::visitShowQueryCallableMappingsQuery(
 }
 
 antlrcpp::Any CypherMainVisitor::visitParameterQuery(MemgraphCypher::ParameterQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "ParameterQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "ParameterQuery should have exactly one child!");
   auto *parameter_query = std::any_cast<ParameterQuery *>(ctx->children[0]->accept(this));
   query_ = parameter_query;
   return parameter_query;
@@ -4468,7 +4468,7 @@ auto CypherMainVisitor::ExtractOperators(std::vector<antlr4::tree::ParseTree *> 
 }
 
 antlrcpp::Any CypherMainVisitor::visitDescriptionQuery(MemgraphCypher::DescriptionQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "DescriptionQuery should have exactly one child!");
+  DMG_ASSERT(ctx->children.size() == 1, "DescriptionQuery should have exactly one child!");
   // Description string and labels are resolved at parse time, so caching would serve stale values.
   query_info_.is_cacheable = false;
   auto *description_query = std::any_cast<DescriptionQuery *>(ctx->children[0]->accept(this));
