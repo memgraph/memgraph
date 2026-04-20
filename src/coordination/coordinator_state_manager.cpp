@@ -82,9 +82,8 @@ void from_json(nlohmann::json const &json_cluster_config, std::shared_ptr<cluste
 }
 
 void to_json(nlohmann::json &j, cluster_config const &config) {
-  auto &mutable_cluster_config = const_cast<cluster_config &>(config);
   auto const servers_vec =
-      ranges::views::transform(mutable_cluster_config.get_servers(),
+      ranges::views::transform(config.get_servers(),
                                [](auto const &server) {
                                  return std::tuple{
                                      static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};

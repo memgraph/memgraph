@@ -17,6 +17,9 @@ patches:
     - patch_file: "patches/1001-cmake_patches.patch"
       patch_description: "Provide CMake correct dependency discovery logic."
       patch_type: "conan"
+    - patch_file: "patches/1003-const-get-servers-2.1.patch"
+      patch_description: "Add const overload of cluster_config::get_servers() (present natively in v3.0.0)."
+      patch_type: "portability"
   "2.0.0-memgraph":
     - patch_file: "patches/0001-cmake_patches.patch"
       patch_description: "Provide CMake correct dependency discovery logic."
