@@ -63,28 +63,26 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
-  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
-      utils::DirExists(config.disk.main_storage_directory)) {
-    config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
-    storage_ =
-        std::make_unique<storage::DiskStorage>(std::move(config), std::move(invalidator), database_protector_factory);
-  } else {
-    storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
-  }
-
   auto const should_register_database_metrics =
       !(FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator());
   if (should_register_database_metrics) {
-    metrics_.reset(metrics::Metrics().AddDatabase(storage_->name()));
+    metrics_.reset(metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str()));
   }
-  storage_->SetMetricHandles(metrics_.get());
+
+  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
+      utils::DirExists(config.disk.main_storage_directory)) {
+    config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+    storage_ = std::make_unique<storage::DiskStorage>(
+        std::move(config), std::move(invalidator), metrics_.get(), database_protector_factory);
+  } else {
+    storage_ = dbms::CreateInMemoryStorage(
+        std::move(config), std::move(invalidator), metrics_.get(), database_protector_factory);
+  }
 }
 
-Database::~Database() {
-  if (storage_) {
-    storage_->SetMetricHandles(nullptr);
-  }
-}
+// Keep default destructor out-of-line because Database owns unique_ptrs
+// to forward declared types.
+Database::~Database() = default;
 
 Database::ScopedMetrics::~ScopedMetrics() {
   if (handles_) metrics::Metrics().RemoveDatabase(handles_);
@@ -114,12 +112,10 @@ void Database::SwitchToOnDisk() {
   // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
   auto preserved_factory = storage_->get_database_protector_factory();
 
-  storage_ = std::make_unique<memgraph::storage::DiskStorage>(
-      std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);
-
-  if (metrics_.get()) {
-    storage_->SetMetricHandles(metrics_.get());
-  }
+  storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
+                                                              std::make_unique<storage::PlanInvalidatorDefault>(),
+                                                              metrics_.get(),
+                                                              preserved_factory);
 }
 
 }  // namespace memgraph::dbms

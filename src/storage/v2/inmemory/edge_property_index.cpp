@@ -264,8 +264,6 @@ void InMemoryEdgePropertyIndex::IndividualIndex::Publish(uint64_t commit_timesta
   gauge_ = metrics::ScopedGauge{gauge};
 }
 
-InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() = default;
-
 bool InMemoryEdgePropertyIndex::DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) {
   auto const result = index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     auto const it = indices_container->indices_.find(property);
@@ -405,22 +403,6 @@ void InMemoryEdgePropertyIndex::DropGraphClearIndices() {
   index_.WithLock([](std::shared_ptr<IndicesContainer const> &index) { index = std::make_shared<IndicesContainer>(); });
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &all_indices) {
     all_indices = std::make_unique<std::vector<AllIndicesEntry>>();
-  });
-}
-
-void InMemoryEdgePropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
-  metric_handles_ = metric_handles;
-  if (!metric_handles_) return;
-  auto *gauge = metric_handles_->active_edge_property_indices;
-  index_.WithReadLock([&](std::shared_ptr<IndicesContainer const> const &ptr) {
-    double count = 0;
-    for (auto const &[property, idx] : ptr->indices_) {
-      if (idx->status_.IsReady()) {
-        idx->gauge_ = metrics::ScopedGauge{gauge};
-        ++count;
-      }
-    }
-    gauge->Set(count);
   });
 }
 

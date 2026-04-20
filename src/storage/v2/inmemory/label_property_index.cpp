@@ -520,8 +520,6 @@ void InMemoryLabelPropertyIndex::IndividualIndex::Publish(uint64_t commit_timest
   gauge_ = metrics::ScopedGauge{gauge};
 }
 
-InMemoryLabelPropertyIndex::IndividualIndex::~IndividualIndex() = default;
-
 auto InMemoryLabelPropertyIndex::GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
     -> std::shared_ptr<IndividualIndex> {
   return index_.WithReadLock(
@@ -1127,24 +1125,6 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   stats_->clear();
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &all_indices) {
     all_indices = std::make_unique<std::vector<AllIndicesEntry>>();
-  });
-}
-
-void InMemoryLabelPropertyIndex::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
-  metric_handles_ = metric_handles;
-  if (!metric_handles_) return;
-  auto *gauge = metric_handles_->active_label_property_indices;
-  index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &ptr) {
-    double count = 0;
-    for (auto const &[label, by_properties] : ptr->indices_) {
-      for (auto const &[props, idx] : by_properties) {
-        if (idx->status.IsReady()) {
-          idx->gauge_ = metrics::ScopedGauge{gauge};
-          ++count;
-        }
-      }
-    }
-    gauge->Set(count);
   });
 }
 

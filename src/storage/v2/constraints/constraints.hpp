@@ -21,7 +21,7 @@
 namespace memgraph::storage {
 
 struct Constraints {
-  Constraints(const Config &config, StorageMode storage_mode);
+  Constraints(const Config &config, StorageMode storage_mode, metrics::DatabaseMetricHandles *metric_handles);
 
   Constraints(const Constraints &) = delete;
   Constraints(Constraints &&) = delete;
@@ -30,8 +30,6 @@ struct Constraints {
   ~Constraints() = default;
 
   void DropGraphClearConstraints() const;
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles);
 
   std::unique_ptr<ExistenceConstraints> existence_constraints_;
   std::unique_ptr<UniqueConstraints> unique_constraints_;

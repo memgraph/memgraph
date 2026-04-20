@@ -55,8 +55,6 @@ class EdgePropertyIndex {
 
   virtual ~EdgePropertyIndex() = default;
 
-  virtual void SetMetricHandles(metrics::DatabaseMetricHandles * /*metric_handles*/) {}
-
   virtual bool DropIndex(PropertyId property, ActiveIndicesUpdater const &updater) = 0;
 
   virtual void DropGraphClearIndices() = 0;

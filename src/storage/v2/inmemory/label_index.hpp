@@ -47,10 +47,13 @@ class InMemoryLabelIndex : public LabelIndex {
   };
 
  public:
+  explicit InMemoryLabelIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
+      : metric_handles_{metric_handles} {}
+
   struct IndividualIndex {
     IndividualIndex() {}
 
-    ~IndividualIndex();
+    ~IndividualIndex() = default;
     void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
     utils::SkipList<Entry> skiplist{};
     IndexStatus status{};
@@ -221,8 +224,6 @@ class InMemoryLabelIndex : public LabelIndex {
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(LabelId label, uint64_t commit_timestamp);
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
   void RunGC();
 

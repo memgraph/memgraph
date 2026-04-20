@@ -15,14 +15,14 @@
 
 #include <prometheus/histogram.h>
 
-namespace memgraph::utils {
+namespace memgraph::metrics {
 
-class MetricsTimer {
+class ScopedHistogramTimer {
  public:
-  explicit MetricsTimer(prometheus::Histogram *histogram)
+  explicit ScopedHistogramTimer(prometheus::Histogram *histogram)
       : histogram_(histogram), start_time_(std::chrono::high_resolution_clock::now()) {}
 
-  ~MetricsTimer() {
+  ~ScopedHistogramTimer() {
     if (histogram_) {
       histogram_->Observe(
           std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start_time_).count());
@@ -34,4 +34,4 @@ class MetricsTimer {
   std::chrono::high_resolution_clock::time_point start_time_;
 };
 
-}  // namespace memgraph::utils
+}  // namespace memgraph::metrics

@@ -21,8 +21,12 @@
 #include <unordered_set>
 #include <vector>
 
+#include "dbms/constants.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "utils/logging.hpp"
+#ifdef MG_ENTERPRISE
+#include "coordination/include/coordination/instance_status.hpp"
+#endif
 
 namespace r = std::ranges;
 namespace rv = r::views;
@@ -30,8 +34,6 @@ namespace rv = r::views;
 namespace memgraph::metrics {
 
 namespace {
-
-using prometheus::ClientMetric;
 
 bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
   static constexpr std::array<std::string_view, 28> kLegacyCoordinatorDeltaMetrics{
@@ -67,7 +69,7 @@ bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
   return std::ranges::find(kLegacyCoordinatorDeltaMetrics, name) != kLegacyCoordinatorDeltaMetrics.end();
 }
 
-// 16 buckets covering 10µs to 120s
+// 15 buckets covering 10µs to 60s
 prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
     0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0};
 
@@ -819,39 +821,28 @@ PrometheusMetrics::PrometheusMetrics()
 }
 
 void PrometheusMetrics::SetStorageSnapshotResolver(StorageSnapshotResolver resolver) {
-  std::lock_guard const lock{snapshot_resolver_mutex_};
   storage_snapshot_resolver_ = std::move(resolver);
 }
 
 #ifdef MG_ENTERPRISE
 void PrometheusMetrics::SetInstanceStatusResolver(InstanceStatusResolver resolver) {
-  std::lock_guard const lock{instance_resolver_mutex_};
   instance_status_resolver_ = std::move(resolver);
 }
 #endif
 
 StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(std::string_view db_name) const {
-  StorageSnapshotResolver resolver;
-  {
-    std::lock_guard const lock{snapshot_resolver_mutex_};
-    resolver = storage_snapshot_resolver_;
-  }
-  if (resolver) {
-    if (auto const snap = resolver(db_name)) return *snap;
+  if (storage_snapshot_resolver_) {
+    if (auto const snap = storage_snapshot_resolver_(db_name)) return *snap;
   }
   return StorageSnapshot{};
 }
 
-DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name) {
-  std::lock_guard const lock{databases_mutex_};
-  if (auto it = std::ranges::find_if(databases_, [db_name](auto const &e) { return e.db_name == db_name; });
-      it != databases_.end()) {
-    ++it->ref_count;
-    return &it->handles;
-  }
-  prometheus::Labels const labels{{"database", std::string(db_name)}};
-  databases_.push_back({
-      .db_name = std::string(db_name),
+DatabaseMetricHandles *PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
+  std::lock_guard const lock{databases_.mutex};
+  prometheus::Labels const labels{{"database", std::string(name)}};
+  databases_.entries.push_back({
+      .uuid = uuid,
+      .db_name = std::string(name),
       .handles =
           DatabaseMetricHandles{
               .vertex_count = &vertex_count_family_.Add(labels),
@@ -953,14 +944,24 @@ DatabaseMetricHandles *PrometheusMetrics::AddDatabase(std::string_view db_name) 
               .gc_skiplist_cleanup_latency_seconds = &gc_skiplist_cleanup_latency_family_.Add(labels, kLatencyBuckets),
           },
   });
-  return &databases_.back().handles;
+  return &databases_.entries.back().handles;
 }
 
 void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
-  std::lock_guard const lock{databases_mutex_};
-  auto it = std::ranges::find_if(databases_, [handles](auto const &e) { return &e.handles == handles; });
-  MG_ASSERT(it != databases_.end(), "Attempted to remove unregistered database from PrometheusMetrics");
-  if (--it->ref_count > 0) return;
+  std::lock_guard const lock{databases_.mutex};
+  auto it = r::find_if(databases_.entries, [handles](auto const &e) { return &e.handles == handles; });
+  MG_ASSERT(it != databases_.entries.end(), "Attempted to remove unregistered database from PrometheusMetrics");
+  // Database name is not a unique identity (e.g. main + replica can coexist in
+  // same process in unit tests).  Prometheus metrics are keyed by labels, so
+  // equal db_name values point to the same metric objects.  Remove those
+  // objects only when the final entry for that name is erased.
+  auto const db_name = it->db_name;
+  bool const last_with_name =
+      r::none_of(databases_.entries, [&](auto const &e) { return &e.handles != handles && e.db_name == db_name; });
+  if (!last_with_name) {
+    databases_.entries.erase(it);
+    return;
+  }
   auto &h = it->handles;
   vertex_count_family_.Remove(h.vertex_count);
   edge_count_family_.Remove(h.edge_count);
@@ -1057,25 +1058,25 @@ void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
   snapshot_recovery_latency_family_.Remove(h.snapshot_recovery_latency_seconds);
   gc_latency_family_.Remove(h.gc_latency_seconds);
   gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds);
-  databases_.erase(it);
+  databases_.entries.erase(it);
 }
 
 void PrometheusMetrics::UpdateGauges() {
   std::vector<std::string> names;
   {
-    std::shared_lock const lock{databases_mutex_};
-    names.reserve(databases_.size());
-    r::transform(databases_, std::back_inserter(names), &DatabaseEntry::db_name);
+    std::shared_lock const lock{databases_.mutex};
+    names.reserve(databases_.entries.size());
+    r::transform(databases_.entries, std::back_inserter(names), &DatabaseEntry::db_name);
   }
 
   auto const snaps = names | rv::transform([&](auto const &name) { return ResolveStorageSnapshot(name); }) |
                      r::to<std::vector<StorageSnapshot>>();
 
   {
-    std::shared_lock const lock{databases_mutex_};
+    std::shared_lock const lock{databases_.mutex};
     for (size_t i = 0; i < names.size(); ++i) {
-      auto it = std::ranges::find_if(databases_, [&](auto const &e) { return e.db_name == names[i]; });
-      if (it == databases_.end()) continue;
+      auto it = r::find_if(databases_.entries, [&](auto const &e) { return e.db_name == names[i]; });
+      if (it == databases_.entries.end()) continue;
       auto const &snapshot = snaps[i];
       it->handles.vertex_count->Set(static_cast<double>(snapshot.vertex_count));
       it->handles.edge_count->Set(static_cast<double>(snapshot.edge_count));
@@ -1086,10 +1087,7 @@ void PrometheusMetrics::UpdateGauges() {
 
 #ifdef MG_ENTERPRISE
   std::vector<coordination::InstanceStatus> instances;
-  {
-    std::lock_guard const lock{instance_resolver_mutex_};
-    if (instance_status_resolver_) instances = instance_status_resolver_();
-  }
+  if (instance_status_resolver_) instances = instance_status_resolver_();
 
   // Remove gauges for instances no longer present
   auto const active_names = instances | rv::transform(&coordination::InstanceStatus::instance_name) |
@@ -1192,7 +1190,7 @@ double MergedHistogramPercentile(std::vector<prometheus::ClientMetric::Histogram
 
 void AppendMergedHistogramPercentiles(std::vector<MetricInfo> &out, std::string const &name, std::string const &type,
                                       std::vector<prometheus::ClientMetric::Histogram> const &hdatas) {
-  // Histograms are stored in seconds; multiply by 1e6 to emit microseconds in SHOW METRICS INFO output.
+  // Histograms are stored in seconds; multiply by 1e6 to emit microseconds to match legacy JSON naming.
   for (auto const [quantile, label] :
        {std::pair{0.50, "_us_50p"}, std::pair{0.90, "_us_90p"}, std::pair{0.99, "_us_99p"}}) {
     out.push_back({name + label, type, "Histogram", MergedHistogramPercentile(hdatas, quantile) * 1e6});
@@ -1201,14 +1199,19 @@ void AppendMergedHistogramPercentiles(std::vector<MetricInfo> &out, std::string 
 
 }  // namespace
 
-std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetricsInfo(
-    std::string_view db_name) const {
-  auto const snapshot = ResolveStorageSnapshot(db_name);
-  std::shared_lock const lock{databases_mutex_};
-  auto const it = std::ranges::find_if(databases_, [db_name](auto const &e) { return e.db_name == db_name; });
-  if (it == databases_.end()) {
-    return std::unexpected(fmt::format("Database '{}' not found in metrics registry", db_name));
+std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetricsInfo(utils::UUID const &uuid) const {
+  std::string db_name;
+  {
+    std::shared_lock const lock{databases_.mutex};
+    auto const it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
+    if (it == databases_.entries.end()) {
+      return std::unexpected(fmt::format("Database '{}' not found in metrics registry", std::string(uuid)));
+    }
+    db_name = it->db_name;
   }
+  auto const snapshot = ResolveStorageSnapshot(db_name);
+  std::shared_lock const lock{databases_.mutex};
+  auto const it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
 
   auto const &h = it->handles;
   std::vector<MetricInfo> out;
@@ -1418,62 +1421,31 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   return out;
 }
 
-std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
-  std::vector<std::string> db_names;
-  {
-    std::shared_lock const lock{databases_mutex_};
-    db_names.reserve(databases_.size());
-    for (auto const &entry : databases_) db_names.push_back(entry.db_name);
-  }
-  std::unordered_map<std::string, StorageSnapshot> snap_by_db;
-  snap_by_db.reserve(db_names.size());
-  for (auto const &n : db_names) {
-    snap_by_db.emplace(n, ResolveStorageSnapshot(n));
-  }
+std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
+  auto const default_snapshot = ResolveStorageSnapshot(dbms::kDefaultDB);
 
-  std::shared_lock const lock{databases_mutex_};
-  auto const &g = global;
   std::vector<MetricInfo> out;
-
-  // General — aggregate across all databases
-  int64_t total_vertex_count = 0;
-  int64_t total_edge_count = 0;
-  for (auto const &entry : databases_) {
-    auto const snap_it = snap_by_db.find(entry.db_name);
-    auto const snapshot = snap_it != snap_by_db.end() ? snap_it->second : ResolveStorageSnapshot(entry.db_name);
-    total_vertex_count += static_cast<int64_t>(snapshot.vertex_count);
-    total_edge_count += static_cast<int64_t>(snapshot.edge_count);
-  }
-  out.push_back({"VertexCount", "General", "Gauge", total_vertex_count});
-  out.push_back({"EdgeCount", "General", "Gauge", total_edge_count});
+  auto const default_vertex_count = static_cast<int64_t>(default_snapshot.vertex_count);
+  auto const default_edge_count = static_cast<int64_t>(default_snapshot.edge_count);
+  out.push_back({"VertexCount", "General", "Gauge", default_vertex_count});
+  out.push_back({"EdgeCount", "General", "Gauge", default_edge_count});
   out.push_back({"AverageDegree",
                  "General",
                  "Gauge",
-                 total_vertex_count > 0
-                     ? 2.0 * static_cast<double>(total_edge_count) / static_cast<double>(total_vertex_count)
+                 default_vertex_count > 0
+                     ? 2.0 * static_cast<double>(default_edge_count) / static_cast<double>(default_vertex_count)
                      : 0.0});
 
-  // Memory — aggregate across all databases + global peak
-  int64_t total_disk_usage = 0;
-  int64_t total_memory_res = 0;
-  int64_t total_unreleased_deltas = 0;
-  for (auto const &entry : databases_) {
-    auto const snap_it = snap_by_db.find(entry.db_name);
-    auto const snapshot = snap_it != snap_by_db.end() ? snap_it->second : ResolveStorageSnapshot(entry.db_name);
-    total_disk_usage += static_cast<int64_t>(snapshot.disk_usage);
-    total_memory_res += static_cast<int64_t>(snapshot.memory_res);
-    total_unreleased_deltas += static_cast<int64_t>(entry.handles.unreleased_delta_objects->Value());
-  }
-  out.push_back({"DiskUsage", "Memory", "Gauge", total_disk_usage});
-  out.push_back({"MemoryRes", "Memory", "Gauge", total_memory_res});
-  out.push_back({"PeakMemoryRes", "Memory", "Gauge", static_cast<int64_t>(g.peak_memory_res_bytes->Value())});
-  out.push_back({"UnreleasedDeltaObjects", "Memory", "Gauge", total_unreleased_deltas});
-
   // Aggregate per-db counters/gauges
-  int64_t total_once_operator = 0, total_create_node_operator = 0, total_create_expand_operator = 0;
-  int64_t total_scan_all_operator = 0, total_scan_all_by_label_operator = 0;
-  int64_t total_scan_all_by_label_properties_operator = 0, total_scan_all_by_id_operator = 0;
-  int64_t total_scan_all_by_edge_operator = 0, total_scan_all_by_edge_type_operator = 0;
+  int64_t total_once_operator = 0;
+  int64_t total_create_node_operator = 0;
+  int64_t total_create_expand_operator = 0;
+  int64_t total_scan_all_operator = 0;
+  int64_t total_scan_all_by_label_operator = 0;
+  int64_t total_scan_all_by_label_properties_operator = 0;
+  int64_t total_scan_all_by_id_operator = 0;
+  int64_t total_scan_all_by_edge_operator = 0;
+  int64_t total_scan_all_by_edge_type_operator = 0;
   int64_t total_scan_all_by_edge_type_property_operator = 0;
   int64_t total_scan_all_by_edge_type_property_value_operator = 0;
   int64_t total_scan_all_by_edge_type_property_range_operator = 0;
@@ -1481,143 +1453,190 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   int64_t total_scan_all_by_edge_property_value_operator = 0;
   int64_t total_scan_all_by_edge_property_range_operator = 0;
   int64_t total_scan_all_by_edge_id_operator = 0;
-  int64_t total_scan_all_by_point_distance_operator = 0, total_scan_all_by_point_withinbbox_operator = 0;
-  int64_t total_expand_operator = 0, total_expand_variable_operator = 0;
-  int64_t total_construct_named_path_operator = 0, total_filter_operator = 0, total_produce_operator = 0;
-  int64_t total_delete_operator = 0, total_set_property_operator = 0, total_set_properties_operator = 0;
-  int64_t total_set_labels_operator = 0, total_remove_property_operator = 0, total_remove_labels_operator = 0;
-  int64_t total_edge_uniqueness_filter_operator = 0, total_empty_result_operator = 0;
-  int64_t total_accumulate_operator = 0, total_aggregate_operator = 0;
-  int64_t total_skip_operator = 0, total_limit_operator = 0, total_order_by_operator = 0;
-  int64_t total_merge_operator = 0, total_optional_operator = 0, total_unwind_operator = 0;
-  int64_t total_distinct_operator = 0, total_union_operator = 0, total_cartesian_operator = 0;
-  int64_t total_call_procedure_operator = 0, total_foreach_operator = 0;
-  int64_t total_evaluate_pattern_filter_operator = 0, total_apply_operator = 0;
-  int64_t total_indexed_join_operator = 0, total_hash_join_operator = 0, total_roll_up_apply_operator = 0;
-  int64_t total_periodic_commit_operator = 0, total_periodic_subquery_operator = 0;
-  int64_t total_set_nested_property_operator = 0, total_remove_nested_property_operator = 0;
-  int64_t total_active_label_indices = 0, total_active_label_property_indices = 0;
-  int64_t total_active_edge_type_indices = 0, total_active_edge_type_property_indices = 0;
-  int64_t total_active_edge_property_indices = 0, total_active_point_indices = 0;
-  int64_t total_active_text_indices = 0, total_active_text_edge_indices = 0;
-  int64_t total_active_vector_indices = 0, total_active_vector_edge_indices = 0;
-  int64_t total_active_existence_constraints = 0, total_active_unique_constraints = 0;
+  int64_t total_scan_all_by_point_distance_operator = 0;
+  int64_t total_scan_all_by_point_withinbbox_operator = 0;
+  int64_t total_expand_operator = 0;
+  int64_t total_expand_variable_operator = 0;
+  int64_t total_construct_named_path_operator = 0;
+  int64_t total_filter_operator = 0;
+  int64_t total_produce_operator = 0;
+  int64_t total_delete_operator = 0;
+  int64_t total_set_property_operator = 0;
+  int64_t total_set_properties_operator = 0;
+  int64_t total_set_labels_operator = 0;
+  int64_t total_remove_property_operator = 0;
+  int64_t total_remove_labels_operator = 0;
+  int64_t total_edge_uniqueness_filter_operator = 0;
+  int64_t total_empty_result_operator = 0;
+  int64_t total_accumulate_operator = 0;
+  int64_t total_aggregate_operator = 0;
+  int64_t total_skip_operator = 0;
+  int64_t total_limit_operator = 0;
+  int64_t total_order_by_operator = 0;
+  int64_t total_merge_operator = 0;
+  int64_t total_optional_operator = 0;
+  int64_t total_unwind_operator = 0;
+  int64_t total_distinct_operator = 0;
+  int64_t total_union_operator = 0;
+  int64_t total_cartesian_operator = 0;
+  int64_t total_call_procedure_operator = 0;
+  int64_t total_foreach_operator = 0;
+  int64_t total_evaluate_pattern_filter_operator = 0;
+  int64_t total_apply_operator = 0;
+  int64_t total_indexed_join_operator = 0;
+  int64_t total_hash_join_operator = 0;
+  int64_t total_roll_up_apply_operator = 0;
+  int64_t total_periodic_commit_operator = 0;
+  int64_t total_periodic_subquery_operator = 0;
+  int64_t total_set_nested_property_operator = 0;
+  int64_t total_remove_nested_property_operator = 0;
+  int64_t total_active_label_indices = 0;
+  int64_t total_active_label_property_indices = 0;
+  int64_t total_active_edge_type_indices = 0;
+  int64_t total_active_edge_type_property_indices = 0;
+  int64_t total_active_edge_property_indices = 0;
+  int64_t total_active_point_indices = 0;
+  int64_t total_active_text_indices = 0;
+  int64_t total_active_text_edge_indices = 0;
+  int64_t total_active_vector_indices = 0;
+  int64_t total_active_vector_edge_indices = 0;
+  int64_t total_active_existence_constraints = 0;
+  int64_t total_active_unique_constraints = 0;
   int64_t total_active_type_constraints = 0;
-  int64_t total_streams_created = 0, total_messages_consumed = 0;
-  int64_t total_triggers_created = 0, total_triggers_executed = 0;
-  int64_t total_active_transactions = 0, total_committed_transactions = 0;
-  int64_t total_rolled_back_transactions = 0, total_failed_query = 0;
-  int64_t total_failed_prepare = 0, total_failed_pull = 0, total_successful_query = 0;
-  int64_t total_write_write_conflicts = 0, total_transient_errors = 0;
-  int64_t total_read_query = 0, total_write_query = 0, total_read_write_query = 0;
-  int64_t total_deleted_nodes = 0, total_deleted_edges = 0;
+  int64_t total_streams_created = 0;
+  int64_t total_messages_consumed = 0;
+  int64_t total_triggers_created = 0;
+  int64_t total_triggers_executed = 0;
+  int64_t total_active_transactions = 0;
+  int64_t total_committed_transactions = 0;
+  int64_t total_rolled_back_transactions = 0;
+  int64_t total_failed_query = 0;
+  int64_t total_failed_prepare = 0;
+  int64_t total_failed_pull = 0;
+  int64_t total_successful_query = 0;
+  int64_t total_write_write_conflicts = 0;
+  int64_t total_transient_errors = 0;
+  int64_t total_read_query = 0;
+  int64_t total_write_query = 0;
+  int64_t total_read_write_query = 0;
+  int64_t total_deleted_nodes = 0;
+  int64_t total_deleted_edges = 0;
   int64_t total_show_schema = 0;
   std::vector<prometheus::ClientMetric::Histogram> query_exec_hdatas;
   std::vector<prometheus::ClientMetric::Histogram> snapshot_creation_hdatas;
   std::vector<prometheus::ClientMetric::Histogram> snapshot_recovery_hdatas;
   std::vector<prometheus::ClientMetric::Histogram> gc_hdatas;
   std::vector<prometheus::ClientMetric::Histogram> gc_skiplist_hdatas;
+  int64_t total_unreleased_deltas = 0;
 
-  for (auto const &entry : databases_) {
-    auto const &h = entry.handles;
-    total_once_operator += static_cast<int64_t>(h.once_operator->Value());
-    total_create_node_operator += static_cast<int64_t>(h.create_node_operator->Value());
-    total_create_expand_operator += static_cast<int64_t>(h.create_expand_operator->Value());
-    total_scan_all_operator += static_cast<int64_t>(h.scan_all_operator->Value());
-    total_scan_all_by_label_operator += static_cast<int64_t>(h.scan_all_by_label_operator->Value());
-    total_scan_all_by_label_properties_operator +=
-        static_cast<int64_t>(h.scan_all_by_label_properties_operator->Value());
-    total_scan_all_by_id_operator += static_cast<int64_t>(h.scan_all_by_id_operator->Value());
-    total_scan_all_by_edge_operator += static_cast<int64_t>(h.scan_all_by_edge_operator->Value());
-    total_scan_all_by_edge_type_operator += static_cast<int64_t>(h.scan_all_by_edge_type_operator->Value());
-    total_scan_all_by_edge_type_property_operator +=
-        static_cast<int64_t>(h.scan_all_by_edge_type_property_operator->Value());
-    total_scan_all_by_edge_type_property_value_operator +=
-        static_cast<int64_t>(h.scan_all_by_edge_type_property_value_operator->Value());
-    total_scan_all_by_edge_type_property_range_operator +=
-        static_cast<int64_t>(h.scan_all_by_edge_type_property_range_operator->Value());
-    total_scan_all_by_edge_property_operator += static_cast<int64_t>(h.scan_all_by_edge_property_operator->Value());
-    total_scan_all_by_edge_property_value_operator +=
-        static_cast<int64_t>(h.scan_all_by_edge_property_value_operator->Value());
-    total_scan_all_by_edge_property_range_operator +=
-        static_cast<int64_t>(h.scan_all_by_edge_property_range_operator->Value());
-    total_scan_all_by_edge_id_operator += static_cast<int64_t>(h.scan_all_by_edge_id_operator->Value());
-    total_scan_all_by_point_distance_operator += static_cast<int64_t>(h.scan_all_by_point_distance_operator->Value());
-    total_scan_all_by_point_withinbbox_operator +=
-        static_cast<int64_t>(h.scan_all_by_point_withinbbox_operator->Value());
-    total_expand_operator += static_cast<int64_t>(h.expand_operator->Value());
-    total_expand_variable_operator += static_cast<int64_t>(h.expand_variable_operator->Value());
-    total_construct_named_path_operator += static_cast<int64_t>(h.construct_named_path_operator->Value());
-    total_filter_operator += static_cast<int64_t>(h.filter_operator->Value());
-    total_produce_operator += static_cast<int64_t>(h.produce_operator->Value());
-    total_delete_operator += static_cast<int64_t>(h.delete_operator->Value());
-    total_set_property_operator += static_cast<int64_t>(h.set_property_operator->Value());
-    total_set_properties_operator += static_cast<int64_t>(h.set_properties_operator->Value());
-    total_set_labels_operator += static_cast<int64_t>(h.set_labels_operator->Value());
-    total_remove_property_operator += static_cast<int64_t>(h.remove_property_operator->Value());
-    total_remove_labels_operator += static_cast<int64_t>(h.remove_labels_operator->Value());
-    total_edge_uniqueness_filter_operator += static_cast<int64_t>(h.edge_uniqueness_filter_operator->Value());
-    total_empty_result_operator += static_cast<int64_t>(h.empty_result_operator->Value());
-    total_accumulate_operator += static_cast<int64_t>(h.accumulate_operator->Value());
-    total_aggregate_operator += static_cast<int64_t>(h.aggregate_operator->Value());
-    total_skip_operator += static_cast<int64_t>(h.skip_operator->Value());
-    total_limit_operator += static_cast<int64_t>(h.limit_operator->Value());
-    total_order_by_operator += static_cast<int64_t>(h.order_by_operator->Value());
-    total_merge_operator += static_cast<int64_t>(h.merge_operator->Value());
-    total_optional_operator += static_cast<int64_t>(h.optional_operator->Value());
-    total_unwind_operator += static_cast<int64_t>(h.unwind_operator->Value());
-    total_distinct_operator += static_cast<int64_t>(h.distinct_operator->Value());
-    total_union_operator += static_cast<int64_t>(h.union_operator->Value());
-    total_cartesian_operator += static_cast<int64_t>(h.cartesian_operator->Value());
-    total_call_procedure_operator += static_cast<int64_t>(h.call_procedure_operator->Value());
-    total_foreach_operator += static_cast<int64_t>(h.foreach_operator->Value());
-    total_evaluate_pattern_filter_operator += static_cast<int64_t>(h.evaluate_pattern_filter_operator->Value());
-    total_apply_operator += static_cast<int64_t>(h.apply_operator->Value());
-    total_indexed_join_operator += static_cast<int64_t>(h.indexed_join_operator->Value());
-    total_hash_join_operator += static_cast<int64_t>(h.hash_join_operator->Value());
-    total_roll_up_apply_operator += static_cast<int64_t>(h.roll_up_apply_operator->Value());
-    total_periodic_commit_operator += static_cast<int64_t>(h.periodic_commit_operator->Value());
-    total_periodic_subquery_operator += static_cast<int64_t>(h.periodic_subquery_operator->Value());
-    total_set_nested_property_operator += static_cast<int64_t>(h.set_nested_property_operator->Value());
-    total_remove_nested_property_operator += static_cast<int64_t>(h.remove_nested_property_operator->Value());
-    total_active_label_indices += static_cast<int64_t>(h.active_label_indices->Value());
-    total_active_label_property_indices += static_cast<int64_t>(h.active_label_property_indices->Value());
-    total_active_edge_type_indices += static_cast<int64_t>(h.active_edge_type_indices->Value());
-    total_active_edge_type_property_indices += static_cast<int64_t>(h.active_edge_type_property_indices->Value());
-    total_active_edge_property_indices += static_cast<int64_t>(h.active_edge_property_indices->Value());
-    total_active_point_indices += static_cast<int64_t>(h.active_point_indices->Value());
-    total_active_text_indices += static_cast<int64_t>(h.active_text_indices->Value());
-    total_active_text_edge_indices += static_cast<int64_t>(h.active_text_edge_indices->Value());
-    total_active_vector_indices += static_cast<int64_t>(h.active_vector_indices->Value());
-    total_active_vector_edge_indices += static_cast<int64_t>(h.active_vector_edge_indices->Value());
-    total_active_existence_constraints += static_cast<int64_t>(h.active_existence_constraints->Value());
-    total_active_unique_constraints += static_cast<int64_t>(h.active_unique_constraints->Value());
-    total_active_type_constraints += static_cast<int64_t>(h.active_type_constraints->Value());
-    total_streams_created += static_cast<int64_t>(h.streams_created->Value());
-    total_messages_consumed += static_cast<int64_t>(h.messages_consumed->Value());
-    total_triggers_created += static_cast<int64_t>(h.triggers_created->Value());
-    total_triggers_executed += static_cast<int64_t>(h.triggers_executed->Value());
-    total_active_transactions += static_cast<int64_t>(h.active_transactions->Value());
-    total_committed_transactions += static_cast<int64_t>(h.committed_transactions->Value());
-    total_rolled_back_transactions += static_cast<int64_t>(h.rolled_back_transactions->Value());
-    total_failed_query += static_cast<int64_t>(h.failed_query->Value());
-    total_failed_prepare += static_cast<int64_t>(h.failed_prepare->Value());
-    total_failed_pull += static_cast<int64_t>(h.failed_pull->Value());
-    total_successful_query += static_cast<int64_t>(h.successful_query->Value());
-    total_write_write_conflicts += static_cast<int64_t>(h.write_write_conflicts->Value());
-    total_transient_errors += static_cast<int64_t>(h.transient_errors->Value());
-    total_read_query += static_cast<int64_t>(h.read_query->Value());
-    total_write_query += static_cast<int64_t>(h.write_query->Value());
-    total_read_write_query += static_cast<int64_t>(h.read_write_query->Value());
-    total_deleted_nodes += static_cast<int64_t>(h.deleted_nodes->Value());
-    total_deleted_edges += static_cast<int64_t>(h.deleted_edges->Value());
-    total_show_schema += static_cast<int64_t>(h.show_schema->Value());
-    query_exec_hdatas.push_back(h.query_execution_latency_seconds->Collect().histogram);
-    snapshot_creation_hdatas.push_back(h.snapshot_creation_latency_seconds->Collect().histogram);
-    snapshot_recovery_hdatas.push_back(h.snapshot_recovery_latency_seconds->Collect().histogram);
-    gc_hdatas.push_back(h.gc_latency_seconds->Collect().histogram);
-    gc_skiplist_hdatas.push_back(h.gc_skiplist_cleanup_latency_seconds->Collect().histogram);
+  {
+    std::shared_lock const lock{databases_.mutex};
+    for (auto const &entry : databases_.entries) {
+      auto const &h = entry.handles;
+      total_once_operator += static_cast<int64_t>(h.once_operator->Value());
+      total_create_node_operator += static_cast<int64_t>(h.create_node_operator->Value());
+      total_create_expand_operator += static_cast<int64_t>(h.create_expand_operator->Value());
+      total_scan_all_operator += static_cast<int64_t>(h.scan_all_operator->Value());
+      total_scan_all_by_label_operator += static_cast<int64_t>(h.scan_all_by_label_operator->Value());
+      total_scan_all_by_label_properties_operator +=
+          static_cast<int64_t>(h.scan_all_by_label_properties_operator->Value());
+      total_scan_all_by_id_operator += static_cast<int64_t>(h.scan_all_by_id_operator->Value());
+      total_scan_all_by_edge_operator += static_cast<int64_t>(h.scan_all_by_edge_operator->Value());
+      total_scan_all_by_edge_type_operator += static_cast<int64_t>(h.scan_all_by_edge_type_operator->Value());
+      total_scan_all_by_edge_type_property_operator +=
+          static_cast<int64_t>(h.scan_all_by_edge_type_property_operator->Value());
+      total_scan_all_by_edge_type_property_value_operator +=
+          static_cast<int64_t>(h.scan_all_by_edge_type_property_value_operator->Value());
+      total_scan_all_by_edge_type_property_range_operator +=
+          static_cast<int64_t>(h.scan_all_by_edge_type_property_range_operator->Value());
+      total_scan_all_by_edge_property_operator += static_cast<int64_t>(h.scan_all_by_edge_property_operator->Value());
+      total_scan_all_by_edge_property_value_operator +=
+          static_cast<int64_t>(h.scan_all_by_edge_property_value_operator->Value());
+      total_scan_all_by_edge_property_range_operator +=
+          static_cast<int64_t>(h.scan_all_by_edge_property_range_operator->Value());
+      total_scan_all_by_edge_id_operator += static_cast<int64_t>(h.scan_all_by_edge_id_operator->Value());
+      total_scan_all_by_point_distance_operator += static_cast<int64_t>(h.scan_all_by_point_distance_operator->Value());
+      total_scan_all_by_point_withinbbox_operator +=
+          static_cast<int64_t>(h.scan_all_by_point_withinbbox_operator->Value());
+      total_expand_operator += static_cast<int64_t>(h.expand_operator->Value());
+      total_expand_variable_operator += static_cast<int64_t>(h.expand_variable_operator->Value());
+      total_construct_named_path_operator += static_cast<int64_t>(h.construct_named_path_operator->Value());
+      total_filter_operator += static_cast<int64_t>(h.filter_operator->Value());
+      total_produce_operator += static_cast<int64_t>(h.produce_operator->Value());
+      total_delete_operator += static_cast<int64_t>(h.delete_operator->Value());
+      total_set_property_operator += static_cast<int64_t>(h.set_property_operator->Value());
+      total_set_properties_operator += static_cast<int64_t>(h.set_properties_operator->Value());
+      total_set_labels_operator += static_cast<int64_t>(h.set_labels_operator->Value());
+      total_remove_property_operator += static_cast<int64_t>(h.remove_property_operator->Value());
+      total_remove_labels_operator += static_cast<int64_t>(h.remove_labels_operator->Value());
+      total_edge_uniqueness_filter_operator += static_cast<int64_t>(h.edge_uniqueness_filter_operator->Value());
+      total_empty_result_operator += static_cast<int64_t>(h.empty_result_operator->Value());
+      total_accumulate_operator += static_cast<int64_t>(h.accumulate_operator->Value());
+      total_aggregate_operator += static_cast<int64_t>(h.aggregate_operator->Value());
+      total_skip_operator += static_cast<int64_t>(h.skip_operator->Value());
+      total_limit_operator += static_cast<int64_t>(h.limit_operator->Value());
+      total_order_by_operator += static_cast<int64_t>(h.order_by_operator->Value());
+      total_merge_operator += static_cast<int64_t>(h.merge_operator->Value());
+      total_optional_operator += static_cast<int64_t>(h.optional_operator->Value());
+      total_unwind_operator += static_cast<int64_t>(h.unwind_operator->Value());
+      total_distinct_operator += static_cast<int64_t>(h.distinct_operator->Value());
+      total_union_operator += static_cast<int64_t>(h.union_operator->Value());
+      total_cartesian_operator += static_cast<int64_t>(h.cartesian_operator->Value());
+      total_call_procedure_operator += static_cast<int64_t>(h.call_procedure_operator->Value());
+      total_foreach_operator += static_cast<int64_t>(h.foreach_operator->Value());
+      total_evaluate_pattern_filter_operator += static_cast<int64_t>(h.evaluate_pattern_filter_operator->Value());
+      total_apply_operator += static_cast<int64_t>(h.apply_operator->Value());
+      total_indexed_join_operator += static_cast<int64_t>(h.indexed_join_operator->Value());
+      total_hash_join_operator += static_cast<int64_t>(h.hash_join_operator->Value());
+      total_roll_up_apply_operator += static_cast<int64_t>(h.roll_up_apply_operator->Value());
+      total_periodic_commit_operator += static_cast<int64_t>(h.periodic_commit_operator->Value());
+      total_periodic_subquery_operator += static_cast<int64_t>(h.periodic_subquery_operator->Value());
+      total_set_nested_property_operator += static_cast<int64_t>(h.set_nested_property_operator->Value());
+      total_remove_nested_property_operator += static_cast<int64_t>(h.remove_nested_property_operator->Value());
+      total_active_label_indices += static_cast<int64_t>(h.active_label_indices->Value());
+      total_active_label_property_indices += static_cast<int64_t>(h.active_label_property_indices->Value());
+      total_active_edge_type_indices += static_cast<int64_t>(h.active_edge_type_indices->Value());
+      total_active_edge_type_property_indices += static_cast<int64_t>(h.active_edge_type_property_indices->Value());
+      total_active_edge_property_indices += static_cast<int64_t>(h.active_edge_property_indices->Value());
+      total_active_point_indices += static_cast<int64_t>(h.active_point_indices->Value());
+      total_active_text_indices += static_cast<int64_t>(h.active_text_indices->Value());
+      total_active_text_edge_indices += static_cast<int64_t>(h.active_text_edge_indices->Value());
+      total_active_vector_indices += static_cast<int64_t>(h.active_vector_indices->Value());
+      total_active_vector_edge_indices += static_cast<int64_t>(h.active_vector_edge_indices->Value());
+      total_active_existence_constraints += static_cast<int64_t>(h.active_existence_constraints->Value());
+      total_active_unique_constraints += static_cast<int64_t>(h.active_unique_constraints->Value());
+      total_active_type_constraints += static_cast<int64_t>(h.active_type_constraints->Value());
+      total_streams_created += static_cast<int64_t>(h.streams_created->Value());
+      total_messages_consumed += static_cast<int64_t>(h.messages_consumed->Value());
+      total_triggers_created += static_cast<int64_t>(h.triggers_created->Value());
+      total_triggers_executed += static_cast<int64_t>(h.triggers_executed->Value());
+      total_active_transactions += static_cast<int64_t>(h.active_transactions->Value());
+      total_committed_transactions += static_cast<int64_t>(h.committed_transactions->Value());
+      total_rolled_back_transactions += static_cast<int64_t>(h.rolled_back_transactions->Value());
+      total_failed_query += static_cast<int64_t>(h.failed_query->Value());
+      total_failed_prepare += static_cast<int64_t>(h.failed_prepare->Value());
+      total_failed_pull += static_cast<int64_t>(h.failed_pull->Value());
+      total_successful_query += static_cast<int64_t>(h.successful_query->Value());
+      total_write_write_conflicts += static_cast<int64_t>(h.write_write_conflicts->Value());
+      total_transient_errors += static_cast<int64_t>(h.transient_errors->Value());
+      total_read_query += static_cast<int64_t>(h.read_query->Value());
+      total_write_query += static_cast<int64_t>(h.write_query->Value());
+      total_read_write_query += static_cast<int64_t>(h.read_write_query->Value());
+      total_deleted_nodes += static_cast<int64_t>(h.deleted_nodes->Value());
+      total_deleted_edges += static_cast<int64_t>(h.deleted_edges->Value());
+      total_show_schema += static_cast<int64_t>(h.show_schema->Value());
+      query_exec_hdatas.push_back(h.query_execution_latency_seconds->Collect().histogram);
+      snapshot_creation_hdatas.push_back(h.snapshot_creation_latency_seconds->Collect().histogram);
+      snapshot_recovery_hdatas.push_back(h.snapshot_recovery_latency_seconds->Collect().histogram);
+      gc_hdatas.push_back(h.gc_latency_seconds->Collect().histogram);
+      gc_skiplist_hdatas.push_back(h.gc_skiplist_cleanup_latency_seconds->Collect().histogram);
+      total_unreleased_deltas += static_cast<int64_t>(entry.handles.unreleased_delta_objects->Value());
+    }
   }
+
+  out.push_back({"DiskUsage", "Memory", "Gauge", static_cast<int64_t>(default_snapshot.disk_usage)});
+  out.push_back({"MemoryRes", "Memory", "Gauge", static_cast<int64_t>(default_snapshot.memory_res)});
+  out.push_back({"UnreleasedDeltaObjects", "Memory", "Gauge", total_unreleased_deltas});
 
   // Operator
   out.push_back({"OnceOperator", "Operator", "Counter", total_once_operator});
@@ -1744,156 +1763,14 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendMergedHistogramPercentiles(out, "GCLatency", "Memory", gc_hdatas);
   AppendMergedHistogramPercentiles(out, "GCSkiplistCleanupLatency", "Memory", gc_skiplist_hdatas);
 
-  // Session
-  out.push_back({"ActiveSessions", "Session", "Gauge", static_cast<int64_t>(g.active_sessions->Value())});
-  out.push_back({"ActiveBoltSessions", "Session", "Gauge", static_cast<int64_t>(g.active_bolt_sessions->Value())});
-  out.push_back({"ActiveTCPSessions", "Session", "Gauge", static_cast<int64_t>(g.active_tcp_sessions->Value())});
-  out.push_back({"ActiveSSLSessions", "Session", "Gauge", static_cast<int64_t>(g.active_ssl_sessions->Value())});
-  out.push_back(
-      {"ActiveWebSocketSessions", "Session", "Gauge", static_cast<int64_t>(g.active_websocket_sessions->Value())});
-  out.push_back({"BoltMessages", "Session", "Counter", static_cast<int64_t>(g.bolt_messages->Value())});
-
-  // HighAvailability counters
-  out.push_back(
-      {"SuccessfulFailovers", "HighAvailability", "Counter", static_cast<int64_t>(g.successful_failovers->Value())});
-  out.push_back(
-      {"RaftFailedFailovers", "HighAvailability", "Counter", static_cast<int64_t>(g.raft_failed_failovers->Value())});
-  out.push_back({"NoAliveInstanceFailedFailovers",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.no_alive_instance_failed_failovers->Value())});
-  out.push_back(
-      {"BecomeLeaderSuccess", "HighAvailability", "Counter", static_cast<int64_t>(g.become_leader_success->Value())});
-  out.push_back({"FailedToBecomeLeader",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.failed_to_become_leader->Value())});
-  out.push_back({"ShowInstance", "HighAvailability", "Counter", static_cast<int64_t>(g.show_instance->Value())});
-  out.push_back({"ShowInstances", "HighAvailability", "Counter", static_cast<int64_t>(g.show_instances->Value())});
-  out.push_back({"DemoteInstance", "HighAvailability", "Counter", static_cast<int64_t>(g.demote_instance->Value())});
-  out.push_back({"UnregisterReplInstance",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.unregister_repl_instance->Value())});
-  out.push_back(
-      {"RemoveCoordInstance", "HighAvailability", "Counter", static_cast<int64_t>(g.remove_coord_instance->Value())});
-  out.push_back({"ReplicaRecoverySuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.replica_recovery_success->Value())});
-  out.push_back(
-      {"ReplicaRecoveryFail", "HighAvailability", "Counter", static_cast<int64_t>(g.replica_recovery_fail->Value())});
-  out.push_back(
-      {"ReplicaRecoverySkip", "HighAvailability", "Counter", static_cast<int64_t>(g.replica_recovery_skip->Value())});
-  out.push_back({"StateCheckRpcSuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.state_check_rpc_success->Value())});
-  out.push_back(
-      {"StateCheckRpcFail", "HighAvailability", "Counter", static_cast<int64_t>(g.state_check_rpc_fail->Value())});
-  out.push_back({"UnregisterReplicaRpcSuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.unregister_replica_rpc_success->Value())});
-  out.push_back({"UnregisterReplicaRpcFail",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.unregister_replica_rpc_fail->Value())});
-  out.push_back({"EnableWritingOnMainRpcSuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.enable_writing_on_main_rpc_success->Value())});
-  out.push_back({"EnableWritingOnMainRpcFail",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.enable_writing_on_main_rpc_fail->Value())});
-  out.push_back({"PromoteToMainRpcSuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.promote_to_main_rpc_success->Value())});
-  out.push_back({"PromoteToMainRpcFail",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.promote_to_main_rpc_fail->Value())});
-  out.push_back({"DemoteMainToReplicaRpcSuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.demote_main_to_replica_rpc_success->Value())});
-  out.push_back({"DemoteMainToReplicaRpcFail",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.demote_main_to_replica_rpc_fail->Value())});
-  out.push_back({"RegisterReplicaOnMainRpcSuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.register_replica_on_main_rpc_success->Value())});
-  out.push_back({"RegisterReplicaOnMainRpcFail",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.register_replica_on_main_rpc_fail->Value())});
-  out.push_back({"SwapMainUUIDRpcSuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.swap_main_uuid_rpc_success->Value())});
-  out.push_back(
-      {"SwapMainUUIDRpcFail", "HighAvailability", "Counter", static_cast<int64_t>(g.swap_main_uuid_rpc_fail->Value())});
-  out.push_back({"GetDatabaseHistoriesRpcSuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.get_database_histories_rpc_success->Value())});
-  out.push_back({"GetDatabaseHistoriesRpcFail",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.get_database_histories_rpc_fail->Value())});
-  out.push_back({"UpdateDataInstanceConfigRpcSuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.update_data_instance_config_rpc_success->Value())});
-  out.push_back({"UpdateDataInstanceConfigRpcFail",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(g.update_data_instance_config_rpc_fail->Value())});
-
-  // HighAvailability histograms
-  AppendHistogramPercentiles(out, "InstanceSuccCallback", "HighAvailability", *g.instance_succ_callback_seconds);
-  AppendHistogramPercentiles(out, "InstanceFailCallback", "HighAvailability", *g.instance_fail_callback_seconds);
-  AppendHistogramPercentiles(
-      out, "ChooseMostUpToDateInstance", "HighAvailability", *g.choose_most_up_to_date_instance_seconds);
-  AppendHistogramPercentiles(out, "SocketConnect", "HighAvailability", *g.socket_connect_seconds);
-  AppendHistogramPercentiles(out, "ReplicaStream", "HighAvailability", *g.replica_stream_seconds);
-  AppendHistogramPercentiles(out, "DataFailover", "HighAvailability", *g.data_failover_seconds);
-  AppendHistogramPercentiles(out, "StartTxnReplication", "HighAvailability", *g.start_txn_replication_seconds);
-  AppendHistogramPercentiles(out, "FinalizeTxnReplication", "HighAvailability", *g.finalize_txn_replication_seconds);
-  AppendHistogramPercentiles(out, "PromoteToMainRpc", "HighAvailability", *g.promote_to_main_rpc_seconds);
-  AppendHistogramPercentiles(out, "DemoteMainToReplicaRpc", "HighAvailability", *g.demote_main_to_replica_rpc_seconds);
-  AppendHistogramPercentiles(
-      out, "RegisterReplicaOnMainRpc", "HighAvailability", *g.register_replica_on_main_rpc_seconds);
-  AppendHistogramPercentiles(out, "UnregisterReplicaRpc", "HighAvailability", *g.unregister_replica_rpc_seconds);
-  AppendHistogramPercentiles(out, "EnableWritingOnMainRpc", "HighAvailability", *g.enable_writing_on_main_rpc_seconds);
-  AppendHistogramPercentiles(out, "StateCheckRpc", "HighAvailability", *g.state_check_rpc_seconds);
-  AppendHistogramPercentiles(out, "GetDatabaseHistoriesRpc", "HighAvailability", *g.get_database_histories_rpc_seconds);
-  AppendHistogramPercentiles(out, "HeartbeatRpc", "HighAvailability", *g.heartbeat_rpc_seconds);
-  AppendHistogramPercentiles(out, "PrepareCommitRpc", "HighAvailability", *g.prepare_commit_rpc_seconds);
-  AppendHistogramPercentiles(out, "SnapshotRpc", "HighAvailability", *g.snapshot_rpc_seconds);
-  AppendHistogramPercentiles(out, "CurrentWalRpc", "HighAvailability", *g.current_wal_rpc_seconds);
-  AppendHistogramPercentiles(out, "WalFilesRpc", "HighAvailability", *g.wal_files_rpc_seconds);
-  AppendHistogramPercentiles(out, "FrequentHeartbeatRpc", "HighAvailability", *g.frequent_heartbeat_rpc_seconds);
-  AppendHistogramPercentiles(out, "SystemRecoveryRpc", "HighAvailability", *g.system_recovery_rpc_seconds);
-  AppendHistogramPercentiles(
-      out, "UpdateDataInstanceConfigRpc", "HighAvailability", *g.update_data_instance_config_rpc_seconds);
-  AppendHistogramPercentiles(out, "GetHistories", "HighAvailability", *g.get_histories_seconds);
-
-  return out;
-}
-
-std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForLegacyJson() {
-  auto out = GetGlobalMetricsInfo();
+  auto const global_metrics_info = GetGlobalMetricsInfo();
+  out.insert(out.end(), global_metrics_info.begin(), global_metrics_info.end());
 
   if (!flags::CoordinationSetupInstance().IsCoordinator()) {
     return out;
   }
 
-  std::lock_guard const lock{legacy_json_delta_mutex_};
+  std::lock_guard const json_ha_metrics_delta_lock{json_ha_metrics_delta_mutex_};
   for (auto &info : out) {
     if (info.type != "HighAvailability" || info.metric_type != "Counter" ||
         !IsLegacyCoordinatorDeltaMetric(info.name)) {
@@ -1911,6 +1788,173 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForLegacyJson() {
     it->second = *current;
     info.value = delta;
   }
+  return out;
+}
+
+std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
+  std::vector<MetricInfo> out;
+
+  // Memory (global only)
+  out.push_back({"PeakMemoryRes", "Memory", "Gauge", static_cast<int64_t>(global.peak_memory_res_bytes->Value())});
+
+  // Session
+  out.push_back({"ActiveSessions", "Session", "Gauge", static_cast<int64_t>(global.active_sessions->Value())});
+  out.push_back({"ActiveBoltSessions", "Session", "Gauge", static_cast<int64_t>(global.active_bolt_sessions->Value())});
+  out.push_back({"ActiveTCPSessions", "Session", "Gauge", static_cast<int64_t>(global.active_tcp_sessions->Value())});
+  out.push_back({"ActiveSSLSessions", "Session", "Gauge", static_cast<int64_t>(global.active_ssl_sessions->Value())});
+  out.push_back(
+      {"ActiveWebSocketSessions", "Session", "Gauge", static_cast<int64_t>(global.active_websocket_sessions->Value())});
+  out.push_back({"BoltMessages", "Session", "Counter", static_cast<int64_t>(global.bolt_messages->Value())});
+
+  // HighAvailability counters
+  out.push_back({"SuccessfulFailovers",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.successful_failovers->Value())});
+  out.push_back({"RaftFailedFailovers",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.raft_failed_failovers->Value())});
+  out.push_back({"NoAliveInstanceFailedFailovers",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.no_alive_instance_failed_failovers->Value())});
+  out.push_back({"BecomeLeaderSuccess",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.become_leader_success->Value())});
+  out.push_back({"FailedToBecomeLeader",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.failed_to_become_leader->Value())});
+  out.push_back({"ShowInstance", "HighAvailability", "Counter", static_cast<int64_t>(global.show_instance->Value())});
+  out.push_back({"ShowInstances", "HighAvailability", "Counter", static_cast<int64_t>(global.show_instances->Value())});
+  out.push_back(
+      {"DemoteInstance", "HighAvailability", "Counter", static_cast<int64_t>(global.demote_instance->Value())});
+  out.push_back({"UnregisterReplInstance",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.unregister_repl_instance->Value())});
+  out.push_back({"RemoveCoordInstance",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.remove_coord_instance->Value())});
+  out.push_back({"ReplicaRecoverySuccess",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.replica_recovery_success->Value())});
+  out.push_back({"ReplicaRecoveryFail",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.replica_recovery_fail->Value())});
+  out.push_back({"ReplicaRecoverySkip",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.replica_recovery_skip->Value())});
+  out.push_back({"StateCheckRpcSuccess",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.state_check_rpc_success->Value())});
+  out.push_back(
+      {"StateCheckRpcFail", "HighAvailability", "Counter", static_cast<int64_t>(global.state_check_rpc_fail->Value())});
+  out.push_back({"UnregisterReplicaRpcSuccess",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.unregister_replica_rpc_success->Value())});
+  out.push_back({"UnregisterReplicaRpcFail",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.unregister_replica_rpc_fail->Value())});
+  out.push_back({"EnableWritingOnMainRpcSuccess",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.enable_writing_on_main_rpc_success->Value())});
+  out.push_back({"EnableWritingOnMainRpcFail",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.enable_writing_on_main_rpc_fail->Value())});
+  out.push_back({"PromoteToMainRpcSuccess",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.promote_to_main_rpc_success->Value())});
+  out.push_back({"PromoteToMainRpcFail",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.promote_to_main_rpc_fail->Value())});
+  out.push_back({"DemoteMainToReplicaRpcSuccess",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.demote_main_to_replica_rpc_success->Value())});
+  out.push_back({"DemoteMainToReplicaRpcFail",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.demote_main_to_replica_rpc_fail->Value())});
+  out.push_back({"RegisterReplicaOnMainRpcSuccess",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.register_replica_on_main_rpc_success->Value())});
+  out.push_back({"RegisterReplicaOnMainRpcFail",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.register_replica_on_main_rpc_fail->Value())});
+  out.push_back({"SwapMainUUIDRpcSuccess",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.swap_main_uuid_rpc_success->Value())});
+  out.push_back({"SwapMainUUIDRpcFail",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.swap_main_uuid_rpc_fail->Value())});
+  out.push_back({"GetDatabaseHistoriesRpcSuccess",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.get_database_histories_rpc_success->Value())});
+  out.push_back({"GetDatabaseHistoriesRpcFail",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.get_database_histories_rpc_fail->Value())});
+  out.push_back({"UpdateDataInstanceConfigRpcSuccess",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.update_data_instance_config_rpc_success->Value())});
+  out.push_back({"UpdateDataInstanceConfigRpcFail",
+                 "HighAvailability",
+                 "Counter",
+                 static_cast<int64_t>(global.update_data_instance_config_rpc_fail->Value())});
+
+  // HighAvailability histograms
+  AppendHistogramPercentiles(out, "InstanceSuccCallback", "HighAvailability", *global.instance_succ_callback_seconds);
+  AppendHistogramPercentiles(out, "InstanceFailCallback", "HighAvailability", *global.instance_fail_callback_seconds);
+  AppendHistogramPercentiles(
+      out, "ChooseMostUpToDateInstance", "HighAvailability", *global.choose_most_up_to_date_instance_seconds);
+  AppendHistogramPercentiles(out, "SocketConnect", "HighAvailability", *global.socket_connect_seconds);
+  AppendHistogramPercentiles(out, "ReplicaStream", "HighAvailability", *global.replica_stream_seconds);
+  AppendHistogramPercentiles(out, "DataFailover", "HighAvailability", *global.data_failover_seconds);
+  AppendHistogramPercentiles(out, "StartTxnReplication", "HighAvailability", *global.start_txn_replication_seconds);
+  AppendHistogramPercentiles(
+      out, "FinalizeTxnReplication", "HighAvailability", *global.finalize_txn_replication_seconds);
+  AppendHistogramPercentiles(out, "PromoteToMainRpc", "HighAvailability", *global.promote_to_main_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "DemoteMainToReplicaRpc", "HighAvailability", *global.demote_main_to_replica_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "RegisterReplicaOnMainRpc", "HighAvailability", *global.register_replica_on_main_rpc_seconds);
+  AppendHistogramPercentiles(out, "UnregisterReplicaRpc", "HighAvailability", *global.unregister_replica_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "EnableWritingOnMainRpc", "HighAvailability", *global.enable_writing_on_main_rpc_seconds);
+  AppendHistogramPercentiles(out, "StateCheckRpc", "HighAvailability", *global.state_check_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "GetDatabaseHistoriesRpc", "HighAvailability", *global.get_database_histories_rpc_seconds);
+  AppendHistogramPercentiles(out, "HeartbeatRpc", "HighAvailability", *global.heartbeat_rpc_seconds);
+  AppendHistogramPercentiles(out, "PrepareCommitRpc", "HighAvailability", *global.prepare_commit_rpc_seconds);
+  AppendHistogramPercentiles(out, "SnapshotRpc", "HighAvailability", *global.snapshot_rpc_seconds);
+  AppendHistogramPercentiles(out, "CurrentWalRpc", "HighAvailability", *global.current_wal_rpc_seconds);
+  AppendHistogramPercentiles(out, "WalFilesRpc", "HighAvailability", *global.wal_files_rpc_seconds);
+  AppendHistogramPercentiles(out, "FrequentHeartbeatRpc", "HighAvailability", *global.frequent_heartbeat_rpc_seconds);
+  AppendHistogramPercentiles(out, "SystemRecoveryRpc", "HighAvailability", *global.system_recovery_rpc_seconds);
+  AppendHistogramPercentiles(
+      out, "UpdateDataInstanceConfigRpc", "HighAvailability", *global.update_data_instance_config_rpc_seconds);
+  AppendHistogramPercentiles(out, "GetHistories", "HighAvailability", *global.get_histories_seconds);
+
   return out;
 }
 

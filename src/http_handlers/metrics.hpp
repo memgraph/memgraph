@@ -60,7 +60,7 @@ class MetricsRequestHandler final {
 
     metrics_->UpdateGauges();
 
-    auto const metric_infos = metrics_->GetGlobalMetricsInfoForLegacyJson();
+    auto const metric_infos = metrics_->GetGlobalMetricsInfoForJson();
 
     // Translation table for backwards compatibility with the legacy JSON format.
     // A source metric may appear multiple times to emit into multiple JSON groups.
@@ -118,7 +118,7 @@ class MetricsRequestHandler final {
     res.set(boost::beast::http::field::content_type, "application/json");
     res.content_length(size);
     res.keep_alive(req.keep_alive());
-    return send(std::move(res));
+    send(std::move(res));
   }
 
  private:

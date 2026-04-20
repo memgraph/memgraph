@@ -48,11 +48,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
  public:
+  explicit InMemoryLabelPropertyIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
+      : metric_handles_{metric_handles} {}
+
   struct IndividualIndex {
     explicit IndividualIndex(PropertiesPermutationHelper permutations_helper)
         : permutations_helper(std::move(permutations_helper)) {}
 
-    ~IndividualIndex();
+    ~IndividualIndex() = default;
     void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
 
     PropertiesPermutationHelper const permutations_helper;
@@ -126,8 +129,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       -> std::expected<void, IndexPopulateError>;
 
   bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp);
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
   class Iterable {
    public:

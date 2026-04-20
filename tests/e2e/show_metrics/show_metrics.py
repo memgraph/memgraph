@@ -420,8 +420,6 @@ def test_per_database_metric_isolation(connect):
                 return row[3]
         return None
 
-    initial_global = get_value("", "VertexCount")
-
     execute_and_fetch_all(cursor, "CREATE (n:A), (n2:A), (n3:A)")
 
     execute_and_fetch_all(cursor, "CREATE DATABASE alt")
@@ -432,7 +430,7 @@ def test_per_database_metric_isolation(connect):
 
     assert get_value("ON DATABASE memgraph", "VertexCount") == 3
     assert get_value("ON DATABASE alt", "VertexCount") == 1
-    assert get_value("", "VertexCount") == initial_global + 4
+    assert get_value("", "VertexCount") == 3
 
 
 def test_query_execution_latency_histogram_has_observations(memgraph):

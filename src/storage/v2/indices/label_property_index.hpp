@@ -202,8 +202,6 @@ class LabelPropertyIndex {
 
   virtual ~LabelPropertyIndex() = default;
 
-  virtual void SetMetricHandles(metrics::DatabaseMetricHandles * /*metric_handles*/) {}
-
   virtual bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
                          ActiveIndicesUpdater const &updater) = 0;
   virtual void DropGraphClearIndices() = 0;

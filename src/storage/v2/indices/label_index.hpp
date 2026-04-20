@@ -36,8 +36,6 @@ class LabelIndex {
 
   virtual ~LabelIndex() = default;
 
-  virtual void SetMetricHandles(metrics::DatabaseMetricHandles * /*metric_handles*/) {}
-
   virtual bool DropIndex(LabelId label, ActiveIndicesUpdater const &updater) = 0;
   virtual void DropGraphClearIndices() = 0;
 

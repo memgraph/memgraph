@@ -57,7 +57,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
 
   auto GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> override;
 
-  explicit DiskUniqueConstraints(const Config &config);
+  explicit DiskUniqueConstraints(const Config &config, metrics::DatabaseMetricHandles *metric_handles);
 
   CreationStatus CheckIfConstraintCanBeCreated(LabelId label, const std::set<PropertyId> &properties) const;
 
@@ -83,8 +83,6 @@ class DiskUniqueConstraints : public UniqueConstraints {
   RocksDBStorage *GetRocksDBStorage() const;
 
   void LoadUniqueConstraints(const std::vector<std::string> &keys);
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
  private:
   std::set<std::pair<LabelId, std::set<PropertyId>>> constraints_;

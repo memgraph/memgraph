@@ -93,7 +93,8 @@ auto DiskUniqueConstraints::GetActiveConstraints() const -> std::unique_ptr<Uniq
   return std::make_unique<ActiveConstraints>(this);
 }
 
-DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
+DiskUniqueConstraints::DiskUniqueConstraints(const Config &config, metrics::DatabaseMetricHandles *metric_handles)
+    : metric_handles_{metric_handles} {
   kvstore_ = std::make_unique<RocksDBStorage>();
   utils::EnsureDirOrDie(config.disk.unique_constraints_directory);
   kvstore_->options_.create_if_missing = true;
@@ -359,12 +360,6 @@ void DiskUniqueConstraints::Clear() {
 }
 
 RocksDBStorage *DiskUniqueConstraints::GetRocksDBStorage() const { return kvstore_.get(); }
-
-void DiskUniqueConstraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
-  metric_handles_ = metric_handles;
-  if (!metric_handles_) return;
-  metric_handles_->active_unique_constraints->Set(static_cast<double>(constraints_.size()));
-}
 
 void DiskUniqueConstraints::LoadUniqueConstraints(const std::vector<std::string> &keys) {
   for (const auto &key : keys) {

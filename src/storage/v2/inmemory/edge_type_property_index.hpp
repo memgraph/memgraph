@@ -60,6 +60,9 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   };
 
  public:
+  explicit InMemoryEdgeTypePropertyIndex(metrics::DatabaseMetricHandles *metric_handles = nullptr)
+      : metric_handles_{metric_handles} {}
+
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
@@ -180,7 +183,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   };
 
   struct IndividualIndex {
-    ~IndividualIndex();
+    ~IndividualIndex() = default;
     void Publish(uint64_t commit_timestamp, prometheus::Gauge *gauge);
 
     utils::SkipList<Entry> skiplist{};
@@ -238,8 +241,6 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     std::shared_ptr<IndexContainer const> index_container_;
   };
 
-  InMemoryEdgeTypePropertyIndex() = default;
-
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
                           ActiveIndicesUpdater const &updater,
@@ -261,8 +262,6 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp);
-
-  void SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) override;
 
   void RunGC();
 

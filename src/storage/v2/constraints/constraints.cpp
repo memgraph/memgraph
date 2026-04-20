@@ -19,28 +19,23 @@
 
 namespace memgraph::storage {
 
-Constraints::Constraints(const Config &config, StorageMode storage_mode) {
-  std::invoke([this, config, storage_mode]() {
-    existence_constraints_ = std::make_unique<ExistenceConstraints>();
-    type_constraints_ = std::make_unique<TypeConstraints>();
+Constraints::Constraints(const Config &config, StorageMode storage_mode,
+                         metrics::DatabaseMetricHandles *metric_handles) {
+  std::invoke([this, config, storage_mode, metric_handles]() {
+    existence_constraints_ = std::make_unique<ExistenceConstraints>(metric_handles);
+    type_constraints_ = std::make_unique<TypeConstraints>(metric_handles);
     switch (storage_mode) {
       case StorageMode::IN_MEMORY_TRANSACTIONAL:
       case StorageMode::IN_MEMORY_ANALYTICAL:
-        unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
+        unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>(metric_handles);
         break;
       case StorageMode::ON_DISK_TRANSACTIONAL:
-        unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);
+        unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config, metric_handles);
         break;
       case StorageMode::N:
         std::unreachable();
     }
   });
-}
-
-void Constraints::SetMetricHandles(metrics::DatabaseMetricHandles *metric_handles) {
-  existence_constraints_->SetMetricHandles(metric_handles);
-  unique_constraints_->SetMetricHandles(metric_handles);
-  type_constraints_->SetMetricHandles(metric_handles);
 }
 
 void Constraints::DropGraphClearConstraints() const {
