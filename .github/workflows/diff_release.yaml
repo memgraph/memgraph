@@ -502,16 +502,13 @@ jobs:
 
       - name: Run e2e tests
         run: |
+          # TODO (matt): Add monitoring to end to end tests when we switch to opentelemetry
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          --enable-monitoring \
-          --monitoring-host $MONITORING_HOST \
-          --cluster-id $CLUSTER_ID \
-          --cluster-env $CLUSTER_ENV \
           test-memgraph e2e
 
       - name: Ensure localstack is down
