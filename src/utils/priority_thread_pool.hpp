@@ -29,6 +29,7 @@
 namespace memgraph::utils {
 class PriorityThreadPool;
 class WorkerResumeEvent;
+class TaskCollection;  // Forward declaration
 
 // Thread-safe mask that returns the position of first set bit
 class HotMask {
@@ -82,16 +83,8 @@ using TaskSignature = std::move_only_function<void()>;
 // same worker, false if it completed.
 using ResumableTaskSignature = std::move_only_function<bool()>;
 
-/// Thread-local access to the currently running resumable task.
-/// Allows generic external-progress awaiters to self-park the task and arrange
-/// for it to be resumed later by a WorkerResumeEvent.
-class CurrentResumableTask {
- public:
-  static bool RegisterWaiter(WorkerResumeEvent &event, uint64_t observed_epoch);
-};
+class TaskCollection;
 
-// Collection of tasks that can be executed by the thread pool
-// The idea is to batch tasks and have the ability to wait on them
 // Also execute non scheduler tasks in the local thread
 class TaskCollection {
  public:
@@ -226,12 +219,14 @@ class WorkerResumeEvent {
                       uint64_t observed_epoch);
 
   bool RegisterTaskWaiter(TaskSignature task, PriorityThreadPool *pool, std::optional<uint16_t> worker_id,
-                          uint64_t observed_epoch);
+                          uint64_t observed_epoch,
+                          std::shared_ptr<std::atomic<TaskCollection::Task::State>> task_state = nullptr);
 
   // Remove a waiter that was previously registered but should not be notified.
   // Used when a task decides not to suspend after successfully registering.
   // Returns true if the waiter was found and removed, false otherwise.
-  bool RemoveWaiter(std::coroutine_handle<> handle, uint64_t observed_epoch);
+  bool RemoveWaiter(std::coroutine_handle<> handle, uint64_t observed_epoch,
+                    std::shared_ptr<std::atomic<TaskCollection::Task::State>> task_state = nullptr);
 
   void NotifyAll();
 
@@ -241,11 +236,26 @@ class WorkerResumeEvent {
     TaskSignature task;
     PriorityThreadPool *pool;
     std::optional<uint16_t> worker_id;
+    // Only set for task-based waiters (registered via RegisterTaskWaiter).
+    // Used by RemoveWaiter to match when handle is null.
+    std::shared_ptr<std::atomic<TaskCollection::Task::State>> task_state;
   };
 
   mutable std::mutex mutex_;
   uint64_t epoch_{0};
   std::vector<Waiter> waiters_;
+};
+
+/// Thread-local access to the currently running resumable task.
+/// Allows generic external-progress awaiters to self-park the task and arrange
+/// for it to be resumed later by a WorkerResumeEvent.
+class CurrentResumableTask {
+ public:
+  static bool RegisterWaiter(WorkerResumeEvent &event, uint64_t observed_epoch);
+  static std::shared_ptr<std::atomic<TaskCollection::Task::State>> GetCurrentTaskState();
+  // Clears the TLS parked flag without reading it.  Call this in a shutdown-race
+  // path where RegisterWaiter returned true but the task will NOT actually suspend.
+  static void ClearParked();
 };
 
 class PriorityThreadPool {

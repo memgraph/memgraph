@@ -9960,6 +9960,7 @@ class ScanParallelCursor : public Cursor {
     }
 
     bool await_suspend(std::coroutine_handle<> handle) const {
+      spdlog::warn("ProducerProgressAwaitable::await_suspend called, epoch={}", observed_epoch_);
       const auto store_handle = [&]() {
         if (context_->suspended_task_handle_ptr) {
           *context_->suspended_task_handle_ptr = handle;
@@ -9971,7 +9972,9 @@ class ScanParallelCursor : public Cursor {
         }
       };
       store_handle();
+      spdlog::warn("ProducerProgressAwaitable::await_suspend calling RegisterWaiter");
       if (utils::CurrentResumableTask::RegisterWaiter(cursor_->producer_waiters_, observed_epoch_)) {
+        spdlog::warn("ProducerProgressAwaitable::await_suspend RegisterWaiter returned true");
         if (context_->task_parked_ptr) {
           *context_->task_parked_ptr = true;
         }
@@ -9980,11 +9983,15 @@ class ScanParallelCursor : public Cursor {
         {
           const std::lock_guard lock(cursor_->mutex_);
           if (cursor_->shutting_down_ || cursor_->interrupted_) {
-            spdlog::trace("ProducerProgressAwaitable::await_suspend Path 1: not suspending due to shutdown/interrupt");
+            spdlog::warn("ProducerProgressAwaitable::await_suspend Path 1: not suspending due to shutdown/interrupt");
             // P5 FIX: Remove our waiter to prevent orphaned closure race.
             // If we don't remove it, NotifyAll() will dispatch a task to resume
             // a coroutine that never suspended, causing state corruption.
-            cursor_->producer_waiters_.RemoveWaiter(handle, observed_epoch_);
+            cursor_->producer_waiters_.RemoveWaiter(
+                handle, observed_epoch_, utils::CurrentResumableTask::GetCurrentTaskState());
+            // EC-1 fix: Reset the TLS parked flag so WrapTask doesn't think the task
+            // successfully parked when it checks WasParked() after co_return.
+            utils::CurrentResumableTask::ClearParked();
             if (context_->task_parked_ptr) {
               *context_->task_parked_ptr = false;
             }
@@ -9998,6 +10005,7 @@ class ScanParallelCursor : public Cursor {
       // the branch lambda closure also holds this handle; both NotifyAll() and the
       // next WrapTask invocation would call resume() on the same frame concurrently.
       // Fall through to busy-spin: DoPull will re-check immediately on resume.
+      spdlog::warn("ProducerProgressAwaitable::await_suspend RegisterWaiter returned false, not suspending");
       clear_handle();
       return false;
     }
@@ -10151,7 +10159,7 @@ class ScanParallelCursor : public Cursor {
   // teardown flag and exit cleanly. Without this, PARKED tasks never unblock and
   // TaskCollection::Finished() keeps returning false, hanging the teardown loop.
   void Interrupt() override {
-    spdlog::trace("ScanParallelCursor::Interrupt() called");
+    spdlog::warn("ScanParallelCursor::Interrupt() called");
     input_cursor_->Interrupt();
     // Signal teardown before waking so PARKED tasks check the flag and exit.
     // Also set interrupted_ to prevent tasks from re-parking after being woken.
@@ -10160,9 +10168,9 @@ class ScanParallelCursor : public Cursor {
       shutting_down_ = true;
       interrupted_ = true;
     }
-    spdlog::trace("ScanParallelCursor::Interrupt(): calling NotifyAll()");
+    spdlog::warn("ScanParallelCursor::Interrupt(): calling NotifyAll()");
     producer_waiters_.NotifyAll();
-    spdlog::trace("ScanParallelCursor::Interrupt(): NotifyAll() returned");
+    spdlog::warn("ScanParallelCursor::Interrupt(): NotifyAll() returned");
   }
 
   void Reset() override {
