@@ -15,6 +15,7 @@
 #include "utils/atomic_utils.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include <algorithm>
 #include <string>
 
 namespace memgraph::storage {
@@ -88,17 +89,24 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
     });
 
     if (!finalized.has_value()) {
-      auto const reason = [&] {
-        switch (finalized.error()) {
-          case io::network::ClientCommunicationError::TIMEOUT_ERROR:
-            return ReplicaFailureReason::TIMEOUT;
-          case io::network::ClientCommunicationError::SOCKET_FAILED_TO_CONNECT:
-            return ReplicaFailureReason::NOT_IN_SYNC;
-          default:
-            return ReplicaFailureReason::RPC_ERROR;
-        }
-      }();
-      replication_failures_.push_back({std::string{client->Name()}, ReplicationModeToString(client->Mode()), reason});
+      auto const client_name = std::string{client->Name()};
+      // StartTransactionReplication may have already recorded a failure for this replica;
+      // avoid reporting the same instance twice with a follow-up reason derived from the empty stream.
+      auto const already_failed =
+          std::ranges::any_of(replication_failures_, [&](ReplicaFailure const &f) { return f.name == client_name; });
+      if (!already_failed) {
+        auto const reason = [&] {
+          switch (finalized.error()) {
+            case io::network::ClientCommunicationError::TIMEOUT_ERROR:
+              return ReplicaFailureReason::TIMEOUT;
+            case io::network::ClientCommunicationError::SOCKET_FAILED_TO_CONNECT:
+              return ReplicaFailureReason::NOT_IN_SYNC;
+            default:
+              return ReplicaFailureReason::RPC_ERROR;
+          }
+        }();
+        replication_failures_.push_back({client_name, ReplicationModeToString(client->Mode()), reason});
+      }
     }
   }
   return replication_failures_.empty();
