@@ -668,18 +668,20 @@ TEST_F(DbMemoryTrackingTest, ArenaRegistration_BaseArenaIdxVsAcquireThreadArena)
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
+  memgraph::memory::ArenaRegistration arena_registration{&db->Arena()};
+
   // BaseArenaIdx returns a valid, stable arena index (for backwards compat)
-  unsigned base_arena = db->storage()->config_.arena_registration.BaseArenaIdx();
+  unsigned base_arena = arena_registration.BaseArenaIdx();
   EXPECT_NE(base_arena, 0u) << "BaseArenaIdx should return a valid arena";
-  unsigned base_arena2 = db->storage()->config_.arena_registration.BaseArenaIdx();
+  unsigned base_arena2 = arena_registration.BaseArenaIdx();
   EXPECT_EQ(base_arena, base_arena2) << "BaseArenaIdx should be stable across calls";
 
   // AcquireThreadArena returns a valid arena for the test thread
-  unsigned thread_arena = db->storage()->config_.arena_registration.AcquireThreadArena();
+  unsigned thread_arena = arena_registration.AcquireThreadArena();
   EXPECT_NE(thread_arena, 0u) << "AcquireThreadArena should return a valid arena";
 
   // AcquireThreadArena is idempotent on the same thread
-  unsigned thread_arena2 = db->storage()->config_.arena_registration.AcquireThreadArena();
+  unsigned thread_arena2 = arena_registration.AcquireThreadArena();
   EXPECT_EQ(thread_arena, thread_arena2) << "AcquireThreadArena should be idempotent on same thread";
 
   // BaseArenaIdx and AcquireThreadArena on a non-constructor thread are
@@ -689,7 +691,7 @@ TEST_F(DbMemoryTrackingTest, ArenaRegistration_BaseArenaIdxVsAcquireThreadArena)
                                       << "should differ on non-constructor threads by design";
 
   // Verify ArenaRegistration bool operator
-  EXPECT_TRUE(db->storage()->config_.arena_registration) << "Valid ArenaRegistration should evaluate to true";
+  EXPECT_TRUE(arena_registration) << "Valid ArenaRegistration should evaluate to true";
 }
 
 // ---------------------------------------------------------------------------
@@ -731,7 +733,7 @@ TEST_F(DbMemoryTrackingTest, ConcurrentAcquireThreadArena_AllUniqueArenas) {
       while (!start.load()) {
         std::this_thread::yield();
       }
-      arenas[i] = db->storage()->config_.arena_registration.AcquireThreadArena();
+      arenas[i] = db->Arena().AcquireThreadArena();
     });
   }
 
@@ -780,11 +782,11 @@ TEST_F(DbMemoryTrackingTest, ConcurrentThreads_GetDifferentArenas) {
 
   std::thread t1([&]() {
     while (!start.load()) std::this_thread::yield();
-    arena1 = db->storage()->config_.arena_registration.AcquireThreadArena();
+    arena1 = db->Arena().AcquireThreadArena();
   });
   std::thread t2([&]() {
     while (!start.load()) std::this_thread::yield();
-    arena2 = db->storage()->config_.arena_registration.AcquireThreadArena();
+    arena2 = db->Arena().AcquireThreadArena();
   });
 
   start.store(true);
@@ -808,14 +810,15 @@ TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
-  unsigned base_arena = db->storage()->config_.arena_registration.BaseArenaIdx();
+  memgraph::memory::ArenaRegistration arena_registration{&db->Arena()};
+  unsigned base_arena = arena_registration.BaseArenaIdx();
   ASSERT_NE(base_arena, 0u);
 
   unsigned bg_thread_arena = 0;
   std::thread bg_thread([&]() {
     // Simulate what GC/snapshot/TTL threads do
-    if (db->storage()->config_.arena_registration) {
-      unsigned arena = db->storage()->config_.arena_registration.AcquireThreadArena();
+    if (arena_registration) {
+      unsigned arena = arena_registration.AcquireThreadArena();
       if (arena != 0) {
         je_mallctl("thread.arena", nullptr, nullptr, &arena, sizeof(unsigned));
         memgraph::memory::tls_db_arena_state.arena = arena;
@@ -846,7 +849,7 @@ TEST_F(DbMemoryTrackingTest, ArenaRegistration_AfterDatabaseDestruction) {
     auto *db = acc->get();
 
     // Capture ArenaRegistration while Database is alive
-    captured_reg = db->storage()->config_.arena_registration;
+    captured_reg = memgraph::memory::ArenaRegistration{&db->Arena()};
     captured_base_arena = captured_reg.BaseArenaIdx();
 
     EXPECT_TRUE(captured_reg) << "ArenaRegistration should be valid while DB is alive";

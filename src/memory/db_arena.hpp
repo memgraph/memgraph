@@ -159,15 +159,15 @@ class DbArena {
   // Prefer AcquireThreadArena() for per-thread access
   unsigned idx() const noexcept;
 
-  // Acquire (or create) the arena assigned to this thread for this DB.
-  // Checks thread_arena_map_[this_thread::get_id()] under mutex.
-  // Cold path (first call per thread): creates arena, installs hooks, inserts into map.
+  // Acquire or create the arena assigned to this thread for this DB.
+  // The first call for a thread installs DB hooks before publishing the arena
+  // into thread_arena_map_.
   unsigned AcquireThreadArena();
 
  private:
   DbArenaHooks hooks_{};
 
-  // Protects thread_arena_map_ on writes; read is lock-free via TLS on hot path
+  // Protects thread_arena_map_ and arena_handles_.
   std::mutex arena_map_mux_;
   // Maps thread_id -> arena_index for this database
   std::unordered_map<std::thread::id, unsigned> thread_arena_map_;

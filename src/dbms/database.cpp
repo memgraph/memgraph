@@ -169,4 +169,10 @@ DbArenaScope::DbArenaScope(memgraph::dbms::Database *db) : prev_arena_(tls_db_ar
 }
 
 }  // namespace memgraph::memory
-#endif  // USE_JEMALLOC
+#else
+namespace memgraph::memory {
+
+DbArenaScope::DbArenaScope(memgraph::dbms::Database * /*db*/) : DbArenaScope(0) {}
+
+}  // namespace memgraph::memory
+#endif

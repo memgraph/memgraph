@@ -120,6 +120,32 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
   };
 }
 
+bool InstallDbArenaHooks(unsigned arena_idx, DbArenaHooks &hooks, std::string_view error_context) {
+  const std::string arena_key = "arena." + std::to_string(arena_idx);
+  const std::string hooks_key = arena_key + ".extent_hooks";
+
+  extent_hooks_t *base_hooks = nullptr;
+  size_t hooks_sz = sizeof(extent_hooks_t *);
+  int err = je_mallctl(hooks_key.c_str(), static_cast<void *>(&base_hooks), &hooks_sz, nullptr, 0);
+  if (err != 0 || base_hooks == nullptr) {
+    spdlog::error("Failed to read default hooks for {} arena {} (err={})", error_context, arena_idx, err);
+    return false;
+  }
+
+  const extent_hooks_t *new_hooks = &hooks.hooks;
+  err = je_mallctl(hooks_key.c_str(),
+                   nullptr,
+                   nullptr,
+                   static_cast<void *>(const_cast<extent_hooks_t **>(&new_hooks)),
+                   sizeof(extent_hooks_t *));
+  if (err != 0) {
+    spdlog::error("Failed to install custom hooks on {} arena {} (err={})", error_context, arena_idx, err);
+    return false;
+  }
+
+  return true;
+}
+
 DbArena::DbArena(utils::MemoryTracker *tracker) {
   // Create the first arena for backwards compatibility
   arena_handles_.emplace_back(ArenaPool::Instance().Acquire());
@@ -182,50 +208,28 @@ unsigned DbArena::idx() const noexcept { return first_arena_idx_; }
 unsigned DbArena::AcquireThreadArena() {
   const auto tid = std::this_thread::get_id();
 
-  // Fast path: check if already in map
-  {
-    std::lock_guard<std::mutex> lock(arena_map_mux_);
-    auto it = thread_arena_map_.find(tid);
-    if (it != thread_arena_map_.end()) {
-      return it->second;
-    }
+  std::lock_guard<std::mutex> lock(arena_map_mux_);
+  if (auto it = thread_arena_map_.find(tid); it != thread_arena_map_.end()) {
+    return it->second;
   }
 
-  // Cold path: create new arena for this thread
-  arena_handles_.emplace_back(ArenaPool::Instance().Acquire());
-  unsigned arena_idx = arena_handles_.back().idx();
+  // Reserve before hook installation so publishing the installed arena cannot
+  // throw and return a hooked arena to the reusable pool without restoration.
+  arena_handles_.reserve(arena_handles_.size() + 1);
+  thread_arena_map_.reserve(thread_arena_map_.size() + 1);
 
-  // Install hooks on the new arena
-  const std::string arena_key = "arena." + std::to_string(arena_idx);
-  const std::string hooks_key = arena_key + ".extent_hooks";
+  ArenaHandle handle{ArenaPool::Instance().Acquire()};
+  auto [it, inserted] = thread_arena_map_.try_emplace(tid, 0);
+  DMG_ASSERT(inserted, "Thread arena mapping must not be inserted by another caller while holding the DB arena lock");
 
-  extent_hooks_t *base_hooks = nullptr;
-  size_t hooks_sz = sizeof(extent_hooks_t *);
-  int err = je_mallctl(hooks_key.c_str(), static_cast<void *>(&base_hooks), &hooks_sz, nullptr, 0);
-  if (err != 0 || base_hooks == nullptr) {
-    spdlog::error("Failed to read default hooks for per-thread arena {} (err={})", arena_idx, err);
-    // Return the first arena as fallback
+  const unsigned arena_idx = handle.idx();
+  if (!InstallDbArenaHooks(arena_idx, hooks_, "per-thread DB")) {
+    thread_arena_map_.erase(it);
     return first_arena_idx_;
   }
 
-  // Install hooks (reuse the same hooks_ struct - all arenas report to same tracker)
-  const extent_hooks_t *new_hooks = &hooks_.hooks;
-  err = je_mallctl(hooks_key.c_str(),
-                   nullptr,
-                   nullptr,
-                   static_cast<void *>(const_cast<extent_hooks_t **>(&new_hooks)),
-                   sizeof(extent_hooks_t *));
-  if (err != 0) {
-    spdlog::error("Failed to install custom hooks on per-thread arena {} (err={})", arena_idx, err);
-    return first_arena_idx_;
-  }
-
-  // Insert into map
-  {
-    std::lock_guard<std::mutex> lock(arena_map_mux_);
-    thread_arena_map_[tid] = arena_idx;
-  }
-
+  arena_handles_.push_back(std::move(handle));
+  it->second = arena_idx;
   return arena_idx;
 }
 
