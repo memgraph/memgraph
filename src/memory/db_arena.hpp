@@ -167,6 +167,11 @@ class DbArena {
   // Acquire or create the arena assigned to this thread for this DB.
   // The first call for a thread installs DB hooks before publishing the arena
   // into thread_arena_map_.
+  //
+  // Mappings live for the DbArena lifetime. If the OS later reuses a thread id,
+  // the new thread may receive the existing arena, but that arena is still owned
+  // by this same DB and still has this DB's hooks installed. This is safe for
+  // memory attribution; it only means thread-id reuse may also reuse a DB arena.
   unsigned AcquireThreadArena();
 
  private:
