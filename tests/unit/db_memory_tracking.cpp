@@ -28,6 +28,7 @@
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -261,6 +262,59 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
     ASSERT_NO_ERROR(unique_acc->DropVectorIndex(spec.index_name));
   }
   EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_before) << "Dropping index should release embedding memory";
+
+  auto edge_type = db1->storage()->NameToEdgeType("EMBEDDED_EDGE");
+  auto edge_property = db1->storage()->NameToProperty("edge_embedding");
+  {
+    memgraph::memory::DbArenaScope scope{db1->ArenaIdx()};
+    auto accessor = db1->Access();
+    std::vector<memgraph::storage::VertexAccessor> vertices;
+    vertices.reserve(1025);
+    for (int i = 0; i < 1025; ++i) {
+      vertices.push_back(accessor->CreateVertex());
+    }
+    for (int i = 0; i < 1024; ++i) {
+      auto edge = accessor->CreateEdge(&vertices[i], &vertices[i + 1], edge_type);
+      ASSERT_NO_ERROR(edge);
+      std::vector<double> embedding(256, static_cast<double>(i % 11) + 0.25);
+      ASSERT_NO_ERROR(edge->SetProperty(edge_property, memgraph::storage::PropertyValue(embedding)));
+    }
+    accessor->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  }
+
+  const int64_t db1_edge_before = db1->DbEmbeddingMemoryUsage();
+  const int64_t db2_edge_before = db2->DbEmbeddingMemoryUsage();
+  const int64_t db1_edge_total_before = db1->DbMemoryUsage();
+
+  memgraph::storage::VectorEdgeIndexSpec edge_spec{
+      .index_name = "db1_edge_embedding_index",
+      .edge_type_id = edge_type,
+      .property = edge_property,
+      .metric_kind = unum::usearch::metric_kind_t::cos_k,
+      .dimension = 256,
+      .resize_coefficient = 2,
+      .capacity = 4096,
+      .scalar_kind = unum::usearch::scalar_kind_t::f32_k,
+  };
+
+  {
+    memgraph::memory::DbArenaScope db_arena_scope{db1->ArenaIdx()};
+    ASSERT_NO_ERROR(unique_acc->CreateVectorEdgeIndex(edge_spec));
+  }
+
+  const int64_t db1_edge_delta = db1->DbEmbeddingMemoryUsage() - db1_edge_before;
+  const int64_t db1_edge_total_delta = db1->DbMemoryUsage() - db1_edge_total_before;
+
+  EXPECT_GT(db1_edge_delta, static_cast<int64_t>(256 * 1024))
+      << "Vector edge index should attribute embedding memory to DB1";
+  EXPECT_EQ(db2->DbEmbeddingMemoryUsage(), db2_edge_before) << "DB2 embedding tracker must not grow";
+  EXPECT_GE(db1_edge_total_delta, db1_edge_delta) << "db_total should include edge embedding delta";
+
+  {
+    memgraph::memory::DbArenaScope db_arena_scope{db1->ArenaIdx()};
+    ASSERT_NO_ERROR(unique_acc->DropVectorIndex(edge_spec.index_name));
+  }
+  EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_edge_before) << "Dropping edge index should release embedding memory";
 }
 
 // ---------------------------------------------------------------------------
