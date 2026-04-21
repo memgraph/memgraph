@@ -364,6 +364,8 @@ propertyKeyValuePair : propertyKeyName ':' expression ;
 
 nestedPropertyKeyNames : propertyKeyName ( '.' propertyKeyName )* ;
 
+nestedPropertyKeyList : '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' ;
+
 integerLiteral : DecimalLiteral
                | OctalLiteral
                | HexadecimalLiteral
@@ -371,11 +373,11 @@ integerLiteral : DecimalLiteral
 
 alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
 
-createIndex : CREATE INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )?
+createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList?
             | CREATE INDEX ( symbolicName )? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
             ;
 
-dropIndex : DROP INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ;
+dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ;
 
 doubleLiteral : FloatingLiteral ;
 

@@ -438,7 +438,8 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
     if (auto *index_hints_ctx = pre_query_directive->indexHints()) {
       for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
         auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
-        if (index_hint_ctx->nestedPropertyKeyNames().empty()) {
+        auto *list = index_hint_ctx->nestedPropertyKeyList();
+        if (!list) {
           pre_query_directives.index_hints_.emplace_back(
               // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
               IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ix_ = label});
@@ -449,7 +450,7 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
             // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
             IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTIES,
                       .label_ix_ = label,
-                      .property_ixs_ = get_index_properties(index_hint_ctx->nestedPropertyKeyNames(), *this)});
+                      .property_ixs_ = get_index_properties(list->nestedPropertyKeyNames(), *this)});
       }
     } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
       if (pre_query_directives.commit_frequency_) {
@@ -541,8 +542,8 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
       nested_props.push_back(ref->nestedPropertyKeyNames());
     }
     index_query->properties_ = get_index_properties(nested_props, *this);
-  } else {
-    index_query->properties_ = get_index_properties(ctx->nestedPropertyKeyNames(), *this);
+  } else if (auto *list = ctx->nestedPropertyKeyList()) {
+    index_query->properties_ = get_index_properties(list->nestedPropertyKeyNames(), *this);
   }
 
   // Check composite properties are unique, and in the case of nested properties,
@@ -567,7 +568,9 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  index_query->properties_ = get_index_properties(ctx->nestedPropertyKeyNames(), *this);
+  if (auto *list = ctx->nestedPropertyKeyList()) {
+    index_query->properties_ = get_index_properties(list->nestedPropertyKeyNames(), *this);
+  }
 
   return index_query;
 }
@@ -583,13 +586,19 @@ antlrcpp::Any CypherMainVisitor::visitCreateEdgeIndex(MemgraphCypher::CreateEdge
   auto *index_query = storage_->Create<EdgeIndexQuery>();
   index_query->action_ = EdgeIndexQuery::Action::CREATE;
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  if (auto *list = ctx->propertyKeyList()) {
-    auto prop_keys = list->propertyKeyName();
-    if (prop_keys.size() > 1) {
-      throw SemanticException("Nested properties are not supported for edge indices.");
-    }
-    index_query->properties_ = {std::any_cast<PropertyIx>(prop_keys[0]->accept(this))};
+  auto *list = ctx->nestedPropertyKeyList();
+  if (!list) {
+    return index_query;
   }
+  auto nested_props = list->nestedPropertyKeyNames();
+  if (nested_props.size() > 1) {
+    throw SemanticException("Composite indices are not supported for edge indices.");
+  }
+  auto prop_keys = nested_props[0]->propertyKeyName();
+  if (prop_keys.size() > 1) {
+    throw SemanticException("Nested properties are not supported for edge indices.");
+  }
+  index_query->properties_ = {std::any_cast<PropertyIx>(prop_keys[0]->accept(this))};
   return index_query;
 }
 
@@ -609,7 +618,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateEdgeIndexAlternativeSyntax(
     }
     auto *nested = ref->nestedPropertyKeyNames();
     auto prop_keys = nested->propertyKeyName();
-    if (prop_keys.size() != 1) {
+    if (prop_keys.size() > 1) {
       throw SemanticException("Nested properties are not supported for edge indices.");
     }
     index_query->properties_.push_back(std::any_cast<PropertyIx>(prop_keys[0]->accept(this)));

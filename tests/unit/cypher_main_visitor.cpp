@@ -2128,7 +2128,7 @@ TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxVariableMismatch) 
 
 TEST_P(CypherMainVisitorTest, CreateEdgeIndexNestedPropertyNotSupported) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE EDGE INDEX ON :KNOWS(prop1.prop2)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE EDGE INDEX ON :KNOWS(prop1.prop2)"), SemanticException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (r.address.city)"), SemanticException);
 }
 
