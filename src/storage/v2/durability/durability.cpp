@@ -527,7 +527,7 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
              ? std::make_optional(
                    ParallelizedSchemaCreationInfo{.vertex_recovery_info = recovery_info.vertex_batches,
                                                   .thread_count = config.durability.recovery_thread_count,
-                                                  .arena_idx = config.arena_idx})
+                                                  .arena_idx = config.arena_registration.BaseArenaIdx()})
              : std::nullopt;
 }
 

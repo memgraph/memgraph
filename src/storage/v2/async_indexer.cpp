@@ -65,7 +65,8 @@ bool AsyncIndexer::HasThreadStopped() const { return !index_creator_thread_.join
 
 void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
   index_creator_thread_ = memory::DbAwareThread{
-      storage->config_.arena_idx, [this, stop_token, storage](std::stop_token thread_stop_token) mutable {
+      storage->config_.arena_registration.BaseArenaIdx(),
+      [this, stop_token, storage](std::stop_token thread_stop_token) mutable {
         // the lock must be taken first because on destruction
         // local objects get destroyed in reverse order of declaration
         // and we must do notify_all before releasing the lock

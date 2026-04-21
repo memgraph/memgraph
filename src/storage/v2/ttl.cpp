@@ -188,9 +188,12 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
   auto ttl_job = [this]() {
 #if USE_JEMALLOC
-    if (storage_ptr_->config_.arena_idx != 0) {
-      je_mallctl("thread.arena", nullptr, nullptr, &storage_ptr_->config_.arena_idx, sizeof(unsigned));
-      memory::tls_db_arena_state.arena = storage_ptr_->config_.arena_idx;
+    if (storage_ptr_->config_.arena_registration) {
+      unsigned arena = storage_ptr_->config_.arena_registration.AcquireThreadArena();
+      if (arena != 0) {
+        je_mallctl("thread.arena", nullptr, nullptr, &arena, sizeof(unsigned));
+        memory::tls_db_arena_state.arena = arena;
+      }
     }
 #endif
     // Check if we're a main instance - only main instances should run TTL

@@ -119,11 +119,12 @@ Indices::Indices(const Config &config, StorageMode storage_mode)
       vector_edge_index_(config.db_embedding_memory_tracker) {
   std::invoke([this, config, storage_mode]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      label_index_ = std::make_unique<InMemoryLabelIndex>(config.arena_idx);
-      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(config.arena_idx);
-      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>(config.arena_idx);
-      edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>(config.arena_idx);
-      edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>(config.arena_idx);
+      const auto arena_idx = config.arena_registration.BaseArenaIdx();
+      label_index_ = std::make_unique<InMemoryLabelIndex>(arena_idx);
+      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(arena_idx);
+      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>(arena_idx);
+      edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>(arena_idx);
+      edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>(arena_idx);
     } else {
       label_index_ = std::make_unique<DiskLabelIndex>(config);
       label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);

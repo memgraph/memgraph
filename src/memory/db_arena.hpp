@@ -171,12 +171,6 @@ class DbArena {
   // Cold path (first call per thread): creates arena, installs hooks, inserts into map.
   unsigned AcquireThreadArena();
 
-  // Get or create per-(thread, DB) tcache. Returns UINT_MAX if tcache creation fails.
-  unsigned GetOrCreateTcache(unsigned arena_idx);
-
-  // Destroy tcache for the calling thread (call on thread exit before TLS teardown).
-  void DestroyThreadTcache(unsigned tcache_idx) noexcept;
-
  private:
   DbArenaHooks hooks_{};
 
@@ -189,6 +183,66 @@ class DbArena {
 
   // Cache of the first arena for backwards compatibility
   unsigned first_arena_idx_{0};
+};
+
+// Lightweight handle for Storage to interact with Database's per-thread arena pool.
+// This decouples Storage from Database while allowing Storage to:
+// 1. Acquire per-thread arenas for background threads
+// 2. Access the base arena index for allocator construction
+//
+// IMPORTANT: Database must outlive Storage (Storage holds a pointer to Database's DbArena).
+// This is guaranteed by Database's member declaration order (db_arena_ declared after storage_).
+//
+// With USE_JEMALLOC: holds pointer to DbArena, provides AcquireThreadArena() and BaseArenaIdx()
+// Without USE_JEMALLOC: stub implementation that returns 0
+class ArenaRegistration {
+ public:
+  ArenaRegistration() noexcept = default;
+
+  explicit ArenaRegistration(DbArena *arena) noexcept : arena_(arena) {}
+
+  // Get the base arena index (for backwards compatibility with allocator construction)
+  // Returns 0 if no arena is registered (non-jemalloc builds or unit tests)
+  unsigned BaseArenaIdx() const noexcept {
+#if USE_JEMALLOC
+    return arena_ ? arena_->idx() : 0;
+#else
+    return 0;
+#endif
+  }
+
+  // Acquire (or create) the arena for the current thread.
+  // First call per thread creates a new arena; subsequent calls return the cached arena.
+  // Returns 0 if no arena is registered.
+  unsigned AcquireThreadArena() const noexcept {
+#if USE_JEMALLOC
+    return arena_ ? arena_->AcquireThreadArena() : 0;
+#else
+    return 0;
+#endif
+  }
+
+  // Check if a valid arena is registered
+  explicit operator bool() const noexcept { return arena_ != nullptr; }
+
+ private:
+  DbArena *arena_{nullptr};
+};
+
+#else  // !USE_JEMALLOC
+
+// Stub implementation for non-jemalloc builds
+class ArenaRegistration {
+ public:
+  ArenaRegistration() noexcept = default;
+
+  explicit ArenaRegistration(void *) noexcept {}
+
+  unsigned BaseArenaIdx() const noexcept { return 0; }
+
+  unsigned AcquireThreadArena() const noexcept { return 0; }
+
+  explicit operator bool() const noexcept { return false; }
 };
 
 #endif  // USE_JEMALLOC
@@ -223,18 +277,18 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
   unsigned arena_idx_;
 };
 
-// RAII guard: installs a DB arena and tcache for the duration of its scope and
-// restores the previous values on destruction. Supports nested scopes.
+// RAII guard: installs a DB arena for the duration of its scope and
+// restores the previous value on destruction. Supports nested scopes.
 //
 // Usage (query threads):
 //   DbArenaScope scope{&db};          // Acquire per-thread arena from Database
-//   DbArenaScope scope{arena_idx};    // Legacy: direct arena index (uses TCACHE_NONE)
+//   DbArenaScope scope{arena_idx};    // Legacy: direct arena index
 //   ... execute pull ...
 struct DbArenaScope {
-  // Acquire per-thread arena and tcache from the database.
+  // Acquire per-thread arena from the database.
   explicit DbArenaScope(memgraph::dbms::Database *db);
 
-  // Legacy constructor: direct arena index (no tcache)
+  // Legacy constructor: direct arena index
   explicit DbArenaScope(unsigned arena_idx) noexcept;
 
   ~DbArenaScope() noexcept;
@@ -245,20 +299,8 @@ struct DbArenaScope {
   DbArenaScope &operator=(DbArenaScope &&) = delete;
 
  private:
-  DbArenaTlsState prev_;
-  // Note: db_ member removed - not needed as we store state in prev_
+  unsigned prev_arena_{0};
 };
-
-// Helper functions for setting up per-thread arena resources.
-// These can be called at the start/end of thread execution.
-#if USE_JEMALLOC
-// Sets up per-thread arena and tcache for the given arena index.
-// Returns the tcache index (UINT_MAX on failure).
-unsigned SetupThreadArena(unsigned arena_idx);
-
-// Cleans up per-thread tcache.
-void CleanupThreadTcache(unsigned tcache_idx) noexcept;
-#endif
 
 // A std::jthread wrapper that sets tls_db_arena_state on the new thread so that
 // allocations through DbAwareAllocator / ArenaAwareAllocator containers are

@@ -321,9 +321,10 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  PlanInvalidatorPtr invalidator,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : Storage(config, config.salient.storage_mode, std::move(invalidator), std::move(database_protector_factory)),
-      vertices_(memory::ArenaAwareAllocator<char>{config.arena_idx}),
-      edges_(memory::ArenaAwareAllocator<char>{config.arena_idx}),
-      edges_metadata_(memory::ArenaAwareAllocator<char>{config.arena_idx}),
+      arena_registration_(config.arena_registration),
+      vertices_(memory::ArenaAwareAllocator<char>{arena_registration_.BaseArenaIdx()}),
+      edges_(memory::ArenaAwareAllocator<char>{arena_registration_.BaseArenaIdx()}),
+      edges_metadata_(memory::ArenaAwareAllocator<char>{arena_registration_.BaseArenaIdx()}),
       recovery_{.snapshot_directory_ = config.durability.storage_directory / durability::kSnapshotDirectory,
                 .wal_directory_ = config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
@@ -477,9 +478,12 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     gc_runner_.SetInterval(config_.gc.interval);
     gc_runner_.Run("Storage GC", [this] {
 #if USE_JEMALLOC
-      if (config_.arena_idx != 0) {
-        je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
-        memory::tls_db_arena_state.arena = config_.arena_idx;
+      if (arena_registration_) {
+        unsigned arena = arena_registration_.AcquireThreadArena();
+        if (arena != 0) {
+          je_mallctl("thread.arena", nullptr, nullptr, &arena, sizeof(unsigned));
+          memory::tls_db_arena_state.arena = arena;
+        }
       }
 #endif
       this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
@@ -2555,7 +2559,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           *std::move(active_constraints),
           std::move(async_index_helper),
           last_durable_ts,
-          config_.arena_idx};
+          arena_registration_.BaseArenaIdx()};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
@@ -3187,7 +3191,7 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
   if (!wal_file_) {
 #if USE_JEMALLOC
     {
-      memory::ArenaAwareAllocator<durability::WalFile> alloc{config_.arena_idx};
+      memory::ArenaAwareAllocator<durability::WalFile> alloc{arena_registration_.BaseArenaIdx()};
       auto *raw = alloc.allocate(1);
       try {
         std::construct_at(raw,
@@ -4246,9 +4250,12 @@ void InMemoryStorage::CreateSnapshotHandler(
   snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
 #if USE_JEMALLOC
-    if (config_.arena_idx != 0) {
-      je_mallctl("thread.arena", nullptr, nullptr, &config_.arena_idx, sizeof(unsigned));
-      memory::tls_db_arena_state.arena = config_.arena_idx;
+    if (arena_registration_) {
+      unsigned arena = arena_registration_.AcquireThreadArena();
+      if (arena != 0) {
+        je_mallctl("thread.arena", nullptr, nullptr, &arena, sizeof(unsigned));
+        memory::tls_db_arena_state.arena = arena;
+      }
     }
 #endif
     if (!token.stop_requested()) {

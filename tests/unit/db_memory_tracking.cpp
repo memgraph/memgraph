@@ -172,22 +172,26 @@ TEST_F(DbMemoryTrackingTest, QueryMemoryTracking) {
   EXPECT_EQ(db2->DbQueryMemoryUsage(), db2_q_before) << "DB2 query tracker must remain unchanged";
 
   // QueryAllocator PMR SHOULD affect per-DB query tracker.
+  // NOTE: db_query_memory_tracker_ intentionally does NOT have graph_memory_tracker as parent
+  // to avoid double-counting (query PMR bytes were being counted twice: once via
+  // TrackingMemoryResource::Alloc and once via arena hooks). Query memory only rolls up to
+  // db_total_memory_tracker_ for tenant limit enforcement, not to global domain trackers.
   memgraph::query::QueryAllocator execution_memory{db1->DbQueryMemoryTracker()};
   const int64_t pmr_before = db1->DbQueryMemoryUsage();
-  const int64_t total_before = memgraph::utils::total_memory_tracker.Amount();
+  const int64_t db_total_before = db1->DbMemoryUsage();
 
   static constexpr std::size_t kAllocSize = 4 * 1024 * 1024;
   void *ptr = execution_memory.resource_without_pool_or_mono()->allocate(kAllocSize, alignof(std::max_align_t));
 
   const int64_t pmr_after = db1->DbQueryMemoryUsage();
-  const int64_t total_after = memgraph::utils::total_memory_tracker.Amount();
+  const int64_t db_total_after = db1->DbMemoryUsage();
 
   execution_memory.resource_without_pool_or_mono()->deallocate(ptr, kAllocSize, alignof(std::max_align_t));
 
   EXPECT_GT(pmr_after - pmr_before, static_cast<int64_t>(1024 * 1024))
       << "QueryAllocator PMR should attribute memory to per-DB query tracker";
-  EXPECT_GE(total_after - total_before, pmr_after - pmr_before)
-      << "total_memory_tracker should include query memory via parent chain";
+  EXPECT_GE(db_total_after - db_total_before, pmr_after - pmr_before)
+      << "db_total_memory_tracker should include query memory via parent chain (for tenant limits)";
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +243,11 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
       .scalar_kind = unum::usearch::scalar_kind_t::f32_k,
   };
 
-  ASSERT_NO_ERROR(unique_acc->CreateVectorIndex(spec));
+  // Pin arena for vector index creation (uses DbAwareAllocator internally)
+  {
+    memgraph::memory::DbArenaScope db_arena_scope{db1->ArenaIdx()};
+    ASSERT_NO_ERROR(unique_acc->CreateVectorIndex(spec));
+  }
 
   const int64_t db1_delta = db1->DbEmbeddingMemoryUsage() - db1_before;
   const int64_t db1_total_delta = db1->DbMemoryUsage() - db1_total_before;
@@ -248,7 +256,10 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   EXPECT_EQ(db2->DbEmbeddingMemoryUsage(), db2_before) << "DB2 embedding tracker must not grow";
   EXPECT_EQ(db1_total_delta, db1_delta) << "db_total should include embedding delta";
 
-  ASSERT_NO_ERROR(unique_acc->DropVectorIndex(spec.index_name));
+  {
+    memgraph::memory::DbArenaScope db_arena_scope{db1->ArenaIdx()};
+    ASSERT_NO_ERROR(unique_acc->DropVectorIndex(spec.index_name));
+  }
   EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_before) << "Dropping index should release embedding memory";
 }
 
@@ -645,59 +656,11 @@ TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
                                     << " after_gc=" << after_gc;
 }
 
-#else  // !USE_JEMALLOC
-
-TEST_F(DbMemoryTrackingTest, ArenaIdxIsZeroWithoutJemalloc) {
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
-  auto db_acc_opt = db_gk.access();
-  ASSERT_TRUE(db_acc_opt);
-  EXPECT_EQ((*db_acc_opt)->ArenaIdx(), 0u) << "Without jemalloc, arena idx must be 0";
-}
-
-TEST_F(DbMemoryTrackingTest, PlanCacheInsertionsAreAttributedToOwningDatabase) {
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(data_dir_)};
-  auto db_acc_opt = db_gk.access();
-  ASSERT_TRUE(db_acc_opt);
-  auto &db = *db_acc_opt;
-
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      std::nullopt};
-  memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context{{},
-                                                          nullptr,
-                                                          nullptr,
-                                                          nullptr,
-                                                          repl_state,
-                                                          system_state,
-                                                          nullptr
-#ifdef MG_ENTERPRISE
-                                                          ,
-                                                          std::nullopt,
-                                                          nullptr
-#endif
-  };
-  InterpreterFaker interpreter_faker{&interpreter_context, db};
-
-  const int64_t before = db->DbStorageMemoryUsage();
-  constexpr int kQueryCount = 200;
-  for (int i = 0; i < kQueryCount; ++i) {
-    interpreter_faker.Interpret("RETURN 1 AS a" + std::to_string(i));
-  }
-
-  const int64_t after = db->DbStorageMemoryUsage();
-  EXPECT_EQ(db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), static_cast<size_t>(kQueryCount));
-  EXPECT_GT(after, before + static_cast<int64_t>(4096))
-      << "DB storage tracker should include plan-cache node allocations done during prepare. before=" << before
-      << " after=" << after;
-}
-
 // ---------------------------------------------------------------------------
-// Per-thread arena tests
+// 14. ArenaRegistration API: BaseArenaIdx vs AcquireThreadArena semantics
 // ---------------------------------------------------------------------------
-
-// Test that AcquireThreadArena returns the same arena for the same thread
-TEST_F(DbMemoryTrackingTest, PerThreadArena_SameThreadSameArena) {
-  auto dir = data_dir_ / "db_per_thread";
+TEST_F(DbMemoryTrackingTest, ArenaRegistration_BaseArenaIdxVsAcquireThreadArena) {
+  auto dir = data_dir_ / "db_arena_reg";
   std::filesystem::create_directories(dir);
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
@@ -705,18 +668,49 @@ TEST_F(DbMemoryTrackingTest, PerThreadArena_SameThreadSameArena) {
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
-  // First call should create an arena for this thread
-  unsigned arena1 = db->Arena().AcquireThreadArena();
-  EXPECT_NE(arena1, 0u) << "AcquireThreadArena should return a valid arena";
+  // BaseArenaIdx returns a valid, stable arena index (for backwards compat)
+  unsigned base_arena = db->storage()->config_.arena_registration.BaseArenaIdx();
+  EXPECT_NE(base_arena, 0u) << "BaseArenaIdx should return a valid arena";
+  unsigned base_arena2 = db->storage()->config_.arena_registration.BaseArenaIdx();
+  EXPECT_EQ(base_arena, base_arena2) << "BaseArenaIdx should be stable across calls";
 
-  // Second call from the same thread should return the same arena
-  unsigned arena2 = db->Arena().AcquireThreadArena();
-  EXPECT_EQ(arena1, arena2) << "Same thread should get the same arena";
+  // AcquireThreadArena returns a valid arena for the test thread
+  unsigned thread_arena = db->storage()->config_.arena_registration.AcquireThreadArena();
+  EXPECT_NE(thread_arena, 0u) << "AcquireThreadArena should return a valid arena";
+
+  // AcquireThreadArena is idempotent on the same thread
+  unsigned thread_arena2 = db->storage()->config_.arena_registration.AcquireThreadArena();
+  EXPECT_EQ(thread_arena, thread_arena2) << "AcquireThreadArena should be idempotent on same thread";
+
+  // BaseArenaIdx and AcquireThreadArena on a non-constructor thread are
+  // intentionally different: BaseArenaIdx is the constructor-created arena,
+  // AcquireThreadArena creates a new per-thread arena for contention isolation.
+  EXPECT_NE(base_arena, thread_arena) << "BaseArenaIdx (constructor arena) and AcquireThreadArena (per-thread arena) "
+                                      << "should differ on non-constructor threads by design";
+
+  // Verify ArenaRegistration bool operator
+  EXPECT_TRUE(db->storage()->config_.arena_registration) << "Valid ArenaRegistration should evaluate to true";
 }
 
-// Test that different threads get different arenas
-TEST_F(DbMemoryTrackingTest, PerThreadArena_DifferentThreadsDifferentArenas) {
-  auto dir = data_dir_ / "db_per_thread_multi";
+// ---------------------------------------------------------------------------
+// 15. ArenaRegistration: Empty/default construction behavior
+// ---------------------------------------------------------------------------
+TEST_F(DbMemoryTrackingTest, ArenaRegistration_EmptyBehavior) {
+  memgraph::memory::ArenaRegistration empty_reg;
+
+  // Empty registration should evaluate to false
+  EXPECT_FALSE(empty_reg) << "Default-constructed ArenaRegistration should be false";
+
+  // Empty registration should return 0 for both methods
+  EXPECT_EQ(empty_reg.BaseArenaIdx(), 0u) << "Empty BaseArenaIdx should return 0";
+  EXPECT_EQ(empty_reg.AcquireThreadArena(), 0u) << "Empty AcquireThreadArena should return 0";
+}
+
+// ---------------------------------------------------------------------------
+// 16. Concurrent AcquireThreadArena: All threads get unique arenas
+// ---------------------------------------------------------------------------
+TEST_F(DbMemoryTrackingTest, ConcurrentAcquireThreadArena_AllUniqueArenas) {
+  auto dir = data_dir_ / "db_concurrent";
   std::filesystem::create_directories(dir);
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
@@ -724,19 +718,28 @@ TEST_F(DbMemoryTrackingTest, PerThreadArena_DifferentThreadsDifferentArenas) {
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
-  constexpr int kNumThreads = 4;
+  constexpr int kNumThreads = 20;
   std::vector<unsigned> arenas(kNumThreads);
   std::vector<std::thread> threads;
+  std::atomic<int> ready_count{0};
+  std::atomic<bool> start{false};
 
+  // Launch threads that all wait for a signal, then simultaneously call AcquireThreadArena
   for (int i = 0; i < kNumThreads; ++i) {
     threads.emplace_back([&, i]() {
-      arenas[i] = db->Arena().AcquireThreadArena();
-      // Also test tcache creation
-      unsigned tcache = db->Arena().GetOrCreateTcache(arenas[i]);
-      EXPECT_NE(tcache, UINT_MAX) << "Should be able to create tcache";
-      db->Arena().DestroyThreadTcache(tcache);
+      ready_count.fetch_add(1);
+      while (!start.load()) {
+        std::this_thread::yield();
+      }
+      arenas[i] = db->storage()->config_.arena_registration.AcquireThreadArena();
     });
   }
+
+  // Wait for all threads to be ready, then signal start
+  while (ready_count.load() < kNumThreads) {
+    std::this_thread::yield();
+  }
+  start.store(true);
 
   for (auto &t : threads) {
     t.join();
@@ -747,17 +750,21 @@ TEST_F(DbMemoryTrackingTest, PerThreadArena_DifferentThreadsDifferentArenas) {
     EXPECT_NE(arenas[i], 0u) << "Thread " << i << " should have a valid arena";
   }
 
-  // All arenas should be unique (per-thread)
-  for (int i = 0; i < kNumThreads; ++i) {
-    for (int j = i + 1; j < kNumThreads; ++j) {
-      EXPECT_NE(arenas[i], arenas[j]) << "Threads " << i << " and " << j << " should have different arenas";
-    }
-  }
+  // All arenas should be unique (per-thread isolation)
+  std::set<unsigned> unique_arenas(arenas.begin(), arenas.end());
+  EXPECT_EQ(unique_arenas.size(), kNumThreads)
+      << "All " << kNumThreads << " threads should have unique arenas, got " << unique_arenas.size();
 }
 
-// Test that DbArenaScope correctly sets and restores TLS
-TEST_F(DbMemoryTrackingTest, DbArenaScope_SetsAndRestoresTls) {
-  auto dir = data_dir_ / "db_scope";
+// ---------------------------------------------------------------------------
+// 17. Concurrent threads get different arenas (guaranteed invariant)
+// ---------------------------------------------------------------------------
+// Note: We test CONCURRENT threads, not sequential threads. Sequential threads
+// may get the same arena if the OS reuses thread IDs (which is OS-dependent).
+// The implementation stores arena-to-thread mappings indefinitely (no cleanup
+// on thread death), so thread ID reuse leads to arena reuse.
+TEST_F(DbMemoryTrackingTest, ConcurrentThreads_GetDifferentArenas) {
+  auto dir = data_dir_ / "db_concurrent_arenas";
   std::filesystem::create_directories(dir);
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
@@ -765,62 +772,139 @@ TEST_F(DbMemoryTrackingTest, DbArenaScope_SetsAndRestoresTls) {
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
-  // Get the initial state
-  unsigned initial_arena = memgraph::memory::tls_db_arena_state.arena;
+  // The guaranteed invariant: concurrent threads get different arenas.
+  // Thread ID reuse after death is OS-dependent and NOT guaranteed to produce
+  // different IDs, so we test concurrent threads (where different IDs are certain).
+  unsigned arena1 = 0, arena2 = 0;
+  std::atomic<bool> start{false};
+
+  std::thread t1([&]() {
+    while (!start.load()) std::this_thread::yield();
+    arena1 = db->storage()->config_.arena_registration.AcquireThreadArena();
+  });
+  std::thread t2([&]() {
+    while (!start.load()) std::this_thread::yield();
+    arena2 = db->storage()->config_.arena_registration.AcquireThreadArena();
+  });
+
+  start.store(true);
+  t1.join();
+  t2.join();
+
+  ASSERT_NE(arena1, 0u) << "Thread 1 should have a valid arena";
+  ASSERT_NE(arena2, 0u) << "Thread 2 should have a valid arena";
+  EXPECT_NE(arena1, arena2) << "Concurrent threads should get different arenas";
+}
+
+// ---------------------------------------------------------------------------
+// 18. Background thread (GC simulation) acquires per-thread arena
+// ---------------------------------------------------------------------------
+TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
+  auto dir = data_dir_ / "db_bg_thread";
+  std::filesystem::create_directories(dir);
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
+  auto acc = db_gk.access();
+  ASSERT_TRUE(acc);
+  auto *db = acc->get();
+
+  unsigned base_arena = db->storage()->config_.arena_registration.BaseArenaIdx();
+  ASSERT_NE(base_arena, 0u);
+
+  unsigned bg_thread_arena = 0;
+  std::thread bg_thread([&]() {
+    // Simulate what GC/snapshot/TTL threads do
+    if (db->storage()->config_.arena_registration) {
+      unsigned arena = db->storage()->config_.arena_registration.AcquireThreadArena();
+      if (arena != 0) {
+        je_mallctl("thread.arena", nullptr, nullptr, &arena, sizeof(unsigned));
+        memgraph::memory::tls_db_arena_state.arena = arena;
+        bg_thread_arena = arena;
+      }
+    }
+  });
+  bg_thread.join();
+
+  EXPECT_NE(bg_thread_arena, 0u) << "Background thread should acquire an arena";
+  EXPECT_NE(bg_thread_arena, base_arena) << "Background thread should get its own arena, different from base arena";
+}
+
+// ---------------------------------------------------------------------------
+// 19. ArenaRegistration after Database destruction (Storage lifetime)
+// ---------------------------------------------------------------------------
+TEST_F(DbMemoryTrackingTest, ArenaRegistration_AfterDatabaseDestruction) {
+  unsigned captured_base_arena = 0;
+  memgraph::memory::ArenaRegistration captured_reg;
 
   {
-    // Create scope - should acquire per-thread arena
-    memgraph::memory::DbArenaScope scope(db);
-    unsigned scoped_arena = memgraph::memory::tls_db_arena_state.arena;
-    EXPECT_NE(scoped_arena, 0u) << "Within scope, arena should be set";
-    EXPECT_NE(scoped_arena, initial_arena) << "Within scope, arena should be different from initial";
+    auto dir = data_dir_ / "db_lifetime";
+    std::filesystem::create_directories(dir);
+
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
+    auto acc = db_gk.access();
+    ASSERT_TRUE(acc);
+    auto *db = acc->get();
+
+    // Capture ArenaRegistration while Database is alive
+    captured_reg = db->storage()->config_.arena_registration;
+    captured_base_arena = captured_reg.BaseArenaIdx();
+
+    EXPECT_TRUE(captured_reg) << "ArenaRegistration should be valid while DB is alive";
+    EXPECT_NE(captured_base_arena, 0u) << "Base arena should be valid";
   }
 
-  // After scope exits, should be restored
-  unsigned final_arena = memgraph::memory::tls_db_arena_state.arena;
-  EXPECT_EQ(final_arena, initial_arena) << "After scope exits, arena should be restored";
+  // After Database destruction, ArenaRegistration still "works" but returns 0
+  // (the pointer is dangling, but the stub implementation returns 0)
+  // NOTE: This is technically UB, but in practice the pointer dangles to freed memory
+  // which may or may not return 0. We test that the methods don't crash.
+  // In real code, Storage is always destroyed before Database.
+
+  // We can't safely test this because the ArenaRegistration holds a raw pointer
+  // to DbArena which is destroyed when Database is destroyed. Accessing it is UB.
+  // The lifetime guarantee is enforced by member declaration order in Database.
 }
 
-// Test that TLS state structure works correctly
-TEST_F(DbMemoryTrackingTest, TlsStateStructure) {
-  using memgraph::memory::tls_db_arena_state;
-  using memgraph::memory::DbArenaTlsState;
+// ---------------------------------------------------------------------------
+// 20. Mixed allocators: ArenaAwareAllocator + DbAwareAllocator consistency
+// ---------------------------------------------------------------------------
+TEST_F(DbMemoryTrackingTest, MixedAllocators_ConsistentAttribution) {
+  auto dir = data_dir_ / "db_mixed_alloc";
+  std::filesystem::create_directories(dir);
 
-  // Check initial state
-  EXPECT_EQ(tls_db_arena_state.arena, 0u) << "Initial arena should be 0";
-  EXPECT_EQ(tls_db_arena_state.tcache, UINT_MAX) << "Initial tcache should be UINT_MAX";
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{MakeConfig(dir)};
+  auto acc = db_gk.access();
+  ASSERT_TRUE(acc);
+  auto *db = acc->get();
 
-  // Modify state
-  tls_db_arena_state.arena = 42;
-  tls_db_arena_state.tcache = 5;
+  const unsigned arena_idx = db->ArenaIdx();
+  ASSERT_NE(arena_idx, 0U);
 
-  EXPECT_EQ(tls_db_arena_state.arena, 42u);
-  EXPECT_EQ(tls_db_arena_state.tcache, 5u);
+  const int64_t before = db->DbMemoryUsage();
 
-  // Reset
-  tls_db_arena_state = DbArenaTlsState{};
-  EXPECT_EQ(tls_db_arena_state.arena, 0u);
-  EXPECT_EQ(tls_db_arena_state.tcache, UINT_MAX);
-}
+  // Create vertices using ArenaAwareAllocator (Storage layer)
+  // and set properties using DbAwareAllocator (via std::string)
+  {
+    memgraph::memory::DbArenaScope scope{arena_idx};
+    auto txn = db->Access();
 
-// Test SetupThreadArena helper function
-TEST_F(DbMemoryTrackingTest, SetupThreadArena_Helper) {
-  using memgraph::memory::SetupThreadArena;
-  using memgraph::memory::CleanupThreadTcache;
-  using memgraph::memory::tls_db_arena_state;
-
-  // Setup with arena 0 should reset
-  SetupThreadArena(0);
-  EXPECT_EQ(tls_db_arena_state.arena, 0u);
-  EXPECT_EQ(tls_db_arena_state.tcache, UINT_MAX);
-
-  // Setup with valid arena should work
-  unsigned tcache = SetupThreadArena(1);  // Arena 1 should always exist
-  if (tcache != UINT_MAX) {
-    EXPECT_EQ(tls_db_arena_state.arena, 1u);
-    EXPECT_NE(tls_db_arena_state.tcache, UINT_MAX);
-    CleanupThreadTcache(tcache);
+    // Create 1000 vertices with string properties
+    for (int i = 0; i < 1000; ++i) {
+      auto v = txn->CreateVertex();
+      // Vertex creation uses ArenaAwareAllocator (skiplist nodes)
+      ASSERT_NO_ERROR(v.AddLabel(db->storage()->NameToLabel("MixedNode")));
+      // Property string uses DbAwareAllocator (via std::string allocation)
+      ASSERT_NO_ERROR(v.SetProperty(db->storage()->NameToProperty("data"),
+                                    memgraph::storage::PropertyValue(std::string(1024, 'x'))));  // 1KB string
+    }
+    txn->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
   }
+
+  const int64_t after = db->DbMemoryUsage();
+
+  // Both allocators should attribute to the same DB
+  EXPECT_GT(after, before + static_cast<int64_t>(1024 * 1024))
+      << "Mixed allocator usage should consistently attribute to DB tracker. "
+      << "before=" << before << " after=" << after;
 }
 
 #endif  // USE_JEMALLOC

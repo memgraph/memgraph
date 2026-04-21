@@ -794,6 +794,10 @@ class InMemoryStorage final : public Storage {
 
   EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
+  // Arena registration for per-thread arena management.
+  // Provides access to Database's DbArena for background thread arena acquisition.
+  memgraph::memory::ArenaRegistration arena_registration_;
+
   // Main object storage — ArenaAwareAllocator routes node allocations to the
   // owning DB arena without relying on TLS arena pinning.
   utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>> vertices_;

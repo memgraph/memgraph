@@ -217,13 +217,15 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                   main_db_name);
     replica_state_.WithLock([&](auto &state) {
       state = ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask(
-          [main_storage, gk = protector.clone(), this, arena_idx = main_storage->config_.arena_idx] {
-            const memory::DbArenaScope db_arena_scope{arena_idx};
-            this->RecoverReplica(/*replica_last_commit_ts*/ 0,
-                                 main_storage,
-                                 true);  // needs force reset so we need to recover from 0.
-          });
+      client_.thread_pool_.AddTask([main_storage,
+                                    gk = protector.clone(),
+                                    this,
+                                    arena_idx = main_storage->config_.arena_registration.BaseArenaIdx()] {
+        const memory::DbArenaScope db_arena_scope{arena_idx};
+        this->RecoverReplica(/*replica_last_commit_ts*/ 0,
+                             main_storage,
+                             true);  // needs force reset so we need to recover from 0.
+      });
     });
 #else
     // when using community replication print error when branching point is encountered and set the state to DIVERGED
@@ -262,7 +264,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       client_.thread_pool_.AddTask([main_storage,
                                     current_commit_timestamp = heartbeat_res.current_commit_timestamp_,
                                     gk = protector.clone(),
-                                    arena_idx = main_storage->config_.arena_idx,
+                                    arena_idx = main_storage->config_.arena_registration.BaseArenaIdx(),
                                     this] {
         const memory::DbArenaScope db_arena_scope{arena_idx};
         this->RecoverReplica(current_commit_timestamp, main_storage);
@@ -285,11 +287,13 @@ void ReplicationStorageClient::LogRpcFailure() const {
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector) {
-  client_.thread_pool_.AddTask(
-      [main_storage, protector = protector.clone(), arena_idx = main_storage->config_.arena_idx, this]() {
-        const memory::DbArenaScope db_arena_scope{arena_idx};
-        this->TryCheckReplicaStateSync(main_storage, *protector);
-      });
+  client_.thread_pool_.AddTask([main_storage,
+                                protector = protector.clone(),
+                                arena_idx = main_storage->config_.arena_registration.BaseArenaIdx(),
+                                this]() {
+    const memory::DbArenaScope db_arena_scope{arena_idx};
+    this->TryCheckReplicaStateSync(main_storage, *protector);
+  });
 }
 
 void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, DatabaseProtector const &protector) const {
@@ -297,13 +301,15 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
       "Force recovering replica {} for db {}", client_.name_, static_cast<InMemoryStorage *>(main_storage)->name());
   replica_state_.WithLock([&](auto &state) {
     state = ReplicaState::RECOVERY;
-    client_.thread_pool_.AddTask(
-        [main_storage, gk = protector.clone(), this, arena_idx = main_storage->config_.arena_idx] {
-          const memory::DbArenaScope db_arena_scope{arena_idx};
-          this->RecoverReplica(/*replica_last_commit_ts*/ 0,
-                               main_storage,
-                               true);  // needs force reset so we need to recover from 0.
-        });
+    client_.thread_pool_.AddTask([main_storage,
+                                  gk = protector.clone(),
+                                  this,
+                                  arena_idx = main_storage->config_.arena_registration.BaseArenaIdx()] {
+      const memory::DbArenaScope db_arena_scope{arena_idx};
+      this->RecoverReplica(/*replica_last_commit_ts*/ 0,
+                           main_storage,
+                           true);  // needs force reset so we need to recover from 0.
+    });
   });
 }
 

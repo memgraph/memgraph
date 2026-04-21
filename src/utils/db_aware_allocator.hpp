@@ -27,11 +27,29 @@ void *JeNew(size_t size, int flags);
 void JeFree(void *ptr, std::size_t size, int flags) noexcept;
 #endif
 
+// Debug arena verification support
+#if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
+#include "utils/logging.hpp"
+#endif
+
 namespace memgraph::memory {
 
+#if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
+// Get the arena index for a pointer using jemalloc's arenas.lookup
+// Returns 0 if pointer is not a jemalloc allocation (e.g., system malloc)
+inline unsigned GetPointerArena(void *ptr) {
+  if (!ptr) return 0;
+  unsigned arena_idx = 0;
+  size_t len = sizeof(arena_idx);
+  // arenas.lookup: takes (void*) as input, returns arena index
+  // Note: This mallctl is rw - we write the pointer, get back arena
+  je_mallctl("arenas.lookup", &arena_idx, &len, &ptr, sizeof(ptr));
+  return arena_idx;
+}
+#endif
+
 // Thread-local state for the currently active database arena.
-// arena  = 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
-// tcache = UINT_MAX means "not yet initialized" — fall back to TCACHE_NONE.
+// arena = 0 means "no DB arena pinned" — allocations go to jemalloc's default arena.
 //
 // Set by DbArenaScope for shared query threads and directly at thread-start
 // for DB-owned background threads (GC, snapshot, TTL, async indexer, ...).
@@ -39,8 +57,7 @@ namespace memgraph::memory {
 // DEVNOTE: initial-exec TLS model requires this to be in the main executable,
 //          not a shared library. Matches the pattern used by query_memory_control.
 struct DbArenaTlsState {
-  unsigned arena{0};          // Current thread's arena for active DB
-  unsigned tcache{UINT_MAX};  // Per-(thread, DB) tcache index; UINT_MAX = uninitialized
+  unsigned arena{0};  // Current thread's arena for active DB
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -48,13 +65,11 @@ inline thread_local DbArenaTlsState tls_db_arena_state [[gnu::tls_model("initial
 
 // Allocate `bytes` bytes with the given `alignment`, attributed to arena `idx`.
 // Returns void* — use DbAllocate<T> for typed element-count based allocation.
-// Uses per-thread tcache if available for speed (avoids arena lock on alloc).
+// Uses MALLOCX_TCACHE_NONE to avoid thread-cache overhead and ensure accurate tracking.
 [[nodiscard]] inline void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
 #if USE_JEMALLOC
   if (idx != 0) {
-    int flags = MALLOCX_ARENA(idx);
-    const unsigned tc = tls_db_arena_state.tcache;
-    flags |= (tc != UINT_MAX) ? MALLOCX_TCACHE(tc) : MALLOCX_TCACHE_NONE;
+    int flags = MALLOCX_ARENA(idx) | MALLOCX_TCACHE_NONE;
     if (alignment > alignof(std::max_align_t)) {
       flags |= MALLOCX_ALIGN(alignment);
     }
@@ -70,6 +85,23 @@ inline thread_local DbArenaTlsState tls_db_arena_state [[gnu::tls_model("initial
 // return pages to the OS promptly without blocks sitting in the TLS cache.
 inline void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept {
 #if USE_JEMALLOC
+#ifdef DEBUG_ARENA_VERIFICATION
+  // Verify arena correctness in debug builds
+  if (p && tls_db_arena_state.arena != 0) {
+    unsigned ptr_arena = GetPointerArena(p);
+    unsigned tls_arena = tls_db_arena_state.arena;
+    // ptr_arena == 0 means not a jemalloc pointer (e.g., system malloc) - skip check
+    // Otherwise, verify pointer belongs to current TLS arena
+    if (ptr_arena != 0 && ptr_arena != tls_arena) {
+      MG_ASSERT(false,
+                "Arena mismatch in DbDeallocateBytes: pointer belongs to arena {}, "
+                "but TLS arena is {}. Cross-arena deallocations are not allowed.",
+                ptr_arena,
+                tls_arena);
+    }
+  }
+#endif
+
   int flags = MALLOCX_TCACHE_NONE;
   if (alignment > alignof(std::max_align_t)) {
     flags |= MALLOCX_ALIGN(alignment);
@@ -136,6 +168,12 @@ struct DbAwareAllocator {
   explicit DbAwareAllocator(DbAwareAllocator<U> const & /*unused*/) noexcept {}
 
   [[nodiscard]] T *allocate(std::size_t n) {
+#ifdef DEBUG_ARENA_VERIFICATION
+    // CRITICAL: Catch "forgot to pin TLS" bugs at allocation time
+    MG_ASSERT(tls_db_arena_state.arena != 0,
+              "DbAwareAllocator::allocate called with no DB arena pinned - "
+              "allocation would go to untracked default arena");
+#endif
     const unsigned idx = tls_db_arena_state.arena;
     return DbAllocate<T>(n, idx);
   }

@@ -77,7 +77,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   const memory::DbArenaScope db_arena_scope{ArenaIdx()};
 #endif
 
-  config.arena_idx = ArenaIdx();
+  config.arena_registration = memgraph::memory::ArenaRegistration{&db_arena_};
   config.db_embedding_memory_tracker = &db_embedding_memory_tracker_;
   streams()->SetArenaIdx(ArenaIdx());
 
@@ -152,10 +152,9 @@ void Database::SwitchToOnDisk() {
 #if USE_JEMALLOC
 namespace memgraph::memory {
 
-DbArenaScope::DbArenaScope(memgraph::dbms::Database *db) : prev_(tls_db_arena_state) {
+DbArenaScope::DbArenaScope(memgraph::dbms::Database *db) : prev_arena_(tls_db_arena_state.arena) {
   if (db != nullptr) {
     tls_db_arena_state.arena = db->Arena().AcquireThreadArena();
-    tls_db_arena_state.tcache = db->Arena().GetOrCreateTcache(tls_db_arena_state.arena);
   }
 }
 
