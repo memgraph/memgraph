@@ -8,8 +8,8 @@ This bundle reuses the same remote monitoring flow as `victoria-cluster`, but fo
 ## What this starts
 
 - `mg-exporter` (`memgraph/prometheus-exporter:0.2.1`)
-- `vmagent` (`victoriametrics/vmagent:latest`)
-- `vector` (`timberio/vector:0.42.0-debian`)
+- `vmagent` (`victoriametrics/vmagent:v1.139.0`)
+- `vector` (`timberio/vector:0.49.0-debian`)
 
 ## Prerequisites
 
