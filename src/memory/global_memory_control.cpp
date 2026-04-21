@@ -36,6 +36,9 @@ namespace memgraph::memory {
 
 // Single DbArenaHooks instance for all startup arenas — they all share the same
 // default (base) hooks and feed graph_memory_tracker (which parents to total_memory_tracker).
+// DB-specific arenas are created later via ArenaPool/DbArena as additional explicit
+// jemalloc arenas; this startup hook installation does not hand the global arenas
+// over to any database.
 namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DbArenaHooks global_graph_arena_hooks{};

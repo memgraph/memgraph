@@ -47,6 +47,11 @@ struct DbArenaHooks {
 void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hooks_t *base_hooks);
 
 // Singleton pool that recycles jemalloc arena indices across DbArena lifetimes.
+//
+// These are extra explicit arenas created with arenas.create for DB-scoped
+// allocations. They do not replace jemalloc's normal startup arenas configured
+// by SetHooks(); non-DB malloc/new traffic continues to use jemalloc's default
+// arena selection unless a DB-aware allocator passes MALLOCX_ARENA explicitly.
 // Without recycling, every Database creation permanently consumes an index — in
 // long-running multi-tenant processes this causes unbounded jemalloc metadata growth.
 //
