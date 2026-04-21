@@ -84,6 +84,34 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
   unsigned arena_idx_;
 };
 
+// =============================================================================
+// DB Arena Threading Policy
+// =============================================================================
+//
+// Arena attribution is TLS-based: DbArenaScope writes tls_db_arena_state.arena,
+// and DbAwareAllocator/ArenaAwareAllocator read it per allocation.
+//
+// Raw jemalloc thread.arena pinning (je_mallctl "thread.arena") is NOT used as
+// a general scope because restoring to automatic per-CPU arenas returns EPERM.
+//
+// Thread types and their correct setup:
+//
+//   Long-lived dedicated DB threads (TTL, GC, AsyncIndexer, trigger pool):
+//     Call AcquireThreadArena() once on first run to get a per-thread arena,
+//     then set DbArenaScope for the thread lifetime. Use SetAcquireArenaFn()
+//     injection so the thread can call AcquireThreadArena() lazily without
+//     a direct ArenaRegistration dependency.
+//
+//   Short-lived thread-pool tasks (replication, plan cache):
+//     Use DbArenaScope{BaseArenaIdx()} for the task duration. BaseArenaIdx()
+//     is sufficient because tasks are short-lived and pool threads are shared.
+//
+//   Query execution threads (Pull, Commit, Abort):
+//     DbArenaScope is placed at the entry point once the target DB is known.
+//     System queries must not pin a DB arena.
+//
+// =============================================================================
+
 // RAII guard: installs a DB arena for the duration of its scope and restores
 // the previous TLS value on destruction. Supports nested scopes.
 struct DbArenaScope {
