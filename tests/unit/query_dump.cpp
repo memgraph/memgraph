@@ -450,7 +450,7 @@ class DumpTest : public ::testing::Test {
                                               nullptr
 #ifdef MG_ENTERPRISE
                                               ,
-                                              std::nullopt,
+                                              nullptr,
                                               nullptr
 #endif
   };
@@ -1289,7 +1289,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
                                                           nullptr
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt,
+                                                          nullptr,
                                                           nullptr
 #endif
   );
@@ -1497,7 +1497,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                                                           nullptr
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt,
+                                                          nullptr,
                                                           nullptr
 #endif
   );

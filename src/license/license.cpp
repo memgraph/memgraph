@@ -43,6 +43,12 @@ namespace memgraph::license {
 namespace {
 inline constexpr std::string_view license_key_prefix = "mglk-";
 
+inline constexpr int64_t kExpirationGraceSeconds = std::chrono::hours{24} / std::chrono::seconds{1};
+
+bool IsLicenseExpired(int64_t valid_until, int64_t now_seconds) {
+  return valid_until != 0 && now_seconds - kExpirationGraceSeconds > valid_until;
+}
+
 std::optional<License> GetLicense(std::string_view license_key) {
   if (license_key.empty()) {
     return std::nullopt;
@@ -72,7 +78,7 @@ LicenseCheckResult IsValidLicenseInternal(const License &license, std::string_vi
   const auto now =
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-  if (license.valid_until != 0 && now > license.valid_until) {
+  if (IsLicenseExpired(license.valid_until, now)) {
     return std::unexpected{LicenseCheckError::EXPIRED_LICENSE};
   }
 
@@ -88,6 +94,9 @@ std::string LicenseTypeToString(const LicenseType license_type) {
     case LicenseType::OEM: {
       return "oem";
     }
+    case LicenseType::AI_PLATFORM: {
+      return "ai_platform";
+    }
   }
 }
 
@@ -102,7 +111,7 @@ void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &s
     }
     const auto now =
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    if (maybe_license->valid_until != 0 && now > maybe_license->valid_until) {
+    if (IsLicenseExpired(maybe_license->valid_until, now)) {
       return std::unexpected<std::string>{"Invalid license key: the license has already expired."};
     }
     return {};
@@ -125,18 +134,38 @@ LicenseChecker::~LicenseChecker() { Finalize(); }
 void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   spdlog::trace("License revalidation started");
 
-  static utils::Synchronized<std::optional<int64_t>, utils::SpinLock> previous_memory_limit;
-  const auto set_memory_limit = [](const int64_t memory_limit) {
+  // Passing 0 to SetHardLimit restores the limit to maximum_hard_limit_ (the --memory-limit flag value)
+  // if --memory-limit was configured. If it was not (maximum_hard_limit_ == 0), this is a no-op.
+  constexpr int64_t kUseDefaultMemoryLimit = 0;
+
+  struct PreviousMemoryState {
+    int64_t limit{0};
+    std::optional<LicenseType> type{};
+    bool operator==(const PreviousMemoryState &) const = default;
+  };
+
+  static utils::Synchronized<std::optional<PreviousMemoryState>, utils::SpinLock> previous_memory_limit;
+  const auto set_memory_limit = [](int64_t memory_limit, std::optional<LicenseType> license_type = std::nullopt) {
     auto locked = previous_memory_limit.Lock();
-    if (!*locked || **locked != memory_limit) {
+    const PreviousMemoryState current{.limit = memory_limit, .type = license_type};
+    if (*locked && **locked == current) return;
+
+    if (license_type == LicenseType::AI_PLATFORM && memory_limit > 0) {
+      // AI_PLATFORM: limit graph memory only; total falls back to --memory-limit
+      utils::total_memory_tracker.SetHardLimit(kUseDefaultMemoryLimit);
+      utils::graph_memory_tracker.SetHardLimit(memory_limit);
+    } else {
+      // ENTERPRISE / no license: limit total memory, clear graph limit
+      utils::graph_memory_tracker.ResetLimit();
       utils::total_memory_tracker.SetHardLimit(memory_limit);
-      *locked = memory_limit;
     }
+
+    *locked = current;
   };
 
   if (enterprise_enabled_) [[unlikely]] {
     is_valid_.store(true, std::memory_order_release);
-    set_memory_limit(0);
+    set_memory_limit(0, license_type_);
     return;
   }
 
@@ -212,7 +241,7 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
       locked->emplace(winner.key, winner.org);
       (*locked)->is_valid = true;
       (*locked)->license = winner.license;
-      set_memory_limit(winner.license.memory_limit);
+      set_memory_limit(winner.license.memory_limit, winner.license.type);
     }
   }
 
@@ -225,12 +254,22 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
 void LicenseChecker::EnableTesting(const LicenseType license_type) {
   enterprise_enabled_ = true;
   license_type_ = license_type;
+  {
+    auto locked = previous_license_info_.Lock();
+    locked->emplace("test-key", "test-org");
+    (*locked)->is_valid = true;
+    (*locked)->license.type = license_type;
+  }
   is_valid_.store(true, std::memory_order_release);
   spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
 }
 
 void LicenseChecker::DisableTesting() {
   enterprise_enabled_ = false;
+  {
+    auto locked = previous_license_info_.Lock();
+    locked->reset();
+  }
   is_valid_.store(false, std::memory_order_relaxed);
   spdlog::info("The license is disabled for testing.");
 }
@@ -273,8 +312,9 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
           "SET DATABASE SETTING \"enterprise.license\" TO \"your-license-key\"",
           feature);
     case LicenseCheckError::NOT_ENTERPRISE_LICENSE:
-      return fmt::format("Your license has an invalid type. To use {} you need to have an enterprise license. \n",
-                         feature);
+      return fmt::format(
+          "Your license has an invalid type. To use {} you need to have an enterprise or ai_platform license.\n",
+          feature);
   }
 }
 
@@ -293,7 +333,7 @@ LicenseCheckResult LicenseChecker::IsEnterpriseValid(std::string_view license_ke
   if (!maybe_license) {
     return std::unexpected{LicenseCheckError::INVALID_LICENSE_KEY_STRING};
   }
-  if (maybe_license->type != LicenseType::ENTERPRISE) {
+  if (maybe_license->type != LicenseType::ENTERPRISE && maybe_license->type != LicenseType::AI_PLATFORM) {
     return std::unexpected{LicenseCheckError::NOT_ENTERPRISE_LICENSE};
   }
 
@@ -383,7 +423,9 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   }
 
   info.is_valid = true;
-  info.status = "You are running a valid Memgraph Enterprise License.";
+  info.status = maybe_license->type == LicenseType::AI_PLATFORM
+                    ? "You are running a valid Memgraph AI Platform License."
+                    : "You are running a valid Memgraph Enterprise License.";
   return info;
 }
 
@@ -391,7 +433,8 @@ bool LicenseChecker::IsEnterpriseValidFast() const {
   // Acquire synchronizes with release stores in RevalidateLicense/EnableTesting.
   // This ensures we see the license_type_ write that precedes those release stores,
   // avoiding a data race on the non-atomic license_type_.
-  return is_valid_.load(std::memory_order_acquire) && license_type_ == LicenseType::ENTERPRISE;
+  return is_valid_.load(std::memory_order_acquire) &&
+         (license_type_ == LicenseType::ENTERPRISE || license_type_ == LicenseType::AI_PLATFORM);
 }
 
 std::string Encode(const License &license) {

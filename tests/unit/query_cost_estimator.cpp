@@ -448,6 +448,23 @@ TEST_F(QueryCostEstimator, UnwindNoLiteral) {
 
 #undef TEST_OP
 #undef EXPECT_COST
-//
+
+TEST_F(QueryCostEstimator, OrderByHasNonZeroCost) {
+  // A plan with OrderBy should have higher cost than the same plan without it.
+  // This matters because index-scan rewriting can eliminate an OrderBy when the
+  // scan already provides the required order; if OrderBy is free the cost
+  // estimator cannot prefer the plan without the sort.
+  AddVertices(100, 30, 20);  // ScanAll cardinality ~ 100
+  MakeOp<ScanAll>(last_op_, NextSymbol());
+  const auto cost_without_order_by = Cost();
+
+  // add an OrderBy on top of the same ScanAll
+  const auto sym = NextSymbol();
+  MakeOp<OrderBy>(last_op_, std::vector<SortItem>{{Ordering::ASC, Literal(1)}}, std::vector<Symbol>{sym});
+  const auto cost_with_order_by = Cost();
+
+  EXPECT_GT(cost_with_order_by, cost_without_order_by);
+}
+
 // TODO test cost when ScanAll, Expand, Accumulate, Limit
 // vs cost for SA, Expand, Limit

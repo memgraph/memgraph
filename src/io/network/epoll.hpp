@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,11 +32,23 @@ class Epoll {
  public:
   using Event = struct epoll_event;
 
-  explicit Epoll(bool set_cloexec = false) : epoll_fd_(epoll_create1(set_cloexec ? EPOLL_CLOEXEC : 0)) {
-    // epoll_create1 returns an error if there is a logical error in our code
-    // (for example invalid flags) or if there is irrecoverable error. In both
-    // cases it is best to terminate.
-    MG_ASSERT(epoll_fd_ != -1, "Error on epoll create: ({}) {}", errno, strerror(errno));
+  // Prevent FD from leaking to child processes by using EPOLL_CLOEXEC
+  Epoll() : epoll_fd_(epoll_create1(EPOLL_CLOEXEC)) {
+    if (epoll_fd_ == -1) {
+      // Exception is currently propagated: Epoll -> Listener -> communication::Server -> RpcServer
+      throw utils::BasicException("Error on epoll create: ({}) {}", errno, strerror(errno));
+    }
+  }
+
+  // "Copy/move deleted: epoll_fd_ is const, and ownership of the FD is non-transferable."
+  Epoll(const Epoll &other) = delete;
+  Epoll &operator=(const Epoll &other) = delete;
+  Epoll(Epoll &&other) = delete;
+  Epoll &operator=(Epoll &&other) = delete;
+
+  ~Epoll() {
+    // epoll_fd_ can never be -1 because if it ever was, the exception would be thrown in the constructor
+    close(epoll_fd_);
   }
 
   /**

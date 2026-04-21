@@ -12,11 +12,10 @@ OPTIONS:
     --build-type TYPE       Build type: Release, RelWithDebInfo, or Debug (default: Release)
     --target TARGET         Specific CMake target to build (default: all targets)
     --reserve-cores N       Reserve N cores for other tasks (default: 0, uses all cores)
-    --skip-init             Skip running ./init to fetch non-Conan dependencies
     --skip-os-deps          Skip OS dependency checks
     --keep-build            Keep existing build directory for incremental builds
     --config-only           Only configure CMake, don't build
-    --dev                   Developer mode: enables --skip-init --skip-os-deps --keep-build
+    --dev                   Developer mode: enables --skip-os-deps --keep-build
     --update-lockfile       Update conan.lock before installing dependencies
     --graph-info            Generate dependency graph as graph.html and exit
     --help                  Show this help message
@@ -58,7 +57,6 @@ EOF
 BUILD_TYPE="Release"
 TARGET=""
 CMAKE_ARGS=""
-skip_init=false
 config_only=false
 keep_build=false
 skip_os_deps=false
@@ -78,10 +76,6 @@ while [[ $# -gt 0 ]]; do
             TARGET="$2"
             shift 2
             ;;
-        --skip-init)
-            skip_init=true
-            shift
-            ;;
         --config-only)
             config_only=true
             shift
@@ -95,8 +89,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --dev)
-            # Developer mode: skip init, os deps checks, and keep build directory
-            skip_init=true
+            # Developer mode: skip os deps checks and keep build directory
             skip_os_deps=true
             keep_build=true
             shift
@@ -141,7 +134,6 @@ if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD
 fi
 
 # Initialize arrays for arguments
-INIT_ARGS=()
 HOST_PROFILES=("-pr:h" "memgraph_toolchain_v7")
 CONAN_COMMON_ARGS=(
   -pr:b memgraph_build_profile
@@ -150,7 +142,6 @@ CONAN_COMMON_ARGS=(
 )
 
 if [[ "$offline" = true ]]; then
-    INIT_ARGS+=("--offline")
     CONAN_COMMON_ARGS+=("--no-remote")
 fi
 
@@ -178,6 +169,12 @@ else
     echo "Skipping OS dependency checks"
 fi
 
+DEV_SETUP_ARGS=()
+if [[ -n "${CI:-}" ]]; then
+    DEV_SETUP_ARGS+=("--ci")
+fi
+bash ./init-dev "${DEV_SETUP_ARGS[@]}"
+
 if [[ -f "$VENV_DIR/bin/activate" ]]; then
     echo "Using existing virtual environment at $VENV_DIR"
     source "$VENV_DIR/bin/activate"
@@ -202,11 +199,6 @@ conan config install conan_config
 # Register vendored recipes as a local-recipes-index remote
 # NOTE: also registered in release/package/mgbuild.sh — keep in sync
 conan remote add memgraph-recipes "$(pwd)/conan_recipes" -t local-recipes-index --force
-
-# fetch libs that aren't provided by conan yet
-if [[ "$skip_init" = false ]]; then
-    ./init "${INIT_ARGS[@]}"
-fi
 
 # Function to check if a CMake boolean variable is enabled
 # Handles various CMake boolean formats: ON, TRUE, YES, 1 (case insensitive)
@@ -249,8 +241,11 @@ fi
 # update lockfile if requested
 if [[ "$update_lockfile" = true ]]; then
     echo "Updating conan.lock"
+    # Resolve recipe revisions from remotes (including local-recipes-index),
+    # not from any stale local cache export, so lockfiles stay portable.
     MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan lock create . \
       "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
+      --update \
       --lockfile="" \
       --lockfile-out=conan.lock
 fi

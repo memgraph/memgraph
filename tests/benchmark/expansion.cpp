@@ -54,7 +54,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
                                 nullptr
 #ifdef MG_ENTERPRISE
                                 ,
-                                std::nullopt,
+                                nullptr,
                                 nullptr
 #endif
     );

@@ -21,23 +21,24 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::Config config,
     storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr) {
-  const auto name = config.salient.name;
+  const bool is_coordinator = config.is_coordinator;
 
   // Use default safe factory from Storage constructor for basic usage
   auto storage = std::make_unique<storage::InMemoryStorage>(
       std::move(config), std::nullopt, std::move(invalidator), std::move(database_protector_factory));
 
-  // Connect replication state and storage
-  storage->CreateSnapshotHandler(
-      [storage = storage.get()]() -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
-        auto result = storage->CreateSnapshot();
-        if (!result) {
-          return std::unexpected(result.error());
-        }
-        return {};
-      });
+  if (!is_coordinator) {
+    storage->CreateSnapshotHandler(
+        [storage = storage.get()]() -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
+          auto result = storage->CreateSnapshot();
+          if (!result) {
+            return std::unexpected(result.error());
+          }
+          return {};
+        });
+  }
 
-  return std::move(storage);
+  return storage;
 }
 
 }  // namespace memgraph::dbms

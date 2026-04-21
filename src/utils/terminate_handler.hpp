@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,13 +14,14 @@
 #include <execinfo.h>
 #include <spdlog/spdlog.h>
 #include <iosfwd>
+#include <iostream>
 
 #include "utils/stacktrace.hpp"
 
 namespace memgraph::utils {
 
 /**
- * Dump stacktrace to the stream and abort the probram. For more details
+ * Dump stacktrace to the stream and abort the program. For more details
  * about the abort please take a look at
  * http://en.cppreference.com/w/cpp/utility/program/abort.
  */
@@ -29,17 +30,14 @@ inline void TerminateHandler(std::ostream &stream) noexcept {
     try {
       std::rethrow_exception(exc);
     } catch (std::exception &ex) {
-      stream << ex.what() << std::endl << std::endl;
+      stream << ex.what() << "\n\n";
       utils::Stacktrace stacktrace;
       stacktrace.dump(stream);
     }
   }
-
-  // Flush all the logs
-  spdlog::shutdown();
   std::abort();
 }
 
-inline void TerminateHandler() noexcept { TerminateHandler(std::cout); }
+inline void TerminateHandler() noexcept { TerminateHandler(std::cerr); }
 
 }  // namespace memgraph::utils

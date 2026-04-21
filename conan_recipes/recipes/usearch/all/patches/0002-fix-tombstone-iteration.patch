@@ -1,0 +1,22 @@
+--- a/include/usearch/index_plugins.hpp
++++ b/include/usearch/index_plugins.hpp
+@@ -2739,10 +2739,17 @@
+ 
+         // Pre-increment
+         equal_iterator_gt& operator++() {
++            auto should_skip = [&](std::size_t i) -> bool {
++                auto slot = parent_->slot_ref(i);
++                if (!(slot.header.populated & slot.mask))
++                    return false; // empty slot - stop
++                if (slot.header.deleted & slot.mask)
++                    return true; // tombstone - skip
++                return !equals_(slot.element, query_); // skip non-matching live entries
++            };
+             do {
+                 index_ = (index_ + 1) & (parent_->capacity_slots_ - 1);
+-            } while (!equals_(parent_->slot_ref(index_).element, query_) &&
+-                     (parent_->slot_ref(index_).header.populated & parent_->slot_ref(index_).mask));
++            } while (should_skip(index_));
+             return *this;
+         }
+
