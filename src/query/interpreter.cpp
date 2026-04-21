@@ -9574,6 +9574,12 @@ void Interpreter::Abort() {
   // TODO Implement system transaction scope and the ability to abort
   system_transaction_.reset();
 
+#if USE_JEMALLOC
+  // Route Abort-path deallocations/cleanup to this DB's arena.
+  // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
+  const memory::DbArenaScope db_arena_scope{current_db_.db_acc_ ? current_db_.db_acc_->get()->ArenaIdx() : 0u};
+#endif
+
   // Data tx
   // CAS ACTIVE → STARTED_ROLLBACK. Also accept TERMINATED and IDLE (already dead/cleaned up).
   // Use CAS (not unconditional store) for TERMINATED/IDLE to avoid racing with ShowTransactions
@@ -9836,6 +9842,11 @@ void Interpreter::Commit() {
     return;
   }
   auto *db = current_db_.db_acc_->get();
+#if USE_JEMALLOC
+  // Route Commit-path allocations (before-commit triggers, delta cleanup, plan cache updates)
+  // to this DB's arena. System-tx path returned early above, so this is always a data transaction.
+  const memory::DbArenaScope db_arena_scope{db->ArenaIdx()};
+#endif
 
   /*
   At this point we must check that the transaction is alive to start committing. The only other possible state is
