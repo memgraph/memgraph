@@ -72,12 +72,12 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
-#if USE_JEMALLOC
   // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
   const memory::DbArenaScope db_arena_scope{ArenaIdx()};
-#endif
 
+#if USE_JEMALLOC
   config.arena_registration = memgraph::memory::ArenaRegistration{&db_arena_};
+#endif
   config.db_embedding_memory_tracker = &db_embedding_memory_tracker_;
   streams()->SetArenaIdx(ArenaIdx());
 
@@ -138,9 +138,7 @@ void Database::SwitchToOnDisk() {
   // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
   auto preserved_factory = storage_->get_database_protector_factory();
 
-#if USE_JEMALLOC
   const memory::DbArenaScope db_arena_scope{ArenaIdx()};
-#endif
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(
       std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);
 }

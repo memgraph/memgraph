@@ -12,9 +12,6 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include <range/v3/all.hpp>
 #if USE_JEMALLOC
-#include "memory/db_arena.hpp"
-#endif
-#if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
 #endif
 
@@ -477,15 +474,15 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // TODO: move out of storage have one global gc_runner_
     gc_runner_.SetInterval(config_.gc.interval);
     gc_runner_.Run("Storage GC", [this] {
-#if USE_JEMALLOC
       if (arena_registration_) {
         unsigned arena = arena_registration_.AcquireThreadArena();
         if (arena != 0) {
+#if USE_JEMALLOC
           je_mallctl("thread.arena", nullptr, nullptr, &arena, sizeof(unsigned));
+#endif
           memory::tls_db_arena_state.arena = arena;
         }
       }
-#endif
       this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
     });
   }
@@ -3189,34 +3186,22 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
   }
 
   if (!wal_file_) {
-#if USE_JEMALLOC
-    {
-      memory::ArenaAwareAllocator<durability::WalFile> alloc{arena_registration_.BaseArenaIdx()};
-      auto *raw = alloc.allocate(1);
-      try {
-        std::construct_at(raw,
-                          recovery_.wal_directory_,
-                          uuid(),
-                          epoch_id,
-                          config_.salient.items,
-                          name_id_mapper_.get(),
-                          wal_seq_num_++,
-                          &file_retainer_);
-      } catch (...) {
-        alloc.deallocate(raw, 1);
-        throw;
-      }
-      wal_file_ = decltype(wal_file_)(raw, memory::ArenaAwareDeleter<durability::WalFile>{});
+    memory::ArenaAwareAllocator<durability::WalFile> alloc{arena_registration_.BaseArenaIdx()};
+    auto *raw = alloc.allocate(1);
+    try {
+      std::construct_at(raw,
+                        recovery_.wal_directory_,
+                        uuid(),
+                        epoch_id,
+                        config_.salient.items,
+                        name_id_mapper_.get(),
+                        wal_seq_num_++,
+                        &file_retainer_);
+    } catch (...) {
+      alloc.deallocate(raw, 1);
+      throw;
     }
-#else
-    wal_file_ = std::make_unique<durability::WalFile>(recovery_.wal_directory_,
-                                                      uuid(),
-                                                      epoch_id,
-                                                      config_.salient.items,
-                                                      name_id_mapper_.get(),
-                                                      wal_seq_num_++,
-                                                      &file_retainer_);
-#endif
+    wal_file_ = decltype(wal_file_)(raw, memory::ArenaAwareDeleter<durability::WalFile>{});
   }
 
   return true;
@@ -4249,15 +4234,15 @@ void InMemoryStorage::CreateSnapshotHandler(
   }
   snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
-#if USE_JEMALLOC
     if (arena_registration_) {
       unsigned arena = arena_registration_.AcquireThreadArena();
       if (arena != 0) {
+#if USE_JEMALLOC
         je_mallctl("thread.arena", nullptr, nullptr, &arena, sizeof(unsigned));
+#endif
         memory::tls_db_arena_state.arena = arena;
       }
     }
-#endif
     if (!token.stop_requested()) {
       this->create_snapshot_handler();
     }

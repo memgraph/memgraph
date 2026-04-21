@@ -229,6 +229,12 @@ unsigned DbArena::AcquireThreadArena() {
   return arena_idx;
 }
 
+}  // namespace memgraph::memory
+
+#endif  // USE_JEMALLOC
+
+namespace memgraph::memory {
+
 // DbArenaScope implementation (legacy constructor only - Database* constructor in database.cpp)
 DbArenaScope::DbArenaScope(unsigned arena_idx) noexcept : prev_arena_(tls_db_arena_state.arena) {
   tls_db_arena_state.arena = arena_idx;
@@ -240,5 +246,3 @@ DbArenaScope::~DbArenaScope() noexcept {
 }
 
 }  // namespace memgraph::memory
-
-#endif  // USE_JEMALLOC
