@@ -294,7 +294,7 @@ Examples:
 
     parser.add_argument(
         "--python",
-        default=os.path.join(BASE_DIR, "tests", "ve3", "bin", "python3"),
+        default="python3",
         type=str,
         help="Path to Python interpreter",
     )

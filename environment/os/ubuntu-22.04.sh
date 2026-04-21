@@ -72,12 +72,14 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     libsasl2-dev
     ninja-build
+    libkrb5-dev # for building python gssapi (kerberos auth module)
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp2
+    libkrb5-3 # runtime for python gssapi (kerberos auth module)
 )
 
 NEW_DEPS=(
