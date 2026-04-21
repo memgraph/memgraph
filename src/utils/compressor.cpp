@@ -117,8 +117,8 @@ auto ZlibCompressor::Compress(std::span<uint8_t const> uncompressed_data) const 
     return result;
   }
 
-  // If actual size is smaller, we create a new buffer of the exact size and move the data.
-  // Note: result.release() ensures the old large buffer is now managed by us or freed.
+  // If actual size is smaller, create a new buffer of the exact size; result
+  // frees the original larger buffer when it goes out of scope.
   auto new_buffer_size = static_cast<uint32_t>(actual_size);
   CompressedBuffer final_buffer(alloc.allocate(new_buffer_size), new_buffer_size, original_size);
   std::copy_n(result.view().data(), new_buffer_size, final_buffer.view().data());

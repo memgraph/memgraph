@@ -20,6 +20,7 @@
 #include <memory>
 #include <new>
 #include <type_traits>
+#include <utility>
 
 // Debug arena verification support
 #if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
@@ -32,6 +33,18 @@ namespace memgraph::memory {
 // Get the arena index for a pointer using jemalloc's arenas.lookup
 // Returns 0 if pointer is not a jemalloc allocation (e.g., system malloc)
 unsigned GetPointerArena(void *ptr);
+
+inline void AssertPointerBelongsToArena(void *ptr, unsigned expected_arena, const char *context) {
+  if (!ptr || expected_arena == 0) return;
+  const unsigned ptr_arena = GetPointerArena(ptr);
+  MG_ASSERT(ptr_arena == 0 || ptr_arena == expected_arena,
+            "{}: pointer belongs to jemalloc arena {}, expected arena {}",
+            context,
+            ptr_arena,
+            expected_arena);
+}
+#else
+inline void AssertPointerBelongsToArena(void * /*ptr*/, unsigned /*expected_arena*/, const char * /*context*/) {}
 #endif
 
 // Thread-local state for the currently active database arena.
@@ -76,12 +89,33 @@ void DbDeallocate(T *p, std::size_t n) noexcept {
 // (je_sdallocx + MALLOCX_TCACHE_NONE) so the hook fires immediately.
 template <typename T>
 struct ArenaAwareDeleter {
+  explicit ArenaAwareDeleter(unsigned arena_idx = 0) noexcept : arena_idx_(arena_idx) {}
+
   void operator()(T *p) const noexcept {
     if (!p) return;
+    AssertPointerBelongsToArena(p, arena_idx_, "ArenaAwareDeleter");
     std::destroy_at(p);
     DbDeallocateBytes(static_cast<void *>(p), sizeof(T), alignof(T));
   }
+
+ private:
+  unsigned arena_idx_{0};
 };
+
+template <typename T>
+using ArenaAwareUniquePtr = std::unique_ptr<T, ArenaAwareDeleter<T>>;
+
+template <typename T, typename... Args>
+ArenaAwareUniquePtr<T> MakeArenaAwareUnique(unsigned arena_idx, Args &&...args) {
+  auto *raw = static_cast<T *>(DbAllocateBytes(sizeof(T), arena_idx, alignof(T)));
+  try {
+    std::construct_at(raw, std::forward<Args>(args)...);
+  } catch (...) {
+    DbDeallocateBytes(static_cast<void *>(raw), sizeof(T), alignof(T));
+    throw;
+  }
+  return ArenaAwareUniquePtr<T>{raw, ArenaAwareDeleter<T>{arena_idx}};
+}
 
 // Allocate `n` elements of type T, attributed to arena `idx`.
 // alignment defaults to alignof(T) — pass explicitly only when a stricter
@@ -176,6 +210,7 @@ struct ArenaAwareAllocator {
     // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
     // free query-thread allocations regardless of which thread calls deallocate.
     // MALLOCX_TCACHE_NONE matches the allocation style and lets decay=0 arenas return pages promptly.
+    AssertPointerBelongsToArena(p, arena_idx_, "ArenaAwareAllocator::deallocate");
     DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
   }
 

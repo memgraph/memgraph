@@ -287,20 +287,6 @@ void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
 
 void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept {
 #if USE_JEMALLOC
-#ifdef DEBUG_ARENA_VERIFICATION
-  if (p && tls_db_arena_state.arena != 0) {
-    unsigned ptr_arena = GetPointerArena(p);
-    unsigned tls_arena = tls_db_arena_state.arena;
-    if (ptr_arena != 0 && ptr_arena != tls_arena) {
-      MG_ASSERT(false,
-                "Arena mismatch in DbDeallocateBytes: pointer belongs to arena {}, "
-                "but TLS arena is {}. Cross-arena deallocations are not allowed.",
-                ptr_arena,
-                tls_arena);
-    }
-  }
-#endif
-
   int flags = MALLOCX_TCACHE_NONE;
   if (alignment > alignof(std::max_align_t)) {
     flags |= MALLOCX_ALIGN(alignment);

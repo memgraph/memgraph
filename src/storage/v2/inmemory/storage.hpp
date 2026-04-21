@@ -822,10 +822,7 @@ class InMemoryStorage final : public Storage {
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};
 
-  // ArenaAwareDeleter ensures deallocation uses je_sdallocx+MALLOCX_TCACHE_NONE,
-  // matching the ArenaAwareAllocator allocation style so the db_arena_dalloc
-  // extent hook fires immediately (not delayed by the thread's tcache).
-  std::unique_ptr<durability::WalFile, memory::ArenaAwareDeleter<durability::WalFile>> wal_file_;
+  memory::ArenaAwareUniquePtr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
 
   utils::FileRetainer file_retainer_;

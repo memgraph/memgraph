@@ -3181,22 +3181,14 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
   }
 
   if (!wal_file_) {
-    memory::ArenaAwareAllocator<durability::WalFile> alloc{arena_registration_.BaseArenaIdx()};
-    auto *raw = alloc.allocate(1);
-    try {
-      std::construct_at(raw,
-                        recovery_.wal_directory_,
-                        uuid(),
-                        epoch_id,
-                        config_.salient.items,
-                        name_id_mapper_.get(),
-                        wal_seq_num_++,
-                        &file_retainer_);
-    } catch (...) {
-      alloc.deallocate(raw, 1);
-      throw;
-    }
-    wal_file_ = decltype(wal_file_)(raw, memory::ArenaAwareDeleter<durability::WalFile>{});
+    wal_file_ = memory::MakeArenaAwareUnique<durability::WalFile>(arena_registration_.BaseArenaIdx(),
+                                                                  recovery_.wal_directory_,
+                                                                  uuid(),
+                                                                  epoch_id,
+                                                                  config_.salient.items,
+                                                                  name_id_mapper_.get(),
+                                                                  wal_seq_num_++,
+                                                                  &file_retainer_);
   }
 
   return true;

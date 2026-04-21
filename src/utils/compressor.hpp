@@ -25,7 +25,6 @@
 #include <string_view>
 #include <utility>
 
-#include <utility>
 #include "utils/db_aware_allocator.hpp"
 #include "utils/enum.hpp"
 
