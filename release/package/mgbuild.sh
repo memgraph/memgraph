@@ -1071,68 +1071,46 @@ test_memgraph() {
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
   local default_benchmark_result_file='benchmark_result.json'
 
-  resolve_native_ha_monitoring_targets() {
-    local monitoring_targets_output
-    monitoring_targets_output="$(docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR/tests/stress/ha/native/deployment && ./deployment.sh monitoring-targets \"$build_container\"")"
-
+  # Parse key=value output from a deployment.sh monitoring-targets invocation
+  # and export recognized vars if not already set. Uses `<<<` (not a pipe) so
+  # exports propagate to the calling function's shell.
+  _import_monitoring_targets() {
     while IFS='=' read -r key value; do
+      [[ -z "$value" ]] && continue
       case "$key" in
         MEMGRAPH_METRICS_TARGETS)
-          [[ -n "$value" && -z "${MEMGRAPH_METRICS_TARGETS:-}" ]] && export MEMGRAPH_METRICS_TARGETS="$value"
-        ;;
+          [[ -z "${MEMGRAPH_METRICS_TARGETS:-}" ]] && export MEMGRAPH_METRICS_TARGETS="$value"
+          ;;
         MEMGRAPH_LOG_WS_TARGETS)
-          [[ -n "$value" && -z "${MEMGRAPH_LOG_WS_TARGETS:-}" ]] && export MEMGRAPH_LOG_WS_TARGETS="$value"
-        ;;
+          [[ -z "${MEMGRAPH_LOG_WS_TARGETS:-}" ]] && export MEMGRAPH_LOG_WS_TARGETS="$value"
+          ;;
       esac
-    done <<< "$monitoring_targets_output"
+    done <<< "$1"
+  }
+
+  resolve_native_ha_monitoring_targets() {
+    _import_monitoring_targets "$(docker exec -u mg "$build_container" bash -c \
+      "cd $MGBUILD_ROOT_DIR/tests/stress/ha/native/deployment && ./deployment.sh monitoring-targets \"$build_container\"")"
   }
 
   resolve_docker_ha_monitoring_targets() {
-    local monitoring_targets_output
-    monitoring_targets_output="$("$PROJECT_ROOT/tests/stress/ha/docker/deployment/deployment.sh" monitoring-targets 127.0.0.1)"
-
-    while IFS='=' read -r key value; do
-      case "$key" in
-        MEMGRAPH_METRICS_TARGETS)
-          [[ -n "$value" && -z "${MEMGRAPH_METRICS_TARGETS:-}" ]] && export MEMGRAPH_METRICS_TARGETS="$value"
-        ;;
-        MEMGRAPH_LOG_WS_TARGETS)
-          [[ -n "$value" && -z "${MEMGRAPH_LOG_WS_TARGETS:-}" ]] && export MEMGRAPH_LOG_WS_TARGETS="$value"
-        ;;
-      esac
-    done <<< "$monitoring_targets_output"
-
+    _import_monitoring_targets "$("$PROJECT_ROOT/tests/stress/ha/docker/deployment/deployment.sh" monitoring-targets 127.0.0.1)"
     export MONITORING_USE_HOST_NETWORK="true"
   }
 
   resolve_eks_ha_monitoring_targets() {
-    local monitoring_targets_output
-    monitoring_targets_output="$("$PROJECT_ROOT/tests/stress/ha/eks/deployment/deployment.sh" monitoring-targets)"
-
-    while IFS='=' read -r key value; do
-      case "$key" in
-        MEMGRAPH_METRICS_TARGETS)
-          [[ -n "$value" && -z "${MEMGRAPH_METRICS_TARGETS:-}" ]] && export MEMGRAPH_METRICS_TARGETS="$value"
-        ;;
-        MEMGRAPH_LOG_WS_TARGETS)
-          [[ -n "$value" && -z "${MEMGRAPH_LOG_WS_TARGETS:-}" ]] && export MEMGRAPH_LOG_WS_TARGETS="$value"
-        ;;
-      esac
-    done <<< "$monitoring_targets_output"
-
-    # EKS monitoring targets are public endpoints; no shared Docker network is needed.
+    _import_monitoring_targets "$("$PROJECT_ROOT/tests/stress/ha/eks/deployment/deployment.sh" monitoring-targets)"
+    # EKS monitoring targets are public endpoints; host network mode avoids the need for a shared Docker network.
     export MONITORING_USE_HOST_NETWORK="true"
   }
 
   if [[ "$enable_monitoring" == "true" ]]; then
-    if [[ "$test_name" == "stress-native-ha" ]]; then
-      resolve_native_ha_monitoring_targets
-    elif [[ "$test_name" == "stress-docker-ha" ]]; then
-      resolve_docker_ha_monitoring_targets
-    elif [[ "$test_name" == "stress-eks-ha" ]]; then
-      # EKS targets are available only after the cluster and Memgraph deployment exist.
-      :
-    fi
+    case "$test_name" in
+      stress-native-ha)  resolve_native_ha_monitoring_targets ;;
+      stress-docker-ha)  resolve_docker_ha_monitoring_targets ;;
+      # EKS targets are resolved later in the case body, after the cluster exists.
+      stress-eks-ha)     : ;;
+    esac
 
     if [[ "$test_name" != "stress-eks-ha" ]]; then
       if [[ -z "$service_name" ]]; then
