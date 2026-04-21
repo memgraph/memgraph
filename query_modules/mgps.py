@@ -21,7 +21,7 @@ def validate_predicate(predicate: bool, message: str, params: list):
         return True
 
 
-@mgp.write_proc
+@mgp.read_proc
 def validate(ctx: mgp.ProcCtx, predicate: bool, message: str, params: mgp.List[mgp.Any]):
     if predicate:
         raise Exception(message % tuple(params))
