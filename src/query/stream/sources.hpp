@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -54,12 +55,12 @@ struct KafkaStream {
   std::expected<void, std::string> SetStreamOffset(int64_t offset);
 
  public:
-  void SetArenaIdx(unsigned idx);
+  void SetAcquireArenaFn(std::function<unsigned()> fn);
 
  private:
   using Consumer = integrations::kafka::Consumer;
   std::optional<Consumer> consumer_;
-  unsigned arena_idx_{0};
+  std::function<unsigned()> acquire_arena_fn_{};
 };
 
 void to_json(nlohmann::json &data, KafkaStream::StreamInfo &&info);
@@ -92,12 +93,12 @@ struct PulsarStream {
              ConsumerFunction<Message> consumer_function) const;
 
  public:
-  void SetArenaIdx(unsigned idx);
+  void SetAcquireArenaFn(std::function<unsigned()> fn);
 
  private:
   using Consumer = integrations::pulsar::Consumer;
   std::optional<Consumer> consumer_;
-  unsigned arena_idx_{0};
+  std::function<unsigned()> acquire_arena_fn_{};
 };
 
 void to_json(nlohmann::json &data, PulsarStream::StreamInfo &&info);

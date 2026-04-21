@@ -76,7 +76,13 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 #endif
       trigger_store_(
           std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers", ArenaIdx())),
-      after_commit_trigger_pool_{1},
+      after_commit_trigger_pool_{1,
+#if USE_JEMALLOC
+                                 [this] { memory::tls_db_arena_state.arena = db_arena_->AcquireThreadArena(); }
+#else
+                                 {}
+#endif
+      },
       streams_(std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams")),
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
@@ -89,22 +95,9 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 #else
   auto arena_registration = memgraph::memory::ArenaRegistration{};
 #endif
-  streams()->SetArenaIdx(ArenaIdx());
-
-  // Bind the after-commit trigger thread to this DB's arena so allocations through
-  // DbAwareAllocator are attributed to the right DB MemoryTracker.
-  //
-  // Ordering guarantee: this task is submitted before any trigger tasks can reach the pool
-  // (the Database constructor has not returned yet, so no caller can AddTask). With pool size 1
-  // the single thread processes tasks in FIFO order, so the pinning task always runs first.
-  //
-  // Thread replacement: ThreadPool never restarts a thread. If the pool thread terminates
-  // (e.g. uncaught exception in a task), subsequent tasks are never processed — that is a
-  // different bug. For normal operation the pinning task runs exactly once and persists for
-  // the pool's lifetime.
-  if (unsigned idx = ArenaIdx(); idx != 0) {
-    after_commit_trigger_pool_.AddTask([idx] { memory::tls_db_arena_state.arena = idx; });
-  }
+#if USE_JEMALLOC
+  streams()->SetAcquireArenaFn([this] { return db_arena_->AcquireThreadArena(); });
+#endif
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {

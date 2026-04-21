@@ -21,10 +21,10 @@
 
 namespace memgraph::query::stream {
 namespace {
-auto MakeDbAwareThreadFactory(unsigned arena_idx) {
-  return [arena_idx](std::function<void()> task) {
-    return std::thread([arena_idx, task = std::move(task)]() mutable {
-      const memory::DbArenaScope db_arena_scope{arena_idx};
+auto MakeDbAwareThreadFactory(std::function<unsigned()> acquire_fn) {
+  return [acquire_fn = std::move(acquire_fn)](std::function<void()> task) {
+    return std::thread([acquire_fn, task = std::move(task)]() mutable {
+      const memory::DbArenaScope db_arena_scope{acquire_fn()};
       task();
     });
   };
@@ -46,9 +46,9 @@ KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
   consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
 };
 
-void KafkaStream::SetArenaIdx(unsigned idx) {
-  arena_idx_ = idx;
-  if (consumer_) consumer_->SetThreadFactory(MakeDbAwareThreadFactory(arena_idx_));
+void KafkaStream::SetAcquireArenaFn(std::function<unsigned()> fn) {
+  acquire_arena_fn_ = std::move(fn);
+  if (consumer_) consumer_->SetThreadFactory(MakeDbAwareThreadFactory(acquire_arena_fn_));
 }
 
 KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const {
@@ -122,9 +122,9 @@ PulsarStream::PulsarStream(std::string stream_name, StreamInfo stream_info,
   consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
 };
 
-void PulsarStream::SetArenaIdx(unsigned idx) {
-  arena_idx_ = idx;
-  if (consumer_) consumer_->SetThreadFactory(MakeDbAwareThreadFactory(arena_idx_));
+void PulsarStream::SetAcquireArenaFn(std::function<unsigned()> fn) {
+  acquire_arena_fn_ = std::move(fn);
+  if (consumer_) consumer_->SetThreadFactory(MakeDbAwareThreadFactory(acquire_arena_fn_));
 }
 
 PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) const {

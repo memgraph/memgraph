@@ -90,7 +90,7 @@ class Streams final {
   /// @param directory a directory path to store the persisted streams metadata
   explicit Streams(std::filesystem::path directory);
 
-  void SetArenaIdx(unsigned idx) noexcept { arena_idx_ = idx; }
+  void SetAcquireArenaFn(std::function<unsigned()> fn) noexcept { acquire_arena_fn_ = std::move(fn); }
 
   /// Restores the streams from the persisted metadata.
   /// The restoration is done in a best effort manner, therefore no exception is thrown on failure, but the error is
@@ -223,7 +223,7 @@ class Streams final {
   kvstore::KVStore storage_;
 
   SynchronizedStreamsMap streams_;
-  unsigned arena_idx_{0};
+  std::function<unsigned()> acquire_arena_fn_{};
 };
 
 }  // namespace stream
