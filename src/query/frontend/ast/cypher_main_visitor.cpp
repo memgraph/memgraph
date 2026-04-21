@@ -271,7 +271,7 @@ antlrcpp::Any CypherMainVisitor::visitAlternativeConstraintSyntax(
 
   if (ctx->UNIQUE()) {
     auto var_name = std::any_cast<std::string>(node_pattern->variable()->symbolicName()->accept(this));
-    for (auto *ref : ctx->alternativePropertyRefList()->neo4jPropertyRef()) {
+    for (auto *ref : ctx->alternativePropertyRefList()->alternativePropertyRef()) {
       auto ref_var = std::any_cast<std::string>(ref->variable()->symbolicName()->accept(this));
       if (ref_var != var_name) {
         throw SemanticException("All constraint variable should reference node '{}'", var_name);
@@ -4524,7 +4524,7 @@ void CypherMainVisitor::FillDescriptionTarget(MemgraphCypher::DescriptionTargetC
     }
   } else if (ctx->PROPERTY()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::PROPERTY;
-    description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName(0)->accept(this)));
+    description_query->properties_.emplace_back(std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this)));
   } else if (ctx->EDGE()) {
     description_query->target_kind_ = storage::DescriptionTargetKind::EDGE_TYPE;
     description_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName(0)->accept(this)));
