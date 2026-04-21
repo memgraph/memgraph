@@ -14,10 +14,10 @@
 
 #include <concepts>
 #include <cstdint>
+#include <ranges>
 #include <string>
 #include <string_view>
 
-#include <range/v3/view/zip.hpp>
 #include "query/exceptions.hpp"
 #include "query/fmt.hpp"
 #include "query/frontend/ast/ordering.hpp"
@@ -152,7 +152,7 @@ class TypedValueVectorCompare final {
   auto lex_cmp() const {
     return [orderings = &orderings_]<typename TAllocator>(const std::vector<TypedValue, TAllocator> &lhs,
                                                           const std::vector<TypedValue, TAllocator> &rhs) {
-      auto rng = ranges::views::zip(*orderings, lhs, rhs);
+      auto rng = std::views::zip(*orderings, lhs, rhs);
       for (auto const &[cmp, l, r] : rng) {
         auto res = cmp(l, r);
         if (res == std::partial_ordering::less) return true;

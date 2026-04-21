@@ -12,7 +12,7 @@
 #pragma once
 
 #include <memory>
-#include <range/v3/view/transform.hpp>
+#include <ranges>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -2054,9 +2054,7 @@ struct PropertyIxPath {
 
   std::vector<memgraph::query::PropertyIx> path;
 
-  auto AsPathString() const -> std::string {
-    return utils::Join(path | ranges::views::transform(&PropertyIx::name), ".");
-  }
+  auto AsPathString() const -> std::string { return utils::Join(path | std::views::transform(&PropertyIx::name), "."); }
 
   auto Clone(AstStorage *storage) const -> PropertyIxPath;
   friend bool operator==(PropertyIxPath const &, PropertyIxPath const &) = default;

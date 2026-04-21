@@ -12,7 +12,6 @@
 #pragma once
 
 #include "common_function_signatures.hpp"
-#include "mg_procedure.h"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/commit_args.hpp"
