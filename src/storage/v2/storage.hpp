@@ -12,6 +12,7 @@
 #pragma once
 
 #include "common_function_signatures.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "mg_procedure.h"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/async_indexer.hpp"
@@ -1029,7 +1030,10 @@ class Storage {
 
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
 
-  void FreeMemory() { FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, false); }
+  void FreeMemory() {
+    const memory::DbArenaScope db_arena_scope{BaseArenaIdx()};
+    FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, false);
+  }
 
   virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,
