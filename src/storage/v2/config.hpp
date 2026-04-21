@@ -29,10 +29,6 @@
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 
-namespace memgraph::utils {
-class MemoryTracker;
-}
-
 namespace memgraph::storage {
 
 /// Exception used to signal configuration errors.
@@ -133,11 +129,7 @@ struct Config {
 
   bool is_coordinator{false};  // PER INSTANCE - when true, snapshot handler is not wired up
 
-  friend bool operator==(const Config &lhs, const Config &rhs) {
-    return lhs.gc == rhs.gc && lhs.durability == rhs.durability && lhs.transaction == rhs.transaction &&
-           lhs.disk == rhs.disk && lhs.salient == rhs.salient && lhs.force_on_disk == rhs.force_on_disk &&
-           lhs.track_label_counts == rhs.track_label_counts && lhs.is_coordinator == rhs.is_coordinator;
-  }
+  friend bool operator==(const Config &, const Config &) = default;
 };
 
 inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
