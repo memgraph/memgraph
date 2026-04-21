@@ -418,7 +418,7 @@ auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationL
           for (auto &repl_storage_client : storage_clients) {
             auto const replica_name = repl_storage_client->Name();
             auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
-            auto const replica_lag = num_main_committed_txns - num_committed_txns_repl;
+            auto const replica_lag = static_cast<int64_t>(num_main_committed_txns - num_committed_txns_repl);
             // Insert or find the already inserted element
             auto [replica_it, _] = lag_info.replicas_info_.try_emplace(
                 replica_name, std::map<std::string, coordination::ReplicaDBLagData>{});
@@ -439,19 +439,29 @@ std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT> Replic
   dbms_handler_.ForEach([&replicas, &main](dbms::DatabaseAccess db_acc) {
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
     auto const db_name = db_acc->name();
-    auto const num_main_committed_txns =
-        repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
-    main.emplace(std::string{db_acc->storage()->uuid()}, num_main_committed_txns);
 
     repl_storage_state.replication_storage_clients_.WithReadLock(
-        [&db_name, &num_main_committed_txns, &replicas](auto &storage_clients) {
+        [&db_name, &replicas, &repl_storage_state, &main, &db_acc](auto &storage_clients) {
+          // First observe replicas' num committed txns then main's so we avoid negative calculation
           for (auto &repl_storage_client : storage_clients) {
             auto const replica_name = repl_storage_client->Name();
-            auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
-            int64_t const replica_lag = num_main_committed_txns - num_committed_txns_repl;
+            uint64_t const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
             // Insert or find the already inserted element
             auto [replica_it, _] = replicas.try_emplace(replica_name, std::map<std::string, int64_t>{});
-            replica_it->second.emplace(db_name, replica_lag);
+            replica_it->second.emplace(db_name, num_committed_txns_repl);
+          }
+
+          auto const num_main_committed_txns =
+              repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
+          main.emplace(std::string{db_acc->storage()->uuid()}, num_main_committed_txns);
+
+          for (auto &repl_storage_client : storage_clients) {
+            auto const replica_name = repl_storage_client->Name();
+            auto replica_it = replicas.find(replica_name);
+            DMG_ASSERT(replica_it != replicas.end(), "No info for replica {}", replica_name);
+            auto old_value_it = replica_it->second.find(db_name);
+            DMG_ASSERT(old_value_it != replica_it->second.end(), "No info for db {}", db_name);
+            old_value_it->second = num_main_committed_txns - old_value_it->second;
           }
         });
   });

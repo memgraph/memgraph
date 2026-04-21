@@ -92,6 +92,7 @@ class ReplicationStorageClient {
   friend class InMemoryCurrentWalHandler;
   friend class ReplicaStream;
   friend struct ::memgraph::replication::ReplicationClient;
+  friend class TransactionReplication;
 
  public:
   explicit ReplicationStorageClient(::memgraph::replication::ReplicationClient &client, utils::UUID main_uuid);
