@@ -31,6 +31,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/delta.hpp"
+#include "storage/v2/disk/delta_utils.hpp"
 #include "storage/v2/disk/edge_import_mode_cache.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
@@ -52,7 +53,6 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/disk_utils.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
@@ -352,7 +352,7 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelIndexCache(
     Transaction *transaction, std::string_view key, std::string_view value, Delta *index_delta,
     utils::SkipList<storage::Vertex>::Accessor index_accessor) {
   storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelIndexStorage(key));
-  if (ObjectExistsInCache(index_accessor, gid)) {
+  if (index_accessor.contains(gid)) {
     return std::nullopt;
   }
   utils::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
@@ -366,7 +366,7 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelPropertyInd
     Transaction *transaction, std::string_view key, std::string_view value, Delta *index_delta,
     utils::SkipList<storage::Vertex>::Accessor index_accessor) {
   storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
-  if (ObjectExistsInCache(index_accessor, gid)) {
+  if (index_accessor.contains(gid)) {
     return std::nullopt;
   }
   utils::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
@@ -405,7 +405,7 @@ void DiskStorage::LoadVerticesFromMainStorageToEdgeImportCache(Transaction *tran
     std::string key = it->key().ToString();
     std::string value = it->value().ToString();
     storage::Gid gid = Gid::FromString(utils::ExtractGidFromMainDiskStorage(key));
-    if (ObjectExistsInCache(cache_accessor, gid)) continue;
+    if (cache_accessor.contains(gid)) continue;
 
     utils::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
     PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
@@ -442,7 +442,7 @@ void DiskStorage::LoadVerticesFromLabelIndexStorageToEdgeImportCache(Transaction
     std::string value = it->value().ToString();
     if (key.starts_with(label_prefix)) {
       storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelIndexStorage(key));
-      if (ObjectExistsInCache(cache_accessor, gid)) continue;
+      if (cache_accessor.contains(gid)) continue;
 
       utils::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
@@ -496,7 +496,7 @@ void DiskStorage::LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(Tra
     std::string value = it->value().ToString();
     if (key.starts_with(label_property_prefix)) {
       storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
-      if (ObjectExistsInCache(cache_accessor, gid)) continue;
+      if (cache_accessor.contains(gid)) continue;
 
       utils::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
@@ -671,7 +671,7 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCac
     gids.insert(vertex.gid);
     if (VertexHasLabel(vertex, label, transaction, view)) {
       spdlog::trace("Loaded vertex with gid: {} from main index storage to label index", vertex.gid.ToString());
-      const uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
+      const uint64_t ts = disk::GetEarliestTimestamp(vertex.delta());
       /// TODO: here are doing serialization and then later deserialization again -> expensive
       LoadVertexToLabelIndexCache(transaction,
                                   utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
@@ -725,7 +725,7 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
   for (const auto &vertex : main_cache_acc) {
     gids.insert(vertex.gid);
     if (label_property_filter(vertex, label, property, view)) {
-      const uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
+      const uint64_t ts = disk::GetEarliestTimestamp(vertex.delta());
       LoadVertexToLabelPropertyIndexCache(
           transaction,
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
@@ -816,7 +816,7 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
     auto prop_value = GetVertexProperty(vertex, property, transaction, view);
     if (VertexHasLabel(vertex, label, transaction, view) &&
         IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
-      const uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
+      const uint64_t ts = disk::GetEarliestTimestamp(vertex.delta());
       LoadVertexToLabelPropertyIndexCache(
           transaction,
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
@@ -1315,7 +1315,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
     }
 
     /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
-    if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
+    if (auto maybe_old_disk_key = disk::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
       if (!DeleteVertexFromDisk(transaction, vertex.gid.ToString(), maybe_old_disk_key.value())) {
         return std::unexpected{StorageManipulationError{SerializationError{}}};
       }
@@ -1463,7 +1463,7 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
   auto main_storage_accessor = transaction->vertices_->access();
 
   storage::Gid gid = Gid::FromString(utils::ExtractGidFromKey(key));
-  if (ObjectExistsInCache(main_storage_accessor, gid)) {
+  if (main_storage_accessor.contains(gid)) {
     return std::nullopt;
   }
   utils::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};

@@ -9,24 +9,28 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "utils/disk_utils.hpp"
+#include "storage/v2/disk/delta_utils.hpp"
 
 #include "storage/v2/delta.hpp"
 
-auto memgraph::utils::GetOldDiskKeyOrNull(storage::Delta *head) -> std::optional<std::string_view> {
+namespace memgraph::storage::disk {
+
+auto GetOldDiskKeyOrNull(Delta *head) -> std::optional<std::string_view> {
   while (head->next != nullptr) {
     head = head->next;
   }
-  if (head->action == storage::Delta::Action::DELETE_DESERIALIZED_OBJECT) {
+  if (head->action == Delta::Action::DELETE_DESERIALIZED_OBJECT) {
     return head->old_disk_key.value.as_opt_str();
   }
   return std::nullopt;
 }
 
-auto memgraph::utils::GetEarliestTimestamp(storage::Delta *head) -> uint64_t {
+auto GetEarliestTimestamp(Delta *head) -> uint64_t {
   if (head == nullptr) return 0;
   while (head->next != nullptr) {
     head = head->next;
   }
   return head->commit_info->timestamp.load(std::memory_order_acquire);
 }
+
+}  // namespace memgraph::storage::disk

@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <range/v3/view/enumerate.hpp>
+#include <range/v3/view/transform.hpp>
 #include <ranges>
 
 namespace memgraph::storage {
@@ -161,7 +162,7 @@ struct PropertiesPermutationHelper {
    * element is a tuple comprising: (position, [property id path], and value).
    */
   auto WithPropertyId(IndexOrderedPropertyValues const &values) const {
-    return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
+    return ranges::views::enumerate(sorted_properties_) | ranges::views::transform([&](auto &&p) {
              return std::tuple{p.first, std::cref(p.second), std::cref(values.values_[position_lookup_[p.first]])};
            });
   }
