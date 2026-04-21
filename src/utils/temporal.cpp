@@ -993,7 +993,7 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
       return false;
     }
 
-    decimal_point_used = substring.find('.') != std::string_view::npos;
+    decimal_point_used = substring.contains('.');
     return true;
   };
 

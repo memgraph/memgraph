@@ -121,7 +121,7 @@ bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
       DMG_ASSERT(constraint->status.IsReady(), "For a WRITE query, all constraints MUST already be ready");
       if (auto validation_result = ValidateVertexOnConstraint(vertex, key.label, key.property);
           !validation_result.has_value()) [[unlikely]] {
-        return std::unexpected{validation_result.error()};
+        return validation_result;
       }
     }
     return {};
@@ -131,7 +131,7 @@ bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
     // No need to take any locks here because we modified this vertex and no
     // one else can touch it until we commit.
     if (auto validation_result = validate(*vertex); !validation_result.has_value()) {
-      return std::unexpected{validation_result.error()};
+      return validation_result;
     }
   }
   return {};
@@ -147,7 +147,7 @@ bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
     }
     if (auto validation_result = ValidateVertexOnConstraint(vertex, key.label, key.property);
         !validation_result.has_value()) [[unlikely]] {
-      return std::unexpected{validation_result.error()};
+      return validation_result;
     }
   }
   return {};
@@ -231,7 +231,7 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::SingleThreadConst
     std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   for (const Vertex &vertex : vertices) {
     if (auto validation_result = ValidateVertexOnConstraint(vertex, label, property); !validation_result.has_value()) {
-      return std::unexpected{validation_result.error()};
+      return validation_result;
     }
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VERTICES);

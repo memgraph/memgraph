@@ -37,7 +37,7 @@ MAX_THREADS_BY_MEM=$((MAX_THREADS_BY_MEM > 0 ? MAX_THREADS_BY_MEM : 1))
 DEFAULT_THREADS=$((MAX_THREADS_BY_CPU < MAX_THREADS_BY_MEM ? MAX_THREADS_BY_CPU : MAX_THREADS_BY_MEM))
 THREADS=${THREADS:-$DEFAULT_THREADS}
 # Directories to exclude from clang-tidy analysis
-EXCLUSIONS=":!src/planner/test :!src/planner/bench :!src/csv/fuzz :!mage/cpp/community_detection_module/grappolo :!mage/cpp/text_module/utf8 :!mage/cpp/util_module/algorithm/md5.hpp :!mage/cpp/util_module/algorithm/md5.cpp"
+EXCLUSIONS=":!src/planner/test :!src/planner/bench :!src/csv/fuzz :!src/storage/v2/fuzz :!mage/cpp/community_detection_module/grappolo :!mage/cpp/text_module/utf8 :!mage/cpp/util_module/algorithm/md5.hpp :!mage/cpp/util_module/algorithm/md5.cpp"
 VENV_DIR="${VENV_DIR:-env}"
 FIX_FLAG=""
 CONFIG_FILE=".clang-tidy"

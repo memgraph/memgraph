@@ -569,9 +569,8 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
   size_t ActiveQueryExecutions() {
-    return std::count_if(query_executions_.begin(), query_executions_.end(), [](const auto &execution) {
-      return execution && execution->prepared_query;
-    });
+    return std::ranges::count_if(query_executions_,
+                                 [](const auto &execution) { return execution && execution->prepared_query; });
   }
 
   std::optional<std::function<void(std::string_view)>> on_change_{};

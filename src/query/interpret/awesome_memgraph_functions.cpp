@@ -1085,7 +1085,7 @@ struct ContainsPredicate {
 
   bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
-    return s1.find(s2) != std::string::npos;
+    return s1.contains(s2);
   }
 };
 

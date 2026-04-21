@@ -14,6 +14,7 @@
 #include <cstring>
 #include <iterator>
 #include <range/v3/all.hpp>
+#include <ranges>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -2165,11 +2166,13 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
                                  std::vector<AuthQuery::LabelMatchingMode>,
                                  std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
             ctx->entityPrivileges->accept(this));
-    for (size_t i = 0; i < label_privileges.size(); ++i) {
-      const auto &[privilege, labels] = label_privileges[i];
+    DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
+               "parser invariant: label_privileges and label_matching_modes are populated in lockstep");
+    for (auto const &[privilege_and_labels, mode] : std::views::zip(label_privileges, label_matching_modes)) {
+      auto const &[privilege, labels] = privilege_and_labels;
       auth->label_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
-      auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
+      auth->label_matching_modes_.emplace_back(mode);
     }
     for (const auto &[privilege, edge_types] : edge_type_privileges) {
       auth->edge_type_privileges_.emplace_back(
@@ -2197,11 +2200,13 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
                                  std::vector<AuthQuery::LabelMatchingMode>,
                                  std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
             ctx->entityPrivileges->accept(this));
-    for (size_t i = 0; i < label_privileges.size(); ++i) {
-      const auto &[privilege, labels] = label_privileges[i];
+    DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
+               "parser invariant: label_privileges and label_matching_modes are populated in lockstep");
+    for (auto const &[privilege_and_labels, mode] : std::views::zip(label_privileges, label_matching_modes)) {
+      auto const &[privilege, labels] = privilege_and_labels;
       auth->label_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
-      auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
+      auth->label_matching_modes_.emplace_back(mode);
     }
     for (const auto &[privilege, edge_types] : edge_type_privileges) {
       auth->edge_type_privileges_.emplace_back(
@@ -2241,11 +2246,13 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
                                  std::vector<AuthQuery::LabelMatchingMode>,
                                  std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
             ctx->entityPrivileges->accept(this));
-    for (size_t i = 0; i < label_privileges.size(); ++i) {
-      const auto &[privilege, labels] = label_privileges[i];
+    DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
+               "parser invariant: label_privileges and label_matching_modes are populated in lockstep");
+    for (auto const &[privilege_and_labels, mode] : std::views::zip(label_privileges, label_matching_modes)) {
+      auto const &[privilege, labels] = privilege_and_labels;
       auth->label_privileges_.emplace_back(
           std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
-      auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
+      auth->label_matching_modes_.emplace_back(mode);
     }
     for (const auto &[privilege, edge_types] : edge_type_privileges) {
       auth->edge_type_privileges_.emplace_back(
@@ -3842,7 +3849,7 @@ antlrcpp::Any CypherMainVisitor::visitCaseExpression(MemgraphCypher::CaseExpress
   Expression *test_expression = ctx->test ? std::any_cast<Expression *>(ctx->test->accept(this)) : nullptr;
   auto alternatives = ctx->caseAlternatives();
   // Reverse alternatives so that tree of IfOperators can be built bottom-up.
-  std::reverse(alternatives.begin(), alternatives.end());
+  std::ranges::reverse(alternatives);
   Expression *else_expression = ctx->else_expression ? std::any_cast<Expression *>(ctx->else_expression->accept(this))
                                                      : storage_->Create<PrimitiveLiteral>(TypedValue());
   for (auto *alternative : alternatives) {

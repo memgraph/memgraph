@@ -172,7 +172,7 @@ bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Roles &roles,
   }
 #endif
   const auto roles_permissions = roles.GetPermissions(db_name);
-  return std::all_of(privileges.begin(), privileges.end(), [&roles_permissions](const auto privilege) {
+  return std::ranges::all_of(privileges, [&roles_permissions](const auto privilege) {
     return roles_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
            memgraph::auth::PermissionLevel::GRANT;
   });
