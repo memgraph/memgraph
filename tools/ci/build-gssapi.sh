@@ -6,7 +6,7 @@ set -euo pipefail
 # from source against the libkrb5/krb5-devel headers available in the
 # mgbuild container.
 
-GSSAPI_VERSION="1.9.0"
+GSSAPI_VERSION="1.11.1"
 
 rm -rf gssapi
 mkdir -p gssapi/dist
