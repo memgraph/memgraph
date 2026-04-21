@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -749,7 +750,64 @@ TEST_F(DbMemoryTrackingTest, ArenaRegistration_EmptyBehavior) {
 }
 
 // ---------------------------------------------------------------------------
-// 16. Concurrent AcquireThreadArena: All threads get unique arenas
+// 16. Arena reuse restores hooks before returning the arena index to the pool
+// ---------------------------------------------------------------------------
+TEST_F(DbMemoryTrackingTest, ArenaPool_ReusedArenaUsesNewTrackerHooks) {
+  memgraph::memory::ArenaPool::Instance().Drain();
+
+  memgraph::utils::MemoryTracker tracker1;
+  memgraph::utils::MemoryTracker tracker2;
+
+  auto allocate_and_touch = [](unsigned arena_idx) {
+    static constexpr std::size_t kAllocCount = 32;
+    static constexpr std::size_t kAllocSize = 1024 * 1024;
+
+    std::vector<void *> ptrs;
+    ptrs.reserve(kAllocCount);
+    for (std::size_t i = 0; i < kAllocCount; ++i) {
+      auto *ptr = memgraph::memory::DbAllocateBytes(kAllocSize, arena_idx, alignof(std::max_align_t));
+      std::memset(ptr, 0xA5, kAllocSize);
+      ptrs.push_back(ptr);
+    }
+    return ptrs;
+  };
+
+  auto deallocate_all = [](std::vector<void *> &ptrs) {
+    static constexpr std::size_t kAllocSize = 1024 * 1024;
+    for (auto *ptr : ptrs) {
+      memgraph::memory::DbDeallocateBytes(ptr, kAllocSize, alignof(std::max_align_t));
+    }
+    ptrs.clear();
+  };
+
+  unsigned released_arena_idx = 0;
+  {
+    memgraph::memory::DbArena arena{&tracker1};
+    released_arena_idx = arena.idx();
+    ASSERT_NE(released_arena_idx, 0u);
+
+    const auto before = tracker1.Amount();
+    auto ptrs = allocate_and_touch(released_arena_idx);
+    EXPECT_GT(tracker1.Amount() - before, static_cast<int64_t>(1024 * 1024));
+    deallocate_all(ptrs);
+  }
+
+  const auto tracker1_after_release = tracker1.Amount();
+  {
+    memgraph::memory::DbArena arena{&tracker2};
+    ASSERT_EQ(arena.idx(), released_arena_idx) << "ArenaPool should recycle the just-released arena index";
+
+    const auto tracker2_before = tracker2.Amount();
+    auto ptrs = allocate_and_touch(arena.idx());
+    EXPECT_GT(tracker2.Amount() - tracker2_before, static_cast<int64_t>(1024 * 1024));
+    EXPECT_EQ(tracker1.Amount(), tracker1_after_release)
+        << "Reused arena must not keep charging the previous DB tracker";
+    deallocate_all(ptrs);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 17. Concurrent AcquireThreadArena: All threads get unique arenas
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, ConcurrentAcquireThreadArena_AllUniqueArenas) {
   auto dir = data_dir_ / "db_concurrent";
@@ -799,7 +857,7 @@ TEST_F(DbMemoryTrackingTest, ConcurrentAcquireThreadArena_AllUniqueArenas) {
 }
 
 // ---------------------------------------------------------------------------
-// 17. Concurrent threads get different arenas (guaranteed invariant)
+// 18. Concurrent threads get different arenas (guaranteed invariant)
 // ---------------------------------------------------------------------------
 // Note: We test CONCURRENT threads, not sequential threads. Sequential threads
 // may get the same arena if the OS reuses thread IDs (which is OS-dependent).
@@ -839,7 +897,7 @@ TEST_F(DbMemoryTrackingTest, ConcurrentThreads_GetDifferentArenas) {
 }
 
 // ---------------------------------------------------------------------------
-// 18. Background thread (GC simulation) acquires per-thread arena
+// 19. Background thread (GC simulation) acquires per-thread arena
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
   auto dir = data_dir_ / "db_bg_thread";
@@ -872,7 +930,7 @@ TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
 }
 
 // ---------------------------------------------------------------------------
-// 19. ArenaRegistration after Database destruction (Storage lifetime)
+// 20. ArenaRegistration after Database destruction (Storage lifetime)
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, ArenaRegistration_AfterDatabaseDestruction) {
   unsigned captured_base_arena = 0;
