@@ -2276,7 +2276,7 @@ if [[ "$cugraph" == "true" ]]; then
 fi
 
 if [[ "$command" == "" ]]; then
-  echo -e "Error: Command not provided, please provide command"
+  echo -e "Error: Command not provided, please provide command" >&2
   print_help
   exit 1
 fi
