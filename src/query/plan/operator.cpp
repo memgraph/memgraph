@@ -2486,7 +2486,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       last_vertex = last_edge->From() == last_vertex ? last_edge->To() : last_edge->From();
       result.emplace_back(*last_edge);
     }
-    std::reverse(result.begin(), result.end());
+    std::ranges::reverse(result);
     last_vertex = midpoint;
     while (true) {
       const auto &last_edge = out_edge.at(last_vertex);
@@ -3187,7 +3187,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
         if (!self_.is_reverse_) {
           // Place edges on the frame in the correct order.
-          std::reverse(edge_list.begin(), edge_list.end());
+          std::ranges::reverse(edge_list);
         }
         frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
         frame_writer.Write(self_.total_weight_.value(), current_weight);
@@ -4008,7 +4008,7 @@ class KShortestPathsCursor : public Cursor {
     }
 
     // Reverse the path from source to midpoint
-    std::reverse(result.begin(), result.end());
+    std::ranges::reverse(result);
 
     // Reconstruct the path from midpoint to target
     current = midpoint;
@@ -10556,9 +10556,7 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           case Aggregation::Op::SUM:
           case Aggregation::Op::AVG: {
             TypedValue left_sum{0};
-            std::for_each(other_unique_values.begin(), other_unique_values.end(), [&](const auto &val) {
-              left_sum = left_sum + val;
-            });
+            std::ranges::for_each(other_unique_values, [&](const auto &val) { left_sum = left_sum + val; });
 
             if (agg_op == Aggregation::Op::SUM) {
               main_value = main_value + other_value - left_sum;

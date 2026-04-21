@@ -180,7 +180,7 @@ std::string SessionHL::GetCurrentUser() const {
       // This is only used to figure out if the impersonated user is different from the main user. Since
       // this is a role; it will always be different since roles cannot be impersonated.
       std::string res;
-      std::for_each(names.begin(), names.end(), [&res](const auto &name) { res += name + ","; });
+      std::ranges::for_each(names, [&res](const auto &name) { res += name + ","; });
       return res.substr(0, res.size() - 1);
     }
   }

@@ -535,7 +535,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 
     // Properties are reversed because the AST walk produces them in reverse
     // order. This returns them to the order as specified in the grammar.
-    std::reverse(nested_properties.begin(), nested_properties.end());
+    std::ranges::reverse(nested_properties);
 
     return std::pair<Identifier *, PropertyIxPath>{utils::Downcast<Identifier>(prev_expr->expression_),
                                                    std::move(nested_properties)};

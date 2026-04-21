@@ -302,14 +302,13 @@ void EnsureMainInstance(InterpreterContext *interpreter_context, const std::stri
 
 template <typename T, typename K>
 void Sort(std::vector<T, K> &vec) {
-  std::sort(vec.begin(), vec.end());
+  std::ranges::sort(vec);
 }
 
 template <typename K>
 void Sort(std::vector<TypedValue, K> &vec) {
-  std::sort(vec.begin(), vec.end(), [](const TypedValue &lv, const TypedValue &rv) {
-    return lv.ValueString() < rv.ValueString();
-  });
+  std::ranges::sort(vec,
+                    [](const TypedValue &lv, const TypedValue &rv) { return lv.ValueString() < rv.ValueString(); });
 }
 
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
@@ -3885,7 +3884,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_stats.size() + label_property_stats.size());
 
-  std::for_each(label_stats.begin(), label_stats.end(), [execution_db_accessor, &results](const auto &stat_entry) {
+  std::ranges::for_each(label_stats, [execution_db_accessor, &results](const auto &stat_entry) {
     std::vector<TypedValue> result;
     result.reserve(kComputeStatisticsNumResults);
 
@@ -3903,7 +3902,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     return PropertyPathToName(execution_db_accessor, property_path);
   };
 
-  std::for_each(label_property_stats.begin(), label_property_stats.end(), [&](const auto &stat_entry) {
+  std::ranges::for_each(label_property_stats, [&](const auto &stat_entry) {
     std::vector<TypedValue> result;
     result.reserve(kComputeStatisticsNumResults);
     result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
@@ -7576,11 +7575,10 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       if (denied.empty()) return;
 
       auto denied_itr = denied.begin();
-      auto iter = std::remove_if(status.begin(), status.end(), [&denied_itr, &denied](auto &in) -> bool {
+      std::erase_if(status, [&denied_itr, &denied](auto &in) -> bool {
         while (denied_itr != denied.end() && denied_itr->ValueString() < in[0].ValueString()) ++denied_itr;
         return (denied_itr != denied.end() && denied_itr->ValueString() == in[0].ValueString());
       });
-      status.erase(iter, status.end());
     };
 
     if (!user_or_role || !*user_or_role) {
@@ -9240,9 +9238,8 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
 std::vector<TypedValue> Interpreter::GetQueries() {
   auto typed_queries = std::vector<TypedValue>();
   transaction_queries_.WithLock([&typed_queries](const auto &transaction_queries) {
-    std::for_each(transaction_queries.begin(), transaction_queries.end(), [&typed_queries](const auto &query) {
-      typed_queries.emplace_back(query);
-    });
+    std::ranges::for_each(transaction_queries,
+                          [&typed_queries](const auto &query) { typed_queries.emplace_back(query); });
   });
   return typed_queries;
 }
