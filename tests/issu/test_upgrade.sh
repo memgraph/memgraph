@@ -569,7 +569,7 @@ done
 
 # --- Helm chart prep ---
 HELM_CHARTS_REPO_URL="${HELM_CHARTS_REPO_URL:-https://github.com/memgraph/helm-charts.git}"
-HELM_CHARTS_BRANCH="${HELM_CHARTS_BRANCH:-add-loki}"
+HELM_CHARTS_BRANCH="${HELM_CHARTS_BRANCH:-main}"
 HELM_CHARTS_DIR="helm-charts"
 HELM_CHART_PATH="${HELM_CHARTS_DIR}/charts/memgraph-high-availability"
 MEMGRAPH_NAMESPACE="${MEMGRAPH_NAMESPACE:-default}"

@@ -1140,10 +1140,9 @@ test_memgraph() {
         echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
       fi
       start_monitoring
+      trap stop_monitoring EXIT INT TERM
     fi
   fi
-
-  trap stop_monitoring EXIT INT TERM
 
   # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
   echo "Running $test_name test on $build_container..."
@@ -1750,9 +1749,8 @@ test_mage() {
       echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
     fi
     start_monitoring
+    trap stop_monitoring EXIT INT TERM
   fi
-
-  trap stop_monitoring EXIT INT TERM
 
   function create_e2e_test_env() {
     cd $PROJECT_ROOT/mage

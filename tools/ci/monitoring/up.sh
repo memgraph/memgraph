@@ -56,6 +56,10 @@ else
   exit 2
 fi
 
+docker compose version >/dev/null 2>&1 || {
+  echo "error: Docker Compose plugin was not found. Install and use 'docker compose'." >&2
+  exit 127
+}
 COMPOSE_CMD=(docker compose)
 COMPOSE_FILES=(-f "${COMPOSE_FILE}")
 if [[ "${MONITORING_USE_HOST_NETWORK}" == "true" ]]; then
@@ -126,13 +130,33 @@ if [[ -z "${MEMGRAPH_LOG_WS_TARGETS}" ]]; then
   fi
 fi
 
+# POSIX single-quote escape: wrap in '...', and replace each embedded ' with '\''
+# (close-quote, literal-quote, reopen-quote). Safe for dash/ash, unlike bash's printf %q
+# which can emit $'...' ANSI-C quoting that non-bash shells don't parse.
+shell_sq() {
+  local s="$1"
+  s="${s//\'/\'\\\'\'}"
+  printf "'%s'" "$s"
+}
+
+# YAML single-quoted scalar escape: wrap in '...' and double each embedded ' to ''.
+# Single-quoted YAML does not honor backslash escapes, so \ and " pass through verbatim —
+# that's why we prefer it over double-quoted for secrets that may contain those chars.
+yaml_sq() {
+  local s="$1"
+  s="${s//\'/\'\'}"
+  printf "'%s'" "$s"
+}
+
 if [[ -n "${MONITORING_USERNAME}" || -n "${MONITORING_PASSWORD}" ]]; then
   if [[ -z "${MONITORING_USERNAME}" || -z "${MONITORING_PASSWORD}" ]]; then
     echo "error: both MONITORING_USERNAME and MONITORING_PASSWORD are required when using basic auth." >&2
     exit 2
   fi
-  VMAGENT_AUTH_ARGS="-remoteWrite.basicAuth.username=${MONITORING_USERNAME} -remoteWrite.basicAuth.password=${MONITORING_PASSWORD}"
-  VLOGS_AUTH_BLOCK=$'    auth:\n      strategy: basic\n      user: "'"${MONITORING_USERNAME}"$'"\n      password: "'"${MONITORING_PASSWORD}"$'"'
+  VMAGENT_AUTH_ARGS="-remoteWrite.basicAuth.username=$(shell_sq "${MONITORING_USERNAME}") -remoteWrite.basicAuth.password=$(shell_sq "${MONITORING_PASSWORD}")"
+  printf -v VLOGS_AUTH_BLOCK '    auth:\n      strategy: basic\n      user: %s\n      password: %s' \
+    "$(yaml_sq "${MONITORING_USERNAME}")" \
+    "$(yaml_sq "${MONITORING_PASSWORD}")"
 else
   VMAGENT_AUTH_ARGS=""
   VLOGS_AUTH_BLOCK=""
@@ -221,18 +245,30 @@ else
 fi
 
 if command -v timeout >/dev/null 2>&1; then
-  IFS=',' read -r -a metrics_probe_targets <<< "${MEMGRAPH_METRICS_TARGETS}"
-  for target in "${metrics_probe_targets[@]}"; do
-    trimmed_target="$(echo "${target}" | xargs)"
-    [[ -z "${trimmed_target}" ]] && continue
-    target_host="${trimmed_target%:*}"
-    target_port="${trimmed_target##*:}"
-    if timeout 5 bash -c ">/dev/tcp/${target_host}/${target_port}" 2>/dev/null; then
-      echo "  metrics target reachable: ${target_host}:${target_port}"
+  probe_metrics_target() {
+    local host="$1" port="$2"
+    if timeout 5 bash -c ">/dev/tcp/${host}/${port}" 2>/dev/null; then
+      echo "  metrics target reachable: ${host}:${port}"
     else
-      echo "  metrics target unreachable: ${target_host}:${target_port}"
+      echo "  metrics target unreachable: ${host}:${port}"
     fi
-  done
+  }
+  if [[ -n "${MEMGRAPH_METRICS_TARGETS}" ]]; then
+    IFS=',' read -r -a metrics_probe_targets <<< "${MEMGRAPH_METRICS_TARGETS}"
+    for target in "${metrics_probe_targets[@]}"; do
+      trimmed_target="$(echo "${target}" | xargs)"
+      [[ -z "${trimmed_target}" ]] && continue
+      target_host="${trimmed_target%:*}"
+      target_port="${trimmed_target##*:}"
+      if [[ "${target_host}" == "${target_port}" ]]; then
+        target_host="${trimmed_target}"
+        target_port="${MEMGRAPH_METRICS_PORT}"
+      fi
+      probe_metrics_target "${target_host}" "${target_port}"
+    done
+  else
+    probe_metrics_target "${MEMGRAPH_METRICS_HOST}" "${MEMGRAPH_METRICS_PORT}"
+  fi
 fi
 
 echo

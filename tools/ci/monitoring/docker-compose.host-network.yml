@@ -11,7 +11,7 @@ services:
       - CONFIG_FILE=/etc/mg-exporter/config.yaml
 
   vmagent:
-    image: victoriametrics/vmagent:latest
+    image: victoriametrics/vmagent:v1.139.0
     container_name: ${COMPOSE_PROJECT_NAME}-vmagent
     restart: unless-stopped
     network_mode: host
