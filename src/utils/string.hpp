@@ -374,11 +374,7 @@ inline bool StartsWith(const std::string_view s, const std::string_view prefix) 
 
 /** Perform case-insensitive string equality test. */
 inline bool IEquals(const std::string_view lhs, const std::string_view rhs) {
-  if (lhs.size() != rhs.size()) return false;
-  for (size_t i = 0; i < lhs.size(); ++i) {
-    if (tolower(lhs[i]) != tolower(rhs[i])) return false;
-  }
-  return true;
+  return std::ranges::equal(lhs, rhs, [](char a, char b) { return tolower(a) == tolower(b); });
 }
 
 /**
@@ -395,7 +391,7 @@ std::basic_string<char, std::char_traits<char>, TAllocator> *RandomString(
   static thread_local std::mt19937 pseudo_rand_gen{std::random_device{}()};
   static thread_local std::uniform_int_distribution<size_t> rand_dist{0, strlen(charset) - 1};
   out->resize(length);
-  for (size_t i = 0; i < length; ++i) (*out)[i] = charset[rand_dist(pseudo_rand_gen)];
+  std::ranges::generate(*out, [] { return charset[rand_dist(pseudo_rand_gen)]; });
   return out;
 }
 

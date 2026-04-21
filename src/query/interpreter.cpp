@@ -7564,20 +7564,14 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     std::vector<std::vector<TypedValue>> status;
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
-      Sort(denied);
 
       status.reserve(all.size());
       for (const auto &name : all) {
         status.push_back({TypedValue(name)});
       }
 
-      // No denied databases (no need to filter them out)
-      if (denied.empty()) return;
-
-      auto denied_itr = denied.begin();
-      std::erase_if(status, [&denied_itr, &denied](auto &in) -> bool {
-        while (denied_itr != denied.end() && denied_itr->ValueString() < in[0].ValueString()) ++denied_itr;
-        return (denied_itr != denied.end() && denied_itr->ValueString() == in[0].ValueString());
+      std::erase_if(status, [&](auto const &row) {
+        return std::ranges::any_of(denied, [&](auto const &d) { return d.ValueString() == row[0].ValueString(); });
       });
     };
 
