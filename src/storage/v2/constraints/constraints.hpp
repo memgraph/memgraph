@@ -20,7 +20,7 @@
 namespace memgraph::storage {
 
 struct Constraints {
-  Constraints(const Config &config, StorageMode storage_mode);
+  Constraints(const Config &config, StorageMode storage_mode, unsigned db_arena_idx = 0);
 
   Constraints(const Constraints &) = delete;
   Constraints(Constraints &&) = delete;

@@ -12,7 +12,7 @@
 #include "query/interpreter.hpp"
 #include <fmt/core.h>
 #include "ctre.hpp"
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 
 #include <algorithm>
 #include <atomic>

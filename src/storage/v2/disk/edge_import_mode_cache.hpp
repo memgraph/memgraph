@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"

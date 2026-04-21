@@ -20,7 +20,7 @@
 
 #include "dbms/database_protector.hpp"
 #include "kvstore/kvstore.hpp"
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"

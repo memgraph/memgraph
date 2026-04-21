@@ -22,7 +22,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "utils/file.hpp"
 #include "utils/observer.hpp"
 
@@ -698,6 +698,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
                                         &storage->constraints_,
                                         storage->config_,
                                         recovery_info,
+                                        storage->BaseArenaIdx(),
                                         indices_constraints,
                                         storage->config_.salient.items.properties_on_edges,
                                         snapshot_observer_info);

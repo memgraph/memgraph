@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -155,7 +155,9 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
                            PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
-                           std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
+                           std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
+                           memgraph::memory::ArenaRegistration arena_registration = {},
+                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;

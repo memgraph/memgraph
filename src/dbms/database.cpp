@@ -19,9 +19,6 @@
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
-#if USE_JEMALLOC
-#include <jemalloc/jemalloc.h>
-#endif
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
@@ -60,10 +57,22 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
 
 Database::~Database() = default;
 
+unsigned Database::ArenaIdx() const noexcept {
+#if USE_JEMALLOC
+  return db_arena_ ? db_arena_->idx() : 0;
+#else
+  return 0;
+#endif
+}
+
+#if USE_JEMALLOC
+memory::DbArena &Database::Arena() noexcept { return *db_arena_; }
+#endif
+
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     :
 #if USE_JEMALLOC
-      db_arena_(&db_memory_tracker_),
+      db_arena_(std::make_unique<memory::DbArena>(&db_memory_tracker_)),
 #endif
       trigger_store_(
           std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers", ArenaIdx())),
@@ -76,14 +85,14 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   const memory::DbArenaScope db_arena_scope{ArenaIdx()};
 
 #if USE_JEMALLOC
-  config.arena_registration = memgraph::memory::ArenaRegistration{&db_arena_};
+  auto arena_registration = memgraph::memory::ArenaRegistration{db_arena_.get()};
+#else
+  auto arena_registration = memgraph::memory::ArenaRegistration{};
 #endif
-  config.db_embedding_memory_tracker = &db_embedding_memory_tracker_;
   streams()->SetArenaIdx(ArenaIdx());
 
-#if USE_JEMALLOC
   // Pin the after-commit trigger thread to this DB's arena so that all trigger allocations
-  // (including raw operator new / std::string) are attributed to the right DB MemoryTracker.
+  // through DbAwareAllocator are attributed to the right DB MemoryTracker.
   //
   // Ordering guarantee: this task is submitted before any trigger tasks can reach the pool
   // (the Database constructor has not returned yet, so no caller can AddTask). With pool size 1
@@ -94,23 +103,23 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   // different bug. For normal operation the pinning task runs exactly once and persists for
   // the pool's lifetime.
   if (unsigned idx = ArenaIdx(); idx != 0) {
-    after_commit_trigger_pool_.AddTask([idx]() mutable {
-      if (int ret = je_mallctl("thread.arena", nullptr, nullptr, &idx, sizeof(unsigned)); ret != 0) {
-        spdlog::error("Failed to pin after_commit_trigger_pool thread to arena {}: je_mallctl returned {}", idx, ret);
-        return;
-      }
-      memory::tls_db_arena_state.arena = idx;
-    });
+    after_commit_trigger_pool_.AddTask([idx] { memory::tls_db_arena_state.arena = idx; });
   }
-#endif
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
-    storage_ =
-        std::make_unique<storage::DiskStorage>(std::move(config), std::move(invalidator), database_protector_factory);
+    storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
+                                                      std::move(invalidator),
+                                                      database_protector_factory,
+                                                      ArenaIdx(),
+                                                      &db_embedding_memory_tracker_);
   } else {
-    storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
+    storage_ = dbms::CreateInMemoryStorage(std::move(config),
+                                           std::move(invalidator),
+                                           database_protector_factory,
+                                           arena_registration,
+                                           &db_embedding_memory_tracker_);
   }
 }
 
@@ -139,8 +148,11 @@ void Database::SwitchToOnDisk() {
   auto preserved_factory = storage_->get_database_protector_factory();
 
   const memory::DbArenaScope db_arena_scope{ArenaIdx()};
-  storage_ = std::make_unique<memgraph::storage::DiskStorage>(
-      std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);
+  storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
+                                                              std::make_unique<storage::PlanInvalidatorDefault>(),
+                                                              preserved_factory,
+                                                              ArenaIdx(),
+                                                              &db_embedding_memory_tracker_);
 }
 
 }  // namespace memgraph::dbms

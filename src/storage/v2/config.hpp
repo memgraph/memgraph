@@ -20,7 +20,6 @@
 #include <string>
 
 #include "flags/coord_flag_env_handler.hpp"
-#include "memory/db_arena.hpp"
 #include "nlohmann/json_fwd.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -134,19 +133,7 @@ struct Config {
 
   bool is_coordinator{false};  // PER INSTANCE - when true, snapshot handler is not wired up
 
-  // Per-thread arena pool registration for this storage.
-  // Provides access to Database's DbArena for background thread arena acquisition.
-  // Empty/null if no arena pool (non-jemalloc builds or unit tests).
-  // arena_registration and db_embedding_memory_tracker are runtime-only fields set by the
-  // owning Database at construction; they are not part of the logical storage configuration.
-  memgraph::memory::ArenaRegistration arena_registration;
-
-  // Runtime-only parent tracker for vector index allocations on this DB.
-  utils::MemoryTracker *db_embedding_memory_tracker{nullptr};
-
   friend bool operator==(const Config &lhs, const Config &rhs) {
-    // arena_registration and db_embedding_memory_tracker are runtime-only fields set by the
-    // owning Database at construction; they are not part of the logical storage configuration.
     return lhs.gc == rhs.gc && lhs.durability == rhs.durability && lhs.transaction == rhs.transaction &&
            lhs.disk == rhs.disk && lhs.salient == rhs.salient && lhs.force_on_disk == rhs.force_on_disk &&
            lhs.track_label_counts == rhs.track_label_counts && lhs.is_coordinator == rhs.is_coordinator;

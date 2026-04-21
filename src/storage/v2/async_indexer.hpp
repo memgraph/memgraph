@@ -14,7 +14,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <variant>
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "utils/skip_list.hpp"

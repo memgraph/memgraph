@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/delta.hpp"
 #include "utils/allocator/page_aligned.hpp"
 #include "utils/allocator/page_slab_memory_resource.hpp"

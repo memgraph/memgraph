@@ -230,9 +230,10 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 }  // namespace
 
 DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
-                         std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator),
-              std::move(database_protector_factory)),
+                         std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
+                         unsigned db_arena_idx, utils::MemoryTracker *db_embedding_memory_tracker)
+    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator), db_arena_idx,
+              db_embedding_memory_tracker, std::move(database_protector_factory)),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
   LoadPersistingMetadataInfo();
@@ -2474,7 +2475,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           *std::move(active_constraints),
           {},
           std::nullopt,
-          config_.arena_registration.BaseArenaIdx()};
+          BaseArenaIdx()};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }

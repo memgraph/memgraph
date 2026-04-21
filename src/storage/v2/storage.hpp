@@ -58,6 +58,10 @@ extern const Event ActiveUniqueConstraints;
 extern const Event ActiveTypeConstraints;
 }  // namespace memgraph::metrics
 
+namespace memgraph::utils {
+class MemoryTracker;
+}
+
 namespace memgraph::storage {
 class SharedAccessTimeout : public utils::BasicException {
  public:
@@ -209,7 +213,8 @@ class Storage {
   friend class VectorIndex;
 
  public:
-  Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
+  Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator, unsigned db_arena_idx = 0,
+          utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
           std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
 
   Storage(const Storage &) = delete;
@@ -226,6 +231,8 @@ class Storage {
   auto uuid() const -> utils::UUID const & { return config_.salient.uuid; }
 
   auto uuid() -> utils::UUID & { return config_.salient.uuid; }
+
+  unsigned BaseArenaIdx() const noexcept { return db_arena_idx_; }
 
   class Accessor {
    public:
@@ -1124,6 +1131,7 @@ class Storage {
 
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
+  unsigned db_arena_idx_{0};
 
   Indices indices_;
   Constraints constraints_;

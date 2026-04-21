@@ -503,7 +503,7 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
 
 void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                                        Indices *indices, Constraints *constraints, Config const &config,
-                                       RecoveryInfo const &recovery_info,
+                                       RecoveryInfo const &recovery_info, unsigned db_arena_idx,
                                        RecoveredIndicesAndConstraints &indices_constraints, bool properties_on_edges,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
   RecoverIndicesAndStats(indices_constraints.indices,
@@ -511,23 +511,23 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
                          vertices,
                          name_id_mapper,
                          properties_on_edges,
-                         GetParallelExecInfo(recovery_info, config),
+                         GetParallelExecInfo(recovery_info, config, db_arena_idx),
                          snapshot_info);
   RecoverConstraints(indices_constraints.constraints,
                      constraints,
                      vertices,
                      name_id_mapper,
-                     GetParallelExecInfo(recovery_info, config),
+                     GetParallelExecInfo(recovery_info, config, db_arena_idx),
                      snapshot_info);
 }
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
-                                                                  const Config &config) {
+                                                                  const Config &config, unsigned db_arena_idx) {
   return (config.durability.allow_parallel_schema_creation && recovery_info.vertex_batches.size() > 1)
              ? std::make_optional(
                    ParallelizedSchemaCreationInfo{.vertex_recovery_info = recovery_info.vertex_batches,
                                                   .thread_count = config.durability.recovery_thread_count,
-                                                  .arena_idx = config.arena_registration.BaseArenaIdx()})
+                                                  .arena_idx = db_arena_idx})
              : std::nullopt;
 }
 
@@ -535,7 +535,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
     utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
-    uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+    unsigned db_arena_idx, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
     std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
     memgraph::storage::DescriptionStore *description_store) {
@@ -775,6 +775,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                                     constraints,
                                     config,
                                     recovery_info,
+                                    db_arena_idx,
                                     indices_constraints,
                                     config.salient.items.properties_on_edges);
 

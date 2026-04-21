@@ -112,19 +112,19 @@ void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, E
   tx.active_indices_->edge_type_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
 }
 
-Indices::Indices(const Config &config, StorageMode storage_mode)
+Indices::Indices(const Config &config, StorageMode storage_mode, unsigned db_arena_idx,
+                 utils::MemoryTracker *db_embedding_memory_tracker)
     : text_index_(config.durability.storage_directory),
       text_edge_index_(config.durability.storage_directory),
-      vector_index_(config.db_embedding_memory_tracker),
-      vector_edge_index_(config.db_embedding_memory_tracker) {
-  std::invoke([this, config, storage_mode]() {
+      vector_index_(db_embedding_memory_tracker),
+      vector_edge_index_(db_embedding_memory_tracker) {
+  std::invoke([this, config, storage_mode, db_arena_idx]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      const auto arena_idx = config.arena_registration.BaseArenaIdx();
-      label_index_ = std::make_unique<InMemoryLabelIndex>(arena_idx);
-      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(arena_idx);
-      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>(arena_idx);
-      edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>(arena_idx);
-      edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>(arena_idx);
+      label_index_ = std::make_unique<InMemoryLabelIndex>(db_arena_idx);
+      label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(db_arena_idx);
+      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>(db_arena_idx);
+      edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>(db_arena_idx);
+      edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>(db_arena_idx);
     } else {
       label_index_ = std::make_unique<DiskLabelIndex>(config);
       label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);

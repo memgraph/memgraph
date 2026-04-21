@@ -233,7 +233,79 @@ unsigned DbArena::AcquireThreadArena() {
 
 #endif  // USE_JEMALLOC
 
+#if USE_JEMALLOC
+void *JeNew(size_t size, int flags);
+void JeFree(void *ptr, std::size_t size, int flags) noexcept;
+#endif
+
 namespace memgraph::memory {
+
+unsigned ArenaRegistration::BaseArenaIdx() const noexcept {
+#if USE_JEMALLOC
+  return arena_ ? arena_->idx() : 0;
+#else
+  return 0;
+#endif
+}
+
+unsigned ArenaRegistration::AcquireThreadArena() const noexcept {
+#if USE_JEMALLOC
+  return arena_ ? arena_->AcquireThreadArena() : 0;
+#else
+  return 0;
+#endif
+}
+
+#if USE_JEMALLOC
+#if defined(DEBUG_ARENA_VERIFICATION)
+unsigned GetPointerArena(void *ptr) {
+  if (!ptr) return 0;
+  unsigned arena_idx = 0;
+  size_t len = sizeof(arena_idx);
+  je_mallctl("arenas.lookup", &arena_idx, &len, &ptr, sizeof(ptr));
+  return arena_idx;
+}
+#endif
+#endif
+
+void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
+#if USE_JEMALLOC
+  if (idx != 0) {
+    int flags = MALLOCX_ARENA(idx) | MALLOCX_TCACHE_NONE;
+    if (alignment > alignof(std::max_align_t)) {
+      flags |= MALLOCX_ALIGN(alignment);
+    }
+    return ::JeNew(bytes, flags);
+  }
+#endif
+  return ::operator new(bytes, std::align_val_t{alignment});
+}
+
+void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept {
+#if USE_JEMALLOC
+#ifdef DEBUG_ARENA_VERIFICATION
+  if (p && tls_db_arena_state.arena != 0) {
+    unsigned ptr_arena = GetPointerArena(p);
+    unsigned tls_arena = tls_db_arena_state.arena;
+    if (ptr_arena != 0 && ptr_arena != tls_arena) {
+      MG_ASSERT(false,
+                "Arena mismatch in DbDeallocateBytes: pointer belongs to arena {}, "
+                "but TLS arena is {}. Cross-arena deallocations are not allowed.",
+                ptr_arena,
+                tls_arena);
+    }
+  }
+#endif
+
+  int flags = MALLOCX_TCACHE_NONE;
+  if (alignment > alignof(std::max_align_t)) {
+    flags |= MALLOCX_ALIGN(alignment);
+  }
+  ::JeFree(p, bytes, flags);
+#else
+  ::operator delete(p, bytes, std::align_val_t{alignment});
+#endif
+}
 
 // DbArenaScope implementation (legacy constructor only - Database* constructor in database.cpp)
 DbArenaScope::DbArenaScope(unsigned arena_idx) noexcept : prev_arena_(tls_db_arena_state.arena) {

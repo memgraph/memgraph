@@ -16,14 +16,14 @@
 
 namespace memgraph::storage {
 
-Constraints::Constraints(const Config &config, StorageMode storage_mode) {
-  std::invoke([this, config, storage_mode]() {
+Constraints::Constraints(const Config &config, StorageMode storage_mode, unsigned db_arena_idx) {
+  std::invoke([this, config, storage_mode, db_arena_idx]() {
     existence_constraints_ = std::make_unique<ExistenceConstraints>();
     type_constraints_ = std::make_unique<TypeConstraints>();
     switch (storage_mode) {
       case StorageMode::IN_MEMORY_TRANSACTIONAL:
       case StorageMode::IN_MEMORY_ANALYTICAL:
-        unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>(config.arena_registration.BaseArenaIdx());
+        unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>(db_arena_idx);
         break;
       case StorageMode::ON_DISK_TRANSACTIONAL:
         unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);

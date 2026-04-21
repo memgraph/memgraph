@@ -89,7 +89,8 @@ auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::millis
 }
 }  // namespace
 
-Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
+Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator, unsigned db_arena_idx,
+                 utils::MemoryTracker *db_embedding_memory_tracker,
                  std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory)
     : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
@@ -101,8 +102,9 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       config_(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
-      indices_(config, storage_mode),
-      constraints_(config, storage_mode),
+      db_arena_idx_(db_arena_idx),
+      indices_(config, storage_mode, db_arena_idx, db_embedding_memory_tracker),
+      constraints_(config, storage_mode, db_arena_idx),
       invalidator_{std::move(invalidator)},
       database_protector_factory_{database_protector_factory ? std::move(database_protector_factory)
                                                              : []() -> std::unique_ptr<DatabaseProtector> {

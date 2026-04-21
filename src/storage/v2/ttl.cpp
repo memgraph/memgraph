@@ -10,18 +10,12 @@
 // licenses/APL.txt.
 
 #include "storage/v2/ttl.hpp"
-#if USE_JEMALLOC
-#include "memory/db_arena.hpp"
-#endif
+#include "memory/db_arena_fwd.hpp"
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 #ifdef MG_ENTERPRISE
-
-#if USE_JEMALLOC
-#include <jemalloc/jemalloc.h>
-#endif
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
@@ -187,15 +181,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
   }
 
   auto ttl_job = [this]() {
-#if USE_JEMALLOC
-    if (storage_ptr_->config_.arena_registration) {
-      unsigned arena = storage_ptr_->config_.arena_registration.AcquireThreadArena();
-      if (arena != 0) {
-        je_mallctl("thread.arena", nullptr, nullptr, &arena, sizeof(unsigned));
-        memory::tls_db_arena_state.arena = arena;
-      }
-    }
-#endif
+    const memory::DbArenaScope db_arena_scope{storage_ptr_->BaseArenaIdx()};
     // Check if we're a main instance - only main instances should run TTL
     if (!user_check_()) return;
 

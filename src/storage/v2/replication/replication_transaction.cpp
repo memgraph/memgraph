@@ -173,7 +173,7 @@ void TransactionReplication::UpdateCommitTsInfo(std::function<CommitTsInfo(Commi
 
 TransactionReplication::TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage,
                                                CommitArgs const &commit_args, ReplicationStorageClientList &clients)
-    : locked_clients{clients.ReadLock()}, arena_idx_{storage->config_.arena_registration.BaseArenaIdx()} {
+    : locked_clients{clients.ReadLock()}, arena_idx_{storage->BaseArenaIdx()} {
   if (!locked_clients->empty()) {
     streams.reserve(locked_clients->size());
     auto const &db_acc = commit_args.database_protector();

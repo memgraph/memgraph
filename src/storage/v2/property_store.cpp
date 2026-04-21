@@ -11,7 +11,7 @@
 
 #include "storage/v2/property_store.hpp"
 #include <range/v3/all.hpp>
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
 
 #include <algorithm>

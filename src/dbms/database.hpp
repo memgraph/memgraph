@@ -14,7 +14,7 @@
 #include <memory>
 #include <optional>
 
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
@@ -201,17 +201,11 @@ class Database {
    *        Allocations on threads with tls_db_arena_state.arena == ArenaIdx() are attributed
    *        to this database's memory tracker.
    */
-  unsigned ArenaIdx() const noexcept {
-#if USE_JEMALLOC
-    return db_arena_.idx();
-#else
-    return 0;
-#endif
-  }
+  unsigned ArenaIdx() const noexcept;
 
 #if USE_JEMALLOC
   /// Returns the DbArena for per-thread arena management
-  memory::DbArena &Arena() noexcept { return db_arena_; }
+  memory::DbArena &Arena() noexcept;
 #endif
 
   /// Total memory tracked for this database (storage + embeddings + query).
@@ -254,7 +248,7 @@ class Database {
   // query PMR byte twice (once via TrackingMemoryResource::Alloc, once via arena hooks).
   utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
 #if USE_JEMALLOC
-  memory::DbArena db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
+  std::unique_ptr<memory::DbArena> db_arena_;  //!< Per-DB jemalloc arena with tracking hooks
 #endif
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage

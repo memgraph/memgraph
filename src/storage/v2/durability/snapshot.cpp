@@ -26,7 +26,7 @@
 #include <string>
 #include <thread>
 
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/type_constraints_kind.hpp"

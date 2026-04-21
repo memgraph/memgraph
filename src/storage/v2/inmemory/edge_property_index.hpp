@@ -15,7 +15,7 @@
 #include <map>
 #include <utility>
 
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"

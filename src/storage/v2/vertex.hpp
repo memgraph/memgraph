@@ -13,11 +13,11 @@
 
 #include <tuple>
 
-#include "memory/db_arena.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
+#include "utils/db_aware_allocator.hpp"
 #include "utils/pointer_pack.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/small_vector.hpp"

@@ -21,12 +21,6 @@
 #include <new>
 #include <type_traits>
 
-#if USE_JEMALLOC
-#include <jemalloc/jemalloc.h>
-void *JeNew(size_t size, int flags);
-void JeFree(void *ptr, std::size_t size, int flags) noexcept;
-#endif
-
 // Debug arena verification support
 #if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
 #include "utils/logging.hpp"
@@ -37,15 +31,7 @@ namespace memgraph::memory {
 #if USE_JEMALLOC && defined(DEBUG_ARENA_VERIFICATION)
 // Get the arena index for a pointer using jemalloc's arenas.lookup
 // Returns 0 if pointer is not a jemalloc allocation (e.g., system malloc)
-inline unsigned GetPointerArena(void *ptr) {
-  if (!ptr) return 0;
-  unsigned arena_idx = 0;
-  size_t len = sizeof(arena_idx);
-  // arenas.lookup: takes (void*) as input, returns arena index
-  // Note: This mallctl is rw - we write the pointer, get back arena
-  je_mallctl("arenas.lookup", &arena_idx, &len, &ptr, sizeof(ptr));
-  return arena_idx;
-}
+unsigned GetPointerArena(void *ptr);
 #endif
 
 // Thread-local state for the currently active database arena.
@@ -66,51 +52,13 @@ inline thread_local DbArenaTlsState tls_db_arena_state [[gnu::tls_model("initial
 // Allocate `bytes` bytes with the given `alignment`, attributed to arena `idx`.
 // Returns void* — use DbAllocate<T> for typed element-count based allocation.
 // Uses MALLOCX_TCACHE_NONE to avoid thread-cache overhead and ensure accurate tracking.
-[[nodiscard]] inline void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment) {
-#if USE_JEMALLOC
-  if (idx != 0) {
-    int flags = MALLOCX_ARENA(idx) | MALLOCX_TCACHE_NONE;
-    if (alignment > alignof(std::max_align_t)) {
-      flags |= MALLOCX_ALIGN(alignment);
-    }
-    return JeNew(bytes, flags);
-  }
-#endif
-  return ::operator new(bytes, std::align_val_t{alignment});
-}
+[[nodiscard]] void *DbAllocateBytes(std::size_t bytes, unsigned idx, std::size_t alignment);
 
 // Deallocate memory previously allocated via DbAllocateBytes.
 // Uses je_sdallocx with MALLOCX_TCACHE_NONE so the free goes directly to the
 // arena bin, matching the allocation style and allowing decay=0 arenas to
 // return pages to the OS promptly without blocks sitting in the TLS cache.
-inline void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept {
-#if USE_JEMALLOC
-#ifdef DEBUG_ARENA_VERIFICATION
-  // Verify arena correctness in debug builds
-  if (p && tls_db_arena_state.arena != 0) {
-    unsigned ptr_arena = GetPointerArena(p);
-    unsigned tls_arena = tls_db_arena_state.arena;
-    // ptr_arena == 0 means not a jemalloc pointer (e.g., system malloc) - skip check
-    // Otherwise, verify pointer belongs to current TLS arena
-    if (ptr_arena != 0 && ptr_arena != tls_arena) {
-      MG_ASSERT(false,
-                "Arena mismatch in DbDeallocateBytes: pointer belongs to arena {}, "
-                "but TLS arena is {}. Cross-arena deallocations are not allowed.",
-                ptr_arena,
-                tls_arena);
-    }
-  }
-#endif
-
-  int flags = MALLOCX_TCACHE_NONE;
-  if (alignment > alignof(std::max_align_t)) {
-    flags |= MALLOCX_ALIGN(alignment);
-  }
-  JeFree(p, bytes, flags);
-#else
-  ::operator delete(p, bytes, std::align_val_t{alignment});
-#endif
-}
+void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexcept;
 
 // Deallocate `n` elements of type T previously allocated via DbAllocate<T>.
 // Mirrors DbAllocate<T>: derives byte count and alignment from T, then calls DbDeallocateBytes.

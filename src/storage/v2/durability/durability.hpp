@@ -119,12 +119,12 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 
 void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>> *vertices,
                                        NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints,
-                                       Config const &config, RecoveryInfo const &recovery_info,
+                                       Config const &config, RecoveryInfo const &recovery_info, unsigned db_arena_idx,
                                        RecoveredIndicesAndConstraints &indices_constraints, bool properties_on_edges,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
-                                                                  const Config &config);
+                                                                  const Config &config, unsigned db_arena_idx);
 
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                                  utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>> *, NameIdMapper *,
@@ -151,7 +151,8 @@ struct Recovery {
       utils::SkipList<Edge, memory::ArenaAwareAllocator<char>> *edges,
       utils::SkipList<EdgeMetadata, memory::ArenaAwareAllocator<char>> *edges_metadata,
       std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints,
-      Config const &config, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+      Config const &config, unsigned db_arena_idx, uint64_t *wal_seq_num, EnumStore *enum_store,
+      SharedSchemaTracking *schema_info,
       std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
       std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
       memgraph::storage::DescriptionStore *description_store);

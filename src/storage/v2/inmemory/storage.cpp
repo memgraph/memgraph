@@ -11,9 +11,6 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 #include <range/v3/all.hpp>
-#if USE_JEMALLOC
-#include <jemalloc/jemalloc.h>
-#endif
 
 #include <algorithm>
 #include <atomic>
@@ -316,9 +313,12 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override,
                                  PlanInvalidatorPtr invalidator,
-                                 std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
-    : Storage(config, config.salient.storage_mode, std::move(invalidator), std::move(database_protector_factory)),
-      arena_registration_(config.arena_registration),
+                                 std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
+                                 memgraph::memory::ArenaRegistration arena_registration,
+                                 utils::MemoryTracker *db_embedding_memory_tracker)
+    : Storage(config, config.salient.storage_mode, std::move(invalidator), arena_registration.BaseArenaIdx(),
+              db_embedding_memory_tracker, std::move(database_protector_factory)),
+      arena_registration_(arena_registration),
       vertices_(memory::ArenaAwareAllocator<char>{arena_registration_.BaseArenaIdx()}),
       edges_(memory::ArenaAwareAllocator<char>{arena_registration_.BaseArenaIdx()}),
       edges_metadata_(memory::ArenaAwareAllocator<char>{arena_registration_.BaseArenaIdx()}),
@@ -372,6 +372,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         &indices_,
         &constraints_,
         config_,
+        BaseArenaIdx(),
         &wal_seq_num_,
         &enum_store_,
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
@@ -474,15 +475,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // TODO: move out of storage have one global gc_runner_
     gc_runner_.SetInterval(config_.gc.interval);
     gc_runner_.Run("Storage GC", [this] {
-      if (arena_registration_) {
-        unsigned arena = arena_registration_.AcquireThreadArena();
-        if (arena != 0) {
-#if USE_JEMALLOC
-          je_mallctl("thread.arena", nullptr, nullptr, &arena, sizeof(unsigned));
-#endif
-          memory::tls_db_arena_state.arena = arena;
-        }
-      }
+      const memory::DbArenaScope db_arena_scope{arena_registration_.AcquireThreadArena()};
       this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
     });
   }
@@ -3980,6 +3973,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
                                                            &constraints_,
                                                            config_,
                                                            recovery_info,
+                                                           BaseArenaIdx(),
                                                            recovered_snapshot.indices_constraints,
                                                            config_.salient.items.properties_on_edges);
     spdlog::trace("Successfully recovered from snapshot {}", local_path);
@@ -4231,15 +4225,7 @@ void InMemoryStorage::CreateSnapshotHandler(
   }
   snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
-    if (arena_registration_) {
-      unsigned arena = arena_registration_.AcquireThreadArena();
-      if (arena != 0) {
-#if USE_JEMALLOC
-        je_mallctl("thread.arena", nullptr, nullptr, &arena, sizeof(unsigned));
-#endif
-        memory::tls_db_arena_state.arena = arena;
-      }
-    }
+    const memory::DbArenaScope db_arena_scope{arena_registration_.AcquireThreadArena()};
     if (!token.stop_requested()) {
       this->create_snapshot_handler();
     }

@@ -19,7 +19,7 @@
 #include <unordered_map>
 #include <variant>
 
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 
 #include <nlohmann/json.hpp>
 

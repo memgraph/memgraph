@@ -27,10 +27,15 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 
+namespace memgraph::utils {
+class MemoryTracker;
+}
+
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(const Config &config, StorageMode storage_mode);
+  Indices(const Config &config, StorageMode storage_mode, unsigned db_arena_idx = 0,
+          utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;

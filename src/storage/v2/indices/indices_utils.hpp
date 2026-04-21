@@ -26,7 +26,7 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 
 #include <atomic>
 

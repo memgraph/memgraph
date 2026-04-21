@@ -11,7 +11,7 @@
 
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include <expected>
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"

@@ -15,7 +15,7 @@
 #include <optional>
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
-#include "memory/db_arena.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "query/exceptions.hpp"
 #include "range/v3/algorithm/remove.hpp"
 #include "storage/v2/indices/tracked_vector_allocator.hpp"
