@@ -1089,7 +1089,7 @@ test_memgraph() {
 
   resolve_docker_ha_monitoring_targets() {
     local monitoring_targets_output
-    monitoring_targets_output="$("$PROJECT_ROOT/tests/stress/ha/docker/deployment/deployment.sh" monitoring-targets host.docker.internal)"
+    monitoring_targets_output="$("$PROJECT_ROOT/tests/stress/ha/docker/deployment/deployment.sh" monitoring-targets 127.0.0.1)"
 
     while IFS='=' read -r key value; do
       case "$key" in
