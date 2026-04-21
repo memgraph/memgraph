@@ -228,6 +228,20 @@ jobs:
             --conan-username $CONAN_USERNAME \
             --conan-password $CONAN_PASSWORD
 
+      - name: "Build gssapi wheel"
+        if: ${{ env.FOR_DOCKER == 'true' }}
+        run: |
+          # gssapi has no prebuilt linux wheels on PyPI, so build one in the
+          # MGBUILD container (which has libkrb5/krb5-devel) and drop it into
+          # release/docker/wheels so the python-base Dockerfile stage can
+          # install it from the local wheel rather than hitting PyPI.
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            build-gssapi \
+            --dest-dir release/docker/wheels
+
       - name: "Stop mgbuild container"
         if: always()
         run: |
