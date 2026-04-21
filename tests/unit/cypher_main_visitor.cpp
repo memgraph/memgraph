@@ -2126,9 +2126,16 @@ TEST_P(CypherMainVisitorTest, CreateEdgeIndexAlternativeSyntaxVariableMismatch) 
   EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (x.since)"), SemanticException);
 }
 
-TEST_P(CypherMainVisitorTest, CreateEdgeIndexMemgraphSyntaxCompositeNotSupported) {
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexNestedPropertyNotSupported) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE EDGE INDEX ON :KNOWS(prop1.prop2)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (r.address.city)"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeIndexComposite) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE EDGE INDEX ON :KNOWS(since, weight)"), SemanticException);
+  EXPECT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX FOR ()-[r:KNOWS]-() ON (r.since, r.weight)"));
 }
 
 TEST_P(CypherMainVisitorTest, CreateIndexAlternativeSyntaxVariableMismatch) {
