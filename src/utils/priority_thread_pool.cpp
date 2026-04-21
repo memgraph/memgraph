@@ -671,7 +671,13 @@ bool TaskCollection::TryExecuteOneIdleTask(PriorityThreadPool *pool) {
   // EC-5 fix: claim the task under the lock, then release before executing.
   // Previously tasks_mutex_ was held for the entire task body on non-yielding tasks,
   // which would deadlock any concurrent caller that also needs tasks_mutex_.
-  ResumableTaskSignature captured_task;
+  //
+  // IMPORTANT: Do NOT move task.task_ out of tasks_[index].  WrapTask closures
+  // capture tasks_[index].task_ by reference (&task = task.task_); moving it out
+  // leaves a dangling reference and causes a heap-use-after-free when the WrapTask
+  // closure later calls task().  STOLEN state provides the required exclusivity —
+  // any WrapTask closure in the pool queue sees STOLEN and returns false (skips
+  // execution), so accessing tasks_[captured_index].task_() directly is safe.
   std::shared_ptr<std::atomic<Task::State>> captured_state;
   size_t captured_index = 0;
 
@@ -683,7 +689,6 @@ bool TaskCollection::TryExecuteOneIdleTask(PriorityThreadPool *pool) {
       if (!task.state_->compare_exchange_strong(expected, Task::State::STOLEN, std::memory_order_acq_rel)) {
         continue;
       }
-      captured_task = std::move(task.task_);
       captured_state = task.state_;
       captured_index = index;
       break;
@@ -694,16 +699,13 @@ bool TaskCollection::TryExecuteOneIdleTask(PriorityThreadPool *pool) {
 
   spdlog::warn("TryExecuteOneIdleTask: stole task[{}], executing inline", captured_index);
   try {
-    const bool yielded = captured_task();
+    // Call tasks_[captured_index].task_() directly — STOLEN state ensures no concurrent
+    // access (any WrapTask closure in the pool queue sees STOLEN and skips execution).
+    const bool yielded = tasks_[captured_index].task_();
     spdlog::warn("TryExecuteOneIdleTask: task[{}] completed yielded={}", captured_index, yielded);
     if (yielded) {
       if (pool != nullptr) {
         captured_state->store(Task::State::SCHEDULED, std::memory_order_release);
-        // Restore the task so WrapTask can resume it.
-        {
-          std::unique_lock lock(tasks_mutex_);
-          tasks_[captured_index].task_ = std::move(captured_task);
-        }
         pool->ScheduleResumableTask(WrapTask(captured_index, pool), Priority::LOW);
         NotifyProgress();
       } else {
