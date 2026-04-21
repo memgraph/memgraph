@@ -10,8 +10,8 @@ on:
     inputs:
       pr_number:
         type: string
+        required: true
         description: "PR number."
-        default: ''
       base_master:
         type: boolean
         description: "Base master?"
