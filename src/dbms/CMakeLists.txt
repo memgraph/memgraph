@@ -18,3 +18,5 @@ target_sources(mg-dbms
 )
 
 target_link_libraries(mg-dbms PUBLIC mg-utils mg::storage mg-query mg-auth mg-replication PRIVATE mg-coordination)
+
+target_precompile_headers(mg-dbms REUSE_FROM mg-pch-heavy)

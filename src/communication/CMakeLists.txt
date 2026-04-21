@@ -29,3 +29,5 @@ target_sources(mg-communication
 target_link_libraries(mg-communication
     PUBLIC Boost::headers mg-io mg-utils gflags
     PRIVATE Threads::Threads mg-auth fmt::fmt mg-communication-metrics mg-events openssl::openssl)
+
+target_precompile_headers(mg-communication REUSE_FROM mg-pch-base)

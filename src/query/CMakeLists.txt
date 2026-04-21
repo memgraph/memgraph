@@ -227,3 +227,5 @@ target_include_directories(antlr_opencypher_parser_lib PUBLIC ${antlr4-runtime_I
 target_link_libraries(antlr_opencypher_parser_lib PRIVATE antlr4_static)
 
 target_link_libraries(mg-query PUBLIC antlr_opencypher_parser_lib)
+
+target_precompile_headers(mg-query REUSE_FROM mg-pch-heavy)

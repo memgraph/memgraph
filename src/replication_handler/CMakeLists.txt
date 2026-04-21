@@ -19,3 +19,5 @@ target_sources(mg-replication_handler
 
 target_link_libraries(mg-replication_handler
         PUBLIC mg-auth mg-dbms mg-replication mg-coordination)
+
+target_precompile_headers(mg-replication_handler REUSE_FROM mg-pch-base)

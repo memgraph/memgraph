@@ -177,4 +177,6 @@ target_link_libraries(mg-storage-v2
     ctre::ctre
 )
 
+target_precompile_headers(mg-storage-v2 REUSE_FROM mg-pch-heavy)
+
 add_subdirectory(fuzz EXCLUDE_FROM_ALL)

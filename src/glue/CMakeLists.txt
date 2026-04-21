@@ -9,3 +9,5 @@ target_sources(mg-glue PRIVATE auth.cpp
                                run_id.cpp
                                query_user.cpp)
 target_link_libraries(mg-glue PRIVATE mg-query mg-auth mg-audit mg-flags)
+
+target_precompile_headers(mg-glue REUSE_FROM mg-pch-base)

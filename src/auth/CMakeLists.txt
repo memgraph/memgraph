@@ -18,6 +18,8 @@ target_link_libraries(mg-auth
     mg-utils mg::system mg-slk ${Seccomp_LIBRARIES} openssl::openssl)
 target_include_directories(mg-auth SYSTEM PRIVATE ${Seccomp_INCLUDE_DIRS})
 
+target_precompile_headers(mg-auth REUSE_FROM mg-pch-base)
+
 # Install reference auth modules and their configuration files.
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/common.py
         DESTINATION lib/memgraph/auth_module)

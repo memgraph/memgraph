@@ -27,3 +27,5 @@ target_link_libraries(mg-replication
     PUBLIC mg::utils mg::kvstore nlohmann_json::nlohmann_json mg::rpc mg::slk mg::io mg::repl_coord_glue
     PRIVATE fmt::fmt mg-flags
 )
+
+target_precompile_headers(mg-replication REUSE_FROM mg-pch-base)
