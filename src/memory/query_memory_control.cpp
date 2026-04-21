@@ -79,11 +79,19 @@ void TrackFreeOnCurrentThread(size_t size) {
   if (user_resource) user_resource->DecrementTransactionsMemory(size);
 }
 
-#endif
+#else  // !USE_JEMALLOC
+
+bool TrackAllocOnCurrentThread(size_t /*size*/) { return true; }
+
+void TrackFreeOnCurrentThread(size_t /*size*/) {}
+
+#endif  // USE_JEMALLOC
 
 void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker) {
 #if USE_JEMALLOC
   GetQueryTracker() = tracker;
+#else
+  (void)tracker;
 #endif
 }
 
@@ -96,6 +104,8 @@ void StopTrackingCurrentThread() {
 void StartTrackingUserResource(utils::UserResources *resource) {
 #if USE_JEMALLOC
   GetUserTracker() = resource;
+#else
+  (void)resource;
 #endif
 }
 
@@ -119,6 +129,9 @@ void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit) {
   // No need for user tracking at this level, if it was needed, it would have already been setup by this point
   DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
   GetQueryTracker()->CreateOrSetProcTracker(procedure_id, limit);
+#else
+  (void)procedure_id;
+  (void)limit;
 #endif
 }
 
@@ -141,6 +154,9 @@ ThreadTrackingBlocker::~ThreadTrackingBlocker() {
   GetQueryTracker() = prev_state_;
   GetUserTracker() = prev_user_state_;
 }
+#else
+ThreadTrackingBlocker::ThreadTrackingBlocker() = default;
+ThreadTrackingBlocker::~ThreadTrackingBlocker() = default;
 #endif
 
 #if USE_JEMALLOC
@@ -182,5 +198,33 @@ CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemor
   }
   return *this;
 }
-#endif
+#else   // !USE_JEMALLOC
+CrossThreadMemoryTracking::CrossThreadMemoryTracking(unsigned arena_idx) : db_arena_idx(arena_idx) {}
+
+void CrossThreadMemoryTracking::StartTracking() {
+  if (db_arena_idx != 0) {
+    prev_arena_ = memory::tls_db_arena_state.arena;
+    memory::tls_db_arena_state.arena = db_arena_idx;
+  }
+}
+
+void CrossThreadMemoryTracking::StopTracking() {
+  if (prev_arena_) {
+    memory::tls_db_arena_state.arena = *prev_arena_;
+    prev_arena_.reset();
+  }
+}
+
+CrossThreadMemoryTracking::CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept
+    : db_arena_idx(std::exchange(other.db_arena_idx, 0U)),
+      prev_arena_(std::exchange(other.prev_arena_, std::nullopt)) {}
+
+CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemoryTracking &&other) noexcept {
+  if (this != &other) {
+    db_arena_idx = std::exchange(other.db_arena_idx, 0U);
+    prev_arena_ = std::exchange(other.prev_arena_, std::nullopt);
+  }
+  return *this;
+}
+#endif  // USE_JEMALLOC
 }  // namespace memgraph::memory

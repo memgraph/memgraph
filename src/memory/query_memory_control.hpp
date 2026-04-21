@@ -24,19 +24,16 @@ namespace memgraph::memory {
 
 static constexpr int64_t UNLIMITED_MEMORY{0};
 
-#if USE_JEMALLOC
-
 // Find tracker for current thread if exists, track
 // query allocation and procedure allocation if
-// necessary
+// necessary.  In non-jemalloc builds this is a no-op
+// that always returns true.
 bool TrackAllocOnCurrentThread(size_t size);
 
 // Find tracker for current thread if exists, track
 // query allocation and procedure allocation if
-// necessary
+// necessary.  In non-jemalloc builds this is a no-op.
 void TrackFreeOnCurrentThread(size_t size);
-
-#endif
 
 // API function call to start tracking current thread.
 // Does nothing if jemalloc is not enabled
@@ -61,7 +58,6 @@ void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit);
 void PauseProcedureTracking();
 
 struct ThreadTrackingBlocker {
-#if USE_JEMALLOC
   ThreadTrackingBlocker();
   ~ThreadTrackingBlocker();
 
@@ -75,13 +71,11 @@ struct ThreadTrackingBlocker {
   utils::UserResources *GetPrevUserTracker() const { return prev_user_state_; }
 
  private:
-  utils::QueryMemoryTracker *prev_state_;
-  utils::UserResources *prev_user_state_;
-#endif
+  utils::QueryMemoryTracker *prev_state_{nullptr};
+  utils::UserResources *prev_user_state_{nullptr};
 };
 
 struct CrossThreadMemoryTracking {
-#if USE_JEMALLOC
   utils::QueryMemoryTracker *query_tracker{nullptr};
   utils::UserResources *user_tracker{nullptr};
   unsigned db_arena_idx{0};
@@ -99,13 +93,6 @@ struct CrossThreadMemoryTracking {
 
  private:
   std::optional<unsigned> prev_arena_;
-#else
-  explicit CrossThreadMemoryTracking(unsigned /*arena_idx*/ = 0) {}
-
-  void StartTracking() {}
-
-  void StopTracking() {}
-#endif
 };
 
 }  // namespace memgraph::memory

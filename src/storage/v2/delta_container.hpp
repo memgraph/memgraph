@@ -221,11 +221,8 @@ struct delta_container {
   explicit delta_container(unsigned arena_idx) noexcept
 #if USE_JEMALLOC
       : arena_upstream_(arena_idx),
-        deltas_(utils::PageAlignedAllocator<delta_slab>{arena_idx})
-#else
-      : deltas_(utils::PageAlignedAllocator<delta_slab>{arena_idx})
 #endif
-  {
+        deltas_(utils::PageAlignedAllocator<delta_slab>{arena_idx}) {
   }
 
   // move ctr: needed because of size_
