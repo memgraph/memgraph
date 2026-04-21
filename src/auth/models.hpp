@@ -253,8 +253,7 @@ class UserImpersonation {
   }
 
   std::optional<std::set<UserId>::iterator> find_denied(std::string_view username) const {
-    auto res =
-        std::find_if(denied_.begin(), denied_.end(), [username](const auto &elem) { return elem.name == username; });
+    auto res = std::ranges::find_if(denied_, [username](const auto &elem) { return elem.name == username; });
     if (res == denied_.end()) return {};
     return res;
   }

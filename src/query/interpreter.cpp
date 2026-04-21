@@ -5626,7 +5626,7 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
 
 bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   bool exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
-    return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
+    return std::ranges::any_of(interpreters_, [](const auto &interpreter) {
       return interpreter->transaction_status_.load() != TransactionStatus::IDLE;
     });
   });

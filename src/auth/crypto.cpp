@@ -276,7 +276,7 @@ std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgor
   const auto hash_size = HashSize(algo).unsalted;  // Support only unsalted hashes
   if (str.size() == header.size() + hash_size) {
     int i = 0;
-    if (std::all_of(header.begin(), header.end(), [&](const auto ch) { return tolower(ch) == str[i++]; })) {
+    if (std::ranges::all_of(header, [&](const auto ch) { return tolower(ch) == str[i++]; })) {
       return str.substr(header.size());
     }
   }
