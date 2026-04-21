@@ -125,7 +125,7 @@ auto TypeConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveCons
   }
   for (auto const &vertex : vertices) {
     if (auto validation_result = ValidateVertex(vertex, container); !validation_result.has_value()) {
-      return std::unexpected{validation_result.error()};
+      return validation_result;
     }
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VERTICES);
