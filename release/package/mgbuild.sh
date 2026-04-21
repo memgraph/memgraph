@@ -1901,8 +1901,13 @@ build_gssapi() {
   done
   mkdir -p "$dest_dir"
   docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/tools/ci && ./build-gssapi.sh"
-  package_name=$(docker exec -i -u mg $build_container bash -c "ls \$HOME/memgraph/tools/ci/gssapi/dist/")
-  docker cp $build_container:/home/mg/memgraph/tools/ci/gssapi/dist/$package_name "$dest_dir/"
+  local package_name
+  package_name=$(docker exec -i -u mg $build_container bash -c "ls -1 \$HOME/memgraph/tools/ci/gssapi/dist/*.whl | head -n 1 | xargs -n1 basename")
+  if [[ -z "$package_name" ]]; then
+    echo -e "${RED_BOLD}Error: no gssapi wheel produced${RESET}"
+    exit 1
+  fi
+  docker cp "$build_container:/home/mg/memgraph/tools/ci/gssapi/dist/$package_name" "$dest_dir/"
   echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET} -> ${dest_dir}"
 }
 
