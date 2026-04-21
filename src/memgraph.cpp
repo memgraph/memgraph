@@ -722,50 +722,56 @@ int main(int argc, char **argv) {
 #endif
 
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler;
+#ifdef MG_ENTERPRISE
   if (!is_coordinator_instance) {
     dbms_handler.emplace(db_config);
   }
+#else
+  dbms_handler.emplace(db_config);
+#endif
 
   // singleton replication state
   // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
   std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
       repl_state;
 
-  if (!is_coordinator_instance) {
-    repl_state.emplace(ReplicationStateRootPath(db_config)
 #ifdef MG_ENTERPRISE
-                           ,
-                       coordinator_state && coordinator_state->IsDataInstance()
-#endif
-    );
-  }
-
-  // TTL will be stopped with StopAllBackgroundTasks in DatabaseHandler
   if (!is_coordinator_instance) {
+    repl_state.emplace(ReplicationStateRootPath(db_config), coordinator_state && coordinator_state->IsDataInstance());
+  }
+#else
+  repl_state.emplace(ReplicationStateRootPath(db_config));
+#endif
+
+// TTL will be stopped with StopAllBackgroundTasks in DatabaseHandler
+#ifdef MG_ENTERPRISE
+  if (!is_coordinator_instance) {
+#endif
     dbms_handler->ForEach([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
       db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
         const auto locked_repl_state = repl_state->ReadLock();
         return locked_repl_state->IsMainWriteable();
       });
     });
+#ifdef MG_ENTERPRISE
   }
+#endif
 
   // Note: Now that all system's subsystems are initialised (dbms & auth)
   //       We can now initialise the recovery of replication (which will include those subsystems)
   //       ReplicationHandler will handle the recovery
   std::optional<memgraph::replication::ReplicationHandler> replication_handler;
+  std::optional<memgraph::dbms::DatabaseAccess> db_acc;
+
 #ifdef MG_ENTERPRISE
   if (!is_coordinator_instance) {
     replication_handler.emplace(*repl_state, *dbms_handler, system, *auth_, *parameters);
+    db_acc.emplace(dbms_handler->Get());
   }
 #else
   replication_handler.emplace(*repl_state, *dbms_handler, system, *parameters);
+  db_acc.emplace(dbms_handler->Get());
 #endif
-
-  std::optional<memgraph::dbms::DatabaseAccess> db_acc;
-  if (!is_coordinator_instance) {
-    db_acc.emplace(dbms_handler->Get());
-  }
 
   // Global worker pool!
   // Used by sessions to schedule tasks.
@@ -817,9 +823,11 @@ int main(int argc, char **argv) {
       worker_pool_ ? &*worker_pool_ : nullptr);
 
   auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
+#ifdef MG_ENTERPRISE
   if (!is_coordinator_instance) {
     MG_ASSERT(db_acc.has_value(), "Failed to access the main database");
   }
+#endif
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
                                                                   FLAGS_data_directory);
@@ -827,7 +835,9 @@ int main(int argc, char **argv) {
   memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
 
   // TODO Make multi-tenant
-  if (!FLAGS_init_file.empty() && !is_coordinator_instance) {
+  // No need to check here if coordinator instance because we check above that --init-file is not set on coordinator
+  // instances
+  if (!FLAGS_init_file.empty()) {
     spdlog::info("Running init file...");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -909,24 +919,22 @@ int main(int argc, char **argv) {
       spdlog::error("Failed to initialize telemetry. Error: {}", e.what());
       return EXIT_FAILURE;
     }
-    if (!is_coordinator_instance) {
-      telemetry->AddStorageCollector(*dbms_handler, *auth_, *parameters);
-    }
 #ifdef MG_ENTERPRISE
     if (!is_coordinator_instance) {
+      telemetry->AddStorageCollector(*dbms_handler, *auth_, *parameters);
       telemetry->AddDatabaseCollector(*dbms_handler);
+      telemetry->AddReplicationCollector(*repl_state);
     }
     telemetry->AddCoordinatorCollector(coordinator_state);
 #else
+    telemetry->AddStorageCollector(*dbms_handler, *auth_, *parameters);
     telemetry->AddDatabaseCollector();
+    telemetry->AddReplicationCollector(*repl_state);
 #endif
     telemetry->AddClientCollector();
     telemetry->AddEventsCollector();
     telemetry->AddQueryModuleCollector();
     telemetry->AddExceptionCollector();
-    if (!is_coordinator_instance) {
-      telemetry->AddReplicationCollector(*repl_state);
-    }
     telemetry->Start();
   }
   memgraph::license::LicenseInfoSender const license_info_sender(
@@ -989,13 +997,17 @@ int main(int argc, char **argv) {
 
     // Don't replicate on shutdown anymore
     {
-      // Read lock is fine because we are only shutting down all the state which should be concurrently safe to do with
-      // other operations This allow terminating current commit that is taking place
+// Read lock is fine because we are only shutting down all the state which should be concurrently safe to do with
+// other operations This allow terminating current commit that is taking place
+#ifdef MG_ENTERPRISE
       if (!is_coordinator_instance) {
+#endif
         auto locked_repl_state = repl_state->ReadLock();
         spdlog::trace("Closing repl state");
         locked_repl_state->Shutdown();
+#ifdef MG_ENTERPRISE
       }
+#endif
     }
 
     if (dbms_handler.has_value()) {
