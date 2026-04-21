@@ -1,1 +1,2 @@
 copy_void_procedures_e2e_python_files(void_procedures.py)
+copy_void_procedures_e2e_python_files(invalid_batch_void.py)

@@ -60,5 +60,14 @@ def test_void_proc_called_multiple_times(connection):
     assert result[0][0] == 5
 
 
+def test_batched_void_procedure_load_fails(connection):
+    # Batched void procedures are rejected at module load: the cursor loop never marks
+    # the stream as exhausted for batched procs, so a void batch would return rows forever
+    # without ever pulling from its input.
+    cursor = connection.cursor()
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, "CALL mg.load('invalid_batch_void');")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

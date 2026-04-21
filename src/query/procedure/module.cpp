@@ -896,6 +896,14 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
         return with_error(error);
       }
     }
+    for (const auto &[proc_name, proc] : module_def->procedures) {
+      if (proc.info.is_batched && proc.results.empty()) {
+        return with_error(fmt::format(
+            "Unable to load module {}; void procedures cannot be batched (procedure '{}' declares no result fields).",
+            file_path,
+            proc_name));
+      }
+    }
     return true;
   };
   if (!WithModuleRegistration(&procedures_, &transformations_, &functions_, module_cb)) {
@@ -1000,6 +1008,7 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     return false;
   }
   bool succ = true;
+  std::string batched_void_proc_name;
   auto module_cb = [&](auto *module_def, auto * /*memory*/) {
     auto result = ImportPyModule(file_path.stem().c_str(), module_def);
     for (auto &trans : module_def->transformations) {
@@ -1008,6 +1017,13 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
         return result;
       }
     };
+    for (const auto &[proc_name, proc] : module_def->procedures) {
+      if (proc.info.is_batched && proc.results.empty()) {
+        succ = false;
+        batched_void_proc_name = proc_name;
+        return result;
+      }
+    }
     return result;
   };
   py_module_ = WithModuleRegistration(&procedures_, &transformations_, &functions_, module_cb);
@@ -1015,7 +1031,14 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     spdlog::info("Loaded module {}", file_path);
 
     if (!succ) {
-      spdlog::error("Unable to add result to transformation");
+      if (!batched_void_proc_name.empty()) {
+        spdlog::error(
+            "Unable to load module {}; void procedures cannot be batched (procedure '{}' declares no result fields).",
+            file_path,
+            batched_void_proc_name);
+      } else {
+        spdlog::error("Unable to add result to transformation");
+      }
       return false;
     }
     return true;
