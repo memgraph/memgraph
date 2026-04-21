@@ -113,7 +113,13 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
 // =============================================================================
 
 // RAII guard: installs a DB arena for the duration of its scope and restores
-// the previous TLS value on destruction. Supports nested scopes.
+// the previous TLS value on destruction.
+//
+// Nesting is intentional. Some DB-aware execution wrappers install a broad
+// arena scope for a whole thread/task, while narrower query/storage paths may
+// install the same DB arena again once they have a local DB handle. Restoring
+// the previous value on destruction keeps shared worker threads and task
+// stealing paths from leaking arena state across work items.
 struct DbArenaScope {
   // Acquire per-thread arena from the database.
   explicit DbArenaScope(memgraph::dbms::Database *db);
