@@ -1,5 +1,9 @@
 name: "Package mage (External)"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.pr_number }}
+  cancel-in-progress: true
+
 on:
   #push:
   workflow_dispatch:

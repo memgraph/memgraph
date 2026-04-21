@@ -1,6 +1,6 @@
 name: "Diff (External)"
 concurrency:
-  group: ${{ github.head_ref || github.sha }}
+  group: ${{ github.workflow }}-${{ inputs.pr_number }}
   cancel-in-progress: true
 
 on:
