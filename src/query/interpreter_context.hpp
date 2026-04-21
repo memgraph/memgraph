@@ -73,7 +73,7 @@ struct InterpreterContext {
   utils::SkipList<QueryCacheEntry> ast_cache;
 
   // GLOBAL
-  utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state;
+  utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *repl_state;
 #ifdef MG_ENTERPRISE
   coordination::CoordinatorState *coordinator_state_ = nullptr;
   utils::ResourceMonitoring *resource_monitoring;
@@ -111,7 +111,7 @@ struct InterpreterContext {
   // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
                      memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
-                     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, system::System &system,
+                     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *rs, system::System &system,
                      communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE
                      coordination::CoordinatorState *coordinator_state, utils::ResourceMonitoring *resource_monitoring,
@@ -132,7 +132,7 @@ class InterpreterContextHolder {
  private:
   static void Initialize(InterpreterConfig interpreter_config, utils::Settings *settings,
                          parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
-                         utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
+                         utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *rs,
                          system::System &system, communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE
                          coordination::CoordinatorState *coordinator_state,
@@ -174,7 +174,7 @@ class InterpreterContextHolder {
 struct InterpreterContextLifetimeControl {
   InterpreterContextLifetimeControl(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
                                     memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
-                                    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
+                                    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *rs,
                                     system::System &system, communication::ServerContext *bolt_server_context,
 #ifdef MG_ENTERPRISE
                                     coordination::CoordinatorState *coordinator_state,

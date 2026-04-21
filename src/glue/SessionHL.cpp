@@ -19,6 +19,7 @@
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
 #include "dbms/constants.hpp"
+#include "flags/coord_flag_env_handler.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "frontend/ast/ast.hpp"
 #include "glue/SessionHL.hpp"
@@ -614,6 +615,9 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
 
 #ifdef MG_ENTERPRISE
 void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_tx) {
+  // Coordinators have no dbms_handler and no databases to switch to, so there is nothing to configure.
+  if (flags::CoordinationSetupInstance().IsCoordinator()) return;
+
   // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
   // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
   if (in_explicit_tx || (previous_run_time_info_ && run_time_info == *previous_run_time_info_)) return;
