@@ -1877,6 +1877,12 @@ test_mage() {
       cleanup_container() {
         docker stop $neo4j_container || true
         docker rm $neo4j_container || true
+        # This trap replaces the outer stop_monitoring trap, so chain it here
+        # to ensure the monitoring stack restarts fresh for the next test (and
+        # picks up the new service_name/labels from the regenerated configs).
+        if [[ "$enable_monitoring" == "true" ]]; then
+          stop_monitoring || true
+        fi
       }
       trap cleanup_container EXIT INT TERM
       create_e2e_test_env
@@ -1933,6 +1939,12 @@ test_mage() {
         docker rm $mysql_container || true
         docker stop $postgresql_container || true
         docker rm $postgresql_container || true
+        # This trap replaces the outer stop_monitoring trap, so chain it here
+        # to ensure the monitoring stack restarts fresh for the next test (and
+        # picks up the new service_name/labels from the regenerated configs).
+        if [[ "$enable_monitoring" == "true" ]]; then
+          stop_monitoring || true
+        fi
       }
       # Set trap to cleanup on exit/interrupt (scoped to this case branch)
       trap cleanup_containers EXIT INT TERM

@@ -480,7 +480,8 @@ jobs:
             -e MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE \
             -e MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME \
             ${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG \
-            --telemetry-enabled=False
+            --telemetry-enabled=False \
+            --log-level=INFO
 
       - name: Run end-to-end tests
         if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
