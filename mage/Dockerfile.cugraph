@@ -20,7 +20,6 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   fi && \
   apt-get update && apt-get install -y \
   python3 libpython3.12 python3-pip adduser curl \
-  python3-dev gcc libkrb5-dev \
   --no-install-recommends && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
