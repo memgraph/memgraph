@@ -284,6 +284,15 @@ jobs:
           name: memgraph-sbom
           path: sbom/
 
+      - name: "Upload SBOM to S3"
+        if: ${{ env.GENERATE_SBOM == 'true' && inputs.push_to_s3 == 'true' && startsWith(inputs.ref, 'v') && contains(inputs.ref, '-rc') }}
+        run: |
+          aws s3 sync sbom/ "s3://${S3_BUCKET}/${S3_DEST_DIR}/sbom/"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ inputs.s3_region }}
+
       - name: Run Docker smoke tests
         if: ${{ env.FOR_DOCKER == 'true' && inputs.run_smoke_tests }}
         env:

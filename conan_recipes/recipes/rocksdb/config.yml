@@ -1,0 +1,3 @@
+versions:
+  "8.1.1-memgraph":
+    folder: all

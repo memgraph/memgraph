@@ -384,6 +384,11 @@ constexpr utils::TypeInfo query::Foreach::kType{utils::TypeId::AST_FOREACH, "For
 constexpr utils::TypeInfo query::ShowConfigQuery::kType{
     .id = utils::TypeId::AST_SHOW_CONFIG_QUERY, .name = "ShowConfigQuery", .superclass = &query::Query::kType};
 
+constexpr utils::TypeInfo query::ShowQueryCallableMappingsQuery::kType{
+    .id = utils::TypeId::AST_SHOW_QUERY_CALLABLE_MAPPINGS_QUERY,
+    .name = "ShowQueryCallableMappingsQuery",
+    .superclass = &query::Query::kType};
+
 constexpr utils::TypeInfo query::AnalyzeGraphQuery::kType{
     .id = utils::TypeId::AST_ANALYZE_GRAPH_QUERY, .name = "AnalyzeGraphQuery", .superclass = &query::Query::kType};
 

@@ -7,8 +7,8 @@
 //
 #include "auth/crypto.hpp"
 
+#include <bcrypt.h>
 #include <gflags/gflags.h>
-#include <libbcrypt/bcrypt.h>
 #include <openssl/evp.h>
 #include <openssl/opensslv.h>
 #include <openssl/sha.h>

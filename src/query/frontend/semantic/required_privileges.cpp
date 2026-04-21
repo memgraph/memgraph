@@ -112,6 +112,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(ShowConfigQuery & /*show_config_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
+  void Visit(ShowQueryCallableMappingsQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
+
   void Visit(TriggerQuery & /*trigger_query*/) override { AddPrivilege(AuthQuery::Privilege::TRIGGER); }
 
   void Visit(StreamQuery & /*stream_query*/) override { AddPrivilege(AuthQuery::Privilege::STREAM); }

@@ -50,6 +50,10 @@ on:
         type: boolean
         description: "Run smoke tests on images after building (tests against previous tagged image)"
         default: false
+      generate_sbom:
+        type: boolean
+        description: "Generate SBOM for the image"
+        default: false
       ref:
         type: string
         description: "Branch or tag to build"
@@ -96,6 +100,10 @@ on:
       run_smoke_tests:
         type: boolean
         description: "Run smoke tests on images after building (tests against previous tagged image)"
+        default: false
+      generate_sbom:
+        type: boolean
+        description: "Generate SBOM for the image"
         default: false
       ref:
         type: string

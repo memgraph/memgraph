@@ -438,14 +438,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
                                                                           main_uuid_,
                                                                           storage_uuid,
                                                                           durability_commit_timestamp)};
-    auto const res = stream.SendAndWait().success;
-    if (res) {
-      auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-        return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
-      };
-      atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-    }
-    return res;
+    return stream.SendAndWait().success;
   } catch (const rpc::RpcFailedException &) {
     // Frequent heartbeat should trigger the recovery. Until then, commits on MAIN won't be allowed
     return false;
@@ -493,28 +486,23 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   try {
     auto response = replica_stream->Finalize();
     // NOLINTNEXTLINE
-    return replica_state_.WithLock([this, response, durability_commit_timestamp](auto &state) mutable
-                                       -> std::expected<void, io::network::ClientCommunicationError> {
-      // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
-      // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
-      // MAYBE_BEHIND state if we missed next txn.
-      if (state != ReplicaState::REPLICATING) {
-        return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-      }
+    return replica_state_.WithLock(
+        [response](auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
+          // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
+          // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+          // MAYBE_BEHIND state if we missed next txn.
+          if (state != ReplicaState::REPLICATING) {
+            return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+          }
 
-      if (!response.success) {
-        state = ReplicaState::MAYBE_BEHIND;
-        return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-      }
+          if (!response.success) {
+            state = ReplicaState::MAYBE_BEHIND;
+            return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+          }
 
-      auto update_func = [&durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-        return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
-      };
-      atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-
-      state = ReplicaState::READY;
-      return {};
-    });
+          state = ReplicaState::READY;
+          return {};
+        });
   } catch (rpc::RpcTimeoutException const &) {
     replica_state_.WithLock([&replica_stream](auto &state) {
       replica_stream.reset();
@@ -570,10 +558,12 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
     return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
   }
 
+  bool const is_async = client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC;
   auto task = [this,
                protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
                durability_commit_timestamp,
+               is_async,
                arena_idx]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
     const memory::DbArenaScope db_arena_scope{arena_idx};
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
@@ -581,18 +571,9 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
       return replica_state_.WithLock(
-          [this, response, &replica_stream_obj, durability_commit_timestamp](
+          [this, response, &replica_stream_obj, durability_commit_timestamp, is_async](
               auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
             replica_stream_obj.reset();
-
-            // It doesn't matter whether we started a new txn or not, we can increment here the number of known
-            // committed txns for replica
-            if (response.success) {
-              auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-                return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
-              };
-              atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-            }
 
             // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
             // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
@@ -606,10 +587,14 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
               return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
             }
 
-            auto update_func = [durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-              return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
-            };
-            atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+            // ASYNC replicas update their own commit_ts_info_ here upon confirmed
+            // success rather than optimistically in the main commit path.
+            if (is_async) {
+              auto update_func = [durability_commit_timestamp](CommitTsInfo const &info) -> CommitTsInfo {
+                return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = info.num_committed_txns_ + 1};
+              };
+              atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+            }
 
             state = ReplicaState::READY;
             return {};
@@ -631,7 +616,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
     }
   };
 
-  if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+  if (is_async) {
     // When in ASYNC mode, we ignore the return value from task() and always return true
     client_.thread_pool_.AddTask(std::move(task));
     return {};

@@ -6,6 +6,29 @@ source "$DIR/environment/util.sh"
 # this should fix --break-system-packages not being available in older distros
 export PIP_BREAK_SYSTEM_PACKAGES=1
 
+local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
+WGET_TIMEOUT=60
+use_cache=true
+if [[ "${local_cache_host%:*}" == "false" ]]; then
+  use_cache=false
+  echo -e "\n--- Not using cache for Neo4j download ---\n"
+fi
+
+function file_get_try_double () {
+    primary_url="$1"
+    secondary_url="$2"
+    if [[ -z "$primary_url" ]]; then echo "Primary should not be empty." && exit 1; fi
+    if [[ -z "$secondary_url" ]]; then echo "Secondary should not be empty." && exit 1; fi
+    filename="$(basename "$secondary_url")"
+    if [[ "$use_cache" == true ]]; then
+      echo "Download primary from $primary_url secondary from $secondary_url"
+      timeout $WGET_TIMEOUT wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || timeout $WGET_TIMEOUT wget -nv "$secondary_url" -O "$filename" || exit 1
+    else
+      echo "Download from $secondary_url"
+      timeout $WGET_TIMEOUT wget -nv "$secondary_url" -O "$filename" || exit 1
+    fi
+}
+
 function setup_virtualenv () {
     pushd $1 > /dev/null
     echo "Setting up virtualenv for: $1"
@@ -20,6 +43,23 @@ function setup_virtualenv () {
     pip install -r requirements.txt || exit 1
     deactivate
 
+    popd > /dev/null
+}
+
+function setup_neo4j () {
+    pushd libs > /dev/null
+    echo "Setting up Neo4j in libs/"
+    ./cleanup.sh
+
+    local neo4j_archive="neo4j-community-5.6.0-unix.tar.gz"
+    local neo4j_dir="neo4j-community-5.6.0"
+    local primary_url="http://${local_cache_host}/${neo4j_archive}"
+    local secondary_url="https://dist.neo4j.org/${neo4j_archive}"
+    file_get_try_double "$primary_url" "$secondary_url"
+
+    tar -xzf "$neo4j_archive"
+    mv "$neo4j_dir" neo4j
+    rm "$neo4j_archive"
     popd > /dev/null
 }
 
@@ -63,6 +103,7 @@ if [[ "$ci" == "false" ]]; then
 fi
 
 if [[ "$prep_testing" == "true" ]]; then
+  setup_neo4j
   setup_virtualenv tests
   cd tests
   ./setup.sh
