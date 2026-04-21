@@ -161,7 +161,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return ConstraintQuery*
    */
-  antlrcpp::Any visitMemgraphConstraintQuery(MemgraphCypher::MemgraphConstraintQueryContext *ctx) override;
+  antlrcpp::Any visitOriginalConstraintQuery(MemgraphCypher::OriginalConstraintQueryContext *ctx) override;
 
   /**
    * @return ConstraintQuery*

@@ -835,7 +835,7 @@ alternativeConstraintPattern : '(' variable ':' labelName ')'                   
                        | '(' ')' dash '[' variable ':' labelName ']' dash '(' ')'               # alternativeEdgeConstraintPattern
                        ;
 
-memgraphConstraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
+originalConstraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
 
 alternativeConstraintSyntax : CREATE CONSTRAINT ( symbolicName )? FOR alternativeConstraintPattern REQUIRE
                   ( alternativePropertyRefList IS UNIQUE
@@ -843,7 +843,7 @@ alternativeConstraintSyntax : CREATE CONSTRAINT ( symbolicName )? FOR alternativ
                   | alternativePropertyRef IS ':' ':' typeConstraintType
                   ) ;
 
-constraintQuery : memgraphConstraintQuery
+constraintQuery : originalConstraintQuery
                 | alternativeConstraintSyntax
                 ;
 

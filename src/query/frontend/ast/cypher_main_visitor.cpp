@@ -205,7 +205,7 @@ antlrcpp::Any CypherMainVisitor::visitConstraintQuery(MemgraphCypher::Constraint
   return query_;
 }
 
-antlrcpp::Any CypherMainVisitor::visitMemgraphConstraintQuery(MemgraphCypher::MemgraphConstraintQueryContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitOriginalConstraintQuery(MemgraphCypher::OriginalConstraintQueryContext *ctx) {
   auto *constraint_query = storage_->Create<ConstraintQuery>();
   MG_ASSERT(ctx->CREATE() || ctx->DROP());
   if (ctx->CREATE()) {
