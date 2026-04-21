@@ -503,6 +503,9 @@ class Interpreter final {
     static constexpr struct ThreadSafe {
     } thread_safe_;
 
+    // QueryExecution memory is charged to the DB whose query/trigger is being
+    // prepared. System-only executions may pass nullptr because they do not run
+    // inside a DB query-memory budget.
     explicit QueryExecution(utils::MemoryTracker *db_query_tracker = nullptr)
         : execution_memory{std::in_place_type<QueryAllocator>, db_query_tracker} {}
 

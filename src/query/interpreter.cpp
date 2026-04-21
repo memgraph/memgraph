@@ -9031,6 +9031,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (tx_query_enum == TransactionQuery::BEGIN) {
       ResetInterpreter();
     }
+    // Transaction-control queries inherit the current DB tracker when they are
+    // part of a DB transaction; system-only control paths keep execution memory
+    // outside any DB query-memory budget.
     auto *db_query_tracker = current_db_.db_acc_ ? current_db_.db_acc_->get()->DbQueryMemoryTracker() : nullptr;
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create(db_query_tracker));
     query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
@@ -9091,6 +9094,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
+    // SetupInterpreterTransaction selected the execution DB for data queries.
+    // System-only queries can intentionally have no current DB tracker.
     auto *db_query_tracker = current_db_.db_acc_ ? current_db_.db_acc_->get()->DbQueryMemoryTracker() : nullptr;
     // Setup QueryExecution
     // TODO: Use CreateThreadSafe for multi-threaded queries
