@@ -38,7 +38,7 @@ void Validate(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result
     if (pos == std::string::npos || pos + 1 >= message.size()) break;
 
     const char spec = message[pos + 1];
-    if (!std::isalpha(spec)) {
+    if (!std::isalpha(static_cast<unsigned char>(spec))) {
       ++pos;
       continue;
     }
