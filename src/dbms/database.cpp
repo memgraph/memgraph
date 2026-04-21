@@ -57,7 +57,7 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
 
 Database::~Database() = default;
 
-unsigned Database::ArenaIdx() const noexcept {
+unsigned Database::BaseArenaIdx() const noexcept {
 #if USE_JEMALLOC
   return db_arena_ ? db_arena_->idx() : 0;
 #else
@@ -75,7 +75,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
       db_arena_(std::make_unique<memory::DbArena>(&db_memory_tracker_)),
 #endif
       trigger_store_(
-          std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers", ArenaIdx())),
+          std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers", BaseArenaIdx())),
       after_commit_trigger_pool_{1,
 #if USE_JEMALLOC
                                  [this] { memory::tls_db_arena_state.arena = db_arena_->AcquireThreadArena(); }
@@ -88,7 +88,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
   // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
-  const memory::DbArenaScope db_arena_scope{ArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{BaseArenaIdx()};
 
 #if USE_JEMALLOC
   auto arena_registration = memgraph::memory::ArenaRegistration{db_arena_.get()};
@@ -105,7 +105,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
                                                       std::move(invalidator),
                                                       database_protector_factory,
-                                                      ArenaIdx(),
+                                                      BaseArenaIdx(),
                                                       &db_embedding_memory_tracker_);
   } else {
     storage_ = dbms::CreateInMemoryStorage(std::move(config),
@@ -140,11 +140,11 @@ void Database::SwitchToOnDisk() {
   // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
   auto preserved_factory = storage_->get_database_protector_factory();
 
-  const memory::DbArenaScope db_arena_scope{ArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{BaseArenaIdx()};
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
                                                               std::make_unique<storage::PlanInvalidatorDefault>(),
                                                               preserved_factory,
-                                                              ArenaIdx(),
+                                                              BaseArenaIdx(),
                                                               &db_embedding_memory_tracker_);
 }
 

@@ -197,11 +197,10 @@ class Database {
   void StopAllBackgroundTasks();
 
   /**
-   * @brief jemalloc arena index owned by this database (0 if not using jemalloc).
-   *        Allocations on threads with tls_db_arena_state.arena == ArenaIdx() are attributed
-   *        to this database's memory tracker.
+   * @brief Base jemalloc arena index owned by this database (0 if not using jemalloc).
+   *        Long-lived DB threads should use Arena().AcquireThreadArena() instead.
    */
-  unsigned ArenaIdx() const noexcept;
+  unsigned BaseArenaIdx() const noexcept;
 
 #if USE_JEMALLOC
   /// Returns the DbArena for per-thread arena management

@@ -73,9 +73,9 @@ TEST_F(DbMemoryTrackingTest, ArenaBasics) {
   auto acc2 = db_gk2.access();
   ASSERT_TRUE(acc1 && acc2);
 
-  EXPECT_NE((*acc1)->ArenaIdx(), 0u) << "Each Database should own a unique jemalloc arena";
-  EXPECT_NE((*acc2)->ArenaIdx(), 0u);
-  EXPECT_NE((*acc1)->ArenaIdx(), (*acc2)->ArenaIdx()) << "Two databases must not share a jemalloc arena";
+  EXPECT_NE((*acc1)->BaseArenaIdx(), 0u) << "Each Database should own a unique jemalloc arena";
+  EXPECT_NE((*acc2)->BaseArenaIdx(), 0u);
+  EXPECT_NE((*acc1)->BaseArenaIdx(), (*acc2)->BaseArenaIdx()) << "Two databases must not share a jemalloc arena";
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ TEST_F(DbMemoryTrackingTest, ArenaIsolationAndParentPropagation) {
   auto &db1 = *acc1;
   auto &db2 = *acc2;
 
-  const unsigned arena1 = db1->ArenaIdx();
+  const unsigned arena1 = db1->BaseArenaIdx();
   ASSERT_NE(arena1, 0u);
 
   const int64_t before1 = db1->DbMemoryUsage();
@@ -247,7 +247,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
 
   // Pin arena for vector index creation (uses DbAwareAllocator internally)
   {
-    memgraph::memory::DbArenaScope db_arena_scope{db1->ArenaIdx()};
+    memgraph::memory::DbArenaScope db_arena_scope{db1->BaseArenaIdx()};
     ASSERT_NO_ERROR(unique_acc->CreateVectorIndex(spec));
   }
 
@@ -259,7 +259,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   EXPECT_GE(db1_total_delta, db1_delta) << "db_total should include embedding delta";
 
   {
-    memgraph::memory::DbArenaScope db_arena_scope{db1->ArenaIdx()};
+    memgraph::memory::DbArenaScope db_arena_scope{db1->BaseArenaIdx()};
     ASSERT_NO_ERROR(unique_acc->DropVectorIndex(spec.index_name));
   }
   EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_before) << "Dropping index should release embedding memory";
@@ -267,7 +267,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   auto edge_type = db1->storage()->NameToEdgeType("EMBEDDED_EDGE");
   auto edge_property = db1->storage()->NameToProperty("edge_embedding");
   {
-    memgraph::memory::DbArenaScope scope{db1->ArenaIdx()};
+    memgraph::memory::DbArenaScope scope{db1->BaseArenaIdx()};
     auto accessor = db1->Access();
     std::vector<memgraph::storage::VertexAccessor> vertices;
     vertices.reserve(1025);
@@ -299,7 +299,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   };
 
   {
-    memgraph::memory::DbArenaScope db_arena_scope{db1->ArenaIdx()};
+    memgraph::memory::DbArenaScope db_arena_scope{db1->BaseArenaIdx()};
     ASSERT_NO_ERROR(unique_acc->CreateVectorEdgeIndex(edge_spec));
   }
 
@@ -312,7 +312,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
   EXPECT_GE(db1_edge_total_delta, db1_edge_delta) << "db_total should include edge embedding delta";
 
   {
-    memgraph::memory::DbArenaScope db_arena_scope{db1->ArenaIdx()};
+    memgraph::memory::DbArenaScope db_arena_scope{db1->BaseArenaIdx()};
     ASSERT_NO_ERROR(unique_acc->DropVectorIndex(edge_spec.index_name));
   }
   EXPECT_EQ(db1->DbEmbeddingMemoryUsage(), db1_edge_before) << "Dropping edge index should release embedding memory";
@@ -328,7 +328,7 @@ TEST_F(DbMemoryTrackingTest, StorageOpsIncreaseDbMemory) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->ArenaIdx();
+  const unsigned arena_idx = db->BaseArenaIdx();
   ASSERT_NE(arena_idx, 0U);
 
   memgraph::memory::DbArenaScope scope{arena_idx};
@@ -377,7 +377,7 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->ArenaIdx();
+  const unsigned arena_idx = db->BaseArenaIdx();
   ASSERT_NE(arena_idx, 0U);
 
   auto label = db->storage()->NameToLabel("IdxNode");
@@ -445,7 +445,7 @@ TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->ArenaIdx();
+  const unsigned arena_idx = db->BaseArenaIdx();
   ASSERT_NE(arena_idx, 0U);
 
   auto create_vertices = [&](const char *label_name) {
@@ -507,7 +507,7 @@ TEST_F(DbMemoryTrackingTest, SnapshotRecoveryPreservesDbMemoryTracking) {
     ASSERT_TRUE(acc_opt);
     auto &db = *acc_opt;
 
-    const unsigned arena_idx = db->ArenaIdx();
+    const unsigned arena_idx = db->BaseArenaIdx();
     ASSERT_NE(arena_idx, 0U);
 
     memgraph::memory::DbArenaScope scope{arena_idx};
@@ -587,7 +587,7 @@ TEST_F(DbMemoryTrackingTest, WalOnlyRecoveryPreservesDbMemoryTracking) {
     ASSERT_TRUE(acc_opt);
     auto &db = *acc_opt;
 
-    const unsigned arena_idx = db->ArenaIdx();
+    const unsigned arena_idx = db->BaseArenaIdx();
     memgraph::memory::DbArenaScope scope{arena_idx};
 
     auto label = db->storage()->NameToLabel("WalNode");
@@ -642,7 +642,7 @@ TEST_F(DbMemoryTrackingTest, GcFreesArenaPages) {
   ASSERT_TRUE(db_acc_opt);
   auto &db = *db_acc_opt;
 
-  const unsigned arena_idx = db->ArenaIdx();
+  const unsigned arena_idx = db->BaseArenaIdx();
   ASSERT_NE(arena_idx, 0U);
 
   auto label = db->storage()->NameToLabel("GcNode");
@@ -976,7 +976,7 @@ TEST_F(DbMemoryTrackingTest, MixedAllocators_ConsistentAttribution) {
   ASSERT_TRUE(acc);
   auto *db = acc->get();
 
-  const unsigned arena_idx = db->ArenaIdx();
+  const unsigned arena_idx = db->BaseArenaIdx();
   ASSERT_NE(arena_idx, 0U);
 
   const int64_t before = db->DbMemoryUsage();

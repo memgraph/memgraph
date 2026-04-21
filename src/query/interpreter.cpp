@@ -3373,7 +3373,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 #if USE_JEMALLOC
   // PlanCache_t uses DbAwareAllocator, so prepare-time cache insertions must run
   // with the owning DB arena installed in TLS for correct per-DB attribution.
-  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->BaseArenaIdx()};
 #endif
 
   const auto is_cacheable = parsed_query.is_cacheable;
@@ -3442,7 +3442,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
                                               hops_limit,
                                               interpreter_context->worker_pool,
-                                              current_db.db_acc_->get()->ArenaIdx()
+                                              current_db.db_acc_->get()->BaseArenaIdx()
 #ifdef MG_ENTERPRISE
                                                   ,
                                               parallel_execution,
@@ -3495,7 +3495,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
 
 #if USE_JEMALLOC
   // EXPLAIN populates the inner query's cached plan during prepare.
-  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->BaseArenaIdx()};
 #endif
 
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
@@ -3607,7 +3607,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
 #if USE_JEMALLOC
   // PROFILE also parses/plans an inner Cypher query and may populate the DB-owned plan cache.
-  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->ArenaIdx()};
+  const memory::DbArenaScope plan_cache_db_arena_scope{current_db.db_acc_->get()->BaseArenaIdx()};
 #endif
 
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
@@ -3650,7 +3650,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          stopping_context = std::move(stopping_context),
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
-                                         db_arena_idx = current_db.db_acc_->get()->ArenaIdx(),
+                                         db_arena_idx = current_db.db_acc_->get()->BaseArenaIdx(),
                                          &query_logger = interpreter.query_logger_
 #ifdef MG_ENTERPRISE
                                          ,
@@ -9577,7 +9577,7 @@ void Interpreter::Abort() {
 #if USE_JEMALLOC
   // Route Abort-path deallocations/cleanup to this DB's arena.
   // Guard against null db_acc_ (accessor already cleaned up by storage layer on internal abort).
-  const memory::DbArenaScope db_arena_scope{current_db_.db_acc_ ? current_db_.db_acc_->get()->ArenaIdx() : 0u};
+  const memory::DbArenaScope db_arena_scope{current_db_.db_acc_ ? current_db_.db_acc_->get()->BaseArenaIdx() : 0u};
 #endif
 
   // Data tx
@@ -9845,7 +9845,7 @@ void Interpreter::Commit() {
 #if USE_JEMALLOC
   // Route Commit-path allocations (before-commit triggers, delta cleanup, plan cache updates)
   // to this DB's arena. System-tx path returned early above, so this is always a data transaction.
-  const memory::DbArenaScope db_arena_scope{db->ArenaIdx()};
+  const memory::DbArenaScope db_arena_scope{db->BaseArenaIdx()};
 #endif
 
   /*
