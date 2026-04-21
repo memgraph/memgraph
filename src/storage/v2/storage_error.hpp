@@ -13,8 +13,6 @@
 
 #include "storage/v2/constraints/constraint_violation.hpp"
 
-#include <fmt/core.h>
-
 #include <cstdint>
 #include <string>
 #include <variant>

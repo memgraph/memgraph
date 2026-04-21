@@ -11,6 +11,8 @@
 
 #include "storage/v2/storage_error.hpp"
 
+#include <fmt/format.h>
+
 namespace memgraph::storage {
 
 auto ReplicaFailureReasonToString(ReplicaFailureReason reason) -> std::string {

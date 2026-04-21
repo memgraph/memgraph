@@ -11,13 +11,14 @@
 
 #pragma once
 
-#include "edge.hpp"
 #include "indices/indices.hpp"
 #include "name_id_mapper.hpp"
 #include "property_value.hpp"
-#include "vertex.hpp"
 
 namespace memgraph::storage {
+
+struct Vertex;
+struct Edge;
 
 template <typename T>
 struct IndexedPropertyDecoder {
