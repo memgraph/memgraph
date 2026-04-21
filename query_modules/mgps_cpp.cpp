@@ -74,7 +74,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
 
     AddProcedure(Mgps::Validate,
                  Mgps::kProcedureValidate,
-                 mgp::ProcedureType::Write,
+                 mgp::ProcedureType::Read,
                  {mgp::Parameter(Mgps::kParameterPredicate, mgp::Type::Bool),
                   mgp::Parameter(Mgps::kParameterMessage, mgp::Type::String),
                   mgp::Parameter(Mgps::kParameterParams, {mgp::Type::List, mgp::Type::Any})},
