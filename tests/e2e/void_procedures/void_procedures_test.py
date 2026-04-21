@@ -23,10 +23,10 @@ def test_void_proc_yield_field_fails(connection):
 
 def test_signature_returns_but_impl_does_not(connection):
     cursor = connection.cursor()
-    result = execute_and_fetch_all(
-        cursor, "CALL void_procedures.signature_returns_but_impl_does_not() YIELD result RETURN result;"
-    )
-    assert len(result) == 0
+    with pytest.raises(Exception):
+        execute_and_fetch_all(
+            cursor, "CALL void_procedures.signature_returns_but_impl_does_not() YIELD result RETURN result;"
+        )
 
 
 def test_signature_void_but_impl_returns(connection):

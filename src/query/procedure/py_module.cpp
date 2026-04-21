@@ -1194,6 +1194,12 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
     if (py_res.Ptr() == Py_None) {
+      if (!result->signature.empty()) {
+        result->error_msg.emplace(
+            "Procedure implementation returned None, but its signature declares result fields. "
+            "Did you forget a 'return mgp.Record(...)' statement?");
+        return std::nullopt;
+      }
       // Void procedure - no records to process.
       return std::nullopt;
     }
