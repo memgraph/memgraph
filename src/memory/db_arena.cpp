@@ -311,7 +311,6 @@ void DbDeallocateBytes(void *p, std::size_t bytes, std::size_t alignment) noexce
 #endif
 }
 
-// DbArenaScope implementation (legacy constructor only - Database* constructor in database.cpp)
 DbArenaScope::DbArenaScope(unsigned arena_idx) noexcept : prev_arena_(tls_db_arena_state.arena) {
   tls_db_arena_state.arena = arena_idx;
 }

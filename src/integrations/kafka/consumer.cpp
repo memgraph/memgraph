@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "integrations/kafka/consumer.hpp"
-#include "memory/db_arena_fwd.hpp"
 
 #include <fmt/format.h>
 #include <librdkafka/rdkafka.h>
@@ -152,8 +151,17 @@ int64_t Message::Offset() const {
   return c_message->offset;
 }
 
-Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
-    : info_{std::move(info)}, consumer_function_(std::move(consumer_function)), cb_(info_.consumer_name) {
+namespace {
+ConsumerThreadFactory DefaultThreadFactory() {
+  return [](std::function<void()> task) { return std::thread(std::move(task)); };
+}
+}  // namespace
+
+Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function, ConsumerThreadFactory thread_factory)
+    : info_{std::move(info)},
+      consumer_function_(std::move(consumer_function)),
+      thread_factory_(thread_factory ? std::move(thread_factory) : DefaultThreadFactory()),
+      cb_(info_.consumer_name) {
   MG_ASSERT(consumer_function_, "Empty consumer function for Kafka consumer");
   // NOLINTNEXTLINE (modernize-use-nullptr)
   if (info_.batch_interval < kMinimumInterval) {
@@ -378,6 +386,10 @@ bool Consumer::IsRunning() const { return is_running_; }
 
 const ConsumerInfo &Consumer::Info() const { return info_; }
 
+void Consumer::SetThreadFactory(ConsumerThreadFactory thread_factory) {
+  thread_factory_ = thread_factory ? std::move(thread_factory) : DefaultThreadFactory();
+}
+
 void Consumer::event_cb(RdKafka::Event &event) {
   switch (event.type()) {
     case RdKafka::Event::Type::EVENT_ERROR:
@@ -403,15 +415,11 @@ void Consumer::StartConsuming() {
 
   CheckAndDestroyLastAssignmentIfNeeded(*consumer_, info_, last_assignment_);
 
-  thread_ = std::thread([this] {
+  thread_ = thread_factory_([this] {
     static constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 
     utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));
-
-    if (info_.arena_idx != 0) {
-      memory::tls_db_arena_state.arena = info_.arena_idx;
-    }
 
     while (is_running_) {
       auto maybe_batch = GetBatch(*consumer_, info_, is_running_);

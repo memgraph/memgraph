@@ -91,8 +91,8 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 #endif
   streams()->SetArenaIdx(ArenaIdx());
 
-  // Pin the after-commit trigger thread to this DB's arena so that all trigger allocations
-  // through DbAwareAllocator are attributed to the right DB MemoryTracker.
+  // Bind the after-commit trigger thread to this DB's arena so allocations through
+  // DbAwareAllocator are attributed to the right DB MemoryTracker.
   //
   // Ordering guarantee: this task is submitted before any trigger tasks can reach the pool
   // (the Database constructor has not returned yet, so no caller can AddTask). With pool size 1
@@ -162,11 +162,8 @@ void Database::SwitchToOnDisk() {
 #if USE_JEMALLOC
 namespace memgraph::memory {
 
-DbArenaScope::DbArenaScope(memgraph::dbms::Database *db) : prev_arena_(tls_db_arena_state.arena) {
-  if (db != nullptr) {
-    tls_db_arena_state.arena = db->Arena().AcquireThreadArena();
-  }
-}
+DbArenaScope::DbArenaScope(memgraph::dbms::Database *db)
+    : DbArenaScope(db != nullptr ? db->Arena().AcquireThreadArena() : 0) {}
 
 }  // namespace memgraph::memory
 #else

@@ -78,6 +78,7 @@ class Message final {
 };
 
 using ConsumerFunction = std::function<void(const std::vector<Message> &)>;
+using ConsumerThreadFactory = std::function<std::thread(std::function<void()>)>;
 
 /// ConsumerInfo holds all the information necessary to create a Consumer.
 struct ConsumerInfo {
@@ -89,7 +90,6 @@ struct ConsumerInfo {
   int64_t batch_size;
   std::unordered_map<std::string, std::string> public_configs{};
   std::unordered_map<std::string, std::string> private_configs{};
-  unsigned arena_idx{0};  // jemalloc arena to pin on the consumer thread (0 = default)
 };
 
 /// Memgraphs Kafka consumer wrapper.
@@ -102,7 +102,7 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// @throws ConsumerFailedToInitializeException if the consumer can't connect
   ///         to the Kafka endpoint.
-  Consumer(ConsumerInfo info, ConsumerFunction consumer_function);
+  Consumer(ConsumerInfo info, ConsumerFunction consumer_function, ConsumerThreadFactory thread_factory = {});
   ~Consumer() override;
 
   Consumer(const Consumer &other) = delete;
@@ -163,7 +163,7 @@ class Consumer final : public RdKafka::EventCb {
 
   const ConsumerInfo &Info() const;
 
-  void SetArenaIdx(unsigned idx) noexcept { info_.arena_idx = idx; }
+  void SetThreadFactory(ConsumerThreadFactory thread_factory);
 
  private:
   void event_cb(RdKafka::Event &event) override;
@@ -189,6 +189,7 @@ class Consumer final : public RdKafka::EventCb {
 
   ConsumerInfo info_;
   ConsumerFunction consumer_function_;
+  ConsumerThreadFactory thread_factory_;
   mutable std::atomic<bool> is_running_{false};
   mutable std::vector<RdKafka::TopicPartition *> last_assignment_;  // Protected by is_running_
   std::unique_ptr<RdKafka::KafkaConsumer, std::move_only_function<void(RdKafka::KafkaConsumer *)>> consumer_;

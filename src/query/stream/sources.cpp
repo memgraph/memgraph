@@ -11,12 +11,26 @@
 
 #include "query/stream/sources.hpp"
 
+#include <functional>
 #include <nlohmann/json.hpp>
+#include <thread>
 #include <utility>
 
+#include "memory/db_arena_fwd.hpp"
 #include "query/stream/common.hpp"
 
 namespace memgraph::query::stream {
+namespace {
+auto MakeDbAwareThreadFactory(unsigned arena_idx) {
+  return [arena_idx](std::function<void()> task) {
+    return std::thread([arena_idx, task = std::move(task)]() mutable {
+      const memory::DbArenaScope db_arena_scope{arena_idx};
+      task();
+    });
+  };
+}
+}  // namespace
+
 KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
                          ConsumerFunction<integrations::kafka::Message> consumer_function) {
   integrations::kafka::ConsumerInfo consumer_info{
@@ -32,6 +46,11 @@ KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
   consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
 };
 
+void KafkaStream::SetArenaIdx(unsigned idx) {
+  arena_idx_ = idx;
+  if (consumer_) consumer_->SetThreadFactory(MakeDbAwareThreadFactory(arena_idx_));
+}
+
 KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const {
   const auto &info = consumer_->Info();
   return {{.batch_interval = info.batch_interval,
@@ -44,10 +63,7 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
           .credentials = info.private_configs};
 }
 
-void KafkaStream::Start() {
-  if (arena_idx_ != 0) consumer_->SetArenaIdx(arena_idx_);
-  consumer_->Start();
-}
+void KafkaStream::Start() { consumer_->Start(); }
 
 void KafkaStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
   consumer_->StartWithLimit(batch_limit, timeout);
@@ -106,6 +122,11 @@ PulsarStream::PulsarStream(std::string stream_name, StreamInfo stream_info,
   consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
 };
 
+void PulsarStream::SetArenaIdx(unsigned idx) {
+  arena_idx_ = idx;
+  if (consumer_) consumer_->SetThreadFactory(MakeDbAwareThreadFactory(arena_idx_));
+}
+
 PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) const {
   const auto &info = consumer_->Info();
   return {{.batch_interval = info.batch_interval,
@@ -115,10 +136,7 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
           .service_url = info.service_url};
 }
 
-void PulsarStream::Start() {
-  if (arena_idx_ != 0) consumer_->SetArenaIdx(arena_idx_);
-  consumer_->Start();
-}
+void PulsarStream::Start() { consumer_->Start(); }
 
 void PulsarStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
   consumer_->StartWithLimit(batch_limit, timeout);

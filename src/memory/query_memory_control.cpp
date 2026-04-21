@@ -169,8 +169,6 @@ void CrossThreadMemoryTracking::StartTracking() {
   if (db_arena_idx != 0) {
     prev_arena_ = memory::tls_db_arena_state.arena;
     memory::tls_db_arena_state.arena = db_arena_idx;
-    // Note: tcache is not preserved across cross-thread tracking
-    // as the tcache is per-(thread,DB) and this is a different thread
   }
 }
 

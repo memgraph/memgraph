@@ -84,8 +84,8 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
   unsigned arena_idx_;
 };
 
-// RAII guard: installs a DB arena for the duration of its scope and
-// restores the previous value on destruction. Supports nested scopes.
+// RAII guard: installs a DB arena for the duration of its scope and restores
+// the previous TLS value on destruction. Supports nested scopes.
 struct DbArenaScope {
   // Acquire per-thread arena from the database.
   explicit DbArenaScope(memgraph::dbms::Database *db);
@@ -125,7 +125,7 @@ class DbAwareThread {
   DbAwareThread(unsigned arena_idx, F &&f, Args &&...args)
       : thread_(
             [arena_idx, func = std::forward<F>(f)](std::stop_token st, std::decay_t<Args>... a) mutable {
-              tls_db_arena_state.arena = arena_idx;
+              const DbArenaScope db_arena_scope{arena_idx};
               if constexpr (std::is_invocable_v<std::decay_t<F>, std::stop_token, std::decay_t<Args>...>) {
                 func(std::move(st), std::move(a)...);
               } else {

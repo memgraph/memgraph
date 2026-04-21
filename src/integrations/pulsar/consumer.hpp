@@ -46,6 +46,7 @@ class Message final {
 };
 
 using ConsumerFunction = std::function<void(const std::vector<Message> &)>;
+using ConsumerThreadFactory = std::function<std::thread(std::function<void()>)>;
 
 struct ConsumerInfo {
   int64_t batch_size;
@@ -53,12 +54,11 @@ struct ConsumerInfo {
   std::vector<std::string> topics;
   std::string consumer_name;
   std::string service_url;
-  unsigned arena_idx{0};  // jemalloc arena to pin on the consumer thread (0 = default)
 };
 
 class Consumer final {
  public:
-  Consumer(ConsumerInfo info, ConsumerFunction consumer_function);
+  Consumer(ConsumerInfo info, ConsumerFunction consumer_function, ConsumerThreadFactory thread_factory = {});
   ~Consumer();
 
   Consumer(const Consumer &) = delete;
@@ -77,7 +77,7 @@ class Consumer final {
 
   const ConsumerInfo &Info() const;
 
-  void SetArenaIdx(unsigned idx) noexcept { info_.arena_idx = idx; }
+  void SetThreadFactory(ConsumerThreadFactory thread_factory);
 
  private:
   void StartConsuming();
@@ -88,6 +88,7 @@ class Consumer final {
   mutable pulsar_client::Client client_;
   mutable pulsar_client::Consumer consumer_;
   ConsumerFunction consumer_function_;
+  ConsumerThreadFactory thread_factory_;
 
   mutable std::atomic<bool> is_running_{false};
   mutable pulsar_client::MessageId last_message_id_{pulsar_client::MessageId::earliest()};  // Protected by is_running_

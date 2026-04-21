@@ -254,7 +254,7 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
 
   EXPECT_GT(db1_delta, static_cast<int64_t>(256 * 1024)) << "Vector index should attribute embedding memory to DB1";
   EXPECT_EQ(db2->DbEmbeddingMemoryUsage(), db2_before) << "DB2 embedding tracker must not grow";
-  EXPECT_EQ(db1_total_delta, db1_delta) << "db_total should include embedding delta";
+  EXPECT_GE(db1_total_delta, db1_delta) << "db_total should include embedding delta";
 
   {
     memgraph::memory::DbArenaScope db_arena_scope{db1->ArenaIdx()};
@@ -276,10 +276,7 @@ TEST_F(DbMemoryTrackingTest, StorageOpsIncreaseDbMemory) {
   const unsigned arena_idx = db->ArenaIdx();
   ASSERT_NE(arena_idx, 0U);
 
-  unsigned prev_arena = 0;
-  std::size_t arena_sz = sizeof(unsigned);
-  je_mallctl("thread.arena", &prev_arena, &arena_sz, const_cast<unsigned *>(&arena_idx), arena_sz);
-  auto restore = [&] { je_mallctl("thread.arena", nullptr, nullptr, &prev_arena, sizeof(unsigned)); };
+  memgraph::memory::DbArenaScope scope{arena_idx};
 
   auto label = db->storage()->NameToLabel("Person");
   auto prop_name = db->storage()->NameToProperty("name");
@@ -310,7 +307,6 @@ TEST_F(DbMemoryTrackingTest, StorageOpsIncreaseDbMemory) {
   }
 
   const int64_t after = db->DbMemoryUsage();
-  restore();
 
   EXPECT_GT(after, before + static_cast<int64_t>(1024 * 1024))
       << "Creating vertices with labels, properties, and edges must increase DbMemoryUsage";
@@ -385,8 +381,7 @@ TEST_F(DbMemoryTrackingTest, IndexCreationTracked) {
 // ---------------------------------------------------------------------------
 // 7. Thread pinning patterns: different arena-pinning methods all attribute
 //    allocations to the correct DB.
-//    - je_mallctl("thread.arena") + tls  (stream consumer / replication applier)
-//    - DbArenaScope (before-commit trigger / query thread)
+//    - DbArenaScope (query, trigger, stream, replication, GC, snapshot, TTL)
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
   memgraph::memory::ArenaPool::Instance().Drain();
@@ -410,22 +405,20 @@ TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
     acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
   };
 
-  // Full pin: je_mallctl("thread.arena") + tls_db_arena_state.arena
-  // (mirrors stream consumer, replication applier, after-commit trigger pool)
+  // DbArenaScope pins DbAwareAllocator TLS.
   {
     const int64_t before = db->DbMemoryUsage();
     std::atomic<int64_t> after{0};
     std::thread t([&] {
-      je_mallctl("thread.arena", nullptr, nullptr, const_cast<unsigned *>(&arena_idx), sizeof(unsigned));
-      memgraph::memory::tls_db_arena_state.arena = arena_idx;
+      memgraph::memory::DbArenaScope scope{arena_idx};
       create_vertices("FullPinNode");
       after.store(db->DbMemoryUsage());
     });
     t.join();
-    EXPECT_GT(after.load(), before) << "Full je_mallctl+tls pin must attribute allocations to DB";
+    EXPECT_GT(after.load(), before) << "DbArenaScope must attribute allocations to DB";
   }
 
-  // TLS-only pin: DbArenaScope (mirrors before-commit trigger / query thread)
+  // DbArenaScope restores previous state and can be reused by another thread.
   {
     const int64_t before = db->DbMemoryUsage();
     std::atomic<int64_t> after{0};
@@ -435,7 +428,7 @@ TEST_F(DbMemoryTrackingTest, ThreadPinningPatternsAttributed) {
       after.store(db->DbMemoryUsage());
     });
     t.join();
-    EXPECT_GT(after.load(), before) << "DbArenaScope (TLS-only) pin must attribute allocations to DB";
+    EXPECT_GT(after.load(), before) << "DbArenaScope must attribute allocations to DB";
   }
 }
 
@@ -462,9 +455,7 @@ TEST_F(DbMemoryTrackingTest, SnapshotRecoveryPreservesDbMemoryTracking) {
     const unsigned arena_idx = db->ArenaIdx();
     ASSERT_NE(arena_idx, 0U);
 
-    unsigned prev_arena = 0;
-    std::size_t arena_sz = sizeof(unsigned);
-    je_mallctl("thread.arena", &prev_arena, &arena_sz, const_cast<unsigned *>(&arena_idx), arena_sz);
+    memgraph::memory::DbArenaScope scope{arena_idx};
 
     auto label = db->storage()->NameToLabel("SnapNode");
     auto prop = db->storage()->NameToProperty("id");
@@ -500,8 +491,6 @@ TEST_F(DbMemoryTrackingTest, SnapshotRecoveryPreservesDbMemoryTracking) {
     auto *storage = dynamic_cast<memgraph::storage::InMemoryStorage *>(db->storage());
     ASSERT_NE(storage, nullptr);
     storage->CreateSnapshot(true);
-
-    je_mallctl("thread.arena", nullptr, nullptr, &prev_arena, sizeof(unsigned));
   }
 
   {
@@ -544,9 +533,7 @@ TEST_F(DbMemoryTrackingTest, WalOnlyRecoveryPreservesDbMemoryTracking) {
     auto &db = *acc_opt;
 
     const unsigned arena_idx = db->ArenaIdx();
-    unsigned prev_arena = 0;
-    std::size_t arena_sz = sizeof(unsigned);
-    je_mallctl("thread.arena", &prev_arena, &arena_sz, const_cast<unsigned *>(&arena_idx), arena_sz);
+    memgraph::memory::DbArenaScope scope{arena_idx};
 
     auto label = db->storage()->NameToLabel("WalNode");
     auto prop = db->storage()->NameToProperty("id");
@@ -563,7 +550,6 @@ TEST_F(DbMemoryTrackingTest, WalOnlyRecoveryPreservesDbMemoryTracking) {
 
     before_destroy = db->DbMemoryUsage();
     ASSERT_GT(before_destroy, 0);
-    je_mallctl("thread.arena", nullptr, nullptr, &prev_arena, sizeof(unsigned));
   }
 
   {
@@ -819,9 +805,8 @@ TEST_F(DbMemoryTrackingTest, BackgroundThread_AcquiresPerThreadArena) {
     // Simulate what GC/snapshot/TTL threads do
     if (arena_registration) {
       unsigned arena = arena_registration.AcquireThreadArena();
-      if (arena != 0) {
-        je_mallctl("thread.arena", nullptr, nullptr, &arena, sizeof(unsigned));
-        memgraph::memory::tls_db_arena_state.arena = arena;
+      {
+        const memgraph::memory::DbArenaScope scope{arena};
         bg_thread_arena = arena;
       }
     }

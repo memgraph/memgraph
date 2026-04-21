@@ -54,7 +54,7 @@ struct KafkaStream {
   std::expected<void, std::string> SetStreamOffset(int64_t offset);
 
  public:
-  void SetArenaIdx(unsigned idx) noexcept { arena_idx_ = idx; }
+  void SetArenaIdx(unsigned idx);
 
  private:
   using Consumer = integrations::kafka::Consumer;
@@ -92,7 +92,7 @@ struct PulsarStream {
              ConsumerFunction<Message> consumer_function) const;
 
  public:
-  void SetArenaIdx(unsigned idx) noexcept { arena_idx_ = idx; }
+  void SetArenaIdx(unsigned idx);
 
  private:
   using Consumer = integrations::pulsar::Consumer;
