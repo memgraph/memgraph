@@ -22,4 +22,6 @@ DECLARE_int32(audit_buffer_size);
 DECLARE_int32(audit_buffer_flush_interval_ms);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(audit_log_file);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(audit_log_timestamp_format);
 #endif

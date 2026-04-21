@@ -19,6 +19,8 @@
 
 namespace memgraph::audit {
 
+enum class TimestampFormat { Epoch, ISO8601 };
+
 /// This class implements an audit log. Functions used for logging are
 /// thread-safe, functions used for setup aren't thread-safe.
 class Log {
@@ -33,7 +35,8 @@ class Log {
   };
 
  public:
-  Log(std::filesystem::path log_file, int32_t buffer_size, int32_t buffer_flush_interval_millis);
+  Log(std::filesystem::path log_file, int32_t buffer_size, int32_t buffer_flush_interval_millis,
+      TimestampFormat timestamp_format);
 
   ~Log();
 
@@ -60,6 +63,7 @@ class Log {
   std::filesystem::path log_file_;
   int32_t buffer_size_;
   int32_t buffer_flush_interval_millis_;
+  TimestampFormat timestamp_format_;
   std::atomic<bool> started_;
 
   std::optional<RingBuffer<Item>> buffer_;

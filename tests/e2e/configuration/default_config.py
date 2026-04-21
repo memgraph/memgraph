@@ -50,6 +50,11 @@ startup_config_dict = {
         "",
         "Path to where the audit log should be stored. If empty, defaults to '<data-directory>/audit/audit.log'.",
     ),
+    "audit_log_timestamp_format": (
+        "epoch",
+        "epoch",
+        "Timestamp format for audit log entries. Options: epoch, iso8601.",
+    ),
     "auth_user_or_role_name_regex": (
         "[a-zA-Z0-9_.+-@]+",
         "[a-zA-Z0-9_.+-@]+",
