@@ -20,6 +20,10 @@
 
 using namespace std::chrono_literals;
 
+namespace {
+thread_local int thread_pool_init_marker = 0;
+}
+
 TEST(ThreadPool, Basic) {
   static constexpr size_t adder_count = 500'000;
   static constexpr std::array<size_t, 5> pool_sizes{1, 2, 4, 8, 100};
@@ -38,6 +42,36 @@ TEST(ThreadPool, Basic) {
 
     ASSERT_EQ(count.load(), adder_count);
   }
+}
+
+TEST(ThreadPool, ThreadInitializerRunsBeforeTasks) {
+  static constexpr size_t task_count = 1000;
+  static constexpr int initialized_marker = 42;
+
+  std::atomic<size_t> initialized_threads{0};
+  memgraph::utils::ThreadPool pool{4, [&] {
+                                     thread_pool_init_marker = initialized_marker;
+                                     initialized_threads.fetch_add(1);
+                                   }};
+  while (initialized_threads.load() != 4U) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  std::atomic<size_t> initialized_tasks{0};
+  for (size_t i = 0; i < task_count; ++i) {
+    pool.AddTask([&] {
+      if (thread_pool_init_marker == initialized_marker) {
+        initialized_tasks.fetch_add(1);
+      }
+    });
+  }
+
+  while (pool.UnfinishedTasksNum() != 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  ASSERT_EQ(initialized_threads.load(), 4U);
+  ASSERT_EQ(initialized_tasks.load(), task_count);
 }
 
 // Test that move-only lambdas (capturing unique_ptr) work with std::move_only_function

@@ -15,7 +15,7 @@
 
 namespace memgraph::utils {
 
-ThreadPool::ThreadPool(const size_t pool_size) {
+ThreadPool::ThreadPool(const size_t pool_size, ThreadInitFn thread_init) : thread_init_(std::move(thread_init)) {
   for (size_t i = 0; i < pool_size; ++i) {
     thread_pool_.emplace_back([this] { this->ThreadLoop(); });
   }
@@ -53,6 +53,9 @@ ThreadPool::~ThreadPool() {
 }
 
 void ThreadPool::ThreadLoop() {
+  if (thread_init_) {
+    thread_init_();
+  }
   auto const token = pool_stop_source_.get_token();
   while (true) {
     TaskSignature task;

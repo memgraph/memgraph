@@ -78,6 +78,8 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
           std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers", BaseArenaIdx())),
       after_commit_trigger_pool_{1,
 #if USE_JEMALLOC
+                                 // After-commit triggers run on this dedicated DB worker.
+                                 // Acquire a DB-owned per-thread arena once for the worker lifetime.
                                  [this] { memory::tls_db_arena_state.arena = db_arena_->AcquireThreadArena(); }
 #else
                                  {}

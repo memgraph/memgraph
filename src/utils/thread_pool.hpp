@@ -26,8 +26,10 @@ namespace memgraph::utils {
 class ThreadPool {
  public:
   using TaskSignature = std::move_only_function<void()>;
+  using ThreadInitFn = std::move_only_function<void()>;
 
-  explicit ThreadPool(size_t pool_size);
+  // Optional initializer runs once inside each worker thread before tasks start.
+  explicit ThreadPool(size_t pool_size, ThreadInitFn thread_init = {});
 
   void AddTask(TaskSignature new_task);
 
@@ -50,6 +52,7 @@ class ThreadPool {
 
   std::queue<TaskSignature> task_queue_;
   std::stop_source pool_stop_source_;  //<! Common stop source for all the jthreads in `thread_pool_`
+  ThreadInitFn thread_init_;
 
   std::vector<std::jthread> thread_pool_;
 
