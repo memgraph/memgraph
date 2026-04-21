@@ -4,6 +4,9 @@
 set -euo pipefail
 IMAGE_NAME=$1
 
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SOURCE_DIR="$( cd "$SCRIPT_DIR/../../.." && pwd )"
+
 function cleanup() {
     exit_code=$?
     rm -rf sbom/env || true
@@ -46,6 +49,12 @@ SBOM_FILES=(
 )
 
 # collect Rust MAGE Cargo.toml files
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo not found, installing rust"
+  source "$SOURCE_DIR/environment/util.sh"
+  install_rust 1.95
+  . "$HOME/.cargo/env"
+fi
 cargo install --locked --version 0.5.9 cargo-cyclonedx
 mapfile -t RUST_MAGE_CARGO_MANIFEST_FILES < <(find mage/rust -name "Cargo.toml" -type f -print)
 mkdir -p sbom/rust-mage-sbom-files
