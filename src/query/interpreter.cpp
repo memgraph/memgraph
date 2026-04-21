@@ -6824,9 +6824,11 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
 
   switch (info_query->info_type_) {
     case SystemInfoQuery::InfoType::STORAGE: {
+#ifdef MG_ENTERPRISE
       if (interpreter_context->coordinator_state_ && interpreter_context->coordinator_state_->IsCoordinator()) {
         throw QueryRuntimeException("Coordinators don't have storage!");
       }
+#endif
       MG_ASSERT(current_db.db_acc_, "System storage info query expects a current DB");
       header = {"storage info", "value"};
       handler = [storage = current_db.db_acc_->get()->storage(),
