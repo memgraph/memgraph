@@ -117,6 +117,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads 8 \
           --no-ccache \
           build-memgraph --coverage --asan --ubsan \
           --conan-remote $CONAN_REMOTE \

@@ -71,12 +71,15 @@ class PostProcessor final {
     auto &symbol_table = context->symbol_table;
     auto &db = context->db;
 
+    const bool parallel_exec = context->query->pre_query_directives_.parallel_execution_;
+
     return std::move(plan) | [&](auto p) { return RewriteEnumAccess(std::move(p), symbol_table, ast, db); } |
            [&](auto p) {
-             return RewriteWithIndexLookup(std::move(p), symbol_table, ast, db, index_hints_, parameters_);
+             return RewriteWithIndexLookup(
+                 std::move(p), symbol_table, ast, db, index_hints_, parameters_, parallel_exec);
            } |
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
-           [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db); } |
+           [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db, parallel_exec); } |
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); }
 #ifdef MG_ENTERPRISE
            |

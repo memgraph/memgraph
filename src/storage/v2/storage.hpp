@@ -39,9 +39,6 @@
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 
-namespace r = ranges;
-namespace rv = r::views;
-
 namespace memgraph::metrics {
 extern const Event SnapshotCreationLatency_us;
 
@@ -916,8 +913,8 @@ class Storage {
 
    private:
     std::vector<LabelId> ResolveLabels(std::span<std::string const> names) const {
-      return names | rv::transform([this](std::string_view name) { return storage_->NameToLabel(name); }) |
-             r::to<std::vector>();
+      return names | ranges::views::transform([this](std::string_view name) { return storage_->NameToLabel(name); }) |
+             ranges::to<std::vector>();
     }
 
    public:

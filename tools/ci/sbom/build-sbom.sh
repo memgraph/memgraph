@@ -80,11 +80,20 @@ fi
 curl -L -o cyclonedx "$CYCLONEDXURL"
 chmod +x cyclonedx
 
-# combine SBOMs
+# copy generated SBOM into release location
 mkdir -p sbom
+echo "Generated SBOM file: sbom/memgraph-build-sbom.json"
+
+# create SBOM for text-search
+pushd "$SOURCE_DIR/mgcxx/text_search" >/dev/null
+cargo install --locked --version 0.5.9 cargo-cyclonedx
+cargo cyclonedx --format json --override-filename text-search
+echo "Generated SBOM file: text-search.json"
+popd >/dev/null
+
 ./cyclonedx merge --input-files \
   build/generators/sbom/memgraph-sbom.cdx.json \
-  libs/sbom.json \
+  mgcxx/text_search/text-search.json \
   --output-format json \
   --output-file sbom/memgraph-build-sbom.json
 echo "Generated SBOM file: sbom/memgraph-build-sbom.json"

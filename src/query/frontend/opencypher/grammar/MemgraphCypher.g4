@@ -41,6 +41,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BOOTSTRAP_SERVERS
                       | BUILD
                       | CALL
+                      | CALLABLE
                       | CHECK
                       | CLEAR
                       | CLUSTER
@@ -60,6 +61,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DATABASES
                       | DATE
+                      | DEFAULT
                       | DEFINER
                       | DELIMITER
                       | DEMOTE
@@ -74,6 +76,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | DURATION
                       | EDGE
+                      | EDGE_TYPE
                       | EDGE_TYPES
                       | EDGES
                       | ENABLE
@@ -126,6 +129,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | MAPPINGS
                       | MATCHING
                       | METRICS
                       | MODE
@@ -137,7 +141,6 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NODES
-                      | NOTHING
                       | NULLIF
                       | OF_TOKEN
                       | OFF
@@ -150,10 +153,12 @@ memgraphCypherKeyword : cypherKeyword
                       | PARQUET
                       | PASSWORD
                       | PERIODIC
+                      | PERMISSIONS
                       | POINT
                       | PORT
                       | PROPERTY
                       | PRIVILEGES
+                      | PROPERTY
                       | PROFILE_RESTRICTION
                       | PROFILES
                       | PULSAR
@@ -271,6 +276,7 @@ query : cypherQuery
       | parameterQuery
       | versionQuery
       | showConfigQuery
+      | showQueryCallableMappingsQuery
       | transactionQueueQuery
       | multiDatabaseQuery
       | useDatabase
@@ -494,7 +500,7 @@ clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymboli
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM userOrRole=userOrRoleName ;
 
@@ -550,7 +556,7 @@ privilege : CREATE
           | SERVER_SIDE_PARAMETERS
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
+granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
 
 granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
 
@@ -747,6 +753,8 @@ showParameters : SHOW PARAMETERS ;
 deleteAllParameters : DELETE ALL PARAMETERS ;
 
 showConfigQuery : SHOW CONFIG ;
+
+showQueryCallableMappingsQuery : SHOW QUERY CALLABLE MAPPINGS ;
 
 versionQuery : SHOW VERSION ;
 

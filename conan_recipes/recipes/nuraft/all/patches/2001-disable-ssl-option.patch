@@ -1,0 +1,26 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -52,13 +52,17 @@
+         set(LIBBOOST_SYSTEM asio::asio)
+     endif()
+ 
+-    find_package(OpenSSL)
+-
+-    if(OPENSSL_FOUND)
+-        set(LIBSSL OpenSSL::SSL)
+-        set(LIBCRYPTO OpenSSL::Crypto)
+-    else()
++    if(DISABLE_SSL)
+         add_compile_definitions(SSL_LIBRARY_NOT_FOUND=1)
++    else()
++        find_package(OpenSSL)
++
++        if(OPENSSL_FOUND)
++            set(LIBSSL OpenSSL::SSL)
++            set(LIBCRYPTO OpenSSL::Crypto)
++        else()
++            add_compile_definitions(SSL_LIBRARY_NOT_FOUND=1)
++        endif()
+     endif()
+ 
+     find_package(ZLIB REQUIRED)

@@ -3,7 +3,7 @@ find_package(gflags REQUIRED)
 find_package(Boost REQUIRED CONFIG)
 
 add_library(mg-communication-metrics STATIC metrics.cpp)
-target_link_libraries(mg-communication-metrics nlohmann_json::nlohmann_json)
+target_link_libraries(mg-communication-metrics PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(mg-communication STATIC)
 target_sources(mg-communication
@@ -26,6 +26,6 @@ target_sources(mg-communication
     FILES
     metrics.hpp
 )
-target_link_libraries(mg-communication Boost::headers Threads::Threads mg-utils mg-io mg-auth fmt::fmt gflags mg-communication-metrics mg-events mg-storage-v2)
-
-target_link_libraries(mg-communication openssl::openssl)
+target_link_libraries(mg-communication
+    PUBLIC Boost::headers mg-io mg-utils gflags
+    PRIVATE Threads::Threads mg-auth fmt::fmt mg-communication-metrics mg-events openssl::openssl)
