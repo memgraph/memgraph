@@ -29,4 +29,8 @@ DEFINE_VALIDATED_int32(audit_buffer_size, kBufferSizeDefault, "Maximum number of
 DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, kBufferFlushIntervalMillisDefault,
                        "Interval (in milliseconds) used for flushing the audit log buffer.",
                        FLAG_IN_RANGE(10, INT32_MAX));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(audit_log_file, "",
+              "Path to where the audit log should be stored. "
+              "If empty, defaults to '<data-directory>/audit/audit.log'.");
 #endif

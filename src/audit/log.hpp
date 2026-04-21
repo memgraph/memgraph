@@ -33,7 +33,7 @@ class Log {
   };
 
  public:
-  Log(std::filesystem::path storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis);
+  Log(std::filesystem::path log_file, int32_t buffer_size, int32_t buffer_flush_interval_millis);
 
   ~Log();
 
@@ -57,7 +57,7 @@ class Log {
  private:
   void Flush();
 
-  std::filesystem::path storage_directory_;
+  std::filesystem::path log_file_;
   int32_t buffer_size_;
   int32_t buffer_flush_interval_millis_;
   std::atomic<bool> started_;

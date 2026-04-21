@@ -444,11 +444,12 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   // Audit log
-  memgraph::audit::Log audit_log{
-      data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
+  auto const audit_log_file = FLAGS_audit_log_file.empty() ? (data_directory / "audit" / "audit.log")
+                                                           : std::filesystem::path{FLAGS_audit_log_file};
+  memgraph::audit::Log audit_log{audit_log_file, FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
   // Start the log if enabled.
   if (FLAGS_audit_enabled) {
-    MG_ASSERT(audit_log.Start(), "Failed to open audit file {}", data_directory / "audit");
+    MG_ASSERT(audit_log.Start(), "Failed to open audit file {}", audit_log_file);
   }
   // Setup SIGUSR2 to be used for reopening audit log files, when e.g. logrotate
   // rotates our audit logs.

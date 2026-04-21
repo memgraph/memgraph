@@ -122,8 +122,8 @@ inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
   return ret;
 }
 
-Log::Log(std::filesystem::path storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis)
-    : storage_directory_(std::move(storage_directory)),
+Log::Log(std::filesystem::path log_file, int32_t buffer_size, int32_t buffer_flush_interval_millis)
+    : log_file_(std::move(log_file)),
       buffer_size_(buffer_size),
       buffer_flush_interval_millis_(buffer_flush_interval_millis),
       started_(false) {}
@@ -131,13 +131,15 @@ Log::Log(std::filesystem::path storage_directory, int32_t buffer_size, int32_t b
 bool Log::Start() {
   MG_ASSERT(!started_.load(std::memory_order_acquire), "Trying to start an already started audit log!");
 
-  utils::EnsureDirOrDie(storage_directory_);
+  if (auto parent = log_file_.parent_path(); !parent.empty()) {
+    utils::EnsureDirOrDie(parent);
+  }
 
   buffer_.emplace(buffer_size_);
 
   {
     auto guard = std::lock_guard{lock_};
-    if (!log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING)) {
+    if (!log_.Open(log_file_, utils::OutputFile::Mode::APPEND_TO_EXISTING)) {
       return false;
     }
   }
@@ -174,7 +176,7 @@ bool Log::ReopenLog() {
   }
   auto guard = std::lock_guard{lock_};
   if (log_.IsOpen()) log_.Close();
-  auto const res = log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  auto const res = log_.Open(log_file_, utils::OutputFile::Mode::APPEND_TO_EXISTING);
   if (!res) {
     spdlog::warn("Failed to reopen audit log file. Audit log file couldn't be opened.");
   }
