@@ -92,7 +92,10 @@ struct CrossThreadMemoryTracking {
   CrossThreadMemoryTracking &operator=(CrossThreadMemoryTracking &&other) noexcept;
 
  private:
+  utils::QueryMemoryTracker *prev_query_tracker_{nullptr};
+  utils::UserResources *prev_user_tracker_{nullptr};
   std::optional<unsigned> prev_arena_;
+  bool started_{false};
 };
 
 }  // namespace memgraph::memory

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
 #include "utils/query_memory_tracker.hpp"
@@ -31,5 +32,35 @@ TEST(MemoryTrackerTest, ExceptionEnabler) {
 
   // Nothing should happend :)
   // Previously we would deadlock
+#endif
+}
+
+TEST(MemoryTrackerTest, CrossThreadTrackingRestoresPreviousThreadState) {
+#ifdef USE_JEMALLOC
+  memgraph::memory::SetHooks();
+  memgraph::utils::QueryMemoryTracker parent_tracker;
+  memgraph::utils::QueryMemoryTracker worker_tracker;
+
+  memgraph::memory::StartTrackingCurrentThread(&parent_tracker);
+  auto cross_thread_tracking = memgraph::memory::CrossThreadMemoryTracking{};
+  memgraph::memory::StopTrackingCurrentThread();
+
+  memgraph::memory::StartTrackingCurrentThread(&worker_tracker);
+  cross_thread_tracking.StartTracking();
+
+  void *parent_allocation = std::malloc(4096);
+  ASSERT_NE(parent_allocation, nullptr);
+  EXPECT_GT(parent_tracker.Amount(), 0);
+  EXPECT_EQ(worker_tracker.Amount(), 0);
+  std::free(parent_allocation);
+
+  cross_thread_tracking.StopTracking();
+
+  void *worker_allocation = std::malloc(4096);
+  ASSERT_NE(worker_allocation, nullptr);
+  EXPECT_GT(worker_tracker.Amount(), 0);
+  std::free(worker_allocation);
+
+  memgraph::memory::StopTrackingCurrentThread();
 #endif
 }

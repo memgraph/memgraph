@@ -164,8 +164,12 @@ CrossThreadMemoryTracking::CrossThreadMemoryTracking(unsigned arena_idx)
     : query_tracker(GetQueryTracker()), user_tracker(GetUserTracker()), db_arena_idx(arena_idx) {}
 
 void CrossThreadMemoryTracking::StartTracking() {
-  if (query_tracker) memgraph::memory::StartTrackingCurrentThread(query_tracker);
-  if (user_tracker) memgraph::memory::StartTrackingUserResource(user_tracker);
+  DMG_ASSERT(!started_, "CrossThreadMemoryTracking::StartTracking called twice");
+  started_ = true;
+  prev_query_tracker_ = GetQueryTracker();
+  prev_user_tracker_ = GetUserTracker();
+  GetQueryTracker() = query_tracker;
+  GetUserTracker() = user_tracker;
   if (db_arena_idx != 0) {
     prev_arena_ = memory::tls_db_arena_state.arena;
     memory::tls_db_arena_state.arena = db_arena_idx;
@@ -173,26 +177,37 @@ void CrossThreadMemoryTracking::StartTracking() {
 }
 
 void CrossThreadMemoryTracking::StopTracking() {
-  if (query_tracker) memgraph::memory::StopTrackingCurrentThread();
-  if (user_tracker) memgraph::memory::StopTrackingUserResource();
+  if (!started_) return;
+  GetQueryTracker() = prev_query_tracker_;
+  GetUserTracker() = prev_user_tracker_;
+  prev_query_tracker_ = nullptr;
+  prev_user_tracker_ = nullptr;
   if (prev_arena_) {
     memory::tls_db_arena_state.arena = *prev_arena_;
     prev_arena_.reset();
   }
+  started_ = false;
 }
 
 CrossThreadMemoryTracking::CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept
     : query_tracker(std::exchange(other.query_tracker, nullptr)),
       user_tracker(std::exchange(other.user_tracker, nullptr)),
       db_arena_idx(std::exchange(other.db_arena_idx, 0U)),
-      prev_arena_(std::exchange(other.prev_arena_, std::nullopt)) {}
+      prev_query_tracker_(std::exchange(other.prev_query_tracker_, nullptr)),
+      prev_user_tracker_(std::exchange(other.prev_user_tracker_, nullptr)),
+      prev_arena_(std::exchange(other.prev_arena_, std::nullopt)),
+      started_(std::exchange(other.started_, false)) {}
 
 CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemoryTracking &&other) noexcept {
   if (this != &other) {
+    DMG_ASSERT(!started_, "Cannot overwrite active CrossThreadMemoryTracking");
     query_tracker = std::exchange(other.query_tracker, nullptr);
     user_tracker = std::exchange(other.user_tracker, nullptr);
     db_arena_idx = std::exchange(other.db_arena_idx, 0U);
+    prev_query_tracker_ = std::exchange(other.prev_query_tracker_, nullptr);
+    prev_user_tracker_ = std::exchange(other.prev_user_tracker_, nullptr);
     prev_arena_ = std::exchange(other.prev_arena_, std::nullopt);
+    started_ = std::exchange(other.started_, false);
   }
   return *this;
 }
@@ -200,6 +215,8 @@ CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemor
 CrossThreadMemoryTracking::CrossThreadMemoryTracking(unsigned arena_idx) : db_arena_idx(arena_idx) {}
 
 void CrossThreadMemoryTracking::StartTracking() {
+  DMG_ASSERT(!started_, "CrossThreadMemoryTracking::StartTracking called twice");
+  started_ = true;
   if (db_arena_idx != 0) {
     prev_arena_ = memory::tls_db_arena_state.arena;
     memory::tls_db_arena_state.arena = db_arena_idx;
@@ -207,20 +224,29 @@ void CrossThreadMemoryTracking::StartTracking() {
 }
 
 void CrossThreadMemoryTracking::StopTracking() {
+  if (!started_) return;
   if (prev_arena_) {
     memory::tls_db_arena_state.arena = *prev_arena_;
     prev_arena_.reset();
   }
+  started_ = false;
 }
 
 CrossThreadMemoryTracking::CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept
     : db_arena_idx(std::exchange(other.db_arena_idx, 0U)),
-      prev_arena_(std::exchange(other.prev_arena_, std::nullopt)) {}
+      prev_query_tracker_(std::exchange(other.prev_query_tracker_, nullptr)),
+      prev_user_tracker_(std::exchange(other.prev_user_tracker_, nullptr)),
+      prev_arena_(std::exchange(other.prev_arena_, std::nullopt)),
+      started_(std::exchange(other.started_, false)) {}
 
 CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemoryTracking &&other) noexcept {
   if (this != &other) {
+    DMG_ASSERT(!started_, "Cannot overwrite active CrossThreadMemoryTracking");
     db_arena_idx = std::exchange(other.db_arena_idx, 0U);
+    prev_query_tracker_ = std::exchange(other.prev_query_tracker_, nullptr);
+    prev_user_tracker_ = std::exchange(other.prev_user_tracker_, nullptr);
     prev_arena_ = std::exchange(other.prev_arena_, std::nullopt);
+    started_ = std::exchange(other.started_, false);
   }
   return *this;
 }
