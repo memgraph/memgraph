@@ -87,6 +87,12 @@ else()
   target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=0)
 endif()
 
+# Debug arena verification - checks arena correctness in DbAwareAllocator
+option(DEBUG_ARENA_VERIFICATION "Enable debug assertions for arena verification" OFF)
+if (DEBUG_ARENA_VERIFICATION)
+  target_compile_definitions(mg-utils PUBLIC DEBUG_ARENA_VERIFICATION=1)
+endif()
+
 add_library(mg-aws STATIC)
 add_library(mg::aws ALIAS mg-aws)
 target_sources(mg-aws
