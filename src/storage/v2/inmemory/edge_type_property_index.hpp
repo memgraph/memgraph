@@ -58,16 +58,16 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
  public:
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
-             utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
-             utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor,
-             EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    Iterable(utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
+             utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
+             utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
+             PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
              Transaction *transaction);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Iterator index_iterator);
+      Iterator(Iterable *self, utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Iterator index_iterator);
 
       EdgeAccessor const &operator*() const { return current_accessor_; }
 
@@ -81,7 +81,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Iterator index_iterator_;
+      utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Iterator index_iterator_;
       EdgeRef current_edge_{nullptr};
       EdgeAccessor current_accessor_;
     };
@@ -91,9 +91,9 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
-    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor pin_accessor_edge_;
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor pin_accessor_vertex_;
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor_;
+    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_edge_;
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_vertex_;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor_;
     [[maybe_unused]] EdgeTypeId edge_type_;
     [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
@@ -106,9 +106,9 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   class ChunkedIterable {
    public:
-    ChunkedIterable(utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
-                    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
-                    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor,
+    ChunkedIterable(utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
+                    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
+                    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor,
                     EdgeTypeId edge_type, PropertyId property,
                     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
@@ -117,7 +117,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     class Iterator {
      public:
       Iterator(ChunkedIterable *self,
-               utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator index_iterator)
+               utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkedIterator index_iterator)
           : self_(self),
             index_iterator_(index_iterator),
             current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId{}, nullptr, nullptr, self_->storage_,
@@ -141,7 +141,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
       void AdvanceUntilValid();
 
       ChunkedIterable *self_;
-      utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator index_iterator_;
+      utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkedIterator index_iterator_;
       EdgeAccessor current_edge_accessor_;
       EdgeRef current_edge_{nullptr};
     };
@@ -151,7 +151,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
       Iterator end_;
 
      public:
-      Chunk(ChunkedIterable *self, utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Chunk &chunk)
+      Chunk(ChunkedIterable *self, utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Chunk &chunk)
           : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
 
       Iterator begin() { return begin_; }
@@ -164,9 +164,9 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     size_t size() const { return chunks_.size(); }
 
    private:
-    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor pin_accessor_edge_;
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor pin_accessor_vertex_;
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor_;
+    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_edge_;
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_vertex_;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor_;
     [[maybe_unused]] EdgeTypeId edge_type_;
     [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
@@ -175,16 +175,16 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::ChunkCollection chunks_;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkCollection chunks_;
   };
 
   struct IndividualIndex {
-    explicit IndividualIndex(unsigned arena_idx = 0) : skiplist(memory::ArenaAwareAllocator<char>{arena_idx}) {}
+    explicit IndividualIndex([[maybe_unused]] unsigned arena_idx = 0) : skiplist{} {}
 
     ~IndividualIndex();
     void Publish(uint64_t commit_timestamp);
 
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>> skiplist;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>> skiplist;
     IndexStatus status{};
   };
 
@@ -219,19 +219,18 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
 
     Iterable Edges(EdgeTypeId edge_type, PropertyId property,
-                   utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
-                   utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor,
+                   utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
+                   utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor,
                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                    Transaction *transaction);
 
-    ChunkedIterable ChunkedEdges(
-        EdgeTypeId edge_type, PropertyId property,
-        utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
-        utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor,
-        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-        Transaction *transaction, size_t num_chunks);
+    ChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
+                                 utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
+                                 utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor,
+                                 const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                 const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
+                                 Storage *storage, Transaction *transaction, size_t num_chunks);
 
     void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
                       std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
@@ -247,7 +246,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property,
-                          utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+                          utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
@@ -262,7 +261,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   auto RegisterIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater) -> bool;
   auto PopulateIndex(EdgeTypeId edge_type, PropertyId property,
-                     utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+                     utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)

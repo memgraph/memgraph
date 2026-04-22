@@ -45,14 +45,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
  public:
   struct IndividualIndex {
-    explicit IndividualIndex(PropertiesPermutationHelper permutations_helper, unsigned arena_idx = 0)
-        : permutations_helper(std::move(permutations_helper)), skiplist(memory::ArenaAwareAllocator<char>{arena_idx}) {}
+    explicit IndividualIndex(PropertiesPermutationHelper permutations_helper, [[maybe_unused]] unsigned arena_idx = 0)
+        : permutations_helper(std::move(permutations_helper)), skiplist{} {}
 
     ~IndividualIndex();
     void Publish(uint64_t commit_timestamp);
 
     PropertiesPermutationHelper const permutations_helper;
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>> skiplist;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>> skiplist;
     IndexStatus status{};
   };
 
@@ -110,7 +110,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   // Convience function that does Register + Populate + direct Publish
   // TODO: direct Publish...should it be for a particular timestamp?
   bool CreateIndexOnePass(LabelId label, PropertiesPaths const &properties,
-                          utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+                          utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
@@ -118,7 +118,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool RegisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater);
 
   auto PopulateIndex(LabelId label, PropertiesPaths const &properties,
-                     utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+                     utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
@@ -129,8 +129,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
-             utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
+    Iterable(utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
+             utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
              PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
              std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction);
 
@@ -160,8 +160,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Iterator end();
 
    private:
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor pin_accessor_;
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor_;
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor_;
 
     // These describe the composite index
     LabelId label_;
@@ -178,8 +178,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   class ChunkedIterable {
    public:
-    ChunkedIterable(utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
-                    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_accessor,
+    ChunkedIterable(utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
+                    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_accessor,
                     LabelId label, PropertiesPaths const *properties,
                     PropertiesPermutationHelper const *permutation_helper, std::span<PropertyValueRange const> ranges,
                     View view, Storage *storage, Transaction *transaction, size_t num_chunks);
@@ -187,7 +187,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     class Iterator {
      public:
       Iterator(ChunkedIterable *self,
-               utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator index_iterator)
+               utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkedIterator index_iterator)
           : self_(self), index_iterator_(index_iterator), current_vertex_accessor_(nullptr, self_->storage_, nullptr) {
         AdvanceUntilValid();
       }
@@ -208,7 +208,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       void AdvanceUntilValid();
 
       ChunkedIterable *self_;
-      utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator index_iterator_;
+      utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkedIterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_{nullptr};
       bool skip_lower_bound_check_{false};
@@ -219,7 +219,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       Iterator end_;
 
      public:
-      Chunk(ChunkedIterable *self, utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Chunk &chunk)
+      Chunk(ChunkedIterable *self, utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Chunk &chunk)
           : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
 
       Iterator begin() { return begin_; }
@@ -232,8 +232,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     size_t size() const { return chunks_.size(); }
 
    private:
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor pin_accessor_;
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor_;
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor_;
     LabelId label_;
     [[maybe_unused]] PropertiesPaths const *properties_;
     PropertiesPermutationHelper const *permutation_helper_;
@@ -243,7 +243,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     View view_;
     Storage *storage_;
     Transaction *transaction_;
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::ChunkCollection chunks_;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkCollection chunks_;
   };
 
   struct ActiveIndices : LabelPropertyIndex::ActiveIndices {
@@ -288,13 +288,13 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                   View view, Storage *storage, Transaction *transaction) -> Iterable;
 
     auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-                  utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_acc, View view,
+                  utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_acc, View view,
                   Storage *storage, Transaction *transaction) -> Iterable;
 
-    ChunkedIterable ChunkedVertices(
-        LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-        utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_acc, View view,
-        Storage *storage, Transaction *transaction, size_t num_chunks);
+    ChunkedIterable ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
+                                    std::span<PropertyValueRange const> range,
+                                    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_acc,
+                                    View view, Storage *storage, Transaction *transaction, size_t num_chunks);
 
    private:
     std::shared_ptr<IndexContainer const> index_container_;

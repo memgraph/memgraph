@@ -80,8 +80,8 @@ void DbDeallocate(T *p, std::size_t n) noexcept {
   DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
 }
 
-// Custom deleter for std::unique_ptr<T> when the object was allocated via
-// ArenaAwareAllocator (i.e. with je_mallocx + MALLOCX_TCACHE_NONE).
+// Custom deleter for std::unique_ptr<T> when the object was allocated via an
+// explicit DB arena (i.e. with je_mallocx + MALLOCX_TCACHE_NONE).
 // Using the default deleter (operator delete / je_free) would route the
 // deallocation through the calling thread's tcache, delaying the
 // db_arena_dalloc extent-hook callback and causing the DB MemoryTracker to
@@ -128,6 +128,9 @@ template <typename T>
 // Stateless C++ allocator that routes allocations to the DB arena currently
 // pinned on this thread (tls_db_arena_state.arena).  When no arena is pinned (idx==0)
 // it falls back to the process-default allocator.
+//
+// A stateful arena-capturing allocator is possible, but this codebase keeps that
+// behavior in explicit ownership helpers instead of making it the default path.
 //
 // Zero data members → qualifies for EBO in containers (e.g. small_vector,
 // SkipList) so their sizeof is unchanged vs. the plain std::allocator<T> case.
@@ -176,59 +179,6 @@ struct DbAwareAllocator {
   friend bool operator!=(DbAwareAllocator<T> const &lhs, DbAwareAllocator<U> const &rhs) noexcept {
     return !(lhs == rhs);
   }
-};
-
-// Stateful C++ allocator that always routes allocations to a specific jemalloc
-// arena stored at construction time.  Unlike DbAwareAllocator (which reads TLS
-// at allocation time), this allocator is self-contained and correct regardless
-// of which thread performs the allocation or deallocation.
-//
-// Use this for long-lived objects owned by a single database (e.g. SkipList
-// for vertices/edges/indices) so their node allocations are attributed to the
-// right DB MemoryTracker without relying on thread.arena pinning.
-//
-// arena_idx == 0 → falls back to operator new / operator delete.
-template <typename T>
-struct ArenaAwareAllocator {
-  using value_type = T;
-
-  // Stateful — propagate so containers keep the right arena on move/swap.
-  using propagate_on_container_move_assignment = std::true_type;
-  using propagate_on_container_copy_assignment = std::true_type;
-  using propagate_on_container_swap = std::true_type;
-
-  explicit ArenaAwareAllocator(unsigned arena_idx = 0) noexcept : arena_idx_(arena_idx) {}
-
-  template <typename U>
-  explicit ArenaAwareAllocator(ArenaAwareAllocator<U> const &other) noexcept : arena_idx_(other.arena_idx_) {}
-
-  unsigned arena_idx() const noexcept { return arena_idx_; }
-
-  [[nodiscard]] T *allocate(std::size_t n) { return DbAllocate<T>(n, arena_idx_); }
-
-  void deallocate(T *p, std::size_t n) noexcept {
-    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
-    // free query-thread allocations regardless of which thread calls deallocate.
-    // MALLOCX_TCACHE_NONE matches the allocation style and lets decay=0 arenas return pages promptly.
-    AssertPointerBelongsToArena(p, arena_idx_, "ArenaAwareAllocator::deallocate");
-    DbDeallocateBytes(static_cast<void *>(p), n * sizeof(T), alignof(T));
-  }
-
-  template <typename U>
-  friend bool operator==(ArenaAwareAllocator<T> const &lhs, ArenaAwareAllocator<U> const &rhs) noexcept {
-    return lhs.arena_idx_ == rhs.arena_idx_;
-  }
-
-  template <typename U>
-  friend bool operator!=(ArenaAwareAllocator<T> const &lhs, ArenaAwareAllocator<U> const &rhs) noexcept {
-    return !(lhs == rhs);
-  }
-
-  template <typename U>
-  friend struct ArenaAwareAllocator;
-
- private:
-  unsigned arena_idx_{0};
 };
 
 }  // namespace memgraph::memory

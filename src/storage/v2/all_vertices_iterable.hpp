@@ -19,7 +19,7 @@ namespace memgraph::storage {
 class Storage;
 
 class AllVerticesIterable final {
-  utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices_accessor_;
+  utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices_accessor_;
   Storage *storage_;
   Transaction *transaction_;
   View view_;
@@ -28,10 +28,10 @@ class AllVerticesIterable final {
  public:
   class Iterator final {
     AllVerticesIterable *self_;
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Iterator it_;
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Iterator it_;
 
    public:
-    Iterator(AllVerticesIterable *self, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Iterator it);
+    Iterator(AllVerticesIterable *self, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Iterator it);
 
     VertexAccessor const &operator*() const;
 
@@ -42,7 +42,7 @@ class AllVerticesIterable final {
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
-  AllVerticesIterable(utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices_accessor,
+  AllVerticesIterable(utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices_accessor,
                       Storage *storage, Transaction *transaction, View view)
       : vertices_accessor_(std::move(vertices_accessor)), storage_(storage), transaction_(transaction), view_(view) {}
 

@@ -53,17 +53,17 @@ class EdgeImportModeCache final {
 
   bool AllVerticesScanned() const;
 
-  utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor AccessToVertices();
+  utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor AccessToVertices();
 
-  utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::Accessor AccessToEdges();
+  utils::SkipList<Edge, memory::DbAwareAllocator<char>>::Accessor AccessToEdges();
 
   void SetScannedAllVertices();
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> &GetCommittedTransactions();
 
  private:
-  utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>> vertices_;
-  utils::SkipList<Edge, memory::ArenaAwareAllocator<char>> edges_;
+  utils::SkipList<Vertex, memory::DbAwareAllocator<char>> vertices_;
+  utils::SkipList<Edge, memory::DbAwareAllocator<char>> edges_;
   Indices in_memory_indices_;
   bool scanned_all_vertices_{false};
   std::set<LabelId> scanned_labels_;

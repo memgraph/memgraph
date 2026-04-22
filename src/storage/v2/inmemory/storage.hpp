@@ -799,11 +799,12 @@ class InMemoryStorage final : public Storage {
   // Provides access to Database's DbArena for background thread arena acquisition.
   memgraph::memory::ArenaRegistration arena_registration_;
 
-  // Main object storage — ArenaAwareAllocator routes node allocations to the
-  // owning DB arena without relying on TLS arena pinning.
-  utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>> vertices_;
-  utils::SkipList<Edge, memory::ArenaAwareAllocator<char>> edges_;
-  utils::SkipList<EdgeMetadata, memory::ArenaAwareAllocator<char>> edges_metadata_;
+  // Main object storage — DbAwareAllocator routes node allocations through the
+  // current DB TLS scope, while long-lived DB work establishes that scope at
+  // the appropriate execution boundary.
+  utils::SkipList<Vertex, memory::DbAwareAllocator<char>> vertices_;
+  utils::SkipList<Edge, memory::DbAwareAllocator<char>> edges_;
+  utils::SkipList<EdgeMetadata, memory::DbAwareAllocator<char>> edges_metadata_;
 
   // Durability
   durability::Recovery recovery_;

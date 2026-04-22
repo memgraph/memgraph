@@ -43,11 +43,11 @@ class InMemoryLabelIndex : public LabelIndex {
 
  public:
   struct IndividualIndex {
-    explicit IndividualIndex(unsigned arena_idx = 0) : skiplist(memory::ArenaAwareAllocator<char>{arena_idx}) {}
+    explicit IndividualIndex([[maybe_unused]] unsigned arena_idx = 0) : skiplist{} {}
 
     ~IndividualIndex();
     void Publish(uint64_t commit_timestamp);
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>> skiplist;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>> skiplist;
     IndexStatus status{};
   };
 
@@ -60,7 +60,7 @@ class InMemoryLabelIndex : public LabelIndex {
                                   memory::DbAwareAllocator<std::pair<const LabelId, std::shared_ptr<IndividualIndex>>>>;
 
   /// @throw std::bad_alloc
-  bool CreateIndexOnePass(LabelId label, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+  bool CreateIndexOnePass(LabelId label, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
@@ -72,13 +72,13 @@ class InMemoryLabelIndex : public LabelIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
-             utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
+    Iterable(utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
+             utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
              View view, Storage *storage, Transaction *transaction);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Iterator index_iterator);
+      Iterator(Iterable *self, utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Iterator index_iterator);
 
       VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
@@ -92,7 +92,7 @@ class InMemoryLabelIndex : public LabelIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Iterator index_iterator_;
+      utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
     };
@@ -102,8 +102,8 @@ class InMemoryLabelIndex : public LabelIndex {
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor pin_accessor_;
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor_;
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor_;
     LabelId label_;
     View view_;
     Storage *storage_;
@@ -112,14 +112,14 @@ class InMemoryLabelIndex : public LabelIndex {
 
   class ChunkedIterable {
    public:
-    ChunkedIterable(utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
-                    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_accessor,
+    ChunkedIterable(utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
+                    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_accessor,
                     LabelId label, View view, Storage *storage, Transaction *transaction, size_t num_chunks);
 
     class Iterator {
      public:
       Iterator(ChunkedIterable *self,
-               utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator index_iterator)
+               utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkedIterator index_iterator)
           : self_(self), index_iterator_(index_iterator), current_vertex_accessor_(nullptr, self_->storage_, nullptr) {
         AdvanceUntilValid();
       }
@@ -140,7 +140,7 @@ class InMemoryLabelIndex : public LabelIndex {
       void AdvanceUntilValid();
 
       ChunkedIterable *self_;
-      utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator index_iterator_;
+      utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkedIterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_{nullptr};
     };
@@ -150,7 +150,7 @@ class InMemoryLabelIndex : public LabelIndex {
       Iterator end_;
 
      public:
-      Chunk(ChunkedIterable *self, utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Chunk &chunk)
+      Chunk(ChunkedIterable *self, utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Chunk &chunk)
           : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
 
       Iterator begin() { return begin_; }
@@ -163,13 +163,13 @@ class InMemoryLabelIndex : public LabelIndex {
     size_t size() const { return chunks_.size(); }
 
    private:
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor pin_accessor_;
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor_;
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor pin_accessor_;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor_;
     LabelId label_;
     View view_;
     Storage *storage_;
     Transaction *transaction_;
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>::ChunkCollection chunks_;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>>::ChunkCollection chunks_;
   };
 
   struct ActiveIndices : LabelIndex::ActiveIndices {
@@ -196,12 +196,12 @@ class InMemoryLabelIndex : public LabelIndex {
     Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction);
 
     Iterable Vertices(LabelId label,
-                      utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_acc, View view,
+                      utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_acc, View view,
                       Storage *storage, Transaction *transaction);
 
-    ChunkedIterable ChunkedVertices(
-        LabelId label, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_acc,
-        View view, Storage *storage, Transaction *transaction, size_t num_chunks);
+    ChunkedIterable ChunkedVertices(LabelId label,
+                                    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_acc,
+                                    View view, Storage *storage, Transaction *transaction, size_t num_chunks);
 
     auto GetAbortProcessor() const -> AbortProcessor override;
 
@@ -214,7 +214,7 @@ class InMemoryLabelIndex : public LabelIndex {
   auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;
 
   auto RegisterIndex(LabelId, ActiveIndicesUpdater const &updater) -> bool;
-  auto PopulateIndex(LabelId label, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+  auto PopulateIndex(LabelId label, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,

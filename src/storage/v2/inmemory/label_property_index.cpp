@@ -425,7 +425,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
     LabelId label, PropertiesPaths const &properties,
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(label, properties, updater);
@@ -470,7 +470,7 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
 
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties,
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info,
     Transaction const *tx, CheckCancelFunction cancel_check) -> std::expected<void, IndexPopulateError> {
@@ -867,8 +867,8 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
 }
 
 InMemoryLabelPropertyIndex::Iterable::Iterable(
-    utils::SkipList<InMemoryLabelPropertyIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
+    utils::SkipList<InMemoryLabelPropertyIndex::Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
     PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
     std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction)
     : pin_accessor_(std::move(vertices_accessor)),
@@ -1067,7 +1067,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::Vertices(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_acc, View view, Storage *storage,
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_acc, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_container_->indices_.find(label);
   DMG_ASSERT(it != index_container_->indices_.end(),
@@ -1093,7 +1093,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
 
 InMemoryLabelPropertyIndex::ChunkedIterable InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_acc, View view, Storage *storage,
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_acc, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
   auto it = index_container_->indices_.find(label);
   DMG_ASSERT(it != index_container_->indices_.end(),
@@ -1185,7 +1185,7 @@ void InMemoryLabelPropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() 
   // TODO Make delta cache work
   AdvanceUntilValid_(
       index_iterator_,
-      utils::SkipList<InMemoryLabelPropertyIndex::Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator{},
+      utils::SkipList<InMemoryLabelPropertyIndex::Entry, memory::DbAwareAllocator<char>>::ChunkedIterator{},
       current_vertex_,
       current_vertex_accessor_,
       self_->storage_,
@@ -1200,8 +1200,8 @@ void InMemoryLabelPropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() 
 }
 
 InMemoryLabelPropertyIndex::ChunkedIterable::ChunkedIterable(
-    utils::SkipList<InMemoryLabelPropertyIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
+    utils::SkipList<InMemoryLabelPropertyIndex::Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertices_accessor, LabelId label,
     PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
     std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction,
     size_t num_chunks)
@@ -1219,7 +1219,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable::ChunkedIterable(
   chunks_ = index_accessor_.create_chunks(
       num_chunks, GenerateBounds(lower_bound_, kSmallestProperty), GenerateBounds(upper_bound_, kLargestProperty));
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
-  RechunkIndex<utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>>(
+  RechunkIndex<utils::SkipList<Entry, memory::DbAwareAllocator<char>>>(
       chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex && a.values == b.values; });
 }
 

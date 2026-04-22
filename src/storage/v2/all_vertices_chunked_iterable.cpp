@@ -14,8 +14,8 @@
 namespace memgraph::storage {
 
 namespace {
-auto AdvanceToVisibleVertex(utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ChunkedIterator it,
-                            utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ChunkedIterator end,
+auto AdvanceToVisibleVertex(utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ChunkedIterator it,
+                            utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ChunkedIterator end,
                             std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
   while (it != end) [[likely]] {
     if (VertexAccessor::IsVisible(&*it, tx, view)) [[likely]] {
@@ -27,23 +27,23 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex, memory::ArenaAwareAllocator<
   return it;
 }
 
-auto AdvanceToVisibleVertex(utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ChunkedIterator it,
+auto AdvanceToVisibleVertex(utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ChunkedIterator it,
                             std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
   return AdvanceToVisibleVertex(
-      it, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ChunkedIterator{}, vertex, storage, tx, view);
+      it, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ChunkedIterator{}, vertex, storage, tx, view);
 }
 }  // namespace
 
 AllVerticesChunkedIterable::Iterator::Iterator(AllVerticesChunkedIterable *self,
-                                               utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Chunk &chunk)
+                                               utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Chunk &chunk)
     : self_(self),
       it_(AdvanceToVisibleVertex(chunk.begin(), chunk.end(), &cache_, self->storage_, self->transaction_,
                                  self->view_)) {}
 
 AllVerticesChunkedIterable::Iterator::Iterator(
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ChunkedIterator end)
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ChunkedIterator end)
     : it_(end) {}
 
 VertexAccessor const &AllVerticesChunkedIterable::Iterator::operator*() const { return cache_.value(); }

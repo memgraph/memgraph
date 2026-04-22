@@ -20,22 +20,21 @@ namespace memgraph::storage {
 class Storage;
 
 class AllVerticesChunkedIterable final {
-  utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices_accessor_;  // Main pin accessor
-  Storage *storage_;                                                                        // Read only
-  Transaction *transaction_;                                                                // Read only
+  utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices_accessor_;  // Main pin accessor
+  Storage *storage_;                                                                     // Read only
+  Transaction *transaction_;                                                             // Read only
   View view_;
-  utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ChunkCollection chunks_;
+  utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ChunkCollection chunks_;
 
  public:
   class Iterator final {
     AllVerticesChunkedIterable *self_{nullptr};
     std::optional<VertexAccessor> cache_{std::nullopt};
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ChunkedIterator it_;
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ChunkedIterator it_;
 
    public:
-    Iterator(AllVerticesChunkedIterable *self,
-             utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Chunk &chunk);
-    explicit Iterator(utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ChunkedIterator end);
+    Iterator(AllVerticesChunkedIterable *self, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Chunk &chunk);
+    explicit Iterator(utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ChunkedIterator end);
 
     VertexAccessor const &operator*() const;
     Iterator &operator++();
@@ -45,7 +44,7 @@ class AllVerticesChunkedIterable final {
     bool operator!=(const Iterator &other) const { return it_ != other.it_; }
   };
 
-  AllVerticesChunkedIterable(utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices_accessor,
+  AllVerticesChunkedIterable(utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices_accessor,
                              size_t num_chunks, Storage *storage, Transaction *transaction, View view)
       : vertices_accessor_(std::move(vertices_accessor)),
         storage_(storage),
@@ -58,7 +57,7 @@ class AllVerticesChunkedIterable final {
     Iterator end_;
 
    public:
-    Chunk(AllVerticesChunkedIterable *self, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Chunk &chunk)
+    Chunk(AllVerticesChunkedIterable *self, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Chunk &chunk)
         : begin_{self, chunk}, end_{chunk.end()} {}
 
     Iterator begin() { return begin_; }

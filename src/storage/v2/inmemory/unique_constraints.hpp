@@ -66,12 +66,12 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   // a status is needed to not drop the constraint before it gets validated
   // new writes can't happen during this time due to read only access
   struct IndividualConstraint {
-    explicit IndividualConstraint(unsigned arena_idx = 0) : skiplist(memory::ArenaAwareAllocator<char>{arena_idx}) {}
+    explicit IndividualConstraint([[maybe_unused]] unsigned arena_idx = 0) : skiplist{} {}
 
     ~IndividualConstraint();
     void Publish(uint64_t commit_timestamp);
 
-    utils::SkipList<Entry, memory::ArenaAwareAllocator<char>> skiplist;
+    utils::SkipList<Entry, memory::DbAwareAllocator<char>> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
   };
 

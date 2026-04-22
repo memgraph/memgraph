@@ -965,7 +965,7 @@ TEST_F(DbMemoryTrackingTest, ArenaRegistration_AfterDatabaseDestruction) {
 }
 
 // ---------------------------------------------------------------------------
-// 20. Mixed allocators: ArenaAwareAllocator + DbAwareAllocator consistency
+// 20. Mixed allocation paths: explicit DB scope + DbAwareAllocator consistency
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, MixedAllocators_ConsistentAttribution) {
   auto dir = data_dir_ / "db_mixed_alloc";
@@ -981,8 +981,8 @@ TEST_F(DbMemoryTrackingTest, MixedAllocators_ConsistentAttribution) {
 
   const int64_t before = db->DbMemoryUsage();
 
-  // Create vertices using ArenaAwareAllocator (Storage layer)
-  // and set properties using DbAwareAllocator (via std::string)
+  // Create vertices under an explicit DB scope and set properties using
+  // DbAwareAllocator (via std::string)
   {
     memgraph::memory::DbArenaScope scope{arena_idx};
     auto txn = db->Access();
@@ -990,7 +990,7 @@ TEST_F(DbMemoryTrackingTest, MixedAllocators_ConsistentAttribution) {
     // Create 1000 vertices with string properties
     for (int i = 0; i < 1000; ++i) {
       auto v = txn->CreateVertex();
-      // Vertex creation uses ArenaAwareAllocator (skiplist nodes)
+      // Vertex creation is attributed through the DB scope in the storage layer
       ASSERT_NO_ERROR(v.AddLabel(db->storage()->NameToLabel("MixedNode")));
       // Property string uses DbAwareAllocator (via std::string allocation)
       ASSERT_NO_ERROR(v.SetProperty(db->storage()->NameToProperty("data"),

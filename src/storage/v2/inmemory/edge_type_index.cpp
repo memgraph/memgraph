@@ -116,7 +116,7 @@ inline void AdvanceUntilValid_(auto &index_iterator, const auto &end_iterator, E
 }  // namespace
 
 bool InMemoryEdgeTypeIndex::CreateIndexOnePass(
-    EdgeTypeId edge_type, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+    EdgeTypeId edge_type, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
     ActiveIndicesUpdater const &updater, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(edge_type, updater);
   if (!res) return false;
@@ -128,7 +128,7 @@ bool InMemoryEdgeTypeIndex::CreateIndexOnePass(
 }
 
 auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type,
-                                          utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::Accessor vertices,
+                                          utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::Accessor vertices,
                                           ActiveIndicesUpdater const &updater,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info,
                                           Transaction const *tx, CheckCancelFunction cancel_check)
@@ -327,10 +327,10 @@ void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
 }
 
 InMemoryEdgeTypeIndex::Iterable::Iterable(
-    utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
-    View view, Storage *storage, Transaction *transaction)
+    utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor, EdgeTypeId edge_type, View view,
+    Storage *storage, Transaction *transaction)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
@@ -341,7 +341,7 @@ InMemoryEdgeTypeIndex::Iterable::Iterable(
 
 InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(
     Iterable *self,
-    utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::ArenaAwareAllocator<char>>::Iterator index_iterator)
+    utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::DbAwareAllocator<char>>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_edge_(nullptr),
@@ -378,8 +378,8 @@ void InMemoryEdgeTypeIndex::RunGC() {
 }
 
 InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(
-    EdgeTypeId edge_type, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_acc,
-    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_acc, View view, Storage *storage,
+    EdgeTypeId edge_type, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_acc,
+    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_acc, View view, Storage *storage,
     Transaction *transaction) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
@@ -393,8 +393,8 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(
 }
 
 InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::ChunkedEdges(
-    EdgeTypeId edge_type, utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor, View view, Storage *storage,
+    EdgeTypeId edge_type, utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
@@ -437,10 +437,10 @@ void InMemoryEdgeTypeIndex::CleanupAllIndices() {
 }
 
 InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(
-    utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::ArenaAwareAllocator<char>>::Accessor index_accessor,
-    utils::SkipList<Vertex, memory::ArenaAwareAllocator<char>>::ConstAccessor vertex_accessor,
-    utils::SkipList<Edge, memory::ArenaAwareAllocator<char>>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
-    View view, Storage *storage, Transaction *transaction, size_t num_chunks)
+    utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::DbAwareAllocator<char>>::Accessor index_accessor,
+    utils::SkipList<Vertex, memory::DbAwareAllocator<char>>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge, memory::DbAwareAllocator<char>>::ConstAccessor edge_accessor, EdgeTypeId edge_type, View view,
+    Storage *storage, Transaction *transaction, size_t num_chunks)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
@@ -450,22 +450,21 @@ InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)} {
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
-  RechunkIndex<utils::SkipList<Entry, memory::ArenaAwareAllocator<char>>>(
+  RechunkIndex<utils::SkipList<Entry, memory::DbAwareAllocator<char>>>(
       chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge; });
 }
 
 void InMemoryEdgeTypeIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
-  AdvanceUntilValid_(
-      index_iterator_,
-      utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::ArenaAwareAllocator<char>>::ChunkedIterator{},
-      current_edge_,
-      current_edge_accessor_,
-      self_->transaction_,
-      self_->view_,
-      self_->edge_type_,
-      self_->storage_);
+  AdvanceUntilValid_(index_iterator_,
+                     utils::SkipList<InMemoryEdgeTypeIndex::Entry, memory::DbAwareAllocator<char>>::ChunkedIterator{},
+                     current_edge_,
+                     current_edge_accessor_,
+                     self_->transaction_,
+                     self_->view_,
+                     self_->edge_type_,
+                     self_->storage_);
 }
 
 }  // namespace memgraph::storage

@@ -245,7 +245,7 @@ constexpr uint64_t ExpectedSizeAtLayer(const uint64_t N, const uint8_t k) {
 /// collection is blocking is when the structure of the doubly-linked list has
 /// to be changed (eg. a new Block has to be allocated and linked into the
 /// structure).
-template <typename TObj, typename Alloc = memory::ArenaAwareAllocator<char>>
+template <typename TObj, typename Alloc = memory::DbAwareAllocator<char>>
 class SkipListGc final {
  private:
   using TNode = SkipListNode<TObj>;
@@ -618,7 +618,7 @@ class SkipListGc final {
 /// change must be implemented thread-safe inside the object.
 ///
 /// @tparam TObj object type that is stored in the list
-template <typename TObj, typename Alloc = memory::ArenaAwareAllocator<char>>
+template <typename TObj, typename Alloc = memory::DbAwareAllocator<char>>
 class SkipList final : detail::SkipListNode_base {
  private:
   using TNode = SkipListNode<TObj>;
