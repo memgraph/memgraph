@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
                                                           nullptr
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt,
+                                                          nullptr,
                                                           nullptr
 #endif
   );

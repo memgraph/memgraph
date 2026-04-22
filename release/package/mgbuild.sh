@@ -102,6 +102,7 @@ print_help () {
   echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
   echo -e "  generate-mage-image-sbom [OPTIONS] Generate MAGE image SBOM"
   echo -e "  build-pymgclient                   Build pymgclient inside mgbuild container"
+  echo -e "  build-gssapi [OPTIONS]             Build python gssapi wheel inside mgbuild container"
   echo -e "  build-ssl [OPTIONS]                Build OpenSSL inside mgbuild container"
 
   echo -e "\nSupported tests:"
@@ -447,7 +448,6 @@ build_memgraph () {
   local cmake_only=false
   local for_docker=false
   local copy_from_host=true
-  local init_flags="--ci"
   local conan_remote=""
   local conan_username=""
   local conan_password=""
@@ -552,10 +552,8 @@ build_memgraph () {
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
   echo "Building targeted package..."
-  local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
   # Fix issue with git marking directory as not safe
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init $init_flags"
   if [[ "$init_only" == "true" ]]; then
     return
   fi
@@ -601,53 +599,34 @@ build_memgraph () {
     docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add artifactory $conan_remote --force"
   fi
 
-  # Install our config
-  docker exec -u mg "$build_container" bash -c "$CMD_START && conan config install ./conan_config"
+  # Register vendored recipes as a local-recipes-index remote
+  # NOTE: also registered in build.sh — keep in sync
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add memgraph-recipes /home/mg/memgraph/conan_recipes -t local-recipes-index --force"
 
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
   local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
-  local EXPORT_BUILD_TYPE="export BUILD_TYPE=$build_type"
 
-  # Determine profile template based on sanitizer flags
-  local DASAN_ENABLED=false
-  local DUBSAN_ENABLED=false
-
-  # Check if ASAN or UBSAN flags are set
+  # Build profile list from sanitizer flags
+  local SANITIZER_PROFILES=""
   if [[ "$asan_flag" == "-DASAN=ON" ]]; then
-    DASAN_ENABLED=true
+    SANITIZER_PROFILES="$SANITIZER_PROFILES -pr:h add_asan"
+    echo "ASAN enabled"
   fi
   if [[ "$ubsan_flag" == "-DUBSAN=ON" ]]; then
-    DUBSAN_ENABLED=true
+    SANITIZER_PROFILES="$SANITIZER_PROFILES -pr:h add_ubsan"
+    echo "UBSAN enabled"
   fi
 
-  MG_SANITIZERS=""
-  if [[ "$DASAN_ENABLED" == true ]]; then
-    MG_SANITIZERS="address"
-  fi
-  if [[ "$DUBSAN_ENABLED" == true ]]; then
-    if [[ -n "$MG_SANITIZERS" ]]; then
-      # If we already have address sanitizer, add undefined to the list
-      MG_SANITIZERS="address,undefined"
-    else
-      MG_SANITIZERS="undefined"
-    fi
-  fi
+  local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_v7 $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
 
-  if [[ -n "$MG_SANITIZERS" ]]; then
-    echo "Sanitizers enabled: $MG_SANITIZERS"
-    CMD_START="$CMD_START && export MG_SANITIZERS=$MG_SANITIZERS"
-  else
-    echo "No sanitizers enabled"
-  fi
-
-  CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
+  CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN"
   if [[ -n "$build_dependency" ]]; then
     echo "Installing build dependency: $build_dependency"
     if [[ "$build_dependency" == "all" ]]; then
-      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing $CONAN_PROFILE_ARGS"
     else
-      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install --requires $build_dependency --lockfile="" --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install --requires $build_dependency --lockfile="" --build=missing $CONAN_PROFILE_ARGS"
     fi
 
     if [[ -n "$conan_remote" && -n "$conan_username" && -n "$conan_password" ]]; then
@@ -657,7 +636,7 @@ build_memgraph () {
 
     exit 0
   else
-    docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing $CONAN_PROFILE_ARGS"
   fi
   CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
 
@@ -734,15 +713,9 @@ build_memgraph () {
 
 init_tests() {
   echo "Initializing tests..."
-  # we need to add the ~/.local/bin to the path
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && export PATH=\$PATH:\$HOME/.local/bin && export DISABLE_NODE=$DISABLE_NODE && ./init-test --ci"
-  echo "...Done"
-}
-
-init_tests() {
-  echo "Initializing tests..."
+  local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
   docker exec -u root "$build_container" bash -c "apt update && apt install -y python3-venv"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && ./init-test --ci"
+  docker exec -u mg "$build_container" bash -c "$SETUP_MGDEPS_CACHE_ENDPOINT && cd $MGBUILD_ROOT_DIR && ./init-test --ci"
   echo "...Done"
 }
 
@@ -1910,6 +1883,34 @@ build_pymgclient() {
   echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET}"
 }
 
+build_gssapi() {
+  echo -e "${GREEN_BOLD}Packaging gssapi${RESET}"
+  local dest_dir="$PROJECT_ROOT/mage/wheels"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-dir)
+        dest_dir="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+  mkdir -p "$dest_dir"
+  docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/tools/ci && ./build-gssapi.sh"
+  local package_name
+  package_name=$(docker exec -i -u mg $build_container bash -c "ls -1 \$HOME/memgraph/tools/ci/gssapi/dist/*.whl | head -n 1 | xargs -n1 basename")
+  if [[ -z "$package_name" ]]; then
+    echo -e "${RED_BOLD}Error: no gssapi wheel produced${RESET}"
+    exit 1
+  fi
+  docker cp "$build_container:/home/mg/memgraph/tools/ci/gssapi/dist/$package_name" "$dest_dir/"
+  echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET} -> ${dest_dir}"
+}
+
 generate_memgraph_build_sbom() {
   local conan_remote=""
 
@@ -2424,6 +2425,9 @@ case $command in
     ;;
     build-pymgclient)
       build_pymgclient $@
+    ;;
+    build-gssapi)
+      build_gssapi $@
     ;;
     generate-memgraph-build-sbom)
       generate_memgraph_build_sbom $@

@@ -26,6 +26,7 @@
 #include "io/network/socket.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
+#include "utils/system_info.hpp"
 #include "utils/thread.hpp"
 
 namespace memgraph::communication {
@@ -36,7 +37,8 @@ namespace memgraph::communication {
  * Listens for incoming connections on the server port and assigns them to the
  * connection listener. The listener processes the events with a thread pool
  * that has `num_workers` threads. It is started automatically on constructor,
- * and stopped at destructor.
+ * and stopped at destructor. Constructing communication server could throw because of Epoll object, make sure to catch
+ * the possible exception when constructing RPC server
  *
  * Current Server architecture:
  * incoming connection -> server -> listener -> session
@@ -61,7 +63,7 @@ class Server final {
    */
   Server(io::network::Endpoint endpoint, TSessionContext *session_context, ServerContext *context,
          int inactivity_timeout_sec, const std::string &service_name,
-         size_t workers_count = std::thread::hardware_concurrency())
+         size_t workers_count = memgraph::utils::GetSafeHardwareConcurrency())
       : alive_(false),
         endpoint_(std::move(endpoint)),
         listener_(session_context, context, inactivity_timeout_sec, service_name, workers_count),

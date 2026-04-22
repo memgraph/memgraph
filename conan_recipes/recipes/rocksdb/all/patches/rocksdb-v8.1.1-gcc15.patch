@@ -1,0 +1,101 @@
+--- a/db/range_tombstone_fragmenter.cc
++++ b/db/range_tombstone_fragmenter.cc
+@@ -16,6 +16,9 @@
+ #include "util/vector_iterator.h"
+
+ namespace ROCKSDB_NAMESPACE {
+
++FragmentedRangeTombstoneListCache::FragmentedRangeTombstoneListCache() = default;
++FragmentedRangeTombstoneListCache::~FragmentedRangeTombstoneListCache() = default;
++
+ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
+     std::unique_ptr<InternalIterator> unfragmented_tombstones,
+     const InternalKeyComparator& icmp, bool for_compaction,
+--- a/db/range_tombstone_fragmenter.h
++++ b/db/range_tombstone_fragmenter.h
+@@ -20,9 +20,12 @@
+ struct FragmentedRangeTombstoneList;
+
+ struct FragmentedRangeTombstoneListCache {
++  FragmentedRangeTombstoneListCache();
++  ~FragmentedRangeTombstoneListCache();
++  // Define ctor/dtor out-of-line so the pointed-to type is complete.
+   // ensure only the first reader needs to initialize l
+   std::mutex reader_mutex;
+-  std::unique_ptr<FragmentedRangeTombstoneList> tombstones = nullptr;
++  std::unique_ptr<FragmentedRangeTombstoneList> tombstones;
+   // readers will first check this bool to avoid
+   std::atomic<bool> initialized = false;
+ };
+
+--- a/util/xxhash.h
++++ b/util/xxhash.h
+@@ -2066,10 +2066,8 @@
+ #  include <stddef.h>
+ #  define XXH_UNREACHABLE() unreachable()
+ 
+-#elif defined(__cplusplus) && (__cplusplus > 202002L)
+-/* C++23 and future versions have std::unreachable() */
+-#  include <utility> /* std::unreachable() */
+-#  define XXH_UNREACHABLE() std::unreachable()
++#elif defined(__cplusplus) && (__cplusplus > 202002L)
++#  define XXH_UNREACHABLE() __builtin_unreachable()
+ 
+ #elif XXH_HAS_BUILTIN(__builtin_unreachable)
+ #  define XXH_UNREACHABLE() __builtin_unreachable()
+
+--- a/table/block_based/block_based_table_builder.cc
++++ b/table/block_based/block_based_table_builder.cc
+@@ -334,7 +334,8 @@
+ 
+   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
+ 
+-  std::unique_ptr<ParallelCompressionRep> pc_rep;
++  ~Rep();
++  ParallelCompressionRep* pc_rep = nullptr;
+   BlockCreateContext create_context;
+ 
+   uint64_t get_offset() { return offset.load(std::memory_order_relaxed); }
+@@ -882,6 +883,8 @@
+   }
+ };
+ 
++BlockBasedTableBuilder::Rep::~Rep() { delete pc_rep; }
++
+ BlockBasedTableBuilder::BlockBasedTableBuilder(
+     const BlockBasedTableOptions& table_options, const TableBuilderOptions& tbo,
+     WritableFileWriter* file) {
+@@ -1387,8 +1390,8 @@
+ }
+ 
+ void BlockBasedTableBuilder::StartParallelCompression() {
+-  rep_->pc_rep.reset(
+-      new ParallelCompressionRep(rep_->compression_opts.parallel_threads));
++  rep_->pc_rep =
++      new ParallelCompressionRep(rep_->compression_opts.parallel_threads);
+   rep_->pc_rep->compress_thread_pool.reserve(
+       rep_->compression_opts.parallel_threads);
+   for (uint32_t i = 0; i < rep_->compression_opts.parallel_threads; i++) {
+
+--- a/utilities/write_batch_with_index/write_batch_with_index_internal.cc
++++ b/utilities/write_batch_with_index/write_batch_with_index_internal.cc
+@@ -35,6 +35,8 @@
+   assert(comparator_);
+   wbwii_.reset(new WriteBatchWithIndexInternal(column_family));
+ }
++
++BaseDeltaIterator::~BaseDeltaIterator() = default;
+ 
+ bool BaseDeltaIterator::Valid() const {
+   return status_.ok() ? (current_at_base_ ? BaseValid() : DeltaValid()) : false;
+--- a/utilities/write_batch_with_index/write_batch_with_index_internal.h
++++ b/utilities/write_batch_with_index/write_batch_with_index_internal.h
+@@ -39,7 +39,7 @@
+                     const Comparator* comparator,
+                     const ReadOptions* read_options = nullptr);
+ 
+-  ~BaseDeltaIterator() override {}
++  ~BaseDeltaIterator() override;
+ 
+   bool Valid() const override;
+   void SeekToFirst() override;

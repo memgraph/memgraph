@@ -44,8 +44,8 @@ class MockedRdKafkaMessage : public RdKafka::Message {
   }
 
   ~MockedRdKafkaMessage() override {
-    rd_kafka_destroy(rd_kafka_);
     rd_kafka_topic_destroy(message_.rkt);
+    rd_kafka_destroy(rd_kafka_);
   }
 
   // The two can be accessed safely. Any use of the other public members should

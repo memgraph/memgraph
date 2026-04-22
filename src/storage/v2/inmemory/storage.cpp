@@ -313,8 +313,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  PlanInvalidatorPtr invalidator,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : Storage(config, config.salient.storage_mode, std::move(invalidator), std::move(database_protector_factory)),
-      recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
-                config.durability.storage_directory / durability::kWalDirectory},
+      recovery_{.snapshot_directory_ = config.durability.storage_directory / durability::kSnapshotDirectory,
+                .wal_directory_ = config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
       global_locker_(file_retainer_.AddLocker()) {
@@ -337,7 +337,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Create the lock file and open a handle to it. This will crash the
     // database if it can't open the file for writing or if any other process is
     // holding the file opened.
-    lock_file_handle_->Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    MG_ASSERT(lock_file_handle_->Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING),
+              "Failed to open {}",
+              lock_file_path_);
     MG_ASSERT(lock_file_handle_->AcquireLock(),
               "Couldn't acquire lock on the storage directory {}"
               "!\nAnother Memgraph process is currently running with the same "
@@ -1040,7 +1042,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   // If main executes this: Block until we receive votes from all replicas.
   // If replica executes this:,
-  auto const repl_prepare_phase_status =
+  auto const repl_prepare_phase_ok =
       HandleDurabilityAndReplicate(durability_commit_timestamp, replicating_txn, commit_args);
 
   // If replica executes this
@@ -1066,15 +1068,14 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           // WAL file is already finalized
           FinalizeCommitPhase(durability_commit_timestamp);
 
-          auto failures = replicating_txn.CollectStartTxnErrors();
-          if (!repl_prepare_phase_status.has_value()) {
-            for (auto const &f : repl_prepare_phase_status.error().failures) {
-              // A replica that failed to start also fails during finalize — keep only the start error
-              if (!std::ranges::any_of(failures, [&](auto const &e) { return e.name == f.name; })) {
-                failures.push_back(f);
-              }
-            }
-          }
+          auto failures = replicating_txn.CollectAllFailures();
+          auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
+            return CommitTsInfo{.ldt_ = durability_commit_timestamp,
+                                .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
+          };
+          // update replicas' cached commit info
+          replicating_txn.UpdateCommitTsInfo(update_func);
+
           if (!failures.empty()) {
             return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
           }
@@ -1084,7 +1085,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
         // cluster.
 
-        if (repl_prepare_phase_status.has_value()) {
+        if (repl_prepare_phase_ok) {
           // All replicas voted yes, hence they want to commit the current transaction
           FinalizeCommitPhase(durability_commit_timestamp);
         }
@@ -1095,20 +1096,18 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         }
         // Send to all replicas they can finalize a transaction
         replicating_txn.FinalizeTransaction(
-            repl_prepare_phase_status.has_value(), mem_storage->uuid(), protector, durability_commit_timestamp);
+            repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
 
-        // Collect all failures: start-txn errors and ship-delta errors are mutually exclusive per replica
-        // It is ok to put this after FinalizeTransaction because it is impossible for repl_prepare_phase_status
-        // to have a value if there were some start txn errors
-        auto failures = replicating_txn.CollectStartTxnErrors();
-        if (!repl_prepare_phase_status.has_value()) {
-          for (auto const &f : repl_prepare_phase_status.error().failures) {
-            // A replica that failed to start also fails during finalize — keep only the start error
-            if (!std::ranges::any_of(failures, [&](auto const &e) { return e.name == f.name; })) {
-              failures.push_back(f);
-            }
-          }
+        auto failures = replicating_txn.CollectAllFailures();
+        auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
+          return CommitTsInfo{.ldt_ = durability_commit_timestamp,
+                              .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
+        };
+        // update replicas' cached commit info only if the txn was actually committed
+        if (repl_prepare_phase_ok) {
+          replicating_txn.UpdateCommitTsInfo(update_func);
         }
+
         if (!failures.empty()) {
           // Release engine lock because we don't have to hold it anymore for abort
           engine_guard.unlock();
@@ -1193,6 +1192,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     return CommitTsInfo{.ldt_ = durability_commit_timestamp,
                         .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
   };
+  // update main's cached info
   atomic_struct_update<CommitTsInfo>(mem_storage->repl_storage_state_.commit_ts_info_, update_func);
 
   // Install the new point index, if needed
@@ -2077,10 +2077,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
-  auto vertices_acc = in_memory->vertices_.access();
-  if (vector_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
+  if (vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
-  } else if (vector_edge_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
+  } else if (vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   } else {
     return std::unexpected{IndexDefinitionError{}};
@@ -3171,8 +3170,7 @@ void InMemoryStorage::FinalizeWalFile() {
 
 auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                                      TransactionReplication &replicating_txn,
-                                                                     CommitArgs const &commit_args)
-    -> std::expected<void, ShipDeltasError> {
+                                                                     CommitArgs const &commit_args) -> bool {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // If replica executes this:
@@ -4012,7 +4010,9 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
     if (uuid() != loaded_snapshot_uuid) {
       // Rewrite the UUID in the snapshot file
-      durability::OverwriteSnapshotUUID(local_path, uuid());
+      if (!durability::OverwriteSnapshotUUID(local_path, uuid())) {
+        return std::unexpected{InMemoryStorage::RecoverSnapshotError::FailedOverwritingUUID};
+      }
     }
     // Generate new name for the snapshot file
     // Must be after moving to .old, otherwise you will move the file itself
@@ -4272,11 +4272,12 @@ void InMemoryStorage::Clear() {
   commit_log_.reset();
   commit_log_.emplace();
 
-  // Drop any pending GC work (committed_transactions_ is holding on to old deltas)
+  // Drop any pending GC work
   deleted_vertices_->clear();
   deleted_edges_->clear();
   garbage_undo_buffers_->clear();
   committed_transactions_->clear();
+  waiting_gc_deltas_->clear();
 
   // Clear incoming async index creation requests
   async_indexer_.Clear();
@@ -4433,6 +4434,7 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 
   mem_storage->vertices_.clear();
+  mem_storage->waiting_gc_deltas_->clear();
   mem_storage->edges_.clear();
   mem_storage->edge_count_.store(0, std::memory_order_release);
   mem_storage->description_store_.Clear();

@@ -3,6 +3,8 @@ args: &args
   - "--bolt_port"
   - *bolt_port
   - "--log-level=TRACE"
+  - "--query-callable-mappings-path"
+  - "query_modules/callable_alias_mapping.json"
 
 in_memory_cluster: &in_memory_cluster
   cluster:

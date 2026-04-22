@@ -26,7 +26,7 @@ find_package(Boost REQUIRED CONFIG COMPONENTS filesystem)
 
 # Test integrations-kafka
 add_library(kafka-mock STATIC kafka_mock.cpp)
-target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads GTest::gtest)
+target_link_libraries(kafka-mock mg-utils RdKafka::rdkafka++ Threads::Threads GTest::gtest)
 
 # Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
 add_unit_test(integrations_kafka_consumer
@@ -113,6 +113,11 @@ add_unit_test(query_cache
 
 add_unit_test(query_plan
     SOURCES query_plan.cpp
+    LINK_TARGETS mg-query
+)
+
+add_unit_test(query_plan_orderby_index
+    SOURCES query_plan_orderby_index.cpp
     LINK_TARGETS mg-query
 )
 
@@ -284,7 +289,7 @@ add_unit_test(bolt_encoder
 
 add_unit_test(bolt_session
     SOURCES bolt_session.cpp
-    LINK_TARGETS mg-communication mg-utils
+    LINK_TARGETS mg-communication mg-utils mg-storage-v2
 )
 
 add_unit_test(communication_buffer
@@ -334,7 +339,7 @@ add_unit_test(utils_algorithm
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
-    LINK_TARGETS mg-utils
+    LINK_TARGETS mg-utils mg-aws
 )
 
 add_unit_test(utils_barrier
@@ -415,7 +420,7 @@ add_unit_test(utils_rwlock
 
 add_unit_test(utils_scheduler
     SOURCES utils_scheduler.cpp
-    LINK_TARGETS mg-utils
+    LINK_TARGETS mg-utils mg-flags mg-settings
 )
 
 add_unit_test(utils_signals
@@ -485,7 +490,7 @@ add_unit_test(utils_async_timer
 
 add_unit_test(license
     SOURCES license.cpp
-    LINK_TARGETS mg-utils mg-license
+    LINK_TARGETS mg-utils mg-license mg-flags
 )
 
 add_unit_test(utils_settings
@@ -540,7 +545,7 @@ add_unit_test(utils_compressor
 
 add_unit_test(file_replication_handler
     SOURCES file_replication_handler.cpp
-    LINK_TARGETS mg-rpc mg-slk
+    LINK_TARGETS mg-rpc mg-slk mg-storage-v2
 )
 
 add_unit_test(utils_observer
@@ -727,12 +732,12 @@ add_unit_test(replication_persistence_helper
 
 add_unit_test(auth_checker
     SOURCES auth_checker.cpp
-    LINK_TARGETS mg-glue mg-auth
+    LINK_TARGETS mg-glue mg-auth mg-query
 )
 
 add_unit_test(auth_handler
     SOURCES auth_handler.cpp
-    LINK_TARGETS mg-glue mg-auth
+    LINK_TARGETS mg-glue mg-auth mg-query
 )
 
 if (MG_ENTERPRISE)
@@ -824,19 +829,19 @@ endif ()
 # Test rpc-in-progress
 add_unit_test(rpc_in_progress
     SOURCES rpc_in_progress.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
 # Test replication-rpc-progress
 add_unit_test(replication_rpc_progress
     SOURCES replication_rpc_progress.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
 # Test snapshot-rpc-progress
 add_unit_test(snapshot_rpc_progress
     SOURCES snapshot_rpc_progress.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
 add_unit_test(snapshot_progress
@@ -853,7 +858,7 @@ add_unit_test(rpc_versioning
 
 add_unit_test(monitoring
     SOURCES monitoring.cpp
-    LINK_TARGETS mg-communication Boost::headers
+    LINK_TARGETS mg-communication mg-auth Boost::headers
 )
 
 # Test multi-database
@@ -1067,3 +1072,13 @@ if (MG_ENTERPRISE)
         ${CMAKE_SOURCE_DIR}/query_modules/mg_utility
     )
 endif ()
+
+add_unit_test(safe_hardware_concurrency
+    SOURCES safe_hardware_concurrency.cpp
+    LINK_TARGETS mg-utils)
+
+# Test log retention cleanup
+add_unit_test(logging
+    SOURCES logging.cpp
+    LINK_TARGETS gflags mg-flags
+)

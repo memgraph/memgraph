@@ -27,8 +27,6 @@ target_sources(mg-planner
     src/core/egraph.cpp
     src/core/extractor.cpp
 )
-target_include_directories(mg-planner PUBLIC include)
-
 target_link_libraries(mg-planner PUBLIC absl::flat_hash_map mg-utils range-v3::range-v3)
 
 if(MG_ENABLE_TESTING)

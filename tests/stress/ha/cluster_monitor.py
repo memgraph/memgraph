@@ -207,6 +207,16 @@ class ClusterMonitor:
             for row in rows:
                 print(",".join(str(row[h]) for h in headers))
 
+    def show_instances(self) -> None:
+        """Print SHOW INSTANCES once."""
+        coord, rows = self._query("SHOW INSTANCES;", protocol=Protocol.BOLT)
+        print(f"[SHOW INSTANCES via {coord}]")
+        if rows:
+            headers = list(rows[0].keys())
+            print(",".join(headers))
+            for row in rows:
+                print(",".join(str(row[h]) for h in headers))
+
     def verify_all_ready(self) -> bool:
         """Check that all replicas have status 'ready'. Returns True if healthy."""
         coord, rows = self._query("SHOW REPLICAS;")

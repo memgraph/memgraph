@@ -206,9 +206,8 @@ class OutputFile {
   /// This method opens a new file used for writing. If the file doesn't exist
   /// it is created. The `mode` flags controls whether data is appended to the
   /// file or the file is wiped on first write. Files are created with a
-  /// restrictive permission mask (0640). On failure and misuse it crashes the
-  /// program.
-  void Open(const std::filesystem::path &path, Mode mode);
+  /// restrictive permission mask (0640). On failure and misuse it returns false.
+  bool Open(const std::filesystem::path &path, Mode mode);
 
   /// Returns a boolean indicating whether a file is opened.
   bool IsOpen() const;
@@ -239,6 +238,12 @@ class OutputFile {
   /// successfully, `false` is returned otherwise. On misuse it crashes the
   /// program.
   bool AcquireLock();
+
+  /// Does exactly the same as AcquireLock() function but additionally waits for maximum of
+  /// FLAGS_data_dir_lock_acquisition_timeout_sec before returning false. Used when it's possible
+  /// that some other process cannot immediately release the lock but will do in a brief time window so it
+  /// pays off for us to wait
+  auto AcquireLockWithTimeout(uint32_t data_dir_lock_acquisition_timeout_sec, uint16_t sleep_time_ms = 250) -> bool;
 
   /// Syncs currently pending data to the currently opened file. On failure
   /// and misuse it crashes the program.
@@ -316,7 +321,7 @@ class NonConcurrentOutputFile {
   /// file or the file is wiped on first write. Files are created with a
   /// restrictive permission mask (0640). On failure and misuse it crashes the
   /// program.
-  void Open(const std::filesystem::path &path, Mode mode);
+  bool Open(const std::filesystem::path &path, Mode mode);
 
   /// Returns a boolean indicating whether a file is opened.
   bool IsOpen() const;

@@ -2531,6 +2531,9 @@ class CallProcedure : public memgraph::query::Clause {
           }
         }
       }
+      if (cont && where_) {
+        where_->Accept(visitor);
+      }
     }
     return visitor.PostVisit(*this);
   }
@@ -2543,6 +2546,7 @@ class CallProcedure : public memgraph::query::Clause {
   size_t memory_scale_{1024U};
   bool is_write_;
   bool void_procedure_{false};
+  memgraph::query::Where *where_{nullptr};
 
   CallProcedure *Clone(AstStorage *storage) const override {
     CallProcedure *object = storage->Create<CallProcedure>();
@@ -2560,6 +2564,7 @@ class CallProcedure : public memgraph::query::Clause {
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
     object->void_procedure_ = void_procedure_;
+    object->where_ = where_ ? where_->Clone(storage) : nullptr;
     return object;
   }
 
@@ -3913,6 +3918,20 @@ class ShowConfigQuery : public memgraph::query::Query {
 
   ShowConfigQuery *Clone(AstStorage *storage) const override {
     ShowConfigQuery *object = storage->Create<ShowConfigQuery>();
+    return object;
+  }
+};
+
+class ShowQueryCallableMappingsQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowQueryCallableMappingsQuery *Clone(AstStorage *storage) const override {
+    ShowQueryCallableMappingsQuery *object = storage->Create<ShowQueryCallableMappingsQuery>();
     return object;
   }
 };

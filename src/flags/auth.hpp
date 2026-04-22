@@ -21,7 +21,8 @@ const std::unordered_map<std::string, std::string> DEFAULT_SSO_MAPPINGS{
     {"saml-okta", "/usr/lib/memgraph/auth_module/saml.py"},
     {"oidc-entra-id", "/usr/lib/memgraph/auth_module/oidc.py"},
     {"oidc-okta", "/usr/lib/memgraph/auth_module/oidc.py"},
-    {"oidc-custom", "/usr/lib/memgraph/auth_module/oidc.py"}};
+    {"oidc-custom", "/usr/lib/memgraph/auth_module/oidc.py"},
+    {"kerberos", "/usr/lib/memgraph/auth_module/kerberos.py"}};
 
 // Auth flags.
 

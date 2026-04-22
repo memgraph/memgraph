@@ -111,7 +111,7 @@ Expression *CompactFilters(Expression *filter_expr, AstStorage &storage) {
 
   std::vector<ComparisonFilterInfo> infos;
   infos.reserve(filters.size());
-  std::for_each(filters.begin(), filters.end(), [&](const auto &in) { infos.push_back(can_range(in)); });
+  std::ranges::for_each(filters, [&](const auto &in) { infos.push_back(can_range(in)); });
 
   for (size_t i = 1; i < filters.size(); ++i) {
     const auto &filter = filters[i];

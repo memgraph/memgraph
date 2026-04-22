@@ -2,6 +2,9 @@ add_library(mg-system STATIC)
 add_library(mg::system ALIAS mg-system)
 target_sources(mg-system
         PUBLIC
+        FILE_SET HEADERS
+        BASE_DIRS include
+        FILES
         include/system/action.hpp
         include/system/system.hpp
         include/system/transaction.hpp
@@ -14,9 +17,7 @@ target_sources(mg-system
         transaction.cpp
         state.cpp
         rpc.cpp
-
 )
-target_include_directories(mg-system PUBLIC include)
 
 target_link_libraries(mg-system
         PUBLIC

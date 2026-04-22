@@ -18,7 +18,7 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
-#include "parameters/replication_handlers.hpp"
+#include "parameters/parameters.hpp"
 #include "replication/include/replication/state.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/handler.hpp"
@@ -147,7 +147,8 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
   explicit ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
                               memgraph::dbms::DbmsHandler &dbms_handler, memgraph::system::System &system,
-                              memgraph::auth::SynchedAuth &auth, memgraph::parameters::Parameters &parameters);
+                              memgraph::auth::SynchedAuth &auth, memgraph::parameters::Parameters &parameters,
+                              bool suppress_durability_warning = false);
 #else
   explicit ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
                               memgraph::dbms::DbmsHandler &dbms_handler, memgraph::system::System &system,
@@ -346,7 +347,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       if (replica_data.config == config) {
         return true;
       }
-      locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
+      if (!locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid)) {
+        return false;
+      }
 #ifdef MG_ENTERPRISE
       return StartRpcServer(dbms_handler_, repl_state_, replica_data, auth_, system_, parameters_);
 #else
@@ -357,7 +360,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     // Shutdown any clients we might have had
     ClientsShutdown(locked_repl_state);
     // Creates the server
-    locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
+    if (!locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid)) {
+      return false;
+    }
     spdlog::trace("Role set to replica, instance-level clients destroyed.");
 
     // Start

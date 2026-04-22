@@ -37,7 +37,7 @@ MAX_THREADS_BY_MEM=$((MAX_THREADS_BY_MEM > 0 ? MAX_THREADS_BY_MEM : 1))
 DEFAULT_THREADS=$((MAX_THREADS_BY_CPU < MAX_THREADS_BY_MEM ? MAX_THREADS_BY_CPU : MAX_THREADS_BY_MEM))
 THREADS=${THREADS:-$DEFAULT_THREADS}
 # Directories to exclude from clang-tidy analysis
-EXCLUSIONS=":!src/planner/test :!src/planner/bench :!src/csv/fuzz :!mage/cpp/community_detection_module/grappolo :!mage/cpp/text_module/utf8 :!mage/cpp/util_module/algorithm/md5.hpp :!mage/cpp/util_module/algorithm/md5.cpp"
+EXCLUSIONS=":!src/planner/test :!src/planner/bench :!src/csv/fuzz :!src/storage/v2/fuzz :!mage/cpp/community_detection_module/grappolo :!mage/cpp/text_module/utf8 :!mage/cpp/util_module/algorithm/md5.hpp :!mage/cpp/util_module/algorithm/md5.cpp"
 VENV_DIR="${VENV_DIR:-env}"
 FIX_FLAG=""
 CONFIG_FILE=".clang-tidy"
@@ -96,7 +96,15 @@ if ! command -v clang-tidy &> /dev/null; then
   echo "Please ensure the toolchain is installed at $MG_TOOLCHAIN_ROOT"
   exit 1
 fi
-ninja -C build -t inputs | grep -E '\.cppm\.o$|\.o\.modmap$' | xargs -r ninja -C build
+# Build module-related artifacts needed for clang-tidy:
+# - .cppm.o and .modmap files are listed as inputs in the ninja graph
+# - .bmi (Binary Module Interface) files are build targets that clang-tidy
+#   needs to resolve `import` statements in non-module translation units
+# `|| [[ $? -eq 1 ]]` tolerates grep's "no match" (exit 1) without masking
+# real grep errors (exit 2, e.g. missing -P support or I/O failure) — those
+# still propagate and abort the script.
+ninja -C build -t inputs | { grep -E '\.cppm\.o$|\.o\.modmap$' || [[ $? -eq 1 ]]; } | xargs -r ninja -C build
+ninja -C build -t targets all | { grep -oP '^[^:]*\.bmi(?=:)' || [[ $? -eq 1 ]]; } | xargs -r ninja -C build
 
 # Merge mage's compile_commands.json into the main one if it exists
 if [[ -f "mage/cpp/build/compile_commands.json" ]]; then

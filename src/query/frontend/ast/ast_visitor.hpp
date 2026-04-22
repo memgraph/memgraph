@@ -114,6 +114,7 @@ class SettingQuery;
 class VersionQuery;
 class Foreach;
 class ShowConfigQuery;
+class ShowQueryCallableMappingsQuery;
 class CallSubquery;
 class AnalyzeGraphQuery;
 class TransactionQueueQuery;
@@ -184,10 +185,11 @@ class QueryVisitor
           SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, ReplicationInfoQuery, LockPathQuery,
           FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery,
           ShowSnapshotsQuery, ShowNextSnapshotQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery,
-          TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery, UseDatabaseQuery,
-          ShowDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropAllIndexesQuery,
-          DropAllConstraintsQuery, DropGraphQuery, CreateEnumQuery, ShowEnumsQuery, AlterEnumAddValueQuery,
-          AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery, ShowSchemaInfoQuery, TtlQuery,
-          SessionTraceQuery, UserProfileQuery, ParameterQuery, DescriptionQuery, ReloadSSLQuery> {};
+          ShowQueryCallableMappingsQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery,
+          MultiDatabaseQuery, UseDatabaseQuery, ShowDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery,
+          CoordinatorQuery, DropAllIndexesQuery, DropAllConstraintsQuery, DropGraphQuery, CreateEnumQuery,
+          ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,
+          ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery, UserProfileQuery, ParameterQuery, DescriptionQuery,
+          ReloadSSLQuery> {};
 
 }  // namespace memgraph::query

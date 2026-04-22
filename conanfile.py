@@ -12,14 +12,12 @@ required_conan_version = ">=2.26.0"
 
 class Memgraph(ConanFile):
     name = "memgraph"
-    version = "0.0.1"  # TODO
+    version = "0.0.1"
     package_type = "application"
-
-    # license = TODO
-    # author = TODO
+    license = "https://memgraph.com/legal"
     url = "https://github.com/memgraph/memgraph"
     homepage = "https://memgraph.com"
-    description = "Conan file for Memgraph"
+    description = "In-memory graph database"
     settings = "os", "compiler", "build_type", "arch"
 
     exports_sources = (
@@ -49,57 +47,92 @@ class Memgraph(ConanFile):
         "aws-sdk-cpp/*:iam": False,
         "aws-sdk-cpp/*:identity-management": True,
         "aws-sdk-cpp/*:transfer": True,
+        # Disable saslauthd in cyrus-sasl — it adds -lcrypt (system libcrypt.so)
+        # whose crypt_rn symbol collides with our vendored libbcrypt's crypt_rn,
+        # causing bcrypt's self-test to fail. saslauthd is a Unix auth daemon
+        # irrelevant to Kafka SASL client usage.
+        "cyrus-sasl/*:with_saslauthd": False,
+        "boost/*:without_stacktrace": True,
+        "boost/*:without_locale": True,
+        "arrow/*:with_s3": True,
+        "arrow/*:with_snappy": True,
+        "arrow/*:with_mimalloc": False,
+        "librdkafka/*:ssl": True,
+        "librdkafka/*:sasl": True,
+        "mgclient/*:with_cpp": True,
+        "jemalloc/*:prefix": "je_",
+        "jemalloc/*:enable_cxx": False,
+        "jemalloc/*:enable_fill": False,
+        "jemalloc/*:lg_page": "12",
+        "jemalloc/*:lg_hugepage": "21",
+        "jemalloc/*:malloc_conf": "retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000",
+        "rapidcheck/*:enable_gtest": True,
+        "rapidcheck/*:enable_gmock": True,
+        "gflags/*:nothreads": False,
+        "gflags/*:namespace": "google;gflags",
+        "nuraft/*:asio": "standalone",
+        "rocksdb/*:with_gflags": True,
+        "rocksdb/*:use_rtti": True,
+        # Disable io_uring async I/O path in rocksdb's POSIX env. Avoids
+        # pulling liburing into the static link; flip to True (pulls
+        # liburing via Conan) to opt back in.
+        "rocksdb/*:with_liburing": False,
     }
 
     def requirements(self):
-        # self.requires("gflags/2.2.2") # we cannot use this gflags because we have a custom one!
+        # Direct dependencies — packages we #include or link against directly
         self.requires("abseil/20250512.1")
         self.requires("antlr4-cppruntime/4.13.2")
-        self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
-        self.requires(
-            "aws-sdk-cpp/1.11.692",
-            options={
-                "config": True,
-                "s3": True,
-                "monitoring": False,
-                "queues": False,
-                "sqs": False,
-                "access-management": False,
-                "cognito-identity": True,
-                "iam": False,
-                "identity-management": True,
-                "transfer": True,
-                "text-to-speech": False,
-            },
-        )
+        self.requires("arrow/22.0.0")
         self.requires("asio/1.36.0")
-        self.requires("boost/1.88.0")
+        self.requires("aws-sdk-cpp/1.11.692")
+        # force=True makes this both a direct require (so CMakeDeps generates
+        # full Boost::headers config) and overrides transitive boost ranges
+        self.requires("boost/1.88.0-memgraph", force=True)
         self.requires("bzip2/1.0.8")
         self.requires("cppitertools/2.2")
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
         self.requires("fmt/11.2.0")
-        self.requires("libcurl/8.17.0", override=True)
-        self.requires("mgclient/1.4.3", options={"with_cpp": True})
+        self.requires("gflags/2.2.0-memgraph", force=True)
+        self.requires("jemalloc/5.2.1-memgraph")
+        self.requires("libbcrypt/1.0-memgraph")
+        self.requires("librdkafka/2.6.1")
+        self.requires("librdtsc/0.3-memgraph")
+        self.requires("mgclient/1.4.3")
+        self.requires("nlohmann_json/3.11.3-memgraph")
+        self.requires("nuraft/2.1.0-memgraph")
+        has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
+        openssl_shared = not has_sanitizers
+        # Production builds dynamically link OpenSSL so the binary can use any system-provided
+        # OpenSSL >=3 and <4. Sanitizer builds use static OpenSSL to avoid ASAN-instrumented
+        # libcrypto.so leaking into LD_LIBRARY_PATH and breaking autotools configure scripts
+        # of other dependencies during the Conan build.
+        self.requires("openssl/3.0.18", options={"shared": openssl_shared})
+        self.requires("protobuf/3.21.12")
+        self.requires("pulsar-client-cpp/4.0.0-memgraph")
         self.requires("range-v3/0.12.0")
+        self.requires("rocksdb/8.1.1-memgraph")
         self.requires("simdjson/4.2.2")
-        self.requires("snappy/1.2.1", override=True)
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
+        self.requires("usearch/2.21.4")
         self.requires("zlib/1.3.1")
-        # We force Memgraph and all its dependencies to dynamically link to OpenSSL. We use version
-        # 3.0 here so that the binary can dynamically link to any version of OpenSSL >=3 and < 4,
-        # therefore allowing it to work with any package provided by our supported Linux distributions.
-        self.requires("openssl/3.0.18", override=True, options={"shared": True})
+
+        # Version overrides — pin transitive dependency versions
+        self.requires("libcurl/8.17.0", override=True)
+        self.requires("snappy/1.2.1", override=True)
 
     def build_requirements(self):
-        self.tool_requires("cmake/4.1.2")
-        self.tool_requires("ninja/1.13.1")
-        self.tool_requires("ccache/4.12.1")
+        self.tool_requires("cmake/[>=4 <5]")
+        self.tool_requires("ninja/[>=1.13 <2]")
+        self.tool_requires("ccache/[>=4.12 <5]")
         self.tool_requires("antlr4/4.13.1")
 
-        self.test_requires("benchmark/1.9.4")
-        self.test_requires("gtest/1.17.0")
+        self.test_requires("benchmark/[>=1.9 <2]")
+        # force=True overrides older gtest pinned by transitive dependencies
+        self.test_requires("gtest/[>=1.17 <2]", force=True)
+        self.test_requires("rapidcheck/cci.20231215")
 
     def validate(self):
         """Validate configuration before generation"""

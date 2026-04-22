@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "license/license.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/settings.hpp"
 
 class LicenseTest : public ::testing::Test {
@@ -48,6 +49,7 @@ TEST_F(LicenseTest, EncodeDecode) {
       memgraph::license::License{"", -1, 0, memgraph::license::LicenseType::ENTERPRISE},
       memgraph::license::License{
           "Some very long name for the organization Ltd", -999, -9999, memgraph::license::LicenseType::ENTERPRISE},
+      memgraph::license::License{"AI Org", 0, 1024, memgraph::license::LicenseType::AI_PLATFORM},
   };
 
   for (const auto &license : licenses) {
@@ -86,22 +88,29 @@ TEST_F(LicenseTest, LicenseOrganizationName) {
 
 TEST_F(LicenseTest, Expiration) {
   const std::string organization_name{"Memgraph"};
+  const auto now_sec =
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  constexpr int64_t kGraceSeconds = 24 * 60 * 60;
 
+  // valid_until in the future => valid
   {
-    const auto now =
-        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch());
-    const auto delta = std::chrono::seconds(1);
-    const auto valid_until = now + delta;
     memgraph::license::License license{
-        organization_name, valid_until.count(), 0, memgraph::license::LicenseType::ENTERPRISE};
-
-    settings->SetValue("enterprise.license", memgraph::license::Encode(license));
-    settings->SetValue("organization.name", organization_name);
-    CheckLicenseValidity(true);
-
-    std::this_thread::sleep_for(delta + std::chrono::seconds(1));
-    ASSERT_FALSE(license_checker->IsEnterpriseValid(*settings).has_value());
-    // We can't check fast checker because it has unknown refresh rate
+        organization_name, now_sec + 3600, 0, memgraph::license::LicenseType::ENTERPRISE};
+    const auto key = memgraph::license::Encode(license);
+    ASSERT_TRUE(license_checker->IsEnterpriseValid(key, organization_name).has_value());
+  }
+  // valid_until just passed but within the 24h grace => still valid
+  {
+    memgraph::license::License license{organization_name, now_sec - 60, 0, memgraph::license::LicenseType::ENTERPRISE};
+    const auto key = memgraph::license::Encode(license);
+    ASSERT_TRUE(license_checker->IsEnterpriseValid(key, organization_name).has_value());
+  }
+  // valid_until past the 24h grace => expired
+  {
+    memgraph::license::License license{
+        organization_name, now_sec - kGraceSeconds - 60, 0, memgraph::license::LicenseType::ENTERPRISE};
+    const auto key = memgraph::license::Encode(license);
+    ASSERT_FALSE(license_checker->IsEnterpriseValid(key, organization_name).has_value());
   }
   {
     SCOPED_TRACE("License with valid_until = 0 is always valid");
@@ -435,4 +444,76 @@ TEST_F(LicenseTest, CommunityMode_OrgNameMismatch) {
   ASSERT_FALSE(license_checker->IsEnterpriseValidFast());
   auto info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(info.is_valid);
+}
+
+// ===========================================================================
+// AI_PLATFORM license type
+// ===========================================================================
+
+TEST_F(LicenseTest, AiPlatform_EnterpriseValidation) {
+  const std::string org{"Memgraph"};
+  memgraph::license::License lic{org, 0, 0, memgraph::license::LicenseType::AI_PLATFORM};
+  const auto key = memgraph::license::Encode(lic);
+  license_checker->SetCliLicense(key, org, *settings);
+  CheckLicenseValidity(true);
+}
+
+TEST_F(LicenseTest, AiPlatform_DetailedLicenseInfo) {
+  const std::string org{"Memgraph"};
+  memgraph::license::License lic{org, 0, 512, memgraph::license::LicenseType::AI_PLATFORM};
+  const auto key = memgraph::license::Encode(lic);
+  license_checker->SetCliLicense(key, org, *settings);
+  auto info = license_checker->GetDetailedLicenseInfo();
+  ASSERT_TRUE(info.is_valid);
+  ASSERT_EQ(info.license_type, "ai_platform");
+  ASSERT_EQ(info.memory_limit, 512);
+  ASSERT_EQ(info.status, "You are running a valid Memgraph AI Platform License.");
+}
+
+TEST_F(LicenseTest, AiPlatform_MemoryLimitRoutedToGraphTracker) {
+  constexpr int64_t system_limit = 1'000'000'000;
+  memgraph::utils::total_memory_tracker.SetMaximumHardLimit(system_limit);
+  memgraph::utils::total_memory_tracker.SetHardLimit(system_limit);
+
+  const std::string org{"Memgraph"};
+  constexpr int64_t license_limit = 500'000'000;
+  memgraph::license::License lic{org, 0, license_limit, memgraph::license::LicenseType::AI_PLATFORM};
+  const auto key = memgraph::license::Encode(lic);
+  license_checker->SetCliLicense(key, org, *settings);
+
+  ASSERT_EQ(memgraph::utils::graph_memory_tracker.HardLimit(), license_limit);
+  ASSERT_EQ(memgraph::utils::total_memory_tracker.HardLimit(), system_limit);
+
+  memgraph::utils::graph_memory_tracker.ResetLimit();
+  memgraph::utils::total_memory_tracker.ResetTrackings();
+}
+
+TEST_F(LicenseTest, AiPlatform_SwitchToEnterpriseClearsGraphLimit) {
+  constexpr int64_t system_limit = 1'000'000'000;
+  memgraph::utils::total_memory_tracker.SetMaximumHardLimit(system_limit);
+  memgraph::utils::total_memory_tracker.SetHardLimit(system_limit);
+
+  const std::string org{"Memgraph"};
+  constexpr int64_t license_limit = 500'000'000;
+
+  {
+    memgraph::license::License lic{org, 0, license_limit, memgraph::license::LicenseType::AI_PLATFORM};
+    license_checker->SetCliLicense(memgraph::license::Encode(lic), org, *settings);
+    ASSERT_EQ(memgraph::utils::graph_memory_tracker.HardLimit(), license_limit);
+  }
+
+  {
+    memgraph::license::License lic{org, 0, license_limit, memgraph::license::LicenseType::ENTERPRISE};
+    license_checker->SetCliLicense(memgraph::license::Encode(lic), org, *settings);
+    ASSERT_EQ(memgraph::utils::graph_memory_tracker.HardLimit(), 0);
+    ASSERT_EQ(memgraph::utils::total_memory_tracker.HardLimit(), license_limit);
+  }
+
+  memgraph::utils::graph_memory_tracker.ResetLimit();
+  memgraph::utils::total_memory_tracker.ResetTrackings();
+}
+
+TEST_F(LicenseTest, AiPlatform_TestingFlag) {
+  license_checker->EnableTesting(memgraph::license::LicenseType::AI_PLATFORM);
+  CheckLicenseValidity(true);
 }

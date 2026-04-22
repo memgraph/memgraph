@@ -180,7 +180,7 @@ std::string SessionHL::GetCurrentUser() const {
       // This is only used to figure out if the impersonated user is different from the main user. Since
       // this is a role; it will always be different since roles cannot be impersonated.
       std::string res;
-      std::for_each(names.begin(), names.end(), [&res](const auto &name) { res += name + ","; });
+      std::ranges::for_each(names, [&res](const auto &name) { res += name + ","; });
       return res.substr(0, res.size() - 1);
     }
   }
@@ -217,6 +217,7 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
                               return utils::Priority::LOW;
                             // For now return HIGH only for hand-picked queries (non-system and non-db queries)
                             auto high_priority = utils::Downcast<query::ShowConfigQuery>(query) ||
+                                                 utils::Downcast<query::ShowQueryCallableMappingsQuery>(query) ||
                                                  utils::Downcast<query::SettingQuery>(query) ||
                                                  utils::Downcast<query::VersionQuery>(query) ||
                                                  utils::Downcast<query::TransactionQueueQuery>(query) ||

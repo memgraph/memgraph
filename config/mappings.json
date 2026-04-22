@@ -73,6 +73,8 @@
   "apoc.merge.node": "merge.node",
   "apoc.merge.relationship": "merge.relationship",
 
+  "apoc.meta.nodeTypeProperties": "schema.node_type_properties",
+  "apoc.meta.relTypeProperties": "schema.rel_type_properties",
   "apoc.meta.schema": "meta_util.schema",
   "apoc.meta.stats": "meta.stats_online",
 
@@ -129,6 +131,8 @@
   "apoc.util.md5": "util_module.md5",
   "apoc.util.validate": "mgps.validate",
   "apoc.util.validatePredicate": "mgps.validate_predicate",
+
+  "apoc.version": "mgps.version",
 
   "apoc.xml.parse": "xml_module.parse",
 

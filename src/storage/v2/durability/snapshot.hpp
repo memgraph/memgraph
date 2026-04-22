@@ -75,7 +75,7 @@ struct RecoveredSnapshot {
 /// @throw RecoveryFailure
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path);
 
-void OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const &uuid);
+bool OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const &uuid);
 
 /// Function used to load the snapshot data into the storage.
 /// @throw RecoveryFailure

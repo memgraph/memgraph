@@ -34,6 +34,7 @@ RUN cd $HOME && \
     if [ "$TARGETARCH" = "arm64" ]; then \
       pip install --no-cache-dir /tmp/wheels/pymgclient-*.whl --break-system-packages; \
     fi && \
+    pip install --no-cache-dir /tmp/wheels/gssapi-*.whl --break-system-packages && \
     chmod +x /home/memgraph/install_python_requirements.sh && \
     ./install_python_requirements.sh --arch ${TARGETARCH} --ci --cuda ${CUDA} --cache-present ${CACHE_PRESENT} --wheel-cache-dir /tmp/wheels && \
     rm /home/memgraph/install_python_requirements.sh && \

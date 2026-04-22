@@ -24,8 +24,8 @@
 #include <utility>
 #include <variant>
 
-#include "flags/run_time_configurable.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/timezone.hpp"
 import memgraph.utils.fnv;
 
 #include <fmt/core.h>
@@ -57,7 +57,7 @@ std::optional<T> ParseNumber(const std::string_view string, const size_t size) {
 auto Params2Time(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters) {
   auto us_since_epoch_local = std::chrono::microseconds{Date{date_parameters}.MicrosecondsSinceEpoch() +
                                                         LocalTime{local_time_parameters}.MicrosecondsSinceEpoch()};
-  if (const auto *tz = flags::run_time::GetTimezone(); tz) {
+  if (const auto *tz = utils::GetTimezone(); tz) {
     // APPLY TIMEZONE (local to UTC)
     return tz->to_sys(
         std::chrono::local_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local)));
@@ -526,7 +526,7 @@ LocalDateTime::LocalDateTime(std::tm tm)
 LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) {
   auto us_since_epoch_local =
       std::chrono::microseconds{date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch()};
-  const auto *tz = flags::run_time::GetTimezone();
+  const auto *tz = utils::GetTimezone();
   if (tz) {
     // APPLY TIMEZONE (local to UTC)
     us_since_epoch_ =
@@ -541,7 +541,7 @@ LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) {
 int64_t LocalDateTime::SysMicrosecondsSinceEpoch() const { return us_since_epoch_.time_since_epoch().count(); }
 
 int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
-  const auto *tz = flags::run_time::GetTimezone();
+  const auto *tz = utils::GetTimezone();
   if (tz) {
     // APPLY TIMEZONE (UTC to local)
     return tz->to_local(us_since_epoch_).time_since_epoch().count();
@@ -581,7 +581,7 @@ LocalTime LocalDateTime::local_time() const {
 }
 
 std::chrono::zoned_time<std::chrono::microseconds> LocalDateTime::zoned_time() const {
-  const auto *tz = flags::run_time::GetTimezone();
+  const auto *tz = utils::GetTimezone();
   if (tz) {
     // APPLY TIMEZONE (UTC to local)
     return {tz, us_since_epoch_};
@@ -993,7 +993,7 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
       return false;
     }
 
-    decimal_point_used = substring.find('.') != std::string_view::npos;
+    decimal_point_used = substring.contains('.');
     return true;
   };
 

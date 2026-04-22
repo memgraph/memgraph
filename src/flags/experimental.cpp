@@ -76,10 +76,8 @@ auto ExperimentsInstance() -> Experiments & {
 }
 
 bool AreExperimentsEnabled(Experiments experiments) {
-  using t = std::underlying_type_t<Experiments>;
-
-  auto actual = static_cast<t>(ExperimentsInstance());
-  auto check = static_cast<t>(experiments);
+  auto actual = std::to_underlying(ExperimentsInstance());
+  auto check = std::to_underlying(experiments);
 
   return (actual & check) == check;
 }
@@ -92,7 +90,7 @@ auto ReadExperimental(std::string const &flags_experimental) -> Experiments {
   for (auto &&experiment : flags_experimental | rv::split(',') | rv::transform(canonicalize_string)) {
     if (auto it = mapping.find(experiment); it != mapping_end) {
       spdlog::info(fmt::format("Experimental feature {} is enabled.", it->first));
-      to_set |= static_cast<underlying_type>(it->second);
+      to_set |= std::to_underlying(it->second);
     }
   }
 
@@ -103,8 +101,8 @@ void SetExperimental(Experiments const &experiments) { ExperimentsInstance() = e
 
 void AppendExperimental(Experiments const &experiments) {
   using underlying_type = std::underlying_type_t<Experiments>;
-  auto current_state = static_cast<underlying_type>(ExperimentsInstance());
-  auto new_experiments = static_cast<underlying_type>(experiments);
+  auto current_state = std::to_underlying(ExperimentsInstance());
+  auto new_experiments = std::to_underlying(experiments);
   auto to_set = underlying_type{};
   to_set |= current_state;
   to_set |= new_experiments;

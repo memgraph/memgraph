@@ -61,8 +61,12 @@ void MemoryTracker::SetHardLimit(const int64_t limit) {
     return limit == 0 ? maximum_hard_limit_ : std::min(maximum_hard_limit_, limit);
   });
 
-  if (next_limit <= 0) {
-    spdlog::warn("Invalid memory limit.");
+  if (next_limit < 0) {
+    spdlog::warn("Invalid memory limit (negative value).");
+    return;
+  }
+  if (next_limit == 0) {
+    spdlog::warn("Memory limit is not set.");
     return;
   }
 
