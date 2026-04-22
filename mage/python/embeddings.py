@@ -512,8 +512,6 @@ def remote_compute(
         base_kwargs["input_type"] = cfg["input_type"]
     if cfg["dimensions"]:
         base_kwargs["dimensions"] = cfg["dimensions"]
-    if cfg["extra_kwargs"]:
-        base_kwargs.update(cfg["extra_kwargs"])
 
     def _call(chunk_texts):
         resp = litellm_embedding(input=chunk_texts, **base_kwargs)
@@ -596,7 +594,6 @@ def validate_configuration(configuration: mgp.Map):
         "normalize": True,
         "remote_batch_size": None,
         "concurrency": 4,
-        "extra_kwargs": {},
     }
     configuration = {**default_configuration, **configuration}
 
@@ -625,31 +622,19 @@ def validate_configuration(configuration: mgp.Map):
     return configuration
 
 
-_SECRET_KEY_PATTERNS = ("key", "secret", "token", "password", "credential")
-
-
 def _redacted_config(cfg):
-    """Return a shallow-copied config with secret-looking fields masked.
+    """Return a shallow-copied config with URL-embedded credentials masked.
 
-    We don't currently accept an api_key config key (LiteLLM reads env vars),
-    but `extra_kwargs` is a user-supplied passthrough that could carry one, and
-    `api_base` URLs can embed credentials (``https://user:pass@host/...``).
-    Defense in depth.
+    We don't accept secret-bearing config keys (credentials come from provider
+    env vars), so the only vector left is an ``api_base`` URL of the form
+    ``https://user:pass@host/...`` — scrub just those.
     """
     import re
 
-    def _scrub(value):
-        if isinstance(value, dict):
-            return {k: ("<redacted>" if _looks_secret(k) else _scrub(v)) for k, v in value.items()}
-        if isinstance(value, str):
-            return re.sub(r"(://)[^/@\s]+:[^/@\s]+@", r"\1<redacted>@", value)
-        return value
-
-    def _looks_secret(key):
-        k = str(key).lower()
-        return any(p in k for p in _SECRET_KEY_PATTERNS)
-
-    return {k: ("<redacted>" if _looks_secret(k) else _scrub(v)) for k, v in cfg.items()}
+    api_base = cfg.get("api_base")
+    if not isinstance(api_base, str) or "@" not in api_base:
+        return cfg
+    return {**cfg, "api_base": re.sub(r"(://)[^/@\s]+:[^/@\s]+@", r"\1<redacted>@", api_base)}
 
 
 def compute_embeddings(
