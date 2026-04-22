@@ -716,7 +716,7 @@ TYPED_TEST(MgpGraphTest, VirtualGraphNodeIntegration) {
   vg.InsertOrGetNode(v1.Gid(), std::move(vn1));
   vg.InsertOrGetNode(v2.Gid(), std::move(vn2));
 
-  EXPECT_EQ(vg.node_count(), 2);
+  EXPECT_EQ(vg.nodes().size(), 2);
 
   const auto *found = vg.FindNodeByRealGid(v1.Gid());
   ASSERT_NE(found, nullptr);
@@ -734,7 +734,6 @@ TYPED_TEST(MgpGraphTest, VirtualGraphNodeIntegration) {
 TYPED_TEST(MgpGraphTest, VertexIteratorYieldsVirtualNodes) {
   auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
 
-  // empty graph with only virtual nodes — no real vertices
   memgraph::query::Graph proj_graph(memgraph::utils::NewDeleteResource());
   memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
   const auto score_id = dba.NameToProperty("score");
@@ -748,7 +747,6 @@ TYPED_TEST(MgpGraphTest, VertexIteratorYieldsVirtualNodes) {
       &sub_dba, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   graph.virtual_overlay = mgp_graph::VirtualOverlay{.graph = &vg};
 
-  // iterate all vertices — should yield the 2 virtual nodes
   auto *it = EXPECT_MGP_NO_ERROR(mgp_vertices_iterator *, mgp_graph_iter_vertices, &graph, &this->memory);
   ASSERT_NE(it, nullptr);
 

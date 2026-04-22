@@ -4823,7 +4823,7 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
 #endif
 
   if (auto *vg = graph->VirtualGraphPtr()) {
-    if (!vg->nodes_empty()) {
+    if (!vg->nodes().empty()) {
       has_virtual_nodes_ = true;
       virtual_node_it_ = vg->nodes().begin();
       virtual_node_end_ = vg->nodes().end();
@@ -4852,7 +4852,7 @@ mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vert
 mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
     if (graph->IsVirtual()) {
-      *result = graph->VirtualGraphPtr()->node_count();
+      *result = graph->VirtualGraphPtr()->nodes().size();
       return;
     }
     *result = graph->getImpl()->VerticesCount();
@@ -4862,7 +4862,7 @@ mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
 mgp_error mgp_graph_approximate_edge_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
     if (graph->IsVirtual()) {
-      *result = graph->VirtualGraphPtr()->edge_count();
+      *result = graph->VirtualGraphPtr()->edges().size();
       return;
     }
     *result = graph->getImpl()->EdgesCount();

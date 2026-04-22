@@ -41,24 +41,20 @@ TEST_F(VirtualEdgeTest, AccessorsAndIdentity) {
   EXPECT_EQ(ve1.To().Gid(), vn2.Gid());
   EXPECT_EQ(ve1.EdgeTypeName(), "RELATES_TO");
 
-  // Each virtual edge still gets a unique synthetic Gid (metadata only).
+  // Same triple → distinct synthetic gids but semantic equality.
   EXPECT_NE(ve1.Gid(), ve2.Gid());
-  EXPECT_GT(ve1.Gid(), ve2.Gid());  // Gids count down
-
-  // Equality is semantic: same (from, to, type) triple → equal, regardless of synthetic Gid.
-  // This is what makes the VirtualGraph's unordered_set the single source of truth for dedup.
+  EXPECT_GT(ve1.Gid(), ve2.Gid());  // gids count down
   EXPECT_EQ(ve1, ve2);
-  EXPECT_EQ(ve1, ve1);
 
-  memgraph::query::VirtualEdge ve_other_type(vn1, vn2, "OTHER_TYPE");
+  const memgraph::query::VirtualEdge ve_other_type(vn1, vn2, "OTHER_TYPE");
   EXPECT_NE(ve1, ve_other_type);
 
-  memgraph::query::VirtualEdge ve_reversed(vn2, vn1, "RELATES_TO");
+  const memgraph::query::VirtualEdge ve_reversed(vn2, vn1, "RELATES_TO");
   EXPECT_NE(ve1, ve_reversed);
 
   std::unordered_set<memgraph::query::VirtualEdge> set;
   set.insert(ve1);
-  set.insert(ve2);  // same triple as ve1 → not inserted
+  set.insert(ve2);
   set.insert(ve_other_type);
   EXPECT_EQ(set.size(), 2);
 }
@@ -87,7 +83,7 @@ TEST_F(VirtualEdgeTest, GraphStoresVirtualEdgesSeparately) {
   EXPECT_FALSE(vg.InsertEdgeIfNew(ve));
 
   EXPECT_EQ(graph.edges().size(), 1);
-  EXPECT_EQ(vg.edge_count(), 1);
+  EXPECT_EQ(vg.edges().size(), 1);
   EXPECT_TRUE(vg.ContainsEdge(ve));
 }
 
@@ -147,14 +143,12 @@ TEST_F(VirtualEdgeTest, MergePreservesCanonicalAndAliasesOtherSynth) {
   ASSERT_EQ(canonical->Labels().size(), 1);
   EXPECT_EQ(canonical->Labels()[0], "main");
   EXPECT_EQ(main.FindNode(main_synth), canonical);
-  // other's synth gid for the shared vertex doesn't exist as a key in main's node map —
-  // the alias resolution happens via real_to_virtual_ and rewriting edges during Merge.
+  // Aliased synths (other's synth for the shared vertex) are not keys in main's node map;
+  // they're resolved via real_to_virtual_ only.
   EXPECT_EQ(main.FindNode(other_synth), nullptr);
-  // other_only_synth was carried over (other had a node there; main now has the same node
-  // at the same synth gid).
   ASSERT_NE(main.FindNode(other_only_synth), nullptr);
   EXPECT_EQ(main.FindNodeByRealGid(other_only_gid)->Gid(), other_only_synth);
-  EXPECT_EQ(main.node_count(), 2);
+  EXPECT_EQ(main.nodes().size(), 2);
 }
 
 TEST_F(VirtualEdgeTest, InsertIfNewDedupsDistinctEdgeGidsByTriple) {
@@ -171,6 +165,6 @@ TEST_F(VirtualEdgeTest, InsertIfNewDedupsDistinctEdgeGidsByTriple) {
   EXPECT_FALSE(vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn2, "X")));
   EXPECT_TRUE(vg.InsertEdgeIfNew(memgraph::query::VirtualEdge(vn1, vn2, "Y")));
 
-  EXPECT_EQ(vg.edge_count(), 2);
+  EXPECT_EQ(vg.edges().size(), 2);
   EXPECT_EQ(vg.OutEdges(vn1.Gid()).size(), 2);
 }

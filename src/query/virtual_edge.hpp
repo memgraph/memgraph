@@ -24,15 +24,11 @@
 
 namespace memgraph::query {
 
-// VirtualEdge borrows its endpoints. `from_` and `to_` point into a VirtualGraph's
-// `nodes_` map (pmr::unordered_map gives pointer stability across insertions).
-//
-// Lifetime: nodes_anchor_ is a type-erased shared_ptr that keeps the referenced
-// node map alive. Any edge that escapes its source VirtualGraph (e.g. via
-// collect(e) or g.edges returned from a subquery) carries a bumped refcount
-// on the map, so the raw from_/to_ pointers stay valid. Edges constructed
-// without an anchor (unit tests with local VirtualNode stack variables) are
-// valid only while those locals are alive.
+// Endpoints are borrowed pointers into a VirtualGraph's node map. nodes_anchor_
+// is a type-erased shared_ptr on that map — edges escaping their source graph
+// (via collect(e), subquery returns, etc.) keep the map alive through the
+// refcount. Edges constructed without an anchor (unit tests with local
+// VirtualNode stack variables) are valid only while those locals are alive.
 class VirtualEdge final {
  public:
   using allocator_type = utils::Allocator<VirtualEdge>;
@@ -48,13 +44,11 @@ class VirtualEdge final {
         cached_hash_(HashKey(from.Gid(), to.Gid(), edge_type_name_)),
         nodes_anchor_(std::move(nodes_anchor)) {}
 
-  // Rebound-copy ctor: preserves the edge's identity (gid, type, props) but
-  // repoints from_/to_ at a different pair of VirtualNodes (and a different
-  // anchor). Used by VirtualGraph's copy-with-allocator ctor when the node
-  // map is duplicated under a new allocator, and by Merge when alias
-  // resolution maps the source edge's endpoints to canonical nodes with
-  // different synthetic gids. In the alias case cached_hash_ must be
-  // recomputed under the new gids (the hash encodes from_gid/to_gid/type).
+  // Rebound copy: preserves identity (gid, type, props) but repoints from_/to_
+  // at different VirtualNodes. Used when VirtualGraph duplicates its node map
+  // under a new allocator, and by Merge when alias resolution maps the source
+  // edge's endpoints to canonical nodes with different synthetic gids —
+  // cached_hash_ must be recomputed since it encodes from_gid/to_gid/type.
   VirtualEdge(const VirtualEdge &other, const VirtualNode &new_from, const VirtualNode &new_to,
               std::shared_ptr<const void> nodes_anchor, allocator_type alloc)
       : from_(&new_from),
