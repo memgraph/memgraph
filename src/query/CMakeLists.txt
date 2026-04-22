@@ -53,9 +53,7 @@ target_sources(mg-query
     frontend/semantic/symbol.cpp
     frontend/stripped.cpp
     graph.cpp
-    virtual_edge_store.cpp
     virtual_graph.cpp
-    virtual_node_store.cpp
     interpret/awesome_memgraph_functions.cpp
     interpret/eval.cpp
     interpret/frame.cpp

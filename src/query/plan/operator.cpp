@@ -6673,12 +6673,12 @@ class AggregateCursor : public Cursor {
     if (path_vertices.empty()) return;
 
     const auto alloc = projected_graph.get_allocator();
-    const auto &stored_from = projected_graph.node_store().InsertOrGet(
+    const auto &stored_from = projected_graph.InsertOrGetNode(
         BuildDerivedNode(path_vertices.front(), kSourceLabels, kSourceProperties, options, alloc));
 
     if (path_vertices.size() < 2) return;
 
-    const auto &stored_to = projected_graph.node_store().InsertOrGet(
+    const auto &stored_to = projected_graph.InsertOrGetNode(
         BuildDerivedNode(path_vertices.back(), kTargetLabels, kTargetProperties, options, alloc));
 
     VirtualEdge ve(stored_from, stored_to, utils::pmr::string{type_it->second.ValueString(), alloc}, alloc);
@@ -6686,7 +6686,7 @@ class AggregateCursor : public Cursor {
       ve.SetProperty(id, std::move(pv));
     });
 
-    projected_graph.edge_store().InsertIfNew(std::move(ve));
+    projected_graph.InsertEdgeIfNew(std::move(ve));
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not

@@ -353,15 +353,15 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
 bolt_map_t ToBoltVirtualGraph(const query::VirtualGraph &vg, const storage::Storage &db) {
   bolt_map_t map;
   std::vector<Value> nodes;
-  nodes.reserve(vg.node_store().size());
-  for (const auto &[gid, vn] : vg.node_store().nodes()) {
+  nodes.reserve(vg.node_count());
+  for (const auto &[gid, vn] : vg.nodes()) {
     nodes.emplace_back(ToBoltVertex(vn, db));
   }
   map.emplace("nodes", Value(std::move(nodes)));
 
   std::vector<Value> edges;
-  edges.reserve(vg.edge_store().size());
-  for (const auto &ve : vg.edge_store().edges()) {
+  edges.reserve(vg.edge_count());
+  for (const auto &ve : vg.edges()) {
     edges.emplace_back(ToBoltEdge(ve, db));
   }
   map.emplace("edges", Value(std::move(edges)));

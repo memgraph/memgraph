@@ -2322,7 +2322,7 @@ mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         if (v->IsVirtual()) {
-          if (auto *vg = v->graph->VirtualGraphPtr()) return vg->edge_store().InEdges(v->GetVirtualNode().Gid()).size();
+          if (auto *vg = v->graph->VirtualGraphPtr()) return vg->InEdges(v->GetVirtualNode().Gid()).size();
           return 0;
         }
         auto maybe_in_degree = v->VisitReal([v](const auto &impl) { return impl.InDegree(v->graph->view); });
@@ -2347,8 +2347,7 @@ mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         if (v->IsVirtual()) {
-          if (auto *vg = v->graph->VirtualGraphPtr())
-            return vg->edge_store().OutEdges(v->GetVirtualNode().Gid()).size();
+          if (auto *vg = v->graph->VirtualGraphPtr()) return vg->OutEdges(v->GetVirtualNode().Gid()).size();
           return 0;
         }
         auto maybe_out_degree = v->VisitReal([v](const auto &impl) { return impl.OutDegree(v->graph->view); });
@@ -2979,7 +2978,7 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
             throw memgraph::query::QueryRuntimeException(
                 "Cannot iterate in-edges: virtual node has no associated virtual graph context.");
           }
-          it->virtual_in_ = vg->edge_store().InEdges(v->GetVirtualNode().Gid());
+          it->virtual_in_ = vg->InEdges(v->GetVirtualNode().Gid());
           it->virtual_in_it_ = it->virtual_in_.begin();
           if (!it->virtual_in_.empty()) {
             it->current_e.emplace(*it->virtual_in_it_, v->graph, it->GetMemoryResource());
@@ -3045,7 +3044,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
             throw memgraph::query::QueryRuntimeException(
                 "Cannot iterate out-edges: virtual node has no associated virtual graph context.");
           }
-          it->virtual_out_ = vg->edge_store().OutEdges(v->GetVirtualNode().Gid());
+          it->virtual_out_ = vg->OutEdges(v->GetVirtualNode().Gid());
           it->virtual_out_it_ = it->virtual_out_.begin();
           if (!it->virtual_out_.empty()) {
             it->current_e.emplace(*it->virtual_out_it_, v->graph, it->GetMemoryResource());
@@ -3439,7 +3438,7 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
       [graph, id, memory]() -> mgp_vertex * {
         const auto gid = memgraph::storage::Gid::FromInt(id.as_int);
         if (graph->IsVirtual()) {
-          if (const auto *vn = graph->VirtualGraphPtr()->node_store().FindBySyntheticGid(gid)) {
+          if (const auto *vn = graph->VirtualGraphPtr()->FindNodeBySyntheticGid(gid)) {
             return NewRawMgpObject<mgp_vertex>(memory, *vn, graph);
           }
           return nullptr;
@@ -4824,11 +4823,10 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
 #endif
 
   if (auto *vg = graph->VirtualGraphPtr()) {
-    const auto &vn_store = vg->node_store();
-    if (!vn_store.empty()) {
+    if (!vg->nodes_empty()) {
       has_virtual_nodes_ = true;
-      virtual_node_it_ = vn_store.nodes().begin();
-      virtual_node_end_ = vn_store.nodes().end();
+      virtual_node_it_ = vg->nodes().begin();
+      virtual_node_end_ = vg->nodes().end();
     }
   }
 
@@ -4854,7 +4852,7 @@ mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vert
 mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
     if (graph->IsVirtual()) {
-      *result = graph->VirtualGraphPtr()->node_store().size();
+      *result = graph->VirtualGraphPtr()->node_count();
       return;
     }
     *result = graph->getImpl()->VerticesCount();
@@ -4864,7 +4862,7 @@ mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
 mgp_error mgp_graph_approximate_edge_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
     if (graph->IsVirtual()) {
-      *result = graph->VirtualGraphPtr()->edge_store().size();
+      *result = graph->VirtualGraphPtr()->edge_count();
       return;
     }
     *result = graph->getImpl()->EdgesCount();
