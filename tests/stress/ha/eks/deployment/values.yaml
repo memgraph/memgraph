@@ -250,6 +250,7 @@ coordinators:
   - "--log-file=/var/log/memgraph/memgraph.log"
   - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
   - "--data-directory=/var/lib/memgraph/mg_data"
+  - "--query_modules_directory="
 
 - id: "2"
   restoreDataFromSnapshot: false
@@ -265,6 +266,7 @@ coordinators:
   - "--log-file=/var/log/memgraph/memgraph.log"
   - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
   - "--data-directory=/var/lib/memgraph/mg_data"
+  - "--query_modules_directory="
 
 - id: "3"
   restoreDataFromSnapshot: false
@@ -280,6 +282,7 @@ coordinators:
   - "--log-file=/var/log/memgraph/memgraph.log"
   - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
   - "--data-directory=/var/lib/memgraph/mg_data"
+  - "--query_modules_directory="
 
 
 userContainers:
