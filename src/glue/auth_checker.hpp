@@ -63,7 +63,7 @@ class AuthChecker : public query::AuthChecker {
 #ifdef MG_ENTERPRISE
 class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
  public:
-  explicit FineGrainedAuthChecker(auth::UserOrRole user, const query::DbAccessor *dba, std::string db_name);
+  explicit FineGrainedAuthChecker(auth::UserOrRole user, const query::DbAccessor *dba);
 
   bool Has(const query::VertexAccessor &vertex, storage::View view,
            query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;

@@ -71,7 +71,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GrantedAllLabels) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_TRUE(
       auth_checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
@@ -90,7 +90,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GrantedAllLabels) {
 TYPED_TEST(FineGrainedAuthCheckerFixture, GrantedAllEdgeTypes) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_TRUE(auth_checker.Has(this->r1, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_TRUE(auth_checker.Has(this->r2, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
@@ -101,7 +101,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GrantedAllEdgeTypes) {
 TYPED_TEST(FineGrainedAuthCheckerFixture, DeniedAllLabels) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().DenyGlobal(memgraph::auth::kAllLabelPermissions);
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_FALSE(
       auth_checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
@@ -120,7 +120,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, DeniedAllLabels) {
 TYPED_TEST(FineGrainedAuthCheckerFixture, DeniedAllEdgeTypes) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().edge_type_permissions().DenyGlobal(memgraph::auth::kAllEdgeTypePermissions);
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_FALSE(auth_checker.Has(this->r1, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_FALSE(auth_checker.Has(this->r2, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
@@ -131,7 +131,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, DeniedAllEdgeTypes) {
 TYPED_TEST(FineGrainedAuthCheckerFixture, GrantLabel) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::kAllLabelPermissions);
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_TRUE(
       auth_checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
@@ -142,7 +142,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GrantLabel) {
 TYPED_TEST(FineGrainedAuthCheckerFixture, DenyLabel) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Deny({"l3"}, memgraph::auth::kAllLabelPermissions);
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_FALSE(
       auth_checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
@@ -155,7 +155,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GrantAndDenySpecificLabels) {
   user.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::kAllLabelPermissions);
   user.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::kAllLabelPermissions);
   user.fine_grained_access_handler().label_permissions().Deny({"l3"}, memgraph::auth::kAllLabelPermissions);
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_TRUE(
       auth_checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
@@ -176,7 +176,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, MultipleVertexLabels) {
   user.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::kAllLabelPermissions);
   user.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::kAllLabelPermissions);
   user.fine_grained_access_handler().label_permissions().Deny({"l3"}, memgraph::auth::kAllLabelPermissions);
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
   ASSERT_TRUE(this->v1.AddLabel(this->dba.NameToLabel("l3")).has_value());
   ASSERT_TRUE(this->v2.AddLabel(this->dba.NameToLabel("l1")).has_value());
   this->dba.AdvanceCommand();
@@ -195,7 +195,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GrantEdgeType) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().edge_type_permissions().Grant({"edge_type_1"},
                                                                    memgraph::auth::kAllEdgeTypePermissions);
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_TRUE(auth_checker.Has(this->r1, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
 }
@@ -204,7 +204,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, DenyEdgeType) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().edge_type_permissions().Deny({"edge_type_1"},
                                                                   memgraph::auth::kAllEdgeTypePermissions);
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_FALSE(auth_checker.Has(this->r1, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
 }
@@ -215,7 +215,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GrantAndDenySpecificEdgeTypes) {
                                                                    memgraph::auth::kAllEdgeTypePermissions);
   user.fine_grained_access_handler().edge_type_permissions().Deny({"edge_type_2"},
                                                                   memgraph::auth::kAllEdgeTypePermissions);
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_TRUE(auth_checker.Has(this->r1, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_TRUE(auth_checker.Has(this->r2, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
@@ -228,7 +228,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificLabelDenyRequir
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
   user.fine_grained_access_handler().label_permissions().Deny({"l3"}, memgraph::auth::FineGrainedPermission::READ);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_FALSE(
       auth_checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
@@ -245,7 +245,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificLabelGrantOnlyR
   label_perms.GrantGlobal(memgraph::auth::kAllLabelPermissions);
   label_perms.Grant({"l3"}, memgraph::auth::FineGrainedPermission::READ);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_TRUE(auth_checker.HasAllGlobalPrivilegesOnVertices());
   ASSERT_FALSE(auth_checker.HasUnrestrictedAccessToVertices());
@@ -264,7 +264,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificEdgeTypeDenyReq
   user.fine_grained_access_handler().edge_type_permissions().Deny({"edge_type_2"},
                                                                   memgraph::auth::FineGrainedPermission::READ);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_FALSE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_TRUE(auth_checker.HasAllGlobalPrivilegesOnEdges());
@@ -277,7 +277,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificEdgeTypeGrantOn
   edge_perms.GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
   edge_perms.Grant({"edge_type_2"}, memgraph::auth::FineGrainedPermission::READ);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba, "memgraph"};
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   ASSERT_TRUE(auth_checker.HasAllGlobalPrivilegesOnEdges());
   ASSERT_FALSE(auth_checker.HasUnrestrictedAccessToEdges());
@@ -287,7 +287,9 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificEdgeTypeGrantOn
   ASSERT_FALSE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE));
 }
 
-TYPED_TEST(FineGrainedAuthCheckerFixture, PerDatabaseRoleAssignmentScopesFga) {
+TEST(RolesFga, PerDatabaseRoleAssignmentScopesFga) {
+  memgraph::license::global_license_checker.EnableTesting();
+
   memgraph::auth::Role role1{"role1"};
   role1.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::FineGrainedPermission::READ);
   role1.db_access().Grant("db2");
@@ -304,52 +306,41 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PerDatabaseRoleAssignmentScopesFga) {
   user.AddMultiTenantRole(role1, "db4");
   user.AddMultiTenantRole(role2, "db4");
 
-  // db1: no roles assigned so no vertices visible
+  std::vector<std::string> const l1{"l1"};
+  std::vector<std::string> const l2{"l2"};
+
+  // db1: no roles assigned so all access denied
   {
-    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db1"};
-    ASSERT_FALSE(
-        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_FALSE(
-        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_FALSE(
-        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db1");
+    ASSERT_EQ(perms.Has(l1, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(l2, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::DENY);
   }
 
-  // db2: role1 assigned so only :l1 visible
+  // db2: role1 assigned, so l1 granted, l2 denied
   {
-    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db2"};
-    ASSERT_TRUE(
-        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_FALSE(
-        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_FALSE(
-        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db2");
+    ASSERT_EQ(perms.Has(l1, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::GRANT);
+    ASSERT_EQ(perms.Has(l2, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::DENY);
   }
 
-  // db3: role2 assigned so only :l2 visible
+  // db3: role2 assigned, so l2 granted, l1 denied
   {
-    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db3"};
-    ASSERT_FALSE(
-        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_TRUE(
-        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_FALSE(
-        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db3");
+    ASSERT_EQ(perms.Has(l1, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(l2, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::GRANT);
   }
 
-  // db4: role1 and role2 assigned so both :l1 and :l2 visible
+  // db4: both roles assigned, so l1 and l2 granted
   {
-    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db4"};
-    ASSERT_TRUE(
-        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_TRUE(
-        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_FALSE(
-        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db4");
+    ASSERT_EQ(perms.Has(l1, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::GRANT);
+    ASSERT_EQ(perms.Has(l2, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::GRANT);
   }
 }
 
-TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalRoleFgaIsFilteredByDatabase) {
+TEST(RolesFga, GlobalRoleFgaIsFilteredByDatabase) {
+  memgraph::license::global_license_checker.EnableTesting();
+
   memgraph::auth::Role role1{"role1"};
   role1.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::FineGrainedPermission::READ);
   role1.db_access().Grant("db1");
@@ -362,26 +353,21 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalRoleFgaIsFilteredByDatabase) {
   user.roles().AddRole(role1);
   user.roles().AddRole(role2);
 
-  // db1: role1 applies so only :l1 visible
+  std::vector<std::string> const l1{"l1"};
+  std::vector<std::string> const l2{"l2"};
+
+  // db1: role1 applies so l1 granted, l2 denied
   {
-    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db1"};
-    ASSERT_TRUE(
-        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_FALSE(
-        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_FALSE(
-        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db1");
+    ASSERT_EQ(perms.Has(l1, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::GRANT);
+    ASSERT_EQ(perms.Has(l2, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::DENY);
   }
 
-  // db2: role2 applies so only :l2 visible
+  // db2: role2 applies so l2 granted, l1 denied
   {
-    memgraph::glue::FineGrainedAuthChecker checker{user, &this->dba, "db2"};
-    ASSERT_FALSE(
-        checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_TRUE(
-        checker.Has(this->v2, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
-    ASSERT_FALSE(
-        checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+    auto perms = user.GetFineGrainedAccessLabelPermissions("db2");
+    ASSERT_EQ(perms.Has(l1, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(l2, memgraph::auth::FineGrainedPermission::READ), memgraph::auth::PermissionLevel::GRANT);
   }
 }
 

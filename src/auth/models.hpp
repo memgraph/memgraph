@@ -669,10 +669,10 @@ class Roles {
   }
 
 #ifdef MG_ENTERPRISE
-  const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions(
+  FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
 
-  const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions(
+  FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
 
   // No way to define a higher priority database, so we return the first one
