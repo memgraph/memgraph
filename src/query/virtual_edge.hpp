@@ -22,6 +22,11 @@
 
 namespace memgraph::query {
 
+// VirtualEdge borrows its endpoints. `from_` and `to_` point into a VirtualGraph's
+// `nodes_` map (pmr::unordered_map gives pointer stability across insertions).
+// The parent VirtualGraph must outlive every VirtualEdge that references its nodes;
+// Step 4 adds a shared_ptr anchor on the node map to enforce this for edges that
+// escape the graph (e.g. via collect(e) / g.edges returned from a subquery).
 class VirtualEdge final {
  public:
   using allocator_type = utils::Allocator<VirtualEdge>;
@@ -29,24 +34,24 @@ class VirtualEdge final {
 
   VirtualEdge(const VirtualNode &from, const VirtualNode &to, utils::pmr::string edge_type_name,
               allocator_type alloc = {})
-      : from_(from, alloc),
-        to_(to, alloc),
+      : from_(&from),
+        to_(&to),
         edge_type_name_(std::move(edge_type_name), alloc),
         gid_(NextSyntheticGid()),
         properties_(alloc),
         cached_hash_(HashKey(from.Gid(), to.Gid(), edge_type_name_)) {}
 
   VirtualEdge(const VirtualEdge &other, allocator_type alloc)
-      : from_(other.from_, alloc),
-        to_(other.to_, alloc),
+      : from_(other.from_),
+        to_(other.to_),
         edge_type_name_(other.edge_type_name_, alloc),
         gid_(other.gid_),
         properties_(other.properties_, alloc),
         cached_hash_(other.cached_hash_) {}
 
   VirtualEdge(VirtualEdge &&other, allocator_type alloc)
-      : from_(std::move(other.from_), alloc),
-        to_(std::move(other.to_), alloc),
+      : from_(other.from_),
+        to_(other.to_),
         edge_type_name_(std::move(other.edge_type_name_), alloc),
         gid_(other.gid_),
         properties_(std::move(other.properties_), alloc),
@@ -60,13 +65,13 @@ class VirtualEdge final {
   VirtualEdge &operator=(VirtualEdge &&) = default;
   ~VirtualEdge() = default;
 
-  [[nodiscard]] auto From() const noexcept -> const VirtualNode & { return from_; }
+  [[nodiscard]] auto From() const noexcept -> const VirtualNode & { return *from_; }
 
-  [[nodiscard]] auto To() const noexcept -> const VirtualNode & { return to_; }
+  [[nodiscard]] auto To() const noexcept -> const VirtualNode & { return *to_; }
 
-  [[nodiscard]] auto FromGid() const noexcept -> storage::Gid { return from_.Gid(); }
+  [[nodiscard]] auto FromGid() const noexcept -> storage::Gid { return from_->Gid(); }
 
-  [[nodiscard]] auto ToGid() const noexcept -> storage::Gid { return to_.Gid(); }
+  [[nodiscard]] auto ToGid() const noexcept -> storage::Gid { return to_->Gid(); }
 
   [[nodiscard]] auto EdgeTypeName() const noexcept -> const utils::pmr::string & { return edge_type_name_; }
 
@@ -85,9 +90,10 @@ class VirtualEdge final {
 
   [[nodiscard]] auto Properties() const noexcept -> const property_map & { return properties_; }
 
-  // Semantic equality on (from, to, type). Drives dedup via unordered_set<VirtualEdge>.
+  // Semantic equality on (from_gid, to_gid, type). Drives dedup via unordered_set<VirtualEdge>.
   bool operator==(const VirtualEdge &other) const noexcept {
-    return from_.Gid() == other.from_.Gid() && to_.Gid() == other.to_.Gid() && edge_type_name_ == other.edge_type_name_;
+    return from_->Gid() == other.from_->Gid() && to_->Gid() == other.to_->Gid() &&
+           edge_type_name_ == other.edge_type_name_;
   }
 
  private:
@@ -99,8 +105,8 @@ class VirtualEdge final {
     return seed;
   }
 
-  VirtualNode from_;
-  VirtualNode to_;
+  const VirtualNode *from_;
+  const VirtualNode *to_;
   utils::pmr::string edge_type_name_;
   storage::Gid gid_;
   property_map properties_;
