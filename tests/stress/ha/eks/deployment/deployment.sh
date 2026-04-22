@@ -33,6 +33,7 @@ ENABLE_MONITORING="${ENABLE_MONITORING:-true}"
 PROMETHEUS_NAMESPACE="monitoring"
 MONITORING_METRICS_PORT="${MONITORING_METRICS_PORT:-9091}"
 MONITORING_WS_PORT="${MONITORING_WS_PORT:-7444}"
+MONITORING_SERVICE_TEMPLATE="${SCRIPT_DIR}/monitoring-service.yaml.tmpl"
 
 # Timeouts
 CLUSTER_CREATE_TIMEOUT="${CLUSTER_CREATE_TIMEOUT:-30m}"
@@ -77,6 +78,10 @@ check_prerequisites() {
         missing_tools+=("aws-cli")
     fi
 
+    if ! command -v envsubst &> /dev/null; then
+        missing_tools+=("envsubst (gettext)")
+    fi
+
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
         log_error "Missing required tools: ${missing_tools[*]}"
         echo "Please install the missing tools and try again."
@@ -108,6 +113,10 @@ check_config_files() {
 
     if [[ ! -f "$HELM_VALUES_FILE" ]]; then
         missing_files+=("$HELM_VALUES_FILE")
+    fi
+
+    if [[ "$ENABLE_MONITORING" == "true" && ! -f "$MONITORING_SERVICE_TEMPLATE" ]]; then
+        missing_files+=("$MONITORING_SERVICE_TEMPLATE")
     fi
 
     if [[ ${#missing_files[@]} -gt 0 ]]; then
@@ -432,32 +441,16 @@ ensure_monitoring_external_services() {
         "memgraph-data-1-0"
     )
 
-    local pod base_name svc_name
+    local pod base_name
     for pod in "${pods[@]}"; do
         base_name="${pod%-0}"
-        svc_name="${base_name}-monitoring-external"
 
-        cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${svc_name}
-  labels:
-    app.kubernetes.io/name: memgraph-monitoring
-spec:
-  type: LoadBalancer
-  selector:
-    statefulset.kubernetes.io/pod-name: ${pod}
-  ports:
-    - name: metrics
-      protocol: TCP
-      port: ${MONITORING_METRICS_PORT}
-      targetPort: ${MONITORING_METRICS_PORT}
-    - name: websocket
-      protocol: TCP
-      port: ${MONITORING_WS_PORT}
-      targetPort: ${MONITORING_WS_PORT}
-EOF
+        POD_NAME="$pod" \
+        SVC_NAME="${base_name}-monitoring-external" \
+        MONITORING_METRICS_PORT="$MONITORING_METRICS_PORT" \
+        MONITORING_WS_PORT="$MONITORING_WS_PORT" \
+        envsubst '$POD_NAME $SVC_NAME $MONITORING_METRICS_PORT $MONITORING_WS_PORT' \
+            < "$MONITORING_SERVICE_TEMPLATE" | kubectl apply -f -
     done
 }
 
