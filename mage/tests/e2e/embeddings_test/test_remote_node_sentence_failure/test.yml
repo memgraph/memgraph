@@ -1,0 +1,17 @@
+query: >
+    WITH {
+      model_name: "openai/text-embedding-3-small",
+      api_base: "http://127.0.0.1:1/v1",
+      num_retries: 0,
+      timeout: 2,
+      extra_kwargs: {api_key: "ci-dummy-no-real-calls"}
+    } AS configuration
+    CALL embeddings.node_sentence(NULL, configuration)
+    YIELD success
+    WITH success
+    MATCH (n:Doc)
+    RETURN success, n.embedding IS NULL AS no_embedding_written;
+
+output:
+    - success: false
+      no_embedding_written: true

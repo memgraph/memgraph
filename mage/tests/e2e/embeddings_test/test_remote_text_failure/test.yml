@@ -1,0 +1,18 @@
+query: >
+    WITH {
+      model_name: "openai/text-embedding-3-small",
+      api_base: "http://127.0.0.1:1/v1",
+      num_retries: 0,
+      timeout: 2,
+      extra_kwargs: {api_key: "ci-dummy-no-real-calls"}
+    } AS configuration
+    CALL embeddings.text(["probe"], configuration)
+    YIELD success, embeddings, dimension
+    RETURN success,
+           embeddings IS NULL AS embeddings_null,
+           dimension IS NULL AS dimension_null;
+
+output:
+    - success: false
+      embeddings_null: true
+      dimension_null: true

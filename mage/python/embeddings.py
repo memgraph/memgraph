@@ -2,7 +2,7 @@ import multiprocessing as mp
 import os
 import sys
 import threading
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from typing import List
 
 import huggingface_hub  # noqa: F401
@@ -407,6 +407,142 @@ def multi_gpu_compute(
     )
 
 
+_litellm_configured = False
+
+
+def _ensure_litellm_configured():
+    # Silence LiteLLM's "Provider List: ..." banner that fires on every
+    # get_llm_provider() miss — we probe deliberately for local names.
+    global _litellm_configured
+    if _litellm_configured:
+        return
+    try:
+        import litellm
+
+        litellm.suppress_debug_info = True
+    except ImportError:
+        return
+    _litellm_configured = True
+
+
+def resolve_remote_model(model_name):
+    """Ask LiteLLM whether ``model_name`` belongs to one of its providers.
+
+    Returns ``(model, provider, default_api_base)`` if recognized (e.g.
+    ``"openai/text-embedding-3-small"``), otherwise ``None`` — in which case
+    the caller should fall through to the local SentenceTransformer path.
+    """
+    if not isinstance(model_name, str) or not model_name:
+        return None
+    try:
+        from litellm import get_llm_provider
+    except ImportError:
+        return None
+    _ensure_litellm_configured()
+    try:
+        model, provider, _dynamic_key, default_api_base = get_llm_provider(model_name)
+    except Exception:
+        return None
+    return model, provider, default_api_base
+
+
+def default_remote_batch_size(provider):
+    # Conservative defaults that stay under each provider's per-request input cap.
+    return {
+        "voyage": 128,
+        "cohere": 96,
+        "openai": 512,
+        "azure": 512,
+        "mistral": 512,
+        "jina_ai": 512,
+        "ollama": 64,
+        "huggingface": 64,
+        "bedrock": 64,
+    }.get(provider, 64)
+
+
+def l2_normalize(vec):
+    s = sum(x * x for x in vec) ** 0.5
+    if s == 0:
+        return vec
+    return [x / s for x in vec]
+
+
+def remote_compute(
+    input_items: mgp.Any,
+    cfg: mgp.Map,
+    dimension: int,
+    resolved,
+) -> mgp.Record(success=bool, embeddings=mgp.Nullable[mgp.List[list]], dimension=int):
+    """LiteLLM-routed remote embedding path.
+
+    Fans chunks across a small thread pool, preserves input order, and
+    L2-normalizes client-side when ``cfg["normalize"]`` (default) so behavior
+    matches the local sentence_transformers path. Raises on permanent failure
+    — the caller catches and converts to ``success=False``.
+    """
+    from litellm import embedding as litellm_embedding
+
+    _model, provider, default_api_base = resolved
+    vertex_input = isinstance(cfg["embedding_property"], str)
+    texts = build_texts(input_items, cfg["excluded_properties"]) if vertex_input else list(input_items)
+
+    n = len(texts)
+    if n == 0:
+        return return_data(
+            input_items if vertex_input else [],
+            embedding_property_name=cfg["embedding_property"] if vertex_input else None,
+            return_embeddings=cfg["return_embeddings"],
+            success=True,
+            dimension=dimension,
+        )
+
+    chunk_size = cfg["remote_batch_size"] or default_remote_batch_size(provider)
+    chunks = [texts[i : i + chunk_size] for i in range(0, n, chunk_size)]
+
+    api_base = cfg["api_base"] or default_api_base
+    base_kwargs = {
+        "model": cfg["model_name"],
+        "num_retries": cfg["num_retries"],
+        "timeout": cfg["timeout"],
+    }
+    if api_base:
+        base_kwargs["api_base"] = api_base
+    if cfg["input_type"]:
+        base_kwargs["input_type"] = cfg["input_type"]
+    if cfg["dimensions"]:
+        base_kwargs["dimensions"] = cfg["dimensions"]
+    if cfg["extra_kwargs"]:
+        base_kwargs.update(cfg["extra_kwargs"])
+
+    def _call(chunk_texts):
+        resp = litellm_embedding(input=chunk_texts, **base_kwargs)
+        return [d["embedding"] for d in resp["data"]]
+
+    results = [None] * len(chunks)
+    with ThreadPoolExecutor(max_workers=max(1, cfg["concurrency"])) as ex:
+        fut2idx = {ex.submit(_call, c): i for i, c in enumerate(chunks)}
+        for fut in as_completed(fut2idx):
+            results[fut2idx[fut]] = fut.result()
+
+    flat = [e for part in results for e in part]
+    if cfg["normalize"]:
+        flat = [l2_normalize(e) for e in flat]
+
+    if vertex_input:
+        for v, e in zip(input_items, flat):
+            v.properties[cfg["embedding_property"]] = e
+
+    logger.info(f"Processed {n} items via LiteLLM provider '{provider}' (model={cfg['model_name']}).")
+    return return_data(
+        input_items if vertex_input else flat,
+        embedding_property_name=cfg["embedding_property"] if vertex_input else None,
+        return_embeddings=cfg["return_embeddings"],
+        success=True,
+        dimension=dimension or (len(flat[0]) if flat else None),
+    )
+
+
 def return_data(
     input_items: mgp.Any,
     embedding_property_name: mgp.Nullable[str] = "embedding",
@@ -440,6 +576,7 @@ def return_data(
 
 def validate_configuration(configuration: mgp.Map):
     default_configuration = {
+        # Local path
         "embedding_property": "embedding",
         "excluded_properties": ["embedding"],
         "model_name": "all-MiniLM-L6-v2",
@@ -447,6 +584,19 @@ def validate_configuration(configuration: mgp.Map):
         "chunk_size": 48,
         "device": None,
         "return_embeddings": False,
+        # Remote path (via LiteLLM). These are only used when model_name resolves
+        # to a LiteLLM-known provider (e.g. "openai/text-embedding-3-small").
+        # API keys are NOT accepted here — LiteLLM reads canonical provider env
+        # vars (OPENAI_API_KEY, COHERE_API_KEY, VOYAGE_API_KEY, ...).
+        "api_base": None,
+        "input_type": "document",
+        "dimensions": None,
+        "timeout": 60,
+        "num_retries": 3,
+        "normalize": True,
+        "remote_batch_size": None,
+        "concurrency": 4,
+        "extra_kwargs": {},
     }
     configuration = {**default_configuration, **configuration}
 
@@ -463,21 +613,86 @@ def validate_configuration(configuration: mgp.Map):
     if configuration["embedding_property"] is not None and configuration["embedding_property"] not in excluded:
         excluded.append(configuration["embedding_property"])
 
-    logger.debug(f"Using embedding configuration: {configuration}")
+    # When routing remote, a local `device` setting has no meaning — warn so the
+    # user knows we're ignoring it rather than silently doing the wrong thing.
+    if resolve_remote_model(configuration["model_name"]) is not None and configuration["device"] is not None:
+        logger.warning(
+            f"'device' is ignored when model_name '{configuration['model_name']}' routes to a remote provider."
+        )
+
+    logger.debug(f"Using embedding configuration: {_redacted_config(configuration)}")
 
     return configuration
+
+
+_SECRET_KEY_PATTERNS = ("key", "secret", "token", "password", "credential")
+
+
+def _redacted_config(cfg):
+    """Return a shallow-copied config with secret-looking fields masked.
+
+    We don't currently accept an api_key config key (LiteLLM reads env vars),
+    but `extra_kwargs` is a user-supplied passthrough that could carry one, and
+    `api_base` URLs can embed credentials (``https://user:pass@host/...``).
+    Defense in depth.
+    """
+    import re
+
+    def _scrub(value):
+        if isinstance(value, dict):
+            return {k: ("<redacted>" if _looks_secret(k) else _scrub(v)) for k, v in value.items()}
+        if isinstance(value, str):
+            return re.sub(r"(://)[^/@\s]+:[^/@\s]+@", r"\1<redacted>@", value)
+        return value
+
+    def _looks_secret(key):
+        k = str(key).lower()
+        return any(p in k for p in _SECRET_KEY_PATTERNS)
+
+    return {k: ("<redacted>" if _looks_secret(k) else _scrub(v)) for k, v in cfg.items()}
 
 
 def compute_embeddings(
     input_items: mgp.Any,
     configuration: mgp.Map,
 ) -> mgp.Any:
-    dimension = get_model_info(configuration).get("dimension", None)
-    if dimension is None:
-        logger.warning("Failed to get model dimension.")
-
     try:
         n = len(input_items)
+
+        # Route to LiteLLM if model_name names a known remote provider
+        # (e.g. "openai/text-embedding-3-small", "ollama/nomic-embed-text").
+        # Bare names and HF-style names like "BAAI/bge-small-en-v1.5" fall
+        # through to the local SentenceTransformer path below.
+        resolved = resolve_remote_model(configuration["model_name"])
+        if resolved is not None:
+            if n == 0:
+                logger.info("No items to process.")
+                return return_data(
+                    input_items,
+                    configuration["embedding_property"],
+                    configuration["return_embeddings"],
+                    True,
+                    dimension=None,
+                )
+            try:
+                # Dimension is derived from the encode response inside
+                # remote_compute — no separate probe needed.
+                return remote_compute(input_items, configuration, None, resolved)
+            except Exception as e:
+                logger.error(f"Remote path failed: {e}")
+                return return_data(
+                    input_items,
+                    configuration["embedding_property"],
+                    configuration["return_embeddings"],
+                    False,
+                    dimension=None,
+                )
+
+        # Local path: probe the SentenceTransformer for dimension up front.
+        dimension = get_model_info(configuration).get("dimension", None)
+        if dimension is None:
+            logger.warning("Failed to get model dimension.")
+
         if n == 0:
             logger.info("No vertices to process.")
             return return_data(
@@ -579,7 +794,15 @@ def compute_embeddings(
         )
 
 
+_remote_info_cache = {}
+_remote_info_lock = threading.Lock()
+
+
 def get_model_info(configuration: mgp.Map):
+    resolved = resolve_remote_model(configuration["model_name"])
+    if resolved is not None:
+        return _remote_model_info(configuration, resolved)
+
     model = _get_or_load_model(configuration["model_name"], "cpu")
 
     info = {
@@ -588,6 +811,46 @@ def get_model_info(configuration: mgp.Map):
         "max_sequence_length": model.get_max_seq_length(),
     }
 
+    return info
+
+
+def _remote_model_info(configuration, resolved):
+    """Probe a remote provider once to learn its embedding dimension.
+
+    Cached per (model_name, api_base) so subsequent calls don't re-hit the API.
+    """
+    _model, _provider, default_api_base = resolved
+    api_base = configuration.get("api_base") or default_api_base
+    cache_key = (configuration["model_name"], api_base)
+
+    with _remote_info_lock:
+        cached = _remote_info_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    from litellm import embedding as litellm_embedding
+
+    kwargs = {
+        "model": configuration["model_name"],
+        "input": ["probe"],
+        "num_retries": configuration.get("num_retries", 3),
+        "timeout": configuration.get("timeout", 60),
+    }
+    if api_base:
+        kwargs["api_base"] = api_base
+    if configuration.get("dimensions"):
+        kwargs["dimensions"] = configuration["dimensions"]
+
+    resp = litellm_embedding(**kwargs)
+    dim = len(resp["data"][0]["embedding"])
+    info = {
+        "model_name": configuration["model_name"],
+        "dimension": dim,
+        "max_sequence_length": None,
+    }
+
+    with _remote_info_lock:
+        _remote_info_cache[cache_key] = info
     return info
 
 
