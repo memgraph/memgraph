@@ -3649,6 +3649,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       &indices,
       &constraints,
       config,
+      0 /* db_arena_idx */,
       &wal_seq_num,
       &enum_store,
       nullptr /* schema_info */,
@@ -3658,7 +3659,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       nullptr /* description_store */);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
-  const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);
+  const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config, 0 /* db_arena_idx */);
 
   MG_ASSERT(par_exec_info.has_value(), "Parallel exec info should have value present");
 

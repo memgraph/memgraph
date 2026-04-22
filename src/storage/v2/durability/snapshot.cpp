@@ -358,7 +358,7 @@ bool MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
   }
 
   const auto n_workers = std::min(thread_count, tasks.size());
-  std::vector<std::jthread> workers;
+  std::vector<memory::DbAwareThread> workers;
   workers.reserve(n_workers);
   for (int i = 0; i < n_workers; ++i) {
     workers.emplace_back([&, i] {
