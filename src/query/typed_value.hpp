@@ -805,9 +805,6 @@ class TypedValue {
     std::unique_ptr<Graph> graph_v;
     std::unique_ptr<VirtualGraph> virtual_graph_v;
     std::function<void(TypedValue *)> function_v;
-    // Heap-allocated so the union's size isn't dominated by VirtualEdge (~336 bytes with two
-    // VirtualNodes + pmr containers). Keeping them by value would bloat every Frame slot and every
-    // TypedValue in a collect() list.
     std::unique_ptr<VirtualEdge> virtual_edge_v;
     std::unique_ptr<VirtualNode> virtual_node_v;
   };

@@ -13,18 +13,21 @@
 
 #include "query/graph.hpp"
 
+#include <ranges>
 #include <regex>
 
 namespace memgraph::query {
 
 namespace {
-TypedValue GraphEdgesToTypedValue(const Graph &graph, utils::MemoryResource *memory) {
-  utils::pmr::vector<TypedValue> edges(memory);
-  edges.reserve(graph.edges().size());
-  for (const auto &e : graph.edges()) {
-    edges.emplace_back(e);
-  }
-  return {std::move(edges), memory};
+template <std::ranges::input_range R>
+TypedValue RangeToTypedValueList(R &&range, utils::MemoryResource *memory) {
+  utils::pmr::vector<TypedValue> out(memory);
+  if constexpr (std::ranges::sized_range<R>) out.reserve(std::ranges::size(range));
+  // emplace_back(item): single-arg TypedValue ctors pick up the vector's PMR allocator via
+  // uses-allocator construction. Passing memory explicitly would require non-explicit 2-arg
+  // ctors for every element type, which TypedValue doesn't have.
+  for (const auto &item : range) out.emplace_back(item);
+  return {std::move(out), memory};
 }
 }  // namespace
 
@@ -244,32 +247,16 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     }
     case TypedValue::Type::Graph: {
       const auto &graph = expression_result.ValueGraph();
-      utils::pmr::vector<TypedValue> vertices(ctx_->memory);
-      vertices.reserve(graph.vertices().size());
-      for (const auto &v : graph.vertices()) {
-        vertices.emplace_back(v);
-      }
-      result.emplace(TypedValue::TString("nodes", ctx_->memory), TypedValue(std::move(vertices), ctx_->memory));
-      result.emplace(TypedValue::TString("edges", ctx_->memory), GraphEdgesToTypedValue(graph, ctx_->memory));
-
+      result.emplace(TypedValue::TString("nodes", ctx_->memory), RangeToTypedValueList(graph.vertices(), ctx_->memory));
+      result.emplace(TypedValue::TString("edges", ctx_->memory), RangeToTypedValueList(graph.edges(), ctx_->memory));
       return {result, ctx_->memory};
     }
     case TypedValue::Type::VirtualGraph: {
       const auto &vg = expression_result.ValueVirtualGraph();
-      utils::pmr::vector<TypedValue> nodes(ctx_->memory);
-      nodes.reserve(vg.node_store().size());
-      for (const auto &[gid, vn] : vg.node_store().nodes()) {
-        nodes.emplace_back(vn);
-      }
-      result.emplace(TypedValue::TString("nodes", ctx_->memory), TypedValue(std::move(nodes), ctx_->memory));
-
-      utils::pmr::vector<TypedValue> edges(ctx_->memory);
-      edges.reserve(vg.edge_store().size());
-      for (const auto &ve : vg.edge_store().edges()) {
-        edges.emplace_back(ve);
-      }
-      result.emplace(TypedValue::TString("edges", ctx_->memory), TypedValue(std::move(edges), ctx_->memory));
-
+      result.emplace(TypedValue::TString("nodes", ctx_->memory),
+                     RangeToTypedValueList(vg.node_store().nodes() | std::views::values, ctx_->memory));
+      result.emplace(TypedValue::TString("edges", ctx_->memory),
+                     RangeToTypedValueList(vg.edge_store().edges(), ctx_->memory));
       return {result, ctx_->memory};
     }
 
@@ -429,36 +416,15 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
     return std::nullopt;
   };
   auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
-    if (prop_name == "nodes") {
-      utils::pmr::vector<TypedValue> vertices(ctx_->memory);
-      vertices.reserve(graph.vertices().size());
-      for (const auto &v : graph.vertices()) {
-        vertices.emplace_back(TypedValue(v, ctx_->memory));
-      }
-      return TypedValue(vertices, ctx_->memory);
-    }
-    if (prop_name == "edges") {
-      return GraphEdgesToTypedValue(graph, ctx_->memory);
-    }
+    if (prop_name == "nodes") return RangeToTypedValueList(graph.vertices(), ctx_->memory);
+    if (prop_name == "edges") return RangeToTypedValueList(graph.edges(), ctx_->memory);
     return std::nullopt;
   };
   auto maybe_virtual_graph = [this](const auto &vg, const auto &prop_name) -> std::optional<TypedValue> {
     if (prop_name == "nodes") {
-      utils::pmr::vector<TypedValue> nodes(ctx_->memory);
-      nodes.reserve(vg.node_store().size());
-      for (const auto &[gid, vn] : vg.node_store().nodes()) {
-        nodes.emplace_back(TypedValue(vn, ctx_->memory));
-      }
-      return TypedValue(nodes, ctx_->memory);
+      return RangeToTypedValueList(vg.node_store().nodes() | std::views::values, ctx_->memory);
     }
-    if (prop_name == "edges") {
-      utils::pmr::vector<TypedValue> edges(ctx_->memory);
-      edges.reserve(vg.edge_store().size());
-      for (const auto &ve : vg.edge_store().edges()) {
-        edges.emplace_back(TypedValue(ve, ctx_->memory));
-      }
-      return TypedValue(edges, ctx_->memory);
-    }
+    if (prop_name == "edges") return RangeToTypedValueList(vg.edge_store().edges(), ctx_->memory);
     return std::nullopt;
   };
   switch (expression_result_ptr->type()) {

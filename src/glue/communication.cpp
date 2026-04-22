@@ -116,8 +116,39 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
 }
 
 namespace {
-communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db);
-communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db);
+communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db) {
+  auto id = communication::bolt::Id::FromUint(ve.Gid().AsUint());
+  auto from = communication::bolt::Id::FromUint(ve.FromGid().AsUint());
+  auto to = communication::bolt::Id::FromUint(ve.ToGid().AsUint());
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : ve.Properties()) {
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  auto element_id = std::to_string(id.AsInt());
+  auto from_element_id = std::to_string(from.AsInt());
+  auto to_element_id = std::to_string(to.AsInt());
+  return communication::bolt::Edge{id,
+                                   from,
+                                   to,
+                                   std::string{ve.EdgeTypeName()},
+                                   std::move(properties),
+                                   std::move(element_id),
+                                   std::move(from_element_id),
+                                   std::move(to_element_id)};
+}
+
+communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db) {
+  auto id = communication::bolt::Id::FromUint(node.Gid().AsUint());
+  std::vector<std::string> labels;
+  labels.reserve(node.Labels().size());
+  for (const auto &label : node.Labels()) labels.emplace_back(label);
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : node.Properties()) {
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  auto element_id = std::to_string(id.AsInt());
+  return communication::bolt::Vertex{id, std::move(labels), std::move(properties), std::move(element_id)};
+}
 }  // namespace
 
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
@@ -505,41 +536,5 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
     }
   }
 }
-
-namespace {
-communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db) {
-  const auto from_id = ve.FromGid();
-  const auto to_id = ve.ToGid();
-  const auto edge_id = ve.Gid();
-  bolt_map_t properties;
-  for (const auto &[prop_id, prop_value] : ve.Properties()) {
-    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
-  }
-  const auto &type_pmr = ve.EdgeTypeName();
-  return {.id = communication::bolt::Id::FromUint(edge_id.AsUint()),
-          .from = communication::bolt::Id::FromUint(from_id.AsUint()),
-          .to = communication::bolt::Id::FromUint(to_id.AsUint()),
-          .type = std::string(type_pmr.data(), type_pmr.size()),
-          .properties = std::move(properties),
-          .element_id = edge_id.ToString(),
-          .from_element_id = from_id.ToString(),
-          .to_element_id = to_id.ToString()};
-}
-
-communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db) {
-  const auto id = communication::bolt::Id::FromUint(node.Gid().AsUint());
-  bolt_map_t properties;
-  for (const auto &[prop_id, prop_value] : node.Properties()) {
-    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
-  }
-  std::vector<std::string> labels;
-  labels.reserve(node.Labels().size());
-  for (const auto &label : node.Labels()) labels.emplace_back(label.data(), label.size());
-  return {.id = id,
-          .labels = std::move(labels),
-          .properties = std::move(properties),
-          .element_id = std::to_string(id.AsInt())};
-}
-}  // namespace
 
 }  // namespace memgraph::glue
