@@ -109,8 +109,8 @@ void Algo::PathFinder::DFS(const mgp::Node &curr_node, mgp::Path &curr_path, std
   visited.insert(curr_node.Id().AsInt());
   std::unordered_set<int64_t> seen;
 
-  auto iterate = [&visited, &seen, &curr_path, this](mgp::Relationships relationships, RelDirection direction,
-                                                     bool always_expand) {
+  auto iterate = [&visited, &seen, &curr_path, this](
+                     mgp::Relationships relationships, RelDirection direction, bool always_expand) {
     for (const auto relationship : relationships) {
       auto next_node_id =
           direction == RelDirection::kOutgoing ? relationship.To().Id().AsInt() : relationship.From().Id().AsInt();
@@ -267,6 +267,7 @@ void Algo::CheckConfigTypes(const mgp::Map &map) {
     throw mgp::ValueException("duration config option should be bool!");
   }
 }
+
 double Algo::GetRadians(double degrees) { return degrees * M_PI / 180.0; }
 
 double Algo::GetHaversineDistance(double lat1, double lon1, double lat2, double lon2) {
@@ -307,7 +308,7 @@ double Algo::CalculateHeuristic(const Config &config, const mgp::Node &node, con
 
 std::pair<double, double> Algo::GetLatLon(const mgp::Node &target, const Config &config) {
   auto latitude = target.GetProperty(config.latitude_name);
-  auto longitude = target.GetProperty(config.latitude_name);
+  auto longitude = target.GetProperty(config.longitude_name);
   if (latitude.IsNull() || longitude.IsNull()) {
     throw mgp::ValueException(
         "Latitude and longitude properties, or a custom heuristic value, must be specified in every node!");
