@@ -366,7 +366,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         &ttl_,
         &description_store_);
     if (metric_handles_) {
-      metric_handles_->snapshot_recovery_latency_seconds->Observe(recovery_timer.Elapsed().count());
+      metric_handles_->snapshot_recovery_latency_seconds->Observe(
+          std::chrono::duration<double>(recovery_timer.Elapsed()).count());
     }
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);

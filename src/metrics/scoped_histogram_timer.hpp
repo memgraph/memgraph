@@ -29,6 +29,23 @@ class ScopedHistogramTimer {
     }
   }
 
+  ScopedHistogramTimer(ScopedHistogramTimer const &) = delete;
+  ScopedHistogramTimer &operator=(ScopedHistogramTimer const &) = delete;
+
+  ScopedHistogramTimer(ScopedHistogramTimer &&other) noexcept
+      : histogram_(other.histogram_), start_time_(other.start_time_) {
+    other.histogram_ = nullptr;
+  }
+
+  ScopedHistogramTimer &operator=(ScopedHistogramTimer &&other) noexcept {
+    if (this != &other) {
+      histogram_ = other.histogram_;
+      start_time_ = other.start_time_;
+      other.histogram_ = nullptr;
+    }
+    return *this;
+  }
+
  private:
   prometheus::Histogram *histogram_;
   std::chrono::high_resolution_clock::time_point start_time_;

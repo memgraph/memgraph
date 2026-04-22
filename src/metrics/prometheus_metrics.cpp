@@ -66,7 +66,7 @@ bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
       "UpdateDataInstanceConfigRpcFail",
       "UpdateDataInstanceConfigRpcSuccess",
   };
-  return std::ranges::find(kLegacyCoordinatorDeltaMetrics, name) != kLegacyCoordinatorDeltaMetrics.end();
+  return r::find(kLegacyCoordinatorDeltaMetrics, name) != kLegacyCoordinatorDeltaMetrics.end();
 }
 
 // 15 buckets covering 10µs to 60s
@@ -1062,20 +1062,21 @@ void PrometheusMetrics::RemoveDatabase(DatabaseMetricHandles const *handles) {
 }
 
 void PrometheusMetrics::UpdateGauges() {
-  std::vector<std::string> names;
+  std::vector<std::pair<utils::UUID, std::string>> db_ids;
   {
     std::shared_lock const lock{databases_.mutex};
-    names.reserve(databases_.entries.size());
-    r::transform(databases_.entries, std::back_inserter(names), &DatabaseEntry::db_name);
+    db_ids.reserve(databases_.entries.size());
+    r::transform(
+        databases_.entries, std::back_inserter(db_ids), [](auto const &e) { return std::pair{e.uuid, e.db_name}; });
   }
 
-  auto const snaps = names | rv::transform([&](auto const &name) { return ResolveStorageSnapshot(name); }) |
+  auto const snaps = db_ids | rv::transform([&](auto const &p) { return ResolveStorageSnapshot(p.second); }) |
                      r::to<std::vector<StorageSnapshot>>();
 
   {
     std::shared_lock const lock{databases_.mutex};
-    for (size_t i = 0; i < names.size(); ++i) {
-      auto it = r::find_if(databases_.entries, [&](auto const &e) { return e.db_name == names[i]; });
+    for (size_t i = 0; i < db_ids.size(); ++i) {
+      auto it = r::find_if(databases_.entries, [&](auto const &e) { return e.uuid == db_ids[i].first; });
       if (it == databases_.entries.end()) continue;
       auto const &snapshot = snaps[i];
       it->handles.vertex_count->Set(static_cast<double>(snapshot.vertex_count));
@@ -1089,19 +1090,22 @@ void PrometheusMetrics::UpdateGauges() {
   std::vector<coordination::InstanceStatus> instances;
   if (instance_status_resolver_) instances = instance_status_resolver_();
 
-  // Remove gauges for instances no longer present
   auto const active_names = instances | rv::transform(&coordination::InstanceStatus::instance_name) |
                             r::to<std::unordered_set<std::string>>();
-  for (auto it = instance_up_gauges_.begin(); it != instance_up_gauges_.end();) {
+
+  std::lock_guard const instance_lock{instance_gauges_.mutex};
+
+  // Remove gauges for instances no longer present
+  for (auto it = instance_gauges_.up.begin(); it != instance_gauges_.up.end();) {
     if (!active_names.contains(it->first)) {
       instance_up_family_.Remove(it->second);
-      instance_is_leader_family_.Remove(instance_is_leader_gauges_.at(it->first));
-      instance_is_main_family_.Remove(instance_is_main_gauges_.at(it->first));
-      instance_last_response_seconds_family_.Remove(instance_last_response_seconds_gauges_.at(it->first));
-      instance_is_leader_gauges_.erase(it->first);
-      instance_is_main_gauges_.erase(it->first);
-      instance_last_response_seconds_gauges_.erase(it->first);
-      it = instance_up_gauges_.erase(it);
+      instance_is_leader_family_.Remove(instance_gauges_.is_leader.at(it->first));
+      instance_is_main_family_.Remove(instance_gauges_.is_main.at(it->first));
+      instance_last_response_seconds_family_.Remove(instance_gauges_.last_response_seconds.at(it->first));
+      instance_gauges_.is_leader.erase(it->first);
+      instance_gauges_.is_main.erase(it->first);
+      instance_gauges_.last_response_seconds.erase(it->first);
+      it = instance_gauges_.up.erase(it);
     } else {
       ++it;
     }
@@ -1110,17 +1114,17 @@ void PrometheusMetrics::UpdateGauges() {
   // Add or update gauges for current instances
   for (auto const &inst : instances) {
     prometheus::Labels const labels{{"mg_instance", inst.instance_name}};
-    if (!instance_up_gauges_.contains(inst.instance_name)) {
-      instance_up_gauges_.emplace(inst.instance_name, &instance_up_family_.Add(labels));
-      instance_is_leader_gauges_.emplace(inst.instance_name, &instance_is_leader_family_.Add(labels));
-      instance_is_main_gauges_.emplace(inst.instance_name, &instance_is_main_family_.Add(labels));
-      instance_last_response_seconds_gauges_.emplace(inst.instance_name,
+    if (!instance_gauges_.up.contains(inst.instance_name)) {
+      instance_gauges_.up.emplace(inst.instance_name, &instance_up_family_.Add(labels));
+      instance_gauges_.is_leader.emplace(inst.instance_name, &instance_is_leader_family_.Add(labels));
+      instance_gauges_.is_main.emplace(inst.instance_name, &instance_is_main_family_.Add(labels));
+      instance_gauges_.last_response_seconds.emplace(inst.instance_name,
                                                      &instance_last_response_seconds_family_.Add(labels));
     }
-    instance_up_gauges_.at(inst.instance_name)->Set(inst.health == "up" ? 1.0 : 0.0);
-    instance_is_leader_gauges_.at(inst.instance_name)->Set(inst.cluster_role == "leader" ? 1.0 : 0.0);
-    instance_is_main_gauges_.at(inst.instance_name)->Set(inst.cluster_role == "main" ? 1.0 : 0.0);
-    instance_last_response_seconds_gauges_.at(inst.instance_name)
+    instance_gauges_.up.at(inst.instance_name)->Set(inst.health == "up" ? 1.0 : 0.0);
+    instance_gauges_.is_leader.at(inst.instance_name)->Set(inst.cluster_role == "leader" ? 1.0 : 0.0);
+    instance_gauges_.is_main.at(inst.instance_name)->Set(inst.cluster_role == "main" ? 1.0 : 0.0);
+    instance_gauges_.last_response_seconds.at(inst.instance_name)
         ->Set(static_cast<double>(inst.last_succ_resp_ms) / 1000.0);
   }
 #endif
@@ -1209,9 +1213,16 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
     }
     db_name = it->db_name;
   }
+
+  // ResolveStorageSnapshot cannot be called under `databases_.mutex`, so we
+  // have a two-stage resolution with unlock between.
+
   auto const snapshot = ResolveStorageSnapshot(db_name);
   std::shared_lock const lock{databases_.mutex};
   auto const it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
+  if (it == databases_.entries.end()) {
+    return std::unexpected(fmt::format("Database '{}' not found in metrics registry", std::string(uuid)));
+  }
 
   auto const &h = it->handles;
   std::vector<MetricInfo> out;
@@ -1387,6 +1398,9 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
 
   // Transaction
   out.push_back({"ActiveTransactions", "Transaction", "Gauge", static_cast<int64_t>(h.active_transactions->Value())});
+  // NOTE: Typo in CommitedTransactions, preserved for backwards compatibility
+  // with existing deployments relying on stable JSON metrics endpoint. Fixed
+  // in OpenMetrics endpoint.
   out.push_back(
       {"CommitedTransactions", "Transaction", "Counter", static_cast<int64_t>(h.committed_transactions->Value())});
   out.push_back(
@@ -1731,6 +1745,9 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
 
   // Transaction
   out.push_back({"ActiveTransactions", "Transaction", "Gauge", total_active_transactions});
+  // NOTE: Typo in CommitedTransactions, preserved for backwards compatibility
+  // with existing deployments relying on stable JSON metrics endpoint. Fixed
+  // in OpenMetrics endpoint.
   out.push_back({"CommitedTransactions", "Transaction", "Counter", total_committed_transactions});
   out.push_back({"RolledBackTransactions", "Transaction", "Counter", total_rolled_back_transactions});
   out.push_back({"FailedQuery", "Transaction", "Counter", total_failed_query});
