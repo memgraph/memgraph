@@ -42,6 +42,10 @@ class Constants:
     SESSION = "session"
     URI_SCHEME = "uri_scheme"
     USERNAME = "username"
+    ALREADY_RUNNING_ERROR = (
+        "Migrate module with these parameters is already running. "
+        "Please wait for it to finish before starting a new one."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -255,10 +259,7 @@ def _bolt_init_state(
     cache_key = _get_cache_key(tx_id, query, config, params)
 
     if cache_key in state_dict:
-        raise RuntimeError(
-            "Migrate module with these parameters is already running. "
-            "Please wait for it to finish before starting a new one."
-        )
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
 
     uri = _build_uri(config)
     username = config.get(Constants.USERNAME, default_username)
@@ -436,9 +437,7 @@ def init_migrate_mysql(
     cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
 
     if cache_key in mysql_dict:
-        raise RuntimeError(
-            "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
 
     mysql_dict[cache_key] = {}
 
@@ -546,9 +545,7 @@ def init_migrate_sql_server(
     cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
 
     if cache_key in sql_server_dict:
-        raise RuntimeError(
-            "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
 
     sql_server_dict[cache_key] = {}
 
@@ -662,9 +659,7 @@ def init_migrate_oracle_db(
     cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
 
     if cache_key in oracle_db_dict:
-        raise RuntimeError(
-            "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
 
     oracle_db_dict[cache_key] = {}
 
@@ -782,9 +777,7 @@ def init_migrate_postgresql(
     cache_key = _get_cache_key(ctx.graph.transaction_id, table_or_sql, config, params)
 
     if cache_key in postgres_dict:
-        raise RuntimeError(
-            "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
 
     postgres_dict[cache_key] = {}
 
@@ -901,9 +894,7 @@ def init_migrate_s3(
     cache_key = _get_cache_key(ctx.graph.transaction_id, file_path, config)
 
     if cache_key in s3_dict:
-        raise RuntimeError(
-            "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
 
     s3_client = boto3.client(
         "s3",
@@ -998,9 +989,7 @@ def init_migrate_arrow_flight(
     cache_key = _get_cache_key(ctx.graph.transaction_id, query, config)
 
     if cache_key in flight_dict:
-        raise RuntimeError(
-            "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
 
     host = config.get(Constants.HOST, None)
     port = config.get(Constants.PORT, None)
@@ -1103,9 +1092,7 @@ def init_migrate_duckdb(ctx: mgp.ProcCtx, query: str, setup_queries: mgp.Nullabl
     cache_key = _get_cache_key(ctx.graph.transaction_id, query, {}, setup_queries_str)
 
     if cache_key in duckdb_dict:
-        raise RuntimeError(
-            "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
 
     connection = duckDB.connect()
     cursor = connection.cursor()
@@ -1192,9 +1179,7 @@ def init_migrate_servicenow(
     cache_key = _get_cache_key(ctx.graph.transaction_id, endpoint, config, params)
 
     if cache_key in servicenow_dict:
-        raise RuntimeError(
-            "Migrate module with these parameters is already running. Please wait for it to finish before starting a new one."
-        )
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
 
     auth = (config.get(Constants.USERNAME), config.get(Constants.PASSWORD))
     headers = {"Accept": "application/json"}
