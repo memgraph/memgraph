@@ -275,7 +275,11 @@ struct [[nodiscard]] ExceptionInfo final {
   std::stringstream ss;
   auto len = PyList_GET_SIZE(list.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
-    auto *py_str = PyList_GET_ITEM(list.Ptr(), i);
+    auto *py_str = PyList_GetItem(list.Ptr(), i);
+    if (py_str == nullptr) {
+      PyErr_Clear();
+      continue;
+    }
     const char *utf8 = PyUnicode_AsUTF8(py_str);
     if (utf8) ss << utf8;
   }
