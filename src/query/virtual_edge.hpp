@@ -51,7 +51,10 @@ class VirtualEdge final {
   // Rebound-copy ctor: preserves the edge's identity (gid, type, props) but
   // repoints from_/to_ at a different pair of VirtualNodes (and a different
   // anchor). Used by VirtualGraph's copy-with-allocator ctor when the node
-  // map is duplicated under a new allocator.
+  // map is duplicated under a new allocator, and by Merge when alias
+  // resolution maps the source edge's endpoints to canonical nodes with
+  // different synthetic gids. In the alias case cached_hash_ must be
+  // recomputed under the new gids (the hash encodes from_gid/to_gid/type).
   VirtualEdge(const VirtualEdge &other, const VirtualNode &new_from, const VirtualNode &new_to,
               std::shared_ptr<const void> nodes_anchor, allocator_type alloc)
       : from_(&new_from),
@@ -59,7 +62,7 @@ class VirtualEdge final {
         edge_type_name_(other.edge_type_name_, alloc),
         gid_(other.gid_),
         properties_(other.properties_, alloc),
-        cached_hash_(other.cached_hash_),
+        cached_hash_(HashKey(new_from.Gid(), new_to.Gid(), edge_type_name_)),
         nodes_anchor_(std::move(nodes_anchor)) {}
 
   VirtualEdge(const VirtualEdge &other, allocator_type alloc)

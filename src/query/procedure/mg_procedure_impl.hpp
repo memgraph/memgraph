@@ -1004,7 +1004,7 @@ struct mgp_edges_iterator {
   std::optional<decltype(out->begin())> out_it;
   std::optional<mgp_edge> current_e;
 
-  // Borrow from VirtualEdgeStore, which must outlive this iterator.
+  // Borrow from VirtualGraph's edge indexes, which must outlive this iterator.
   memgraph::query::EdgeRefView virtual_in_;
   std::ranges::iterator_t<memgraph::query::EdgeRefView> virtual_in_it_;
   memgraph::query::EdgeRefView virtual_out_;

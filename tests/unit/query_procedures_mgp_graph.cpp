@@ -703,7 +703,7 @@ TYPED_TEST(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
   EXPECT_EQ(mgp_edge_set_property(edge.get(), "property", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 }
 
-TYPED_TEST(MgpGraphTest, VirtualNodeStoreIntegration) {
+TYPED_TEST(MgpGraphTest, VirtualGraphNodeIntegration) {
   auto &dba = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
