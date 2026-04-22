@@ -219,45 +219,27 @@ struct delta_container {
   delta_container() = default;
 
   explicit delta_container(unsigned arena_idx) noexcept
-#if USE_JEMALLOC
-      : arena_upstream_(arena_idx),
-#endif
-        deltas_(utils::PageAlignedAllocator<delta_slab>{arena_idx}) {
-  }
+      : page_memory_(arena_idx), deltas_(utils::PageAlignedAllocator<delta_slab>{arena_idx}) {}
 
   // move ctr: needed because of size_
   delta_container(delta_container &&other) noexcept
-      :
-#if USE_JEMALLOC
-        arena_upstream_{std::move(other.arena_upstream_)},
-#endif
+      : page_memory_{std::move(other.page_memory_)},
         memory_resource_{std::move(other.memory_resource_)},
         deltas_{std::move(other.deltas_)},
         size_{std::exchange(other.size_, 0)} {
-#if USE_JEMALLOC
-    if (memory_resource_) {
-      memory_resource_->set_upstream(&arena_upstream_);
-    }
-#endif
+    page_memory_.Rebind(memory_resource_.get());
   }
 
   // move assign: needed because of size_
   delta_container &operator=(delta_container &&other) noexcept {
     if (this == &other) return *this;
-#if USE_JEMALLOC
-    std::swap(arena_upstream_, other.arena_upstream_);
-#endif
+    using std::swap;
+    swap(page_memory_, other.page_memory_);
     std::swap(memory_resource_, other.memory_resource_);
     std::swap(deltas_, other.deltas_);
     std::swap(size_, other.size_);
-#if USE_JEMALLOC
-    if (memory_resource_) {
-      memory_resource_->set_upstream(&arena_upstream_);
-    }
-    if (other.memory_resource_) {
-      other.memory_resource_->set_upstream(&other.arena_upstream_);
-    }
-#endif
+    page_memory_.Rebind(memory_resource_.get());
+    other.page_memory_.Rebind(other.memory_resource_.get());
     other.clear();
     return *this;
   }
@@ -284,11 +266,7 @@ struct delta_container {
       } else {
         // requires memory_resource
         if (!memory_resource_) [[unlikely]] {
-#if USE_JEMALLOC
-          memory_resource_ = std::make_unique<utils::PageSlabMemoryResource>(&arena_upstream_);
-#else
-          memory_resource_ = std::make_unique<utils::PageSlabMemoryResource>();
-#endif
+          memory_resource_ = page_memory_.MakeResource();
         }
         auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)..., memory_resource_.get());
         ++size_;
@@ -324,9 +302,7 @@ struct delta_container {
  private:
   // NOTE: destruction order important, lifetime of objects inside delta_slabs depend on memory_resource_
   // hence destroy `deltas_` first then `memory_resource_`
-#if USE_JEMALLOC
-  memory::ArenaMemoryResource arena_upstream_{0};
-#endif
+  memory::ArenaPageSlabMemoryResource page_memory_{0};
   std::unique_ptr<utils::PageSlabMemoryResource> memory_resource_{};
   PageAlignedList<delta_slab> deltas_{};
   std::size_t size_{};

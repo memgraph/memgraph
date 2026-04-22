@@ -16,6 +16,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "utils/allocator/page_slab_memory_resource.hpp"
 #include "utils/db_aware_allocator.hpp"
 
 namespace memgraph::dbms {
@@ -82,6 +83,58 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
   }
 
   unsigned arena_idx_;
+};
+
+// Owns the optional arena-aware upstream needed by PageSlabMemoryResource.
+// Storage containers use this helper instead of branching on jemalloc when
+// constructing page-slab resources for DB-owned data.
+class ArenaPageSlabMemoryResource {
+ public:
+  explicit ArenaPageSlabMemoryResource(unsigned arena_idx) noexcept
+#if USE_JEMALLOC
+      : arena_upstream_(arena_idx)
+#endif
+  {
+  }
+
+  ArenaPageSlabMemoryResource(ArenaPageSlabMemoryResource &&) noexcept = default;
+  ArenaPageSlabMemoryResource &operator=(ArenaPageSlabMemoryResource &&) noexcept = default;
+
+  ArenaPageSlabMemoryResource(const ArenaPageSlabMemoryResource &) = delete;
+  ArenaPageSlabMemoryResource &operator=(const ArenaPageSlabMemoryResource &) = delete;
+
+  friend void swap(ArenaPageSlabMemoryResource &lhs, ArenaPageSlabMemoryResource &rhs) noexcept {
+#if USE_JEMALLOC
+    using std::swap;
+    swap(lhs.arena_upstream_, rhs.arena_upstream_);
+#else
+    (void)lhs;
+    (void)rhs;
+#endif
+  }
+
+  auto MakeResource() -> std::unique_ptr<utils::PageSlabMemoryResource> {
+    return std::make_unique<utils::PageSlabMemoryResource>(Upstream());
+  }
+
+  void Rebind(utils::PageSlabMemoryResource *resource) noexcept {
+    if (resource) {
+      resource->set_upstream(Upstream());
+    }
+  }
+
+ private:
+  auto Upstream() noexcept -> std::pmr::memory_resource * {
+#if USE_JEMALLOC
+    return &arena_upstream_;
+#else
+    return std::pmr::get_default_resource();
+#endif
+  }
+
+#if USE_JEMALLOC
+  ArenaMemoryResource arena_upstream_{0};
+#endif
 };
 
 // =============================================================================
