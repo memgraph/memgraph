@@ -16,6 +16,7 @@
 #include "license/license.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/ast/query/tenant_profile.hpp"
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 

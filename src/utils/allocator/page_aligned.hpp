@@ -62,6 +62,9 @@ struct PageAlignedAllocator {
   }
 
  private:
+  template <typename U>
+  friend struct PageAlignedAllocator;
+
   unsigned arena_idx_{0};
 };
 

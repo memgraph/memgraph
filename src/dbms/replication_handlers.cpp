@@ -26,8 +26,6 @@ namespace memgraph::dbms {
 
 #ifdef MG_ENTERPRISE
 
-namespace {
-
 void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                            uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -260,6 +258,8 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
    */
   return true;
 }
+
+namespace {
 
 void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_access,
                           const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
