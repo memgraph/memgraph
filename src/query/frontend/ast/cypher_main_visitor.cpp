@@ -1930,7 +1930,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     call_proc->result_fields_.reserve(proc->results.size());
     call_proc->result_identifiers_.reserve(proc->results.size());
     for (const auto &[result_name, desc] : proc->results) {
-      bool is_deprecated = desc.second;
+      bool const is_deprecated = desc.second;
       if (is_deprecated) continue;
       call_proc->result_fields_.emplace_back(result_name);
       call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(std::string(result_name)));
