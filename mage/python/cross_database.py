@@ -443,7 +443,7 @@ def init_migrate_mysql(
 
     connection = mysql_connector.connect(**config)
     cursor = connection.cursor()
-    cursor.execute(table_or_sql, params=params)
+    cursor.execute(table_or_sql, params)
 
     mysql_dict[cache_key][Constants.CONNECTION] = connection
     mysql_dict[cache_key][Constants.CURSOR] = cursor
