@@ -6681,7 +6681,11 @@ class AggregateCursor : public Cursor {
     const auto &stored_to = projected_graph.InsertOrGetNode(
         BuildDerivedNode(path_vertices.back(), kTargetLabels, kTargetProperties, options, alloc));
 
-    VirtualEdge ve(stored_from, stored_to, utils::pmr::string{type_it->second.ValueString(), alloc}, alloc);
+    VirtualEdge ve(stored_from,
+                   stored_to,
+                   utils::pmr::string{type_it->second.ValueString(), alloc},
+                   projected_graph.NodesAnchor(),
+                   alloc);
     ApplyPropertyMap(options, kRelationshipProperties, [&](storage::PropertyId id, storage::PropertyValue pv) {
       ve.SetProperty(id, std::move(pv));
     });

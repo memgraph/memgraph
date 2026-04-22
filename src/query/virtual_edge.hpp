@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include <boost/functional/hash.hpp>
 
 #include "query/virtual_node.hpp"
@@ -24,22 +26,41 @@ namespace memgraph::query {
 
 // VirtualEdge borrows its endpoints. `from_` and `to_` point into a VirtualGraph's
 // `nodes_` map (pmr::unordered_map gives pointer stability across insertions).
-// The parent VirtualGraph must outlive every VirtualEdge that references its nodes;
-// Step 4 adds a shared_ptr anchor on the node map to enforce this for edges that
-// escape the graph (e.g. via collect(e) / g.edges returned from a subquery).
+//
+// Lifetime: nodes_anchor_ is a type-erased shared_ptr that keeps the referenced
+// node map alive. Any edge that escapes its source VirtualGraph (e.g. via
+// collect(e) or g.edges returned from a subquery) carries a bumped refcount
+// on the map, so the raw from_/to_ pointers stay valid. Edges constructed
+// without an anchor (unit tests with local VirtualNode stack variables) are
+// valid only while those locals are alive.
 class VirtualEdge final {
  public:
   using allocator_type = utils::Allocator<VirtualEdge>;
   using property_map = utils::pmr::unordered_map<storage::PropertyId, storage::PropertyValue>;
 
   VirtualEdge(const VirtualNode &from, const VirtualNode &to, utils::pmr::string edge_type_name,
-              allocator_type alloc = {})
+              std::shared_ptr<const void> nodes_anchor = {}, allocator_type alloc = {})
       : from_(&from),
         to_(&to),
         edge_type_name_(std::move(edge_type_name), alloc),
         gid_(NextSyntheticGid()),
         properties_(alloc),
-        cached_hash_(HashKey(from.Gid(), to.Gid(), edge_type_name_)) {}
+        cached_hash_(HashKey(from.Gid(), to.Gid(), edge_type_name_)),
+        nodes_anchor_(std::move(nodes_anchor)) {}
+
+  // Rebound-copy ctor: preserves the edge's identity (gid, type, props) but
+  // repoints from_/to_ at a different pair of VirtualNodes (and a different
+  // anchor). Used by VirtualGraph's copy-with-allocator ctor when the node
+  // map is duplicated under a new allocator.
+  VirtualEdge(const VirtualEdge &other, const VirtualNode &new_from, const VirtualNode &new_to,
+              std::shared_ptr<const void> nodes_anchor, allocator_type alloc)
+      : from_(&new_from),
+        to_(&new_to),
+        edge_type_name_(other.edge_type_name_, alloc),
+        gid_(other.gid_),
+        properties_(other.properties_, alloc),
+        cached_hash_(other.cached_hash_),
+        nodes_anchor_(std::move(nodes_anchor)) {}
 
   VirtualEdge(const VirtualEdge &other, allocator_type alloc)
       : from_(other.from_),
@@ -47,7 +68,8 @@ class VirtualEdge final {
         edge_type_name_(other.edge_type_name_, alloc),
         gid_(other.gid_),
         properties_(other.properties_, alloc),
-        cached_hash_(other.cached_hash_) {}
+        cached_hash_(other.cached_hash_),
+        nodes_anchor_(other.nodes_anchor_) {}
 
   VirtualEdge(VirtualEdge &&other, allocator_type alloc)
       : from_(other.from_),
@@ -55,7 +77,8 @@ class VirtualEdge final {
         edge_type_name_(std::move(other.edge_type_name_), alloc),
         gid_(other.gid_),
         properties_(std::move(other.properties_), alloc),
-        cached_hash_(other.cached_hash_) {}
+        cached_hash_(other.cached_hash_),
+        nodes_anchor_(std::move(other.nodes_anchor_)) {}
 
   VirtualEdge(const VirtualEdge &other) : VirtualEdge(other, other.edge_type_name_.get_allocator()) {}
 
@@ -111,6 +134,7 @@ class VirtualEdge final {
   storage::Gid gid_;
   property_map properties_;
   size_t cached_hash_;
+  std::shared_ptr<const void> nodes_anchor_;
 };
 
 }  // namespace memgraph::query
