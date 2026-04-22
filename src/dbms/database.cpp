@@ -76,10 +76,10 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
       utils::DirExists(config.disk.main_storage_directory)) {
     config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
     storage_ = std::make_unique<storage::DiskStorage>(
-        std::move(config), std::move(invalidator), metrics_.get(), database_protector_factory);
+        std::move(config), std::move(invalidator), metrics_.handles(), database_protector_factory);
   } else {
     storage_ = dbms::CreateInMemoryStorage(
-        std::move(config), std::move(invalidator), metrics_.get(), database_protector_factory);
+        std::move(config), std::move(invalidator), metrics_.handles(), database_protector_factory);
   }
 }
 
@@ -87,11 +87,11 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 // to forward declared types.
 Database::~Database() = default;
 
-Database::ScopedMetrics::~ScopedMetrics() {
+Database::DatabaseMetricsRegistration::~DatabaseMetricsRegistration() {
   if (handles_) metrics::Metrics().RemoveDatabase(handles_);
 }
 
-void Database::ScopedMetrics::reset(metrics::DatabaseMetricHandles *handles) {
+void Database::DatabaseMetricsRegistration::reset(metrics::DatabaseMetricHandles *handles) {
   if (handles_) metrics::Metrics().RemoveDatabase(handles_);
   handles_ = handles;
 }
@@ -145,7 +145,7 @@ void Database::SwitchToOnDisk() {
 
   storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
                                                               std::make_unique<storage::PlanInvalidatorDefault>(),
-                                                              metrics_.get(),
+                                                              metrics_.handles(),
                                                               preserved_factory);
 }
 

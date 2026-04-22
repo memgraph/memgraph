@@ -184,25 +184,27 @@ class Database {
    */
   void StopAllBackgroundTasks();
 
-  metrics::DatabaseMetricHandles const *metric_handles() const { return metrics_.get(); }
+  metrics::DatabaseMetricHandles const *metric_handles() const { return metrics_.handles(); }
 
-  metrics::DatabaseMetricHandles *metric_handles() { return metrics_.get(); }
+  metrics::DatabaseMetricHandles *metric_handles() { return metrics_.handles(); }
 
  private:
-  class ScopedMetrics {
+  // RAII guard that de-registers this database's metric handles from the
+  // global PrometheusMetrics registry on destruction.
+  class DatabaseMetricsRegistration {
    public:
-    ScopedMetrics() = default;
+    DatabaseMetricsRegistration() = default;
 
-    explicit ScopedMetrics(metrics::DatabaseMetricHandles *handles) : handles_(handles) {}
+    explicit DatabaseMetricsRegistration(metrics::DatabaseMetricHandles *handles) : handles_(handles) {}
 
-    ~ScopedMetrics();
+    ~DatabaseMetricsRegistration();
 
-    ScopedMetrics(ScopedMetrics const &) = delete;
-    ScopedMetrics &operator=(ScopedMetrics const &) = delete;
-    ScopedMetrics(ScopedMetrics &&) = delete;
-    ScopedMetrics &operator=(ScopedMetrics &&) = delete;
+    DatabaseMetricsRegistration(DatabaseMetricsRegistration const &) = delete;
+    DatabaseMetricsRegistration &operator=(DatabaseMetricsRegistration const &) = delete;
+    DatabaseMetricsRegistration(DatabaseMetricsRegistration &&) = delete;
+    DatabaseMetricsRegistration &operator=(DatabaseMetricsRegistration &&) = delete;
 
-    metrics::DatabaseMetricHandles *get() const { return handles_; }
+    metrics::DatabaseMetricHandles *handles() const { return handles_; }
 
     void reset(metrics::DatabaseMetricHandles *handles);
 
@@ -210,7 +212,7 @@ class Database {
     metrics::DatabaseMetricHandles *handles_{nullptr};
   };
 
-  ScopedMetrics metrics_;                               //!< RAII wrapper for metrics for this db
+  DatabaseMetricsRegistration metrics_;                 //!< De-registration guard for this db's prometheus metrics
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers

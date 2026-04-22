@@ -23,19 +23,16 @@
 
 namespace {
 
-// @TODO: can improve this!
 std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &families, std::string_view name,
                                  std::string_view db_name) {
   for (auto const &family : families) {
     if (family.name != name) continue;
     for (auto const &metric : family.metric) {
-      for (auto const &label : metric.label) {
-        if (label.name == "database" && label.value == db_name) {
-          if (!metric.gauge.value && !metric.counter.value) return std::nullopt;
-          if (metric.gauge.value) return metric.gauge.value;
-          return metric.counter.value;
-        }
-      }
+      auto const has_db_label =
+          std::ranges::any_of(metric.label, [&](auto const &l) { return l.name == "database" && l.value == db_name; });
+      if (!has_db_label) continue;
+      if (family.type == prometheus::MetricType::Gauge) return metric.gauge.value;
+      if (family.type == prometheus::MetricType::Counter) return metric.counter.value;
     }
   }
   return std::nullopt;
