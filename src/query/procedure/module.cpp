@@ -1150,7 +1150,11 @@ bool PythonModule::Close() {
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
                              PyObject *sys_mod_ref) {
   MG_ASSERT(PyGILState_Check(), "ProcessFileDependencies requires the GIL to be held");
-  const auto maybe_content = ReadFile(file_path_);
+  std::optional<std::string> maybe_content;
+  {
+    Py_BEGIN_ALLOW_THREADS maybe_content = ReadFile(file_path_);
+    Py_END_ALLOW_THREADS
+  }
 
   if (maybe_content && !maybe_content->empty()) {
     const char *content_value = maybe_content->c_str();
@@ -1180,7 +1184,9 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
 
     const py::Object py_run_res(PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict));
     if (!py_run_res) {
-      PyErr_Clear();
+      if (auto exc = py::FetchError()) {
+        spdlog::warn("Python dependency scan failed for {}: {}", file_path_.string(), py::FormatException(*exc));
+      }
       return;
     }
 
@@ -1233,6 +1239,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
         const std::string_view sys_mod_key_name_str(sys_mod_key_name);
         if (sys_mod_key_name_str.starts_with(module_name_str) && sys_mod_key_name_str != module_path) {
           if (PyDict_DelItemString(sys_mod_ref, sys_mod_key_name) != 0) {
+            spdlog::warn("Failed to remove stale sys.modules entry '{}' during module cleanup", sys_mod_key_name);
             PyErr_Clear();
           }
         }

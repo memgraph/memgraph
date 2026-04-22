@@ -296,6 +296,11 @@ int main(int argc, char **argv) {
   // Set program name, so Python can find its way to runtime libraries relative
   // to executable.
   Py_SetProgramName(program_name);
+  // Prevent NumPy/BLAS/MKL/OpenMP from spawning O(100) threads that contend
+  // with Memgraph workers. The 0 overwrite flag lets users override via env.
+  setenv("OMP_NUM_THREADS", "1", 0);
+  setenv("MKL_NUM_THREADS", "1", 0);
+  setenv("OPENBLAS_NUM_THREADS", "1", 0);
   PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
   Py_InitializeEx(0 /* = initsigs */);
   Py_BEGIN_ALLOW_THREADS;
