@@ -1940,7 +1940,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping label-property index requires a unique or read access to the storage!");
@@ -1951,7 +1951,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
   LabelPropertyIndex::DropResult drop_result;
   storage_->invalidator_->invalidate_now([&] {
-    drop_result = mem_label_property_index->DropIndex(label, properties, updater);
+    drop_result = mem_label_property_index->DropIndex(label, properties, updater, order);
     return static_cast<bool>(drop_result);
   });
   if (!drop_result) {

@@ -313,8 +313,9 @@ class DiskStorage final : public Storage {
 
     std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) override;
 
-    std::expected<void, StorageIndexDefinitionError> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                               std::vector<storage::PropertyPath> &&properties,
+                                                               std::optional<IndexOrder> order = std::nullopt) override;
 
     std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) override;
 

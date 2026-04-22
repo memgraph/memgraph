@@ -491,8 +491,9 @@ class InMemoryStorage final : public Storage {
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `IndexDefinitionError`: the index does not exist.
-    std::expected<void, StorageIndexDefinitionError> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                               std::vector<storage::PropertyPath> &&properties,
+                                                               std::optional<IndexOrder> order = std::nullopt) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.

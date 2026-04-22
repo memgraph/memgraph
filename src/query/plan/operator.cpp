@@ -9714,11 +9714,13 @@ ScanParallelByLabelProperties::ScanParallelByLabelProperties(const std::shared_p
                                                              storage::View view, size_t num_threads,
                                                              Symbol state_symbol, storage::LabelId label,
                                                              std::vector<storage::PropertyPath> properties,
-                                                             std::vector<ExpressionRange> expression_ranges)
+                                                             std::vector<ExpressionRange> expression_ranges,
+                                                             storage::IndexOrder index_order)
     : ScanParallel(input, view, num_threads, state_symbol),
       label_(label),
       properties_(std::move(properties)),
-      expression_ranges_(std::move(expression_ranges)) {}
+      expression_ranges_(std::move(expression_ranges)),
+      index_order_(index_order) {}
 
 ACCEPT_WITH_INPUT(ScanParallelByLabelProperties)
 
@@ -9744,7 +9746,8 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
                                label_,
                                properties_,
                                maybe_prop_value_ranges.value_or(std::vector<storage::PropertyValueRange>{}),
-                               num_threads_);
+                               num_threads_,
+                               index_order_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
 #else
@@ -9759,10 +9762,12 @@ std::string ScanParallelByLabelProperties::ToString() const {
                               }) |
                               ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
-  return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {{{2}}})",
+  auto const suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
+  return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {{{2}}}){3}",
                      num_threads_,
                      dba_->LabelToName(label_),
-                     properties_stringified);
+                     properties_stringified,
+                     suffix);
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage *storage) const {
@@ -9776,6 +9781,7 @@ std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage
   object->expression_ranges_ = expression_ranges_ |
                                rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
+  object->index_order_ = index_order_;
   return object;
 }
 

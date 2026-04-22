@@ -169,7 +169,10 @@ void DiskLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_
 
 LabelPropertyIndex::DropResult DiskLabelPropertyIndex::DropIndex(LabelId label,
                                                                  std::vector<PropertyPath> const &properties,
-                                                                 ActiveIndicesUpdater const &updater) {
+                                                                 ActiveIndicesUpdater const &updater,
+                                                                 std::optional<IndexOrder> order) {
+  // Disk only has ASC indices; a DESC-only selective drop is a miss.
+  if (order.has_value() && *order != IndexOrder::ASC) return {};
   if (!index_.contains({label, properties[0][0]})) return {};
   index_.erase({label, properties[0][0]});
   updater(GetActiveIndices());

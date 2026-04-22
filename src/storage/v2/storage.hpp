@@ -557,7 +557,8 @@ class Storage {
     virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) = 0;
+        LabelId label, std::vector<storage::PropertyPath> &&properties,
+        std::optional<IndexOrder> order = std::nullopt) = 0;
 
     virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) = 0;
 

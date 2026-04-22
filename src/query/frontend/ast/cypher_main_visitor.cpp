@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <any>
 #include <cstring>
+#include <functional>
 #include <iterator>
 #include <range/v3/all.hpp>
 #include <ranges>
@@ -458,39 +459,11 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
     throw SemanticException("Properties cannot be repeated in a composite index.");
   }
 
-  // Parse optional WITH CONFIG {"order": "ASC"|"DESC"}
   if (auto *config_ctx = ctx->configsMap) {
-    auto config = std::any_cast<ConfigMap>(config_ctx->accept(this));
-
-    auto resolve_string = [this](Expression *expr) -> std::optional<std::string> {
-      if (auto *lit = dynamic_cast<PrimitiveLiteral *>(expr); lit && lit->value_.IsString()) {
-        return std::string(lit->value_.ValueString());
-      }
-      if (auto *param = dynamic_cast<ParameterLookup *>(expr); param && parameters_) {
-        auto const &val = parameters_->AtTokenPosition(param->token_position_);
-        if (val.IsString()) return std::string(val.ValueString());
-      }
-      return std::nullopt;
-    };
-
-    for (auto const &[key_expr, value_expr] : config) {
-      auto key = resolve_string(key_expr);
-      auto value = resolve_string(value_expr);
-      if (!key || !value) {
-        throw SemanticException("Index config keys and values must be string literals.");
-      }
-      if (*key == "order") {
-        if (*value == "ASC") {
-          index_query->order_ = storage::IndexOrder::ASC;
-        } else if (*value == "DESC") {
-          index_query->order_ = storage::IndexOrder::DESC;
-        } else {
-          throw SemanticException("Invalid index order '{}'. Expected 'ASC' or 'DESC'.", *value);
-        }
-      } else {
-        throw SemanticException("Unknown index config key '{}'. Supported keys: 'order'.", *key);
-      }
+    if (index_query->properties_.empty()) {
+      throw SemanticException("WITH CONFIG is not supported for label-only indices.");
     }
+    index_query->config_ = std::any_cast<ConfigMap>(config_ctx->accept(this));
   }
 
   return index_query;
@@ -501,6 +474,12 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   index_query->action_ = IndexQuery::Action::DROP;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   index_query->properties_ = get_index_properties(ctx->nestedPropertyKeyNames(), *this);
+  if (auto *config_ctx = ctx->configsMap) {
+    if (index_query->properties_.empty()) {
+      throw SemanticException("WITH CONFIG is not supported for label-only indices.");
+    }
+    index_query->config_ = std::any_cast<ConfigMap>(config_ctx->accept(this));
+  }
 
   return index_query;
 }

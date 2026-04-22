@@ -137,3 +137,129 @@ Feature: Indices
             | index type      | label | property | count |
             | 'edge-property' | null  | 'prop1'  | 0     |
             | 'edge-property' | null  | 'prop2'  | 0     |
+
+    Scenario: DROP INDEX WITH CONFIG order ASC drops only the ASC index
+        Given an empty graph
+        And having executed:
+            """
+            CREATE INDEX ON :L(prop);
+            """
+        And having executed:
+            """
+            CREATE INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};
+            """
+        And having executed:
+            """
+            DROP INDEX ON :L(prop) WITH CONFIG {"order": "ASC"};
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO;
+            """
+        Then the result should be:
+            | index type              | label | property | count |
+            | 'label+property (DESC)' | 'L'   | ['prop'] | 0     |
+
+    Scenario: DROP INDEX WITH CONFIG order DESC drops only the DESC index
+        Given an empty graph
+        And having executed:
+            """
+            CREATE INDEX ON :L(prop);
+            """
+        And having executed:
+            """
+            CREATE INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};
+            """
+        And having executed:
+            """
+            DROP INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO;
+            """
+        Then the result should be:
+            | index type       | label | property | count |
+            | 'label+property' | 'L'   | ['prop'] | 0     |
+
+    Scenario: DROP INDEX without config drops both ASC and DESC
+        Given an empty graph
+        And having executed:
+            """
+            CREATE INDEX ON :L(prop);
+            """
+        And having executed:
+            """
+            CREATE INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};
+            """
+        And having executed:
+            """
+            DROP INDEX ON :L(prop);
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO;
+            """
+        Then the result should be empty
+
+    Scenario: DROP INDEX WITH CONFIG for a missing order leaves the existing order untouched
+        Given an empty graph
+        And having executed:
+            """
+            CREATE INDEX ON :L(prop);
+            """
+        And having executed:
+            """
+            DROP INDEX ON :L(prop) WITH CONFIG {"order": "DESC"};
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO;
+            """
+        Then the result should be:
+            | index type       | label | property | count |
+            | 'label+property' | 'L'   | ['prop'] | 0     |
+
+    Scenario: DROP INDEX WITH CONFIG rejects an invalid order value
+        Given an empty graph
+        And having executed:
+            """
+            CREATE INDEX ON :L(prop);
+            """
+        When executing query:
+            """
+            DROP INDEX ON :L(prop) WITH CONFIG {"order": "SIDEWAYS"};
+            """
+        Then an error should be raised
+
+    Scenario: CREATE INDEX WITH CONFIG is rejected on a label-only index
+        Given an empty graph
+        When executing query:
+            """
+            CREATE INDEX ON :L WITH CONFIG {"order": "ASC"};
+            """
+        Then an error should be raised
+
+    Scenario: DROP INDEX WITH CONFIG is rejected on a label-only index
+        Given an empty graph
+        And having executed:
+            """
+            CREATE INDEX ON :L;
+            """
+        When executing query:
+            """
+            DROP INDEX ON :L WITH CONFIG {"order": "ASC"};
+            """
+        Then an error should be raised
+
+    Scenario: DROP INDEX WITH CONFIG rejects an unknown config key
+        Given an empty graph
+        And having executed:
+            """
+            CREATE INDEX ON :L(prop);
+            """
+        When executing query:
+            """
+            DROP INDEX ON :L(prop) WITH CONFIG {"foo": "ASC"};
+            """
+        Then an error should be raised

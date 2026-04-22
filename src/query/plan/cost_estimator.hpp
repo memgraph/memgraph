@@ -335,7 +335,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanParallelByLabelProperties &op) override {
     auto index_stats = db_accessor_->GetIndexStats(op.label_, op.properties_);
     last_index_stats_ = index_stats ? std::make_optional(std::move(index_stats.value())) : std::nullopt;
-    // ScanParallelByLabelProperties currently only supports ASC
     cardinality_ *= EstimateLabelPropertiesCardinality(op.label_, op.properties_, op.expression_ranges_);
     if (index_hints_.HasLabelPropertiesIndex(db_accessor_, op.label_, op.properties_)) {
       use_index_hints_ = true;

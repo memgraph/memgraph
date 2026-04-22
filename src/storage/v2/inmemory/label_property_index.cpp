@@ -516,7 +516,7 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
 
 bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths const &properties,
                                               uint64_t commit_timestamp, IndexOrder order) {
-  auto publish = [&](auto &&index) {
+  auto publish = [&](auto const &index) {
     if (!index) return false;
     index->Publish(commit_timestamp);
     return true;
@@ -620,29 +620,29 @@ namespace {
 template <typename IndicesMap, typename ReverseLookup>
 bool DropFromIndicesMap(IndicesMap &indices_map_for_label, ReverseLookup &reverse_lookup,
                         std::vector<PropertyPath> const &properties, LabelId label) {
-  auto it2 = indices_map_for_label.find(properties);
-  if (it2 == indices_map_for_label.end()) return false;
+  auto properties_it = indices_map_for_label.find(properties);
+  if (properties_it == indices_map_for_label.end()) return false;
 
   // Erase the reverse lookup before removing the index entry
   for (auto const &prop_selector : properties) {
-    auto it3 = reverse_lookup.find(prop_selector[0]);
-    if (it3 == reverse_lookup.cend()) continue;
-    auto &label_map = it3->second;
-    auto [b, e] = label_map.equal_range(label);
-    while (b != e) {
-      auto const &[props_key_ptr, _] = b->second;
-      if (props_key_ptr == &it2->first) {
-        b = label_map.erase(b);
+    auto property_it = reverse_lookup.find(prop_selector[0]);
+    if (property_it == reverse_lookup.cend()) continue;
+    auto &label_map = property_it->second;
+    auto [entry_it, entries_end] = label_map.equal_range(label);
+    while (entry_it != entries_end) {
+      auto const &[props_key_ptr, _] = entry_it->second;
+      if (props_key_ptr == &properties_it->first) {
+        entry_it = label_map.erase(entry_it);
       } else {
-        ++b;
+        ++entry_it;
       }
     }
     if (label_map.empty()) {
-      reverse_lookup.erase(it3);
+      reverse_lookup.erase(property_it);
     }
   }
 
-  indices_map_for_label.erase(it2);
+  indices_map_for_label.erase(properties_it);
   return true;
 }
 }  // namespace
@@ -654,12 +654,12 @@ namespace {
 template <typename IndicesMap, typename ReverseLookup>
 bool DropFromOrder(IndicesMap &indices_map, ReverseLookup &reverse_lookup, LabelId label,
                    std::vector<PropertyPath> const &properties) {
-  auto it1 = indices_map.find(label);
-  if (it1 == indices_map.end()) return false;
-  auto &properties_map = it1->second;
+  auto label_it = indices_map.find(label);
+  if (label_it == indices_map.end()) return false;
+  auto &properties_map = label_it->second;
   const bool ok = DropFromIndicesMap(properties_map, reverse_lookup, properties, label);
   if (ok && properties_map.empty()) {
-    indices_map.erase(it1);
+    indices_map.erase(label_it);
   }
   return ok;
 }
@@ -728,9 +728,10 @@ LabelPropertyIndex::DropResult InMemoryLabelPropertyIndex::DropFromSelected(Labe
 
 LabelPropertyIndex::DropResult InMemoryLabelPropertyIndex::DropIndex(LabelId label,
                                                                      std::vector<PropertyPath> const &properties,
-                                                                     ActiveIndicesUpdater const &updater) {
-  // Drop both ASC and DESC in one atomic update.
-  return DropFromSelected(label, properties, updater, std::nullopt);
+                                                                     ActiveIndicesUpdater const &updater,
+                                                                     std::optional<IndexOrder> order) {
+  // `order == nullopt` drops both ASC and DESC in one atomic update.
+  return DropFromSelected(label, properties, updater, order);
 }
 
 void InMemoryLabelPropertyIndex::DropSingleOrder(LabelId label, std::vector<PropertyPath> const &properties,
@@ -1211,7 +1212,8 @@ auto InMemoryLabelPropertyIndex::GetActiveIndices() const -> std::shared_ptr<Lab
 void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {
   // AbortableInfo is keyed by label+properties and spans both index orders.
   // An entry to abort may only exist in ASC, DESC, or both — soft lookup is intentional.
-  auto const abort_from = [&]<bool Move>(auto &indices_map, std::bool_constant<Move>) {
+  // `info` is const, so entries are always copied into EntryT.
+  auto const abort_from = [&](auto const &indices_map) {
     using EntryT = typename std::decay_t<decltype(indices_map)>::mapped_type::mapped_type::element_type::EntryType;
     for (auto const &[label, by_properties] : info) {
       auto it = indices_map.find(label);
@@ -1220,21 +1222,14 @@ void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const
         auto it2 = it->second.find(*prop);
         if (it2 == it->second.end()) continue;
         auto acc = it2->second->skiplist.access();
-        for (auto &[values, vertex] : to_remove) {  // NOLINT(readability-qualified-auto)
-          if constexpr (Move) {
-            acc.remove(EntryT{std::move(values), vertex, start_timestamp});
-          } else {
-            acc.remove(EntryT{values, vertex, start_timestamp});
-          }
+        for (auto const &[values, vertex] : to_remove) {
+          acc.remove(EntryT{values, vertex, start_timestamp});
         }
       }
     }
   };
-  // DESC runs first and copies `values`; ASC runs last and moves. ASC is the common case
-  // (most indices are ASC), so putting the move on ASC keeps the hot path allocation-free.
-  // If a third index order is ever added this pairing must be revisited.
-  abort_from(index_container_->desc_indices_, std::false_type{});
-  abort_from(index_container_->asc_indices_, std::true_type{});
+  abort_from(index_container_->asc_indices_);
+  abort_from(index_container_->desc_indices_);
 }
 
 void InMemoryLabelPropertyIndex::CleanupAllIndices() {

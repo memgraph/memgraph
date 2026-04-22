@@ -2249,7 +2249,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 }
 
 std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
@@ -2257,6 +2257,11 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
   }
   if (properties[0].size() != 1) {
     throw utils::NotYetImplemented("nested index");
+  }
+
+  // Disk storage only supports ASC indices; selectively dropping DESC is a no-op miss.
+  if (order.has_value() && *order != IndexOrder::ASC) {
+    return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
 
   auto *on_disk = static_cast<DiskStorage *>(storage_);

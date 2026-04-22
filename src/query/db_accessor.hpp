@@ -446,8 +446,9 @@ class DbAccessor final {
   VerticesChunkedIterable ChunkedVertices(storage::View view, storage::LabelId label,
                                           std::span<storage::PropertyPath const> properties,
                                           std::span<storage::PropertyValueRange const> property_ranges,
-                                          size_t num_chunks) {
-    return VerticesChunkedIterable{accessor_->ChunkedVertices(label, properties, property_ranges, view, num_chunks)};
+                                          size_t num_chunks, storage::IndexOrder order = storage::IndexOrder::ASC) {
+    return VerticesChunkedIterable{
+        accessor_->ChunkedVertices(label, properties, property_ranges, view, num_chunks, order)};
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, size_t num_chunks) {
@@ -873,9 +874,10 @@ class DbAccessor final {
     return accessor_->DropIndex(label);
   }
 
-  std::expected<void, storage::StorageIndexDefinitionError> DropIndex(storage::LabelId label,
-                                                                      std::vector<storage::PropertyPath> &&properties) {
-    return accessor_->DropIndex(label, std::move(properties));
+  std::expected<void, storage::StorageIndexDefinitionError> DropIndex(
+      storage::LabelId label, std::vector<storage::PropertyPath> &&properties,
+      std::optional<storage::IndexOrder> order = std::nullopt) {
+    return accessor_->DropIndex(label, std::move(properties), order);
   }
 
   std::expected<void, storage::StorageIndexDefinitionError> DropIndex(storage::EdgeTypeId edge_type) {

@@ -83,8 +83,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
                                                             uint64_t transaction_commit_timestamp,
                                                             EntriesForDeletion const &entries_for_deletion);
 
-  DropResult DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
-                       ActiveIndicesUpdater const &updater) override;
+  DropResult DropIndex(LabelId label, std::vector<PropertyPath> const &properties, ActiveIndicesUpdater const &updater,
+                       std::optional<IndexOrder> order = std::nullopt) override;
 
   RocksDBStorage *GetRocksDBStorage() const;
 

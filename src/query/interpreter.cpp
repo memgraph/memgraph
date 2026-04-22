@@ -4093,6 +4093,39 @@ auto make_create_index_cancel_callback(StoppingContext stopping_context) {
       };
 }
 
+namespace {
+// Resolves `WITH CONFIG {"order": "ASC"|"DESC"}` for CREATE/DROP INDEX. Must run at execution time
+// rather than parse time: string literals get stripped into parameters, and the AST is cached across
+// calls, so the first call's parameters would be baked into subsequent cache hits.
+std::optional<storage::IndexOrder> ResolveIndexConfigOrder(std::unordered_map<Expression *, Expression *> const &config,
+                                                           Parameters const &parameters) {
+  if (config.empty()) return std::nullopt;
+
+  EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+  std::optional<storage::IndexOrder> order;
+  for (auto const &[key_expr, value_expr] : config) {
+    auto key = EvaluateOptionalExpression(key_expr, evaluator);
+    auto value = EvaluateOptionalExpression(value_expr, evaluator);
+    if (!key.IsString() || !value.IsString()) {
+      throw SemanticException("Index config keys and values must be string literals.");
+    }
+    std::string_view key_sv{key.ValueString()};
+    std::string_view value_sv{value.ValueString()};
+    if (key_sv != "order") {
+      throw SemanticException("Unknown index config key '{}'. Supported keys: 'order'.", key_sv);
+    }
+    order = std::invoke([&] {
+      if (value_sv == "ASC") return storage::IndexOrder::ASC;
+      if (value_sv == "DESC") return storage::IndexOrder::DESC;
+      throw SemanticException("Invalid index order '{}'. Expected 'ASC' or 'DESC'.", value_sv);
+    });
+  }
+  return order;
+}
+}  // namespace
+
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                 std::vector<Notification> *notifications, CurrentDB &current_db,
                                 StoppingContext stopping_context) {
@@ -4127,6 +4160,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   }
 
   auto properties_stringified = utils::Join(properties_string, ", ");
+  auto resolved_order = ResolveIndexConfigOrder(index_query->config_, parsed_query.parameters);
 
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
@@ -4142,7 +4176,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name,
                  properties = std::move(properties),
-                 order = index_query->order_,
+                 order = resolved_order.value_or(storage::IndexOrder::ASC),
                  stopping_context = std::move(stopping_context)](Notification &index_notification) mutable {
         auto cancel_callback = make_create_index_cancel_callback(stopping_context);
         auto maybe_index_error =
@@ -4180,9 +4214,10 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  label,
                  properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name,
-                 properties = std::move(properties)](Notification &index_notification) mutable {
+                 properties = std::move(properties),
+                 order = resolved_order](Notification &index_notification) mutable {
         auto maybe_index_error =
-            properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties));
+            properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties), order);
         if (!maybe_index_error) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
