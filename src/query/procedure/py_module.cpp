@@ -94,7 +94,12 @@ PyObject *gMgNotYetImplementedError{nullptr};    // NOLINT(cppcoreguidelines-avo
 constexpr auto kMicrosecondsInMillisecond{1000};
 constexpr auto kMicrosecondsInSecond{1'000'000};
 
-// Returns true if an exception is raised
+// Returns true if an exception is raised.
+//
+// Threading: the gMgp* globals are written once in PyInitMgpModule, which runs
+// on the main thread during Py_InitializeEx (via PyImport_AppendInittab) before
+// any worker threads are spawned.  All subsequent accesses are read-only, so no
+// synchronisation is needed beyond the thread-creation happens-before fence.
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
   MG_ASSERT(gMgpUnknownError != nullptr, "RaiseExceptionFromErrorCode called before _mgp module was initialised");
   switch (error) {
@@ -1076,10 +1081,10 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     }
     const char *field_name = PyUnicode_AsUTF8(key);
     if (!field_name) return py::FetchError();
-    PyObject *val = PyTuple_GetItem(item, 1);
+    const py::Object val(py::Object::FromBorrow(PyTuple_GetItem(item, 1)));
     if (!val) return py::FetchError();
     // This memory is one dedicated for mg_procedure.
-    mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val, memory);
+    mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val.Ptr(), memory);
     if (field_val == nullptr) {
       return py::FetchError();
     }
@@ -1091,9 +1096,9 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
         return std::nullopt;
       }
       current_record_cache.emplace_back(
-          RecordFieldCache{.key = key, .val = val, .field_name = field_name, .field_val = field_val});
+          RecordFieldCache{.key = key, .val = val.Ptr(), .field_name = field_name, .field_val = field_val});
     } else {
-      auto maybe_exc = InsertField(key, val, record, field_name, field_val);
+      auto maybe_exc = InsertField(key, val.Ptr(), record, field_name, field_val);
       if (maybe_exc) return maybe_exc;
     }
   }
@@ -2839,8 +2844,10 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
   MG_ASSERT(py_mgp, "Expected builtin '_mgp' to be available for import");
   py::Object py_mgp_module(py_mgp.GetAttr("_MODULE"));
   MG_ASSERT(py_mgp_module, "Expected '_mgp' to have attribute '_MODULE'");
-  // NOTE: This check is not thread safe, but this should only go through
-  // ModuleRegistry::LoadModuleLibrary which ought to serialize loading.
+  // Thread safety: module loading must be serialised by the caller
+  // (ModuleRegistry::LoadModuleLibrary holds the registry write-lock before
+  // reaching here).  The MG_ASSERT below fires if concurrent loading is
+  // detected, making the invariant visible rather than silently corrupt.
   MG_ASSERT(py_mgp_module.Ptr() == Py_None,
             "Expected '_mgp._MODULE' to be None as we are just starting to "
             "import a new module. Is some other thread also importing Python "
@@ -3072,14 +3079,23 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     return v;
   };
 
-  auto is_mgp_instance = [](PyObject *obj, const char *mgp_type_name) {
-    py::Object py_mgp(PyImport_ImportModule("mgp"));
-    if (!py_mgp) {
+  // Import 'mgp' once for the lifetime of this conversion; is_mgp_instance is
+  // called up to 6 times per value so re-importing each call is measurable.
+  py::Object cached_mgp(nullptr);
+  auto get_mgp_module = [&cached_mgp]() -> PyObject * {
+    if (!cached_mgp) cached_mgp = py::Object(PyImport_ImportModule("mgp"));
+    return cached_mgp.Ptr();
+  };
+
+  auto is_mgp_instance = [&get_mgp_module](PyObject *obj, const char *mgp_type_name) {
+    PyObject *py_mgp = get_mgp_module();
+    if (py_mgp == nullptr) {
       PyErr_Clear();
       // This way we skip conversions of types from user-facing 'mgp' module.
       return false;
     }
-    auto mgp_type = py_mgp.GetAttr(mgp_type_name);
+    py::Object mgp_obj(py::Object::FromBorrow(py_mgp));
+    auto mgp_type = mgp_obj.GetAttr(mgp_type_name);
     if (!mgp_type) {
       PyErr_Clear();
       std::stringstream ss;
