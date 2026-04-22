@@ -173,7 +173,10 @@ class [[nodiscard]] Object final {
 
   /// Equivalent to `this.attr_name = v` in Python.
   ///
-  /// False is returned if an error occurred.
+  /// False is returned if an error occurred. On failure the Python error
+  /// indicator is set; callers must call either FetchError() (to retrieve and
+  /// clear it) or PyErr_Clear() (to discard it) before making further Python
+  /// API calls.
   /// @sa FetchError
   [[nodiscard]] bool SetAttr(const char *attr_name, PyObject *v) {
     return PyObject_SetAttrString(ptr_, attr_name, v) == 0;
@@ -181,7 +184,10 @@ class [[nodiscard]] Object final {
 
   /// Equivalent to `this.attr_name = v` in Python.
   ///
-  /// False is returned if an error occurred.
+  /// False is returned if an error occurred. On failure the Python error
+  /// indicator is set; callers must call either FetchError() (to retrieve and
+  /// clear it) or PyErr_Clear() (to discard it) before making further Python
+  /// API calls.
   /// @sa FetchError
   [[nodiscard]] bool SetAttr(PyObject *attr_name, PyObject *v) { return PyObject_SetAttr(ptr_, attr_name, v) == 0; }
 

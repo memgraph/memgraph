@@ -1177,12 +1177,20 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
       return;
     }
 
-    if (PyDict_SetItemString(py_global_dict, "code", py_code_content.Ptr()) != 0) {
+    // Run the dependency scanner in a sandbox dict copied from __main__ so that
+    // the scanner script cannot corrupt __main__'s global namespace.
+    const py::Object sandbox_dict(PyDict_Copy(py_global_dict));
+    if (!sandbox_dict) {
       PyErr_Clear();
       return;
     }
 
-    const py::Object py_run_res(PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict));
+    if (PyDict_SetItemString(sandbox_dict.Ptr(), "code", py_code_content.Ptr()) != 0) {
+      PyErr_Clear();
+      return;
+    }
+
+    const py::Object py_run_res(PyRun_String(func_code, Py_file_input, sandbox_dict.Ptr(), sandbox_dict.Ptr()));
     if (!py_run_res) {
       if (auto exc = py::FetchError()) {
         spdlog::warn("Python dependency scan failed for {}: {}", file_path_.string(), py::FormatException(*exc));
@@ -1190,7 +1198,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
       return;
     }
 
-    const py::Object py_res(py::Object::FromBorrow(PyDict_GetItemString(py_global_dict, "modules")));
+    const py::Object py_res(py::Object::FromBorrow(PyDict_GetItemString(sandbox_dict.Ptr(), "modules")));
     if (!py_res) {
       // PyDict_GetItemString does not set an exception if the key is not found,
       // but it might have failed for other reasons.

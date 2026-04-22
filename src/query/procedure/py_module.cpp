@@ -935,20 +935,29 @@ PyObject *MakePyMessages(mgp_messages *msgs, mgp_memory *memory) {
   return reinterpret_cast<PyObject *>(py_messages);
 }
 
-py::Object MgpListToPyTuple(mgp_list *list, PyGraph *py_graph) {
+// Internal helpers that accept a pre-imported `mgp` module to avoid
+// re-importing on every recursive value conversion.
+static py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_graph, PyObject *py_mgp);
+
+static py::Object MgpListToPyTupleImpl(mgp_list *list, PyGraph *py_graph, PyObject *py_mgp) {
   MG_ASSERT(list);
   MG_ASSERT(py_graph);
   const auto len = list->elems.size();
   py::Object py_tuple(PyTuple_New(len));
   if (!py_tuple) return nullptr;
   for (size_t i = 0; i < len; ++i) {
-    auto elem = MgpValueToPyObject(list->elems[i], py_graph);
+    auto elem = MgpValueToPyObjectImpl(list->elems[i], py_graph, py_mgp);
     if (!elem) return nullptr;
-    // Explicitly convert `py_tuple`, which is `py::Object`, via static_cast.
-    // Then the macro will cast it to `PyTuple *`.
     PyTuple_SET_ITEM(py_tuple.Ptr(), i, elem.Steal());
   }
   return py_tuple;
+}
+
+py::Object MgpListToPyTuple(mgp_list *list, PyGraph *py_graph) {
+  MG_ASSERT(list);
+  MG_ASSERT(py_graph);
+  py::Object py_mgp(PyImport_ImportModule("mgp"));
+  return MgpListToPyTupleImpl(list, py_graph, py_mgp.Ptr());
 }
 
 py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
@@ -2889,6 +2898,11 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyObject *py_graph) {
 }
 
 py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
+  py::Object py_mgp(PyImport_ImportModule("mgp"));
+  return MgpValueToPyObjectImpl(value, py_graph, py_mgp.Ptr());
+}
+
+static py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_graph, PyObject *py_mgp) {
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
       Py_INCREF(Py_None);
@@ -2902,7 +2916,7 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_STRING:
       return py::Object(PyUnicode_FromString(value.string_v.c_str()));
     case MGP_VALUE_TYPE_LIST:
-      return MgpListToPyTuple(value.list_v, py_graph);
+      return MgpListToPyTupleImpl(value.list_v, py_graph, py_mgp);
     case MGP_VALUE_TYPE_MAP: {
       auto *map = value.map_v;
       py::Object py_dict(PyDict_New());
@@ -2910,9 +2924,9 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
         return nullptr;
       }
       std::visit(
-          [&py_dict, py_graph](const auto &items) {
+          [&py_dict, py_graph, py_mgp](const auto &items) {
             for (const auto &[key, val] : items) {
-              auto py_val = MgpValueToPyObject(val, py_graph);
+              auto py_val = MgpValueToPyObjectImpl(val, py_graph, py_mgp);
               if (!py_val) {
                 return;
               }
@@ -2924,25 +2938,22 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_dict;
     }
     case MGP_VALUE_TYPE_VERTEX: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       auto *v = value.vertex_v;
       py::Object py_vertex(reinterpret_cast<PyObject *>(MakePyVertex(*v, py_graph)));
-      return py_mgp.CallMethod("Vertex", py_vertex);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Vertex", py_vertex);
     }
     case MGP_VALUE_TYPE_EDGE: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       auto *e = value.edge_v;
       py::Object py_edge(reinterpret_cast<PyObject *>(MakePyEdge(*e, py_graph)));
-      return py_mgp.CallMethod("Edge", py_edge);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Edge", py_edge);
     }
     case MGP_VALUE_TYPE_PATH: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       auto *p = value.path_v;
       py::Object py_path(reinterpret_cast<PyObject *>(MakePyPath(*p, py_graph)));
-      return py_mgp.CallMethod("Path", py_path);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Path", py_path);
     }
     case MGP_VALUE_TYPE_DATE: {
       const auto &date = value.date_v->date;
@@ -3015,33 +3026,30 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_zoned_date_time;
     }
     case MGP_VALUE_TYPE_POINT_2D: {
-      const py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       const auto &pt = value.point_2d_v->point;
       const py::Object py_x(PyFloat_FromDouble(pt.x()));
       const py::Object py_y(PyFloat_FromDouble(pt.y()));
       const py::Object py_srid(PyLong_FromLong(memgraph::storage::CrsToSrid(pt.crs()).value_of()));
-      return py_mgp.CallMethod("Point2d", py_x, py_y, py_srid);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Point2d", py_x, py_y, py_srid);
     }
     case MGP_VALUE_TYPE_POINT_3D: {
-      const py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       const auto &pt = value.point_3d_v->point;
       const py::Object py_x(PyFloat_FromDouble(pt.x()));
       const py::Object py_y(PyFloat_FromDouble(pt.y()));
       const py::Object py_z(PyFloat_FromDouble(pt.z()));
       const py::Object py_srid(PyLong_FromLong(memgraph::storage::CrsToSrid(pt.crs()).value_of()));
-      return py_mgp.CallMethod("Point3d", py_x, py_y, py_z, py_srid);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Point3d", py_x, py_y, py_z, py_srid);
     }
     case MGP_VALUE_TYPE_ENUM: {
-      const py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       const auto &e = *value.enum_v;
       const py::Object py_type_name(
           PyUnicode_FromStringAndSize(e.type_name.c_str(), static_cast<Py_ssize_t>(e.type_name.size())));
       const py::Object py_value_name(
           PyUnicode_FromStringAndSize(e.value_name.c_str(), static_cast<Py_ssize_t>(e.value_name.size())));
-      return py_mgp.CallMethod("Enum", py_type_name, py_value_name);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Enum", py_type_name, py_value_name);
     }
   }
 }
