@@ -320,10 +320,10 @@ int main(int argc, char **argv) {
         MG_ASSERT(setdl);
         auto *arg = PyTuple_New(1);
         MG_ASSERT(arg);
-        MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);
+        MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);  // steals flag
         PyObject_CallObject(setdl, arg);
-        Py_DECREF(flag);
-        Py_DECREF(setdl);
+        // flag stolen by SetItem — do NOT Py_DECREF it
+        // setdl is a borrowed ref from PySys_GetObject — do NOT Py_DECREF it
         Py_DECREF(arg);
       }
     } else {

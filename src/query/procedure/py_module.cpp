@@ -96,6 +96,7 @@ constexpr auto kMicrosecondsInSecond{1'000'000};
 
 // Returns true if an exception is raised
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
+  MG_ASSERT(gMgpUnknownError != nullptr, "RaiseExceptionFromErrorCode called before _mgp module was initialised");
   switch (error) {
     case mgp_error::MGP_ERROR_NO_ERROR:
       return false;
@@ -3113,7 +3114,9 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   } else if (PyFloat_Check(o)) {
     last_error = mgp_value_make_double(PyFloat_AsDouble(o), memory, &mgp_v);
   } else if (PyUnicode_Check(o)) {  // NOLINT(hicpp-signed-bitwise)
-    last_error = mgp_value_make_string(PyUnicode_AsUTF8(o), memory, &mgp_v);
+    const char *s = PyUnicode_AsUTF8(o);
+    if (!s) throw std::invalid_argument("Failed to decode Python string as UTF-8");
+    last_error = mgp_value_make_string(s, memory, &mgp_v);
   } else if (PyList_Check(o)) {
     mgp_v = py_seq_to_list(o, PyList_Size(o), [](auto *list, const auto i) { return PyList_GET_ITEM(list, i); });
   } else if (PyTuple_Check(o)) {
@@ -3141,7 +3144,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
 
       if (!k) {
         PyErr_Clear();
-        throw std::bad_alloc{};
+        throw std::invalid_argument("Failed to decode Python dict key as UTF-8");
       }
 
       MgpUniquePtr<mgp_value> v{PyObjectToMgpValue(value, memory), mgp_value_destroy};

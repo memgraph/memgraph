@@ -1149,6 +1149,7 @@ bool PythonModule::Close() {
 // Must be called with GIL taken because of Py_DECREF
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
                              PyObject *sys_mod_ref) {
+  MG_ASSERT(PyGILState_Check(), "ProcessFileDependencies requires the GIL to be held");
   const auto maybe_content = ReadFile(file_path_);
 
   if (maybe_content && !maybe_content->empty()) {
@@ -1183,15 +1184,15 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
       return;
     }
 
-    PyObject *py_res = PyDict_GetItemString(py_global_dict, "modules");
+    const py::Object py_res(py::Object::FromBorrow(PyDict_GetItemString(py_global_dict, "modules")));
     if (!py_res) {
       // PyDict_GetItemString does not set an exception if the key is not found,
-      // but it might failed for other reasons.
+      // but it might have failed for other reasons.
       PyErr_Clear();
       return;
     }
 
-    const py::Object iterator(PyObject_GetIter(py_res));
+    const py::Object iterator(PyObject_GetIter(py_res.Ptr()));
     if (!iterator) {
       PyErr_Clear();
       return;
