@@ -27,7 +27,6 @@ namespace memgraph::dbms {
 class TenantProfiles {
  public:
   static constexpr std::string_view kPrefix = "tenant_profile:";
-  static constexpr std::string_view kDbMappingPrefix = "db_tenant_profile:";
   static constexpr std::string_view kVersionKey = "tenant_profiles_version";
   static constexpr std::string_view kVersion = "V1";
 

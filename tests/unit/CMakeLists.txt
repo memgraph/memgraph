@@ -308,6 +308,11 @@ add_unit_test(kvstore
     LINK_TARGETS mg-kvstore mg-utils
 )
 
+add_unit_test(tenant_profiles
+    SOURCES tenant_profiles.cpp ${CMAKE_SOURCE_DIR}/src/dbms/tenant_profiles.cpp
+    LINK_TARGETS mg-kvstore mg-utils nlohmann_json::nlohmann_json
+)
+
 # Test data structures
 add_unit_test(ring_buffer
     SOURCES ring_buffer.cpp

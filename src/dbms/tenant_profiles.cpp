@@ -20,12 +20,10 @@ namespace memgraph::dbms {
 
 namespace {
 
+const std::string kLegacyDbMappingPrefix = "db_tenant_profile:";
+
 auto ProfileKey(std::string_view name) -> std::string {
   return std::string{TenantProfiles::kPrefix} + std::string{name};
-}
-
-auto DbMappingKey(std::string_view db) -> std::string {
-  return std::string{TenantProfiles::kDbMappingPrefix} + std::string{db};
 }
 
 auto FromJson(const nlohmann::json &json, std::string_view name) -> TenantProfiles::Profile {
@@ -63,6 +61,10 @@ TenantProfiles::TenantProfiles(kvstore::KVStore &durability) : durability_{&dura
     } catch (const nlohmann::json::parse_error &e) {
       spdlog::warn("Failed to parse tenant profile '{}': {}", name, e.what());
     }
+  }
+
+  if (!durability_->DeletePrefix(kLegacyDbMappingPrefix)) {
+    spdlog::warn("Failed to remove legacy tenant profile database mapping keys.");
   }
 
   spdlog::info("Restored {} tenant profile(s)", profiles_.size());
@@ -127,8 +129,6 @@ std::optional<int64_t> TenantProfiles::AttachToDatabase(std::string_view profile
   if (pit == profiles_.end()) return std::nullopt;
 
   // Build atomic write batch: update old profile (if any), update new profile.
-  // NOTE: kDbMappingPrefix entries are not needed for reconstruction (profiles contain
-  // the databases set), but we keep writing them for potential future use/debugging.
   std::map<std::string, std::string> to_put;
   Profile *old_profile = nullptr;
   if (auto dit = db_to_profile_.find(std::string{db_name}); dit != db_to_profile_.end()) {
@@ -140,9 +140,6 @@ std::optional<int64_t> TenantProfiles::AttachToDatabase(std::string_view profile
   auto updated_new = pit->second;
   updated_new.databases.insert(std::string{db_name});
   to_put.emplace(ProfileKey(updated_new.name), ProfileToJson(updated_new));
-  // Dead data: kDbMappingPrefix entries are written but never read on restart.
-  // The db_to_profile_ map is rebuilt from profile.databases in the constructor.
-  to_put.emplace(DbMappingKey(db_name), std::string{profile_name});
 
   if (!durability_->PutMultiple(to_put)) return std::nullopt;
 
@@ -164,9 +161,7 @@ bool TenantProfiles::DetachFromDatabase(std::string_view db_name) {
   auto updated = profile;
   updated.databases.erase(std::string{db_name});
 
-  std::map<std::string, std::string> to_put{{ProfileKey(updated.name), ProfileToJson(updated)}};
-  std::vector<std::string> to_delete{DbMappingKey(db_name)};
-  if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return false;
+  if (!durability_->Put(ProfileKey(updated.name), ProfileToJson(updated))) return false;
 
   profile.databases.erase(std::string{db_name});
   db_to_profile_.erase(dit);
@@ -183,12 +178,7 @@ bool TenantProfiles::RenameDatabase(std::string_view old_name, std::string_view 
   updated.databases.erase(std::string{old_name});
   updated.databases.insert(std::string{new_name});
 
-  std::map<std::string, std::string> to_put{
-      {ProfileKey(updated.name), ProfileToJson(updated)},
-      {DbMappingKey(new_name), dit->second},
-  };
-  std::vector<std::string> to_delete{DbMappingKey(old_name)};
-  if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return false;
+  if (!durability_->Put(ProfileKey(updated.name), ProfileToJson(updated))) return false;
 
   profile.databases.erase(std::string{old_name});
   profile.databases.insert(std::string{new_name});
