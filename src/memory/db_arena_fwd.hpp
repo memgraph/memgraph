@@ -71,9 +71,8 @@ class ArenaMemoryResource final : public std::pmr::memory_resource {
   }
 
   void do_deallocate(void *p, std::size_t bytes, std::size_t alignment) noexcept override {
-    // NOTE: jemalloc tracks the owning arena per-extent in its own metadata, so GC can safely
-    // free query-thread allocations regardless of which thread calls do_deallocate.
-    // MALLOCX_TCACHE_NONE matches the allocation style and lets decay=0 arenas return pages promptly.
+    // Jemalloc tracks the owning arena per extent, so deallocation does not
+    // depend on the current thread's DB arena TLS.
     DbDeallocateBytes(p, bytes, alignment);
   }
 
@@ -141,8 +140,9 @@ class ArenaPageSlabMemoryResource {
 // DB Arena Threading Policy
 // =============================================================================
 //
-// Arena attribution is TLS-based: DbArenaScope writes tls_db_arena_state.arena,
-// and DbAwareAllocator/ArenaAwareAllocator read it per allocation.
+// Scoped arena attribution is TLS-based: DbArenaScope writes
+// tls_db_arena_state.arena and DbAwareAllocator reads it per allocation.
+// Long-lived arena-aware owners capture an explicit arena index instead.
 //
 // Raw jemalloc thread.arena pinning (je_mallctl "thread.arena") is NOT used as
 // a general scope because restoring to automatic per-CPU arenas returns EPERM.
@@ -151,7 +151,7 @@ class ArenaPageSlabMemoryResource {
 //
 //   Long-lived dedicated DB threads (TTL, GC, AsyncIndexer, trigger pool):
 //     Call AcquireThreadArena() once on first run to get a per-thread arena,
-//     then set DbArenaScope for the thread lifetime. Use SetAcquireArenaFn()
+//     then install that arena in TLS for the thread lifetime. Use SetAcquireArenaFn()
 //     injection so the thread can call AcquireThreadArena() lazily without
 //     a direct ArenaRegistration dependency.
 //
@@ -192,8 +192,8 @@ struct DbArenaScope {
 };
 
 // A std::jthread wrapper that sets tls_db_arena_state on the new thread so that
-// allocations through DbAwareAllocator / ArenaAwareAllocator containers are
-// attributed to the owning DB arena.
+// DbAwareAllocator allocations and other TLS-scoped paths are attributed to the
+// owning DB arena.
 //
 // Non-jemalloc builds: no-op wrapper, identical behaviour to std::jthread.
 class DbAwareThread {

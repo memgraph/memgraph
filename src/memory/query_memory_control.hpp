@@ -24,15 +24,13 @@ namespace memgraph::memory {
 
 static constexpr int64_t UNLIMITED_MEMORY{0};
 
-// Find tracker for current thread if exists, track
-// query allocation and procedure allocation if
-// necessary.  In non-jemalloc builds this is a no-op
-// that always returns true.
+// Track allocation against active query, procedure, and user-resource trackers
+// on the current thread. In non-jemalloc builds this is a no-op that always
+// returns true.
 bool TrackAllocOnCurrentThread(size_t size);
 
-// Find tracker for current thread if exists, track
-// query allocation and procedure allocation if
-// necessary.  In non-jemalloc builds this is a no-op.
+// Track free against active query, procedure, and user-resource trackers on the
+// current thread. In non-jemalloc builds this is a no-op.
 void TrackFreeOnCurrentThread(size_t size);
 
 // API function call to start tracking current thread.

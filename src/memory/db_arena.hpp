@@ -146,10 +146,10 @@ class ArenaHandle {
   unsigned idx_{0};
 };
 
-// Owns per-thread jemalloc arenas with custom extent hooks that
-// report committed OS pages to a `utils::MemoryTracker` owned by the caller.
-// Each thread working on this database gets its own arena to eliminate
-// arena-bin-lock contention.
+// Owns DB-specific jemalloc arenas with custom extent hooks that report
+// committed OS pages to a `utils::MemoryTracker` owned by the caller.
+// Active DB-owned threads get arenas keyed by thread id to reduce allocator
+// contention; thread-id reuse may also reuse an existing DB arena.
 class DbArena {
  public:
   explicit DbArena(utils::MemoryTracker *tracker);
@@ -160,8 +160,8 @@ class DbArena {
   DbArena(DbArena &&) = delete;
   DbArena &operator=(DbArena &&) = delete;
 
-  // Legacy: returns the first arena (for backwards compatibility)
-  // Prefer AcquireThreadArena() for per-thread access
+  // Returns the constructor-created base arena used by long-lived arena-aware
+  // owners and short-lived DB-scoped work.
   unsigned idx() const noexcept;
 
   // Acquire or create the arena assigned to this thread for this DB.

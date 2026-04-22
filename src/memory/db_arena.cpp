@@ -200,7 +200,7 @@ DbArena::~DbArena() {
       spdlog::error("DbArena {}: failed to restore default hooks (err={}); hooks_ may outlive arena", arena_idx, err);
     }
   }
-  // arena_handles_ destructor will release indices to pool
+  // arena_handles_ destructor will release indices to pool.
 }
 
 unsigned DbArena::idx() const noexcept { return first_arena_idx_; }
